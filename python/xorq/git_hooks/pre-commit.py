@@ -7,9 +7,8 @@ Checks staged files for common xorq issues:
 - Check for missing deferred wrappers
 """
 
-import sys
 import subprocess
-from pathlib import Path
+import sys
 
 
 def get_staged_files():
@@ -18,7 +17,7 @@ def get_staged_files():
         ["git", "diff", "--cached", "--name-only"],
         capture_output=True,
         text=True,
-        check=True
+        check=True,
     )
     return result.stdout.strip().split("\n") if result.stdout.strip() else []
 
@@ -55,7 +54,7 @@ def check_eager_operations(file_path):
                 if pattern in line:
                     issues.append(f"  Line {i}: {msg} ({pattern})")
 
-    except Exception as e:
+    except Exception:
         # If we can't read the file, skip it
         return True, []
 

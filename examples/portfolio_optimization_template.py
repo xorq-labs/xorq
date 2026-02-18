@@ -14,9 +14,10 @@ Use case: Asset selection, resource allocation, inventory optimization
 """
 
 import xorq.api as xo
-from xorq.vendor import ibis
 from xorq.caching import ParquetCache
 from xorq.common.utils.ibis_utils import from_ibis
+from xorq.vendor import ibis
+
 
 # ============================================================================
 # CONFIGURATION - Customize these for your use case
@@ -24,20 +25,19 @@ from xorq.common.utils.ibis_utils import from_ibis
 
 BUDGET = 10000  # Maximum total cost/investment
 MIN_QUALITY_THRESHOLD = 3  # Minimum acceptable quality score
-REQUIRED_CATEGORIES = ["Category_A", "Category_B", "Category_C"]  # Diversity requirement
+REQUIRED_CATEGORIES = [
+    "Category_A",
+    "Category_B",
+    "Category_C",
+]  # Diversity requirement
 
 # Quality grading mappings
-QUALITY_GRADES = {
-    "Premium": 5,
-    "High": 4,
-    "Medium": 3,
-    "Low": 2,
-    "Basic": 1
-}
+QUALITY_GRADES = {"Premium": 5, "High": 4, "Medium": 3, "Low": 2, "Basic": 1}
 
 # ============================================================================
 # STEP 1: Load and Filter Data
 # ============================================================================
+
 
 def load_and_filter_data():
     """Load source data and apply quality constraints."""
@@ -55,12 +55,14 @@ def load_and_filter_data():
     print(source.schema())
 
     # Apply quality constraints
-    filtered = source.filter([
-        source.quality_score >= MIN_QUALITY_THRESHOLD,
-        source.price <= BUDGET,  # Individual items within budget
-        source.price > 0,  # Valid prices only
-        source.quantity_available > 0  # In stock
-    ])
+    filtered = source.filter(
+        [
+            source.quality_score >= MIN_QUALITY_THRESHOLD,
+            source.price <= BUDGET,  # Individual items within budget
+            source.price > 0,  # Valid prices only
+            source.quantity_available > 0,  # In stock
+        ]
+    )
 
     return filtered
 
@@ -69,31 +71,35 @@ def load_and_filter_data():
 # STEP 2: Add Scoring and Ranking
 # ============================================================================
 
+
 def add_scoring_metrics(expr):
     """Add efficiency metrics and quality scores."""
 
     # Calculate efficiency (value per cost)
     enriched = expr.mutate(
         efficiency=expr.value / expr.price,
-
         # Map quality grades to numeric scores
         quality_rank=ibis.cases(
-            *[(expr.quality == grade, score)
-              for grade, score in QUALITY_GRADES.items()],
-            else_=0
+            *[
+                (expr.quality == grade, score)
+                for grade, score in QUALITY_GRADES.items()
+            ],
+            else_=0,
         ),
-
         # Calculate composite score
         # Adjust weights based on your priorities
         composite_score=(
-            (expr.value / expr.price) * 0.4 +  # Efficiency weight
-            ibis.cases(
-                *[(expr.quality == grade, score)
-                  for grade, score in QUALITY_GRADES.items()],
-                else_=0
-            ) * 0.3 +  # Quality weight
-            expr.user_rating * 0.3  # Rating weight
-        )
+            (expr.value / expr.price) * 0.4  # Efficiency weight
+            + ibis.cases(
+                *[
+                    (expr.quality == grade, score)
+                    for grade, score in QUALITY_GRADES.items()
+                ],
+                else_=0,
+            )
+            * 0.3  # Quality weight
+            + expr.user_rating * 0.3  # Rating weight
+        ),
     )
 
     return enriched
@@ -102,6 +108,7 @@ def add_scoring_metrics(expr):
 # ============================================================================
 # STEP 3: Multi-Criteria Selection with Diversity
 # ============================================================================
+
 
 def select_diverse_portfolio(expr, categories=REQUIRED_CATEGORIES):
     """
@@ -114,13 +121,12 @@ def select_diverse_portfolio(expr, categories=REQUIRED_CATEGORIES):
     # Phase 1: Mandatory selections (one from each category)
     for category in categories:
         best_in_category = (
-            expr
-            .filter(expr.category == category)
+            expr.filter(expr.category == category)
             .order_by(expr.efficiency.desc())
             .limit(1)
             .mutate(
                 selection_phase=ibis.literal("mandatory"),
-                selection_reason=ibis.literal(f"Best in {category}")
+                selection_reason=ibis.literal(f"Best in {category}"),
             )
         )
         selections.append(best_in_category)
@@ -136,17 +142,16 @@ def select_diverse_portfolio(expr, categories=REQUIRED_CATEGORIES):
         # Exclude already selected items
         remaining = expr.anti_join(
             mandatory_portfolio.select("item_id"),
-            predicates=[expr.item_id == mandatory_portfolio.item_id]
+            predicates=[expr.item_id == mandatory_portfolio.item_id],
         )
 
         # Select additional high-efficiency items
         additional = (
-            remaining
-            .order_by(remaining.efficiency.desc())
+            remaining.order_by(remaining.efficiency.desc())
             .limit(100)  # Take top N candidates
             .mutate(
                 selection_phase=ibis.literal("optimization"),
-                selection_reason=ibis.literal("High efficiency")
+                selection_reason=ibis.literal("High efficiency"),
             )
         )
 
@@ -155,12 +160,11 @@ def select_diverse_portfolio(expr, categories=REQUIRED_CATEGORIES):
     else:
         # No mandatory categories, pure optimization
         final_portfolio = (
-            expr
-            .order_by(expr.efficiency.desc())
+            expr.order_by(expr.efficiency.desc())
             .limit(100)
             .mutate(
                 selection_phase=ibis.literal("optimization"),
-                selection_reason=ibis.literal("Top efficiency")
+                selection_reason=ibis.literal("Top efficiency"),
             )
         )
 
@@ -170,6 +174,7 @@ def select_diverse_portfolio(expr, categories=REQUIRED_CATEGORIES):
 # ============================================================================
 # STEP 4: Apply Budget Constraint
 # ============================================================================
+
 
 def apply_budget_constraint(portfolio, budget=BUDGET):
     """
@@ -183,16 +188,14 @@ def apply_budget_constraint(portfolio, budget=BUDGET):
             ibis.window(
                 order_by=[portfolio.selection_phase, portfolio.efficiency.desc()],
                 preceding=0,
-                following=0
+                following=0,
             )
         )
     )
 
     # Filter to stay within budget
     # This is a simplified approach - production code would use dynamic programming
-    budget_constrained = with_cumsum.filter(
-        with_cumsum.cumulative_cost <= budget
-    )
+    budget_constrained = with_cumsum.filter(with_cumsum.cumulative_cost <= budget)
 
     return budget_constrained
 
@@ -201,6 +204,7 @@ def apply_budget_constraint(portfolio, budget=BUDGET):
 # STEP 5: Add Analytics and Cache
 # ============================================================================
 
+
 def add_portfolio_analytics(portfolio):
     """Add analytics metrics to the portfolio."""
 
@@ -208,16 +212,12 @@ def add_portfolio_analytics(portfolio):
     with_analytics = portfolio.mutate(
         # Percentage of budget used by each item
         budget_percentage=(portfolio.price / BUDGET * 100).round(2),
-
         # Rank by value contribution
-        value_rank=ibis.row_number().over(
-            order_by=[portfolio.value.desc()]
-        ),
-
+        value_rank=ibis.row_number().over(order_by=[portfolio.value.desc()]),
         # Efficiency percentile
-        efficiency_percentile=ibis.percent_rank().over(
-            order_by=[portfolio.efficiency]
-        ).round(3)
+        efficiency_percentile=ibis.percent_rank()
+        .over(order_by=[portfolio.efficiency])
+        .round(3),
     )
 
     return with_analytics
@@ -226,15 +226,19 @@ def add_portfolio_analytics(portfolio):
 def create_portfolio_summary(portfolio):
     """Create summary statistics for the portfolio."""
 
-    summary = portfolio.aggregate([
-        portfolio.price.sum().name("total_cost"),
-        portfolio.value.sum().name("total_value"),
-        portfolio.count().name("item_count"),
-        portfolio.category.nunique().name("unique_categories"),
-        portfolio.efficiency.mean().round(4).name("avg_efficiency"),
-        portfolio.quality_rank.mean().round(2).name("avg_quality"),
-        (portfolio.value.sum() / portfolio.price.sum()).round(4).name("portfolio_roi")
-    ])
+    summary = portfolio.aggregate(
+        [
+            portfolio.price.sum().name("total_cost"),
+            portfolio.value.sum().name("total_value"),
+            portfolio.count().name("item_count"),
+            portfolio.category.nunique().name("unique_categories"),
+            portfolio.efficiency.mean().round(4).name("avg_efficiency"),
+            portfolio.quality_rank.mean().round(2).name("avg_quality"),
+            (portfolio.value.sum() / portfolio.price.sum())
+            .round(4)
+            .name("portfolio_roi"),
+        ]
+    )
 
     return summary
 
@@ -242,6 +246,7 @@ def create_portfolio_summary(portfolio):
 # ============================================================================
 # MAIN PIPELINE
 # ============================================================================
+
 
 def build_optimization_pipeline():
     """Build the complete portfolio optimization pipeline."""
@@ -262,20 +267,13 @@ def build_optimization_pipeline():
     final_portfolio = add_portfolio_analytics(budget_portfolio)
 
     # Step 6: Cache for performance
-    cached_portfolio = from_ibis(final_portfolio).cache(
-        ParquetCache.from_kwargs()
-    )
+    cached_portfolio = from_ibis(final_portfolio).cache(ParquetCache.from_kwargs())
 
     # Create summary
     summary = create_portfolio_summary(final_portfolio)
-    cached_summary = from_ibis(summary).cache(
-        ParquetCache.from_kwargs()
-    )
+    cached_summary = from_ibis(summary).cache(ParquetCache.from_kwargs())
 
-    return {
-        'portfolio': cached_portfolio,
-        'summary': cached_summary
-    }
+    return {"portfolio": cached_portfolio, "summary": cached_summary}
 
 
 # ============================================================================
@@ -288,27 +286,30 @@ if __name__ == "__main__":
     pipeline = build_optimization_pipeline()
 
     print("\nExecuting portfolio selection...")
-    portfolio_df = pipeline['portfolio'].execute()
-    summary_df = pipeline['summary'].execute()
+    portfolio_df = pipeline["portfolio"].execute()
+    summary_df = pipeline["summary"].execute()
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("PORTFOLIO OPTIMIZATION RESULTS")
-    print("="*60)
+    print("=" * 60)
 
     print("\nSummary Statistics:")
     print(summary_df.to_string())
 
-    print(f"\nTop 10 Selected Items:")
-    print(portfolio_df.head(10)[['item_id', 'category', 'price',
-                                  'value', 'efficiency', 'selection_reason']])
+    print("\nTop 10 Selected Items:")
+    print(
+        portfolio_df.head(10)[
+            ["item_id", "category", "price", "value", "efficiency", "selection_reason"]
+        ]
+    )
 
     print("\nCategory Coverage:")
-    category_counts = portfolio_df.groupby('category').size()
+    category_counts = portfolio_df.groupby("category").size()
     for cat, count in category_counts.items():
         print(f"  {cat}: {count} items")
 
 else:
     # For xorq build
     pipeline = build_optimization_pipeline()
-    expr = pipeline['portfolio']  # Main expression to build
-    summary_expr = pipeline['summary']  # Secondary expression
+    expr = pipeline["portfolio"]  # Main expression to build
+    summary_expr = pipeline["summary"]  # Secondary expression

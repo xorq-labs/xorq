@@ -56,11 +56,12 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 # =============================================================================
 # CRITICAL IMPORTS: xorq Module Structure
 # =============================================================================
-import xorq.api as xo              # Main API
+import xorq.api as xo  # Main API
 from xorq.caching import ParquetCache
 from xorq.common.utils.defer_utils import deferred_read_csv
 from xorq.expr.ml import train_test_splits
 from xorq.expr.ml.pipeline_lib import Pipeline
+
 
 # =============================================================================
 # CONFIGURATION: Feature Definitions
@@ -70,26 +71,26 @@ TARGET_COLUMN = "deposit"
 
 # Numeric features: continuous or discrete numeric values
 NUMERIC_FEATURES = [
-    "age",          # Customer age
-    "balance",      # Account balance
-    "day",          # Last contact day of month
-    "duration",     # Last contact duration in seconds
-    "campaign",     # Number of contacts during campaign
-    "pdays",        # Days since last contact from previous campaign
-    "previous",     # Number of contacts before this campaign
+    "age",  # Customer age
+    "balance",  # Account balance
+    "day",  # Last contact day of month
+    "duration",  # Last contact duration in seconds
+    "campaign",  # Number of contacts during campaign
+    "pdays",  # Days since last contact from previous campaign
+    "previous",  # Number of contacts before this campaign
 ]
 
 # Categorical features: discrete categories or labels
 CATEGORICAL_FEATURES = [
-    "job",          # Type of job
-    "marital",      # Marital status
-    "education",    # Education level
-    "default",      # Has credit in default?
-    "housing",      # Has housing loan?
-    "loan",         # Has personal loan?
-    "contact",      # Contact communication type
-    "month",        # Last contact month
-    "poutcome",     # Outcome of previous marketing campaign
+    "job",  # Type of job
+    "marital",  # Marital status
+    "education",  # Education level
+    "default",  # Has credit in default?
+    "housing",  # Has housing loan?
+    "loan",  # Has personal loan?
+    "contact",  # Contact communication type
+    "month",  # Last contact month
+    "poutcome",  # Outcome of previous marketing campaign
 ]
 
 ALL_FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
@@ -122,9 +123,7 @@ def get_bank_data_expr():
 
     # Convert target to binary integer (yes=1, no=0)
     # Note: We use xo._ for clean column references
-    expr = expr.mutate(
-        **{TARGET_COLUMN: (xo._[TARGET_COLUMN] == "yes").cast("int")}
-    )
+    expr = expr.mutate(**{TARGET_COLUMN: (xo._[TARGET_COLUMN] == "yes").cast("int")})
 
     return expr
 
@@ -157,8 +156,8 @@ def create_train_test_split(data_expr, test_size=0.5, random_seed=42):
     train_table, test_table = data_expr.pipe(
         train_test_splits,
         test_sizes=[test_size, test_size],  # [train%, test%]
-        num_buckets=2,                      # Number of splits
-        random_seed=random_seed,            # For reproducibility
+        num_buckets=2,  # Number of splits
+        random_seed=random_seed,  # For reproducibility
     )
 
     return train_table, test_table, cache
@@ -192,27 +191,29 @@ def create_preprocessing_pipeline():
     """
 
     # Define numeric preprocessing pipeline
-    numeric_pipeline = SklearnPipeline([
-        # Step 1: Impute missing values with median
-        # Median is robust to outliers, good for numeric features
-        ("imputer", SimpleImputer(strategy="median")),
-
-        # Step 2: Standardize features (zero mean, unit variance)
-        # Essential for models sensitive to feature scale (like GBM)
-        ("scaler", StandardScaler()),
-    ])
+    numeric_pipeline = SklearnPipeline(
+        [
+            # Step 1: Impute missing values with median
+            # Median is robust to outliers, good for numeric features
+            ("imputer", SimpleImputer(strategy="median")),
+            # Step 2: Standardize features (zero mean, unit variance)
+            # Essential for models sensitive to feature scale (like GBM)
+            ("scaler", StandardScaler()),
+        ]
+    )
 
     # Define categorical preprocessing pipeline
-    categorical_pipeline = SklearnPipeline([
-        # Step 1: Impute missing values with constant "missing"
-        # Creates an explicit "missing" category rather than dropping rows
-        ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
-
-        # Step 2: One-hot encode categorical variables
-        # handle_unknown="ignore" prevents errors on unseen categories
-        # sparse_output=False returns dense arrays (required by some models)
-        ("encoder", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
-    ])
+    categorical_pipeline = SklearnPipeline(
+        [
+            # Step 1: Impute missing values with constant "missing"
+            # Creates an explicit "missing" category rather than dropping rows
+            ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
+            # Step 2: One-hot encode categorical variables
+            # handle_unknown="ignore" prevents errors on unseen categories
+            # sparse_output=False returns dense arrays (required by some models)
+            ("encoder", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
+        ]
+    )
 
     # Combine into ColumnTransformer
     # This routes each feature set to its appropriate pipeline
@@ -253,13 +254,18 @@ def create_sklearn_pipeline():
     preprocessor = create_preprocessing_pipeline()
 
     # Create full pipeline
-    sklearn_pipeline = SklearnPipeline([
-        ("preprocessor", preprocessor),
-        ("classifier", GradientBoostingClassifier(
-            n_estimators=50,      # Number of boosting stages
-            random_state=42       # For reproducibility
-        )),
-    ])
+    sklearn_pipeline = SklearnPipeline(
+        [
+            ("preprocessor", preprocessor),
+            (
+                "classifier",
+                GradientBoostingClassifier(
+                    n_estimators=50,  # Number of boosting stages
+                    random_state=42,  # For reproducibility
+                ),
+            ),
+        ]
+    )
 
     return sklearn_pipeline
 
@@ -292,7 +298,7 @@ def fit_pipeline_deferred(train_table, cache):
         train_table,
         features=tuple(ALL_FEATURES),  # All numeric + categorical features
         target=TARGET_COLUMN,
-        cache=cache,                   # Enable caching for fitted artifacts
+        cache=cache,  # Enable caching for fitted artifacts
     )
 
     return fitted_pipeline
@@ -349,7 +355,7 @@ def evaluate_predictions(predictions_df):
 
     # Print detailed classification report
     print("\nClassification Report:")
-    print(classification_report(y_true, y_pred, target_names=['No Deposit', 'Deposit']))
+    print(classification_report(y_true, y_pred, target_names=["No Deposit", "Deposit"]))
 
 
 # =============================================================================
@@ -368,15 +374,19 @@ def build_complete_pipeline():
 
     Everything remains deferred until execute() is called!
     """
-    print("\n" + "="*70)
-    print("BUILDING DEFERRED PIPELINE (Production Preprocessing with ColumnTransformer)")
-    print("="*70)
+    print("\n" + "=" * 70)
+    print(
+        "BUILDING DEFERRED PIPELINE (Production Preprocessing with ColumnTransformer)"
+    )
+    print("=" * 70)
 
     # Step 1: Load data
     print("\n[1/5] Loading bank marketing data...")
     data_expr = get_bank_data_expr()
-    print(f"✓ Data expression created")
-    print(f"  Features: {len(ALL_FEATURES)} ({len(NUMERIC_FEATURES)} numeric, {len(CATEGORICAL_FEATURES)} categorical)")
+    print("✓ Data expression created")
+    print(
+        f"  Features: {len(ALL_FEATURES)} ({len(NUMERIC_FEATURES)} numeric, {len(CATEGORICAL_FEATURES)} categorical)"
+    )
     print(f"  Target: {TARGET_COLUMN}")
 
     # Step 2: Train/test split
@@ -387,7 +397,7 @@ def build_complete_pipeline():
 
     # Step 3: Build preprocessing pipeline
     print("\n[3/5] Building ColumnTransformer preprocessing pipeline...")
-    preprocessor = create_preprocessing_pipeline()
+    _preprocessor = create_preprocessing_pipeline()
     print("✓ Preprocessor created")
     print("  Numeric pipeline: SimpleImputer(median) → StandardScaler")
     print("  Categorical pipeline: SimpleImputer('missing') → OneHotEncoder")
@@ -404,10 +414,10 @@ def build_complete_pipeline():
     print("✓ Predictions configured (deferred)")
 
     return {
-        'fitted_pipeline': fitted_pipeline,
-        'predictions': predicted_test,
-        'train_table': train_table,
-        'test_table': test_table,
+        "fitted_pipeline": fitted_pipeline,
+        "predictions": predicted_test,
+        "train_table": train_table,
+        "test_table": test_table,
     }
 
 
@@ -421,25 +431,25 @@ def execute_and_evaluate(pipeline_dict):
     THIS IS WHERE COMPUTATION HAPPENS!
     All the deferred expressions we built finally execute here.
     """
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("EXECUTING DEFERRED PIPELINE")
-    print("="*70)
+    print("=" * 70)
 
     import time
 
     # Execute predictions
     print("\nExecuting predictions on test set...")
     start = time.time()
-    predictions_df = pipeline_dict['predictions'].execute()
+    predictions_df = pipeline_dict["predictions"].execute()
     elapsed = time.time() - start
 
     print(f"✓ Predictions executed in {elapsed:.2f}s")
     print(f"  Test samples: {len(predictions_df)}")
 
     # Evaluate performance
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("MODEL EVALUATION")
-    print("="*70)
+    print("=" * 70)
 
     evaluate_predictions(predictions_df)
 
@@ -460,9 +470,9 @@ def main():
     4. Everything stays deferred until explicit execution
     5. Production-ready preprocessing patterns
     """
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("XORQ VIGNETTE: Bank Marketing with ColumnTransformer")
-    print("="*70)
+    print("=" * 70)
     print("\nThis vignette demonstrates production preprocessing patterns:")
     print("  • ColumnTransformer for heterogeneous features")
     print("  • Separate pipelines for numeric and categorical features")
@@ -477,9 +487,9 @@ def main():
     # Execute and evaluate
     predictions_df = execute_and_evaluate(pipeline_dict)
 
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("VIGNETTE COMPLETE!")
-    print("="*70)
+    print("=" * 70)
     print("\nWhat you learned:")
     print("  ✓ Using ColumnTransformer for mixed feature types")
     print("  ✓ Building nested sklearn pipelines")

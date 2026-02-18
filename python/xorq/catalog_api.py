@@ -24,7 +24,6 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.caching import ParquetCache
 from xorq.catalog import load_catalog, resolve_build_dir
 from xorq.common.utils.graph_utils import walk_nodes
-from xorq.common.utils.ibis_utils import from_ibis
 from xorq.ibis_yaml.compiler import load_expr as _load_expr_from_path
 from xorq.vendor.ibis.expr.operations import DatabaseTable, InMemoryTable
 
@@ -177,7 +176,7 @@ class CatalogAPI:
                 print(
                     f"[get_placeholder] Warning: Could not convert column '{col}' "
                     f"to pandas type: {e}. Using Ibis schema conversion.",
-                    file=sys.stderr
+                    file=sys.stderr,
                 )
 
         # Create memtable with the schema (use alias as name)

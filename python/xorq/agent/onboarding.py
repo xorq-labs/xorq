@@ -512,7 +512,7 @@ def render_lean_onboarding() -> str:
 
 def render_onboarding_summary(step: str | None = None) -> str:
     """Render dynamic workflow context."""
-    selected_steps = (
+    _selected_steps = (
         tuple(s for s in ONBOARDING_STEPS if step is None or s.key == step)
         or ONBOARDING_STEPS
     )
@@ -539,42 +539,50 @@ def render_onboarding_summary(step: str | None = None) -> str:
         sections.append("## Recent Builds (uncataloged)")
         for build_hash, time_str in recent_builds[:3]:
             sections.append(f"- `{build_hash[:12]}...` ({time_str})")
-        sections.append("💡 Catalog these: `xorq catalog add builds/<hash> --alias name`")
+        sections.append(
+            "💡 Catalog these: `xorq catalog add builds/<hash> --alias name`"
+        )
         sections.append("")
 
     # Context-aware guidance
     sections.append("## Next Steps")
 
     if not catalog_entries:
-        sections.extend([
-            "1. **Build your first expression:**",
-            "   ```python",
-            "   # expr.py",
-            "   import xorq.api as xo",
-            "   expr = xo.catalog.get('source').filter(xo._.value > 0)",
-            "   ```",
-            "   `xorq build expr.py -e expr`",
-            "",
-            "2. **Catalog it:** `xorq catalog add builds/<hash> --alias my-expr`",
-            "",
-            "3. **Explore examples:** `ls examples/`",
-        ])
+        sections.extend(
+            [
+                "1. **Build your first expression:**",
+                "   ```python",
+                "   # expr.py",
+                "   import xorq.api as xo",
+                "   expr = xo.catalog.get('source').filter(xo._.value > 0)",
+                "   ```",
+                "   `xorq build expr.py -e expr`",
+                "",
+                "2. **Catalog it:** `xorq catalog add builds/<hash> --alias my-expr`",
+                "",
+                "3. **Explore examples:** `ls examples/`",
+            ]
+        )
     elif len(catalog_entries) < 3:
-        sections.extend([
-            "- **Compose expressions:** Use `xo.catalog.get('alias')`",
-            "- **Study examples:** Check `examples/` directory for patterns",
-            "- **Explore data:**",
-            "  ```bash",
-            "  xorq run <alias> -f arrow -o /dev/stdout 2>/dev/null | \\",
-            "    duckdb -c \"LOAD arrow; SELECT * FROM read_arrow('/dev/stdin') LIMIT 10\"",
-            "  ```",
-        ])
+        sections.extend(
+            [
+                "- **Compose expressions:** Use `xo.catalog.get('alias')`",
+                "- **Study examples:** Check `examples/` directory for patterns",
+                "- **Explore data:**",
+                "  ```bash",
+                "  xorq run <alias> -f arrow -o /dev/stdout 2>/dev/null | \\",
+                "    duckdb -c \"LOAD arrow; SELECT * FROM read_arrow('/dev/stdin') LIMIT 10\"",
+                "  ```",
+            ]
+        )
     else:
-        sections.extend([
-            "- **Compose pipelines:** Reference with `xo.catalog.get()`",
-            "- **Run expressions:** `xorq run <alias> -f arrow`",
-            "- **Add ML models:** Use deferred sklearn patterns (invoke xorq skill)",
-        ])
+        sections.extend(
+            [
+                "- **Compose pipelines:** Reference with `xo.catalog.get()`",
+                "- **Run expressions:** `xorq run <alias> -f arrow`",
+                "- **Add ML models:** Use deferred sklearn patterns (invoke xorq skill)",
+            ]
+        )
 
     sections.append("")
     sections.append("## Core Commands")
@@ -587,7 +595,9 @@ def render_onboarding_summary(step: str | None = None) -> str:
     sections.append("xorq agents vignette list            # List available vignettes")
     sections.append("```")
     sections.append("")
-    sections.append("**Remember:** Everything is a deferred expression. No eager pandas/NumPy!")
+    sections.append(
+        "**Remember:** Everything is a deferred expression. No eager pandas/NumPy!"
+    )
     sections.append("")
 
     # Add vignettes section
@@ -596,15 +606,23 @@ def render_onboarding_summary(step: str | None = None) -> str:
     sections.append("Learn from comprehensive working examples:")
     sections.append("")
     sections.append("**BEGINNER:**")
-    sections.append("- `penguins_classification_intro` - ML pipeline for penguin species classification")
+    sections.append(
+        "- `penguins_classification_intro` - ML pipeline for penguin species classification"
+    )
     sections.append("")
     sections.append("**INTERMEDIATE:**")
-    sections.append("- `ml_pipeline_roc_visualization` - Production-ready ML with ROC visualization")
+    sections.append(
+        "- `ml_pipeline_roc_visualization` - Production-ready ML with ROC visualization"
+    )
     sections.append("")
     sections.append("**ADVANCED:**")
-    sections.append("- `baseball_breakout_expr_scalar` - Advanced ML patterns with ExprScalarUDF")
+    sections.append(
+        "- `baseball_breakout_expr_scalar` - Advanced ML patterns with ExprScalarUDF"
+    )
     sections.append("")
-    sections.append("Use `xorq agents vignette show <name>` for details or `xorq agents vignette scaffold <name>` to get started.")
+    sections.append(
+        "Use `xorq agents vignette show <name>` for details or `xorq agents vignette scaffold <name>` to get started."
+    )
     sections.append("")
 
     # Add Common Mistakes section
@@ -612,17 +630,27 @@ def render_onboarding_summary(step: str | None = None) -> str:
     sections.append("")
     sections.append("**1. Not using the xorq skill proactively**")
     sections.append("   - ❌ Writing pandas/sklearn-style code with eager operations")
-    sections.append("   - ✅ Invoke xorq skill immediately when working with xorq expressions")
+    sections.append(
+        "   - ✅ Invoke xorq skill immediately when working with xorq expressions"
+    )
     sections.append("")
     sections.append("**2. Wrong API usage patterns**")
-    sections.append("   - ❌ `xo.catalog.get_placeholder()` when you should use `xo.catalog.get()`")
-    sections.append("   - ❌ `.to_pandas().map_batches()` (pandas DataFrames don't have map_batches)")
+    sections.append(
+        "   - ❌ `xo.catalog.get_placeholder()` when you should use `xo.catalog.get()`"
+    )
+    sections.append(
+        "   - ❌ `.to_pandas().map_batches()` (pandas DataFrames don't have map_batches)"
+    )
     sections.append("   - ❌ `dt.struct()` (doesn't exist in xorq.expr.datatypes)")
     sections.append("")
     sections.append("**3. Not following xorq workflow properly**")
-    sections.append("   - ❌ Creating multiple intermediate files that clutter the workspace")
+    sections.append(
+        "   - ❌ Creating multiple intermediate files that clutter the workspace"
+    )
     sections.append("   - ✅ Start with `xorq agents onboard` immediately")
-    sections.append("   - ✅ Check schema first: `print(table.schema())` before operations")
+    sections.append(
+        "   - ✅ Check schema first: `print(table.schema())` before operations"
+    )
     sections.append("")
     sections.append("**4. Visualization not fully deferred**")
     sections.append("   - ❌ Using matplotlib/seaborn directly in final code")
@@ -630,7 +658,9 @@ def render_onboarding_summary(step: str | None = None) -> str:
     sections.append("")
     sections.append("**5. Not leveraging templates effectively**")
     sections.append("   - ❌ Writing from scratch without studying patterns")
-    sections.append("   - ✅ Use `ls examples/` to find patterns and reference implementations")
+    sections.append(
+        "   - ✅ Use `ls examples/` to find patterns and reference implementations"
+    )
     sections.append("   - ✅ Study UDF/UDAF patterns for deferred operations")
     sections.append("")
     sections.append("**6. Wrong optimization approach**")
@@ -638,7 +668,9 @@ def render_onboarding_summary(step: str | None = None) -> str:
     sections.append("   - ✅ Operate on entire filtered dataset at once")
     sections.append("   - ✅ Use pandas UDF aggregation for MILP optimization")
     sections.append("")
-    sections.append("**Remember:** Start with `xorq agents onboard`, use xorq skill proactively, and keep everything deferred!")
+    sections.append(
+        "**Remember:** Start with `xorq agents onboard`, use xorq skill proactively, and keep everything deferred!"
+    )
     sections.append("")
 
     return "\n".join(sections).strip() + "\n"

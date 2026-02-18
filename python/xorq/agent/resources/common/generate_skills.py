@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-<<<<<<< HEAD
 import os
-=======
->>>>>>> 215e19d7 (Add baseball lineup optimizer pipeline)
 from pathlib import Path
 
 
@@ -70,7 +67,6 @@ def generate_all_skills(version: str = "0.2.0") -> dict[str, Path]:
     resources_dir = Path(__file__).parent.parent
     generated = {}
 
-<<<<<<< HEAD
     # Check if the package resources directory is writable (e.g. not in a nix store)
     _pkg_writable = os.access(resources_dir, os.W_OK)
 
@@ -93,18 +89,6 @@ def generate_all_skills(version: str = "0.2.0") -> dict[str, Path]:
         claude_output = repo_skill_dir / "SKILL.md"
         generate_skill("claude", version=version, output_path=claude_output)
         generated["claude_repo"] = claude_output
-=======
-    # Generate Codex skill to resources/codex/SKILL.md
-    codex_output = resources_dir / "codex" / "SKILL.md"
-    generate_skill("codex", version=version, output_path=codex_output)
-    generated["codex"] = codex_output
-
-    # Generate Claude skill to skills/xorq/SKILL.md (project root)
-    project_root = resources_dir.parent.parent.parent.parent
-    claude_output = project_root / "skills" / "xorq" / "SKILL.md"
-    generate_skill("claude", version=version, output_path=claude_output)
-    generated["claude"] = claude_output
->>>>>>> 215e19d7 (Add baseball lineup optimizer pipeline)
 
     return generated
 

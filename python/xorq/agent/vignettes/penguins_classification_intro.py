@@ -32,33 +32,10 @@ features: bill length and depth. This simplicity helps focus on xorq patterns
 rather than complex ML.
 """
 
-import sklearn
-from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline as SkPipeline
-from xorq.common.utils.toolz_utils import curry
-import pickle
 import base64
+import pickle
 
-# =============================================================================
-# CRITICAL IMPORTS: Understanding xorq's Module Structure
-# =============================================================================
-import xorq.api as xo              # Main API for catalog, connections, and utilities
-from xorq.api import _             # The underscore for elegant column references
-from xorq.vendor import ibis       # xorq's enhanced ibis (ALWAYS use this!)
-
-# Why xorq.vendor.ibis instead of regular ibis?
-# xorq extends ibis with custom operators essential for deferred execution:
-# - .cache() for intermediate result storage
-# - .into_backend() for multi-backend support
-# - ExprScalarUDF for passing expression results to UDFs
-# These extensions are what make xorq's deferred model possible!
-
-from xorq.caching import ParquetCache               # Efficient cache backend
-from xorq.expr.ml.pipeline_lib import Pipeline      # ML pipeline wrapper
-from xorq.expr.ml.metrics import deferred_sklearn_metric  # Deferred metrics
-from xorq.expr.udf import scalar, agg               # User-defined functions
-import xorq.expr.datatypes as dt                    # Data type definitions
+from sklearn.linear_model import LogisticRegression
 
 # Import metrics for evaluation
 from sklearn.metrics import (
@@ -68,6 +45,27 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
+from sklearn.pipeline import Pipeline as SkPipeline
+from sklearn.preprocessing import StandardScaler
+
+# =============================================================================
+# CRITICAL IMPORTS: Understanding xorq's Module Structure
+# =============================================================================
+import xorq.api as xo  # Main API for catalog, connections, and utilities
+import xorq.expr.datatypes as dt  # Data type definitions
+from xorq.api import _  # The underscore for elegant column references
+
+# Why xorq.vendor.ibis instead of regular ibis?
+# xorq extends ibis with custom operators essential for deferred execution:
+# - .cache() for intermediate result storage
+# - .into_backend() for multi-backend support
+# - ExprScalarUDF for passing expression results to UDFs
+# These extensions are what make xorq's deferred model possible!
+from xorq.caching import ParquetCache  # Efficient cache backend
+from xorq.common.utils.toolz_utils import curry
+from xorq.expr.ml.metrics import deferred_sklearn_metric  # Deferred metrics
+from xorq.expr.ml.pipeline_lib import Pipeline  # ML pipeline wrapper
+from xorq.expr.udf import agg  # User-defined functions
 
 
 # =============================================================================
@@ -99,11 +97,11 @@ def get_data_expr():
     # Filter out rows with missing values
     # Note: We use _ for column references - this is idiomatic xorq
     clean_data = penguins.filter(
-        _.bill_length_mm.notnull()      # Remove nulls from bill length
-        & _.bill_depth_mm.notnull()      # Remove nulls from bill depth
+        _.bill_length_mm.notnull()  # Remove nulls from bill length
+        & _.bill_depth_mm.notnull()  # Remove nulls from bill depth
         & _.flipper_length_mm.notnull()  # Remove nulls from flipper length
-        & _.body_mass_g.notnull()        # Remove nulls from body mass
-        & _.species.notnull()            # Remove nulls from target
+        & _.body_mass_g.notnull()  # Remove nulls from body mass
+        & _.species.notnull()  # Remove nulls from target
     )
 
     # Return the expression - still no execution!
@@ -130,9 +128,9 @@ def create_train_test_expr(data_expr, test_size=0.2, random_seed=42):
     # num_buckets controls the granularity of the split
     train_expr, test_expr = xo.train_test_splits(
         data_expr,
-        test_sizes=test_size,     # 20% for testing
-        num_buckets=1000,          # Higher = more precise split
-        random_seed=random_seed,   # For reproducibility
+        test_sizes=test_size,  # 20% for testing
+        num_buckets=1000,  # Higher = more precise split
+        random_seed=random_seed,  # For reproducibility
     )
 
     # Create a cache backend - ParquetCache is efficient for tabular data
@@ -160,18 +158,20 @@ def create_fitted_pipeline_expr(train_expr, model_params=None):
     """
     # Default hyperparameters for LogisticRegression
     params = model_params or {
-        "classifier__C": 0.1,                    # Regularization strength
-        "classifier__penalty": "l2",             # L2 regularization
-        "classifier__max_iter": 2000,            # Max iterations for convergence
-        "classifier__random_state": 42           # Reproducibility
+        "classifier__C": 0.1,  # Regularization strength
+        "classifier__penalty": "l2",  # L2 regularization
+        "classifier__max_iter": 2000,  # Max iterations for convergence
+        "classifier__random_state": 42,  # Reproducibility
     }
 
     # Create a standard scikit-learn pipeline
     # This is your normal sklearn code!
-    sklearn_pipeline = SkPipeline([
-        ("scaler", StandardScaler()),           # Normalize features
-        ("classifier", LogisticRegression())    # Logistic regression classifier
-    ]).set_params(**params)
+    sklearn_pipeline = SkPipeline(
+        [
+            ("scaler", StandardScaler()),  # Normalize features
+            ("classifier", LogisticRegression()),  # Logistic regression classifier
+        ]
+    ).set_params(**params)
 
     # Wrap the sklearn pipeline in xorq's Pipeline
     # This enables deferred execution of fit/predict operations
@@ -182,7 +182,7 @@ def create_fitted_pipeline_expr(train_expr, model_params=None):
     fitted_pipeline = xorq_pipeline.fit(
         train_expr,
         features=FEATURES,  # Which columns to use as features
-        target=TARGET       # Which column to predict
+        target=TARGET,  # Which column to predict
     )
 
     return fitted_pipeline
@@ -233,10 +233,9 @@ def create_predictions_with_probs_expr(fitted_pipeline, test_expr):
     predictions_with_probs = predictions_proba.mutate(
         # Extract probability for each species
         # predicted_proba is an array, we access elements by index
-        prob_Adelie=predictions_proba['predicted_proba'][0],      # First class
-        prob_Chinstrap=predictions_proba['predicted_proba'][1],   # Second class
-        prob_Gentoo=predictions_proba['predicted_proba'][2],      # Third class
-
+        prob_Adelie=predictions_proba["predicted_proba"][0],  # First class
+        prob_Chinstrap=predictions_proba["predicted_proba"][1],  # Second class
+        prob_Gentoo=predictions_proba["predicted_proba"][2],  # Third class
         # Determine final prediction based on highest probability
         # xo.cases() is like SQL CASE WHEN, but for expressions!
         # Each (condition, result) pair is a single tuple argument
@@ -252,14 +251,32 @@ def create_predictions_with_probs_expr(fitted_pipeline, test_expr):
         #   ✅ WORKS: xo.cases((expr['col'] == "Fair", 1), ...) [what we do here]
         predicted=xo.cases(
             # If Adelie has highest probability
-            ((predictions_proba['predicted_proba'][0] >= predictions_proba['predicted_proba'][1]) &
-             (predictions_proba['predicted_proba'][0] >= predictions_proba['predicted_proba'][2]), 'Adelie'),
+            (
+                (
+                    predictions_proba["predicted_proba"][0]
+                    >= predictions_proba["predicted_proba"][1]
+                )
+                & (
+                    predictions_proba["predicted_proba"][0]
+                    >= predictions_proba["predicted_proba"][2]
+                ),
+                "Adelie",
+            ),
             # If Chinstrap has highest probability
-            ((predictions_proba['predicted_proba'][1] >= predictions_proba['predicted_proba'][0]) &
-             (predictions_proba['predicted_proba'][1] >= predictions_proba['predicted_proba'][2]), 'Chinstrap'),
+            (
+                (
+                    predictions_proba["predicted_proba"][1]
+                    >= predictions_proba["predicted_proba"][0]
+                )
+                & (
+                    predictions_proba["predicted_proba"][1]
+                    >= predictions_proba["predicted_proba"][2]
+                ),
+                "Chinstrap",
+            ),
             # Otherwise, it's Gentoo
-            else_='Gentoo'
-        )
+            else_="Gentoo",
+        ),
     )
 
     return predictions_with_probs, predictions_proba
@@ -285,6 +302,7 @@ def create_roc_analysis_udf():
 
     This keeps visualization generation deferred until execution!
     """
+
     def compute_roc(df):
         """
         The actual UDAF function that computes ROC analysis.
@@ -293,20 +311,21 @@ def create_roc_analysis_udf():
         It receives a pandas DataFrame with all the prediction data.
         """
         try:
-            from sklearn.metrics import roc_auc_score, roc_curve, auc
-            from sklearn.preprocessing import label_binarize
+            import io
+
             import matplotlib.pyplot as plt
             import numpy as np
-            import io
+            from sklearn.metrics import auc, roc_auc_score, roc_curve
+            from sklearn.preprocessing import label_binarize
 
             # Extract true labels and predictions
             y_true = df[TARGET].values
-            y_pred = df['predicted'].values
+            y_pred = df["predicted"].values
             classes = sorted(df[TARGET].unique())
             n_classes = len(classes)
 
             # Get probability scores for ROC computation
-            prob_cols = ['prob_' + cls for cls in classes]
+            prob_cols = ["prob_" + cls for cls in classes]
             if all(col in df.columns for col in prob_cols):
                 # Use actual probabilities if available
                 y_score = df[prob_cols].values
@@ -326,69 +345,78 @@ def create_roc_analysis_udf():
             if n_classes == 2:
                 # Binary classification
                 y_binarized = y_binarized.ravel()
-                roc_scores['binary'] = roc_auc_score(y_binarized, y_score[:, 1])
+                roc_scores["binary"] = roc_auc_score(y_binarized, y_score[:, 1])
             else:
                 # Multi-class classification (our case with 3 penguin species)
                 per_class = {}
                 for i, cls in enumerate(classes):
                     # Compute AUC for each class vs rest
                     per_class[cls] = roc_auc_score(y_binarized[:, i], y_score[:, i])
-                roc_scores['per_class'] = per_class
+                roc_scores["per_class"] = per_class
 
                 # Compute aggregate metrics
-                roc_scores['macro'] = roc_auc_score(
-                    y_binarized, y_score, multi_class='ovr', average='macro'
+                roc_scores["macro"] = roc_auc_score(
+                    y_binarized, y_score, multi_class="ovr", average="macro"
                 )
-                roc_scores['weighted'] = roc_auc_score(
-                    y_binarized, y_score, multi_class='ovr', average='weighted'
+                roc_scores["weighted"] = roc_auc_score(
+                    y_binarized, y_score, multi_class="ovr", average="weighted"
                 )
 
             # Create visualization
             fig, ax = plt.subplots(figsize=(10, 8))
-            colors = plt.colormaps['tab10'](np.linspace(0, 1, n_classes))
+            colors = plt.colormaps["tab10"](np.linspace(0, 1, n_classes))
 
             # Plot ROC curve for each class
             for i, (cls, color) in enumerate(zip(classes, colors)):
                 if n_classes == 2:
-                    fpr, tpr, _ = roc_curve(y_binarized, y_score[:, 1] if i == 1 else 1 - y_score[:, 1])
+                    fpr, tpr, _ = roc_curve(
+                        y_binarized, y_score[:, 1] if i == 1 else 1 - y_score[:, 1]
+                    )
                 else:
                     fpr, tpr, _ = roc_curve(y_binarized[:, i], y_score[:, i])
                 roc_auc = auc(fpr, tpr)
-                ax.plot(fpr, tpr, color=color, lw=2, label=f'{cls} (AUC = {roc_auc:.3f})')
+                ax.plot(
+                    fpr, tpr, color=color, lw=2, label=f"{cls} (AUC = {roc_auc:.3f})"
+                )
 
             # Add reference line (random classifier)
-            ax.plot([0, 1], [0, 1], 'k--', lw=1.5, label='Random')
+            ax.plot([0, 1], [0, 1], "k--", lw=1.5, label="Random")
             ax.set_xlim([0.0, 1.0])
             ax.set_ylim([0.0, 1.05])
-            ax.set_xlabel('False Positive Rate')
-            ax.set_ylabel('True Positive Rate')
-            ax.set_title('ROC Curves - Penguin Species Classification')
+            ax.set_xlabel("False Positive Rate")
+            ax.set_ylabel("True Positive Rate")
+            ax.set_title("ROC Curves - Penguin Species Classification")
             ax.legend(loc="lower right")
             ax.grid(True, alpha=0.3)
 
             # Convert plot to base64 string for storage
             buffer = io.BytesIO()
-            plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
+            plt.savefig(buffer, format="png", dpi=100, bbox_inches="tight")
             plt.close()  # Important: prevent memory leaks
             buffer.seek(0)
-            plot_b64 = base64.b64encode(buffer.read()).decode('utf-8')
+            plot_b64 = base64.b64encode(buffer.read()).decode("utf-8")
 
             # Return results as pickled dictionary
-            return pickle.dumps({
-                'status': 'success',
-                'roc_scores': roc_scores,
-                'plot_base64': plot_b64,
-                'n_samples': len(df)
-            })
+            return pickle.dumps(
+                {
+                    "status": "success",
+                    "roc_scores": roc_scores,
+                    "plot_base64": plot_b64,
+                    "n_samples": len(df),
+                }
+            )
 
         except Exception as e:
             import traceback
+
             # Return error information for debugging
-            return pickle.dumps({
-                'status': 'error',
-                'error': str(e),
-                'traceback': traceback.format_exc()
-            })
+            return pickle.dumps(
+                {
+                    "status": "error",
+                    "error": str(e),
+                    "traceback": traceback.format_exc(),
+                }
+            )
 
     return compute_roc
 
@@ -413,14 +441,14 @@ def create_roc_expr(predictions_with_probs):
         fn=roc_udf_fn,
         schema=schema,
         return_type=dt.binary,  # Returns pickled binary data
-        name="compute_roc_analysis"
+        name="compute_roc_analysis",
     )
 
     # Create aggregation expression
     # This aggregates all rows into a single ROC analysis result
-    roc_expr = predictions_with_probs.aggregate([
-        roc_udf.on_expr(predictions_with_probs).name('roc_analysis')
-    ])
+    roc_expr = predictions_with_probs.aggregate(
+        [roc_udf.on_expr(predictions_with_probs).name("roc_analysis")]
+    )
 
     return roc_expr
 
@@ -442,48 +470,44 @@ def create_metric_expressions(predictions, predictions_proba):
     """
     metrics = {
         # Classification accuracy
-        'accuracy': deferred_sklearn_metric(
+        "accuracy": deferred_sklearn_metric(
             expr=predictions,
             target=TARGET,
             pred_col="predicted",
             metric_fn=accuracy_score,
         ),
-
         # Precision (weighted average across classes)
-        'precision': deferred_sklearn_metric(
+        "precision": deferred_sklearn_metric(
             expr=predictions,
             target=TARGET,
             pred_col="predicted",
             metric_fn=precision_score,
             metric_kwargs={"average": "weighted", "zero_division": 0},
         ),
-
         # Recall (weighted average across classes)
-        'recall': deferred_sklearn_metric(
+        "recall": deferred_sklearn_metric(
             expr=predictions,
             target=TARGET,
             pred_col="predicted",
             metric_fn=recall_score,
             metric_kwargs={"average": "weighted", "zero_division": 0},
         ),
-
         # F1 score (harmonic mean of precision and recall)
-        'f1': deferred_sklearn_metric(
+        "f1": deferred_sklearn_metric(
             expr=predictions,
             target=TARGET,
             pred_col="predicted",
             metric_fn=f1_score,
             metric_kwargs={"average": "weighted", "zero_division": 0},
         ),
-
         # ROC-AUC (requires probability predictions)
-        'roc_auc': deferred_sklearn_metric(
+        "roc_auc": deferred_sklearn_metric(
             expr=predictions_proba,
             target=TARGET,
             pred_col="predicted_proba",
             metric_fn=roc_auc_score,
             metric_kwargs={"multi_class": "ovr", "average": "weighted"},
-        )
+        ),
     }
 
     return metrics
@@ -532,11 +556,11 @@ def build_complete_pipeline():
 
     # Return everything as a dictionary for selective execution
     return {
-        'roc_expr': roc_expr,
-        'metrics': metrics,
-        'predictions': predictions,
-        'predictions_proba': predictions_proba,
-        'fitted_pipeline': fitted_pipeline
+        "roc_expr": roc_expr,
+        "metrics": metrics,
+        "predictions": predictions,
+        "predictions_proba": predictions_proba,
+        "fitted_pipeline": fitted_pipeline,
     }
 
 
@@ -557,13 +581,13 @@ def execute_and_display(pipeline_dict):
     """
     import time
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("EXECUTING DEFERRED PIPELINE")
-    print("="*60)
+    print("=" * 60)
     print("\nMetrics:")
 
     # Execute each metric and display results
-    for name, metric_expr in pipeline_dict['metrics'].items():
+    for name, metric_expr in pipeline_dict["metrics"].items():
         start = time.time()
         value = metric_expr.execute()  # <-- EXECUTION happens here!
         elapsed = time.time() - start
@@ -573,29 +597,29 @@ def execute_and_display(pipeline_dict):
 
     # Execute ROC analysis
     start = time.time()
-    roc_result = pipeline_dict['roc_expr'].execute()  # <-- EXECUTION happens here!
+    roc_result = pipeline_dict["roc_expr"].execute()  # <-- EXECUTION happens here!
     elapsed = time.time() - start
 
     # Unpickle the ROC analysis results
-    roc_data = pickle.loads(roc_result['roc_analysis'].iloc[0])
+    roc_data = pickle.loads(roc_result["roc_analysis"].iloc[0])
 
-    if roc_data['status'] == 'success':
-        roc_scores = roc_data['roc_scores']
+    if roc_data["status"] == "success":
+        roc_scores = roc_data["roc_scores"]
 
         # Display per-class AUC scores
-        if 'per_class' in roc_scores:
+        if "per_class" in roc_scores:
             print("  Per-class AUC:")
-            for cls, score in roc_scores['per_class'].items():
+            for cls, score in roc_scores["per_class"].items():
                 print(f"    {cls}: {score:.4f}")
             print(f"  Macro-average: {roc_scores['macro']:.4f}")
             print(f"  Weighted-average: {roc_scores['weighted']:.4f}")
 
         # Save the ROC plot to disk
-        if 'plot_base64' in roc_data:
-            plot_data = base64.b64decode(roc_data['plot_base64'])
-            with open('penguin_roc_curves.png', 'wb') as f:
+        if "plot_base64" in roc_data:
+            plot_data = base64.b64decode(roc_data["plot_base64"])
+            with open("penguin_roc_curves.png", "wb") as f:
                 f.write(plot_data)
-            print(f"\n✓ ROC plot saved to 'penguin_roc_curves.png'")
+            print("\n✓ ROC plot saved to 'penguin_roc_curves.png'")
             print(f"  (executed in {elapsed:.3f}s)")
 
         print(f"\nTotal samples analyzed: {roc_data['n_samples']}")
@@ -616,9 +640,9 @@ def main():
     3. Caching prevents recomputation
     4. Everything uses xorq.vendor.ibis
     """
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("XORQ BEGINNER VIGNETTE: Penguin Classification")
-    print("="*60)
+    print("=" * 60)
 
     print("\nBuilding pipeline (deferred - instant!)...")
     pipeline_dict = build_complete_pipeline()
@@ -630,20 +654,21 @@ def main():
     print("  - Metrics and visualization prepared")
 
     # Execute and display results
-    roc_data = execute_and_display(pipeline_dict)
+    _roc_data = execute_and_display(pipeline_dict)
 
     # Demonstrate caching benefit
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("DEMONSTRATING CACHE EFFICIENCY")
-    print("="*60)
+    print("=" * 60)
 
     # Cache the ROC expression
-    cached_roc = pipeline_dict['roc_expr'].cache(ParquetCache.from_kwargs())
+    cached_roc = pipeline_dict["roc_expr"].cache(ParquetCache.from_kwargs())
 
     print("\nRe-executing cached ROC analysis...")
     import time
+
     start = time.time()
-    result2 = cached_roc.execute()  # Should be much faster!
+    _result2 = cached_roc.execute()  # Should be much faster!
     elapsed = time.time() - start
     print(f"✓ Cached execution completed in {elapsed:.3f}s (much faster!)")
 
@@ -654,9 +679,9 @@ if __name__ == "__main__":
     # Run the complete pipeline
     pipeline = main()
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("VIGNETTE COMPLETE!")
-    print("="*60)
+    print("=" * 60)
     print("\nWhat you learned:")
     print("  ✓ Deferred execution with xorq expressions")
     print("  ✓ Using xorq.vendor.ibis for enhanced operators")

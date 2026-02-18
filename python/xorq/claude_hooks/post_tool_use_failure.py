@@ -1,33 +1,49 @@
 #!/usr/bin/env python3
-"""PostToolUseFailure hook - appends TROUBLESHOOTING.md to stderr on failure."""
+"""PostToolUseFailure hook - logs failures to a JSONL file for the stop hook to analyze."""
 
+import json
 import sys
-import os
+import time
 from pathlib import Path
+
+
+def log_failure(session_id, transcript_path, tool_name, tool_input, error):
+    """Append a failure entry to {session_id}.failures.jsonl alongside the transcript."""
+    if not transcript_path:
+        return
+
+    sessions_dir = Path(transcript_path).parent
+    failures_path = sessions_dir / f"{session_id}.failures.jsonl"
+
+    entry = {
+        "timestamp": int(time.time()),
+        "tool_name": tool_name,
+        "tool_input": tool_input,
+        "error_summary": (error or "")[:500],
+    }
+
+    with open(failures_path, "a") as f:
+        f.write(json.dumps(entry) + "\n")
 
 
 def main():
     """PostToolUseFailure hook handler."""
     try:
-        # Simple troubleshooting reminder
-        print("\n" + "="*60, file=sys.stderr)
-        print("📚 XORQ TROUBLESHOOTING", file=sys.stderr)
-        print("="*60, file=sys.stderr)
-        print("\nCommon fixes:", file=sys.stderr)
-        print("  • Schema errors: Check table.schema() before building", file=sys.stderr)
-        print("  • Import errors: Use 'from xorq.vendor import ibis'", file=sys.stderr)
-        print("  • Build errors: Verify variable name matches -e argument", file=sys.stderr)
-        print("\nQuick commands:", file=sys.stderr)
-        print("  xorq agents prompt list --tier reliability", file=sys.stderr)
-        print("  xorq agents prompt show fix_schema_errors", file=sys.stderr)
-        print("  xorq build <file>.py -e expr --pdb", file=sys.stderr)
-        print("\nGet help:", file=sys.stderr)
-        print("  • Use expression-builder skill if available in Claude Code", file=sys.stderr)
-        print("  • Full guide: skills/expression-builder/resources/TROUBLESHOOTING.md", file=sys.stderr)
-        print("="*60 + "\n", file=sys.stderr)
-    except Exception:
-        # If we can't find or read the file, just exit gracefully
-        pass
+        hook_input = json.load(sys.stdin)
+    except (json.JSONDecodeError, EOFError):
+        hook_input = {}
+
+    session_id = hook_input.get("session_id", "unknown")
+    transcript_path = hook_input.get("transcript_path")
+    tool_name = hook_input.get("tool_name", "")
+    tool_input = hook_input.get("tool_input", {})
+    error = hook_input.get("error", "")
+
+    # Log the failure for the stop hook to discover
+    try:
+        log_failure(session_id, transcript_path, tool_name, tool_input, error)
+    except Exception as e:
+        print(f"memelord: failed to log failure: {e}", file=sys.stderr)
 
     return 0
 

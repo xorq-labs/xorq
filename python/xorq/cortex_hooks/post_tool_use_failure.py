@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """PostToolUseFailure hook for Cortex Code - provides xorq troubleshooting guidance."""
 
-import json
 import os
 import sys
 
@@ -158,8 +157,17 @@ def main():
         tool_output = os.environ.get("TOOL_OUTPUT", "")
 
         # Check if this looks like an xorq error
-        if not any(keyword in tool_output.lower() for keyword in
-                   ["xorq", "catalog", "manifest", "build", "deferred", "coerce"]):
+        if not any(
+            keyword in tool_output.lower()
+            for keyword in [
+                "xorq",
+                "catalog",
+                "manifest",
+                "build",
+                "deferred",
+                "coerce",
+            ]
+        ):
             # Not an xorq-related error, skip
             return 0
 

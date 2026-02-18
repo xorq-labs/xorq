@@ -6,14 +6,16 @@ and techniques. They are more comprehensive than simple templates and show
 real-world use cases.
 """
 
-from pathlib import Path
-from dataclasses import dataclass
-from typing import List, Optional
 import textwrap
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Optional
+
 
 @dataclass
 class Vignette:
     """Represents a code vignette with metadata."""
+
     name: str
     filename: str
     title: str
@@ -52,6 +54,7 @@ This is an xorq vignette demonstrating {self.name.replace("_", " ")}.
 
 '''
 
+
 # Registry of available vignettes
 VIGNETTES = [
     Vignette(
@@ -73,8 +76,16 @@ VIGNETTES = [
             for newcomers to xorq. Uses only two features (bill measurements) to keep
             the focus on xorq patterns rather than complex ML.
         """).strip(),
-        tags=["beginner", "ml", "classification", "tutorial", "penguins", "roc", "metrics"],
-        difficulty="beginner"
+        tags=[
+            "beginner",
+            "ml",
+            "classification",
+            "tutorial",
+            "penguins",
+            "roc",
+            "metrics",
+        ],
+        difficulty="beginner",
     ),
     Vignette(
         name="bank_marketing_column_transformer",
@@ -93,8 +104,15 @@ VIGNETTES = [
             requiring different preprocessing approaches. Shows how to compose complex sklearn
             pipelines within xorq's deferred execution framework.
         """).strip(),
-        tags=["ml", "preprocessing", "column_transformer", "imputation", "sklearn_pipeline", "classification"],
-        difficulty="intermediate"
+        tags=[
+            "ml",
+            "preprocessing",
+            "column_transformer",
+            "imputation",
+            "sklearn_pipeline",
+            "classification",
+        ],
+        difficulty="intermediate",
     ),
     Vignette(
         name="baseball_breakout_expr_scalar",
@@ -111,8 +129,14 @@ VIGNETTES = [
             The pattern shows how to create a fully deferred ML pipeline where the model
             is trained as an expression and then used for predictions without eager execution.
         """).strip(),
-        tags=["ml", "udaf", "expr_scalar_udf", "feature_engineering", "sports_analytics"],
-        difficulty="advanced"
+        tags=[
+            "ml",
+            "udaf",
+            "expr_scalar_udf",
+            "feature_engineering",
+            "sports_analytics",
+        ],
+        difficulty="advanced",
     ),
     Vignette(
         name="ml_pipeline_roc_visualization",
@@ -131,14 +155,24 @@ VIGNETTES = [
             xorq's deferred execution model while producing publication-quality visualizations.
             The extensive inline commentary explains each pattern and design decision.
         """).strip(),
-        tags=["ml", "visualization", "roc", "udaf", "pipeline", "functional_programming", "metrics"],
-        difficulty="intermediate"
+        tags=[
+            "ml",
+            "visualization",
+            "roc",
+            "udaf",
+            "pipeline",
+            "functional_programming",
+            "metrics",
+        ],
+        difficulty="intermediate",
     ),
 ]
+
 
 def list_vignettes() -> List[Vignette]:
     """Return list of all available vignettes."""
     return VIGNETTES
+
 
 def get_vignette(name: str) -> Optional[Vignette]:
     """Get a specific vignette by name."""
@@ -147,11 +181,15 @@ def get_vignette(name: str) -> Optional[Vignette]:
             return vignette
     return None
 
+
 def get_vignette_names() -> List[str]:
     """Get list of all vignette names."""
     return [v.name for v in VIGNETTES]
 
-def scaffold_vignette(name: str, dest: Optional[Path] = None, overwrite: bool = False) -> Path:
+
+def scaffold_vignette(
+    name: str, dest: Optional[Path] = None, overwrite: bool = False
+) -> Path:
     """
     Scaffold a vignette to a destination path.
 
@@ -176,7 +214,9 @@ def scaffold_vignette(name: str, dest: Optional[Path] = None, overwrite: bool = 
     dest.parent.mkdir(parents=True, exist_ok=True)
 
     if dest.exists() and not overwrite:
-        raise FileExistsError(f"File already exists: {dest}. Use --overwrite to replace.")
+        raise FileExistsError(
+            f"File already exists: {dest}. Use --overwrite to replace."
+        )
 
     # Read the original content
     content = vignette.read_content()
@@ -189,6 +229,7 @@ def scaffold_vignette(name: str, dest: Optional[Path] = None, overwrite: bool = 
     dest.write_text(content)
 
     return dest
+
 
 def format_vignette_list() -> str:
     """Format the list of vignettes for display."""
@@ -210,15 +251,18 @@ def format_vignette_list() -> str:
             for v in by_difficulty[level]:
                 lines.append(f"  • {v.name}")
                 # Wrap description to 70 chars with proper indentation
-                wrapped = textwrap.fill(v.description.split('\n')[0],
-                                       width=70,
-                                       initial_indent="    ",
-                                       subsequent_indent="    ")
+                wrapped = textwrap.fill(
+                    v.description.split("\n")[0],
+                    width=70,
+                    initial_indent="    ",
+                    subsequent_indent="    ",
+                )
                 lines.append(wrapped)
                 lines.append(f"    Tags: {', '.join(v.tags)}")
                 lines.append("")
 
     return "\n".join(lines)
+
 
 def format_vignette_details(name: str) -> str:
     """Format detailed information about a specific vignette."""
@@ -242,6 +286,8 @@ def format_vignette_details(name: str) -> str:
     lines.append(f"  xorq agent vignette scaffold {vignette.name}")
     lines.append("")
     lines.append("Or with custom destination:")
-    lines.append(f"  xorq agent vignette scaffold {vignette.name} --dest my_{vignette.name}.py")
+    lines.append(
+        f"  xorq agent vignette scaffold {vignette.name} --dest my_{vignette.name}.py"
+    )
 
     return "\n".join(lines)

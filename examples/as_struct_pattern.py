@@ -18,11 +18,12 @@ Why this matters:
 """
 
 import toolz
-import xorq.api as xo
-from xorq.expr.ml.pipeline_lib import Pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline as SkPipeline
 from sklearn.preprocessing import StandardScaler
+
+import xorq.api as xo
+from xorq.expr.ml.pipeline_lib import Pipeline
 
 
 # Create as_struct helper
@@ -60,26 +61,24 @@ train = clean_data.filter(xo._.island != "Biscoe")
 test = clean_data.filter(xo._.island == "Biscoe")
 
 # Build and fit pipeline
-sklearn_pipeline = SkPipeline([
-    ("scaler", StandardScaler()),
-    ("classifier", LogisticRegression(max_iter=1000, random_state=42))
-])
+sklearn_pipeline = SkPipeline(
+    [
+        ("scaler", StandardScaler()),
+        ("classifier", LogisticRegression(max_iter=1000, random_state=42)),
+    ]
+)
 
 xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
 
-fitted_pipeline = xorq_pipeline.fit(
-    train,
-    features=features,
-    target="species"
-)
+fitted_pipeline = xorq_pipeline.fit(train, features=features, target="species")
 
 
 # ============================================================================
 # APPROACH 1: Standard prediction (loses non-feature columns)
 # ============================================================================
-print("\n" + "="*70)
+print("\n" + "=" * 70)
 print("APPROACH 1: Standard Prediction")
-print("="*70)
+print("=" * 70)
 
 test_predicted_simple = fitted_pipeline.predict(test)
 print("\nColumns available after standard prediction:")
@@ -91,9 +90,9 @@ print(test_predicted_simple.limit(5).execute())
 # ============================================================================
 # APPROACH 2: Using as_struct pattern (preserves ALL columns)
 # ============================================================================
-print("\n" + "="*70)
+print("\n" + "=" * 70)
 print("APPROACH 2: as_struct Pattern")
-print("="*70)
+print("=" * 70)
 
 # Step 1: Bundle all columns into a struct
 test_with_struct = test.mutate(as_struct(name="original_data"))
@@ -107,9 +106,11 @@ print(test_predicted_with_struct.columns)
 
 # Step 3: Unpack struct and organize columns
 test_predicted_full = (
-    test_predicted_with_struct
-    .select("original_data", "predicted")  # Keep only struct and prediction
-    .unpack("original_data")  # Restore all original columns
+    test_predicted_with_struct.select(
+        "original_data", "predicted"
+    ).unpack(  # Keep only struct and prediction
+        "original_data"
+    )  # Restore all original columns
 )
 print("\nStep 3 - After unpacking struct:")
 print(test_predicted_full.columns)
@@ -123,13 +124,12 @@ print(result)
 # ============================================================================
 # USE CASE: Compare predictions to actual labels with context
 # ============================================================================
-print("\n" + "="*70)
+print("\n" + "=" * 70)
 print("USE CASE: Comparing Predictions with Full Context")
-print("="*70)
+print("=" * 70)
 
 comparison = (
-    test_predicted_full
-    .mutate(correct=xo._.species == xo._.predicted)
+    test_predicted_full.mutate(correct=xo._.species == xo._.predicted)
     .select(
         "species",
         "predicted",
@@ -143,11 +143,9 @@ comparison = (
 print("\nPredictions with context:")
 print(comparison.execute())
 
-accuracy = (
-    test_predicted_full
-    .mutate(correct=(xo._.species == xo._.predicted).cast("int"))
-    .aggregate(accuracy=xo._.correct.mean())
-)
+accuracy = test_predicted_full.mutate(
+    correct=(xo._.species == xo._.predicted).cast("int")
+).aggregate(accuracy=xo._.correct.mean())
 print("\nModel accuracy:")
 print(accuracy.execute())
 
@@ -155,26 +153,23 @@ print(accuracy.execute())
 # ============================================================================
 # ADVANCED: Selective unpacking
 # ============================================================================
-print("\n" + "="*70)
+print("\n" + "=" * 70)
 print("ADVANCED: Selective Column Restoration")
-print("="*70)
+print("=" * 70)
 
 # You can also selectively unpack only specific columns from the struct
-selective_unpack = (
-    test_predicted_with_struct
-    .select(
-        xo._.original_data["species"].name("species"),
-        xo._.original_data["island"].name("island"),
-        "predicted"
-    )
+selective_unpack = test_predicted_with_struct.select(
+    xo._.original_data["species"].name("species"),
+    xo._.original_data["island"].name("island"),
+    "predicted",
 )
 print("\nSelective unpack (species, island, predicted only):")
 print(selective_unpack.limit(5).execute())
 
 
-print("\n" + "="*70)
+print("\n" + "=" * 70)
 print("Summary")
-print("="*70)
+print("=" * 70)
 print("""
 The as_struct pattern is essential when you need to:
 ✓ Preserve non-feature columns (e.g., IDs, timestamps, metadata)

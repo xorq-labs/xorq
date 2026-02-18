@@ -292,16 +292,20 @@ def run_unbound_command(
     # Try with SnapshotStrategy first (new behavior), fall back to None for backward compatibility
     try:
         unbound_expr = expr_to_unbound(
-            expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ, strategy=SnapshotStrategy()
+            expr,
+            hash=to_unbind_hash,
+            tag=to_unbind_tag,
+            typs=typ,
+            strategy=SnapshotStrategy(),
         ).to_expr()
-    except (ValueError, StopIteration) as e:
+    except (ValueError, StopIteration):
         # If hash not found with SnapshotStrategy, try without strategy (legacy mode)
         # This handles cases where expressions were cataloged with old hash computation
         print(
             "[run-unbound] Warning: Hash not found with SnapshotStrategy, "
             "trying legacy mode (strategy=None). Consider re-running 'xorq catalog sources' "
             "to get updated hashes.",
-            file=sys.stderr
+            file=sys.stderr,
         )
         unbound_expr = expr_to_unbound(
             expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ, strategy=None
@@ -469,7 +473,7 @@ def init_command(
 
 def git_hooks_command(args):
     """Handle git hooks commands."""
-    from xorq.hooks import install_hooks, uninstall_hooks, run_hook, list_hooks
+    from xorq.hooks import install_hooks, list_hooks, run_hook, uninstall_hooks
 
     match args.hooks_subcommand:
         case "install":
@@ -564,6 +568,7 @@ def install_claude_hooks_command(args):
 
     # Get the source hooks directory from the xorq package
     import xorq
+
     xorq_package_dir = Path(xorq.__file__).parent
     hooks_source_dir = xorq_package_dir / "claude_hooks"
 
@@ -611,7 +616,14 @@ def install_claude_hooks_command(args):
             print(f"Warning: {settings_file} already contains hooks configuration")
             print("Use --force to overwrite or manually merge the hooks")
             print("\nTo manually add xorq hooks, add these to your settings.json:")
-            print(json.dumps(json.loads((hooks_source_dir / "settings_template.json").read_text()), indent=2))
+            print(
+                json.dumps(
+                    json.loads(
+                        (hooks_source_dir / "settings_template.json").read_text()
+                    ),
+                    indent=2,
+                )
+            )
             return 0
     else:
         # Load template settings
@@ -649,25 +661,26 @@ def agent_vignette_command(args):
         case "show":
             return agent_vignette_show_command(args.name)
         case "scaffold":
-            return agent_vignette_scaffold_command(
-                args.name, args.dest, args.overwrite
-            )
+            return agent_vignette_scaffold_command(args.name, args.dest, args.overwrite)
         case _:
             raise ValueError(f"Unknown vignette command: {args.vignette_command}")
 
 
 def agent_vignette_list_command():
     from xorq.agent.vignettes import format_vignette_list
+
     print(format_vignette_list())
 
 
 def agent_vignette_show_command(name):
     from xorq.agent.vignettes import format_vignette_details
+
     print(format_vignette_details(name))
 
 
 def agent_vignette_scaffold_command(name, dest, overwrite):
     from xorq.agent.vignettes import scaffold_vignette
+
     try:
         written = scaffold_vignette(name, dest, overwrite=overwrite)
         print(f"Scaffolded vignette to {written}")
@@ -1092,7 +1105,7 @@ def parse_args(override=None):
         help="Comma-separated list of agents to bootstrap (claude, codex, or both)",
     )
 
-    onboard_parser = agents_subparsers.add_parser(
+    _onboard_parser = agents_subparsers.add_parser(
         "onboard",
         help="Lean onboarding instructions for AGENTS.md",
     )
@@ -1146,6 +1159,7 @@ def parse_args(override=None):
         "show", help="Show details for a specific vignette"
     )
     from xorq.agent.vignettes import get_vignette_names
+
     vignette_show.add_argument(
         "name",
         choices=get_vignette_names(),

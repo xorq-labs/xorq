@@ -4,13 +4,12 @@ This module provides functionality to install, uninstall, and run git hooks
 for xorq projects, similar to other dev tools like bd.
 """
 
-import os
-import sys
 import shutil
 import subprocess
+import sys
 from pathlib import Path
-from textwrap import dedent
 from typing import List, Optional
+
 
 # Git hooks that xorq supports
 SUPPORTED_HOOKS = [
@@ -23,7 +22,7 @@ SUPPORTED_HOOKS = [
 ]
 
 # Thin shim template for git hooks
-HOOK_SHIM_TEMPLATE = '''#!/usr/bin/env sh
+HOOK_SHIM_TEMPLATE = """#!/usr/bin/env sh
 # xorq-shim v1
 # xorq-hooks-version: {version}
 #
@@ -42,7 +41,7 @@ if ! command -v xorq >/dev/null 2>&1; then
 fi
 
 exec xorq hooks run {hook_name} "$@"
-'''
+"""
 
 
 def get_git_dir() -> Optional[Path]:
@@ -126,7 +125,7 @@ def install_hooks(force: bool = False) -> int:
             # If it's another tool's hook (like bd), we need to chain them
             if "bd-shim" in content:
                 # Create a wrapper that calls both bd and xorq
-                chain_content = f'''#!/usr/bin/env sh
+                chain_content = f"""#!/usr/bin/env sh
 # xorq+bd chain hook v1
 #
 # This hook chains both bd and xorq hooks
@@ -150,7 +149,7 @@ if command -v xorq >/dev/null 2>&1; then
 fi
 
 exit 0
-'''
+"""
                 # Backup the original bd hook
                 backup_existing_hook(hook_path)
                 hook_path.write_text(chain_content)
@@ -159,10 +158,7 @@ exit 0
                 continue
 
         # Write the hook shim
-        hook_content = HOOK_SHIM_TEMPLATE.format(
-            version="0.1.0",
-            hook_name=hook_name
-        )
+        hook_content = HOOK_SHIM_TEMPLATE.format(version="0.1.0", hook_name=hook_name)
 
         hook_path.write_text(hook_content)
         hook_path.chmod(0o755)
@@ -241,10 +237,7 @@ def run_hook(hook_name: str, args: List[str]) -> int:
 
     # Run the hook script
     try:
-        result = subprocess.run(
-            [sys.executable, str(hook_script)] + args,
-            check=False
-        )
+        result = subprocess.run([sys.executable, str(hook_script)] + args, check=False)
         return result.returncode
     except Exception as e:
         print(f"Error running {hook_name} hook: {e}", file=sys.stderr)

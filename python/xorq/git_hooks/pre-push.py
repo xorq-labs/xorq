@@ -7,8 +7,8 @@ Validates before pushing:
 - No untracked expression files
 """
 
-import sys
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -19,7 +19,7 @@ def check_expression_builds():
         ["git", "diff", "--name-only", "HEAD", "@{u}"],
         capture_output=True,
         text=True,
-        check=False
+        check=False,
     )
 
     if result.returncode != 0:
@@ -45,11 +45,13 @@ def check_expression_builds():
                 ["xorq", "catalog", "ls", "--name", expr_name],
                 capture_output=True,
                 text=True,
-                check=False
+                check=False,
             )
             if result.returncode != 0 or expr_name not in result.stdout:
-                issues.append(f"  Expression '{expr_name}' not found in catalog - did you forget to build?")
-        except:
+                issues.append(
+                    f"  Expression '{expr_name}' not found in catalog - did you forget to build?"
+                )
+        except Exception:
             pass
 
     return len(issues) == 0, issues

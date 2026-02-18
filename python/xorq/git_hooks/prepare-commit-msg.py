@@ -7,8 +7,8 @@ Adds xorq-specific context to commit messages:
 - Suggests conventional commit format
 """
 
-import sys
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -18,7 +18,7 @@ def get_modified_expressions():
         ["git", "diff", "--cached", "--name-only"],
         capture_output=True,
         text=True,
-        check=True
+        check=True,
     )
     files = result.stdout.strip().split("\n") if result.stdout.strip() else []
 
@@ -36,7 +36,7 @@ def get_catalog_changes():
         ["git", "diff", "--cached", "--name-only", "catalog.yaml"],
         capture_output=True,
         text=True,
-        check=False
+        check=False,
     )
     return bool(result.stdout.strip())
 
@@ -48,7 +48,9 @@ def enhance_commit_message(commit_msg_file, source_type):
         current_msg = f.read()
 
     # Don't modify if it's a merge or has content already
-    if source_type == "merge" or (current_msg.strip() and not current_msg.startswith("#")):
+    if source_type == "merge" or (
+        current_msg.strip() and not current_msg.startswith("#")
+    ):
         return
 
     # Gather xorq context

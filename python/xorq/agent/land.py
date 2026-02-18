@@ -8,8 +8,6 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from xorq.agent.onboarding import get_catalog_entries, get_recent_builds
-
 
 def check_catalog_uncommitted() -> bool:
     """Check if .xorq/catalog.yaml has uncommitted changes.
@@ -116,7 +114,9 @@ def render_landing_checklist(limit: int = 5) -> str:
 
     # Workflow checks
     sections.append("- [ ] Add all expressions with proper tags")
-    sections.append("- [ ] Ensure all visualization and last mile processing is in deferred UDFs/UDAFs")
+    sections.append(
+        "- [ ] Ensure all visualization and last mile processing is in deferred UDFs/UDAFs"
+    )
     sections.append("- [ ] `xorq catalog add` all expressions")
     sections.append("")
 
