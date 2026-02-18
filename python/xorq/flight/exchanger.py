@@ -73,14 +73,39 @@ def streaming_exchange(
         writer.write_batch(out)
 
 
+def find_unbound_next_con(unbound_expr):
+    from xorq.common.utils.graph_utils import find_all_sources
+    from xorq.common.utils.node_utils import gen_downstream
+
+    match walk_nodes(ops.UnboundTable, unbound_expr):
+        case (unbound_op,):
+            pass
+        case _:
+            raise ValueError
+    match next(
+        filter(None, map(find_all_sources, gen_downstream(unbound_expr, unbound_op))),
+        None,
+    ):
+        case None:
+            return None
+        case (con, *_) if con.name != "duckdb":
+            return con
+        case (con, *_) if con.name == "duckdb":
+            # duckdb silently hangs when we try to do the replacement
+            return None
+        case _:
+            raise ValueError
+
+
 @excepts_print_exc
 def streaming_expr_exchange(
     unbound_expr, make_connection, context, reader, writer, options=None, **kwargs
 ):
     filtered_reader = copy_rbr_batches(make_filtered_reader(reader))
+    con = find_unbound_next_con(unbound_expr) or make_connection()
     bound_expr = replace_one_unbound(
         unbound_expr,
-        make_connection().read_record_batches(filtered_reader),
+        con.read_record_batches(filtered_reader),
     )
     started = False
     for batch in bound_expr.to_pyarrow_batches():
