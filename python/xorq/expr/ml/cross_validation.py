@@ -1,12 +1,12 @@
 """Cross-validation for xorq ML pipelines."""
 
-import functools
 from random import Random
 
 import cloudpickle
 import dask
 import numpy as np
 import pyarrow as pa
+import toolz
 from attr import field, frozen
 from attr.validators import deep_iterable, instance_of
 
@@ -26,12 +26,9 @@ def make_deterministic_sort_key(expr, random_seed=None):
     produce the same per-row hash within a given backend.
 
     Use this to impose a stable row order before any operation that depends
-    on positional indexing (e.g. sklearn splitters).  To reproduce the same
-    order on a pandas DataFrame::
-
-        key = make_deterministic_sort_key(ibis_table, random_seed=42)
-        col = key.get_name()
-        df = ibis_table.mutate(key).order_by(col).drop(col).execute()
+    on positional indexing (e.g. sklearn splitters).  See
+    :func:`apply_deterministic_sort` for a convenience wrapper that
+    returns a sorted ibis expression directly.
 
     .. note::
 
@@ -57,6 +54,30 @@ def make_deterministic_sort_key(expr, random_seed=None):
     tmp_name = "_sort_" + dask.base.tokenize(random_str)[:8]
     comb_key = literal(",").join(expr[col].cast("str") for col in expr.columns)
     return comb_key.concat(random_str).hash().name(tmp_name)
+
+
+def apply_deterministic_sort(expr, random_seed=None):
+    """Sort an ibis table by a deterministic hash.
+
+    Convenience wrapper around :func:`make_deterministic_sort_key` that
+    mutates, sorts, and drops the temporary column, returning a deferred
+    ibis expression.  Call ``.execute()`` to materialize.
+
+    Parameters
+    ----------
+    expr : ir.Table
+        The input table.
+    random_seed : int or None
+        Seed for reproducibility.  ``None`` uses a fixed default (0).
+
+    Returns
+    -------
+    ir.Table
+        The input table sorted by a deterministic hash.
+    """
+    key = make_deterministic_sort_key(expr, random_seed=random_seed)
+    col = key.get_name()
+    return expr.mutate(key).order_by(col).drop(col)
 
 
 def _make_folds_from_int(expr, cv, random_seed):
@@ -94,14 +115,11 @@ def _make_folds_from_int(expr, cv, random_seed):
     )
     base_expr = expr.mutate(split_col)
     # Encode: 2=test (row belongs to fold_i), 1=train (row belongs to another fold)
-    fold_columns = (
+    fold_columns = [
         ((base_expr[split_col_name] == fold_i).cast("int8") + 1).name(f"fold_{fold_i}")
         for fold_i in range(cv)
-    )
-    fold_expr = functools.reduce(
-        lambda expr, col: expr.mutate(col), fold_columns, base_expr
-    )
-    return fold_expr.drop(split_col_name)
+    ]
+    return base_expr.mutate(*fold_columns).drop(split_col_name)
 
 
 def _make_fold_udwf(cv, fold_index, features, target, expr):
@@ -172,6 +190,37 @@ def _make_fold_udwf(cv, fold_index, features, target, expr):
     return assign_fold
 
 
+def _resolve_order_by(expr, order_by, random_seed):
+    """Resolve *order_by* into a sorted expression.
+
+    Parameters
+    ----------
+    expr : ir.Table
+        The input table.
+    order_by : str, tuple of str, or None
+        Column(s) to sort by.  ``None`` falls back to a deterministic
+        hash derived from *random_seed*.
+    random_seed : int or None
+        Seed for the deterministic row-ordering hash (used only when
+        *order_by* is ``None``).
+
+    Returns
+    -------
+    ir.Table
+        The sorted expression.
+    """
+    match order_by:
+        case str() | tuple() | list() as key:
+            return expr.order_by(key)
+        case None:
+            return apply_deterministic_sort(expr, random_seed)
+        case _:
+            raise TypeError(
+                f"order_by must be a str, tuple of str, or None, "
+                f"got {type(order_by).__name__}"
+            )
+
+
 def _make_folds_from_sklearn(
     expr, cv, features, target, random_seed=None, order_by=None
 ):
@@ -212,36 +261,16 @@ def _make_folds_from_sklearn(
     """
     n_splits = cv.get_n_splits()
     window = ibis.window()
+    sorted_expr = _resolve_order_by(expr, order_by, random_seed)
 
-    match order_by:
-        case str() | tuple() | list() as key:
-            # User-specified ordering (e.g. a timestamp column).
-            base_expr = expr.order_by(key)
-            drop_cols = ()
-        case None:
-            # Default: sort by a deterministic hash so the UDWF sees rows
-            # in a stable order regardless of backend scan order.
-            sort_key = make_deterministic_sort_key(expr, random_seed)
-            sort_col = sort_key.get_name()
-            base_expr = expr.mutate(sort_key).order_by(sort_col)
-            drop_cols = (sort_col,)
-        case _:
-            raise TypeError(
-                f"order_by must be a str, tuple of str, or None, "
-                f"got {type(order_by).__name__}"
-            )
-
-    fold_columns = (
-        _make_fold_udwf(cv, i, features, target, base_expr)
-        .on_expr(base_expr)
+    fold_columns = [
+        _make_fold_udwf(cv, i, features, target, sorted_expr)
+        .on_expr(sorted_expr)
         .over(window)
         .name(f"fold_{i}")
         for i in range(n_splits)
-    )
-    result = functools.reduce(
-        lambda expr, col: expr.mutate(col), fold_columns, base_expr
-    )
-    return result.drop(*drop_cols) if drop_cols else result
+    ]
+    return sorted_expr.mutate(*fold_columns)
 
 
 def _fold_pairs_from_fold_expr(fold_expr, n_splits):
@@ -261,10 +290,11 @@ def _fold_pairs_from_fold_expr(fold_expr, n_splits):
         One (train, test) pair per fold.  Fold columns are dropped from
         the returned tables.
     """
+    fold_cols = [f"fold_{i}" for i in range(n_splits)]
     return tuple(
         (
-            fold_expr.filter(fold_expr[f"fold_{i}"] == 1).drop(f"fold_{i}"),
-            fold_expr.filter(fold_expr[f"fold_{i}"] == 2).drop(f"fold_{i}"),
+            fold_expr.filter(fold_expr[f"fold_{i}"] == 1).drop(*fold_cols),
+            fold_expr.filter(fold_expr[f"fold_{i}"] == 2).drop(*fold_cols),
         )
         for i in range(n_splits)
     )
@@ -302,12 +332,12 @@ class CrossValScore:
         return len(self.score_exprs)
 
 
+@toolz.curry
 def deferred_cross_val_score(
     pipeline,
     expr,
     features,
     target,
-    *,
     cv=5,
     scoring=None,
     random_seed=None,
@@ -344,7 +374,7 @@ def deferred_cross_val_score(
         controls the deterministic row ordering used to guarantee that
         the UDWF sees rows in a stable order.  To reproduce the same
         fold assignments with standalone sklearn, sort the pandas
-        DataFrame by :func:`make_deterministic_sort_key` with the same
+        DataFrame with :func:`apply_deterministic_sort` using the same
         seed before calling ``cross_val_score``.  Default is None.
     order_by : str, tuple of str, or None, optional
         Column(s) to sort by before folding.  Overrides the default
@@ -429,4 +459,8 @@ def deferred_cross_val_score(
     return CrossValScore(score_exprs=score_exprs, fold_expr=fold_expr)
 
 
-__all__ = ["deferred_cross_val_score", "make_deterministic_sort_key"]
+__all__ = [
+    "apply_deterministic_sort",
+    "deferred_cross_val_score",
+    "make_deterministic_sort_key",
+]

@@ -22,8 +22,8 @@ from sklearn.model_selection import (  # noqa: E402
 
 from xorq.expr.ml.cross_validation import (  # noqa: E402
     CrossValScore,
+    apply_deterministic_sort,
     deferred_cross_val_score,
-    make_deterministic_sort_key,
 )
 
 
@@ -105,13 +105,6 @@ def regressor_pipeline():
 FEATURES = tuple(f"f{i}" for i in range(4))
 TARGET = "target"
 RANDOM_SEED = 42
-
-
-def _sorted_df(ibis_table, random_seed=RANDOM_SEED):
-    """Execute an ibis table sorted by make_deterministic_sort_key."""
-    key = make_deterministic_sort_key(ibis_table, random_seed=random_seed)
-    col = key.get_name()
-    return ibis_table.mutate(key).order_by(col).drop(col).execute()
 
 
 # --- splitter instances, each with its expected number of folds ---
@@ -367,7 +360,9 @@ class TestDeferredCrossValScoreMatchesSklearn:
         ).execute()
 
         # Sort by the same deterministic key so sklearn sees identical row order.
-        df = _sorted_df(classification_data)
+        df = apply_deterministic_sort(
+            classification_data, random_seed=RANDOM_SEED
+        ).execute()
         sklearn_scores = cross_val_score(
             classifier_pipeline.instance,
             df[list(FEATURES)].values,
@@ -419,7 +414,9 @@ class TestDeferredCrossValScoreMatchesSklearn:
             random_seed=RANDOM_SEED,
         ).execute()
 
-        df = _sorted_df(regression_data)
+        df = apply_deterministic_sort(
+            regression_data, random_seed=RANDOM_SEED
+        ).execute()
         sklearn_scores = cross_val_score(
             regressor_pipeline.instance,
             df[list(FEATURES)].values,

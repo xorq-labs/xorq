@@ -12,7 +12,7 @@ cross_val_score. Shows three cv strategies:
    directly.  Rows are sorted by a deterministic hash (controlled by
    random_seed) so the UDWF always sees rows in the same order.  To get
    identical results from standalone sklearn, sort the pandas DataFrame
-   with make_deterministic_sort_key using the same random_seed.
+   with apply_deterministic_sort using the same random_seed.
 
 3. TimeSeriesSplit — requires order_by to specify the temporal column
    so that expanding-window semantics are respected.
@@ -37,8 +37,8 @@ from sklearn.preprocessing import StandardScaler
 
 import xorq.api as xo
 from xorq.expr.ml.cross_validation import (
+    apply_deterministic_sort,
     deferred_cross_val_score,
-    make_deterministic_sort_key,
 )
 from xorq.expr.ml.pipeline_lib import Pipeline
 
@@ -46,6 +46,12 @@ from xorq.expr.ml.pipeline_lib import Pipeline
 con = xo.connect()
 
 RANDOM_STATE = 42
+
+# --- Splitters ---
+sklearn_stratified_k_fold = StratifiedKFold(
+    n_splits=5, shuffle=True, random_state=RANDOM_STATE
+)
+sklearn_time_series_split = TimeSeriesSplit(n_splits=5)
 
 # --- Data setup ---
 feature_names = tuple(f"f{i}" for i in range(10))
@@ -64,38 +70,21 @@ sk_pipeline = SklearnPipeline(
 )
 pipeline = Pipeline.from_instance(sk_pipeline)
 
+make_cv = deferred_cross_val_score(
+    pipeline, data, feature_names, "target", random_seed=RANDOM_STATE
+)
+
 # --- int cv: 5-fold (hash-based splitting) ---
 # random_seed controls the deterministic hash partitioning
-cv_int = deferred_cross_val_score(
-    pipeline,
-    data,
-    features=feature_names,
-    target="target",
-    cv=5,
-    random_seed=RANDOM_STATE,
-)
+cv_int = make_cv(cv=5)
 
 # --- sklearn splitter: StratifiedKFold (index-based splitting) ---
 # random_seed controls the deterministic row ordering; the splitter's
 # random_state controls shuffle order within the splitter.
-cv_stratified = deferred_cross_val_score(
-    pipeline,
-    data,
-    features=feature_names,
-    target="target",
-    cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE),
-    random_seed=RANDOM_STATE,
-)
+cv_stratified = make_cv(cv=sklearn_stratified_k_fold)
 
 # --- TimeSeriesSplit: expanding window (order_by specifies temporal column) ---
-cv_timeseries = deferred_cross_val_score(
-    pipeline,
-    data,
-    features=feature_names,
-    target="target",
-    cv=TimeSeriesSplit(n_splits=5),
-    order_by="t",
-)
+cv_timeseries = make_cv(cv=sklearn_time_series_split, order_by="t")
 
 
 if __name__ == "__pytest_main__":
@@ -106,14 +95,12 @@ if __name__ == "__pytest_main__":
     # --- Reproduce sklearn splitter results with standalone sklearn ---
     # Sort the DataFrame by the same deterministic hash so sklearn sees
     # the same row order as the UDWF.
-    sort_key = make_deterministic_sort_key(data, random_seed=RANDOM_STATE)
-    sort_col = sort_key.get_name()
-    df_sorted = data.mutate(sort_key).order_by(sort_col).drop(sort_col).execute()
+    df_sorted = apply_deterministic_sort(data, random_seed=RANDOM_STATE).execute()
     sklearn_scores = cross_val_score(
         sk_pipeline,
         df_sorted[list(feature_names)].values,
         df_sorted["target"].values,
-        cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE),
+        cv=sklearn_stratified_k_fold,
         scoring="accuracy",
     )
 
@@ -123,7 +110,7 @@ if __name__ == "__pytest_main__":
         sk_pipeline,
         df_sorted_by_t[list(feature_names)].values,
         df_sorted_by_t["target"].values,
-        cv=TimeSeriesSplit(n_splits=5),
+        cv=sklearn_time_series_split,
         scoring="accuracy",
     )
 
@@ -158,10 +145,10 @@ if __name__ == "__pytest_main__":
     print()
 
     # Show train/test sizes per fold (TimeSeriesSplit uses expanding windows)
-    for col in fold_cols:
-        n_train = (fold_df[col] == 1).sum()
-        n_test = (fold_df[col] == 2).sum()
-        n_unused = (fold_df[col] == 0).sum()
-        print(f"  {col}: train={n_train}, test={n_test}, unused={n_unused}")
+    fold_summary = "\n".join(
+        f"  {col}: train={(fold_df[col] == 1).sum()}, test={(fold_df[col] == 2).sum()}, unused={(fold_df[col] == 0).sum()}"
+        for col in fold_cols
+    )
+    print(fold_summary)
 
     pytest_examples_passed = True
