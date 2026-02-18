@@ -34,6 +34,7 @@ from sklearn.model_selection import (
 )
 from sklearn.pipeline import Pipeline as SklearnPipeline
 from sklearn.preprocessing import StandardScaler
+from toolz import curry
 
 import xorq.api as xo
 from xorq.expr.ml.cross_validation import (
@@ -70,8 +71,14 @@ sk_pipeline = SklearnPipeline(
 )
 pipeline = Pipeline.from_instance(sk_pipeline)
 
-make_cv = deferred_cross_val_score(
-    pipeline, data, feature_names, "target", random_seed=RANDOM_STATE
+
+make_cv = curry(
+    deferred_cross_val_score,
+    pipeline,
+    data,
+    feature_names,
+    "target",
+    random_seed=RANDOM_STATE,
 )
 
 # --- int cv: 5-fold (hash-based splitting) ---
