@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.10] - 2026-02-18
+### Details
+#### Added
+- Add YAML serialization for DateUnit, TimeUnit, and TimestampUnit… by @hussainsultan in [#1577](https://github.com/xorq-labs/xorq/pull/1577)
+- Add YAML serialization for ParquetTTLSnapshotCache and SourceSn… by @hussainsultan in [#1578](https://github.com/xorq-labs/xorq/pull/1578)
+- Add xorq.ibis_yaml.{build_expr,load_expr} by @dlovell in [#1574](https://github.com/xorq-labs/xorq/pull/1574)
+- Add attr_utils.{convert_sorted_kwargs_tuple,validate_kwargs_tuple} by @dlovell in [#1585](https://github.com/xorq-labs/xorq/pull/1585)
+
+#### Changed
+- Sklearn-non-scorer-metrics by @ghoersti in [#1576](https://github.com/xorq-labs/xorq/pull/1576)
+
+#### Fixed
+- Sanitize read names by @dlovell in [#1581](https://github.com/xorq-labs/xorq/pull/1581)
+- Relocatable builds by @dlovell in [#1582](https://github.com/xorq-labs/xorq/pull/1582)
+- Cache hash collision by @hussainsultan in [#1587](https://github.com/xorq-labs/xorq/pull/1587)
+
 ## [0.3.9] - 2026-02-10
 ### Details
 #### Changed
