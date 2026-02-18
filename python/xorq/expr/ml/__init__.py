@@ -1,3 +1,7 @@
+from xorq.expr.ml.cross_validation import (
+    deferred_cross_val_score,
+    make_deterministic_sort_key,
+)
 from xorq.expr.ml.fit_lib import (
     deferred_fit_predict,
     deferred_fit_predict_sklearn,
@@ -39,6 +43,8 @@ except ImportError:
 
 
 __all__ = [
+    "deferred_cross_val_score",
+    "make_deterministic_sort_key",
     "train_test_splits",
     "make_quickgrove_udf",
     "rewrite_quickgrove_expr",
