@@ -13,6 +13,8 @@ from xorq.config import options
 
 from xorq.expr import api
 from xorq.expr.api import *  # noqa: F403
+from xorq import caching
+from xorq.caching import *  # noqa: F403
 from xorq import ml
 from xorq.ml import *  # noqa: F403
 from xorq.backends.xorq import Backend
@@ -26,6 +28,7 @@ from xorq.ibis_yaml.compiler import (
 
 __all__ = [  # noqa: PLE0604
     "api",
+    "caching",
     "examples",
     "expr",
     "flight",
@@ -37,6 +40,7 @@ __all__ = [  # noqa: PLE0604
     "build_expr",
     "load_expr",
     *api.__all__,
+    *caching.__all__,
     *ml.__all__,
     *udf.__all__,
 ]
