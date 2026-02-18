@@ -13,7 +13,6 @@ from sklearn.model_selection import TimeSeriesSplit
 from sklearn.model_selection._split import GroupsConsumerMixin
 
 import xorq.expr.datatypes as dt
-from xorq.expr.ml.pipeline_lib import Pipeline
 from xorq.expr.udf import pyarrow_udwf
 from xorq.vendor import ibis
 from xorq.vendor.ibis.expr.api import literal
@@ -376,6 +375,8 @@ def deferred_cross_val_score(
     >>> cv_scores = deferred_cross_val_score(pipe, t, features=("x1", "x2"), target="y", cv=5)
     >>> scores = cv_scores.execute()  # materializes all folds
     """
+    from xorq.expr.ml.pipeline_lib import Pipeline
+
     if not isinstance(pipeline, Pipeline):
         raise TypeError(
             f"pipeline must be a Pipeline instance, got {type(pipeline).__name__}"
