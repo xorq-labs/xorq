@@ -119,9 +119,9 @@ def test_flight_serve_unbound_finds_con(parquet_dir):
 @pytest.mark.parametrize(
     "i,j",
     (
-        (0, 4),
-        (2, 4),
-        (4, 4),
+        (0, 2),
+        (1, 2),
+        (2, 2),
     ),
 )
 def test_flight_serve_unbound_finds_con_complex(i, j, parquet_dir, tmpdir):
