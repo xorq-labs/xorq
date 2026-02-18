@@ -20,12 +20,12 @@
         ]
       }
     ],
-    "PostToolUseFailure": [
+    "PostToolUse": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.snowflake/cortex/hooks/post_tool_use_failure.py"
+            "command": "python3 ~/.snowflake/cortex/hooks/post_tool_use.py"
           }
         ]
       }

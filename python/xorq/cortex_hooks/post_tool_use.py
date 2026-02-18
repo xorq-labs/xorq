@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PostToolUseFailure hook for Cortex Code - provides xorq troubleshooting guidance."""
+"""PostToolUse hook for Cortex Code - provides xorq troubleshooting guidance."""
 
 import os
 import sys
@@ -151,7 +151,7 @@ xorq run <alias> -f arrow -o result.arrow
 
 
 def main():
-    """PostToolUseFailure hook handler."""
+    """PostToolUse hook handler."""
     try:
         # Read tool failure information from environment or stdin
         tool_output = os.environ.get("TOOL_OUTPUT", "")

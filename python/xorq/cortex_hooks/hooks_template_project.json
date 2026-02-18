@@ -18,10 +18,10 @@
         "command": "python3 \"$CORTEX_PROJECT_DIR\"/.cortex/hooks/pre_tool_use.py"
       }]
     }],
-    "PostToolUseFailure": [{
+    "PostToolUse": [{
       "hooks": [{
         "type": "command",
-        "command": "python3 \"$CORTEX_PROJECT_DIR\"/.cortex/hooks/post_tool_use_failure.py"
+        "command": "python3 \"$CORTEX_PROJECT_DIR\"/.cortex/hooks/post_tool_use.py"
       }]
     }],
     "PreCompact": [{

@@ -586,6 +586,7 @@ def install_claude_hooks_command(args):
         "session_start.py",
         "user_prompt_submit.py",
         "pre_tool_use.py",
+        "post_tool_use.py",
         "pre_compact.py",
         "stop.py",
         "session_end.py",
