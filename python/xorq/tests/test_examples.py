@@ -19,6 +19,7 @@ NON_TESTABLE = (
     "complex_cached_expr.py",
     "xorq_build_and_run.py",
     "weather_flight.py",
+    "gizmosql_demo.py",
 )
 
 file_path = pathlib.Path(__file__).absolute()

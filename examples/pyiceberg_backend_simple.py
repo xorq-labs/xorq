@@ -9,6 +9,7 @@ With xorq: PyIceberg is integrated as a first-class backend, so you can use fami
 expressions to create and query Iceberg tables. The same expression syntax works across
 Iceberg and other backends, making it easy to incorporate Iceberg into multi-engine workflows.
 """
+
 import pyarrow as pa
 
 import xorq.api as xo

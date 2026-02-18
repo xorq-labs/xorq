@@ -68,6 +68,11 @@ jobs:
             extras:
               - --extra sqlite
               - --extra duckdb
+          - name: gizmosql
+            services: true
+            extras:
+              - --extra gizmosql
+              - --extra duckdb
     steps:
       - uses: actions/checkout@v6
       - uses: extractions/setup-just@v3

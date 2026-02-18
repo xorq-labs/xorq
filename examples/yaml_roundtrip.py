@@ -9,6 +9,7 @@ With xorq: Expressions serialize to YAML and deserialize back, preserving the fu
 computation graph including cross-backend joins. Pipelines can be version-controlled,
 shared as config files, and rebuilt on any system with access to the same backends.
 """
+
 import xorq.api as xo
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.relations import into_backend

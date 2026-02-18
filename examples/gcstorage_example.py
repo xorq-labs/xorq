@@ -9,6 +9,7 @@ With xorq: GCSCache plugs into the same .cache() API as any other cache backend.
 Swap ParquetCache for GCSCache and your results are cached in a GCS bucket with
 the same input-addressed semantics -- no changes to your pipeline logic needed.
 """
+
 import xorq.api as xo
 from xorq.caching import GCSCache
 

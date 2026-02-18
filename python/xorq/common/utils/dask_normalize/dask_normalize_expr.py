@@ -358,6 +358,7 @@ def normalize_databasetable(dt):
         "xorq": normalize_xorq_databasetable,
         "duckdb": normalize_duckdb_databasetable,
         "trino": normalize_remote_databasetable,
+        "gizmosql": normalize_remote_databasetable,
         "bigquery": normalize_bigquery_databasetable,
         "pyiceberg": normalize_pyiceberg_database_table,
         "sqlite": normalize_sqlite_database_table,
@@ -399,7 +400,7 @@ def normalize_backend(con):
         con_details = {k: con_dct[k] for k in ("host", "port", "dbname")}
     elif name == "pandas":
         con_details = id(con.dictionary)
-    elif name in ("datafusion", "duckdb", "xorq"):
+    elif name in ("datafusion", "duckdb", "xorq", "gizmosql"):
         con_details = (con._profile.con_name, con._profile.kwargs_tuple)
     elif name == "trino":
         con_details = con.con.host

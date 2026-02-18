@@ -8,6 +8,7 @@ With xorq: .cache() with ParquetCache adds input-addressed caching in one line. 
 key is derived from the expression itself, so changes to filters automatically invalidate
 stale results without any manual bookkeeping.
 """
+
 from pathlib import Path
 
 import xorq.api as xo

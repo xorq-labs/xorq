@@ -31,6 +31,16 @@ duckdb_con = xo.duckdb.connect()
 # PostgreSQL
 pg_con = xo.postgres.connect_env()
 
+# GizmoSQL (DuckDB over Arrow Flight SQL)
+gizmosql_con = xo.gizmosql.connect(
+    host="localhost",
+    user="user",
+    password="password",
+    port=31337,
+    use_encryption=True,
+    disable_certificate_verification=True,
+)
+
 # Pandas
 pandas_con = xo.pandas.connect()
 ```

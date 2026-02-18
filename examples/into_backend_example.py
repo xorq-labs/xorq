@@ -9,6 +9,7 @@ With xorq: .into_backend() seamlessly moves data between engines in a single met
 Joins across backends work automatically, and .cache() with SourceCache persists intermediate
 results so repeated runs skip redundant computation.
 """
+
 import xorq.api as xo
 from xorq.caching import SourceCache
 
