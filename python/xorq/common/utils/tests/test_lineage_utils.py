@@ -4,8 +4,8 @@ import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.common.utils.graph_utils import to_node
 from xorq.common.utils.lineage_utils import (
-    ColorScheme,
     GenericNode,
+    TextTree,
     _build_column_tree,
     build_column_trees,
     build_tree,
@@ -73,15 +73,10 @@ def test_build_column_trees_and_display(sample_expression):
 
     display_tree = build_tree(total_discount_tree, dedup=True, max_depth=5)
 
-    from rich.tree import Tree
+    assert isinstance(display_tree, TextTree)
 
-    assert isinstance(display_tree, Tree)
-
-    custom_palette = ColorScheme()
-    display_tree_custom = build_tree(
-        total_discount_tree, palette=custom_palette, dedup=False
-    )
-    assert isinstance(display_tree_custom, Tree)
+    display_tree_no_dedup = build_tree(total_discount_tree, dedup=False)
+    assert isinstance(display_tree_no_dedup, TextTree)
 
 
 def test_complete_lineage_for_total_discount_column(sample_expression):

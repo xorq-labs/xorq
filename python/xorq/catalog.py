@@ -909,12 +909,12 @@ def lineage_command(
     # Load serialized expression
     expr = load_expr(build_dir)
     # Build and print lineage trees
-    from xorq.common.utils.lineage_utils import build_column_trees, print_tree
+    from xorq.common.utils.lineage_utils import build_column_trees, build_tree
 
     trees = build_column_trees(expr)
     for column, tree in trees.items():
         print(f"Lineage for column '{column}':")
-        print_tree(tree)
+        print(build_tree(tree))
         print()
 
 
