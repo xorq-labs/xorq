@@ -51,9 +51,7 @@ def _wait_for_container_log(
         if ready_message in logs:
             return True
         time.sleep(poll_interval)
-    raise TimeoutError(
-        f"Container did not show '{ready_message}' within {timeout}s."
-    )
+    raise TimeoutError(f"Container did not show '{ready_message}' within {timeout}s.")
 
 
 @pytest.fixture(scope="session")

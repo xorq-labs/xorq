@@ -250,9 +250,7 @@ class Backend(
             schema = ibis.schema(schema)
 
         # schema.null_fields is not available in vendored ibis v9.5.0
-        null_fields = {
-            name for name, dtype in schema.items() if dtype.is_null()
-        }
+        null_fields = {name for name, dtype in schema.items() if dtype.is_null()}
         if null_fields:
             raise exc.XorqTypeError(
                 "GizmoSQL / DuckDB does not support creating tables with NULL typed columns. "
@@ -265,12 +263,8 @@ class Backend(
         else:
             temp_name = name
 
-        initial_table = sg.table(
-            temp_name, catalog=catalog, db=database, quoted=quoted
-        )
-        target = sge.Schema(
-            this=initial_table, expressions=schema.to_sqlglot(dialect)
-        )
+        initial_table = sg.table(temp_name, catalog=catalog, db=database, quoted=quoted)
+        target = sge.Schema(this=initial_table, expressions=schema.to_sqlglot(dialect))
 
         create_stmt = sge.Create(
             kind="TABLE",
@@ -313,9 +307,9 @@ class Backend(
                         )
                         cur.fetchall()
                         cur.execute(
-                            sge.Drop(
-                                kind="TABLE", this=initial_table, exists=True
-                            ).sql(dialect=self.dialect)
+                            sge.Drop(kind="TABLE", this=initial_table, exists=True).sql(
+                                dialect=self.dialect
+                            )
                         )
                         cur.fetchall()
                     else:
@@ -432,9 +426,7 @@ class Backend(
         )
 
         if catalog is not None:
-            query = query.where(
-                sg.column("catalog_name").eq(sge.convert(catalog))
-            )
+            query = query.where(sg.column("catalog_name").eq(sge.convert(catalog)))
 
         with self._safe_raw_sql(query) as cur:
             out = cur.fetch_arrow_table()
@@ -631,9 +623,7 @@ class Backend(
             )
 
         name = sg.table(name, catalog=catalog, quoted=self.compiler.quoted)
-        with self._safe_raw_sql(
-            sge.Create(this=name, kind="SCHEMA", replace=force)
-        ):
+        with self._safe_raw_sql(sge.Create(this=name, kind="SCHEMA", replace=force)):
             pass
 
     def drop_database(
@@ -645,9 +635,7 @@ class Backend(
             )
 
         name = sg.table(name, catalog=catalog, quoted=self.compiler.quoted)
-        with self._safe_raw_sql(
-            sge.Drop(this=name, kind="SCHEMA", replace=force)
-        ):
+        with self._safe_raw_sql(sge.Drop(this=name, kind="SCHEMA", replace=force)):
             pass
 
     @util.experimental
@@ -688,8 +676,7 @@ class Backend(
             table_name = util.gen_name("read_json")
 
         options = [
-            sg.to_identifier(key).eq(sge.convert(val))
-            for key, val in kwargs.items()
+            sg.to_identifier(key).eq(sge.convert(val)) for key, val in kwargs.items()
         ]
 
         if columns:
@@ -708,13 +695,9 @@ class Backend(
             )
 
         source = sg.select(STAR).from_(
-            self.compiler.f.read_json_auto(
-                util.normalize_filenames(paths), *options
-            )
+            self.compiler.f.read_json_auto(util.normalize_filenames(paths), *options)
         )
-        return self._read_local_and_ingest(
-            table_name, source, batch_size=batch_size
-        )
+        return self._read_local_and_ingest(table_name, source, batch_size=batch_size)
 
     def read_csv(
         self,
@@ -788,12 +771,8 @@ class Backend(
         if types is not None:
             options.append(C.types.eq(make_struct_argument(types)))
 
-        source = sg.select(STAR).from_(
-            self.compiler.f.read_csv(paths, *options)
-        )
-        return self._read_local_and_ingest(
-            table_name, source, batch_size=batch_size
-        )
+        source = sg.select(STAR).from_(self.compiler.f.read_csv(paths, *options))
+        return self._read_local_and_ingest(table_name, source, batch_size=batch_size)
 
     def read_parquet(
         self,
@@ -833,15 +812,10 @@ class Backend(
         table_name = table_name or util.gen_name("read_parquet")
 
         options = [
-            sg.to_identifier(key).eq(sge.convert(val))
-            for key, val in kwargs.items()
+            sg.to_identifier(key).eq(sge.convert(val)) for key, val in kwargs.items()
         ]
-        source = sg.select(STAR).from_(
-            self.compiler.f.read_parquet(paths, *options)
-        )
-        return self._read_local_and_ingest(
-            table_name, source, batch_size=batch_size
-        )
+        source = sg.select(STAR).from_(self.compiler.f.read_parquet(paths, *options))
+        return self._read_local_and_ingest(table_name, source, batch_size=batch_size)
 
     def read_delta(
         self,
@@ -879,16 +853,11 @@ class Backend(
         table_name = table_name or util.gen_name("read_delta")
 
         options = [
-            sg.to_identifier(key).eq(sge.convert(val))
-            for key, val in kwargs.items()
+            sg.to_identifier(key).eq(sge.convert(val)) for key, val in kwargs.items()
         ]
 
-        source = sg.select(STAR).from_(
-            self.compiler.f.delta_scan(path, *options)
-        )
-        return self._read_local_and_ingest(
-            table_name, source, batch_size=batch_size
-        )
+        source = sg.select(STAR).from_(self.compiler.f.delta_scan(path, *options))
+        return self._read_local_and_ingest(table_name, source, batch_size=batch_size)
 
     def list_tables(
         self,
@@ -986,9 +955,7 @@ class Backend(
         parsed = urllib.parse.urlparse(uri)
 
         if table_name is None:
-            raise ValueError(
-                "`table_name` is required when registering a mysql table"
-            )
+            raise ValueError("`table_name` is required when registering a mysql table")
 
         self._load_extensions(["mysql"])
 
@@ -1024,9 +991,7 @@ class Backend(
 
         """
         if table_name is None:
-            raise ValueError(
-                "`table_name` is required when registering a sqlite table"
-            )
+            raise ValueError("`table_name` is required when registering a sqlite table")
         self._load_extensions(["sqlite"])
 
         self._create_temp_view(
@@ -1104,12 +1069,8 @@ class Backend(
 
         """
         self.load_extension("sqlite")
-        with self._safe_raw_sql(
-            f"SET GLOBAL sqlite_all_varchar={all_varchar}"
-        ) as cur:
-            cur.execute(
-                f"CALL sqlite_attach('{path}', overwrite={overwrite})"
-            )
+        with self._safe_raw_sql(f"SET GLOBAL sqlite_all_varchar={all_varchar}") as cur:
+            cur.execute(f"CALL sqlite_attach('{path}', overwrite={overwrite})")
             cur.fetchall()
 
     def _to_pyarrow_table(
@@ -1248,9 +1209,7 @@ class Backend(
             A dictionary of torch tensors, keyed by column name.
 
         """
-        return self._to_pyarrow_table(
-            expr, params=params, limit=limit
-        ).torch()
+        return self._to_pyarrow_table(expr, params=params, limit=limit).torch()
 
     def _get_schema_using_query(self, query: str) -> sch.Schema:
         with self._safe_raw_sql(f"DESCRIBE {query}") as cur:
@@ -1372,15 +1331,11 @@ class Backend(
             kind="VIEW",
             expression=definition,
             replace=True,
-            properties=sge.Properties(
-                expressions=[sge.TemporaryProperty()]
-            ),
+            properties=sge.Properties(expressions=[sge.TemporaryProperty()]),
         )
 
     def _create_temp_view(self, table_name, source):
-        with self._safe_raw_sql(
-            self._get_temp_view_definition(table_name, source)
-        ):
+        with self._safe_raw_sql(self._get_temp_view_definition(table_name, source)):
             pass
 
 

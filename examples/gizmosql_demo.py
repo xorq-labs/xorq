@@ -15,7 +15,6 @@ Prerequisites
        docker compose up gizmosql --wait
 """
 
-
 import xorq.api as xo
 from xorq.caching import SourceCache
 from xorq.vendor import ibis
@@ -67,8 +66,7 @@ print()
 # ---------------------------------------------------------------------------
 
 top_batters = (
-    batting
-    .filter(_.yearID >= 2010)
+    batting.filter(_.yearID >= 2010)
     .group_by("playerID")
     .agg(
         total_hits=_.H.sum(),
@@ -100,8 +98,7 @@ print()
 
 # Query runs on DuckDB, data was pulled from GizmoSQL via Arrow
 recent_batting = (
-    batting_in_ddb
-    .filter(_.yearID == 2015)
+    batting_in_ddb.filter(_.yearID == 2015)
     .select("playerID", "yearID", "teamID", "H", "AB")
     .order_by(ibis.desc("H"))
     .limit(5)
@@ -124,8 +121,7 @@ print(f"  Expression backends: {awards_in_xorq.ls.backends}")
 print()
 
 nl_awards = (
-    awards_in_xorq
-    .filter(_.lgID == "NL")
+    awards_in_xorq.filter(_.lgID == "NL")
     .group_by("playerID")
     .agg(num_awards=_.playerID.count())
     .order_by(ibis.desc("num_awards"))
@@ -146,8 +142,7 @@ awards_ddb = awards.into_backend(duckdb_con, "awards_join")
 
 # Join batting with awards — runs on DuckDB, data sourced from GizmoSQL
 enriched = (
-    batting_ddb
-    .filter(_.yearID >= 2010)
+    batting_ddb.filter(_.yearID >= 2010)
     .join(
         awards_ddb.select("playerID", "awardID", yearID="yearID"),
         predicates=["playerID", "yearID"],
@@ -168,12 +163,11 @@ print()
 # ---------------------------------------------------------------------------
 
 pipeline = (
-    batting
-    .filter(_.yearID >= 2014)
+    batting.filter(_.yearID >= 2014)
     .select("playerID", "yearID", "teamID", "H", "AB")
-    .into_backend(duckdb_con, "pipeline_step1")        # GizmoSQL → DuckDB
+    .into_backend(duckdb_con, "pipeline_step1")  # GizmoSQL → DuckDB
     .filter(_.H > 100)
-    .into_backend(xorq_con, "pipeline_step2")           # DuckDB → DataFusion
+    .into_backend(xorq_con, "pipeline_step2")  # DuckDB → DataFusion
     .group_by("teamID")
     .agg(
         avg_hits=_.H.mean(),
@@ -193,13 +187,12 @@ print()
 # ---------------------------------------------------------------------------
 
 cached_pipeline = (
-    batting
-    .filter(_.yearID >= 2010)
+    batting.filter(_.yearID >= 2010)
     .into_backend(duckdb_con, "cached_batting")
     .group_by(["playerID", "yearID"])
     .agg(total_hits=_.H.sum())
     .cache(SourceCache.from_kwargs(source=duckdb_con))  # cache on DuckDB
-    .into_backend(xorq_con)                              # move to DataFusion
+    .into_backend(xorq_con)  # move to DataFusion
     .filter(_.total_hits > 150)
     .order_by(ibis.desc("total_hits"))
     .limit(10)
@@ -215,8 +208,7 @@ print()
 # ---------------------------------------------------------------------------
 
 batches = (
-    batting
-    .filter(_.yearID == 2015)
+    batting.filter(_.yearID == 2015)
     .select("playerID", "teamID", "H")
     .to_pyarrow_batches()
 )

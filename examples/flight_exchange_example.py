@@ -130,9 +130,7 @@ if __name__ == "__pytest_main__":
             exchanger,
             options=client._options,
         )
-        (fut, rbr_out) = client.do_exchange_batches(
-            exchanger.command, rbr_in
-        )
+        (fut, rbr_out) = client.do_exchange_batches(exchanger.command, rbr_in)
         df_out = instrument_reader(rbr_out, prefix="output ::").read_pandas()
         print(fut.result())
         print(df_out.assign(model=df_out.model_binary.map(pickle.loads)))

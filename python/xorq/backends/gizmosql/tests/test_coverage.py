@@ -217,8 +217,7 @@ def test_vendored_execute_with_list_type(con):
     from xorq.vendor.ibis.backends.gizmosql import Backend
 
     with con._safe_raw_sql(
-        "CREATE OR REPLACE TABLE test_nested AS "
-        "SELECT [1, 2, 3] AS arr, 'a' AS label"
+        "CREATE OR REPLACE TABLE test_nested AS SELECT [1, 2, 3] AS arr, 'a' AS label"
     ):
         pass
     try:
@@ -271,11 +270,13 @@ def test_vendored_to_pyarrow_batches(con, batting):
 
 def test_normalize_arrow_schema_large_types(con):
     """_normalize_arrow_schema downcasts large_string to string."""
-    table = pa.table({
-        "a": pa.array(["x", "y", "z"], type=pa.large_string()),
-        "b": pa.array([b"a", b"b", b"c"], type=pa.large_binary()),
-        "c": pa.array([1, 2, 3], type=pa.int64()),
-    })
+    table = pa.table(
+        {
+            "a": pa.array(["x", "y", "z"], type=pa.large_string()),
+            "b": pa.array([b"a", b"b", b"c"], type=pa.large_binary()),
+            "c": pa.array([1, 2, 3], type=pa.int64()),
+        }
+    )
     result = con._normalize_arrow_schema(table)
     assert result.schema.field("a").type == pa.string()
     assert result.schema.field("b").type == pa.binary()
@@ -295,7 +296,9 @@ def test_normalize_arrow_schema_no_change(con):
 def test_register_empty_memtable(con):
     """Empty memtable is created via DDL (ADBC ingest fails on zero rows)."""
     t = xo.memtable(
-        pa.table({"x": pa.array([], type=pa.int64()), "y": pa.array([], type=pa.string())})
+        pa.table(
+            {"x": pa.array([], type=pa.int64()), "y": pa.array([], type=pa.string())}
+        )
     )
     result = con.execute(t)
     assert isinstance(result, pd.DataFrame)
@@ -342,7 +345,9 @@ def test_from_url_parsing(con):
     try:
         backend = Backend()
         with pytest.raises(ConnectionError, match="mock"):
-            backend._from_url(url, useEncryption="true", disableCertificateVerification="true")
+            backend._from_url(
+                url, useEncryption="true", disableCertificateVerification="true"
+            )
         assert parsed_kwargs["host"] == "myhost"
         assert parsed_kwargs["port"] == 31337
         assert parsed_kwargs["user"] == "myuser"

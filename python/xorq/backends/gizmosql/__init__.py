@@ -17,9 +17,7 @@ class Backend(IbisGizmoSQLBackend):
     ) -> Any:
         self._run_pre_execute_hooks(expr)
         table = self._to_pyarrow_table(expr, params=params, limit=limit)
-        return expr.__pandas_result__(
-            table.to_pandas(timestamp_as_object=True)
-        )
+        return expr.__pandas_result__(table.to_pandas(timestamp_as_object=True))
 
     def read_record_batches(self, source, table_name=None):
         table_name = table_name or gen_name("read_record_batches")

@@ -8,6 +8,7 @@ With xorq: Register Arrow RecordBatches directly into SQLite with read_record_ba
 chain operations across SQLite and DuckDB using .into_backend(). SourceCache persists the
 final results back to SQLite, all in a single composable expression.
 """
+
 import numpy as np
 import pandas as pd
 import pyarrow as pa

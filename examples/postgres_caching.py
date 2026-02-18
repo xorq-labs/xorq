@@ -9,6 +9,7 @@ With xorq: Window functions are composed as Ibis expressions, and .cache() deriv
 the cache key from the expression itself. When the expression changes, stale results
 are automatically invalidated, so you never serve outdated data.
 """
+
 import xorq.api as xo
 from xorq.api import _
 from xorq.caching import ParquetCache
