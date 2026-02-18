@@ -9,8 +9,6 @@ import numpy as np
 import pyarrow as pa
 from attr import field, frozen
 from attr.validators import deep_iterable, instance_of
-from sklearn.model_selection import TimeSeriesSplit
-from sklearn.model_selection._split import GroupsConsumerMixin
 
 import xorq.expr.datatypes as dt
 from xorq.expr.udf import pyarrow_udwf
@@ -375,6 +373,9 @@ def deferred_cross_val_score(
     >>> cv_scores = deferred_cross_val_score(pipe, t, features=("x1", "x2"), target="y", cv=5)
     >>> scores = cv_scores.execute()  # materializes all folds
     """
+    from sklearn.model_selection import TimeSeriesSplit
+    from sklearn.model_selection._split import GroupsConsumerMixin
+
     from xorq.expr.ml.pipeline_lib import Pipeline
 
     if not isinstance(pipeline, Pipeline):
