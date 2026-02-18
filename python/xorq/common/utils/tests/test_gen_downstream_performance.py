@@ -8,7 +8,6 @@ from xorq.vendor.ibis.expr.operations import InMemoryTable
 
 
 def create_expr(depth=3):
-    """Create expression with shared subgraphs for benchmarking."""
     df = pd.DataFrame(
         {
             "a": [1, 2, 3],
