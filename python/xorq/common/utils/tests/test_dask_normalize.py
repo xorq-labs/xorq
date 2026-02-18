@@ -14,6 +14,7 @@ import toolz
 import xorq.api as xo
 import xorq.common.utils.dask_normalize  # noqa: F401
 from xorq.caching import (
+    ParquetCache,
     SourceSnapshotCache,
 )
 from xorq.common.utils.dask_normalize import (
@@ -26,6 +27,7 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     patch_normalize_token,
     walk_normalized,
 )
+from xorq.ibis_yaml.compiler import build_expr
 
 
 def test_ensure_deterministic():
@@ -240,3 +242,23 @@ def test_patch_normalize_token():
 
     assert "to_retain" not in dask.base.normalize_token._lookup
     assert name_to_cls["to_retain"] in dask.base.normalize_token._lookup
+
+
+def test_parquet_cache_tokenize_stable_across_cloudpickle():
+    import cloudpickle
+
+    con = xo.connect()
+    cache = ParquetCache.from_kwargs(source=con)
+    token_before = dask.base.tokenize(cache)
+    cache2 = cloudpickle.loads(cloudpickle.dumps(cache))
+    token_after = dask.base.tokenize(cache2)
+    assert token_before == token_after
+
+
+def test_different_cache_types_produce_different_hashes():
+    t = xo.memtable({"a": [1, 2, 3], "b": ["x", "y", "z"]})
+    c0 = t.cache()
+    c1 = t.cache(ParquetCache.from_kwargs())
+    b0 = build_expr(c0)
+    b1 = build_expr(c1)
+    assert b0 != b1

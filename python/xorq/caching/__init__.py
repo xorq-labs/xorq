@@ -93,6 +93,15 @@ class Cache:
         else:
             self.storage.drop(key)
 
+    def __dask_tokenize__(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+            normalize_seq_with_caller,
+        )
+
+        return normalize_seq_with_caller(
+            self.strategy, self.storage, self.key_prefix, caller="normalize_cache"
+        )
+
     @classmethod
     def from_kwargs(cls, **kwargs):
         strategy = cls.strategy_typ()
