@@ -13,7 +13,7 @@ full dependency chain for each output column.
 
 import xorq.api as xo
 import xorq.expr.datatypes as dt
-from xorq.common.utils.lineage_utils import build_column_trees, print_tree
+from xorq.common.utils.lineage_utils import build_column_trees, build_tree
 
 
 @xo.udf.make_pandas_udf(
@@ -51,7 +51,7 @@ def main():
 
     for column, tree in column_trees.items():
         print(f"Lineage for column '{column}':")
-        print_tree(tree)
+        print(build_tree(tree))
         print("\n")
 
 

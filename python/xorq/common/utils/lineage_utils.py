@@ -2,13 +2,11 @@ from __future__ import annotations
 
 from functools import lru_cache, singledispatch
 from itertools import count
-from typing import Any, Callable, Dict, Tuple
+from typing import Any, Callable, Tuple
 
 import dask.base
 from attrs import evolve, field, frozen
 from attrs.validators import instance_of
-from rich import print as rprint
-from rich.tree import Tree
 
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
@@ -23,8 +21,38 @@ from xorq.vendor.ibis.expr.operations.core import Node
 __all__ = [
     "build_column_trees",
     "build_tree",
-    "print_tree",
 ]
+
+
+@frozen
+class TextTree:
+    """Plain-text tree for displaying lineage."""
+
+    label: str = field(validator=instance_of(str))
+    children: Tuple["TextTree", ...] = field(
+        factory=tuple, validator=instance_of(tuple)
+    )
+
+    def _lines(
+        self, prefix: str = "", is_last: bool = True, is_root: bool = True
+    ) -> tuple[str, ...]:
+        if is_root:
+            line = self.label
+            child_prefix = ""
+        else:
+            connector = "└── " if is_last else "├── "
+            line = prefix + connector + self.label
+            child_prefix = prefix + ("    " if is_last else "│   ")
+        return (line,) + tuple(
+            grandchild_line
+            for i, child in enumerate(self.children)
+            for grandchild_line in child._lines(
+                child_prefix, i == len(self.children) - 1, False
+            )
+        )
+
+    def __str__(self) -> str:
+        return "\n".join(self._lines())
 
 
 @frozen
@@ -68,125 +96,46 @@ def _build_column_tree(node: Node) -> GenericNode:
             return GenericNode(op=node, children=children)
 
 
-def build_column_trees(expr: Any) -> Dict[str, GenericNode]:
+def build_column_trees(expr: Any) -> dict[str, GenericNode]:
     """Builds a lineage tree for each column in the expression."""
     op = to_node(expr)
     cols = getattr(op, "values", None) or getattr(op, "fields", {})
     return {k: _build_column_tree(to_node(v)) for k, v in cols.items()}
 
 
-@frozen
-class ColorScheme:
-    colors: Dict[str, str] = {
-        "table": "[#658594]",  # dragonBlue2 (muted ocean blue)
-        "cached_table": "[#8a739a]",  # dragonViolet (soft purple)
-        "field": "[#8ea4a2]",  # dragonAsh (sage green)
-        "literal": "[#b6927b]",  # dragonOrange2 (warm earth)
-        "project": "[#c5c9c5]",  # dragonWhite (soft cloud)
-        "filter": "[#87a987]",  # springViolet (forest green)
-        "join": "[bold #a292a3]",  # springViolet2 (muted lavender)
-        "aggregate": "[#c4b28a]",  # dragonYellow (wheat)
-        "sort": "[#7d7c61]",  # comet (olive)
-        "limit": "[#43436c]",  # dragonInk (deep twilight)
-        "value": "[#b98d7b]",  # dragonOrange (clay)
-        "binary": "[#7d957d]",  # dragonGreen2 (moss)
-        "window": "[bold #8a739a]",  # bold dragonViolet
-        "udf": "[#7e9cd8]",  # waveBlue1 (accent blue)
-        "default": "[#a6a69c]",  # fujiGray (natural stone)
-    }
-
-    def get(self, category: str) -> str:
-        return self.colors.get(category, self.colors["default"])
-
-
-default_palette = ColorScheme()
-
-
-def _category(node: Node) -> str:
-    name_typs = (
-        ops.Field,
-        ops.Literal,
-        ops.Project,
-        ops.Filter,
-        ops.Aggregate,
-        ops.Sort,
-        ops.Limit,
-        ops.BinaryOp,
-        ops.ValueOp,
-    )
-    if isinstance(node, name_typs):
-        return node.__class__.__name__.lower()
-    if isinstance(node, (ops.InMemoryTable, ops.UnboundTable, ops.DatabaseTable)):
-        return "table"
-    if isinstance(node, rel.RemoteTable):
-        return "remote_table"
-    if isinstance(node, rel.FlightExpr):
-        return "flight"
-    if isinstance(node, rel.FlightUDXF):
-        return "udxf"
-    if isinstance(node, udf.ExprScalarUDF):
-        return "udf"
-    if isinstance(node, rel.CachedNode):
-        return "cached_table"
-    if isinstance(node, rel.Read):
-        return "table"
-    if isinstance(node, ops.JoinChain):
-        return "join"
-    if isinstance(node, ops.WindowFunction):
-        return "window"
-    return "default"
-
-
 @singledispatch
-def format_node(node: Node, config: Dict[str, Any] | None = None) -> str:
-    config = config or {}
-    palette: ColorScheme = config.get("palette", default_palette)
-    cat = _category(node)
-    color = palette.get(cat)
-    return f"{color}{node.__class__.__name__}[/]"
+def format_node(node: Node) -> str:
+    return node.__class__.__name__
 
 
 @format_node.register
-def _(node: ops.Field, cfg: Dict[str, Any] | None = None) -> str:
-    palette: ColorScheme = (cfg or {}).get("palette", default_palette)
-    col = palette.get("field")
-    return f"{col}Field:{node.name}[/]"
+def _(node: ops.Field) -> str:
+    return f"Field:{node.name}"
 
 
 @format_node.register
-def _(node: rel.RemoteTable, cfg: Dict[str, Any] | None = None) -> str:
-    palette: ColorScheme = (cfg or {}).get("palette", default_palette)
-    col = palette.get("remote_table")
-    return f"{col}RemoteTable:{node.name}[/]"
+def _(node: rel.RemoteTable) -> str:
+    return f"RemoteTable:{node.name}"
 
 
 @format_node.register
-def _(node: rel.CachedNode, cfg: Dict[str, Any] | None = None) -> str:
-    palette: ColorScheme = (cfg or {}).get("palette", default_palette)
-    col = palette.get("cached_table")
+def _(node: rel.CachedNode) -> str:
     store = getattr(node.cache, "kind", "cache")
-    return f"{col}Cache[{store}] {getattr(node, 'name', '')}[/]"
+    return f"Cache[{store}] {getattr(node, 'name', '')}"
 
 
 @format_node.register
-def _(node: rel.FlightExpr, cfg: Dict[str, Any] | None = None) -> str:
-    palette: ColorScheme = (cfg or {}).get("palette", default_palette)
-    col = palette.get("flight")
-    return f"{col}FlightExpr ({node.input_expr})[/]"
+def _(node: rel.FlightExpr) -> str:
+    return f"FlightExpr ({node.input_expr})"
 
 
 @format_node.register
-def _(node: udf.ExprScalarUDF, cfg: Dict[str, Any] | None = None) -> str:
-    palette: ColorScheme = (cfg or {}).get("palette", default_palette)
-    col = palette.get("udxf")
-    return f"{col}ExprScalarUDF[/]"
+def _(node: udf.ExprScalarUDF) -> str:
+    return "ExprScalarUDF"
 
 
 @format_node.register
-def _(node: ops.WindowFunction, cfg: Dict[str, Any] | None = None) -> str:
-    palette: ColorScheme = (cfg or {}).get("palette", default_palette)
-    col = palette.get("window")
-
+def _(node: ops.WindowFunction) -> str:
     parts = []
     if node.order_by:
         parts.append(f"order_by: {node.order_by}")
@@ -199,16 +148,13 @@ def _(node: ops.WindowFunction, cfg: Dict[str, Any] | None = None) -> str:
 
     if parts:
         details = "\n ".join(parts)
-        return f"{col}WindowFunction:\n {details}[/]"
-    else:
-        return f"{col}WindowFunction[/]"
+        return f"WindowFunction:\n {details}"
+    return "WindowFunction"
 
 
 @format_node.register
-def _(node: ops.Literal, cfg: Dict[str, Any] | None = None) -> str:
-    palette: ColorScheme = (cfg or {}).get("palette", default_palette)
-    col = palette.get("literal")
-    return f"{col}Literal: {node.value}[/]"
+def _(node: ops.Literal) -> str:
+    return f"Literal: {node.value}"
 
 
 @lru_cache
@@ -228,45 +174,29 @@ def _token_node(g: GenericNode) -> str:
 def build_tree(
     node: GenericNode,
     *,
-    palette: ColorScheme | None = None,
     dedup: bool = True,
     max_depth: int | None = None,
-) -> Tree:
-    cfg = {"palette": palette or default_palette}
-
+) -> TextTree:
     seen: dict[str, int] = {}
     seq = count(1)
 
-    def _to_tree(g: GenericNode, depth: int) -> Tree:
+    def _to_tree(g: GenericNode, depth: int) -> TextTree:
         if max_depth is not None and depth > max_depth:
-            return Tree("[dim]…[/]")
+            return TextTree("…")
 
         digest = _token_node(g) if dedup else None
         if digest is not None and digest in seen:
             ref = seen[digest]
-            return Tree(f"[italic dim]↻ see #{ref}[/]")
+            return TextTree(f"↻ see #{ref}")
 
         ref = next(seq)
         if digest is not None:
             seen[digest] = ref
 
-        label = format_node(g.op, cfg)
+        label = format_node(g.op)
         if dedup:
-            label += f" [grey37]#{ref}[/]"
-        branch = Tree(label)
-
-        for child in g.children:
-            branch.add(_to_tree(child, depth + 1))
-        return branch
+            label += f" #{ref}"
+        children = tuple(_to_tree(child, depth + 1) for child in g.children)
+        return TextTree(label, children=children)
 
     return _to_tree(node, 0)
-
-
-def print_tree(
-    node: GenericNode,
-    *,
-    palette: ColorScheme | None = None,
-    dedup: bool = True,
-    max_depth: int | None = None,
-) -> None:
-    rprint(build_tree(node, palette=palette, dedup=dedup, max_depth=max_depth))
