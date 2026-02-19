@@ -775,6 +775,68 @@ def ps(cache_dir):
     ps_command(cache_dir)
 
 
+_COMPLETION_INSTALL_PATHS = {
+    "bash": Path("~/.local/share/bash-completion/completions/xorq").expanduser(),
+    "zsh": Path("~/.zfunc/_xorq").expanduser(),
+    "fish": Path("~/.config/fish/completions/xorq.fish").expanduser(),
+}
+
+
+def _get_completion_source(shell):
+    from click.shell_completion import get_completion_class
+
+    prog_name = "xorq"
+    complete_var = "_XORQ_COMPLETE"
+    comp_cls = get_completion_class(shell)
+    comp = comp_cls(cli, {}, prog_name, complete_var)
+    return comp.source()
+
+
+@cli.command()
+@click.argument("shell", type=click.Choice(["bash", "zsh", "fish"]))
+def completion(shell):
+    """Output shell completion script.
+
+    \b
+    Add to your shell config:
+      bash:  eval "$(xorq completion bash)"
+      zsh:   eval "$(xorq completion zsh)"
+      fish:  xorq completion fish | source
+    """
+    click.echo(_get_completion_source(shell), nl=False)
+
+
+@cli.command("install-completion")
+@click.argument("shell", type=click.Choice(["bash", "zsh", "fish"]), required=False)
+def install_completion(shell):
+    """Install shell completion script to the standard location.
+
+    SHELL defaults to the value of $SHELL if not provided.
+
+    \b
+    Install paths:
+      bash:  ~/.local/share/bash-completion/completions/xorq
+      zsh:   ~/.zfunc/_xorq_catalog  (requires ~/.zfunc in fpath)
+      fish:  ~/.config/fish/completions/xorq.fish
+    """
+    import os
+
+    if shell is None:
+        shell_bin = Path(os.environ.get("SHELL", "")).name
+        if shell_bin not in _COMPLETION_INSTALL_PATHS:
+            raise click.UsageError(
+                f"Cannot detect shell from $SHELL={os.environ.get('SHELL')!r}. "
+                "Pass the shell name explicitly: bash, zsh, or fish."
+            )
+        shell = shell_bin
+
+    install_path = _COMPLETION_INSTALL_PATHS[shell]
+    install_path.parent.mkdir(parents=True, exist_ok=True)
+    install_path.write_text(_get_completion_source(shell))
+    click.echo(f"Installed {shell} completion to {install_path}")
+    click.echo(f"Restart your shell or run: source {install_path}")
+
+
 def main():
     cli()
 
