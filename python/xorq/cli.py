@@ -887,6 +887,15 @@ def install_completion(shell):
     click.echo(f"Restart your shell or run: source {install_path}")
 
 
+def _load_catalog_cli():
+    from xorq.catalog.cli import cli as _catalog_cli
+
+    cli.add_command(_catalog_cli, "catalog")
+
+
+_load_catalog_cli()
+
+
 def main():
     cli()
 
