@@ -2,40 +2,12 @@ import os
 import pdb as pdb_module
 import sys
 import traceback
-from functools import partial
+from functools import partial, wraps
 from pathlib import Path
 
 import click
-from opentelemetry import trace
 
-import xorq
-import xorq.common.utils.pickle_utils  # noqa: F401
-from xorq.caching.strategy import SnapshotStrategy
-from xorq.catalog import (
-    ServerRecord,
-    lineage_command,
-    ps_command,
-    resolve_build_dir,
-)
-from xorq.common.utils import classproperty
-from xorq.common.utils.caching_utils import get_xorq_cache_dir
-from xorq.common.utils.import_utils import import_from_path
-from xorq.common.utils.io_utils import maybe_open
-from xorq.common.utils.logging_utils import get_print_logger
-from xorq.common.utils.node_utils import expr_to_unbound
-from xorq.common.utils.otel_utils import tracer
-from xorq.flight import FlightServer
-from xorq.ibis_yaml.compiler import (
-    build_expr,
-    load_expr,
-)
-from xorq.ibis_yaml.packager import (
-    SdistBuilder,
-    SdistRunner,
-)
 from xorq.init_templates import InitTemplates
-from xorq.loader import load_backend
-from xorq.vendor.ibis import Expr
 
 
 try:
@@ -50,15 +22,37 @@ class OutputFormats(StrEnum):
     parquet = "parquet"
     arrow = "arrow"
 
-    @classproperty
-    def default(self):
-        return self.parquet
+
+OutputFormats.default = OutputFormats.parquet
 
 
-logger = get_print_logger()
+def _lazy_span(name):
+    """Decorator that wraps a function in an OpenTelemetry span, importing lazily."""
+
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            from xorq.common.utils.otel_utils import tracer
+
+            with tracer.start_as_current_span(name):
+                return fn(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+def _get_cache_dir(cache_dir):
+    if cache_dir is None:
+        from xorq.common.utils.caching_utils import get_xorq_cache_dir
+
+        cache_dir = get_xorq_cache_dir()
+    return cache_dir
 
 
 def ensure_build_dir(expr_path):
+    from xorq.catalog import resolve_build_dir
+
     build_dir = resolve_build_dir(expr_path)
     if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
         print(f"Build target not found: {expr_path}")
@@ -66,12 +60,14 @@ def ensure_build_dir(expr_path):
     return build_dir
 
 
-@tracer.start_as_current_span("cli.uv_build_command")
+@_lazy_span("cli.uv_build_command")
 def uv_build_command(
     script_path,
     project_path=None,
     sys_argv=(),
 ):
+    from xorq.ibis_yaml.packager import SdistBuilder
+
     sdist_builder = SdistBuilder.from_script_path(
         script_path, project_path=project_path, args=sys_argv
     )
@@ -84,22 +80,24 @@ def uv_build_command(
     return popened
 
 
-@tracer.start_as_current_span("cli.uv_run_command")
+@_lazy_span("cli.uv_run_command")
 def uv_run_command(
     expr_path,
     sys_argv=(),
 ):
+    from xorq.ibis_yaml.packager import SdistRunner
+
     sdist_runner = SdistRunner(expr_path, args=sys_argv)
     popened = sdist_runner._uv_tool_run_xorq_run
     return popened
 
 
-@tracer.start_as_current_span("cli.build_command")
+@_lazy_span("cli.build_command")
 def build_command(
     script_path,
     expr_name,
     builds_dir="builds",
-    cache_dir=get_xorq_cache_dir(),
+    cache_dir=None,
     debug: bool = False,
 ):
     """
@@ -116,6 +114,14 @@ def build_command(
     -------
 
     """
+    from opentelemetry import trace
+
+    import xorq.common.utils.pickle_utils  # noqa: F401
+    from xorq.common.utils.import_utils import import_from_path
+    from xorq.ibis_yaml.compiler import build_expr
+    from xorq.vendor.ibis import Expr
+
+    cache_dir = _get_cache_dir(cache_dir)
 
     span = trace.get_current_span()
     span.add_event(
@@ -152,12 +158,12 @@ def build_command(
     print(build_path)
 
 
-@tracer.start_as_current_span("cli.run_command")
+@_lazy_span("cli.run_command")
 def run_command(
     expr_path,
     output_path=None,
     output_format=OutputFormats.default,
-    cache_dir=get_xorq_cache_dir(),
+    cache_dir=None,
     limit=None,
 ):
     """
@@ -180,6 +186,11 @@ def run_command(
     -------
 
     """
+    from opentelemetry import trace
+
+    from xorq.ibis_yaml.compiler import load_expr
+
+    cache_dir = _get_cache_dir(cache_dir)
 
     span = trace.get_current_span()
     span.add_event(
@@ -223,14 +234,14 @@ def arbitrate_output_format(expr, output_path, output_format):
             raise ValueError(f"Unknown output_format: {output_format}")
 
 
-@tracer.start_as_current_span("cli.run_unbound_command")
+@_lazy_span("cli.run_unbound_command")
 def run_unbound_command(
     expr_path,
     to_unbind_hash=None,
     to_unbind_tag=None,
     output_path=None,
     output_format=OutputFormats.default,
-    cache_dir=get_xorq_cache_dir(),
+    cache_dir=None,
     limit=None,
     typ=None,
     instream=sys.stdin.buffer,
@@ -261,8 +272,15 @@ def run_unbound_command(
     -------
 
     """
+    from opentelemetry import trace
+
+    from xorq.common.utils.io_utils import maybe_open
+    from xorq.common.utils.node_utils import expr_to_unbound
     from xorq.expr.api import read_pyarrow_stream
     from xorq.flight.exchanger import replace_one_unbound
+    from xorq.ibis_yaml.compiler import load_expr
+
+    cache_dir = _get_cache_dir(cache_dir)
 
     span = trace.get_current_span()
     span.add_event(
@@ -299,7 +317,7 @@ def run_unbound_command(
         arbitrate_output_format(bound_expr, output_path, output_format)
 
 
-@tracer.start_as_current_span("cli.unbind_and_serve_command")
+@_lazy_span("cli.unbind_and_serve_command")
 def unbind_and_serve_command(
     expr_path,
     to_unbind_hash=None,
@@ -307,9 +325,20 @@ def unbind_and_serve_command(
     host=None,
     port=None,
     prometheus_port=None,
-    cache_dir=get_xorq_cache_dir(),
+    cache_dir=None,
     typ=None,
 ):
+    import xorq
+    import xorq.expr.relations
+    from xorq.caching.strategy import SnapshotStrategy
+    from xorq.catalog import ServerRecord
+    from xorq.common.utils.logging_utils import get_print_logger
+    from xorq.common.utils.node_utils import expr_to_unbound
+    from xorq.ibis_yaml.compiler import load_expr
+
+    logger = get_print_logger()
+    cache_dir = _get_cache_dir(cache_dir)
+
     # Preserve original target token for server listing
     orig_target = expr_path
     # Resolve build identifier (alias, entry_id, build_id, or path) to an actual build directory
@@ -354,14 +383,14 @@ def unbind_and_serve_command(
     server.wait()
 
 
-@tracer.start_as_current_span("cli.serve_command")
+@_lazy_span("cli.serve_command")
 def serve_command(
     expr_path,
     host=None,
     port=None,
     duckdb_path=None,
     prometheus_port=None,
-    cache_dir=get_xorq_cache_dir(),
+    cache_dir=None,
 ):
     """
     Serve a built expression via Flight Server
@@ -381,6 +410,16 @@ def serve_command(
     cache_dir : str or None
         Path to the dir to store the parquet cache files
     """
+    from opentelemetry import trace
+
+    from xorq.catalog import ServerRecord
+    from xorq.common.utils.logging_utils import get_print_logger
+    from xorq.flight import FlightServer
+    from xorq.ibis_yaml.compiler import load_expr
+    from xorq.loader import load_backend
+
+    logger = get_print_logger()
+    cache_dir = _get_cache_dir(cache_dir)
 
     # Preserve original target token for server listing
     orig_target = expr_path
@@ -433,7 +472,7 @@ def serve_command(
     server.serve(block=True)
 
 
-@tracer.start_as_current_span("cli.init_command")
+@_lazy_span("cli.init_command")
 def init_command(
     path="./xorq-template",
     template=InitTemplates.default,
@@ -485,7 +524,7 @@ def cli(use_pdb, pdb_runcall):
 )
 @click.option(
     "--cache-dir",
-    default=get_xorq_cache_dir(),
+    default=None,
     help="Directory for all generated parquet files cache",
 )
 def uv_build(script_path, expr_name, builds_dir, cache_dir):
@@ -498,7 +537,7 @@ def uv_build(script_path, expr_name, builds_dir, cache_dir):
 @click.argument("build_path")
 @click.option(
     "--cache-dir",
-    default=get_xorq_cache_dir(),
+    default=None,
     help="Directory for all generated parquet files cache",
 )
 @click.option(
@@ -534,7 +573,7 @@ def uv_run(build_path, cache_dir, output_path, output_format):
 )
 @click.option(
     "--cache-dir",
-    default=get_xorq_cache_dir(),
+    default=None,
     help="Directory for all generated parquet files cache",
 )
 @click.option(
@@ -551,7 +590,7 @@ def build(script_path, expr_name, builds_dir, cache_dir, debug):
 @click.argument("build_path")
 @click.option(
     "--cache-dir",
-    default=get_xorq_cache_dir(),
+    default=None,
     help="Directory for all generated parquet files cache",
 )
 @click.option(
@@ -612,7 +651,7 @@ def run(build_path, cache_dir, output_path, output_format, limit):
 )
 @click.option(
     "--cache-dir",
-    default=get_xorq_cache_dir(),
+    default=None,
     help="Directory for all generated parquet files cache",
 )
 @click.option(
@@ -665,7 +704,7 @@ def run_unbound(
 )
 @click.option(
     "--cache-dir",
-    default=get_xorq_cache_dir(),
+    default=None,
     help="Directory for all generated parquet files cache",
 )
 @click.option("--typ", default=None, help="Type of the node to unbind")
@@ -724,7 +763,7 @@ def serve_unbound(
 )
 @click.option(
     "--cache-dir",
-    default=get_xorq_cache_dir(),
+    default=None,
     help="Directory for all generated parquet files cache",
 )
 def serve_flight_udxf(build_path, host, port, duckdb_path, prometheus_port, cache_dir):
@@ -761,17 +800,22 @@ def init(path, template, branch):
 @click.argument("target")
 def lineage(target):
     """Print lineage trees of all columns for a build."""
+    from xorq.catalog import lineage_command
+
     lineage_command(target)
 
 
 @cli.command("ps")
 @click.option(
     "--cache-dir",
-    default=get_xorq_cache_dir(),
+    default=None,
     help="Directory for server state records",
 )
 def ps(cache_dir):
     """List running xorq servers."""
+    from xorq.catalog import ps_command
+
+    cache_dir = _get_cache_dir(cache_dir)
     ps_command(cache_dir)
 
 
