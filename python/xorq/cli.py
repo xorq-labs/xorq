@@ -494,12 +494,12 @@ def agents_command(args):
             return agents_init_command(args)
         case "onboard":
             return agent_onboard_command(args)
-        case "prime":
-            return agent_prime_command(args)
         case "hooks":
             return agent_claude_hooks_command(args)
         case "vignette":
             return agent_vignette_command(args)
+        case "cortex":
+            return agent_cortex_command(args)
         case _:
             raise ValueError(f"Unknown agents subcommand: {args.agents_subcommand}")
 
@@ -540,14 +540,6 @@ def agent_onboard_command(args):
 
     # Always render lean version for onboard
     summary = render_lean_onboarding()
-    print(summary.rstrip())
-
-
-def agent_prime_command(args):
-    from xorq.agent.onboarding import render_onboarding_summary
-
-    # Prime provides the full workflow context
-    summary = render_onboarding_summary(step=getattr(args, "step", None))
     print(summary.rstrip())
 
 
@@ -651,6 +643,100 @@ def install_claude_hooks_command(args):
     print("   - PreCompact: Triggered before context compaction")
     print("   - Stop: Triggered when Claude Code execution is stopped")
     print("   - SessionEnd: Triggered when a Claude Code session ends")
+
+    return 0
+
+
+def agent_cortex_command(args):
+    match args.cortex_subcommand:
+        case "hooks":
+            return agent_cortex_hooks_command(args)
+        case _:
+            raise ValueError(f"Unknown cortex subcommand: {args.cortex_subcommand}")
+
+
+def agent_cortex_hooks_command(args):
+    match args.cortex_hooks_subcommand:
+        case "install":
+            return install_cortex_hooks_command(args)
+        case _:
+            print(f"Unknown cortex hooks command: {args.cortex_hooks_subcommand}")
+            return 1
+
+
+def install_cortex_hooks_command(args):
+    """Install Cortex hooks for xorq integration."""
+    import json
+    import shutil
+    from pathlib import Path
+
+    import xorq
+
+    xorq_package_dir = Path(xorq.__file__).parent
+    hooks_source_dir = xorq_package_dir / "cortex_hooks"
+
+    project_dir = Path.cwd()
+    cortex_dir = project_dir / ".cortex"
+    hooks_dir = cortex_dir / "hooks"
+    settings_file = cortex_dir / "settings.json"
+
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+
+    hook_files = [
+        "session_start.py",
+        "user_prompt_submit.py",
+        "pre_tool_use.py",
+        "post_tool_use.py",
+        "pre_compact.py",
+        "stop.py",
+        "session_end.py",
+    ]
+
+    installed_hooks = []
+    for hook_name in hook_files:
+        source_path = hooks_source_dir / hook_name
+        target_path = hooks_dir / hook_name
+        if source_path.exists():
+            shutil.copy2(source_path, target_path)
+            target_path.chmod(0o755)
+            installed_hooks.append(hook_name)
+
+    if settings_file.exists() and not args.force:
+        try:
+            with settings_file.open() as f:
+                settings = json.load(f)
+        except json.JSONDecodeError:
+            print(f"Error: Existing {settings_file} is not valid JSON")
+            return 1
+
+        if "hooks" in settings:
+            print(f"Warning: {settings_file} already contains hooks configuration")
+            print("Use --force to overwrite or manually merge the hooks")
+            print(
+                "\nTo manually add xorq cortex hooks, add these to your settings.json:"
+            )
+            print(
+                json.dumps(
+                    json.loads(
+                        (hooks_source_dir / "hooks_template_project.json").read_text()
+                    ),
+                    indent=2,
+                )
+            )
+            return 0
+    else:
+        template_path = hooks_source_dir / "hooks_template_project.json"
+        with template_path.open() as f:
+            settings = json.load(f)
+
+    with settings_file.open("w") as f:
+        json.dump(settings, f, indent=2)
+
+    print("Installed Cortex hooks for xorq")
+    print(f"   Created: {cortex_dir}/")
+    print(f"   Settings: {settings_file}")
+    for hook in installed_hooks:
+        print(f"   Hook: hooks/{hook}")
 
     return 0
 
@@ -1111,17 +1197,6 @@ def parse_args(override=None):
         help="Lean onboarding instructions for AGENTS.md",
     )
 
-    prime_parser = agents_subparsers.add_parser(
-        "prime",
-        help="Full dynamic workflow context for xorq agents",
-    )
-    prime_parser.add_argument(
-        "--step",
-        choices=("init", "build", "catalog", "explore", "compose"),
-        default=None,
-        help="Filter workflow instructions to a specific step",
-    )
-
     # Add hooks subparser for Claude Code integration
     hooks_parser = agents_subparsers.add_parser(
         "hooks",
@@ -1138,6 +1213,37 @@ def parse_args(override=None):
         help="Install Claude Code hooks for automatic context injection",
     )
     hooks_install_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing settings.json even if it contains hooks",
+    )
+
+    # Add cortex subparser for Snowflake Cortex integration
+    cortex_parser = agents_subparsers.add_parser(
+        "cortex",
+        help="Manage Snowflake Cortex hooks for xorq integration",
+    )
+    cortex_subparsers = cortex_parser.add_subparsers(
+        dest="cortex_subcommand",
+        help="Cortex commands",
+    )
+    cortex_subparsers.required = True
+
+    cortex_hooks_parser = cortex_subparsers.add_parser(
+        "hooks",
+        help="Manage Cortex hooks for xorq integration",
+    )
+    cortex_hooks_subparsers = cortex_hooks_parser.add_subparsers(
+        dest="cortex_hooks_subcommand",
+        help="Cortex hooks commands",
+    )
+    cortex_hooks_subparsers.required = True
+
+    cortex_hooks_install_parser = cortex_hooks_subparsers.add_parser(
+        "install",
+        help="Install Cortex hooks for automatic context injection",
+    )
+    cortex_hooks_install_parser.add_argument(
         "--force",
         action="store_true",
         help="Overwrite existing settings.json even if it contains hooks",
