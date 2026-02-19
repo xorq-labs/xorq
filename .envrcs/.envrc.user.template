@@ -1,7 +1,6 @@
 export ACERO_ALIGNMENT_HANDLING=ignore
 
-source_env .envrc.nix-config
-use flake .#virtualenv-editable-312
+source_env .envrc.user.uv
 
 dotenv_if_exists .env.user.snowflake
 dotenv_if_exists .env.otel
