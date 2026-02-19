@@ -792,10 +792,22 @@ def _get_completion_source(shell):
     return comp.source()
 
 
+def _detect_shell():
+    shell_bin = Path(os.environ.get("SHELL", "")).name
+    if shell_bin not in _COMPLETION_INSTALL_PATHS:
+        raise click.UsageError(
+            f"Cannot detect shell from $SHELL={os.environ.get('SHELL')!r}. "
+            "Pass the shell name explicitly: bash, zsh, or fish."
+        )
+    return shell_bin
+
+
 @cli.command()
-@click.argument("shell", type=click.Choice(["bash", "zsh", "fish"]))
+@click.argument("shell", type=click.Choice(["bash", "zsh", "fish"]), required=False)
 def completion(shell):
     """Output shell completion script.
+
+    SHELL defaults to the value of $SHELL if not provided.
 
     \b
     Add to your shell config:
@@ -803,6 +815,8 @@ def completion(shell):
       zsh:   eval "$(xorq completion zsh)"
       fish:  xorq completion fish | source
     """
+    if shell is None:
+        shell = _detect_shell()
     click.echo(_get_completion_source(shell), nl=False)
 
 
@@ -816,19 +830,11 @@ def install_completion(shell):
     \b
     Install paths:
       bash:  ~/.local/share/bash-completion/completions/xorq
-      zsh:   ~/.zfunc/_xorq_catalog  (requires ~/.zfunc in fpath)
+      zsh:   ~/.zfunc/_xorq  (requires ~/.zfunc in fpath)
       fish:  ~/.config/fish/completions/xorq.fish
     """
-    import os
-
     if shell is None:
-        shell_bin = Path(os.environ.get("SHELL", "")).name
-        if shell_bin not in _COMPLETION_INSTALL_PATHS:
-            raise click.UsageError(
-                f"Cannot detect shell from $SHELL={os.environ.get('SHELL')!r}. "
-                "Pass the shell name explicitly: bash, zsh, or fish."
-            )
-        shell = shell_bin
+        shell = _detect_shell()
 
     install_path = _COMPLETION_INSTALL_PATHS[shell]
     install_path.parent.mkdir(parents=True, exist_ok=True)
