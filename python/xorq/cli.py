@@ -51,10 +51,8 @@ def _get_cache_dir(cache_dir):
 
 
 def ensure_build_dir(expr_path):
-    from xorq.catalog import resolve_build_dir
-
-    build_dir = resolve_build_dir(expr_path)
-    if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
+    build_dir = Path(expr_path)
+    if not build_dir.exists() or not build_dir.is_dir():
         print(f"Build target not found: {expr_path}")
         sys.exit(2)
     return build_dir
@@ -331,7 +329,6 @@ def unbind_and_serve_command(
     import xorq
     import xorq.expr.relations
     from xorq.caching.strategy import SnapshotStrategy
-    from xorq.catalog import ServerRecord
     from xorq.common.utils.logging_utils import get_print_logger
     from xorq.common.utils.node_utils import expr_to_unbound
     from xorq.ibis_yaml.compiler import load_expr
@@ -339,9 +336,7 @@ def unbind_and_serve_command(
     logger = get_print_logger()
     cache_dir = _get_cache_dir(cache_dir)
 
-    # Preserve original target token for server listing
-    orig_target = expr_path
-    # Resolve build identifier (alias, entry_id, build_id, or path) to an actual build directory
+    # Resolve build path to an actual build directory
     expr_path = ensure_build_dir(expr_path)
     logger.info(f"Loading expression from {expr_path}")
     try:
@@ -371,15 +366,6 @@ def unbind_and_serve_command(
     server, _ = xorq.expr.relations.flight_serve_unbound(
         unbound_expr, make_server=make_server
     )
-    # Record server metadata
-    rec = ServerRecord(
-        pid=os.getpid(),
-        command="serve-unbound",
-        target=orig_target,
-        port=flight_url.port,
-        node_hash=to_unbind_hash,
-    )
-    rec.save(Path(cache_dir) / "servers")
     server.wait()
 
 
@@ -412,7 +398,6 @@ def serve_command(
     """
     from opentelemetry import trace
 
-    from xorq.catalog import ServerRecord
     from xorq.common.utils.logging_utils import get_print_logger
     from xorq.flight import FlightServer
     from xorq.ibis_yaml.compiler import load_expr
@@ -421,9 +406,7 @@ def serve_command(
     logger = get_print_logger()
     cache_dir = _get_cache_dir(cache_dir)
 
-    # Preserve original target token for server listing
-    orig_target = expr_path
-    # Resolve build identifier (alias, entry_id, build_id, or path) to an actual build directory
+    # Resolve build path to an actual build directory
     expr_path = ensure_build_dir(expr_path)
     span = trace.get_current_span()
     params = {
@@ -459,14 +442,6 @@ def serve_command(
         port=port,
         host=host,
     )
-    # Record server metadata
-    rec = ServerRecord(
-        pid=os.getpid(),
-        command="serve-flight-udxf",
-        target=orig_target,
-        port=server.flight_url.port,
-    )
-    rec.save(Path(cache_dir) / "servers")
     location = server.flight_url.to_location()
     logger.info(f"Serving expression '{expr_path.stem}' on {location}")
     server.serve(block=True)
@@ -796,29 +771,6 @@ def init(path, template, branch):
     init_command(path, template, branch)
 
 
-@cli.command("lineage")
-@click.argument("target")
-def lineage(target):
-    """Print lineage trees of all columns for a build."""
-    from xorq.catalog import lineage_command
-
-    lineage_command(target)
-
-
-@cli.command("ps")
-@click.option(
-    "--cache-dir",
-    default=None,
-    help="Directory for server state records",
-)
-def ps(cache_dir):
-    """List running xorq servers."""
-    from xorq.catalog import ps_command
-
-    cache_dir = _get_cache_dir(cache_dir)
-    ps_command(cache_dir)
-
-
 _COMPLETION_INSTALL_PATHS = {
     "bash": Path("~/.local/share/bash-completion/completions/xorq").expanduser(),
     "zsh": Path("~/.zfunc/_xorq").expanduser(),
@@ -885,6 +837,15 @@ def install_completion(shell):
     install_path.write_text(_get_completion_source(shell))
     click.echo(f"Installed {shell} completion to {install_path}")
     click.echo(f"Restart your shell or run: source {install_path}")
+
+
+def _load_catalog_cli():
+    from xorq.catalog.cli import cli as _catalog_cli
+
+    cli.add_command(_catalog_cli, "catalog")
+
+
+_load_catalog_cli()
 
 
 def main():

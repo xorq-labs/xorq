@@ -43,6 +43,7 @@ dependencies = [
     "uv>=0.7.20",
     "rich>=13.9.4",
     "click>=8.0",
+    "gitpython>=3.1.46",
 ]
 requires-python = ">=3.10"
 authors = [
