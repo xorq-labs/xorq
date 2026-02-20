@@ -1,42 +1,13 @@
-import argparse
 import os
-import pdb
+import pdb as pdb_module
 import sys
 import traceback
-from functools import partial
+from functools import partial, wraps
 from pathlib import Path
 
-from opentelemetry import trace
+import click
 
-import xorq
-import xorq.common.utils.pickle_utils  # noqa: F401
-from xorq.caching.strategy import SnapshotStrategy
-from xorq.catalog import (
-    ServerRecord,
-    catalog_command,
-    lineage_command,
-    ps_command,
-    resolve_build_dir,
-)
-from xorq.common.utils import classproperty
-from xorq.common.utils.caching_utils import get_xorq_cache_dir
-from xorq.common.utils.import_utils import import_from_path
-from xorq.common.utils.io_utils import maybe_open
-from xorq.common.utils.logging_utils import get_print_logger
-from xorq.common.utils.node_utils import expr_to_unbound
-from xorq.common.utils.otel_utils import tracer
-from xorq.flight import FlightServer
-from xorq.ibis_yaml.compiler import (
-    build_expr,
-    load_expr,
-)
-from xorq.ibis_yaml.packager import (
-    SdistBuilder,
-    SdistRunner,
-)
 from xorq.init_templates import InitTemplates
-from xorq.loader import load_backend
-from xorq.vendor.ibis import Expr
 
 
 try:
@@ -51,15 +22,37 @@ class OutputFormats(StrEnum):
     parquet = "parquet"
     arrow = "arrow"
 
-    @classproperty
-    def default(self):
-        return self.parquet
+
+OutputFormats.default = OutputFormats.parquet
 
 
-logger = get_print_logger()
+def _lazy_span(name):
+    """Decorator that wraps a function in an OpenTelemetry span, importing lazily."""
+
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            from xorq.common.utils.otel_utils import tracer
+
+            with tracer.start_as_current_span(name):
+                return fn(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+def _get_cache_dir(cache_dir):
+    if cache_dir is None:
+        from xorq.common.utils.caching_utils import get_xorq_cache_dir
+
+        cache_dir = get_xorq_cache_dir()
+    return cache_dir
 
 
 def ensure_build_dir(expr_path):
+    from xorq.catalog import resolve_build_dir
+
     build_dir = resolve_build_dir(expr_path)
     if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
         print(f"Build target not found: {expr_path}")
@@ -67,12 +60,14 @@ def ensure_build_dir(expr_path):
     return build_dir
 
 
-@tracer.start_as_current_span("cli.uv_build_command")
+@_lazy_span("cli.uv_build_command")
 def uv_build_command(
     script_path,
     project_path=None,
     sys_argv=(),
 ):
+    from xorq.ibis_yaml.packager import SdistBuilder
+
     sdist_builder = SdistBuilder.from_script_path(
         script_path, project_path=project_path, args=sys_argv
     )
@@ -85,22 +80,24 @@ def uv_build_command(
     return popened
 
 
-@tracer.start_as_current_span("cli.uv_run_command")
+@_lazy_span("cli.uv_run_command")
 def uv_run_command(
     expr_path,
     sys_argv=(),
 ):
+    from xorq.ibis_yaml.packager import SdistRunner
+
     sdist_runner = SdistRunner(expr_path, args=sys_argv)
     popened = sdist_runner._uv_tool_run_xorq_run
     return popened
 
 
-@tracer.start_as_current_span("cli.build_command")
+@_lazy_span("cli.build_command")
 def build_command(
     script_path,
     expr_name,
     builds_dir="builds",
-    cache_dir=get_xorq_cache_dir(),
+    cache_dir=None,
     debug: bool = False,
 ):
     """
@@ -117,6 +114,14 @@ def build_command(
     -------
 
     """
+    from opentelemetry import trace
+
+    import xorq.common.utils.pickle_utils  # noqa: F401
+    from xorq.common.utils.import_utils import import_from_path
+    from xorq.ibis_yaml.compiler import build_expr
+    from xorq.vendor.ibis import Expr
+
+    cache_dir = _get_cache_dir(cache_dir)
 
     span = trace.get_current_span()
     span.add_event(
@@ -153,12 +158,12 @@ def build_command(
     print(build_path)
 
 
-@tracer.start_as_current_span("cli.run_command")
+@_lazy_span("cli.run_command")
 def run_command(
     expr_path,
     output_path=None,
     output_format=OutputFormats.default,
-    cache_dir=get_xorq_cache_dir(),
+    cache_dir=None,
     limit=None,
 ):
     """
@@ -181,6 +186,11 @@ def run_command(
     -------
 
     """
+    from opentelemetry import trace
+
+    from xorq.ibis_yaml.compiler import load_expr
+
+    cache_dir = _get_cache_dir(cache_dir)
 
     span = trace.get_current_span()
     span.add_event(
@@ -224,14 +234,14 @@ def arbitrate_output_format(expr, output_path, output_format):
             raise ValueError(f"Unknown output_format: {output_format}")
 
 
-@tracer.start_as_current_span("cli.run_unbound_command")
+@_lazy_span("cli.run_unbound_command")
 def run_unbound_command(
     expr_path,
     to_unbind_hash=None,
     to_unbind_tag=None,
     output_path=None,
     output_format=OutputFormats.default,
-    cache_dir=get_xorq_cache_dir(),
+    cache_dir=None,
     limit=None,
     typ=None,
     instream=sys.stdin.buffer,
@@ -262,8 +272,15 @@ def run_unbound_command(
     -------
 
     """
+    from opentelemetry import trace
+
+    from xorq.common.utils.io_utils import maybe_open
+    from xorq.common.utils.node_utils import expr_to_unbound
     from xorq.expr.api import read_pyarrow_stream
     from xorq.flight.exchanger import replace_one_unbound
+    from xorq.ibis_yaml.compiler import load_expr
+
+    cache_dir = _get_cache_dir(cache_dir)
 
     span = trace.get_current_span()
     span.add_event(
@@ -300,7 +317,7 @@ def run_unbound_command(
         arbitrate_output_format(bound_expr, output_path, output_format)
 
 
-@tracer.start_as_current_span("cli.unbind_and_serve_command")
+@_lazy_span("cli.unbind_and_serve_command")
 def unbind_and_serve_command(
     expr_path,
     to_unbind_hash=None,
@@ -308,9 +325,20 @@ def unbind_and_serve_command(
     host=None,
     port=None,
     prometheus_port=None,
-    cache_dir=get_xorq_cache_dir(),
+    cache_dir=None,
     typ=None,
 ):
+    import xorq
+    import xorq.expr.relations
+    from xorq.caching.strategy import SnapshotStrategy
+    from xorq.catalog import ServerRecord
+    from xorq.common.utils.logging_utils import get_print_logger
+    from xorq.common.utils.node_utils import expr_to_unbound
+    from xorq.ibis_yaml.compiler import load_expr
+
+    logger = get_print_logger()
+    cache_dir = _get_cache_dir(cache_dir)
+
     # Preserve original target token for server listing
     orig_target = expr_path
     # Resolve build identifier (alias, entry_id, build_id, or path) to an actual build directory
@@ -355,14 +383,14 @@ def unbind_and_serve_command(
     server.wait()
 
 
-@tracer.start_as_current_span("cli.serve_command")
+@_lazy_span("cli.serve_command")
 def serve_command(
     expr_path,
     host=None,
     port=None,
     duckdb_path=None,
     prometheus_port=None,
-    cache_dir=get_xorq_cache_dir(),
+    cache_dir=None,
 ):
     """
     Serve a built expression via Flight Server
@@ -382,6 +410,16 @@ def serve_command(
     cache_dir : str or None
         Path to the dir to store the parquet cache files
     """
+    from opentelemetry import trace
+
+    from xorq.catalog import ServerRecord
+    from xorq.common.utils.logging_utils import get_print_logger
+    from xorq.flight import FlightServer
+    from xorq.ibis_yaml.compiler import load_expr
+    from xorq.loader import load_backend
+
+    logger = get_print_logger()
+    cache_dir = _get_cache_dir(cache_dir)
 
     # Preserve original target token for server listing
     orig_target = expr_path
@@ -434,7 +472,7 @@ def serve_command(
     server.serve(block=True)
 
 
-@tracer.start_as_current_span("cli.init_command")
+@_lazy_span("cli.init_command")
 def init_command(
     path="./xorq-template",
     template=InitTemplates.default,
@@ -447,460 +485,410 @@ def init_command(
     return path
 
 
-def parse_args(override=None):
-    parser = argparse.ArgumentParser(
-        description="xorq - build, run, and serve expressions"
-    )
-    parser.add_argument("--pdb", action="store_true", help="Drop into pdb on failure")
-    parser.add_argument(
-        "--pdb-runcall", action="store_true", help="Invoke with pdb.runcall"
+class PdbGroup(click.Group):
+    def invoke(self, ctx):
+        try:
+            if ctx.params.get("pdb_runcall"):
+                return pdb_module.runcall(super().invoke, ctx)
+            return super().invoke(ctx)
+        except (click.ClickException, click.exceptions.Exit, SystemExit):
+            raise
+        except Exception as e:
+            if ctx.params.get("use_pdb"):
+                traceback.print_exception(e)
+                pdb_module.post_mortem(e.__traceback__)
+            else:
+                traceback.print_exc()
+            sys.exit(1)
+
+
+@click.group(cls=PdbGroup)
+@click.option("--pdb", "use_pdb", is_flag=True, help="Drop into pdb on failure")
+@click.option(
+    "--pdb-runcall", "pdb_runcall", is_flag=True, help="Invoke with pdb.runcall"
+)
+def cli(use_pdb, pdb_runcall):
+    pass
+
+
+@cli.command("uv-build")
+@click.argument("script_path")
+@click.option(
+    "-e",
+    "--expr-name",
+    default="expr",
+    help="Name of the expression variable in the Python script",
+)
+@click.option(
+    "--builds-dir", default="builds", help="Directory for all generated artifacts"
+)
+@click.option(
+    "--cache-dir",
+    default=None,
+    help="Directory for all generated parquet files cache",
+)
+def uv_build(script_path, expr_name, builds_dir, cache_dir):
+    """Build an expression with a custom Python environment."""
+    sys_argv = tuple(el if el != "uv-build" else "build" for el in sys.argv)
+    uv_build_command(script_path, None, sys_argv)
+
+
+@cli.command("uv-run")
+@click.argument("build_path")
+@click.option(
+    "--cache-dir",
+    default=None,
+    help="Directory for all generated parquet files cache",
+)
+@click.option(
+    "-o",
+    "--output-path",
+    default=None,
+    help=f"Path to write output (default: {os.devnull})",
+)
+@click.option(
+    "-f",
+    "--format",
+    "output_format",
+    type=click.Choice([f.value for f in OutputFormats]),
+    default=OutputFormats.default,
+    help="Output format (default: parquet)",
+)
+def uv_run(build_path, cache_dir, output_path, output_format):
+    """Run an expression with a custom Python environment."""
+    sys_argv = tuple(el if el != "uv-run" else "run" for el in sys.argv)
+    uv_run_command(build_path, sys_argv)
+
+
+@cli.command("build")
+@click.argument("script_path")
+@click.option(
+    "-e",
+    "--expr-name",
+    default="expr",
+    help="Name of the expression variable in the Python script",
+)
+@click.option(
+    "--builds-dir", default="builds", help="Directory for all generated artifacts"
+)
+@click.option(
+    "--cache-dir",
+    default=None,
+    help="Directory for all generated parquet files cache",
+)
+@click.option(
+    "--debug",
+    is_flag=True,
+    help="Output SQL files and other debug artifacts",
+)
+def build(script_path, expr_name, builds_dir, cache_dir, debug):
+    """Generate artifacts from an expression."""
+    build_command(script_path, expr_name, builds_dir, cache_dir, debug)
+
+
+@cli.command("run")
+@click.argument("build_path")
+@click.option(
+    "--cache-dir",
+    default=None,
+    help="Directory for all generated parquet files cache",
+)
+@click.option(
+    "-o",
+    "--output-path",
+    default=None,
+    help=f"Path to write output (default: {os.devnull})",
+)
+@click.option(
+    "-f",
+    "--format",
+    "output_format",
+    type=click.Choice([f.value for f in OutputFormats]),
+    default=OutputFormats.default,
+    help="Output format (default: parquet)",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=None,
+    help="Limit number of rows to output",
+)
+def run(build_path, cache_dir, output_path, output_format, limit):
+    """Run a build from a builds directory."""
+    run_command(build_path, output_path, output_format, cache_dir, limit)
+
+
+@cli.command("run-unbound")
+@click.argument("build_path")
+@click.option("--to_unbind_hash", default=None, help="Hash of the node to unbind")
+@click.option("--to_unbind_tag", default=None, help="Tag of the node to unbind")
+@click.option("--typ", default=None, help="Type of the node to unbind")
+@click.option(
+    "-o",
+    "--output-path",
+    default=None,
+    help=f"Path to write output (default: stdout for arrow, {os.devnull} otherwise)",
+)
+@click.option(
+    "-f",
+    "--format",
+    "output_format",
+    type=click.Choice([f.value for f in OutputFormats]),
+    default=OutputFormats.default,
+    help=f"Output format (default: {OutputFormats.default})",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=None,
+    help="Limit number of rows to output",
+)
+@click.option(
+    "--batch-size",
+    type=int,
+    default=None,
+    help="Batch size for Arrow streaming output (default: use table default)",
+)
+@click.option(
+    "--cache-dir",
+    default=None,
+    help="Directory for all generated parquet files cache",
+)
+@click.option(
+    "-i",
+    "--instream",
+    type=click.File("rb"),
+    default="-",
+    help="Stream to read record batches from",
+)
+def run_unbound(
+    build_path,
+    to_unbind_hash,
+    to_unbind_tag,
+    typ,
+    output_path,
+    output_format,
+    limit,
+    batch_size,
+    cache_dir,
+    instream,
+):
+    """Run an unbound expr by reading Arrow IPC from stdin."""
+    run_unbound_command(
+        build_path,
+        to_unbind_hash,
+        to_unbind_tag,
+        output_path,
+        output_format,
+        cache_dir,
+        limit,
+        typ,
+        instream,
     )
 
-    subparsers = parser.add_subparsers(dest="command", help="Command to execute")
-    subparsers.required = True
 
-    uv_build_parser = subparsers.add_parser(
-        "uv-build", help="Build an expression with a custom Python environment"
-    )
-    uv_build_parser.add_argument("script_path", help="Path to the Python script")
-    uv_build_parser.add_argument(
-        "-e",
-        "--expr-name",
-        default="expr",
-        help="Name of the expression variable in the Python script",
-    )
-    uv_build_parser.add_argument(
-        "--builds-dir", default="builds", help="Directory for all generated artifacts"
-    )
-    uv_build_parser.add_argument(
-        "--cache-dir",
-        required=False,
-        default=get_xorq_cache_dir(),
-        help="Directory for all generated parquet files cache",
-    )
-
-    uv_run_parser = subparsers.add_parser(
-        "uv-run", help="Run an expression with a custom Python environment"
-    )
-    uv_run_parser.add_argument("build_path", help="Path to the build script")
-    uv_run_parser.add_argument(
-        "--cache-dir",
-        required=False,
-        default=get_xorq_cache_dir(),
-        help="Directory for all generated parquet files cache",
-    )
-    uv_run_parser.add_argument(
-        "-o",
-        "--output-path",
-        default=None,
-        help=f"Path to write output (default: {os.devnull})",
-    )
-    uv_run_parser.add_argument(
-        "-f",
-        "--format",
-        choices=OutputFormats,
-        default=OutputFormats.default,
-        type=OutputFormats,
-        help="Output format (default: parquet)",
-    )
-
-    build_parser = subparsers.add_parser(
-        "build", help="Generate artifacts from an expression"
-    )
-    build_parser.add_argument("script_path", help="Path to the Python script")
-    build_parser.add_argument(
-        "-e",
-        "--expr-name",
-        default="expr",
-        help="Name of the expression variable in the Python script",
-    )
-    build_parser.add_argument(
-        "--builds-dir", default="builds", help="Directory for all generated artifacts"
-    )
-    build_parser.add_argument(
-        "--cache-dir",
-        required=False,
-        default=get_xorq_cache_dir(),
-        help="Directory for all generated parquet files cache",
-    )
-    build_parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Output SQL files and other debug artifacts",
+@cli.command("serve-unbound")
+@click.argument("build_path")
+@click.option("--to_unbind_hash", default=None, help="Hash of the expr to replace")
+@click.option("--to_unbind_tag", default=None, help="Tag of the expr to replace")
+@click.option(
+    "--host",
+    default="localhost",
+    help="Host to bind Flight Server (default: localhost)",
+)
+@click.option(
+    "--port",
+    type=int,
+    default=None,
+    help="Port to bind Flight Server (default: random)",
+)
+@click.option(
+    "--cache-dir",
+    default=None,
+    help="Directory for all generated parquet files cache",
+)
+@click.option("--typ", default=None, help="Type of the node to unbind")
+@click.option(
+    "--prometheus-port",
+    type=int,
+    default=None,
+    help="Port to expose Prometheus metrics (default: disabled)",
+)
+def serve_unbound(
+    build_path,
+    to_unbind_hash,
+    to_unbind_tag,
+    host,
+    port,
+    cache_dir,
+    typ,
+    prometheus_port,
+):
+    """Serve an unbound expr via Flight Server."""
+    unbind_and_serve_command(
+        build_path,
+        to_unbind_hash,
+        to_unbind_tag,
+        host,
+        port,
+        prometheus_port,
+        cache_dir,
+        typ,
     )
 
-    run_parser = subparsers.add_parser(
-        "run", help="Run a build from a builds directory"
-    )
-    run_parser.add_argument("build_path", help="Path to the build script")
-    run_parser.add_argument(
-        "--cache-dir",
-        required=False,
-        default=get_xorq_cache_dir(),
-        help="Directory for all generated parquet files cache",
-    )
-    run_parser.add_argument(
-        "-o",
-        "--output-path",
-        default=None,
-        help=f"Path to write output (default: {os.devnull})",
-    )
-    run_parser.add_argument(
-        "-f",
-        "--format",
-        choices=OutputFormats,
-        default=OutputFormats.default,
-        type=OutputFormats,
-        help="Output format (default: parquet)",
-    )
-    run_parser.add_argument(
-        "--limit",
-        type=int,
-        default=None,
-        help="Limit number of rows to output",
-    )
 
-    run_unbound_parser = subparsers.add_parser(
-        "run-unbound", help="Run an unbound expr by reading Arrow IPC from stdin"
-    )
-    run_unbound_parser.add_argument(
-        "build_path",
-        help="Build target: alias, entry_id, build_id, or path to build dir",
-    )
-    run_unbound_parser.add_argument(
-        "--to_unbind_hash", default=None, help="Hash of the node to unbind"
-    )
-    run_unbound_parser.add_argument(
-        "--to_unbind_tag", default=None, help="Tag of the node to unbind"
-    )
-    run_unbound_parser.add_argument(
-        "--typ",
-        required=False,
-        default=None,
-        help="Type of the node to unbind",
-    )
-    run_unbound_parser.add_argument(
-        "-o",
-        "--output-path",
-        default=None,
-        help=f"Path to write output (default: stdout for arrow, {os.devnull} otherwise)",
-    )
-    run_unbound_parser.add_argument(
-        "-f",
-        "--format",
-        choices=OutputFormats,
-        # why was this arrow before and why did we fail when it was arrow?
-        default=OutputFormats.default,
-        type=OutputFormats,
-        help=f"Output format (default: {OutputFormats.default})",
-    )
-    run_unbound_parser.add_argument(
-        "--limit",
-        type=int,
-        default=None,
-        help="Limit number of rows to output",
-    )
-    run_unbound_parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=None,
-        help="Batch size for Arrow streaming output (default: use table default)",
-    )
-    run_unbound_parser.add_argument(
-        "--cache-dir",
-        required=False,
-        default=get_xorq_cache_dir(),
-        help="Directory for all generated parquet files cache",
-    )
-    run_unbound_parser.add_argument(
-        "-i",
-        "--instream",
-        default=sys.stdin.buffer,
-        help="Stream to record batches from",
-    )
+@cli.command("serve-flight-udxf")
+@click.argument("build_path")
+@click.option(
+    "--host",
+    default="localhost",
+    help="Host to bind Flight Server (default: localhost)",
+)
+@click.option(
+    "--port",
+    type=int,
+    default=None,
+    help="Port to bind Flight Server (default: random)",
+)
+@click.option(
+    "--duckdb-path",
+    default=None,
+    help="Path to duckdb DB (default: <build_path>/xorq_serve.db)",
+)
+@click.option(
+    "--prometheus-port",
+    type=int,
+    default=None,
+    help="Port to expose Prometheus metrics (default: disabled)",
+)
+@click.option(
+    "--cache-dir",
+    default=None,
+    help="Directory for all generated parquet files cache",
+)
+def serve_flight_udxf(build_path, host, port, duckdb_path, prometheus_port, cache_dir):
+    """Serve a build via Flight Server."""
+    serve_command(build_path, host, port, duckdb_path, prometheus_port, cache_dir)
 
-    serve_unbound_parser = subparsers.add_parser(
-        "serve-unbound", help="Serve an an unbound expr via Flight Server"
-    )
-    serve_unbound_parser.add_argument(
-        "build_path",
-        help="Build target: alias, entry_id, build_id, or path to build dir",
-    )
-    serve_unbound_parser.add_argument(
-        "--to_unbind_hash", default=None, help="hash of the expr to replace"
-    )
-    serve_unbound_parser.add_argument(
-        "--to_unbind_tag", default=None, help="tag of the expr to replace"
-    )
-    serve_unbound_parser.add_argument(
-        "--host",
-        default="localhost",
-        help="Host to bind Flight Server (default: localhost)",
-    )
-    serve_unbound_parser.add_argument(
-        "--port",
-        type=int,
-        default=None,
-        help="Port to bind Flight Server (default: random)",
-    )
-    serve_unbound_parser.add_argument(
-        "--cache-dir",
-        required=False,
-        default=get_xorq_cache_dir(),
-        help="Directory for all generated parquet files cache",
-    )
-    serve_unbound_parser.add_argument(
-        "--typ",
-        required=False,
-        default=None,
-        help="type of the node to unbind",
-    )
-    serve_unbound_parser.add_argument(
-        "--prometheus-port",
-        type=int,
-        default=None,
-        help="Port to expose Prometheus metrics (default: disabled)",
-    )
-    serve_parser = subparsers.add_parser(
-        "serve-flight-udxf", help="Serve a build via Flight Server"
-    )
-    serve_parser.add_argument(
-        "build_path",
-        help="Build target: alias, entry_id, build_id, or path to build dir",
-    )
-    serve_parser.add_argument(
-        "--host",
-        default="localhost",
-        help="Host to bind Flight Server (default: localhost)",
-    )
-    serve_parser.add_argument(
-        "--port",
-        type=int,
-        default=None,
-        help="Port to bind Flight Server (default: random)",
-    )
-    serve_parser.add_argument(
-        "--duckdb-path",
-        default=None,
-        help="Path to duckdb DB (default: <build_path>/xorq_serve.db)",
-    )
-    serve_parser.add_argument(
-        "--prometheus-port",
-        type=int,
-        default=None,
-        help="Port to expose Prometheus metrics (default: disabled)",
-    )
-    serve_parser.add_argument(
-        "--cache-dir",
-        required=False,
-        default=get_xorq_cache_dir(),
-        help="Directory for all generated parquet files cache",
-    )
 
-    init_parser = subparsers.add_parser(
-        "init",
-        help="Initialize a xorq project",
-    )
-    init_parser.add_argument(
-        "-p",
-        "--path",
-        type=Path,
-        default="./xorq-template",
-    )
-    init_parser.add_argument(
-        "-t",
-        "--template",
-        choices=tuple(InitTemplates),
-        default=InitTemplates.cached_fetcher,
-    )
-    init_parser.add_argument(
-        "-b",
-        "--branch",
-        default=None,
-    )
-    lineage_parser = subparsers.add_parser(
-        "lineage",
-        help="Print lineage trees of all columns for a build",
-    )
-    lineage_parser.add_argument(
-        "target",
-        help="Build target: alias, entry_id, build_id, or path to build dir",
-    )
-    ps_parser = subparsers.add_parser(
-        "ps",
-        help="List running xorq servers",
-    )
-    ps_parser.add_argument(
-        "--cache-dir",
-        required=False,
-        default=get_xorq_cache_dir(),
-        help="Directory for server state records",
-    )
-    catalog_parser = subparsers.add_parser("catalog", help="Manage build catalog")
-    catalog_subparsers = catalog_parser.add_subparsers(
-        dest="subcommand", help="Catalog commands"
-    )
-    catalog_subparsers.required = True
+@cli.command("init")
+@click.option(
+    "-p",
+    "--path",
+    default="./xorq-template",
+    help="Path to initialize the template",
+)
+@click.option(
+    "-t",
+    "--template",
+    type=click.Choice([str(t) for t in InitTemplates]),
+    default=str(InitTemplates.default),
+    help="Template to use",
+)
+@click.option(
+    "-b",
+    "--branch",
+    default=None,
+    help="Branch to use for the template",
+)
+def init(path, template, branch):
+    """Initialize a xorq project."""
+    init_command(path, template, branch)
 
-    catalog_add = catalog_subparsers.add_parser(
-        "add", help="Add a build to the catalog"
-    )
-    catalog_add.add_argument("build_path", help="Path to the build directory")
-    catalog_add.add_argument(
-        "-a", "--alias", help="Optional alias for this entry", default=None
-    )
-    catalog_subparsers.add_parser("ls", help="List catalog entries")
 
-    catalog_subparsers.add_parser("info", help="Show catalog information")
-    catalog_rm = catalog_subparsers.add_parser(
-        "rm", help="Remove a build entry or alias from the catalog"
-    )
-    catalog_rm.add_argument("entry", help="Entry ID or alias to remove")
-    catalog_diff_builds = catalog_subparsers.add_parser(
-        "diff-builds", help="Compare two build artifacts via git diff --no-index"
-    )
-    catalog_diff_builds.add_argument(
-        "left",
-        help="Left build target: alias, entry_id, build_id, or path to build dir",
-    )
-    catalog_diff_builds.add_argument(
-        "right",
-        help="Right build target: alias, entry_id, build_id, or path to build dir",
-    )
-    catalog_diff_builds.add_argument(
-        "--all",
-        action="store_true",
-        help="Diff all known build files plus all .sql files",
-    )
-    catalog_diff_builds.add_argument(
-        "--files",
-        nargs="+",
-        help="Explicit list of relative files to diff (overrides --all)",
-        default=None,
-    )
+@cli.command("lineage")
+@click.argument("target")
+def lineage(target):
+    """Print lineage trees of all columns for a build."""
+    from xorq.catalog import lineage_command
 
-    args = parser.parse_args(override)
-    return args
+    lineage_command(target)
+
+
+@cli.command("ps")
+@click.option(
+    "--cache-dir",
+    default=None,
+    help="Directory for server state records",
+)
+def ps(cache_dir):
+    """List running xorq servers."""
+    from xorq.catalog import ps_command
+
+    cache_dir = _get_cache_dir(cache_dir)
+    ps_command(cache_dir)
+
+
+_COMPLETION_INSTALL_PATHS = {
+    "bash": Path("~/.local/share/bash-completion/completions/xorq").expanduser(),
+    "zsh": Path("~/.zfunc/_xorq").expanduser(),
+    "fish": Path("~/.config/fish/completions/xorq.fish").expanduser(),
+}
+
+
+def _get_completion_source(shell):
+    from click.shell_completion import get_completion_class
+
+    prog_name = "xorq"
+    complete_var = "_XORQ_COMPLETE"
+    comp_cls = get_completion_class(shell)
+    comp = comp_cls(cli, {}, prog_name, complete_var)
+    return comp.source()
+
+
+def _detect_shell():
+    shell_bin = Path(os.environ.get("SHELL", "")).name
+    if shell_bin not in _COMPLETION_INSTALL_PATHS:
+        raise click.UsageError(
+            f"Cannot detect shell from $SHELL={os.environ.get('SHELL')!r}. "
+            "Pass the shell name explicitly: bash, zsh, or fish."
+        )
+    return shell_bin
+
+
+@cli.command()
+@click.argument("shell", type=click.Choice(["bash", "zsh", "fish"]), required=False)
+def completion(shell):
+    """Output shell completion script.
+
+    SHELL defaults to the value of $SHELL if not provided.
+
+    \b
+    Add to your shell config:
+      bash:  eval "$(xorq completion bash)"
+      zsh:   eval "$(xorq completion zsh)"
+      fish:  xorq completion fish | source
+    """
+    if shell is None:
+        shell = _detect_shell()
+    click.echo(_get_completion_source(shell), nl=False)
+
+
+@cli.command("install-completion")
+@click.argument("shell", type=click.Choice(["bash", "zsh", "fish"]), required=False)
+def install_completion(shell):
+    """Install shell completion script to the standard location.
+
+    SHELL defaults to the value of $SHELL if not provided.
+
+    \b
+    Install paths:
+      bash:  ~/.local/share/bash-completion/completions/xorq
+      zsh:   ~/.zfunc/_xorq  (requires ~/.zfunc in fpath)
+      fish:  ~/.config/fish/completions/xorq.fish
+    """
+    if shell is None:
+        shell = _detect_shell()
+
+    install_path = _COMPLETION_INSTALL_PATHS[shell]
+    install_path.parent.mkdir(parents=True, exist_ok=True)
+    install_path.write_text(_get_completion_source(shell))
+    click.echo(f"Installed {shell} completion to {install_path}")
+    click.echo(f"Restart your shell or run: source {install_path}")
 
 
 def main():
-    """Main entry point for the xorq CLI."""
-    args = parse_args()
-
-    try:
-        match args.command:
-            case "uv-build":
-                sys_argv = tuple(el if el != "uv-build" else "build" for el in sys.argv)
-                f, f_args = (
-                    uv_build_command,
-                    (args.script_path, None, sys_argv),
-                )
-            case "uv-run":
-                sys_argv = tuple(el if el != "uv-run" else "run" for el in sys.argv)
-                f, f_args = (
-                    uv_run_command,
-                    (args.build_path, sys_argv),
-                )
-            case "build":
-                f, f_args = (
-                    build_command,
-                    (
-                        args.script_path,
-                        args.expr_name,
-                        args.builds_dir,
-                        args.cache_dir,
-                        args.debug,
-                    ),
-                )
-            case "run":
-                f, f_args = (
-                    run_command,
-                    (
-                        args.build_path,
-                        args.output_path,
-                        args.format,
-                        args.cache_dir,
-                        args.limit,
-                    ),
-                )
-            case "run-unbound":
-                f, f_args = (
-                    run_unbound_command,
-                    (
-                        args.build_path,
-                        args.to_unbind_hash,
-                        args.to_unbind_tag,
-                        args.output_path,
-                        args.format,
-                        args.cache_dir,
-                        args.limit,
-                        args.typ,
-                        args.instream,
-                    ),
-                )
-            case "serve-unbound":
-                f, f_args = (
-                    unbind_and_serve_command,
-                    (
-                        args.build_path,
-                        args.to_unbind_hash,
-                        args.to_unbind_tag,
-                        args.host,
-                        args.port,
-                        args.prometheus_port,
-                        args.cache_dir,
-                        args.typ,
-                    ),
-                )
-            case "serve-flight-udxf":
-                # Serve a Flight UDXF build
-                f, f_args = (
-                    serve_command,
-                    (
-                        args.build_path,
-                        args.host,
-                        args.port,
-                        args.duckdb_path,
-                        args.prometheus_port,
-                        args.cache_dir,
-                    ),
-                )
-            case "init":
-                f, f_args = (
-                    init_command,
-                    (args.path, args.template, args.branch),
-                )
-            case "lineage":
-                f, f_args = (
-                    lineage_command,
-                    (args.target,),
-                )
-            case "catalog":
-                f, f_args = (
-                    catalog_command,
-                    (args,),
-                )
-            case "ps":
-                f, f_args = (
-                    ps_command,
-                    (args.cache_dir,),
-                )
-            case _:
-                raise ValueError(f"Unknown command: {args.command}")
-        match args.pdb_runcall:
-            case True:
-                pdb.runcall(f, *f_args)
-            case False:
-                f(*f_args)
-            case _:
-                raise ValueError(f"Unknown value for pdb_runcall: {args.pdb_runcall}")
-    except Exception as e:
-        if args.pdb:
-            traceback.print_exception(e)
-            pdb.post_mortem(e.__traceback__)
-        else:
-            traceback.print_exc()
-        sys.exit(1)
+    cli()
 
 
 if __name__ == "__main__":
