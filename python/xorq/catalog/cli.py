@@ -29,7 +29,17 @@ def _complete_entry_names(ctx, param, incomplete):
     from click.shell_completion import CompletionItem
 
     try:
-        catalog = ctx.obj.make_catalog(init=False)
+        # During completion, Click calls make_context but never invokes group
+        # callbacks, so ctx.obj is None.  Read the parsed params directly from
+        # the catalog group's context (our immediate parent).
+        catalog_ctx = ctx.parent
+        catalog = Catalog.from_kwargs(
+            name=catalog_ctx.params.get("name"),
+            path=catalog_ctx.params.get("path"),
+            url=catalog_ctx.params.get("url"),
+            root_repo=catalog_ctx.params.get("root_repo"),
+            init=False,
+        )
         return [CompletionItem(n) for n in catalog.list() if n.startswith(incomplete)]
     except Exception:
         return []
