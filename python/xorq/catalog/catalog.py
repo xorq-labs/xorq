@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import hashlib
 import shutil
 import tempfile
 from contextlib import (
@@ -6,7 +7,6 @@ from contextlib import (
     nullcontext,
 )
 from functools import partial
-from hashlib import file_digest
 from pathlib import Path
 from subprocess import Popen
 from urllib.parse import urlparse
@@ -301,8 +301,9 @@ class BuildTgz:
 
     @property
     def md5sum(self):
-        with self.path.open("rb") as fh:
-            return file_digest(fh, "md5").hexdigest()
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import file_digest
+
+        return file_digest(self.path, hashlib.md5)
 
 
 @frozen
