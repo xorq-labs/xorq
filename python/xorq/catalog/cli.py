@@ -60,10 +60,9 @@ def _complete_entry_names(ctx, param, incomplete):
     help="Repo root to add this catalog to as a submodule",
 )
 @click.option(
-    "-i",
-    "--init",
+    "--init/--no-init",
     default=None,
-    help="initialize the repo",
+    help="Initialize the repo (default: auto).",
 )
 @click.pass_context
 def cli(ctx, name, path, url, root_repo, init):
