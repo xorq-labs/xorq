@@ -331,18 +331,18 @@ def get_acceptable_python_versions(
     path: str | Path,
     known_minors: Iterable[int] = range(8, 15),
 ) -> tuple[Version, ...]:
-    if (path := Path(path)).name == "pyproject.toml":
+    if (path := Path(path)).name == PYPROJECT_NAME:
         pass
-    elif path.is_dir() and path.joinpath("pyproject.toml").exists():
-        path = path.joinpath("pyproject.toml")
+    elif path.is_dir() and path.joinpath(PYPROJECT_NAME).exists():
+        path = path.joinpath(PYPROJECT_NAME)
     elif path.suffixes[-2:] == [".tar", ".gz"]:
         td = TemporaryDirectory()
         path = TGZProxy(path).extract_toplevel_name(
-            "pyproject.toml", Path(td.name, "pyproject.toml")
+            PYPROJECT_NAME, Path(td.name, PYPROJECT_NAME)
         )
     else:
         raise ValueError(
-            "can only handle pyproject.toml, or pyproject.toml containing dir / .tar.gz"
+            f"can only handle {PYPROJECT_NAME} or {PYPROJECT_NAME} containing dir / .tar.gz"
         )
     data = tomllib.loads(Path(path).read_text())
     requires_python = toolz.get_in(("project", "requires-python"), data)
