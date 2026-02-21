@@ -33,6 +33,11 @@ try_decode_ascii = toolz.excepts(
 )
 
 
+try_decode_utf8 = toolz.excepts(
+    AttributeError, operator.methodcaller("decode", "utf-8")
+)
+
+
 @frozen(eq=False)
 class Popened:
     args = field(
@@ -72,12 +77,17 @@ class Popened:
     @property
     @functools.cache
     def communicated(self):
-        (_stdout, _stderr) = (None, None)
-        if self.stdout_peeker:
-            buf = self.stdout_peeker.buf.read()
-            (_stdout, _stderr) = self.popen.communicate()
-            _stdout = buf + _stdout
+        # Read already-peeked bytes from the BytesIO buffer (non-blocking)
+        peeked = self.stdout_peeker.buf.read() if self.stdout_peeker else b""
+        # Always drain both pipes concurrently to avoid deadlock
+        (_stdout, _stderr) = self.popen.communicate()
+        if peeked:
+            _stdout = peeked + (_stdout or b"")
         return (_stdout, _stderr)
+
+    def wait(self):
+        self.communicated
+        self.popen.wait()
 
     @property
     def _stdout(self):
@@ -89,11 +99,11 @@ class Popened:
 
     @property
     def stdout(self):
-        return try_decode_ascii(self._stdout)
+        return try_decode_utf8(self._stdout)
 
     @property
     def stderr(self):
-        return try_decode_ascii(self._stderr)
+        return try_decode_utf8(self._stderr)
 
     @property
     def returncode(self):
@@ -116,7 +126,7 @@ def subprocess_run(args, do_decode=False, **kwargs):
     popened = non_blocking_subprocess_run(args, **kwargs)
     (stdout, stderr) = popened.communicate()
     if do_decode:
-        (stdout, stderr) = (try_decode_ascii(el) for el in popened.communicate())
+        (stdout, stderr) = (try_decode_utf8(el) for el in popened.communicate())
     return (popened.returncode, stdout, stderr)
 
 
