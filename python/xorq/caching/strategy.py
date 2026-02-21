@@ -19,6 +19,7 @@ from xorq.common.utils.dask_normalize.dask_normalize_expr import (
     normalize_remote_table,
 )
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+    patch_normalize_op_caching,
     patch_normalize_token,
 )
 from xorq.expr.relations import (
@@ -55,17 +56,23 @@ class SnapshotStrategy(CacheStrategy):
 
     @contextlib.contextmanager
     def normalization_context(self, expr):
+        # patch_normalize_op_caching memoizes normalize_op by (op, compiler).
+        # Without it, tokenizing depth-n pipeline expressions is O(2^n) because
+        # normalize_remote_table recursively tokenizes remote_expr and
+        # normalize_scalar_udf recursively tokenizes computed_kwargs_expr, both
+        # of which share sub-expressions that get re-tokenized without caching.
         typs = map(type, expr.ls.backends)
-        with patch_normalize_token(*typs, f=self.normalize_backend):
-            with patch_normalize_token(
-                ops.DatabaseTable,
-                f=self.normalize_databasetable,
-            ):
+        with patch_normalize_op_caching():
+            with patch_normalize_token(*typs, f=self.normalize_backend):
                 with patch_normalize_token(
-                    Read,
-                    f=self.cached_normalize_read,
+                    ops.DatabaseTable,
+                    f=self.normalize_databasetable,
                 ):
-                    yield
+                    with patch_normalize_token(
+                        Read,
+                        f=self.cached_normalize_read,
+                    ):
+                        yield
 
     @staticmethod
     @functools.cache
