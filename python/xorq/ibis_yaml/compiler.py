@@ -328,31 +328,27 @@ class ExprDumper:
 
     @staticmethod
     def _sanitize_generated_names(expr, normalize_method):
+        # InMemoryTable and Read are independent leaf nodes: renaming one cannot
+        # affect the other, so a single walk collecting both is equivalent to
+        # the previous two sequential walks.
+        replacements = {}
+        for node in walk_nodes((InMemoryTable, Read), expr):
+            if isinstance(node, InMemoryTable):
+                if prefix := get_uid_prefix(node.name):
+                    name = f"{prefix}{dask.base.tokenize(recreate(node, name='name').to_expr())}"
+                    replacements[node] = recreate(
+                        node, name=name, normalize_method=normalize_method
+                    )
+            else:
+                if prefix := get_uid_prefix(node.name):
+                    table_name = f"{prefix}{dask.base.tokenize(recreate(node, name='name', normalize_method=normalize_method).to_expr())}"
+                    replacements[node] = recreate(
+                        change_read_table_name(node, table_name=table_name),
+                        normalize_method=normalize_method,
+                    )
         op = expr.op()
-        mt_replacements = {
-            mt: recreate(
-                mt,
-                name=f"{prefix}{dask.base.tokenize(recreate(mt, name='name').to_expr())}",
-                normalize_method=normalize_method,
-            )
-            for mt in walk_nodes((InMemoryTable,), expr)
-            if (prefix := get_uid_prefix(mt.name))
-        }
-        if mt_replacements:
-            op = replace_nodes(replace_from_mapping(mt_replacements), op)
-        dr_replacements = {
-            dr: recreate(
-                change_read_table_name(
-                    dr,
-                    table_name=f"{prefix}{dask.base.tokenize(recreate(dr, name='name', normalize_method=normalize_method).to_expr())}",
-                ),
-                normalize_method=normalize_method,
-            )
-            for dr in walk_nodes(Read, op)
-            if (prefix := get_uid_prefix(dr.name))
-        }
-        if dr_replacements:
-            op = replace_nodes(replace_from_mapping(dr_replacements), op)
+        if replacements:
+            op = replace_nodes(replace_from_mapping(replacements), op)
         return op.to_expr()
 
     def _prepare_expr_file(self, expr, profiles):
@@ -467,49 +463,48 @@ class ExprDumper:
         path_to_writer = path_to_writer0 | path_to_writer1
         return path_to_writer
 
-    def _memtables_to_deferred_reads(self, expr):
-        path_to_writer = {}
-        replacements = {}
-        for mt in walk_nodes((InMemoryTable,), expr):
-            path, writer = self._prepare_memtable(mt, MemtableTypes.inmemory)
-            dr_op = make_read_op(
-                parquet_path=path,
-                read_kwargs={
-                    "table_name": mt.name,
-                    "schema": mt.schema,
-                    str(MemtableTypes.inmemory): True,
-                    "normalize_method": self.read_normalize_method,
-                },
-            )
-            path_to_writer[path] = writer
-            replacements[mt] = dr_op
-        op = expr.op()
-        if replacements:
-            op = replace_nodes(replace_from_mapping(replacements), op)
-        return op.to_expr(), path_to_writer
+    def _replace_tables(self, expr):
+        """Single-pass replacement of InMemoryTable and qualifying DatabaseTable nodes.
 
-    def _replace_inmemory_backend_tables(self, expr):
+        Combines what were previously two separate walk_nodes + replace_nodes
+        calls (_memtables_to_deferred_reads and _replace_inmemory_backend_tables)
+        into one graph traversal and one replacement pass.
+        """
         path_to_writer = {}
         replacements = {}
-        for table in walk_nodes((DatabaseTable,), expr):
-            if (
-                isinstance(table, table_like_ops)
-                or table.source.name not in memory_backends
+        for node in walk_nodes((InMemoryTable, DatabaseTable), expr):
+            if isinstance(node, InMemoryTable):
+                path, writer = self._prepare_memtable(node, MemtableTypes.inmemory)
+                dr_op = make_read_op(
+                    parquet_path=path,
+                    read_kwargs={
+                        "table_name": node.name,
+                        "schema": node.schema,
+                        str(MemtableTypes.inmemory): True,
+                        "normalize_method": self.read_normalize_method,
+                    },
+                )
+            elif (
+                isinstance(node, table_like_ops)
+                or node.source.name not in memory_backends
             ):
                 continue
-            path, writer = self._prepare_memtable(table, MemtableTypes.database_table)
-            dr_op = make_read_op(
-                parquet_path=path,
-                read_kwargs={
-                    "table_name": table.name,
-                    # we normalize based on content so we can reproducible hash
-                    "normalize_method": normalize_read_path_md5sum,
-                    "schema": table.schema,
-                },
-                con=table.source,
-            )
+            else:
+                path, writer = self._prepare_memtable(
+                    node, MemtableTypes.database_table
+                )
+                dr_op = make_read_op(
+                    parquet_path=path,
+                    read_kwargs={
+                        "table_name": node.name,
+                        # we normalize based on content so we can reproducible hash
+                        "normalize_method": normalize_read_path_md5sum,
+                        "schema": node.schema,
+                    },
+                    con=node.source,
+                )
             path_to_writer[path] = writer
-            replacements[table] = dr_op
+            replacements[node] = dr_op
         op = expr.op()
         if replacements:
             op = replace_nodes(replace_from_mapping(replacements), op)
@@ -519,9 +514,8 @@ class ExprDumper:
         # we will mutate the expr below
         expr = self.expr
 
-        # write in-memory data to build dir
-        expr, path_to_writer0 = self._memtables_to_deferred_reads(expr)
-        expr, path_to_writer1 = self._replace_inmemory_backend_tables(expr)
+        # write in-memory data to build dir (single walk + single replacement pass)
+        expr, path_to_writer0 = self._replace_tables(expr)
 
         profiles = dehydrate_cons(find_all_sources(expr))
         path_to_writer2 = {
@@ -531,7 +525,7 @@ class ExprDumper:
                 self._prepare_profiles_file(profiles),
             )
         }
-        path_to_writer = path_to_writer0 | path_to_writer1 | path_to_writer2
+        path_to_writer = path_to_writer0 | path_to_writer2
         if self.debug:
             # write SQL plan and deferred-read artifacts if debug enabled
             path_to_writer |= self._prepare_debug_info()
