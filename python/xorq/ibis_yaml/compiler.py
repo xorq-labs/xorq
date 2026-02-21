@@ -328,23 +328,28 @@ class ExprDumper:
 
     @staticmethod
     def _sanitize_generated_names(expr, normalize_method):
-        mts = walk_nodes((InMemoryTable,), expr)
+        # InMemoryTable and Read are independent leaf nodes: renaming one cannot
+        # affect the other, so a single walk collecting both is equivalent to
+        # the previous two sequential walks.
+        replacements = {}
+        for node in walk_nodes((InMemoryTable, Read), expr):
+            if isinstance(node, InMemoryTable):
+                if prefix := get_uid_prefix(node.name):
+                    name = f"{prefix}{dask.base.tokenize(recreate(node, name='name').to_expr())}"
+                    replacements[node] = recreate(
+                        node, name=name, normalize_method=normalize_method
+                    )
+            else:
+                if prefix := get_uid_prefix(node.name):
+                    table_name = f"{prefix}{dask.base.tokenize(recreate(node, name='name', normalize_method=normalize_method).to_expr())}"
+                    replacements[node] = recreate(
+                        change_read_table_name(node, table_name=table_name),
+                        normalize_method=normalize_method,
+                    )
         op = expr.op()
-        for mt in mts:
-            if prefix := get_uid_prefix(mt.name):
-                name = (
-                    f"{prefix}{dask.base.tokenize(recreate(mt, name='name').to_expr())}"
-                )
-                new_mt = recreate(mt, name=name, normalize_method=normalize_method)
-                op = replace_nodes(replace_from_to(mt, new_mt), op)
-        for dr in walk_nodes(Read, op):
-            if prefix := get_uid_prefix(dr.name):
-                table_name = f"{prefix}{dask.base.tokenize(recreate(dr, name='name', normalize_method=normalize_method).to_expr())}"
-                new_dr = change_read_table_name(dr, table_name=table_name)
-                new_dr = recreate(new_dr, normalize_method=normalize_method)
-                op = replace_nodes(replace_from_to(dr, new_dr), op)
-        new_expr = op.to_expr()
-        return new_expr
+        if replacements:
+            op = replace_nodes(replace_from_mapping(replacements), op)
+        return op.to_expr()
 
     def _prepare_expr_file(self, expr, profiles):
         path = self.artifact_store.get_path(DumpFiles.expr)
@@ -458,59 +463,59 @@ class ExprDumper:
         path_to_writer = path_to_writer0 | path_to_writer1
         return path_to_writer
 
-    def _memtables_to_deferred_reads(self, expr):
-        path_to_writer = {}
-        op = expr.op()
-        mts = walk_nodes((InMemoryTable,), expr)
-        for mt in mts:
-            path, writer = self._prepare_memtable(mt, MemtableTypes.inmemory)
-            dr_op = make_read_op(
-                parquet_path=path,
-                read_kwargs={
-                    "table_name": mt.name,
-                    "schema": mt.schema,
-                    str(MemtableTypes.inmemory): True,
-                    "normalize_method": self.read_normalize_method,
-                },
-            )
-            path_to_writer[path] = writer
-            op = replace_nodes(replace_from_to(mt, dr_op), op)
-        new_expr = op.to_expr()
-        return new_expr, path_to_writer
+    def _replace_tables(self, expr):
+        """Single-pass replacement of InMemoryTable and qualifying DatabaseTable nodes.
 
-    def _replace_inmemory_backend_tables(self, expr):
-        op = expr.op()
-        tables = (
-            table
-            for table in walk_nodes((DatabaseTable,), expr)
-            if not isinstance(table, table_like_ops)
-            and table.source.name in memory_backends
-        )
+        Combines what were previously two separate walk_nodes + replace_nodes
+        calls (_memtables_to_deferred_reads and _replace_inmemory_backend_tables)
+        into one graph traversal and one replacement pass.
+        """
         path_to_writer = {}
-        for table in tables:
-            path, writer = self._prepare_memtable(table, MemtableTypes.database_table)
-            dr_op = make_read_op(
-                parquet_path=path,
-                read_kwargs={
-                    "table_name": table.name,
-                    # we normalize based on content so we can reproducible hash
-                    "normalize_method": normalize_read_path_md5sum,
-                    "schema": table.schema,
-                },
-                con=table.source,
-            )
+        replacements = {}
+        for node in walk_nodes((InMemoryTable, DatabaseTable), expr):
+            if isinstance(node, InMemoryTable):
+                path, writer = self._prepare_memtable(node, MemtableTypes.inmemory)
+                dr_op = make_read_op(
+                    parquet_path=path,
+                    read_kwargs={
+                        "table_name": node.name,
+                        "schema": node.schema,
+                        str(MemtableTypes.inmemory): True,
+                        "normalize_method": self.read_normalize_method,
+                    },
+                )
+            elif (
+                isinstance(node, table_like_ops)
+                or node.source.name not in memory_backends
+            ):
+                continue
+            else:
+                path, writer = self._prepare_memtable(
+                    node, MemtableTypes.database_table
+                )
+                dr_op = make_read_op(
+                    parquet_path=path,
+                    read_kwargs={
+                        "table_name": node.name,
+                        # we normalize based on content so we can reproducible hash
+                        "normalize_method": normalize_read_path_md5sum,
+                        "schema": node.schema,
+                    },
+                    con=node.source,
+                )
             path_to_writer[path] = writer
-            op = replace_nodes(replace_from_to(table, dr_op), expr)
-        new_expr = op.to_expr()
-        return new_expr, path_to_writer
+            replacements[node] = dr_op
+        op = expr.op()
+        if replacements:
+            op = replace_nodes(replace_from_mapping(replacements), op)
+        return op.to_expr(), path_to_writer
 
     def dump_expr(self) -> str:
         # we will mutate the expr below
         expr = self.expr
 
-        # write in-memory data to build dir
-        expr, path_to_writer0 = self._memtables_to_deferred_reads(expr)
-        expr, path_to_writer1 = self._replace_inmemory_backend_tables(expr)
+        # write in-memory data to build dir (single walk + single replacement pass)
+        expr, path_to_writer0 = self._replace_tables(expr)
 
         profiles = dehydrate_cons(find_all_sources(expr))
         path_to_writer2 = {
@@ -520,7 +525,7 @@ class ExprDumper:
                 self._prepare_profiles_file(profiles),
             )
         }
-        path_to_writer = path_to_writer0 | path_to_writer1 | path_to_writer2
+        path_to_writer = path_to_writer0 | path_to_writer2
         if self.debug:
             # write SQL plan and deferred-read artifacts if debug enabled
             path_to_writer |= self._prepare_debug_info()
@@ -572,10 +577,10 @@ class ExprLoader:
             for dr in walk_nodes(Read, loaded)
             if MemtableTypes.inmemory in dict(dr.read_kwargs)
         )
+        replacements = {dr: deferred_read_to_memtable(dr) for dr in drs}
         op = loaded.op()
-        for dr in drs:
-            mt = deferred_read_to_memtable(dr)
-            op = replace_nodes(replace_from_to(dr, mt), op)
+        if replacements:
+            op = replace_nodes(replace_from_mapping(replacements), op)
         return op.to_expr()
 
     @staticmethod
@@ -622,6 +627,16 @@ def build_expr(expr, **kwargs):
 def replace_from_to(from_, to_, node, kwargs):
     if node == from_:
         return to_
+    elif kwargs:
+        return node.__recreate__(kwargs)
+    else:
+        return node
+
+
+@toolz.curry
+def replace_from_mapping(mapping, node, kwargs):
+    if node in mapping:
+        return mapping[node]
     elif kwargs:
         return node.__recreate__(kwargs)
     else:

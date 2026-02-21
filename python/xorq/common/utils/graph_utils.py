@@ -92,26 +92,36 @@ def walk_nodes(node_types, expr):
 
 
 def replace_nodes(replacer, expr):
+    # Cache results of opaque sub-expression traversals by their root node.
+    # Sub-expression roots are often shared across multiple opaque nodes (e.g.
+    # each pipeline step's ExprScalarUDF references accumulated sub-expressions
+    # that overlap heavily), so without this memo each shared root gets
+    # re-traversed once per reference — O(n²) for a depth-n pipeline.
+    sub_expr_memo = {}
+
     def do_recreate(op, _kwargs, **kwargs):
         kwargs = dict(zip(op.__argnames__, op.__args__)) | (_kwargs or {}) | kwargs
         return op.__recreate__(kwargs)
+
+    def _replace_sub(sub_op):
+        if sub_op not in sub_expr_memo:
+            sub_expr_memo[sub_op] = sub_op.replace(process_node).to_expr()
+        return sub_expr_memo[sub_op]
 
     def process_node(op, _kwargs):
         op = replacer(op, _kwargs)
         match op:
             case rel.RemoteTable():
-                remote_expr = op.remote_expr.op().replace(process_node).to_expr()
+                remote_expr = _replace_sub(op.remote_expr.op())
                 return do_recreate(op, _kwargs, remote_expr=remote_expr)
             case rel.CachedNode():
-                parent = op.parent.op().replace(process_node).to_expr()
+                parent = _replace_sub(op.parent.op())
                 return do_recreate(op, _kwargs, parent=parent)
             case rel.FlightExpr() | rel.FlightUDXF():
-                input_expr = op.input_expr.op().replace(process_node).to_expr()
+                input_expr = _replace_sub(op.input_expr.op())
                 return do_recreate(op, _kwargs, input_expr=input_expr)
             case udf.ExprScalarUDF():
-                computed_kwargs_expr = (
-                    op.computed_kwargs_expr.op().replace(process_node).to_expr()
-                )
+                computed_kwargs_expr = _replace_sub(op.computed_kwargs_expr.op())
                 with_cke = op.with_computed_kwargs_expr(computed_kwargs_expr)
                 return do_recreate(with_cke, _kwargs)
             case rel.Read():
