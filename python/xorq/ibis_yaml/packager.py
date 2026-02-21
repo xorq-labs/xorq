@@ -329,7 +329,7 @@ def get_uv_python_version(directory):
 
 def get_acceptable_python_versions(
     path: str | Path,
-    known_minors: Iterable[int] = range(8, 15),
+    known_minors: Iterable[int] = range(8, 14),
 ) -> tuple[Version, ...]:
     if (path := Path(path)).name == PYPROJECT_NAME:
         pass
