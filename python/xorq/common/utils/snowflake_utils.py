@@ -53,7 +53,7 @@ def make_auth_defaults(authenticator=None):
                 "authenticator": authenticator,
             }
         case _:
-            raise ValueError
+            raise ValueError(f"unsupported Snowflake authenticator: {authenticator!r}")
 
 
 def make_credential_defaults(authenticator=None):
@@ -142,10 +142,12 @@ def get_snowflake_last_modification_time(dt):
         .values
     )
     if not len(values):
-        raise ValueError
+        raise ValueError(
+            f"table {table!r} not found in INFORMATION_SCHEMA.TABLES for database {database!r}, schema {schema!r}"
+        )
     (value, *rest) = values
     if rest:
-        raise ValueError
+        raise ValueError(f"multiple rows returned for table {table!r}")
     return value
 
 

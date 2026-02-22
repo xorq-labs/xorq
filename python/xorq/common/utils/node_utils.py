@@ -65,7 +65,9 @@ def get_typs(maybe_typs):
             (module, attr) = maybe_typs.rsplit(".", 1)
             typs = (getattr(importlib.import_module(module), attr),)
         case _:
-            raise ValueError
+            raise ValueError(
+                f"unsupported maybe_typs type {type(maybe_typs)}: {maybe_typs!r}"
+            )
     return typs
 
 
@@ -79,7 +81,7 @@ def find_by_expr_hash(expr, to_replace_hash, typs=None, strategy=None):
         walk_nodes(typs, expr),
     )
     if rest:
-        raise ValueError
+        raise ValueError(f"found multiple nodes with hash {to_replace_hash!r}")
     return to_replace
 
 
@@ -90,19 +92,19 @@ def find_by_expr_tag(expr, tag):
 def find_node(expr, hash, tag, typs=None, strategy=None):
     match [hash, tag]:
         case [None, None]:
-            raise ValueError
+            raise ValueError("at least one of hash or tag must be provided")
         case [_, None]:
             if isinstance(typs, tuple) and rel.Tag in typs:
-                raise ValueError
+                raise ValueError("typs must not include Tag when searching by hash")
             return find_by_expr_hash(expr, hash, typs=typs, strategy=strategy)
         case [None, _]:
             (node, *rest) = find_by_expr_tag(expr, tag)
             if rest:
-                raise ValueError
+                raise ValueError(f"found multiple nodes with tag {tag!r}")
             else:
                 return node
         case _:
-            raise ValueError
+            raise ValueError("cannot specify both hash and tag")
 
 
 def replace_by_expr_hash(expr, to_replace_hash, replace_with, typs=None, strategy=None):
@@ -185,7 +187,9 @@ def expr_to_unbound(expr, hash, tag, typs, strategy=None):
                     )
                     found_con = xo.connect()
                 case _:
-                    raise ValueError("")
+                    raise ValueError(
+                        "found multiple in-memory tables, cannot determine source"
+                    )
             if not found_con:
                 raise ValueError("found no connections")
         case [found_con]:

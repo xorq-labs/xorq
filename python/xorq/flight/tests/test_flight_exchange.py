@@ -132,7 +132,7 @@ def test_flight_serve_unbound_finds_con_complex(i, j, parquet_dir, tmpdir):
             case xo.Backend():
                 return left.into_backend(con).join(right, predicates=predicates)
             case _:
-                raise ValueError
+                raise ValueError(f"unexpected backend type: {type(con)}")
 
     name = "batting"
     path = Path(tmpdir).joinpath(f"{name}.parquet")

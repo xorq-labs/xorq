@@ -215,7 +215,9 @@ class FlightServer:
             ((cert_chain, private_key), *rest) = self.tls_certificates
             if rest:
                 # FIXME: what to do with multiple certs?
-                raise ValueError
+                raise ValueError(
+                    "multiple TLS certificates provided; only one is supported"
+                )
             kwargs["cert_chain"] = cert_chain
             kwargs["private_key"] = private_key
 

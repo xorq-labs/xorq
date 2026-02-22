@@ -20,7 +20,9 @@ def add_as_submodule(repo, subrepo, remote="origin"):
         case remotes if remote in remotes:
             (url, *rest) = subrepo.remote(remote).urls
             if rest:
-                raise ValueError
+                raise ValueError(
+                    f"remote {remote!r} has multiple URLs: {list(subrepo.remote(remote).urls)}"
+                )
         case _:
-            raise ValueError
+            raise ValueError(f"no remote named {remote!r} found in subrepo")
     repo.git.submodule("add", url, strpath)

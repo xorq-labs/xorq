@@ -88,7 +88,7 @@ def import_from_gist(user, gist):
     req = urllib.request.Request(path, method="GET")
     resp = urllib.request.urlopen(req)
     if resp.code != 200:
-        raise ValueError
+        raise ValueError(f"failed to fetch gist: HTTP {resp.code}")
     with tempfile.NamedTemporaryFile() as ntfh:
         path = Path(ntfh.name)
         path.write_text(resp.read().decode("ascii"))

@@ -312,7 +312,7 @@ class Trace:
     def __attrs_post_init__(self):
         end_datetimes = list(span.end_datetime for span in self.spans)
         if not sorted(end_datetimes) == end_datetimes:
-            raise ValueError
+            raise ValueError("span end_datetimes must be in sorted order")
 
     def combine_with(self, other):
         return Trace(
@@ -359,7 +359,7 @@ class Trace:
             assert not rest
             return trace_id
         else:
-            raise ValueError
+            raise ValueError("trace has no spans with or without links")
 
     @property
     @functools.cache
@@ -605,7 +605,7 @@ class FileTailer:
 
     def __attrs_post_init__(self):
         if not self.path.exists():
-            raise ValueError
+            raise ValueError(f"path does not exist: {self.path}")
         fh = self.path.open("r")
         object.__setattr__(self, "_fh", fh)
 

@@ -147,7 +147,7 @@ class Backend(IbisPostgresBackend):
         **kwargs,
     ):
         if chunksize is None:
-            raise ValueError
+            raise ValueError("chunksize must not be None")
         if table_name is None:
             if not temporary:
                 raise ValueError(
@@ -168,7 +168,7 @@ class Backend(IbisPostgresBackend):
     def create_catalog(self, name: str, force: bool = False) -> None:
         # https://stackoverflow.com/a/43634941
         if force:
-            raise ValueError
+            raise ValueError("postgres does not support force=True for create_catalog")
         quoted = self.compiler.quoted
         create_stmt = sge.Create(
             this=sg.to_identifier(name, quoted=quoted), kind="DATABASE", exists=force

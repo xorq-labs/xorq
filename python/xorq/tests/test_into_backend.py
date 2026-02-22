@@ -145,7 +145,9 @@ def remove_unexpected_tables(dirty):
             dirty.drop_view(table, force=True)
 
     if sorted(dirty.list_tables()) != sorted(expected_tables):
-        raise ValueError
+        raise ValueError(
+            f"unexpected tables after cleanup: {set(dirty.list_tables()) - set(expected_tables)}"
+        )
 
 
 def test_multiple_record_batches(pg):

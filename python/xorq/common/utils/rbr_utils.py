@@ -110,7 +110,7 @@ class ReaderSplitter:
     @property
     def curr_key(self):
         if not self.curr_batch:
-            raise ValueError
+            raise ValueError("no current batch available; reader may be exhausted")
         (curr_key,) = self.curr_batch[self.split_key].slice(length=1).tolist()
         return curr_key
 

@@ -31,7 +31,7 @@ class SourceDict:
 
     def __setitem__(self, key, value):
         if not isinstance(value, ops.Relation):
-            raise ValueError
+            raise ValueError(f"value must be an ops.Relation, got {type(value)}")
         self.sources[key] = value
 
     def __getitem__(self, key):

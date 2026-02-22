@@ -40,9 +40,11 @@ class PinsResource:
         if self.suffix is None:
             object.__setattr__(self, "suffix", self.path.suffix)
         if self.path.suffix != self.suffix:
-            raise ValueError
+            raise ValueError(
+                f"path suffix {self.path.suffix!r} does not match expected suffix {self.suffix!r}"
+            )
         if self.name not in xo.options.pins.get_board().pin_list():
-            raise ValueError
+            raise ValueError(f"name {self.name!r} not found in pins board")
 
     @property
     def table_name(self):
@@ -64,7 +66,7 @@ class PinsResource:
             case ".csv":
                 return deferred_read_csv
             case _:
-                raise ValueError
+                raise ValueError(f"unsupported suffix {self.suffix!r}")
 
     @property
     def immediate_reader(self):
@@ -74,7 +76,7 @@ class PinsResource:
             case ".csv":
                 return pd.read_csv
             case _:
-                raise ValueError
+                raise ValueError(f"unsupported suffix {self.suffix!r}")
 
     @property
     @functools.cache

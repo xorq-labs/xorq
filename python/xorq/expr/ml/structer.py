@@ -99,7 +99,7 @@ class KVEncoder:
         import pandas as pd
 
         if len(series) == 0:
-            raise ValueError
+            raise ValueError("cannot decode an empty series")
 
         # Extract keys and values from the encoded format
         keys, values = (

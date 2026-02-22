@@ -261,7 +261,9 @@ def find_file_upwards(start, name):
     paths = (p.joinpath(name) for p in (path, *path.parents))
     found = next((p for p in paths if p.exists()), None)
     if not found:
-        raise ValueError
+        raise ValueError(
+            f"could not find {name!r} in {start!r} or any parent directory"
+        )
     return found
 
 

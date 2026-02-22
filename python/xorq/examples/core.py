@@ -46,6 +46,8 @@ def get_table_from_name(name, backend, table_name=None, deferred=True, **kwargs)
             else:
                 method = backend.read_csv
         case _:
-            raise ValueError
+            raise ValueError(
+                f"unsupported file suffix {suffix!r}; expected .parquet or .csv"
+            )
     path = options.pins.get_path(name)
     return method(path, table_name=table_name or name, **kwargs)
