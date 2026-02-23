@@ -25,22 +25,37 @@ def click_context(*typs):
 click_context_default = partial(click_context, AssertionError, Exception)
 
 
+def _make_catalog_for_completion(ctx):
+    catalog_ctx = ctx.parent
+    return Catalog.from_kwargs(
+        name=catalog_ctx.params.get("name"),
+        path=catalog_ctx.params.get("path"),
+        url=catalog_ctx.params.get("url"),
+        root_repo=catalog_ctx.params.get("root_repo"),
+        init=False,
+    )
+
+
 def _complete_entry_names(ctx, param, incomplete):
     from click.shell_completion import CompletionItem
 
     try:
-        # During completion, Click calls make_context but never invokes group
-        # callbacks, so ctx.obj is None.  Read the parsed params directly from
-        # the catalog group's context (our immediate parent).
-        catalog_ctx = ctx.parent
-        catalog = Catalog.from_kwargs(
-            name=catalog_ctx.params.get("name"),
-            path=catalog_ctx.params.get("path"),
-            url=catalog_ctx.params.get("url"),
-            root_repo=catalog_ctx.params.get("root_repo"),
-            init=False,
-        )
+        catalog = _make_catalog_for_completion(ctx)
         return [CompletionItem(n) for n in catalog.list() if n.startswith(incomplete)]
+    except Exception:
+        return []
+
+
+def _complete_alias_names(ctx, param, incomplete):
+    from click.shell_completion import CompletionItem
+
+    try:
+        catalog = _make_catalog_for_completion(ctx)
+        return [
+            CompletionItem(a)
+            for a in catalog.list_aliases()
+            if a.startswith(incomplete)
+        ]
     except Exception:
         return []
 
@@ -101,14 +116,21 @@ def init(ctx):
 @cli.command()
 @click.argument("paths", nargs=-1, required=True, type=click.Path(exists=True))
 @click.option("--sync/--no-sync", default=True)
+@click.option(
+    "-a",
+    "--alias",
+    "aliases",
+    multiple=True,
+    help="Alias(es) to create for the added entry (repeatable).",
+)
 @click.pass_context
-def add(ctx, paths, sync):
+def add(ctx, paths, sync, aliases):
     """Add entries from tgz files or build directories."""
     with click_context_default():
         catalog = ctx.obj.make_catalog(init=False)
         with catalog.maybe_synchronizing(sync):
             for path in map(Path, paths):
-                entry = catalog.add(path, sync=False)
+                entry = catalog.add(path, sync=False, aliases=aliases)
                 click.echo(f"Added {entry.name}")
 
 
@@ -124,6 +146,38 @@ def remove(ctx, names, sync):
             for name in names:
                 entry = catalog.remove(name, sync=False)
                 click.echo(f"Removed {entry.name}")
+
+
+@cli.command("add-alias")
+@click.argument("name", shell_complete=_complete_entry_names)
+@click.argument("alias")
+@click.option("--sync/--no-sync", default=True)
+@click.pass_context
+def add_alias(ctx, name, alias, sync):
+    """Add an alias for an entry."""
+    with click_context_default():
+        catalog = ctx.obj.make_catalog(init=False)
+        catalog_alias = catalog.add_alias(name, alias, sync=sync)
+        click.echo(f"Added alias {catalog_alias.alias!r} -> {name}")
+
+
+@cli.command("remove-alias")
+@click.argument(
+    "aliases", nargs=-1, required=True, shell_complete=_complete_alias_names
+)
+@click.option("--sync/--no-sync", default=True)
+@click.pass_context
+def remove_alias(ctx, aliases, sync):
+    """Remove one or more aliases."""
+    with click_context_default():
+        catalog = ctx.obj.make_catalog(init=False)
+        alias_map = {ca.alias: ca for ca in catalog.catalog_aliases}
+        with catalog.maybe_synchronizing(sync):
+            for alias in aliases:
+                if alias not in alias_map:
+                    raise click.UsageError(f"Unknown alias: {alias!r}")
+                alias_map[alias].remove()
+                click.echo(f"Removed alias {alias!r}")
 
 
 @cli.command("list")

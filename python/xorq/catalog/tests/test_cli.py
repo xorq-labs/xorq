@@ -91,6 +91,26 @@ def test_add_multiple(runner, catalog_path, data_dict):
     assert result.output.count("Added") == len(data_dict)
 
 
+def test_add_with_aliases(runner, catalog_path, data_dict):
+    path = str(next(iter(data_dict.values())))
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "add",
+            path,
+            "--alias",
+            "alias-x",
+            "--alias",
+            "alias-y",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    catalog = Catalog(repo=Catalog.from_kwargs(path=catalog_path, init=False).repo)
+    assert {ca.alias for ca in catalog.catalog_aliases} == {"alias-x", "alias-y"}
+
+
 def test_add_duplicate(runner, catalog_path, data_dict):
     path = str(next(iter(data_dict.values())))
     runner.invoke(cli, ["--path", catalog_path, "add", path])
@@ -193,6 +213,167 @@ def test_remove_sync(sync, expectation, runner, repo_cloned_bare, tmpdir, data_d
     # check that sync condition
     with expectation:
         compare_repo_and_catalog(repo_cloned_bare, cloned)
+
+
+# --- add-alias command ---
+
+
+def test_add_alias_command(runner, catalog_path, data_dict):
+    path = str(next(iter(data_dict.values())))
+    runner.invoke(cli, ["--path", catalog_path, "add", path])
+    name = Path(path).name.removesuffix("".join(Path(path).suffixes))
+    result = runner.invoke(cli, ["--path", catalog_path, "add-alias", name, "my-alias"])
+    assert result.exit_code == 0, result.output
+    assert "my-alias" in result.output
+
+
+def test_add_with_aliases_commit_message(runner, catalog_path, data_dict):
+    path = str(next(iter(data_dict.values())))
+    result = runner.invoke(
+        cli,
+        ["--path", catalog_path, "add", path, "--alias", "v1", "--alias", "latest"],
+    )
+    assert result.exit_code == 0, result.output
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    commit_message = catalog.repo.head.commit.message.strip()
+    assert "v1" in commit_message
+    assert "latest" in commit_message
+
+
+def test_add_alias_unknown_entry(runner, catalog_path):
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "add-alias", "nonexistent", "my-alias"]
+    )
+    assert result.exit_code != 0
+
+
+def test_add_alias_overwrite(runner, catalog_path, data_dict):
+    paths = [str(p) for p in data_dict.values()]
+    runner.invoke(cli, ["--path", catalog_path, "add", *paths])
+    names = [
+        Path(p).name.removesuffix("".join(Path(p).suffixes)) for p in data_dict.values()
+    ]
+    runner.invoke(cli, ["--path", catalog_path, "add-alias", names[0], "shared"])
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "add-alias", names[1], "shared"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "shared" in result.output
+
+
+# --- remove-alias command ---
+
+
+def test_remove_alias_command(runner, catalog_path, data_dict):
+    path = str(next(iter(data_dict.values())))
+    runner.invoke(cli, ["--path", catalog_path, "add", path])
+    name = Path(path).name.removesuffix("".join(Path(path).suffixes))
+    runner.invoke(cli, ["--path", catalog_path, "add-alias", name, "to-remove"])
+    result = runner.invoke(cli, ["--path", catalog_path, "remove-alias", "to-remove"])
+    assert result.exit_code == 0, result.output
+    assert "to-remove" in result.output
+
+
+def test_remove_alias_multiple(runner, catalog_path, data_dict):
+    path = str(next(iter(data_dict.values())))
+    runner.invoke(cli, ["--path", catalog_path, "add", path])
+    name = Path(path).name.removesuffix("".join(Path(path).suffixes))
+    runner.invoke(cli, ["--path", catalog_path, "add-alias", name, "alias-a"])
+    runner.invoke(cli, ["--path", catalog_path, "add-alias", name, "alias-b"])
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "remove-alias", "alias-a", "alias-b"]
+    )
+    assert result.exit_code == 0, result.output
+    assert result.output.count("Removed alias") == 2
+
+
+def test_remove_alias_nonexistent(runner, catalog_path):
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "remove-alias", "no-such-alias"]
+    )
+    assert result.exit_code != 0
+
+
+@pytest.mark.parametrize(
+    "sync,expectation",
+    (
+        (True, does_not_raise()),
+        (False, pytest.raises(AssertionError)),
+    ),
+)
+def test_add_alias_sync(sync, expectation, runner, repo_cloned_bare, tmpdir):
+    cloned = Catalog.clone_from(
+        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("add-alias-sync-test")
+    )
+    path = make_build_tgz(tmpdir, "to-alias")
+    runner.invoke(cli, ["--path", str(cloned.repo_path), "add", str(path), "--sync"])
+    name = path.stem
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            str(cloned.repo_path),
+            "add-alias",
+            name,
+            "my-alias",
+            "--sync" if sync else "--no-sync",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "my-alias" in result.output
+
+    with expectation:
+        compare_repo_and_catalog(repo_cloned_bare, cloned)
+
+
+@pytest.mark.parametrize(
+    "sync,expectation",
+    (
+        (True, does_not_raise()),
+        (False, pytest.raises(AssertionError)),
+    ),
+)
+def test_remove_alias_sync(sync, expectation, runner, repo_cloned_bare, tmpdir):
+    cloned = Catalog.clone_from(
+        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("remove-alias-sync-test")
+    )
+    path = make_build_tgz(tmpdir, "to-alias")
+    runner.invoke(cli, ["--path", str(cloned.repo_path), "add", str(path), "--sync"])
+    name = path.stem
+    runner.invoke(
+        cli,
+        ["--path", str(cloned.repo_path), "add-alias", name, "my-alias", "--sync"],
+    )
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            str(cloned.repo_path),
+            "remove-alias",
+            "my-alias",
+            "--sync" if sync else "--no-sync",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "my-alias" in result.output
+
+    with expectation:
+        compare_repo_and_catalog(repo_cloned_bare, cloned)
+
+
+def test_remove_entry_cascades_aliases(runner, catalog_path, data_dict):
+    path = str(next(iter(data_dict.values())))
+    runner.invoke(cli, ["--path", catalog_path, "add", path])
+    name = Path(path).name.removesuffix("".join(Path(path).suffixes))
+    runner.invoke(cli, ["--path", catalog_path, "add-alias", name, "alias-p"])
+    runner.invoke(cli, ["--path", catalog_path, "add-alias", name, "alias-q"])
+
+    result = runner.invoke(cli, ["--path", catalog_path, "remove", name])
+    assert result.exit_code == 0, result.output
+
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    assert catalog.list_aliases() == []
+    catalog.assert_consistency()
 
 
 # --- list command ---
@@ -382,7 +563,9 @@ def test_subcommand_help(runner):
     for cmd in (
         "init",
         "add",
+        "add-alias",
         "remove",
+        "remove-alias",
         "list",
         "get",
         "push",
