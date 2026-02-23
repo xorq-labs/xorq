@@ -506,19 +506,28 @@ class CatalogAlias:
         repo = self.catalog_entry.catalog.repo
         catalog = self.catalog_entry.catalog
         alias_relpath = str(self.alias_path.relative_to(self.catalog_entry.repo_path))
-        result = []
-        for commit in repo.iter_commits(paths=alias_relpath):
-            try:
-                blob = (
-                    commit.tree / CatalogInfix.ALIAS / (self.alias + PREFERRED_SUFFIX)
-                )
-            except KeyError:
-                continue
-            target = blob.data_stream.read().decode()
-            entry_name = with_pure_suffix(Path(target), "").name
-            result.append(
-                (CatalogEntry(entry_name, catalog, require_exists=False), commit)
+        blobs_commits = tuple(
+            (
+                # commit.tree.join raises KeyError for non-existent paths
+                toolz.excepts(KeyError, commit.tree.join)(
+                    Path(CatalogInfix.ALIAS, self.alias + PREFERRED_SUFFIX)
+                ),
+                commit,
             )
+            for commit in repo.iter_commits(paths=alias_relpath)
+        )
+        result = tuple(
+            (
+                CatalogEntry(
+                    with_pure_suffix(Path(blob.data_stream.read().decode()), "").name,
+                    catalog,
+                    require_exists=False,
+                ),
+                commit,
+            )
+            for blob, commit in blobs_commits
+            if blob
+        )
         return result
 
     def _remove(self):
