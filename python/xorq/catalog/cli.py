@@ -88,7 +88,8 @@ def _complete_alias_names(ctx, param, incomplete):
         return []
 
 
-@click.group()
+@click.group(invoke_without_command=True)
+@click.option("--tui", is_flag=True, default=False, help="Launch terminal UI.")
 @click.option(
     "-n", "--name", default=None, help="Catalog name (mutually exclusive with --path)."
 )
@@ -118,7 +119,7 @@ def _complete_alias_names(ctx, param, incomplete):
     help="Initialize the repo (default: auto).",
 )
 @click.pass_context
-def cli(ctx, name, path, url, root_repo, init):
+def cli(ctx, tui, name, path, url, root_repo, init):
     """Manage xorq build-artifact catalogs."""
     ctx.obj = SimpleNamespace(
         make_catalog=partial(
@@ -130,6 +131,16 @@ def cli(ctx, name, path, url, root_repo, init):
             init=init,
         )
     )
+    match tui:
+        case True:
+            from xorq.catalog.tui import CatalogTUI
+
+            catalog = ctx.obj.make_catalog(init=False)
+            app = CatalogTUI(catalog)
+            app.run()
+            ctx.exit(0)
+        case _:
+            pass
 
 
 @cli.command()
