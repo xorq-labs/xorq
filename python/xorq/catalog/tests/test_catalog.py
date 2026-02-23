@@ -185,6 +185,64 @@ def test_add_alias_symlink_is_relative(catalog_populated):
     assert raw_target.resolve() == catalog_alias.alias_path.resolve()
 
 
+def test_list_revisions_single(catalog_populated):
+    name = catalog_populated.list()[0]
+    catalog_alias = catalog_populated.add_alias(name, "rev-alias")
+
+    revisions = catalog_alias.list_revisions()
+
+    assert len(revisions) == 1
+    entry, commit = revisions[0]
+    assert isinstance(entry, CatalogEntry)
+    assert entry.name == name
+    assert commit.message.strip() == f"add alias: rev-alias -> {name}"
+
+
+def test_list_revisions_overwrite(catalog_populated):
+    names = catalog_populated.list()
+    name_a, name_b = names[0], names[1]
+    alias = "rev-alias"
+
+    catalog_populated.add_alias(name_a, alias)
+    catalog_alias = catalog_populated.add_alias(name_b, alias)
+
+    revisions = catalog_alias.list_revisions()
+
+    assert len(revisions) == 2
+    # most recent first
+    assert revisions[0][0].name == name_b
+    assert revisions[1][0].name == name_a
+
+
+def test_list_revisions_entries_require_exists_false(catalog_populated):
+    names = catalog_populated.list()
+    name_a, name_b = names[0], names[1]
+    alias = "rev-alias"
+
+    catalog_populated.add_alias(name_a, alias)
+    catalog_alias = catalog_populated.add_alias(name_b, alias)
+    catalog_populated.remove(name_a)
+
+    revisions = catalog_alias.list_revisions()
+
+    assert len(revisions) == 2
+    entry_b, entry_a = revisions[0][0], revisions[1][0]
+    assert entry_b.exists()
+    assert not entry_a.exists()
+
+
+def test_list_revisions_commit_objects(catalog_populated):
+    name = catalog_populated.list()[0]
+    catalog_alias = catalog_populated.add_alias(name, "rev-alias")
+
+    revisions = catalog_alias.list_revisions()
+    _, commit = revisions[0]
+
+    assert hasattr(commit, "hexsha")
+    assert hasattr(commit, "authored_datetime")
+    assert hasattr(commit, "author")
+
+
 def test_catalog_entry_relocatable(repo_cloned_bare, tmpdir):
     cloned = Catalog.clone_from(
         repo_cloned_bare.working_dir, Path(tmpdir).joinpath("cloned")

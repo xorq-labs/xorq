@@ -499,6 +499,25 @@ class CatalogAlias:
             index.add([alias_path, catalog_yaml.yaml_path])
         return self
 
+    def list_revisions(self):
+        repo = self.catalog_entry.catalog.repo
+        catalog = self.catalog_entry.catalog
+        alias_relpath = str(self.alias_path.relative_to(self.catalog_entry.repo_path))
+        result = []
+        for commit in repo.iter_commits(paths=alias_relpath):
+            try:
+                blob = (
+                    commit.tree / CatalogInfix.ALIAS / (self.alias + PREFERRED_SUFFIX)
+                )
+            except KeyError:
+                continue
+            target = blob.data_stream.read().decode()
+            entry_name = with_pure_suffix(Path(target), "").name
+            result.append(
+                (CatalogEntry(entry_name, catalog, require_exists=False), commit)
+            )
+        return result
+
     def remove(self):
         alias_path = self.alias_path
         assert alias_path.is_symlink(), f"no alias symlink at {alias_path}"
