@@ -637,7 +637,11 @@ class CatalogYAML:
 
     @property
     def contents(self):
-        return yaml.safe_load(self.yaml_path.read_text())
+        raw = yaml.safe_load(self.yaml_path.read_text())
+        if isinstance(raw, list):
+            # legacy format: plain list of entry names, no aliases section
+            return {str(CatalogInfix.ENTRY): raw, str(CatalogInfix.ALIAS): []}
+        return raw
 
     def set_contents(self, contents):
         self.yaml_path.write_text(yaml.safe_dump(contents))
