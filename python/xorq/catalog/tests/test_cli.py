@@ -1,12 +1,22 @@
 # https://docs.pytest.org/en/7.1.x/example/parametrize.html#parametrizing-conditional-raising
+import shutil
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 
-from xorq.catalog.catalog import Catalog
+from xorq.catalog.catalog import (
+    BuildTgz,
+    Catalog,
+    CatalogAddition,
+)
 from xorq.catalog.cli import cli
+from xorq.catalog.tar_utils import (
+    REQUIRED_TGZ_NAMES,
+    extract_build_tgz_context,
+    write_tgz,
+)
 from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
     make_build_tgz,
@@ -116,6 +126,14 @@ def test_add_duplicate(runner, catalog_path, data_dict):
     runner.invoke(cli, ["--path", catalog_path, "add", path])
     result = runner.invoke(cli, ["--path", catalog_path, "add", path])
     assert result.exit_code != 0
+
+
+def test_add_from_directory(runner, catalog_path, tmpdir):
+    tgz = make_build_tgz(tmpdir, "build-dir-test")
+    with extract_build_tgz_context(tgz) as build_dir:
+        result = runner.invoke(cli, ["--path", catalog_path, "add", str(build_dir)])
+    assert result.exit_code == 0, result.output
+    assert "Added" in result.output
 
 
 def test_add_nonexistent_path(runner, catalog_path):
@@ -410,6 +428,16 @@ def test_get_command(runner, catalog_path, data_dict, tmpdir):
     assert "Exported to" in result.output
 
 
+def test_get_default_output_dir(runner, catalog_path, data_dict):
+    path = str(next(iter(data_dict.values())))
+    runner.invoke(cli, ["--path", catalog_path, "add", path])
+    name = Path(path).name.removesuffix("".join(Path(path).suffixes))
+    with runner.isolated_filesystem():
+        result = runner.invoke(cli, ["--path", catalog_path, "get", name])
+        assert result.exit_code == 0, result.output
+        assert "Exported to" in result.output
+
+
 def test_get_nonexistent_entry(runner, catalog_path, tmpdir):
     output_dir = str(Path(tmpdir).joinpath("export"))
     Path(output_dir).mkdir()
@@ -426,6 +454,23 @@ def test_check_command(runner, catalog_path):
     result = runner.invoke(cli, ["--path", catalog_path, "check"])
     assert result.exit_code == 0, result.output
     assert "OK" in result.output
+
+
+def test_check_catches_inconsistency(runner, catalog_path, tmpdir):
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    tgz_path = write_tgz(
+        Path(tmpdir).joinpath("build.tgz"),
+        {name: b"" for name in REQUIRED_TGZ_NAMES},
+    )
+    catalog_addition = CatalogAddition(BuildTgz(tgz_path), catalog)
+    catalog_addition.ensure_dirs()
+    entry_path = catalog_addition.catalog_entry.catalog_path
+    with catalog.commit_context("bad commit"):
+        shutil.copy(tgz_path, entry_path)
+        catalog.repo.index.add((entry_path,))
+
+    result = runner.invoke(cli, ["--path", catalog_path, "check"])
+    assert result.exit_code != 0
 
 
 def test_check_populated(runner, catalog_path, data_dict):
@@ -576,6 +621,15 @@ def test_subcommand_help(runner):
     ):
         result = runner.invoke(cli, [cmd, "--help"])
         assert result.exit_code == 0, f"{cmd} --help failed"
+
+
+def test_name_and_path_mutually_exclusive(runner, catalog_path, tmpdir, monkeypatch):
+    monkeypatch.setattr(Catalog, "by_name_base_path", Path(tmpdir))
+    runner.invoke(cli, ["--name", "my-catalog", "init"])
+    result = runner.invoke(
+        cli, ["--name", "my-catalog", "--path", catalog_path, "list"]
+    )
+    assert result.exit_code != 0
 
 
 def test_list_invalid_path(runner):
