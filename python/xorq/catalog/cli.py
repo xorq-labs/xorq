@@ -90,6 +90,21 @@ def _complete_alias_names(ctx, param, incomplete):
 
 @click.group(invoke_without_command=True)
 @click.option("--tui", is_flag=True, default=False, help="Launch terminal UI.")
+def _complete_alias_names(ctx, param, incomplete):
+    from click.shell_completion import CompletionItem
+
+    try:
+        catalog = _make_catalog_for_completion(ctx)
+        return [
+            CompletionItem(a)
+            for a in catalog.list_aliases()
+            if a.startswith(incomplete)
+        ]
+    except Exception:
+        return []
+
+
+@click.group()
 @click.option(
     "-n", "--name", default=None, help="Catalog name (mutually exclusive with --path)."
 )
