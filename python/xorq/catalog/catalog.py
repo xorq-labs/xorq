@@ -379,22 +379,27 @@ class CatalogAddition:
         message = f"add: {self.name}"
         return message
 
-    def add(self):
+    def _add(self):
         assert not self.catalog.contains(self.name)
         self.ensure_dirs()
         catalog_entry = self.catalog_entry
         catalog_entry.metadata_path.write_text(yaml.safe_dump(self.metadata))
         shutil.copy(self.build_tgz.path, catalog_entry.catalog_path)
-        with self.catalog.commit_context(self.message) as index:
-            self.catalog.catalog_yaml.add(self.name)
-            index.add(
-                (
-                    catalog_entry.catalog_path,
-                    catalog_entry.metadata_path,
-                    self.catalog.catalog_yaml.yaml_path,
-                )
+        index = self.catalog.repo.index
+        #
+        self.catalog.catalog_yaml.add(self.name)
+        index.add(
+            (
+                catalog_entry.catalog_path,
+                catalog_entry.metadata_path,
+                self.catalog.catalog_yaml.yaml_path,
             )
+        )
         return CatalogEntry(self.name, self.catalog, require_exists=True)
+
+    def add(self):
+        with self.catalog.commit_context(self.message):
+            return self._add()
 
     @classmethod
     def from_expr(cls, expr, catalog):
@@ -558,21 +563,26 @@ class CatalogRemoval:
         message = f"rm: {with_pure_suffix(self.catalog_entry.catalog_path, '').name}"
         return message
 
-    def remove(self):
+    def _remove(self):
         catalog_entry = self.catalog_entry
         catalog = catalog_entry.catalog
         assert catalog_entry.exists()
-        with catalog.commit_context(self.message) as index:
-            catalog.catalog_yaml.remove(catalog_entry.name)
-            index.add((catalog.catalog_yaml.yaml_path,))
-            paths = (
-                catalog_entry.metadata_path,
-                catalog_entry.catalog_path,
-            )
-            index.remove(paths)
-            for path in paths:
-                path.unlink()
+        index = catalog.repo.index
+        #
+        catalog.catalog_yaml.remove(catalog_entry.name)
+        index.add((catalog.catalog_yaml.yaml_path,))
+        paths = (
+            catalog_entry.metadata_path,
+            catalog_entry.catalog_path,
+        )
+        index.remove(paths)
+        for path in paths:
+            path.unlink()
         return catalog_entry
+
+    def remove(self):
+        with self.catalog_entry.catalog.commit_context(self.message):
+            return self._remove()
 
     @classmethod
     def from_name_catalog(cls, name, catalog):
