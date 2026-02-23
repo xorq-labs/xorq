@@ -105,6 +105,8 @@ def _complete_alias_names(ctx, param, incomplete):
 
 
 @click.group()
+@click.group(invoke_without_command=True)
+@click.option("--tui", is_flag=True, default=False, help="Launch terminal UI.")
 @click.option(
     "-n", "--name", default=None, help="Catalog name (mutually exclusive with --path)."
 )
