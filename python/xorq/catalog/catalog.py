@@ -18,7 +18,6 @@ from attr import (
     frozen,
 )
 from attr.validators import (
-    deep_iterable,
     instance_of,
     optional,
 )
@@ -88,23 +87,23 @@ class Catalog:
     def catalog_yaml(self):
         return CatalogYAML(self.repo_path)
 
-    def _add_tgz(self, path, sync=True, aliases=()):
+    def _add_tgz(self, path, sync=True):
         # should we enable not syncing?
         with self.maybe_synchronizing(sync):
-            catalog_addition = CatalogAddition(BuildTgz(path), self, aliases=aliases)
+            catalog_addition = CatalogAddition(BuildTgz(path), self)
             catalog_entry = catalog_addition.add()
             self.assert_consistency()
             return catalog_entry
 
-    def _add_build_dir(self, build_dir, sync=True, aliases=()):
+    def _add_build_dir(self, build_dir, sync=True):
         with make_tgz_context(build_dir) as tgz_path:
-            return self._add_tgz(tgz_path, sync=sync, aliases=aliases)
+            return self._add_tgz(tgz_path, sync=sync)
 
-    def _add_expr(self, expr, sync=True, aliases=()):
+    def _add_expr(self, expr, sync=True):
         with build_expr_context(expr) as path:
-            return self._add_build_dir(path, sync=sync, aliases=aliases)
+            return self._add_build_dir(path, sync=sync)
 
-    def add(self, obj, sync=True, aliases=()):
+    def add(self, obj, sync=True):
         from xorq.api import Expr
 
         match obj:
@@ -116,7 +115,7 @@ class Catalog:
                 f = self._add_expr
             case _:
                 raise ValueError(f"don't know how to handle type={type(obj)}")
-        return f(obj, sync=sync, aliases=aliases)
+        return f(obj, sync=sync)
 
     def remove(self, name, sync=True):
         with self.maybe_synchronizing(sync):
@@ -354,7 +353,6 @@ class BuildTgz:
 class CatalogAddition:
     build_tgz = field(validator=instance_of(BuildTgz))
     catalog = field(validator=instance_of(Catalog))
-    aliases = field(validator=deep_iterable(instance_of(str)), default=())
     _maybe_tmpfile = field(
         validator=optional(instance_of(tempfile._TemporaryFileWrapper)),
         default=None,
@@ -377,13 +375,8 @@ class CatalogAddition:
             p.parent.mkdir(exist_ok=True, parents=True)
 
     @property
-    def catalog_aliases(self):
-        return tuple(CatalogAlias(alias, self.catalog_entry) for alias in self.aliases)
-
-    @property
     def message(self):
-        alias_message = f" (aliases {', '.join(self.aliases)})" if self.aliases else ""
-        message = f"add: {self.name}{alias_message}"
+        message = f"add: {self.name}"
         return message
 
     def _add(self):
@@ -402,8 +395,6 @@ class CatalogAddition:
                 self.catalog.catalog_yaml.yaml_path,
             )
         )
-        for catalog_alias in self.catalog_aliases:
-            catalog_alias._add()
         return CatalogEntry(self.name, self.catalog, require_exists=True)
 
     def add(self):
@@ -450,14 +441,6 @@ class CatalogEntry:
     @property
     def expr(self):
         return load_expr_from_tgz(self.catalog_path)
-
-    @property
-    def aliases(self):
-        return tuple(
-            catalog_alias
-            for catalog_alias in self.catalog.catalog_aliases
-            if catalog_alias.catalog_entry.name == self.name
-        )
 
     @property
     def _exists_components(self):
@@ -577,14 +560,7 @@ class CatalogRemoval:
 
     @property
     def message(self):
-        name = with_pure_suffix(self.catalog_entry.catalog_path, "").name
-        catalog_aliases = self.catalog_entry.aliases
-        aliases_message = (
-            f" (aliases {', '.join(catalog_alias.alias for catalog_alias in catalog_aliases)})"
-            if catalog_aliases
-            else ""
-        )
-        message = f"rm: {name}{aliases_message}"
+        message = f"rm: {with_pure_suffix(self.catalog_entry.catalog_path, '').name}"
         return message
 
     def _remove(self):
@@ -593,8 +569,6 @@ class CatalogRemoval:
         assert catalog_entry.exists()
         index = catalog.repo.index
         #
-        for catalog_alias in self.catalog_entry.aliases:
-            catalog_alias._remove()
         catalog.catalog_yaml.remove(catalog_entry.name)
         index.add((catalog.catalog_yaml.yaml_path,))
         paths = (
@@ -637,11 +611,7 @@ class CatalogYAML:
 
     @property
     def contents(self):
-        raw = yaml.safe_load(self.yaml_path.read_text())
-        if isinstance(raw, list):
-            # legacy format: plain list of entry names, no aliases section
-            return {str(CatalogInfix.ENTRY): raw, str(CatalogInfix.ALIAS): []}
-        return raw
+        return yaml.safe_load(self.yaml_path.read_text())
 
     def set_contents(self, contents):
         self.yaml_path.write_text(yaml.safe_dump(contents))
