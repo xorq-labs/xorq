@@ -2,7 +2,13 @@ import functools
 from pathlib import Path
 from subprocess import PIPE
 from tempfile import TemporaryDirectory
+from typing import Iterable
 
+
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
 import toolz
 from attr import (
     field,
@@ -13,6 +19,8 @@ from attr.validators import (
     instance_of,
     optional,
 )
+from packaging.specifiers import SpecifierSet
+from packaging.version import Version
 
 from xorq.common.utils.process_utils import (
     Popened,
@@ -268,14 +276,24 @@ def find_file_upwards(start, name):
 
 
 def uv_tool_run(
-    *args, isolated=True, with_=None, with_requirements=None, check=True, capturing=True
+    *args,
+    isolated=True,
+    python_version=None,
+    with_=None,
+    with_requirements=None,
+    check=True,
+    capturing=True,
 ):
     command_v_xorq = Popened.check_output("command -v xorq", shell=True).strip()
     args = tuple(el if el != command_v_xorq else "xorq" for el in args)
+    python_version = python_version or (
+        get_acceptable_python_versions(with_)[-1] if with_ else None
+    )
     popened_args = (
         "uv",
         "tool",
         "run",
+        *(("--python", python_version) if python_version else ()),
         *(("--isolated",) if isolated else ()),
         *(("--with", str(with_)) if with_ else ()),
         *(("--with-requirements", str(with_requirements)) if with_requirements else ()),
@@ -298,6 +316,45 @@ def uv_tool_run(
         popened.wait()
         assert not popened.returncode, popened.stderr
     return popened
+
+
+def get_uv_python_version(directory):
+    if not Path(directory).is_dir():
+        td = TemporaryDirectory()
+        TGZProxy(directory).extract_toplevel(td.name)
+        directory = str(td.name)
+    cmd = "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
+    args = f'uv run --directory {str(directory)} python -c "{cmd}"'
+    python_version = Popened.check_output(args)
+    return python_version.strip()
+
+
+def get_acceptable_python_versions(
+    path: str | Path,
+    known_minors: Iterable[int] = range(8, 14),
+) -> tuple[Version, ...]:
+    if (path := Path(path)).name == PYPROJECT_NAME:
+        pass
+    elif path.is_dir() and path.joinpath(PYPROJECT_NAME).exists():
+        path = path.joinpath(PYPROJECT_NAME)
+    elif path.suffixes[-2:] == [".tar", ".gz"]:
+        td = TemporaryDirectory()
+        path = TGZProxy(path).extract_toplevel_name(
+            PYPROJECT_NAME, Path(td.name, PYPROJECT_NAME)
+        )
+    else:
+        raise ValueError(
+            f"can only handle {PYPROJECT_NAME} or {PYPROJECT_NAME} containing dir / .tar.gz"
+        )
+    data = tomllib.loads(Path(path).read_text())
+    requires_python = toolz.get_in(("project", "requires-python"), data)
+    spec = SpecifierSet(requires_python)
+    acceptable_python_versions = tuple(
+        str(v) for v in (Version(f"3.{minor}") for minor in known_minors) if v in spec
+    )
+    if not acceptable_python_versions:
+        raise ValueError("No acceptable python versions found")
+    return acceptable_python_versions
 
 
 def uv_tool_run_uv_pip_freeze(sdist_path):
