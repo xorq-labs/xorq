@@ -43,6 +43,8 @@ def test_init_command_already_exists(runner, catalog_path):
     assert Path(catalog_path).exists()
     result = runner.invoke(cli, ["--path", catalog_path, "init"])
     assert result.exit_code != 0
+    assert "already exists" in result.output
+    assert catalog_path in result.output
 
 
 def test_init_by_name(runner, tmpdir, monkeypatch):
