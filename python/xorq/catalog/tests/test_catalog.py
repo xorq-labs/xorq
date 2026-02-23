@@ -52,6 +52,23 @@ def test_catalog_addition_from_expr(catalog):
     assert catalog_entry.name in catalog.list()
 
 
+def test_catalog_addition_with_aliases(catalog):
+    from attr import evolve
+
+    expr = xo.memtable({"with-aliases": ["with-aliases"]})
+    catalog_addition = CatalogAddition.from_expr(expr, catalog)
+    aliases = ("alias-x", "alias-y")
+    catalog_addition = evolve(catalog_addition, aliases=aliases)
+    catalog_entry = catalog_addition.add()
+
+    commit_message = catalog.repo.head.commit.message.strip()
+    assert all(alias in commit_message for alias in aliases)
+
+    assert catalog_entry.exists()
+    assert {ca.alias for ca in catalog_entry.aliases} == set(aliases)
+    catalog.assert_consistency()
+
+
 def test_catalog_addition_from_expr_tmpfile_lifecycle(catalog):
     expr = xo.memtable({"lifecycle": ["lifecycle"]})
     catalog_addition = CatalogAddition.from_expr(expr, catalog)
@@ -75,6 +92,31 @@ def test_catalog_rm(catalog, data_dict):
     name = next(iter(data_dict.keys()))
     with pytest.raises(AssertionError):
         catalog.remove(name)
+
+
+def test_catalog_rm_removes_aliases(catalog_populated):
+    name = catalog_populated.list()[0]
+    alias_a = "alias-one"
+    alias_b = "alias-two"
+    catalog_populated.add_alias(name, alias_a)
+    catalog_populated.add_alias(name, alias_b)
+
+    catalog_entry = catalog_populated.get_catalog_entry(name)
+    assert len(catalog_entry.aliases) == 2
+
+    catalog_populated.remove(name)
+
+    commit_message = catalog_populated.repo.head.commit.message.strip()
+    assert alias_a in commit_message
+    assert alias_b in commit_message
+
+    assert not catalog_entry.exists()
+    assert not any(
+        ca.alias_path.exists()
+        for ca in (catalog_populated.catalog_aliases or [])
+        if ca.alias in (alias_a, alias_b)
+    )
+    catalog_populated.assert_consistency()
 
 
 def test_catalog_clone_from_push(repo_cloned_bare, tmpdir):

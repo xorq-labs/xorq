@@ -33,41 +33,31 @@ def get_split_tree(repo):
             if isinstance(blob, Blob)
         ),
     )
-    (parents, (toplevel, entries, metadata)) = zip(
-        *(
-            (
-                str(parent),
-                tuple(
-                    zip(
-                        *(
-                            (str(with_pure_suffix(p, "")), "".join(p.suffixes))
-                            for p in (p.relative_to(parent) for p in ps)
-                        )
-                    )
-                ),
+    return {
+        str(parent): tuple(
+            zip(
+                *(
+                    (str(with_pure_suffix(p, "")), "".join(p.suffixes))
+                    for p in (p.relative_to(parent) for p in ps)
+                )
             )
-            for parent, ps in dct.items()
         )
-    )
-    return (parents, (toplevel, entries, metadata))
+        for parent, ps in dct.items()
+    }
 
 
 def compare_repo_and_catalog(repo, catalog):
-    (
-        parents,
-        (
-            (toplevel_names, toplevel_suffixes),
-            (entry_names, entry_suffixes),
-            (metadata_names, metadata_suffixes),
-        ),
-    ) = get_split_tree(repo)
-    assert parents == (".", CatalogInfix.ENTRY, CatalogInfix.METADATA)
+    tree = get_split_tree(repo)
+
+    toplevel_names, toplevel_suffixes = tree["."]
     assert toplevel_names == (Path(CATALOG_YAML_NAME).stem,)
     assert toplevel_suffixes == (Path(CATALOG_YAML_NAME).suffix,)
-    #
+
+    entry_names, entry_suffixes = tree[CatalogInfix.ENTRY]
     (entry_suffix, *rest) = set(entry_suffixes)
     assert entry_suffix == PREFERRED_SUFFIX and not rest, (entry_suffix, *rest)
-    #
+
+    metadata_names, metadata_suffixes = tree[CatalogInfix.METADATA]
     (metadata_suffix, *rest) = set(metadata_suffixes)
     assert metadata_suffix == PREFERRED_SUFFIX + METADATA_APPEND and not rest, (
         metadata_suffix,
@@ -77,6 +67,12 @@ def compare_repo_and_catalog(repo, catalog):
     actual = tuple(sorted(catalog.list()))
     expecteds = tuple(tuple(sorted(el)) for el in (entry_names, metadata_names))
     assert all(actual == expected for expected in expecteds), (actual, expecteds)
+
+    alias_names, alias_suffixes = tree.get(CatalogInfix.ALIAS, ((), ()))
+    if alias_suffixes:
+        (alias_suffix, *rest) = set(alias_suffixes)
+        assert alias_suffix == PREFERRED_SUFFIX and not rest, (alias_suffix, *rest)
+    assert tuple(sorted(alias_names)) == tuple(sorted(catalog.list_aliases()))
 
 
 @pytest.fixture

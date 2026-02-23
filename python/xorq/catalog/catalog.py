@@ -18,6 +18,7 @@ from attr import (
     frozen,
 )
 from attr.validators import (
+    deep_iterable,
     instance_of,
     optional,
 )
@@ -87,23 +88,23 @@ class Catalog:
     def catalog_yaml(self):
         return CatalogYAML(self.repo_path)
 
-    def _add_tgz(self, path, sync=True):
+    def _add_tgz(self, path, sync=True, aliases=()):
         # should we enable not syncing?
         with self.maybe_synchronizing(sync):
-            catalog_addition = CatalogAddition(BuildTgz(path), self)
+            catalog_addition = CatalogAddition(BuildTgz(path), self, aliases=aliases)
             catalog_entry = catalog_addition.add()
             self.assert_consistency()
             return catalog_entry
 
-    def _add_build_dir(self, build_dir, sync=True):
+    def _add_build_dir(self, build_dir, sync=True, aliases=()):
         with make_tgz_context(build_dir) as tgz_path:
-            return self._add_tgz(tgz_path, sync=sync)
+            return self._add_tgz(tgz_path, sync=sync, aliases=aliases)
 
-    def _add_expr(self, expr, sync=True):
+    def _add_expr(self, expr, sync=True, aliases=()):
         with build_expr_context(expr) as path:
-            return self._add_build_dir(path, sync=sync)
+            return self._add_build_dir(path, sync=sync, aliases=aliases)
 
-    def add(self, obj, sync=True):
+    def add(self, obj, sync=True, aliases=()):
         from xorq.api import Expr
 
         match obj:
@@ -115,7 +116,7 @@ class Catalog:
                 f = self._add_expr
             case _:
                 raise ValueError(f"don't know how to handle type={type(obj)}")
-        return f(obj, sync=sync)
+        return f(obj, sync=sync, aliases=aliases)
 
     def remove(self, name, sync=True):
         with self.maybe_synchronizing(sync):
@@ -353,6 +354,7 @@ class BuildTgz:
 class CatalogAddition:
     build_tgz = field(validator=instance_of(BuildTgz))
     catalog = field(validator=instance_of(Catalog))
+    aliases = field(validator=deep_iterable(instance_of(str)), default=())
     _maybe_tmpfile = field(
         validator=optional(instance_of(tempfile._TemporaryFileWrapper)),
         default=None,
@@ -375,26 +377,38 @@ class CatalogAddition:
             p.parent.mkdir(exist_ok=True, parents=True)
 
     @property
+    def catalog_aliases(self):
+        return tuple(CatalogAlias(alias, self.catalog_entry) for alias in self.aliases)
+
+    @property
     def message(self):
-        message = f"add: {self.name}"
+        alias_message = f" (aliases {', '.join(self.aliases)})" if self.aliases else ""
+        message = f"add: {self.name}{alias_message}"
         return message
 
-    def add(self):
+    def _add(self):
         assert not self.catalog.contains(self.name)
         self.ensure_dirs()
         catalog_entry = self.catalog_entry
         catalog_entry.metadata_path.write_text(yaml.safe_dump(self.metadata))
         shutil.copy(self.build_tgz.path, catalog_entry.catalog_path)
-        with self.catalog.commit_context(self.message) as index:
-            self.catalog.catalog_yaml.add(self.name)
-            index.add(
-                (
-                    catalog_entry.catalog_path,
-                    catalog_entry.metadata_path,
-                    self.catalog.catalog_yaml.yaml_path,
-                )
+        index = self.catalog.repo.index
+        #
+        self.catalog.catalog_yaml.add(self.name)
+        index.add(
+            (
+                catalog_entry.catalog_path,
+                catalog_entry.metadata_path,
+                self.catalog.catalog_yaml.yaml_path,
             )
+        )
+        for catalog_alias in self.catalog_aliases:
+            catalog_alias._add()
         return CatalogEntry(self.name, self.catalog, require_exists=True)
+
+    def add(self):
+        with self.catalog.commit_context(self.message):
+            return self._add()
 
     @classmethod
     def from_expr(cls, expr, catalog):
@@ -436,6 +450,14 @@ class CatalogEntry:
     @property
     def expr(self):
         return load_expr_from_tgz(self.catalog_path)
+
+    @property
+    def aliases(self):
+        return tuple(
+            catalog_alias
+            for catalog_alias in self.catalog.catalog_aliases
+            if catalog_alias.catalog_entry.name == self.name
+        )
 
     @property
     def _exists_components(self):
@@ -482,7 +504,7 @@ class CatalogAlias:
     def ensure_dirs(self):
         self.alias_path.parent.mkdir(exist_ok=True, parents=True)
 
-    def add(self):
+    def _add(self):
         alias_path = self.alias_path
         if alias_path.exists():
             if not alias_path.is_symlink():
@@ -492,43 +514,60 @@ class CatalogAlias:
             self.ensure_dirs()
         alias_path.symlink_to(self.target)
         catalog_yaml = self.catalog_entry.catalog.catalog_yaml
-        with self.catalog_entry.catalog.commit_context(
-            f"add alias: {self.alias} -> {self.catalog_entry.name}"
-        ) as index:
-            catalog_yaml.add_alias(self.alias)
-            index.add([alias_path, catalog_yaml.yaml_path])
+        #
+        catalog_yaml.add_alias(self.alias)
+        self.catalog_entry.catalog.repo.index.add([alias_path, catalog_yaml.yaml_path])
         return self
+
+    def add(self):
+        message = f"add alias: {self.alias} -> {self.catalog_entry.name}"
+        with self.catalog_entry.catalog.commit_context(message):
+            self._add()
 
     def list_revisions(self):
         repo = self.catalog_entry.catalog.repo
         catalog = self.catalog_entry.catalog
         alias_relpath = str(self.alias_path.relative_to(self.catalog_entry.repo_path))
-        result = []
-        for commit in repo.iter_commits(paths=alias_relpath):
-            try:
-                blob = (
-                    commit.tree / CatalogInfix.ALIAS / (self.alias + PREFERRED_SUFFIX)
-                )
-            except KeyError:
-                continue
-            target = blob.data_stream.read().decode()
-            entry_name = with_pure_suffix(Path(target), "").name
-            result.append(
-                (CatalogEntry(entry_name, catalog, require_exists=False), commit)
+        blobs_commits = tuple(
+            (
+                # commit.tree.join raises KeyError for non-existent paths
+                toolz.excepts(KeyError, commit.tree.join)(
+                    Path(CatalogInfix.ALIAS, self.alias + PREFERRED_SUFFIX)
+                ),
+                commit,
             )
+            for commit in repo.iter_commits(paths=alias_relpath)
+        )
+        result = tuple(
+            (
+                CatalogEntry(
+                    with_pure_suffix(Path(blob.data_stream.read().decode()), "").name,
+                    catalog,
+                    require_exists=False,
+                ),
+                commit,
+            )
+            for blob, commit in blobs_commits
+            if blob
+        )
         return result
 
-    def remove(self):
+    def _remove(self):
         alias_path = self.alias_path
         assert alias_path.is_symlink(), f"no alias symlink at {alias_path}"
         catalog_yaml = self.catalog_entry.catalog.catalog_yaml
-        with self.catalog_entry.catalog.commit_context(
-            f"rm alias: {self.alias}"
-        ) as index:
-            catalog_yaml.remove_alias(self.alias)
-            index.add([catalog_yaml.yaml_path])
-            index.remove([alias_path])
-            alias_path.unlink()
+        index = self.catalog_entry.catalog.repo.index
+        #
+        catalog_yaml.remove_alias(self.alias)
+        index.add([catalog_yaml.yaml_path])
+        index.remove([alias_path])
+        alias_path.unlink()
+        return self
+
+    def remove(self):
+        message = f"rm alias: {self.alias}"
+        with self.catalog_entry.catalog.commit_context(message):
+            self._remove()
         return self
 
 
@@ -538,24 +577,38 @@ class CatalogRemoval:
 
     @property
     def message(self):
-        message = f"rm: {with_pure_suffix(self.catalog_entry.catalog_path, '').name}"
+        name = with_pure_suffix(self.catalog_entry.catalog_path, "").name
+        catalog_aliases = self.catalog_entry.aliases
+        aliases_message = (
+            f" (aliases {', '.join(catalog_alias.alias for catalog_alias in catalog_aliases)})"
+            if catalog_aliases
+            else ""
+        )
+        message = f"rm: {name}{aliases_message}"
         return message
 
-    def remove(self):
+    def _remove(self):
         catalog_entry = self.catalog_entry
         catalog = catalog_entry.catalog
         assert catalog_entry.exists()
-        with catalog.commit_context(self.message) as index:
-            catalog.catalog_yaml.remove(catalog_entry.name)
-            index.add((catalog.catalog_yaml.yaml_path,))
-            paths = (
-                catalog_entry.metadata_path,
-                catalog_entry.catalog_path,
-            )
-            index.remove(paths)
-            for path in paths:
-                path.unlink()
+        index = catalog.repo.index
+        #
+        for catalog_alias in self.catalog_entry.aliases:
+            catalog_alias._remove()
+        catalog.catalog_yaml.remove(catalog_entry.name)
+        index.add((catalog.catalog_yaml.yaml_path,))
+        paths = (
+            catalog_entry.metadata_path,
+            catalog_entry.catalog_path,
+        )
+        index.remove(paths)
+        for path in paths:
+            path.unlink()
         return catalog_entry
+
+    def remove(self):
+        with self.catalog_entry.catalog.commit_context(self.message):
+            return self._remove()
 
     @classmethod
     def from_name_catalog(cls, name, catalog):
@@ -584,7 +637,11 @@ class CatalogYAML:
 
     @property
     def contents(self):
-        return yaml.safe_load(self.yaml_path.read_text())
+        raw = yaml.safe_load(self.yaml_path.read_text())
+        if isinstance(raw, list):
+            # legacy format: plain list of entry names, no aliases section
+            return {str(CatalogInfix.ENTRY): raw, str(CatalogInfix.ALIAS): []}
+        return raw
 
     def set_contents(self, contents):
         self.yaml_path.write_text(yaml.safe_dump(contents))
