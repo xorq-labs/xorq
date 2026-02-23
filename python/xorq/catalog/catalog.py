@@ -482,7 +482,7 @@ class CatalogAlias:
     def ensure_dirs(self):
         self.alias_path.parent.mkdir(exist_ok=True, parents=True)
 
-    def add(self):
+    def _add(self):
         alias_path = self.alias_path
         if alias_path.exists():
             if not alias_path.is_symlink():
@@ -492,12 +492,15 @@ class CatalogAlias:
             self.ensure_dirs()
         alias_path.symlink_to(self.target)
         catalog_yaml = self.catalog_entry.catalog.catalog_yaml
-        with self.catalog_entry.catalog.commit_context(
-            f"add alias: {self.alias} -> {self.catalog_entry.name}"
-        ) as index:
-            catalog_yaml.add_alias(self.alias)
-            index.add([alias_path, catalog_yaml.yaml_path])
+        #
+        catalog_yaml.add_alias(self.alias)
+        self.catalog_entry.catalog.repo.index.add([alias_path, catalog_yaml.yaml_path])
         return self
+
+    def add(self):
+        message = f"add alias: {self.alias} -> {self.catalog_entry.name}"
+        with self.catalog_entry.catalog.commit_context(message):
+            self._add()
 
     def list_revisions(self):
         repo = self.catalog_entry.catalog.repo
@@ -518,17 +521,22 @@ class CatalogAlias:
             )
         return result
 
-    def remove(self):
+    def _remove(self):
         alias_path = self.alias_path
         assert alias_path.is_symlink(), f"no alias symlink at {alias_path}"
         catalog_yaml = self.catalog_entry.catalog.catalog_yaml
-        with self.catalog_entry.catalog.commit_context(
-            f"rm alias: {self.alias}"
-        ) as index:
-            catalog_yaml.remove_alias(self.alias)
-            index.add([catalog_yaml.yaml_path])
-            index.remove([alias_path])
-            alias_path.unlink()
+        index = self.catalog_entry.catalog.repo.index
+        #
+        catalog_yaml.remove_alias(self.alias)
+        index.add([catalog_yaml.yaml_path])
+        index.remove([alias_path])
+        alias_path.unlink()
+        return self
+
+    def remove(self):
+        message = f"rm alias: {self.alias}"
+        with self.catalog_entry.catalog.commit_context(message):
+            self._remove()
         return self
 
 
