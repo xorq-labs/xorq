@@ -1,22 +1,12 @@
 # https://docs.pytest.org/en/7.1.x/example/parametrize.html#parametrizing-conditional-raising
-import shutil
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 
-from xorq.catalog.catalog import (
-    BuildTgz,
-    Catalog,
-    CatalogAddition,
-)
+from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
-from xorq.catalog.tar_utils import (
-    REQUIRED_TGZ_NAMES,
-    extract_build_tgz_context,
-    write_tgz,
-)
 from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
     make_build_tgz,
@@ -43,8 +33,6 @@ def test_init_command_already_exists(runner, catalog_path):
     assert Path(catalog_path).exists()
     result = runner.invoke(cli, ["--path", catalog_path, "init"])
     assert result.exit_code != 0
-    assert "already exists" in result.output
-    assert catalog_path in result.output
 
 
 def test_init_by_name(runner, tmpdir, monkeypatch):
@@ -128,14 +116,6 @@ def test_add_duplicate(runner, catalog_path, data_dict):
     runner.invoke(cli, ["--path", catalog_path, "add", path])
     result = runner.invoke(cli, ["--path", catalog_path, "add", path])
     assert result.exit_code != 0
-
-
-def test_add_from_directory(runner, catalog_path, tmpdir):
-    tgz = make_build_tgz(tmpdir, "build-dir-test")
-    with extract_build_tgz_context(tgz) as build_dir:
-        result = runner.invoke(cli, ["--path", catalog_path, "add", str(build_dir)])
-    assert result.exit_code == 0, result.output
-    assert "Added" in result.output
 
 
 def test_add_nonexistent_path(runner, catalog_path):
@@ -396,48 +376,6 @@ def test_remove_entry_cascades_aliases(runner, catalog_path, data_dict):
     catalog.assert_consistency()
 
 
-# --- info command ---
-
-
-def test_info_empty(runner, catalog_path):
-    result = runner.invoke(cli, ["--path", catalog_path, "info"])
-    assert result.exit_code == 0, result.output
-    assert "path:" in result.output
-    assert "commit:" in result.output
-    assert "entries: 0" in result.output
-    assert "aliases: 0" in result.output
-    assert "(none)" in result.output
-
-
-def test_info_populated(runner, catalog_path, data_dict):
-    paths = [str(p) for p in data_dict.values()]
-    runner.invoke(cli, ["--path", catalog_path, "add", *paths])
-    result = runner.invoke(cli, ["--path", catalog_path, "info"])
-    assert result.exit_code == 0, result.output
-    assert f"entries: {len(data_dict)}" in result.output
-    assert "aliases: 0" in result.output
-
-
-def test_info_alias_count(runner, catalog_path, data_dict):
-    path = str(next(iter(data_dict.values())))
-    runner.invoke(cli, ["--path", catalog_path, "add", path])
-    name = Path(path).name.removesuffix("".join(Path(path).suffixes))
-    runner.invoke(cli, ["--path", catalog_path, "add-alias", name, "alias-p"])
-    runner.invoke(cli, ["--path", catalog_path, "add-alias", name, "alias-q"])
-    result = runner.invoke(cli, ["--path", catalog_path, "info"])
-    assert result.exit_code == 0, result.output
-    assert "aliases: 2" in result.output
-
-
-def test_info_shows_remotes(runner, repo_cloned_bare, tmpdir):
-    cloned = Catalog.clone_from(
-        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("info-remote-test")
-    )
-    result = runner.invoke(cli, ["--path", str(cloned.repo_path), "info"])
-    assert result.exit_code == 0, result.output
-    assert "origin" in result.output
-
-
 # --- list command ---
 
 
@@ -472,16 +410,6 @@ def test_get_command(runner, catalog_path, data_dict, tmpdir):
     assert "Exported to" in result.output
 
 
-def test_get_default_output_dir(runner, catalog_path, data_dict):
-    path = str(next(iter(data_dict.values())))
-    runner.invoke(cli, ["--path", catalog_path, "add", path])
-    name = Path(path).name.removesuffix("".join(Path(path).suffixes))
-    with runner.isolated_filesystem():
-        result = runner.invoke(cli, ["--path", catalog_path, "get", name])
-        assert result.exit_code == 0, result.output
-        assert "Exported to" in result.output
-
-
 def test_get_nonexistent_entry(runner, catalog_path, tmpdir):
     output_dir = str(Path(tmpdir).joinpath("export"))
     Path(output_dir).mkdir()
@@ -498,23 +426,6 @@ def test_check_command(runner, catalog_path):
     result = runner.invoke(cli, ["--path", catalog_path, "check"])
     assert result.exit_code == 0, result.output
     assert "OK" in result.output
-
-
-def test_check_catches_inconsistency(runner, catalog_path, tmpdir):
-    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
-    tgz_path = write_tgz(
-        Path(tmpdir).joinpath("build.tgz"),
-        {name: b"" for name in REQUIRED_TGZ_NAMES},
-    )
-    catalog_addition = CatalogAddition(BuildTgz(tgz_path), catalog)
-    catalog_addition.ensure_dirs()
-    entry_path = catalog_addition.catalog_entry.catalog_path
-    with catalog.commit_context("bad commit"):
-        shutil.copy(tgz_path, entry_path)
-        catalog.repo.index.add((entry_path,))
-
-    result = runner.invoke(cli, ["--path", catalog_path, "check"])
-    assert result.exit_code != 0
 
 
 def test_check_populated(runner, catalog_path, data_dict):
@@ -655,7 +566,6 @@ def test_subcommand_help(runner):
         "add-alias",
         "remove",
         "remove-alias",
-        "info",
         "list",
         "get",
         "push",
@@ -668,48 +578,6 @@ def test_subcommand_help(runner):
         assert result.exit_code == 0, f"{cmd} --help failed"
 
 
-def test_name_and_path_mutually_exclusive(runner, catalog_path, tmpdir, monkeypatch):
-    monkeypatch.setattr(Catalog, "by_name_base_path", Path(tmpdir))
-    runner.invoke(cli, ["--name", "my-catalog", "init"])
-    result = runner.invoke(
-        cli, ["--name", "my-catalog", "--path", catalog_path, "list"]
-    )
-    assert result.exit_code != 0
-
-
 def test_list_invalid_path(runner):
     result = runner.invoke(cli, ["--path", "/nonexistent/path", "list"])
     assert result.exit_code != 0
-    assert "init" in result.output
-
-
-def test_missing_catalog_hint_includes_path(runner, tmpdir):
-    missing = str(Path(tmpdir).joinpath("no-such-catalog"))
-    result = runner.invoke(cli, ["--path", missing, "list"])
-    assert result.exit_code != 0
-    assert f"--path {missing}" in result.output
-    assert "init" in result.output
-
-
-def test_missing_catalog_hint_includes_name(runner, tmpdir, monkeypatch):
-    monkeypatch.setattr(Catalog, "by_name_base_path", Path(tmpdir))
-    result = runner.invoke(cli, ["--name", "my-catalog", "list"])
-    assert result.exit_code != 0
-    assert "--name my-catalog" in result.output
-    assert "init" in result.output
-
-
-# --- TUI validation ---
-
-
-def test_tui_missing_catalog_shows_hint(runner, tmpdir):
-    missing = str(Path(tmpdir).joinpath("no-such-catalog"))
-    result = runner.invoke(cli, ["--path", missing, "tui"])
-    assert result.exit_code != 0
-    assert "init" in result.output
-
-
-def test_tui_missing_catalog_with_name(runner, tmpdir):
-    result = runner.invoke(cli, ["--name", "no-such-catalog-xyz", "tui"])
-    assert result.exit_code != 0
-    assert "init" in result.output

@@ -88,23 +88,23 @@ class Catalog:
     def catalog_yaml(self):
         return CatalogYAML(self.repo_path)
 
-    def _add_tgz(self, path, sync=True):
+    def _add_tgz(self, path, sync=True, aliases=()):
         # should we enable not syncing?
         with self.maybe_synchronizing(sync):
-            catalog_addition = CatalogAddition(BuildTgz(path), self)
+            catalog_addition = CatalogAddition(BuildTgz(path), self, aliases=aliases)
             catalog_entry = catalog_addition.add()
             self.assert_consistency()
             return catalog_entry
 
-    def _add_build_dir(self, build_dir, sync=True):
+    def _add_build_dir(self, build_dir, sync=True, aliases=()):
         with make_tgz_context(build_dir) as tgz_path:
-            return self._add_tgz(tgz_path, sync=sync)
+            return self._add_tgz(tgz_path, sync=sync, aliases=aliases)
 
-    def _add_expr(self, expr, sync=True):
+    def _add_expr(self, expr, sync=True, aliases=()):
         with build_expr_context(expr) as path:
-            return self._add_build_dir(path, sync=sync)
+            return self._add_build_dir(path, sync=sync, aliases=aliases)
 
-    def add(self, obj, sync=True):
+    def add(self, obj, sync=True, aliases=()):
         from xorq.api import Expr
 
         match obj:
@@ -116,7 +116,7 @@ class Catalog:
                 f = self._add_expr
             case _:
                 raise ValueError(f"don't know how to handle type={type(obj)}")
-        return f(obj, sync=sync)
+        return f(obj, sync=sync, aliases=aliases)
 
     def remove(self, name, sync=True):
         with self.maybe_synchronizing(sync):

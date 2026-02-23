@@ -4,25 +4,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import click
-from git import NoSuchPathError
 
 from xorq.catalog.catalog import Catalog
 
 
 def click_handler(e):
     raise click.ClickException(str(e)) from e
-
-
-def _init_hint(ctx):
-    """Return the `xorq catalog ... init` command the user should run."""
-    group_ctx = ctx.parent or ctx
-    parts = ["xorq catalog"]
-    if name := group_ctx.params.get("name"):
-        parts.append(f"--name {name}")
-    elif path := group_ctx.params.get("path"):
-        parts.append(f"--path {path}")
-    parts.append("init")
-    return " ".join(parts)
 
 
 @contextmanager
@@ -32,21 +19,6 @@ def click_context(*typs):
     except click.ClickException:
         raise
     except typs as e:
-        click_handler(e)
-
-
-@contextmanager
-def click_context_catalog(ctx):
-    try:
-        yield
-    except click.ClickException:
-        raise
-    except NoSuchPathError as e:
-        hint = _init_hint(ctx)
-        raise click.ClickException(
-            f"Catalog not found: {e}\nRun `{hint}` to create it."
-        ) from e
-    except Exception as e:
         click_handler(e)
 
 
@@ -88,7 +60,7 @@ def _complete_alias_names(ctx, param, incomplete):
         return []
 
 
-@click.group(invoke_without_command=True)
+@click.group()
 @click.option(
     "-n", "--name", default=None, help="Catalog name (mutually exclusive with --path)."
 )
@@ -134,27 +106,10 @@ def cli(ctx, name, path, url, root_repo, init):
 
 @cli.command()
 @click.pass_context
-def tui(ctx):
-    """Launch terminal UI."""
-    with click_context_catalog(ctx):
-        ctx.obj.make_catalog(init=False)  # validate catalog exists
-    from xorq.catalog.tui import CatalogTUI
-
-    app = CatalogTUI(partial(ctx.obj.make_catalog, init=False))
-    app.run()
-
-
-@cli.command()
-@click.pass_context
 def init(ctx):
     """Initialize a new catalog."""
-    with click_context_catalog(ctx):
-        try:
-            catalog = ctx.obj.make_catalog(init=True)
-        except AssertionError:
-            # init_repo_path asserts the path does not already exist
-            probe = ctx.obj.make_catalog(init=False)
-            raise click.ClickException(f"Catalog already exists at {probe.repo_path}")
+    with click_context_default():
+        catalog = ctx.obj.make_catalog(init=True)
     click.echo(f"Initialized catalog at {catalog.repo_path}")
 
 
@@ -171,7 +126,7 @@ def init(ctx):
 @click.pass_context
 def add(ctx, paths, sync, aliases):
     """Add entries from tgz files or build directories."""
-    with click_context_catalog(ctx):
+    with click_context_default():
         catalog = ctx.obj.make_catalog(init=False)
         with catalog.maybe_synchronizing(sync):
             for path in map(Path, paths):
@@ -185,7 +140,7 @@ def add(ctx, paths, sync, aliases):
 @click.pass_context
 def remove(ctx, names, sync):
     """Remove entries by name."""
-    with click_context_catalog(ctx):
+    with click_context_default():
         catalog = ctx.obj.make_catalog(init=False)
         with catalog.maybe_synchronizing(sync):
             for name in names:
@@ -200,7 +155,7 @@ def remove(ctx, names, sync):
 @click.pass_context
 def add_alias(ctx, name, alias, sync):
     """Add an alias for an entry."""
-    with click_context_catalog(ctx):
+    with click_context_default():
         catalog = ctx.obj.make_catalog(init=False)
         catalog_alias = catalog.add_alias(name, alias, sync=sync)
         click.echo(f"Added alias {catalog_alias.alias!r} -> {name}")
@@ -214,7 +169,7 @@ def add_alias(ctx, name, alias, sync):
 @click.pass_context
 def remove_alias(ctx, aliases, sync):
     """Remove one or more aliases."""
-    with click_context_catalog(ctx):
+    with click_context_default():
         catalog = ctx.obj.make_catalog(init=False)
         alias_map = {ca.alias: ca for ca in catalog.catalog_aliases}
         with catalog.maybe_synchronizing(sync):
@@ -229,25 +184,11 @@ def remove_alias(ctx, aliases, sync):
 @click.pass_context
 def list_entries(ctx):
     """List all entries."""
-    with click_context_catalog(ctx):
+    with click_context_default():
         catalog = ctx.obj.make_catalog(init=False)
         names = catalog.list() or ("No entries.",)
         for name in names:
             click.echo(name)
-
-
-@cli.command()
-@click.pass_context
-def info(ctx):
-    """Show catalog metadata: path, remotes, entry/alias counts."""
-    with click_context_catalog(ctx):
-        catalog = ctx.obj.make_catalog(init=False)
-        click.echo(f"path:    {catalog.repo_path}")
-        click.echo(f"commit:  {catalog.repo.head.commit.hexsha[:12]}")
-        remotes = [r.name for r in catalog.repo.remotes]
-        click.echo(f"remotes: {', '.join(remotes) if remotes else '(none)'}")
-        click.echo(f"entries: {len(catalog.list())}")
-        click.echo(f"aliases: {len(catalog.list_aliases())}")
 
 
 @cli.command()
@@ -262,7 +203,7 @@ def info(ctx):
 @click.pass_context
 def get(ctx, name, output):
     """Export an entry's tgz to a directory."""
-    with click_context_catalog(ctx):
+    with click_context_default():
         catalog = ctx.obj.make_catalog(init=False)
         result = catalog.get_tgz(name, dir_path=output)
         click.echo(f"Exported to {result}")
@@ -272,7 +213,7 @@ def get(ctx, name, output):
 @click.pass_context
 def push(ctx):
     """Push catalog to remote(s)."""
-    with click_context_catalog(ctx):
+    with click_context_default():
         catalog = ctx.obj.make_catalog(init=False)
         catalog.push()
         click.echo("Pushed.")
@@ -282,7 +223,7 @@ def push(ctx):
 @click.pass_context
 def pull(ctx):
     """Pull catalog from remote(s)."""
-    with click_context_catalog(ctx):
+    with click_context_default():
         catalog = ctx.obj.make_catalog(init=False)
         catalog.pull()
         click.echo("Pulled.")
@@ -292,7 +233,7 @@ def pull(ctx):
 @click.pass_context
 def sync(ctx):
     """Pull then push."""
-    with click_context_catalog(ctx):
+    with click_context_default():
         catalog = ctx.obj.make_catalog(init=False)
         catalog.sync()
         click.echo("Synced.")
@@ -331,7 +272,7 @@ def clone(url, dest_name, dest_path):
 @click.pass_context
 def check(ctx):
     """Validate catalog consistency."""
-    with click_context_catalog(ctx):
+    with click_context_default():
         catalog = ctx.obj.make_catalog(init=False)
         catalog.assert_consistency()
         click.echo("OK")
