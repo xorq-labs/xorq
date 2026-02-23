@@ -29,11 +29,10 @@ from git import (
 
 from xorq.catalog.constants import (
     CATALOG_YAML_NAME,
-    ENTRY_INFIX,
     METADATA_APPEND,
-    METADATA_INFIX,
     PREFERRED_SUFFIX,
     VALID_SUFFIXES,
+    CatalogInfix,
 )
 from xorq.catalog.expr_utils import (
     build_expr_context,
@@ -176,6 +175,33 @@ class Catalog:
         with commit_context(self.repo, message) as index:
             yield index
 
+    def add_alias(self, name, alias):
+        assert name in self.list()
+        catalog_alias = CatalogAlias(alias=alias, name=name, catalog=self)
+        alias_path = catalog_alias.alias_path
+        alias_path.parent.mkdir(exist_ok=True, parents=True)
+        if alias_path.is_symlink() or alias_path.exists():
+            alias_path.unlink()
+        alias_path.symlink_to(catalog_alias.target)
+        with self.commit_context(f"alias: {alias} -> {name}") as index:
+            index.add([alias_path])
+        return catalog_alias
+
+    @property
+    def catalog_aliases(self):
+        alias_dir = self.repo_path / CatalogInfix.ALIAS
+        if not alias_dir.exists():
+            return ()
+        return tuple(
+            CatalogAlias(
+                alias=p.with_suffix("").name,
+                name=p.resolve().with_suffix("").name,
+                catalog=self,
+            )
+            for p in alias_dir.iterdir()
+            if p.is_symlink()
+        )
+
     def assert_consistency(self):
         # catalog_yaml is in repo
         catalog_yaml_relpath_string = str(self.catalog_yaml.yaml_relpath)
@@ -186,12 +212,23 @@ class Catalog:
         )
         assert catalog_yaml_relpath_string in path_strings
 
-        # everything else in repo is either catalog_path or metadata_path from an entry the catalog_yaml knows about
+        # everything else in repo is either catalog_path or metadata_path from an entry the catalog_yaml knows about, or an alias symlink
         actual = sorted(el for el in path_strings if el != catalog_yaml_relpath_string)
         expected = sorted(
-            str(path.relative_to(self.repo_path))
-            for catalog_entry in self.catalog_entries
-            for path in (catalog_entry.metadata_path, catalog_entry.catalog_path)
+            (
+                *(
+                    str(path.relative_to(self.repo_path))
+                    for catalog_entry in self.catalog_entries
+                    for path in (
+                        catalog_entry.metadata_path,
+                        catalog_entry.catalog_path,
+                    )
+                ),
+                *(
+                    str(catalog_alias.alias_path.relative_to(self.repo_path))
+                    for catalog_alias in self.catalog_aliases
+                ),
+            )
         )
         assert actual == expected
 
@@ -383,15 +420,15 @@ class CatalogEntry:
     @property
     def metadata_path(self):
         metadata_path = self.repo_path.joinpath(
-            METADATA_INFIX, self.name + PREFERRED_SUFFIX + METADATA_APPEND
+            CatalogInfix.METADATA, self.name + PREFERRED_SUFFIX + METADATA_APPEND
         )
         return metadata_path
 
     @property
     def catalog_path(self):
-        catalog_path = self.repo_path.joinpath(ENTRY_INFIX, self.name).with_suffix(
-            PREFERRED_SUFFIX
-        )
+        catalog_path = self.repo_path.joinpath(
+            CatalogInfix.ENTRY, self.name
+        ).with_suffix(PREFERRED_SUFFIX)
         return catalog_path
 
     @property
@@ -421,6 +458,27 @@ class CatalogEntry:
 
     def exists(self):
         return all(self._exists_components.values())
+
+
+@frozen
+class CatalogAlias:
+    alias = field(validator=instance_of(str))
+    name = field(validator=instance_of(str))
+    catalog = field(validator=instance_of(Catalog))
+
+    @property
+    def repo_path(self):
+        return self.catalog.repo_path
+
+    @property
+    def alias_path(self):
+        return self.repo_path.joinpath(CatalogInfix.ALIAS, self.alias).with_suffix(
+            PREFERRED_SUFFIX
+        )
+
+    @property
+    def target(self):
+        return Path("..") / CatalogInfix.ENTRY / (self.name + PREFERRED_SUFFIX)
 
 
 @frozen

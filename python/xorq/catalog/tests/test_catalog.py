@@ -8,16 +8,16 @@ from xorq.catalog.catalog import (
     BuildTgz,
     Catalog,
     CatalogAddition,
+    CatalogAlias,
     CatalogEntry,
     with_pure_suffix,
 )
-from xorq.catalog.constants import (
-    REQUIRED_TGZ_NAMES,
-)
+from xorq.catalog.constants import CatalogInfix
 from xorq.catalog.expr_utils import (
     build_expr_context_tgz,
 )
 from xorq.catalog.tar_utils import (
+    REQUIRED_TGZ_NAMES,
     write_tgz,
 )
 from xorq.catalog.tests.conftest import (
@@ -122,6 +122,67 @@ def test_assert_consistency(catalog, tmpdir):
         catalog.assert_consistency()
     with pytest.raises(AssertionError):
         CatalogEntry(catalog_addition.name, catalog, False)
+
+
+def test_add_alias(catalog_populated):
+    name = catalog_populated.list()[0]
+    alias = "my-alias"
+    catalog_alias = catalog_populated.add_alias(name, alias)
+
+    assert isinstance(catalog_alias, CatalogAlias)
+    assert catalog_alias.alias_path.is_symlink()
+    assert catalog_alias.alias_path.exists()
+    assert catalog_alias.alias_path.parent.name == CatalogInfix.ALIAS
+    assert catalog_alias.target == Path("..") / CatalogInfix.ENTRY / (name + ".tgz")
+    catalog_populated.assert_consistency()
+
+
+def test_add_alias_unknown_name_raises(catalog_populated):
+    with pytest.raises(AssertionError):
+        catalog_populated.add_alias("nonexistent", "my-alias")
+
+
+def test_add_alias_overwrite(catalog_populated):
+    names = catalog_populated.list()
+    name_a, name_b = names[0], names[1]
+    alias = "shared-alias"
+
+    catalog_populated.add_alias(name_a, alias)
+    catalog_alias = catalog_populated.add_alias(name_b, alias)
+
+    assert catalog_alias.name == name_b
+    assert catalog_alias.alias_path.is_symlink()
+    assert (
+        catalog_alias.alias_path.resolve()
+        == (
+            catalog_populated.repo_path / CatalogInfix.ENTRY / (name_b + ".tgz")
+        ).resolve()
+    )
+    catalog_populated.assert_consistency()
+
+
+def test_add_alias_multiple(catalog_populated):
+    names = catalog_populated.list()
+    aliases = [f"alias-{i}" for i in range(len(names))]
+
+    for name, alias in zip(names, aliases):
+        catalog_populated.add_alias(name, alias)
+
+    catalog_aliases = catalog_populated.catalog_aliases
+    assert len(catalog_aliases) == len(names)
+    assert {ca.alias for ca in catalog_aliases} == set(aliases)
+    catalog_populated.assert_consistency()
+
+
+def test_add_alias_symlink_is_relative(catalog_populated):
+    name = catalog_populated.list()[0]
+    catalog_alias = catalog_populated.add_alias(name, "rel-alias")
+
+    raw_target = Path(catalog_alias.alias_path.parent).joinpath(
+        catalog_alias.alias_path.readlink()
+    )
+    assert not catalog_alias.alias_path.readlink().is_absolute()
+    assert raw_target.resolve() == catalog_alias.alias_path.resolve()
 
 
 def test_catalog_entry_relocatable(repo_cloned_bare, tmpdir):

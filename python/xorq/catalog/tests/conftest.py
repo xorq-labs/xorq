@@ -11,14 +11,13 @@ from git import (
 import xorq.api as xo
 from xorq.catalog.catalog import (
     CATALOG_YAML_NAME,
-    ENTRY_INFIX,
     METADATA_APPEND,
-    METADATA_INFIX,
     PREFERRED_SUFFIX,
     VALID_SUFFIXES,
     Catalog,
     with_pure_suffix,
 )
+from xorq.catalog.constants import CatalogInfix
 from xorq.catalog.expr_utils import build_expr_context_tgz
 
 
@@ -62,7 +61,7 @@ def compare_repo_and_catalog(repo, catalog):
             (metadata_names, metadata_suffixes),
         ),
     ) = get_split_tree(repo)
-    assert parents == (".", ENTRY_INFIX, METADATA_INFIX)
+    assert parents == (".", CatalogInfix.ENTRY, CatalogInfix.METADATA)
     assert toplevel_names == (Path(CATALOG_YAML_NAME).stem,)
     assert toplevel_suffixes == (Path(CATALOG_YAML_NAME).suffix,)
     #

@@ -5,8 +5,11 @@ from pathlib import Path
 
 from xorq.catalog.constants import (
     PREFERRED_SUFFIX,
-    REQUIRED_TGZ_NAMES,
 )
+from xorq.ibis_yaml.compiler import DumpFiles
+
+
+REQUIRED_TGZ_NAMES = (DumpFiles.expr, DumpFiles.metadata, DumpFiles.profiles)
 
 
 def test_tgz(tgz_path):
