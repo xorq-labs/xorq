@@ -394,6 +394,48 @@ def test_remove_entry_cascades_aliases(runner, catalog_path, data_dict):
     catalog.assert_consistency()
 
 
+# --- info command ---
+
+
+def test_info_empty(runner, catalog_path):
+    result = runner.invoke(cli, ["--path", catalog_path, "info"])
+    assert result.exit_code == 0, result.output
+    assert "path:" in result.output
+    assert "commit:" in result.output
+    assert "entries: 0" in result.output
+    assert "aliases: 0" in result.output
+    assert "(none)" in result.output
+
+
+def test_info_populated(runner, catalog_path, data_dict):
+    paths = [str(p) for p in data_dict.values()]
+    runner.invoke(cli, ["--path", catalog_path, "add", *paths])
+    result = runner.invoke(cli, ["--path", catalog_path, "info"])
+    assert result.exit_code == 0, result.output
+    assert f"entries: {len(data_dict)}" in result.output
+    assert "aliases: 0" in result.output
+
+
+def test_info_alias_count(runner, catalog_path, data_dict):
+    path = str(next(iter(data_dict.values())))
+    runner.invoke(cli, ["--path", catalog_path, "add", path])
+    name = Path(path).name.removesuffix("".join(Path(path).suffixes))
+    runner.invoke(cli, ["--path", catalog_path, "add-alias", name, "alias-p"])
+    runner.invoke(cli, ["--path", catalog_path, "add-alias", name, "alias-q"])
+    result = runner.invoke(cli, ["--path", catalog_path, "info"])
+    assert result.exit_code == 0, result.output
+    assert "aliases: 2" in result.output
+
+
+def test_info_shows_remotes(runner, repo_cloned_bare, tmpdir):
+    cloned = Catalog.clone_from(
+        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("info-remote-test")
+    )
+    result = runner.invoke(cli, ["--path", str(cloned.repo_path), "info"])
+    assert result.exit_code == 0, result.output
+    assert "origin" in result.output
+
+
 # --- list command ---
 
 
@@ -611,6 +653,7 @@ def test_subcommand_help(runner):
         "add-alias",
         "remove",
         "remove-alias",
+        "info",
         "list",
         "get",
         "push",
@@ -635,3 +678,20 @@ def test_name_and_path_mutually_exclusive(runner, catalog_path, tmpdir, monkeypa
 def test_list_invalid_path(runner):
     result = runner.invoke(cli, ["--path", "/nonexistent/path", "list"])
     assert result.exit_code != 0
+    assert "init" in result.output
+
+
+def test_missing_catalog_hint_includes_path(runner, tmpdir):
+    missing = str(Path(tmpdir).joinpath("no-such-catalog"))
+    result = runner.invoke(cli, ["--path", missing, "list"])
+    assert result.exit_code != 0
+    assert f"--path {missing}" in result.output
+    assert "init" in result.output
+
+
+def test_missing_catalog_hint_includes_name(runner, tmpdir, monkeypatch):
+    monkeypatch.setattr(Catalog, "by_name_base_path", Path(tmpdir))
+    result = runner.invoke(cli, ["--name", "my-catalog", "list"])
+    assert result.exit_code != 0
+    assert "--name my-catalog" in result.output
+    assert "init" in result.output
