@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+import yaml
 from git import (
     NoSuchPathError,
     Repo,
@@ -221,3 +222,21 @@ def test_from_kwargs_root_repo_error_message_echoes_args(root_repo, catalog_path
     with pytest.raises(ValueError, match="path=") as exc_info:
         Catalog.from_kwargs(root_repo=root_repo, path=catalog_path)
     assert catalog_path in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# legacy YAML format migration
+# ---------------------------------------------------------------------------
+
+
+def test_catalog_yaml_legacy_list_format(catalog, data_dict):
+    """Catalogs whose YAML is a plain list (pre-aliases schema) still work.
+
+    Before the dict schema was introduced, catalog.yaml held a bare list of
+    entry names.  list() and list_aliases() must not raise.
+    """
+    names = [p.stem for p in data_dict.values()]
+    catalog.catalog_yaml.yaml_path.write_text(yaml.safe_dump(names))
+
+    assert sorted(catalog.list()) == sorted(names)
+    assert catalog.list_aliases() == []
