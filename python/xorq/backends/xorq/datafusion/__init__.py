@@ -366,11 +366,13 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
     @property
     def current_catalog(self) -> str:
-        raise NotImplementedError()
+        raise NotImplementedError("DataFusion backend does not support current_catalog")
 
     @property
     def current_database(self) -> str:
-        raise NotImplementedError()
+        raise NotImplementedError(
+            "DataFusion backend does not support current_database"
+        )
 
     def list_catalogs(self, like: str | None = None) -> list[str]:
         code = (

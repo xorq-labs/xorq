@@ -72,14 +72,14 @@ class Cache:
     def get(self, expr: ir.Expr):
         key = self.calc_key(expr)
         if not self.key_exists(key):
-            raise KeyError
+            raise KeyError(key)
         else:
             return self.storage.get(key)
 
     def put(self, expr: ir.Expr, value):
         key = self.calc_key(expr)
         if self.key_exists(key):
-            raise ValueError
+            raise ValueError(f"cache entry already exists for key {key!r}")
         else:
             return self.storage.put(key, value)
 
@@ -99,7 +99,7 @@ class Cache:
     def drop(self, expr: ir.Expr):
         key = self.calc_key(expr)
         if not self.key_exists(key):
-            raise KeyError
+            raise KeyError(key)
         else:
             self.storage.drop(key)
 

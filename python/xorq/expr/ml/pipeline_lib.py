@@ -62,7 +62,9 @@ def make_estimator_typ(fit, return_type, name=None, *, transform=None, predict=N
     def arbitrate_transform_predict(transform, predict):
         match (transform, predict):
             case [None, None]:
-                raise ValueError
+                raise ValueError(
+                    "at least one of transform or predict must be provided"
+                )
             case [other, None]:
                 return other, "transform"
             case [None, other]:
@@ -70,7 +72,9 @@ def make_estimator_typ(fit, return_type, name=None, *, transform=None, predict=N
             case [other0, other1]:
                 raise ValueError(other0, other1)
             case _:
-                raise ValueError
+                raise ValueError(
+                    f"unexpected transform/predict combination: ({transform!r}, {predict!r})"
+                )
 
     assert isinstance(return_type, dt.DataType)
     other, which = arbitrate_transform_predict(transform, predict)
@@ -498,7 +502,7 @@ class FittedStep:
             case bytes():
                 pass
             case _:
-                raise ValueError
+                raise ValueError(f"unexpected deferred model result type {type(obj)}")
         return pickle.loads(obj)
 
     @property
@@ -572,7 +576,7 @@ class FittedStep:
         elif self.is_transform:
             return self.transform_raw(expr, name=name)
         else:
-            raise ValueError
+            raise ValueError("step has neither predict nor transform method")
 
     @property
     def predicted(self):

@@ -39,12 +39,16 @@ def replace_one_unbound(unbound_expr, table):
     # FIXME: consolidate UnboundExprExchanger.set_one_unbound_name and this logic
     (unbound, *rest) = walk_nodes(ops.UnboundTable, unbound_expr)
     if rest:
-        raise ValueError
+        raise ValueError(
+            "unbound_expr must contain exactly one UnboundTable, but found multiple"
+        )
     dt = table.op()
     if not isinstance(dt, (ops.DatabaseTable, rel.Read)):
-        raise ValueError
+        raise ValueError(f"table must be a DatabaseTable or Read, got {type(dt)}")
     if not unbound.schema == dt.schema:
-        raise ValueError
+        raise ValueError(
+            f"unbound schema {unbound.schema} does not match table schema {dt.schema}"
+        )
 
     def _replace_unbound(node, kwargs):
         if isinstance(node, ops.UnboundTable):
@@ -81,7 +85,7 @@ def find_unbound_next_con(unbound_expr):
         case (unbound_op,):
             pass
         case _:
-            raise ValueError
+            raise ValueError("unbound_expr must contain exactly one UnboundTable")
     match next(
         filter(None, map(find_all_sources, gen_downstream(unbound_expr, unbound_op))),
         None,
@@ -94,7 +98,7 @@ def find_unbound_next_con(unbound_expr):
             # duckdb silently hangs when we try to do the replacement
             return None
         case _:
-            raise ValueError
+            raise ValueError("unexpected match case in find_unbound_next_con")
 
 
 @excepts_print_exc
@@ -350,7 +354,9 @@ def make_udxf(
         return pa.RecordBatch.from_pandas(out, preserve_index=False)
 
     if isinstance(maybe_schema_in, pa.Schema):
-        raise ValueError
+        raise ValueError(
+            "maybe_schema_in must be an ibis.Schema or Callable, not a pyarrow Schema"
+        )
     elif isinstance(maybe_schema_in, ibis.Schema):
         schema_in_required = maybe_schema_in
         schema_in_condition = toolz.curried.operator.eq(schema_in_required)
@@ -358,18 +364,24 @@ def make_udxf(
         schema_in_required = None
         schema_in_condition = maybe_schema_in
     else:
-        raise ValueError
+        raise ValueError(
+            f"maybe_schema_in must be an ibis.Schema or Callable, got {type(maybe_schema_in)}"
+        )
 
     out_schema = None
     if isinstance(maybe_schema_out, pa.Schema):
-        raise ValueError
+        raise ValueError(
+            "maybe_schema_out must be an ibis.Schema or Callable, not a pyarrow Schema"
+        )
     elif isinstance(maybe_schema_out, ibis.Schema):
         calc_schema_out = return_constant(maybe_schema_out)
         out_schema = maybe_schema_out
     elif isinstance(maybe_schema_out, Callable):
         calc_schema_out = maybe_schema_out
     else:
-        raise ValueError
+        raise ValueError(
+            f"maybe_schema_out must be an ibis.Schema or Callable, got {type(maybe_schema_out)}"
+        )
 
     if do_wraps:
         exchange_f = excepts_print_exc(

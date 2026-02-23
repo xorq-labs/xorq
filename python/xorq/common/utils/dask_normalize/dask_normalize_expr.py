@@ -30,14 +30,14 @@ def expr_is_bound(expr):
 
 def unbound_expr_to_default_sql(expr, compiler=None):
     if expr_is_bound(expr):
-        raise ValueError
+        raise ValueError("expr must be unbound, but is already bound to a backend")
     default_sql = api.to_sql(expr, compiler=compiler)
     return str(default_sql)
 
 
 def normalize_inmemorytable(dt):
     if not isinstance(dt, ir.InMemoryTable):
-        raise ValueError
+        raise ValueError(f"expected InMemoryTable, got {type(dt)}")
     return normalize_seq_with_caller(
         dt.schema.to_pandas(),
         # in memory: so we can assume it's reasonable to hash the data
@@ -51,7 +51,7 @@ def normalize_inmemorytable(dt):
 
 def normalize_memory_databasetable(dt):
     if dt.source.name not in ("pandas", "xorq", "datafusion", "duckdb", "sqlite"):
-        raise ValueError
+        raise ValueError(f"expected in-memory backend, got {dt.source.name!r}")
     return normalize_seq_with_caller(
         # we are normalizing the data, we don't care about the connection
         # dt.source,
@@ -67,13 +67,13 @@ def normalize_memory_databasetable(dt):
 
 def normalize_pandas_databasetable(dt):
     if dt.source.name != "pandas":
-        raise ValueError
+        raise ValueError(f"expected pandas backend, got {dt.source.name!r}")
     return normalize_memory_databasetable(dt)
 
 
 def normalize_datafusion_databasetable(dt):
     if dt.source.name not in ("datafusion", "xorq"):
-        raise ValueError
+        raise ValueError(f"expected datafusion/xorq backend, got {dt.source.name!r}")
     table = dt.source.con.table(dt.name)
     ep_str = str(table.execution_plan())
     if ep_str.startswith(("ParquetExec:", "CsvExec:")) or re.match(
@@ -95,7 +95,7 @@ def normalize_datafusion_databasetable(dt):
     elif ep_str.startswith("EmptyExec"):
         raise ValueError("No data to cache")
     else:
-        raise ValueError
+        raise ValueError(f"unrecognized DataFusion execution plan: {ep_str!r}")
 
 
 def normalize_remote_databasetable(dt):
@@ -112,7 +112,7 @@ def normalize_postgres_databasetable(dt):
     from xorq.common.utils.postgres_utils import get_postgres_n_reltuples
 
     if dt.source.name != "postgres":
-        raise ValueError
+        raise ValueError(f"expected postgres backend, got {dt.source.name!r}")
     return normalize_seq_with_caller(
         dt.name,
         dt.schema,
@@ -127,7 +127,7 @@ def normalize_pyiceberg_database_table(dt):
     from xorq.common.utils.pyiceberg_utils import get_iceberg_snapshots_ids
 
     if dt.source.name != "pyiceberg":
-        raise ValueError
+        raise ValueError(f"expected pyiceberg backend, got {dt.source.name!r}")
 
     return normalize_seq_with_caller(
         dt.name,
@@ -143,7 +143,7 @@ def normalize_snowflake_databasetable(dt):
     from xorq.common.utils.snowflake_utils import get_snowflake_last_modification_time
 
     if dt.source.name != "snowflake":
-        raise ValueError
+        raise ValueError(f"expected snowflake backend, got {dt.source.name!r}")
     return normalize_seq_with_caller(
         dt.name,
         dt.schema,
@@ -157,7 +157,7 @@ def normalize_snowflake_databasetable(dt):
 def normalize_bigquery_databasetable(dt):
     # https://stackoverflow.com/questions/44288261/get-the-last-modified-date-for-all-bigquery-tables-in-a-bigquery-project/44290543#44290543
     if dt.source.name != "bigquery":
-        raise ValueError
+        raise ValueError(f"expected bigquery backend, got {dt.source.name!r}")
     # https://stackoverflow.com/a/44290543
     query = f"""
     SELECT last_modified_time
@@ -175,7 +175,7 @@ def normalize_bigquery_databasetable(dt):
 
 def normalize_duckdb_databasetable(dt):
     if dt.source.name != "duckdb":
-        raise ValueError
+        raise ValueError(f"expected duckdb backend, got {dt.source.name!r}")
     name = sg.table(dt.name, quoted=dt.source.compiler.quoted).sql(
         dialect=dt.source.name
     )
@@ -196,7 +196,7 @@ def normalize_sqlite_database_table(dt):
     from xorq.common.utils.sqlite_utils import get_sqlite_stats
 
     if dt.source.name != "sqlite":
-        raise ValueError
+        raise ValueError(f"expected sqlite backend, got {dt.source.name!r}")
 
     if dt.source.is_in_memory():
         return normalize_memory_databasetable(dt)
@@ -242,7 +242,7 @@ def rename_unbound_static(op, prefix="static-name"):
 
 def normalize_xorq_databasetable(dt):
     if dt.source.name != "xorq":
-        raise ValueError
+        raise ValueError(f"expected xorq backend, got {dt.source.name!r}")
     if isinstance(dt, rel.FlightExpr):
         return dask.base.normalize_token(
             (
@@ -370,7 +370,7 @@ def normalize_databasetable(dt):
 @dask.base.normalize_token.register(rel.RemoteTable)
 def normalize_remote_table(dt):
     if not isinstance(dt, rel.RemoteTable):
-        raise ValueError
+        raise ValueError(f"expected RemoteTable, got {type(dt)}")
 
     return normalize_seq_with_caller(
         ("schema", dt.schema),
@@ -417,7 +417,7 @@ def normalize_backend(con):
     elif name == "sqlite":
         return id(con.con) if con.is_in_memory() else con.uri
     else:
-        raise ValueError
+        raise ValueError(f"no normalization rule for backend {name!r}")
     return normalize_seq_with_caller(
         name,
         con_details,
