@@ -125,7 +125,7 @@ class Catalog:
             return catalog_entry
 
     def list(self):
-        return self.catalog_yaml.contents
+        return self.catalog_yaml.contents[CatalogInfix.ENTRY]
 
     def fetch(self):
         return tuple(map(Remote.fetch, self.repo.remotes))
@@ -175,31 +175,32 @@ class Catalog:
         with commit_context(self.repo, message) as index:
             yield index
 
-    def add_alias(self, name, alias):
-        assert name in self.list()
-        catalog_alias = CatalogAlias(alias=alias, name=name, catalog=self)
-        alias_path = catalog_alias.alias_path
-        alias_path.parent.mkdir(exist_ok=True, parents=True)
-        if alias_path.is_symlink() or alias_path.exists():
-            alias_path.unlink()
-        alias_path.symlink_to(catalog_alias.target)
-        with self.commit_context(f"alias: {alias} -> {name}") as index:
-            index.add([alias_path])
-        return catalog_alias
+    def add_alias(self, name, alias, sync=True):
+        with self.maybe_synchronizing(sync):
+            catalog_entry = CatalogEntry(name, self)
+            catalog_alias = CatalogAlias(alias=alias, catalog_entry=catalog_entry)
+            catalog_alias.add()
+            return catalog_alias
+
+    def list_aliases(self):
+        return self.catalog_yaml.contents[CatalogInfix.ALIAS]
 
     @property
     def catalog_aliases(self):
-        alias_dir = self.repo_path / CatalogInfix.ALIAS
-        if not alias_dir.exists():
-            return ()
         return tuple(
             CatalogAlias(
-                alias=p.with_suffix("").name,
-                name=p.resolve().with_suffix("").name,
-                catalog=self,
+                alias=alias,
+                catalog_entry=CatalogEntry(
+                    self.repo_path.joinpath(
+                        CatalogInfix.ALIAS, alias + PREFERRED_SUFFIX
+                    )
+                    .resolve()
+                    .with_suffix("")
+                    .name,
+                    self,
+                ),
             )
-            for p in alias_dir.iterdir()
-            if p.is_symlink()
+            for alias in self.list_aliases()
         )
 
     def assert_consistency(self):
@@ -211,6 +212,11 @@ class Catalog:
             if isinstance(blob, Blob)
         )
         assert catalog_yaml_relpath_string in path_strings
+
+        # yaml aliases match filesystem aliases
+        assert sorted(self.catalog_yaml.contents[CatalogInfix.ALIAS]) == sorted(
+            ca.alias for ca in self.catalog_aliases
+        )
 
         # everything else in repo is either catalog_path or metadata_path from an entry the catalog_yaml knows about, or an alias symlink
         actual = sorted(el for el in path_strings if el != catalog_yaml_relpath_string)
@@ -380,12 +386,12 @@ class CatalogAddition:
         catalog_entry.metadata_path.write_text(yaml.safe_dump(self.metadata))
         shutil.copy(self.build_tgz.path, catalog_entry.catalog_path)
         with self.catalog.commit_context(self.message) as index:
-            catalog_entry.catalog_yaml.add(self.name)
+            self.catalog.catalog_yaml.add(self.name)
             index.add(
                 (
                     catalog_entry.catalog_path,
                     catalog_entry.metadata_path,
-                    catalog_entry.catalog_yaml.yaml_path,
+                    self.catalog.catalog_yaml.yaml_path,
                 )
             )
         return CatalogEntry(self.name, self.catalog, require_exists=True)
@@ -414,10 +420,6 @@ class CatalogEntry:
         return self.catalog.repo_path
 
     @property
-    def catalog_yaml(self):
-        return CatalogYAML(self.repo_path)
-
-    @property
     def metadata_path(self):
         metadata_path = self.repo_path.joinpath(
             CatalogInfix.METADATA, self.name + PREFERRED_SUFFIX + METADATA_APPEND
@@ -440,7 +442,7 @@ class CatalogEntry:
         return {
             "metadata_path": self.metadata_path.exists(),
             "catalog_path": self.catalog_path.exists(),
-            "catalog_yaml_contents": self.name in self.catalog_yaml.contents,
+            "catalog_yaml_contents": self.catalog.catalog_yaml.contains(self.name),
         }
 
     def get(self, dir_path=None):
@@ -463,22 +465,52 @@ class CatalogEntry:
 @frozen
 class CatalogAlias:
     alias = field(validator=instance_of(str))
-    name = field(validator=instance_of(str))
-    catalog = field(validator=instance_of(Catalog))
-
-    @property
-    def repo_path(self):
-        return self.catalog.repo_path
+    catalog_entry = field(validator=instance_of(CatalogEntry))
 
     @property
     def alias_path(self):
-        return self.repo_path.joinpath(CatalogInfix.ALIAS, self.alias).with_suffix(
-            PREFERRED_SUFFIX
-        )
+        return self.catalog_entry.repo_path.joinpath(
+            CatalogInfix.ALIAS, self.alias
+        ).with_suffix(PREFERRED_SUFFIX)
 
     @property
     def target(self):
-        return Path("..") / CatalogInfix.ENTRY / (self.name + PREFERRED_SUFFIX)
+        return Path("..").joinpath(
+            CatalogInfix.ENTRY, self.catalog_entry.name + PREFERRED_SUFFIX
+        )
+
+    def ensure_dirs(self):
+        self.alias_path.parent.mkdir(exist_ok=True, parents=True)
+
+    def add(self):
+        alias_path = self.alias_path
+        if alias_path.exists():
+            if not alias_path.is_symlink():
+                raise ValueError(f"non symlink already exists at {alias_path}")
+            alias_path.unlink()
+        else:
+            self.ensure_dirs()
+        alias_path.symlink_to(self.target)
+        catalog_yaml = self.catalog_entry.catalog.catalog_yaml
+        with self.catalog_entry.catalog.commit_context(
+            f"add alias: {self.alias} -> {self.catalog_entry.name}"
+        ) as index:
+            catalog_yaml.add_alias(self.alias)
+            index.add([alias_path, catalog_yaml.yaml_path])
+        return self
+
+    def remove(self):
+        alias_path = self.alias_path
+        assert alias_path.is_symlink(), f"no alias symlink at {alias_path}"
+        catalog_yaml = self.catalog_entry.catalog.catalog_yaml
+        with self.catalog_entry.catalog.commit_context(
+            f"rm alias: {self.alias}"
+        ) as index:
+            catalog_yaml.remove_alias(self.alias)
+            index.add([catalog_yaml.yaml_path])
+            index.remove([alias_path])
+            alias_path.unlink()
+        return self
 
 
 @frozen
@@ -517,7 +549,11 @@ class CatalogYAML:
 
     def __attrs_post_init__(self):
         if not self.yaml_path.exists():
-            self.yaml_path.write_text(yaml.safe_dump([]))
+            self.yaml_path.write_text(
+                yaml.safe_dump(
+                    {str(CatalogInfix.ENTRY): [], str(CatalogInfix.ALIAS): []}
+                )
+            )
 
     @property
     def yaml_path(self):
@@ -536,13 +572,34 @@ class CatalogYAML:
         return self.yaml_path
 
     def contains(self, entry):
-        return entry in self.contents
+        return entry in self.contents[CatalogInfix.ENTRY]
 
     def add(self, entry):
         assert not self.contains(entry)
-        contents = self.contents + [entry]
+        contents = self.contents
+        contents[CatalogInfix.ENTRY] = contents[CatalogInfix.ENTRY] + [entry]
         return self.set_contents(contents)
 
     def remove(self, entry):
-        contents = [el for el in self.contents if el != entry]
+        contents = self.contents
+        contents[CatalogInfix.ENTRY] = [
+            el for el in contents[CatalogInfix.ENTRY] if el != entry
+        ]
+        return self.set_contents(contents)
+
+    def contains_alias(self, alias):
+        return alias in self.contents[CatalogInfix.ALIAS]
+
+    def add_alias(self, alias):
+        if not self.contains_alias(alias):
+            contents = self.contents
+            contents[CatalogInfix.ALIAS] = contents[CatalogInfix.ALIAS] + [alias]
+            self.set_contents(contents)
+        return self.yaml_path
+
+    def remove_alias(self, alias):
+        contents = self.contents
+        contents[CatalogInfix.ALIAS] = [
+            el for el in contents[CatalogInfix.ALIAS] if el != alias
+        ]
         return self.set_contents(contents)

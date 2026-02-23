@@ -150,7 +150,7 @@ def test_add_alias_overwrite(catalog_populated):
     catalog_populated.add_alias(name_a, alias)
     catalog_alias = catalog_populated.add_alias(name_b, alias)
 
-    assert catalog_alias.name == name_b
+    assert catalog_alias.catalog_entry.name == name_b
     assert catalog_alias.alias_path.is_symlink()
     assert (
         catalog_alias.alias_path.resolve()
