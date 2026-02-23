@@ -479,10 +479,6 @@ quartodoc:
           dynamic: true
           signature_name: full
           package: xorq.common.utils.lineage_utils
-        - name: print_tree
-          dynamic: true
-          signature_name: full
-          package: xorq.common.utils.lineage_utils
 
     - title: Flight Operations
       desc: "Apache Arrow Flight server and client operations"
@@ -499,13 +495,7 @@ quartodoc:
     - title: Catalog Operations
       desc: "Compute catalog management"
       contents:
-        - name: XorqCatalog
-          package: xorq.catalog
-        - name: Build
-          package: xorq.catalog
-        - name: Alias
-          package: xorq.catalog
-        - name: CatalogMetadata
+        - name: Catalog
           package: xorq.catalog
 
     - title: Type System
