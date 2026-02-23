@@ -18,6 +18,7 @@ from attr import (
     frozen,
 )
 from attr.validators import (
+    deep_iterable,
     instance_of,
     optional,
 )
@@ -353,6 +354,7 @@ class BuildTgz:
 class CatalogAddition:
     build_tgz = field(validator=instance_of(BuildTgz))
     catalog = field(validator=instance_of(Catalog))
+    aliases = field(validator=deep_iterable(instance_of(str)), default=())
     _maybe_tmpfile = field(
         validator=optional(instance_of(tempfile._TemporaryFileWrapper)),
         default=None,
@@ -375,8 +377,13 @@ class CatalogAddition:
             p.parent.mkdir(exist_ok=True, parents=True)
 
     @property
+    def catalog_aliases(self):
+        return tuple(CatalogAlias(alias, self.catalog_entry) for alias in self.aliases)
+
+    @property
     def message(self):
-        message = f"add: {self.name}"
+        alias_message = f" (aliases {', '.join(self.aliases)})" if self.aliases else ""
+        message = f"add: {self.name}{alias_message}"
         return message
 
     def _add(self):
@@ -395,6 +402,8 @@ class CatalogAddition:
                 self.catalog.catalog_yaml.yaml_path,
             )
         )
+        for catalog_alias in self.catalog_aliases:
+            catalog_alias._add()
         return CatalogEntry(self.name, self.catalog, require_exists=True)
 
     def add(self):
@@ -441,6 +450,14 @@ class CatalogEntry:
     @property
     def expr(self):
         return load_expr_from_tgz(self.catalog_path)
+
+    @property
+    def aliases(self):
+        return tuple(
+            catalog_alias
+            for catalog_alias in self.catalog.catalog_aliases
+            if catalog_alias.catalog_entry.name == self.name
+        )
 
     @property
     def _exists_components(self):
@@ -560,7 +577,14 @@ class CatalogRemoval:
 
     @property
     def message(self):
-        message = f"rm: {with_pure_suffix(self.catalog_entry.catalog_path, '').name}"
+        name = with_pure_suffix(self.catalog_entry.catalog_path, "").name
+        catalog_aliases = self.catalog_entry.aliases
+        aliases_message = (
+            f" (aliases {', '.join(catalog_alias.alias for catalog_alias in catalog_aliases)})"
+            if catalog_aliases
+            else ""
+        )
+        message = f"rm: {name}{aliases_message}"
         return message
 
     def _remove(self):
@@ -569,6 +593,8 @@ class CatalogRemoval:
         assert catalog_entry.exists()
         index = catalog.repo.index
         #
+        for catalog_alias in self.catalog_entry.aliases:
+            catalog_alias._remove()
         catalog.catalog_yaml.remove(catalog_entry.name)
         index.add((catalog.catalog_yaml.yaml_path,))
         paths = (
