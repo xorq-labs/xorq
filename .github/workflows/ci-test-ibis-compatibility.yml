@@ -68,7 +68,7 @@ jobs:
       - name: test from_ibis compatibility with ibis ${{ matrix.dependencies.ibis-version }}
         run: |
           uv run --isolated --no-project -p ${{ matrix.python-version }} --with "${{ env.WHEEL_FILE }}[postgres]" --with "ibis-framework==${{ matrix.dependencies.ibis-version }}" --with pytest -- python -c "import xorq; import ibis; print(f'xorq version: {xorq.__version__}, ibis version: {ibis.__version__}')"
-          uv run --isolated --no-project -p ${{ matrix.python-version }} --with "${{ env.WHEEL_FILE }}[postgres]" --with "ibis-framework==${{ matrix.dependencies.ibis-version }}" --with pytest --with datafusion --with "duckdb==${{ matrix.dependencies.duckdb-version }}" -- pytest --import-mode=importlib python/xorq/common/utils/tests/ibis_utils/ -v
+          uv run --isolated --no-project -p ${{ matrix.python-version }} --with "${{ env.WHEEL_FILE }}[postgres]" --with "ibis-framework==${{ matrix.dependencies.ibis-version }}" --with pytest --with "datafusion<52.0.0" --with "duckdb==${{ matrix.dependencies.duckdb-version }}" -- pytest --import-mode=importlib python/xorq/common/utils/tests/ibis_utils/ -v
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres
