@@ -111,6 +111,10 @@ class CatalogRowData:
         return ", ".join(self.tags) if self.tags else ""
 
     @property
+    def row_key(self) -> str:
+        return f"{self.hash}|{self.alias}" if self.alias else self.hash
+
+    @property
     def row(self) -> tuple[str, ...]:
         return (
             self.kind,
@@ -370,31 +374,49 @@ class CatalogScreen(Screen):
             return
         repo_path = catalog.repo.working_dir
         current_hashes = frozenset(catalog.list())
-        alias_lookup = {
-            ca.catalog_entry.name: ca.alias for ca in catalog.catalog_aliases
+
+        # build a multimap: hash -> tuple of aliases
+        alias_multimap: dict[str, list[str]] = {}
+        for ca in catalog.catalog_aliases:
+            alias_multimap.setdefault(ca.catalog_entry.name, []).append(ca.alias)
+        alias_multimap_frozen: dict[str, tuple[str, ...]] = {
+            k: tuple(v) for k, v in alias_multimap.items()
         }
+
+        # compute the set of expected row_keys for all current hashes
+        expected_keys: set[str] = set()
+        for h in current_hashes:
+            for alias in alias_multimap_frozen.get(h, ("",)):
+                key = f"{h}|{alias}" if alias else h
+                expected_keys.add(key)
 
         # render reflog + cached rows immediately
         reflog_rows = snapshot_git_reflog(catalog)
         cached_rows = tuple(
-            self._row_cache[h] for h in current_hashes if h in self._row_cache
+            self._row_cache[k] for k in expected_keys if k in self._row_cache
         )
-        new_hashes = current_hashes - self._row_cache.keys()
+        new_keys = expected_keys - self._row_cache.keys()
         self.app.call_from_thread(
             self._render_refresh_start, reflog_rows, repo_path, cached_rows
         )
 
         # load new entries incrementally
-        for entry_hash in new_hashes:
-            entry = catalog.get_catalog_entry(entry_hash)
-            row_data = _load_catalog_row(entry, alias_lookup.get(entry_hash, ""))
-            self._row_cache[entry_hash] = row_data
-            self.app.call_from_thread(self._render_catalog_row, row_data)
+        for entry_hash in current_hashes:
+            entry = None
+            for alias in alias_multimap_frozen.get(entry_hash, ("",)):
+                key = f"{entry_hash}|{alias}" if alias else entry_hash
+                if key not in new_keys:
+                    continue
+                if entry is None:
+                    entry = catalog.get_catalog_entry(entry_hash)
+                row_data = _load_catalog_row(entry, alias)
+                self._row_cache[row_data.row_key] = row_data
+                self.app.call_from_thread(self._render_catalog_row, row_data)
 
         # evict removed entries
-        removed = self._row_cache.keys() - current_hashes
-        for h in removed:
-            del self._row_cache[h]
+        removed = self._row_cache.keys() - expected_keys
+        for k in removed:
+            del self._row_cache[k]
 
         stamp = datetime.now().strftime("%H:%M:%S")
         self.app.call_from_thread(self._render_refresh_done, stamp, repo_path)
@@ -407,7 +429,7 @@ class CatalogScreen(Screen):
         self._saved_cursor = table.cursor_row
         table.clear()
         for row_data in cached_rows:
-            table.add_row(*row_data.row, key=row_data.hash)
+            table.add_row(*row_data.row, key=row_data.row_key)
 
         log_table = self.query_one("#log-table", DataTable)
         log_table.clear()
@@ -416,7 +438,7 @@ class CatalogScreen(Screen):
 
     def _render_catalog_row(self, row_data) -> None:
         self.query_one("#catalog-table", DataTable).add_row(
-            *row_data.row, key=row_data.hash
+            *row_data.row, key=row_data.row_key
         )
 
     def _render_refresh_done(self, stamp, repo_path) -> None:
@@ -442,17 +464,14 @@ class CatalogScreen(Screen):
         if table.row_count == 0:
             return
         row_key, _ = table.coordinate_to_cell_key(table.cursor_coordinate)
-        entry_hash = str(row_key.value)
+        raw_key = str(row_key.value)
+        entry_hash, _, alias = raw_key.partition("|")
         catalog = self.app._catalog
-        alias_lookup = {
-            ca.catalog_entry.name: ca.alias for ca in catalog.catalog_aliases
-        }
         try:
             entry = catalog.get_catalog_entry(entry_hash)
         except (AssertionError, KeyError):
             self.notify("Entry not found", severity="error")
             return
-        alias = alias_lookup.get(entry_hash, "")
         catalog_alias = (
             next(
                 (ca for ca in catalog.catalog_aliases if ca.alias == alias),
@@ -461,7 +480,7 @@ class CatalogScreen(Screen):
             if alias
             else None
         )
-        row_data = self._row_cache.get(entry_hash)
+        row_data = self._row_cache.get(raw_key)
         self.app.push_screen(
             ExploreScreen(entry, alias, catalog_alias=catalog_alias, row_data=row_data)
         )

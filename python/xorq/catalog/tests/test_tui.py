@@ -161,6 +161,14 @@ class TestCatalogRowData:
         row = CatalogRowData(backends=("duckdb", "postgres", "duckdb"))
         assert row.backends_display == "duckdb, postgres"
 
+    def test_row_key_with_alias(self):
+        row = SAMPLE_ROWS[0]
+        assert row.row_key == "abc123|my-model"
+
+    def test_row_key_without_alias(self):
+        row = SAMPLE_ROWS[1]
+        assert row.row_key == "def456"
+
     def test_frozen(self):
         row = SAMPLE_ROWS[0]
         with pytest.raises(AttributeError):
@@ -273,8 +281,8 @@ class TestCatalogScreenNavigation:
         """Insert sample rows into the catalog table for navigation tests."""
         table = screen.query_one("#catalog-table", DataTable)
         for row_data in SAMPLE_ROWS:
-            table.add_row(*row_data.row, key=row_data.hash)
-        screen._row_cache = {r.hash: r for r in SAMPLE_ROWS}
+            table.add_row(*row_data.row, key=row_data.row_key)
+        screen._row_cache = {r.row_key: r for r in SAMPLE_ROWS}
 
     def test_quit_exits_app(self):
         async def _test():
@@ -610,6 +618,24 @@ class TestCatalogScreenRefresh:
 
         _run(_test())
 
+    def test_render_refresh_uses_row_key(self):
+        async def _test():
+            app = _make_tui()
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                screen = app.screen
+                assert isinstance(screen, CatalogScreen)
+
+                screen._render_refresh_start((), "/tmp/fake", SAMPLE_ROWS)
+                await pilot.pause()
+
+                table = screen.query_one("#catalog-table", DataTable)
+                keys = [str(k.value) for k in table.rows.keys()]
+                assert "abc123|my-model" in keys
+                assert "def456" in keys
+
+        _run(_test())
+
     def test_render_refresh_done_updates_status(self):
         async def _test():
             app = _make_tui()
@@ -624,5 +650,64 @@ class TestCatalogScreenRefresh:
                 text = status.content
                 assert "12:00:00" in text
                 assert "/tmp/fake" in text
+
+        _run(_test())
+
+
+class TestMultipleAliases:
+    """Two aliases for the same hash should produce two distinct table rows."""
+
+    def test_two_aliases_same_hash(self):
+        async def _test():
+            app = _make_tui()
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                screen = app.screen
+                assert isinstance(screen, CatalogScreen)
+
+                row_v1 = CatalogRowData(
+                    kind="expr",
+                    alias="v1",
+                    hash="abc123",
+                    backends=("duckdb",),
+                    column_count=5,
+                    cached=True,
+                )
+                row_latest = CatalogRowData(
+                    kind="expr",
+                    alias="latest",
+                    hash="abc123",
+                    backends=("duckdb",),
+                    column_count=5,
+                    cached=True,
+                )
+
+                screen._render_refresh_start((), "/tmp/fake", (row_v1, row_latest))
+                await pilot.pause()
+
+                table = screen.query_one("#catalog-table", DataTable)
+                assert table.row_count == 2
+
+                keys = [str(k.value) for k in table.rows.keys()]
+                assert "abc123|v1" in keys
+                assert "abc123|latest" in keys
+
+        _run(_test())
+
+    def test_unaliased_row_uses_hash_as_key(self):
+        async def _test():
+            app = _make_tui()
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                screen = app.screen
+
+                row = CatalogRowData(kind="expr", alias="", hash="def456")
+                screen._render_refresh_start((), "/tmp/fake", (row,))
+                await pilot.pause()
+
+                table = screen.query_one("#catalog-table", DataTable)
+                assert table.row_count == 1
+                keys = [str(k.value) for k in table.rows.keys()]
+                assert "def456" in keys
 
         _run(_test())
