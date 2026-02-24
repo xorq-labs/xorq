@@ -1,8 +1,12 @@
+import tempfile
+from pathlib import Path
+
 import pytest
 
 import xorq.api as xo
+import xorq.common.utils.lineage_utils as lu
 import xorq.expr.datatypes as dt
-from xorq.common.utils.graph_utils import to_node
+from xorq.common.utils.graph_utils import gen_children_of, to_node
 from xorq.common.utils.lineage_utils import (
     GenericNode,
     TextTree,
@@ -131,3 +135,150 @@ def test_complete_lineage_for_total_discount_column(sample_expression):
         if isinstance(node, (ops.InMemoryTable, ops.UnboundTable, ops.DatabaseTable))
     ]
     assert len(table_nodes) > 0, "Should trace back to original table"
+
+
+@pytest.fixture
+def multi_join_expression():
+    """Build a 4-table join expression that creates nested JoinChains.
+
+    Simulates the real-world pattern where sub-expressions are loaded from the
+    catalog (YAML round-trip) then joined via ``into_backend``.  The resulting
+    expression has 3 nested JoinChains whose shared sub-graphs are traversed
+    exponentially by ``_build_column_tree`` (which lacks memoization).
+    """
+    from xorq.ibis_yaml.compiler import build_expr, load_expr
+
+    batting = xo.memtable(
+        {
+            "playerID": ["a", "b"],
+            "yearID": [2007, 1975],
+            "teamID": ["CHA", "MIL"],
+            "G": [25, 137],
+            "AB": [0, 465],
+            "H": [0, 109],
+        },
+        name="batting",
+    )
+    people_mem = xo.memtable(
+        {
+            "playerID": ["a", "b"],
+            "nameFirst": ["David", "Hank"],
+            "nameLast": ["Aardsma", "Aaron"],
+        },
+        name="people",
+    )
+    salaries_mem = xo.memtable(
+        {
+            "playerID": ["a", "b"],
+            "yearID": [2007, 1975],
+            "teamID": ["CHA", "MIL"],
+            "salary": [387500, 240000],
+        },
+        name="salaries",
+    )
+    fielding_mem = xo.memtable(
+        {
+            "playerID": ["a", "b"],
+            "yearID": [2007, 1975],
+            "teamID": ["CHA", "MIL"],
+            "POS": ["P", "LF"],
+        },
+        name="fielding",
+    )
+
+    # YAML round-trip each table (simulates loading from the catalog)
+    with tempfile.TemporaryDirectory() as td:
+        p_dir = build_expr(people_mem, builds_dir=Path(td) / "p")
+        s_dir = build_expr(salaries_mem, builds_dir=Path(td) / "s")
+        f_dir = build_expr(fielding_mem, builds_dir=Path(td) / "f")
+        people = load_expr(p_dir)
+        salaries = load_expr(s_dir)
+        fielding = load_expr(f_dir)
+
+    backend = batting._find_backend()
+    people_slim = people[["playerID", "nameFirst", "nameLast"]].into_backend(backend)
+    salaries_slim = salaries[["playerID", "yearID", "teamID", "salary"]].into_backend(
+        backend
+    )
+    fielding_slim = fielding[["playerID", "yearID", "teamID", "POS"]].into_backend(
+        backend
+    )
+
+    with_names = (
+        batting.filter(batting.AB > 100)
+        .join(people_slim, predicates="playerID", how="left")
+        .drop("playerID_right")
+    )
+    with_salary = with_names.join(
+        salaries_slim,
+        predicates=["playerID", "yearID", "teamID"],
+        how="left",
+    ).drop("playerID_right", "yearID_right", "teamID_right")
+    return with_salary.join(
+        fielding_slim,
+        predicates=["playerID", "yearID", "teamID"],
+        how="left",
+    ).drop("playerID_right", "yearID_right", "teamID_right")
+
+
+def _count_unique_dag_nodes(expr):
+    """Count unique nodes reachable via gen_children_of."""
+    visited = set()
+    stack = [to_node(expr)]
+    while stack:
+        n = stack.pop()
+        if id(n) not in visited:
+            visited.add(id(n))
+            stack.extend(gen_children_of(n))
+    return len(visited)
+
+
+def _count_build_column_tree_calls(expr, cap=200_000):
+    """Count _build_column_tree invocations, aborting at *cap*."""
+    orig = lu._build_column_tree
+    calls = [0]
+
+    def counted(node, *args, **kwargs):
+        calls[0] += 1
+        if calls[0] >= cap:
+            raise RuntimeError(f"call cap ({cap:,}) reached")
+        return orig(node, *args, **kwargs)
+
+    lu._build_column_tree = counted
+    try:
+        build_column_trees(expr)
+    except RuntimeError:
+        pass
+    finally:
+        lu._build_column_tree = orig
+    return calls[0]
+
+
+@pytest.mark.xfail(
+    reason=(
+        "gh-1618: _build_column_tree lacks memoization, causing exponential "
+        "traversal on multi-join expressions"
+    ),
+    strict=True,
+)
+def test_build_column_trees_scales_linearly_on_multi_join(multi_join_expression):
+    """build_column_trees should complete in O(nodes) calls, not O(N^k).
+
+    With 3 nested JoinChains the current implementation makes 100K+ recursive
+    calls for ~100 unique DAG nodes because every shared sub-graph is
+    re-traversed from scratch.  A memoized traversal would need at most a
+    small multiple of the unique node count.
+
+    See https://github.com/xorq-labs/xorq/issues/1618
+    """
+    unique_nodes = _count_unique_dag_nodes(multi_join_expression)
+    call_count = _count_build_column_tree_calls(multi_join_expression)
+
+    # A well-memoized traversal should need no more than ~10x the unique
+    # nodes.  The current implementation exceeds 1000x.
+    max_reasonable_calls = unique_nodes * 10
+    assert call_count <= max_reasonable_calls, (
+        f"build_column_trees made {call_count:,} calls for {unique_nodes} unique "
+        f"DAG nodes (ratio {call_count / unique_nodes:.0f}x). "
+        f"Expected at most {max_reasonable_calls:,} calls with memoization."
+    )
