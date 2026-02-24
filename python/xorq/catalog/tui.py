@@ -1,5 +1,5 @@
 from datetime import datetime
-from functools import cache, wraps
+from functools import cache
 from pathlib import Path
 
 import yaml
@@ -17,6 +17,9 @@ from textual.widgets import (
     TabbedContent,
     TabPane,
 )
+from toolz.curried import excepts as cexcepts
+
+from xorq.common.utils.func_utils import return_constant
 
 
 DEFAULT_REFRESH_INTERVAL = 10
@@ -45,20 +48,8 @@ REVISION_COLUMNS = ("STATUS", "HASH", "COLUMNS", "CACHED", "DATE")
 ALIAS_COLUMNS = ("ALIAS",)
 
 
-def maybe(default):
-    """Decorator: on exception, return *default* instead of raising."""
-
-    def decorator(fn):
-        @wraps(fn)
-        def wrapper(*args, **kwargs):
-            try:
-                return fn(*args, **kwargs)
-            except Exception:
-                return default
-
-        return wrapper
-
-    return decorator
+def maybe(default, exc=Exception):
+    return cexcepts(exc, handler=return_constant(default))
 
 
 def _format_cached(value: bool | None) -> str:
