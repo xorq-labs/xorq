@@ -254,20 +254,13 @@ def _count_build_column_tree_calls(expr, cap=200_000):
     return calls[0]
 
 
-@pytest.mark.xfail(
-    reason=(
-        "gh-1618: _build_column_tree lacks memoization, causing exponential "
-        "traversal on multi-join expressions"
-    ),
-    strict=True,
-)
 def test_build_column_trees_scales_linearly_on_multi_join(multi_join_expression):
     """build_column_trees should complete in O(nodes) calls, not O(N^k).
 
-    With 3 nested JoinChains the current implementation makes 100K+ recursive
-    calls for ~100 unique DAG nodes because every shared sub-graph is
-    re-traversed from scratch.  A memoized traversal would need at most a
-    small multiple of the unique node count.
+    Without memoization, 3 nested JoinChains cause 100K+ recursive calls for
+    ~100 unique DAG nodes because every shared sub-graph is re-traversed from
+    scratch.  The memoization cache in _build_column_tree (keyed by node
+    identity) keeps the call count to a small multiple of the unique node count.
 
     See https://github.com/xorq-labs/xorq/issues/1618
     """

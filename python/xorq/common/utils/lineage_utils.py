@@ -71,36 +71,47 @@ class GenericNode:
         return evolve(self, **changes)
 
 
-def _build_column_tree(node: Node) -> GenericNode:
+def _build_column_tree(node: Node, _memo: dict | None = None) -> GenericNode:
+    if _memo is None:
+        _memo = {}
+    key = id(node)
+    if key in _memo:
+        return _memo[key]
+
     match node:
         case ops.Field(rel=ops.Project(values=values)) as field_node:
             # include the field and recurse into its mapped expression
             mapped = values[field_node.name]
-            child = _build_column_tree(to_node(mapped))
-            return GenericNode(op=field_node, children=(child,))
+            child = _build_column_tree(to_node(mapped), _memo)
+            result = GenericNode(op=field_node, children=(child,))
 
         case ops.Field() as field_node:
             children = tuple(
-                _build_column_tree(to_node(child))
+                _build_column_tree(to_node(child), _memo)
                 for child in gen_children_of(field_node)
             )
-            return GenericNode(op=field_node, children=children)
+            result = GenericNode(op=field_node, children=children)
 
         case ops.Project() as proj:
-            return _build_column_tree(to_node(proj.parent))
+            result = _build_column_tree(to_node(proj.parent), _memo)
 
         case _:
             children = tuple(
-                _build_column_tree(to_node(child)) for child in gen_children_of(node)
+                _build_column_tree(to_node(child), _memo)
+                for child in gen_children_of(node)
             )
-            return GenericNode(op=node, children=children)
+            result = GenericNode(op=node, children=children)
+
+    _memo[key] = result
+    return result
 
 
 def build_column_trees(expr: Any) -> dict[str, GenericNode]:
     """Builds a lineage tree for each column in the expression."""
     op = to_node(expr)
     cols = getattr(op, "values", None) or getattr(op, "fields", {})
-    return {k: _build_column_tree(to_node(v)) for k, v in cols.items()}
+    memo: dict = {}
+    return {k: _build_column_tree(to_node(v), memo) for k, v in cols.items()}
 
 
 @singledispatch
