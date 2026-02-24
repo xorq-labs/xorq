@@ -10,6 +10,7 @@ import pytest
 import xorq.api as xo
 from xorq.cli import (
     build_command,
+    run_command,
 )
 from xorq.common.utils.node_utils import (
     find_node,
@@ -23,6 +24,7 @@ from xorq.flight.client import (
     FlightClient,
 )
 from xorq.ibis_yaml.compiler import (
+    build_expr,
     load_expr,
 )
 from xorq.init_templates import InitTemplates
@@ -218,6 +220,10 @@ def test_run_command(tmp_path, fixture_dir, output_format):
         assert returncode == 0, stderr
         assert output_path.exists()
         assert output_path.stat().st_size > 0
+        if output_format == "parquet":
+            import pyarrow.parquet as pq
+
+            assert pq.read_metadata(output_path).num_rows > 0
 
     else:
         raise AssertionError("No expression hash")
@@ -307,6 +313,68 @@ def test_run_command_stdout(tmp_path, fixture_dir, output_format):
         assert stdout
     else:
         raise AssertionError("No expression hash")
+
+
+def test_run_command_logging(tmp_path):
+    """Test that run_command emits expected structured log events with metrics."""
+    from unittest.mock import MagicMock, patch
+
+    import pyarrow.parquet as pq
+
+    # Build a self-contained memtable expression (no postgres needed)
+    expr = xo.memtable({"a": [1, 2, 3], "b": [4, 5, 6]}, name="test_table")
+    expr_path = build_expr(
+        expr, builds_dir=tmp_path / "builds", cache_dir=tmp_path / "cache"
+    )
+    output_path = tmp_path / "out.parquet"
+
+    mock_logger = MagicMock()
+    with patch("xorq.common.utils.logging_utils.get_logger", return_value=mock_logger):
+        run_command(str(expr_path), str(output_path), "parquet")
+
+    info_calls = mock_logger.info.call_args_list
+    event_names = [c.args[0] for c in info_calls]
+    assert "run.start" in event_names
+    assert "run.expr_loaded" in event_names
+    assert "run.done" in event_names
+
+    # run.start captures all input params
+    start_call = next(c for c in info_calls if c.args[0] == "run.start")
+    assert start_call.kwargs["expr_path"] == str(expr_path)
+    assert start_call.kwargs["output_path"] == str(output_path)
+    assert "output_format" in start_call.kwargs
+    assert "limit" in start_call.kwargs
+
+    # run.expr_loaded has elapsed timing
+    loaded_call = next(c for c in info_calls if c.args[0] == "run.expr_loaded")
+    assert "elapsed_s" in loaded_call.kwargs
+    assert loaded_call.kwargs["elapsed_s"] >= 0
+
+    # run.done includes file metrics for parquet output
+    done_call = next(c for c in info_calls if c.args[0] == "run.done")
+    assert "elapsed_s" in done_call.kwargs
+    assert "bytes" in done_call.kwargs
+    assert done_call.kwargs["bytes"] > 0
+    assert "rows" in done_call.kwargs
+    assert done_call.kwargs["rows"] == 3
+    # rows uses pq.read_metadata (parquet footer) — verify it matches the actual file
+    assert pq.read_metadata(output_path).num_rows == done_call.kwargs["rows"]
+
+
+def test_run_command_error_logging(tmp_path):
+    """Test that run_command logs run.failed and re-raises exceptions."""
+    from unittest.mock import MagicMock, patch
+
+    mock_logger = MagicMock()
+    nonexistent_path = tmp_path / "does_not_exist"
+    with patch("xorq.common.utils.logging_utils.get_logger", return_value=mock_logger):
+        with pytest.raises(Exception):
+            run_command(str(nonexistent_path), str(tmp_path / "out.parquet"))
+
+    assert mock_logger.exception.called
+    exception_call = mock_logger.exception.call_args
+    assert exception_call.args[0] == "run.failed"
+    assert "error" in exception_call.kwargs
 
 
 @pytest.mark.parametrize(

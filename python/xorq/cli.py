@@ -184,10 +184,15 @@ def run_command(
     -------
 
     """
-    from opentelemetry import trace
+    import time
 
+    from opentelemetry import trace
+    from opentelemetry.trace import StatusCode
+
+    from xorq.common.utils.logging_utils import get_logger
     from xorq.ibis_yaml.compiler import load_expr
 
+    logger = get_logger(__name__)
     cache_dir = _get_cache_dir(cache_dir)
 
     span = trace.get_current_span()
@@ -199,11 +204,53 @@ def run_command(
             "output_format": output_format,
         },
     )
+    logger.info(
+        "run.start",
+        expr_path=str(expr_path),
+        output_path=str(output_path),
+        output_format=str(output_format),
+        limit=limit,
+    )
 
-    expr = load_expr(expr_path, cache_dir=cache_dir)
-    if limit is not None:
-        expr = expr.limit(limit)
-    arbitrate_output_format(expr, output_path, output_format)
+    try:
+        t_load = time.monotonic()
+        expr = load_expr(expr_path, cache_dir=cache_dir)
+        load_elapsed = time.monotonic() - t_load
+        span.add_event("run.expr_loaded", {"elapsed_s": load_elapsed})
+        logger.info("run.expr_loaded", elapsed_s=load_elapsed)
+
+        if limit is not None:
+            expr = expr.limit(limit)
+
+        t_exec = time.monotonic()
+        arbitrate_output_format(expr, output_path, output_format)
+        exec_elapsed = time.monotonic() - t_exec
+
+        output_metrics = {
+            "elapsed_s": exec_elapsed,
+            "output_format": str(output_format),
+        }
+        if output_path and output_path != "-":
+            output_file = Path(output_path)
+            if output_file.exists():
+                output_metrics["bytes"] = output_file.stat().st_size
+                if output_format == OutputFormats.parquet:
+                    try:
+                        import pyarrow.parquet as pq
+
+                        output_metrics["rows"] = pq.read_metadata(output_file).num_rows
+                    except Exception:
+                        pass
+
+        span.add_event("run.output_written", output_metrics)
+        logger.info("run.done", **output_metrics)
+        span.set_status(StatusCode.OK)
+
+    except Exception as e:
+        span.set_status(StatusCode.ERROR, str(e))
+        span.record_exception(e)
+        logger.exception("run.failed", error=str(e))
+        raise
 
 
 def arbitrate_output_format(expr, output_path, output_format):
