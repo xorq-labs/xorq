@@ -7,6 +7,7 @@ from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Vertical, VerticalScroll
 from textual.screen import Screen
+from textual.theme import Theme
 from textual.widgets import (
     DataTable,
     Footer,
@@ -18,6 +19,21 @@ from textual.widgets import (
 
 
 REFRESH_INTERVAL = 2
+
+XORQ_DARK = Theme(
+    name="xorq-dark",
+    primary="#C1F0FF",
+    secondary="#4AA8EC",
+    warning="#F5CA2C",
+    error="#FF4757",
+    success="#2BBE75",
+    accent="#C1F0FF",
+    foreground="#C1F0FF",
+    background="#05181A",
+    surface="#0a2a2e",
+    panel="#0f3338",
+    dark=True,
+)
 
 COLUMNS = ("KIND", "ALIAS", "HASH", "BACKENDS", "OUTPUT", "CACHED", "TAGS")
 
@@ -787,14 +803,12 @@ class CatalogTUI(App):
     CSS = """
     #catalog-panel {
         height: 2fr;
-        border: round $primary;
     }
     #catalog-table {
         height: 1fr;
     }
     #log-panel {
         height: 1fr;
-        border: round $primary;
     }
     #log-table {
         height: 1fr;
@@ -802,14 +816,10 @@ class CatalogTUI(App):
     #status-bar {
         dock: bottom;
         height: 1;
-        background: $surface;
-        color: $text-muted;
         padding: 0 2;
     }
     #breadcrumb {
         height: 1;
-        background: $panel;
-        color: $text-muted;
         text-style: bold;
         padding: 0 2;
     }
@@ -821,8 +831,6 @@ class CatalogTUI(App):
     }
     #data-status {
         height: 1;
-        background: $surface;
-        color: $text-muted;
         padding: 0 2;
     }
     #data-table {
@@ -830,8 +838,6 @@ class CatalogTUI(App):
     }
     #revisions-status {
         height: 1;
-        background: $surface;
-        color: $text-muted;
         padding: 0 2;
     }
     #revisions-table {
@@ -841,8 +847,6 @@ class CatalogTUI(App):
         height: 1fr;
     }
     .info-section {
-        border: round $primary;
-        background: $surface;
         height: auto;
         margin: 0 1 1 1;
         padding: 1 2;
@@ -858,6 +862,8 @@ class CatalogTUI(App):
     def __init__(self, catalog):
         super().__init__()
         self._catalog = catalog
+        self.register_theme(XORQ_DARK)
+        self.theme = "xorq-dark"
 
     def on_mount(self) -> None:
         self.push_screen(CatalogScreen())
