@@ -104,7 +104,6 @@ def _complete_alias_names(ctx, param, incomplete):
         return []
 
 
-@click.group()
 @click.group(invoke_without_command=True)
 @click.option("--tui", is_flag=True, default=False, help="Launch terminal UI.")
 @click.option(

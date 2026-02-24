@@ -18,7 +18,7 @@ from textual.widgets import (
 )
 
 
-REFRESH_INTERVAL = 2
+REFRESH_INTERVAL = 10
 
 XORQ_DARK = Theme(
     name="xorq-dark",
@@ -364,12 +364,20 @@ class CatalogScreen(Screen):
         self._do_refresh()
         self.set_interval(REFRESH_INTERVAL, self._do_refresh)
 
+    @work(thread=True, exclusive=True)
     def _do_refresh(self) -> None:
         catalog = self.app._catalog
+        rows = snapshot_catalog(catalog)
+        reflog_rows = snapshot_git_reflog(catalog)
+        stamp = datetime.now().strftime("%H:%M:%S")
+        repo_path = catalog.repo.working_dir
+        self.app.call_from_thread(
+            self._render_refresh, rows, reflog_rows, stamp, repo_path
+        )
 
+    def _render_refresh(self, rows, reflog_rows, stamp, repo_path) -> None:
         table = self.query_one("#catalog-table", DataTable)
         cursor_row = table.cursor_row
-        rows = snapshot_catalog(catalog)
         table.clear()
         for row_data in rows:
             table.add_row(*row_data.row, key=row_data.hash)
@@ -377,13 +385,10 @@ class CatalogScreen(Screen):
             table.move_cursor(row=min(cursor_row, len(rows) - 1))
 
         log_table = self.query_one("#log-table", DataTable)
-        reflog_rows = snapshot_git_reflog(catalog)
         log_table.clear()
         for i, log_row in enumerate(reflog_rows):
             log_table.add_row(*log_row.row, key=str(i))
 
-        stamp = datetime.now().strftime("%H:%M:%S")
-        repo_path = catalog.repo.working_dir
         self.query_one("#status-bar", Static).update(
             f" {len(rows)} entries | {repo_path} | refreshed {stamp}"
         )
@@ -803,12 +808,14 @@ class CatalogTUI(App):
     CSS = """
     #catalog-panel {
         height: 2fr;
+        border: solid $primary;
     }
     #catalog-table {
         height: 1fr;
     }
     #log-panel {
         height: 1fr;
+        border: solid $primary;
     }
     #log-table {
         height: 1fr;
