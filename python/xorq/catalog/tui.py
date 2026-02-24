@@ -26,6 +26,26 @@ REFLOG_COLUMNS = ("HASH", "DATE", "MESSAGE")
 REVISION_COLUMNS = ("STATUS", "HASH", "COLUMNS", "CACHED", "DATE")
 
 
+def _format_cached(value: bool | None) -> str:
+    match value:
+        case True:
+            return "●"
+        case False:
+            return "○"
+        case _:
+            return "—"
+
+
+def _format_column_count(n: int | None) -> str:
+    match n:
+        case None:
+            return "?"
+        case int(n):
+            return f"{n} cols"
+        case _:
+            return "?"
+
+
 @frozen
 class CatalogRowData:
     kind: str = "expr"
@@ -44,24 +64,12 @@ class CatalogRowData:
     @property
     @cache
     def output_display(self) -> str:
-        match self.column_count:
-            case None:
-                return "?"
-            case int(n):
-                return f"{n} cols"
-            case _:
-                return "?"
+        return _format_column_count(self.column_count)
 
     @property
     @cache
     def cached_display(self) -> str:
-        match self.cached:
-            case True:
-                return "●"
-            case False:
-                return "○"
-            case _:
-                return "—"
+        return _format_cached(self.cached)
 
     @property
     @cache
@@ -115,13 +123,7 @@ class RevisionRowData:
     @property
     @cache
     def cached_display(self) -> str:
-        match self.cached:
-            case True:
-                return "●"
-            case False:
-                return "○"
-            case _:
-                return "—"
+        return _format_cached(self.cached)
 
     @property
     @cache
@@ -131,13 +133,7 @@ class RevisionRowData:
     @property
     @cache
     def columns_display(self) -> str:
-        match self.column_count:
-            case None:
-                return "?"
-            case int(n):
-                return f"{n} cols"
-            case _:
-                return "?"
+        return _format_column_count(self.column_count)
 
     @property
     def row(self) -> tuple[str, ...]:
@@ -150,7 +146,7 @@ class RevisionRowData:
         )
 
 
-def _check_cached(expr):
+def _check_cached(expr) -> bool:
     """Walk the expression tree for any materialized CachedNode."""
     try:
         if not expr.ls.has_cached:
@@ -160,7 +156,9 @@ def _check_cached(expr):
         return False
 
 
-def _safe_entry_info(entry):
+def _safe_entry_info(
+    entry,
+) -> tuple[int | None, bool | None, tuple[str, ...]]:
     try:
         expr = entry.expr
         column_count = len(expr.columns)
@@ -171,7 +169,7 @@ def _safe_entry_info(entry):
     return column_count, cached, tags
 
 
-def _extract_backends(entry):
+def _extract_backends(entry) -> tuple[str, ...]:
     import tarfile
 
     try:
@@ -191,7 +189,7 @@ def _extract_backends(entry):
         return ()
 
 
-def snapshot_catalog(catalog):
+def snapshot_catalog(catalog) -> tuple[CatalogRowData, ...]:
     alias_lookup = {ca.catalog_entry.name: ca.alias for ca in catalog.catalog_aliases}
     return tuple(
         CatalogRowData(
@@ -208,7 +206,7 @@ def snapshot_catalog(catalog):
     )
 
 
-def snapshot_git_reflog(catalog, max_count=50):
+def snapshot_git_reflog(catalog, max_count=50) -> tuple[GitLogRowData, ...]:
     try:
         entries = list(catalog.repo.head.log())
         return tuple(
@@ -223,79 +221,86 @@ def snapshot_git_reflog(catalog, max_count=50):
         return ()
 
 
-def _build_lineage_chain(expr):
+def _build_lineage_chain(expr) -> tuple[str, ...]:
     from xorq.common.utils.graph_utils import gen_children_of, to_node
     from xorq.common.utils.lineage_utils import format_node
 
+    def _walk(node):
+        yield format_node(node)
+        children = tuple(gen_children_of(node))
+        if children:
+            yield from _walk(children[0])
+
     try:
-        node = to_node(expr)
-        chain = []
-        while True:
-            chain.append(format_node(node))
-            children = tuple(gen_children_of(node))
-            if not children:
-                break
-            node = children[0]
-        return tuple(reversed(chain))
+        return tuple(reversed(tuple(_walk(to_node(expr)))))
     except Exception:
         return ("(lineage unavailable)",)
 
 
-def _build_explore_data(entry, alias):
-    expr = None
+def _safe_expr(entry):
     try:
-        expr = entry.expr
+        return entry.expr
     except Exception:
-        pass
+        return None
 
-    schema_items = ()
-    if expr is not None:
-        try:
-            schema_items = tuple(
-                (name, str(dtype)) for name, dtype in expr.schema().items()
-            )
-        except Exception:
-            pass
 
-    lineage_text = "(unavailable)"
-    if expr is not None:
-        try:
-            lineage_chain = _build_lineage_chain(expr)
-            lineage_text = " → ".join(lineage_chain) if lineage_chain else "(empty)"
-        except Exception:
-            pass
+def _safe_schema(expr) -> tuple[tuple[str, str], ...]:
+    if expr is None:
+        return ()
+    try:
+        return tuple((name, str(dtype)) for name, dtype in expr.schema().items())
+    except Exception:
+        return ()
 
-    is_cached = None
-    cache_path = None
-    if expr is not None:
-        try:
-            is_cached = _check_cached(expr)
-        except Exception:
-            pass
-        if is_cached is True:
-            try:
-                paths = expr.ls.get_cache_paths()
-                cache_path = paths[0] if paths else None
-            except Exception:
-                pass
 
-    metadata_items = ()
+def _safe_lineage(expr) -> str:
+    if expr is None:
+        return "(unavailable)"
+    try:
+        chain = _build_lineage_chain(expr)
+        return " → ".join(chain) if chain else "(empty)"
+    except Exception:
+        return "(unavailable)"
+
+
+def _safe_cache_info(expr) -> tuple[bool | None, str | None]:
+    if expr is None:
+        return None, None
+    try:
+        is_cached = _check_cached(expr)
+    except Exception:
+        return None, None
+    if not is_cached:
+        return is_cached, None
+    try:
+        paths = expr.ls.get_cache_paths()
+        return True, str(paths[0]) if paths else None
+    except Exception:
+        return True, None
+
+
+def _safe_metadata(entry) -> tuple[tuple[str, str], ...]:
     try:
         if entry.metadata_path.exists():
             meta = yaml.safe_load(entry.metadata_path.read_text())
             if isinstance(meta, dict):
-                metadata_items = tuple((str(k), str(v)) for k, v in meta.items())
+                return tuple((str(k), str(v)) for k, v in meta.items())
     except Exception:
         pass
+    return ()
 
+
+def _build_explore_data(entry, alias) -> ExploreData:
+    expr = _safe_expr(entry)
+    is_cached, cache_path = _safe_cache_info(expr)
     return ExploreData(
         hash=entry.name,
         alias=alias,
-        schema_items=schema_items,
-        lineage_text=lineage_text,
+        schema_items=_safe_schema(expr),
+        lineage_text=_safe_lineage(expr),
         is_cached=is_cached,
-        cache_path=str(cache_path) if cache_path else None,
-        metadata=metadata_items,
+        cache_path=cache_path,
+        metadata=_safe_metadata(entry),
         has_alias=bool(alias),
     )
 
@@ -392,12 +397,14 @@ class CatalogScreen(Screen):
             self.notify("Entry not found", severity="error")
             return
         alias = alias_lookup.get(entry_hash, "")
-        catalog_alias = None
-        if alias:
-            for ca in catalog.catalog_aliases:
-                if ca.alias == alias:
-                    catalog_alias = ca
-                    break
+        catalog_alias = (
+            next(
+                (ca for ca in catalog.catalog_aliases if ca.alias == alias),
+                None,
+            )
+            if alias
+            else None
+        )
         self.app.push_screen(ExploreScreen(entry, alias, catalog_alias=catalog_alias))
 
 
@@ -495,11 +502,11 @@ class ExploreScreen(Screen):
         env_re = re.compile(r"^\$\{(.+)\}$|^\$(.+)$")
 
         def _extract_env_vars(kwargs):
-            env_vars = []
-            for _k, v in kwargs.items():
-                if isinstance(v, str) and (m := env_re.match(v)):
-                    env_vars.append(m.group(1) or m.group(2))
-            return tuple(env_vars)
+            return tuple(
+                m.group(1) or m.group(2)
+                for v in kwargs.values()
+                if isinstance(v, str) and (m := env_re.match(v))
+            )
 
         try:
             with tarfile.open(self._entry.catalog_path, "r:gz") as tf:
@@ -650,9 +657,8 @@ class ExploreScreen(Screen):
                 f"Failed to load revisions: {e}",
             )
             return
-        revision_rows = []
-        valid_revisions = []
-        for i, (rev_entry, commit) in enumerate(raw_revisions):
+
+        def _revision_pair(i, rev_entry, commit):
             try:
                 exists = rev_entry.exists()
             except Exception:
@@ -660,22 +666,27 @@ class ExploreScreen(Screen):
             col_count, cached, _ = (
                 _safe_entry_info(rev_entry) if exists else (None, None, ())
             )
-            revision_rows.append(
-                RevisionRowData(
-                    hash=rev_entry.name,
-                    column_count=col_count,
-                    cached=cached,
-                    commit_date=datetime.fromtimestamp(commit.committed_date).strftime(
-                        "%Y-%m-%d %H:%M"
-                    ),
-                    is_current=(i == 0),
-                )
+            row = RevisionRowData(
+                hash=rev_entry.name,
+                column_count=col_count,
+                cached=cached,
+                commit_date=datetime.fromtimestamp(commit.committed_date).strftime(
+                    "%Y-%m-%d %H:%M"
+                ),
+                is_current=(i == 0),
             )
-            valid_revisions.append((rev_entry, commit, exists))
+            return row, (rev_entry, commit, exists)
+
+        pairs = tuple(
+            _revision_pair(i, rev_entry, commit)
+            for i, (rev_entry, commit) in enumerate(raw_revisions)
+        )
+        revision_rows = tuple(row for row, _ in pairs)
+        valid_revisions = tuple(info for _, info in pairs)
         self.app.call_from_thread(
             self._render_revisions,
-            tuple(revision_rows),
-            tuple(valid_revisions),
+            revision_rows,
+            valid_revisions,
         )
 
     def _render_revisions(self, revision_rows, valid_revisions) -> None:
