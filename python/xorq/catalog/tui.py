@@ -50,6 +50,8 @@ REVISION_COLUMNS = ("STATUS", "HASH", "COLUMNS", "CACHED", "DATE")
 
 ALIAS_COLUMNS = ("ALIAS",)
 
+GIT_LOG_COLUMNS = ("HASH", "DATE", "MESSAGE")
+
 
 def maybe(default, exc=Exception):
     return cexcepts(exc, handler=return_constant(default))
@@ -255,6 +257,19 @@ def _build_lineage_chain(expr) -> tuple[str, ...]:
     return tuple(reversed(tuple(_walk(to_node(expr)))))
 
 
+def _build_git_log_rows(repo, max_count=100) -> tuple[GitLogRowData, ...]:
+    return tuple(
+        GitLogRowData(
+            hash=commit.hexsha[:12],
+            date=datetime.fromtimestamp(commit.committed_date).strftime(
+                "%Y-%m-%d %H:%M"
+            ),
+            message=commit.message.strip().split("\n")[0],
+        )
+        for commit in repo.iter_commits(max_count=max_count)
+    )
+
+
 @maybe(default=None)
 def maybe_expr(entry):
     return entry.expr
@@ -327,6 +342,7 @@ class CatalogScreen(Screen):
         ("k", "cursor_up", "Up"),
         ("enter", "explore", "Explore"),
         ("e", "explore", "Explore"),
+        ("g", "toggle_git_log", "Git Log"),
     )
 
     def __init__(self, refresh_interval=DEFAULT_REFRESH_INTERVAL):
@@ -334,6 +350,8 @@ class CatalogScreen(Screen):
         self._refresh_interval = refresh_interval
         self._row_cache: dict[str, CatalogRowData] = {}
         self._saved_cursor: int | None = None
+        self._git_log_visible = False
+        self._git_log_loaded = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -341,6 +359,8 @@ class CatalogScreen(Screen):
             yield DataTable(id="catalog-table")
         with Vertical(id="schema-panel"):
             yield DataTable(id="schema-preview-table")
+        with Vertical(id="git-log-panel"):
+            yield DataTable(id="git-log-table")
         yield Static("", id="status-bar")
         yield Footer()
 
@@ -357,8 +377,17 @@ class CatalogScreen(Screen):
         for col in SCHEMA_PREVIEW_COLUMNS:
             schema_table.add_column(col, key=col)
 
+        git_log_table = self.query_one("#git-log-table", DataTable)
+        git_log_table.cursor_type = "row"
+        git_log_table.zebra_stripes = True
+        for col in GIT_LOG_COLUMNS:
+            git_log_table.add_column(col, key=col)
+
         self.query_one("#catalog-panel").border_title = "Expressions"
         self.query_one("#schema-panel").border_title = "Schema"
+        git_log_panel = self.query_one("#git-log-panel")
+        git_log_panel.border_title = "Git Log"
+        git_log_panel.display = False
         self.query_one("#status-bar", Static).update(" Loading catalog...")
 
         self.set_interval(self._refresh_interval, self._do_refresh)
@@ -417,6 +446,10 @@ class CatalogScreen(Screen):
         for k in removed:
             del self._row_cache[k]
 
+        if self._git_log_visible:
+            git_rows = _build_git_log_rows(catalog.repo)
+            self.app.call_from_thread(self._render_git_log, git_rows)
+
         stamp = datetime.now().strftime("%H:%M:%S")
         self.app.call_from_thread(self._render_refresh_done, stamp, repo_path)
 
@@ -444,6 +477,27 @@ class CatalogScreen(Screen):
         self.query_one("#status-bar", Static).update(
             f" {count} entries | {repo_path} | refreshed {stamp}"
         )
+
+    def action_toggle_git_log(self) -> None:
+        self._git_log_visible = not self._git_log_visible
+        self.query_one("#git-log-panel").display = self._git_log_visible
+        if self._git_log_visible and not self._git_log_loaded:
+            self._load_git_log()
+
+    @work(thread=True)
+    def _load_git_log(self) -> None:
+        catalog = self.app._catalog
+        if catalog is None:
+            return
+        rows = _build_git_log_rows(catalog.repo)
+        self._git_log_loaded = True
+        self.app.call_from_thread(self._render_git_log, rows)
+
+    def _render_git_log(self, rows) -> None:
+        table = self.query_one("#git-log-table", DataTable)
+        table.clear()
+        for i, row_data in enumerate(rows):
+            table.add_row(*row_data.row, key=str(i))
 
     def action_cursor_down(self) -> None:
         self.query_one("#catalog-table", DataTable).action_cursor_down()
@@ -902,6 +956,13 @@ class CatalogTUI(App):
         border: solid $primary;
     }
     #schema-preview-table {
+        height: 1fr;
+    }
+    #git-log-panel {
+        height: 1fr;
+        border: solid $primary;
+    }
+    #git-log-table {
         height: 1fr;
     }
     #status-bar {

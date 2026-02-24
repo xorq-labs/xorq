@@ -12,7 +12,7 @@ def click_handler(e):
 
 def _init_hint(ctx):
     """Return the `xorq catalog ... init` command the user should run."""
-    group_ctx = ctx.parent
+    group_ctx = ctx.parent or ctx
     parts = ["xorq catalog"]
     if name := group_ctx.params.get("name"):
         parts.append(f"--name {name}")
@@ -89,7 +89,7 @@ def _complete_alias_names(ctx, param, incomplete):
         return []
 
 
-@click.group()
+@click.group(invoke_without_command=True)
 @click.option(
     "-n", "--name", default=None, help="Catalog name (mutually exclusive with --path)."
 )

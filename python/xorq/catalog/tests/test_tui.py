@@ -17,13 +17,16 @@ from textual.widgets import DataTable, Static, TabbedContent
 from xorq.catalog.tui import (
     ALIAS_COLUMNS,
     COLUMNS,
+    GIT_LOG_COLUMNS,
     SCHEMA_PREVIEW_COLUMNS,
     CatalogRowData,
     CatalogScreen,
     CatalogTUI,
     ExploreData,
     ExploreScreen,
+    GitLogRowData,
     RevisionRowData,
+    _build_git_log_rows,
     _format_cached,
     _format_column_count,
     maybe,
@@ -50,10 +53,21 @@ def _make_mock_entry(name="abc123", has_metadata=False):
     return entry
 
 
-def _make_mock_catalog(entries=(), aliases=()):
+def _make_mock_commit(
+    hexsha="abc123def456", committed_date=1700000000, message="test commit"
+):
+    commit = MagicMock()
+    commit.hexsha = hexsha
+    commit.committed_date = committed_date
+    commit.message = message
+    return commit
+
+
+def _make_mock_catalog(entries=(), aliases=(), commits=()):
     catalog = MagicMock()
     catalog.repo.working_dir = "/tmp/fake-catalog"
     catalog.repo.head.log.return_value = []
+    catalog.repo.iter_commits.return_value = commits
     catalog.list.return_value = [e.name for e in entries]
     catalog.catalog_aliases = aliases
     for entry in entries:
@@ -825,5 +839,176 @@ class TestAliasesTab:
                 await pilot.pause()
                 tabs = app.screen.query_one("#explore-tabs", TabbedContent)
                 assert tabs.active == "pane-aliases"
+
+        _run(_test())
+
+
+# ---------------------------------------------------------------------------
+# 8. Git Log: unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestGitLogRowData:
+    def test_row_tuple(self):
+        row = GitLogRowData(
+            hash="abc123def456", date="2025-01-15 10:30", message="initial commit"
+        )
+        assert row.row == ("abc123def456", "2025-01-15 10:30", "initial commit")
+
+    def test_defaults(self):
+        row = GitLogRowData()
+        assert row.row == ("", "", "")
+
+    def test_frozen(self):
+        row = GitLogRowData(hash="abc")
+        with pytest.raises(AttributeError):
+            row.hash = "new"
+
+
+class TestBuildGitLogRows:
+    def test_builds_from_mock_commits(self):
+        commits = (
+            _make_mock_commit(
+                hexsha="aabbccddee112233",
+                committed_date=1700000000,
+                message="first commit\ndetails",
+            ),
+            _make_mock_commit(
+                hexsha="112233445566aabb",
+                committed_date=1700100000,
+                message="second commit",
+            ),
+        )
+        repo = MagicMock()
+        repo.iter_commits.return_value = commits
+        rows = _build_git_log_rows(repo, max_count=50)
+
+        assert len(rows) == 2
+        assert rows[0].hash == "aabbccddee11"
+        assert rows[0].message == "first commit"
+        assert rows[1].hash == "112233445566"
+        assert rows[1].message == "second commit"
+
+    def test_empty_repo(self):
+        repo = MagicMock()
+        repo.iter_commits.return_value = ()
+        rows = _build_git_log_rows(repo)
+        assert rows == ()
+
+    def test_max_count_passed(self):
+        repo = MagicMock()
+        repo.iter_commits.return_value = ()
+        _build_git_log_rows(repo, max_count=25)
+        repo.iter_commits.assert_called_once_with(max_count=25)
+
+
+# ---------------------------------------------------------------------------
+# 9. Git Log: pilot tests
+# ---------------------------------------------------------------------------
+
+
+class TestGitLogPanel:
+    def test_git_log_panel_hidden_by_default(self):
+        async def _test():
+            app = _make_tui()
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                panel = app.screen.query_one("#git-log-panel")
+                assert panel.display is False
+
+        _run(_test())
+
+    def test_g_toggles_git_log_visibility(self):
+        async def _test():
+            app = _make_tui()
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                panel = app.screen.query_one("#git-log-panel")
+                assert panel.display is False
+
+                await pilot.press("g")
+                await pilot.pause()
+                assert panel.display is True
+
+                await pilot.press("g")
+                await pilot.pause()
+                assert panel.display is False
+
+        _run(_test())
+
+    def test_git_log_table_has_correct_columns(self):
+        async def _test():
+            app = _make_tui()
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                git_table = app.screen.query_one("#git-log-table", DataTable)
+                col_labels = tuple(
+                    col.label.plain for col in git_table.columns.values()
+                )
+                assert col_labels == GIT_LOG_COLUMNS
+
+        _run(_test())
+
+    def test_git_log_panel_border_title(self):
+        async def _test():
+            app = _make_tui()
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                panel = app.screen.query_one("#git-log-panel")
+                assert panel.border_title == "Git Log"
+
+        _run(_test())
+
+    def test_render_git_log_populates_table(self):
+        async def _test():
+            app = _make_tui()
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                screen = app.screen
+                assert isinstance(screen, CatalogScreen)
+
+                rows = (
+                    GitLogRowData(
+                        hash="aabb", date="2025-01-01 10:00", message="first"
+                    ),
+                    GitLogRowData(
+                        hash="ccdd", date="2025-01-02 11:00", message="second"
+                    ),
+                )
+                screen._render_git_log(rows)
+                await pilot.pause()
+
+                git_table = screen.query_one("#git-log-table", DataTable)
+                assert git_table.row_count == 2
+                assert git_table.get_cell_at((0, 0)) == "aabb"
+                assert git_table.get_cell_at((0, 2)) == "first"
+                assert git_table.get_cell_at((1, 0)) == "ccdd"
+
+        _run(_test())
+
+    def test_toggle_triggers_load_with_catalog(self):
+        async def _test():
+            commits = (
+                _make_mock_commit(
+                    hexsha="aabbccddee112233",
+                    committed_date=1700000000,
+                    message="init",
+                ),
+            )
+            catalog = _make_mock_catalog(commits=commits)
+            app = _make_tui(catalog)
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.pause()
+
+                await pilot.press("g")
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.pause()
+
+                git_table = app.screen.query_one("#git-log-table", DataTable)
+                assert git_table.row_count == 1
+                assert git_table.get_cell_at((0, 0)) == "aabbccddee11"
 
         _run(_test())
