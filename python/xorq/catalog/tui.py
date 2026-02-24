@@ -340,6 +340,7 @@ class CatalogScreen(Screen):
         super().__init__()
         self._refresh_interval = refresh_interval
         self._row_cache: dict[str, CatalogRowData] = {}
+        self._saved_cursor: int | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
