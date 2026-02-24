@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.11] - 2026-02-24
+### Details
+#### Added
+- Add GizmoSQL backend (DuckDB over Arrow Flight SQL) by @prmoore77 in [#1586](https://github.com/xorq-labs/xorq/pull/1586)
+- Add caching classes by @dlovell in [#1594](https://github.com/xorq-labs/xorq/pull/1594)
+- Add memoization to gen_downstream to prevent exponential traversals by @hussainsultan in [#1515](https://github.com/xorq-labs/xorq/pull/1515)
+- Add new catalog by @dlovell in [#1597](https://github.com/xorq-labs/xorq/pull/1597)
+- Add substantive messages to bare exception raises by @dlovell in [#1606](https://github.com/xorq-labs/xorq/pull/1606)
+- Add aliases by @dlovell in [#1608](https://github.com/xorq-labs/xorq/pull/1608)
+
+#### Changed
+- Convert from argparse to click by @dlovell in [#1596](https://github.com/xorq-labs/xorq/pull/1596)
+- Update dependency uv to v0.9.6 [security] by @renovate[bot] in [#1543](https://github.com/xorq-labs/xorq/pull/1543)
+- Update pre-commit hook astral-sh/ruff-pre-commit to v0.15.2 by @renovate[bot] in [#1549](https://github.com/xorq-labs/xorq/pull/1549)
+- Update pre-commit hook astral-sh/uv-pre-commit to v0.10.4 by @renovate[bot] in [#1550](https://github.com/xorq-labs/xorq/pull/1550)
+- Update dependency mcp to v1.23.0 [security] by @renovate[bot] in [#1544](https://github.com/xorq-labs/xorq/pull/1544)
+- Update dependency pip to v26 [security] by @renovate[bot] in [#1545](https://github.com/xorq-labs/xorq/pull/1545)
+- Update dependency cryptography to v46 [security] by @renovate[bot] in [#1573](https://github.com/xorq-labs/xorq/pull/1573)
+- Aliases by @dlovell in [#1612](https://github.com/xorq-labs/xorq/pull/1612)
+- Update dependency black to v25.12.0 by @renovate[bot] in [#1551](https://github.com/xorq-labs/xorq/pull/1551)
+- Update dependency coverage to v7.13.4 by @renovate[bot] in [#1552](https://github.com/xorq-labs/xorq/pull/1552)
+
+#### Fixed
+- Correct unbound node replacement by @dlovell in [#1591](https://github.com/xorq-labs/xorq/pull/1591)
+- Drain both pipes concurrently to prevent deadlock by @dlovell in [#1601](https://github.com/xorq-labs/xorq/pull/1601)
+- Require python < 3.14 because of pyarrow issue by @dlovell in [#1602](https://github.com/xorq-labs/xorq/pull/1602)
+- Fix exponential build_expr scaling for deep FittedPipeline expressions by @dlovell in [#1604](https://github.com/xorq-labs/xorq/pull/1604)
+- Update docs to reflect current code by @mesejo in [#1607](https://github.com/xorq-labs/xorq/pull/1607)
+- Uv_tool_run: enable setting python version by @dlovell in [#1603](https://github.com/xorq-labs/xorq/pull/1603)
+- Use datafusion<52.0.0 for ibis compatibility tests by @mesejo in [#1609](https://github.com/xorq-labs/xorq/pull/1609)
+- Update templates hash by @mesejo in [#1610](https://github.com/xorq-labs/xorq/pull/1610)
+
+#### Removed
+- Remove rich from lineage_utils by @hussainsultan in [#1595](https://github.com/xorq-labs/xorq/pull/1595)
+- Remove xfail by @mesejo in [#1616](https://github.com/xorq-labs/xorq/pull/1616)
+
+## New Contributors
+* @prmoore77 made their first contribution in [#1586](https://github.com/xorq-labs/xorq/pull/1586)
 ## [0.3.10] - 2026-02-18
 ### Details
 #### Added
