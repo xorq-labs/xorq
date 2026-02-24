@@ -78,7 +78,7 @@ def _format_column_count(n: int | None) -> str:
 @frozen
 class CatalogRowData:
     kind: str = field(default="expr", validator=instance_of(str))
-    alias: str = field(default="", validator=instance_of(str))
+    aliases: tuple[str, ...] = field(factory=tuple, validator=instance_of(tuple))
     hash: str = field(default="", validator=instance_of(str))
     backends: tuple[str, ...] = field(factory=tuple, validator=instance_of(tuple))
     column_count: int | None = field(default=None, validator=optional(instance_of(int)))
