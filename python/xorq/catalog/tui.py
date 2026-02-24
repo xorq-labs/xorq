@@ -243,9 +243,11 @@ def _build_lineage_chain(expr) -> tuple[str, ...]:
 
     def _walk(node):
         yield format_node(node)
-        children = tuple(gen_children_of(node))
-        if children:
-            yield from _walk(children[0])
+        match tuple(gen_children_of(node)):
+            case (first, *_):
+                yield from _walk(first)
+            case _:
+                pass
 
     try:
         return tuple(reversed(tuple(_walk(to_node(expr)))))
@@ -297,13 +299,16 @@ def _safe_cache_info(expr) -> tuple[bool | None, str | None]:
 
 def _safe_metadata(entry) -> tuple[tuple[str, str], ...]:
     try:
-        if entry.metadata_path.exists():
-            meta = yaml.safe_load(entry.metadata_path.read_text())
-            if isinstance(meta, dict):
+        if not entry.metadata_path.exists():
+            return ()
+        meta = yaml.safe_load(entry.metadata_path.read_text())
+        match meta:
+            case dict():
                 return tuple((str(k), str(v)) for k, v in meta.items())
+            case _:
+                return ()
     except Exception:
-        pass
-    return ()
+        return ()
 
 
 def _build_explore_data(entry, alias) -> ExploreData:
