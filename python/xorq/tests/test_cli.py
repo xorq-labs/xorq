@@ -224,6 +224,124 @@ def test_run_command(tmp_path, fixture_dir, output_format):
 
 
 @pytest.mark.slow(level=1)
+@pytest.mark.parametrize("output_format", ["csv", "json", "parquet"])
+def test_run_cached_command(tmp_path, fixture_dir, output_format):
+    target_dir = tmp_path / "build"
+    script_path = fixture_dir / "pipeline.py"
+
+    build_args = [
+        "xorq",
+        "build",
+        str(script_path),
+        "--expr-name",
+        "expr",
+        "--builds-dir",
+        str(target_dir),
+    ]
+    (returncode, stdout, stderr) = subprocess_run(build_args)
+    assert returncode == 0, stderr
+
+    if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
+        output_path = tmp_path / f"test.{output_format}"
+        expression_path = match.group()
+        test_args = [
+            "xorq",
+            "run-cached",
+            expression_path,
+            "--output-path",
+            str(output_path),
+            "--format",
+            output_format,
+        ]
+        (returncode, _, stderr) = subprocess_run(test_args)
+        assert returncode == 0, stderr
+        assert output_path.exists()
+        assert output_path.stat().st_size > 0
+    else:
+        raise AssertionError("No expression hash")
+
+
+@pytest.mark.slow(level=1)
+def test_run_cached_command_default(tmp_path, fixture_dir):
+    target_dir = tmp_path / "build"
+    script_path = fixture_dir / "pipeline.py"
+
+    build_args = [
+        "xorq",
+        "build",
+        str(script_path),
+        "--expr-name",
+        "expr",
+        "--builds-dir",
+        str(target_dir),
+    ]
+    (returncode, stdout, stderr) = subprocess_run(build_args)
+    assert returncode == 0, stderr
+
+    if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
+        expression_path = match.group()
+        test_args = [
+            "xorq",
+            "run-cached",
+            expression_path,
+        ]
+        (returncode, _, stderr) = subprocess_run(test_args)
+        assert returncode == 0, stderr
+    else:
+        raise AssertionError("No expression hash")
+
+
+@pytest.mark.slow(level=1)
+@pytest.mark.parametrize(
+    "cache_type,ttl",
+    [
+        ("modification-time", None),
+        ("snapshot", None),
+        ("snapshot", "3600"),
+    ],
+)
+def test_run_cached_command_cache_types(tmp_path, fixture_dir, cache_type, ttl):
+    target_dir = tmp_path / "build"
+    cache_dir = tmp_path / "cache"
+    script_path = fixture_dir / "pipeline.py"
+
+    build_args = [
+        "xorq",
+        "build",
+        str(script_path),
+        "--expr-name",
+        "expr",
+        "--builds-dir",
+        str(target_dir),
+    ]
+    (returncode, stdout, stderr) = subprocess_run(build_args)
+    assert returncode == 0, stderr
+
+    if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
+        output_path = tmp_path / "test.parquet"
+        expression_path = match.group()
+        test_args = [
+            "xorq",
+            "run-cached",
+            expression_path,
+            "--cache-dir",
+            str(cache_dir),
+            "--cache-type",
+            cache_type,
+            "--output-path",
+            str(output_path),
+        ]
+        if ttl is not None:
+            test_args.extend(["--ttl", ttl])
+        (returncode, _, stderr) = subprocess_run(test_args)
+        assert returncode == 0, stderr
+        assert output_path.exists()
+        assert output_path.stat().st_size > 0
+    else:
+        raise AssertionError("No expression hash")
+
+
+@pytest.mark.slow(level=1)
 @pytest.mark.parametrize(
     "host,port,cache_dir", [(None, None, None), ("localhost", "5000", "cache")]
 )
