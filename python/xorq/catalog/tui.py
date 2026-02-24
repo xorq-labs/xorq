@@ -3,7 +3,7 @@ from functools import cache
 from pathlib import Path
 
 import yaml
-from attr import field, frozen
+from attr import field, frozen, validators
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Vertical, VerticalScroll
@@ -130,24 +130,47 @@ class CatalogRowData:
 
 
 @frozen
+class GitLogRowData:
+    hash: str = field(default="", validator=validators.instance_of(str))
+    date: str = field(default="", validator=validators.instance_of(str))
+    message: str = field(default="", validator=validators.instance_of(str))
+
+    @property
+    def row(self) -> tuple[str, ...]:
+        return (self.hash, self.date, self.message)
+
+
+@frozen
 class ExploreData:
-    hash: str = ""
-    alias: str = ""
-    schema_items: tuple[tuple[str, str], ...] = ()
-    lineage_text: str = ""
-    is_cached: bool | None = None
-    cache_path: str | None = None
-    metadata: tuple[tuple[str, str], ...] = ()
-    has_alias: bool = False
+    hash: str = field(default="", validator=validators.instance_of(str))
+    alias: str = field(default="", validator=validators.instance_of(str))
+    schema_items: tuple[tuple[str, str], ...] = field(
+        factory=tuple, validator=validators.instance_of(tuple)
+    )
+    lineage_text: str = field(default="", validator=validators.instance_of(str))
+    is_cached: bool | None = field(
+        default=None, validator=validators.optional(validators.instance_of(bool))
+    )
+    cache_path: str | None = field(
+        default=None, validator=validators.optional(validators.instance_of(str))
+    )
+    metadata: tuple[tuple[str, str], ...] = field(
+        factory=tuple, validator=validators.instance_of(tuple)
+    )
+    has_alias: bool = field(default=False, validator=validators.instance_of(bool))
 
 
 @frozen
 class RevisionRowData:
-    hash: str = ""
-    column_count: int | None = None
-    cached: bool | None = None
-    commit_date: str = ""
-    is_current: bool = False
+    hash: str = field(default="", validator=validators.instance_of(str))
+    column_count: int | None = field(
+        default=None, validator=validators.optional(validators.instance_of(int))
+    )
+    cached: bool | None = field(
+        default=None, validator=validators.optional(validators.instance_of(bool))
+    )
+    commit_date: str = field(default="", validator=validators.instance_of(str))
+    is_current: bool = field(default=False, validator=validators.instance_of(bool))
 
     @property
     @cache
