@@ -156,6 +156,22 @@ def build_command(
     print(build_path)
 
 
+def _compute_file_metrics(output_format, output_path):
+    metrics = {}
+    if output_path and output_path != "-":
+        output_file = Path(output_path)
+        if output_file.exists():
+            metrics["bytes"] = output_file.stat().st_size
+            if output_format == OutputFormats.parquet:
+                try:
+                    import pyarrow.parquet as pq
+
+                    metrics["rows"] = pq.read_metadata(output_file).num_rows
+                except ImportError:
+                    pass
+    return metrics
+
+
 @_lazy_span("cli.run_command")
 def run_command(
     expr_path,
@@ -184,12 +200,11 @@ def run_command(
     -------
 
     """
-    import time
-
     from opentelemetry import trace
     from opentelemetry.trace import StatusCode
 
     from xorq.common.utils.logging_utils import get_logger
+    from xorq.common.utils.profile_utils import timed
     from xorq.ibis_yaml.compiler import load_expr
 
     logger = get_logger(__name__)
@@ -213,37 +228,20 @@ def run_command(
     )
 
     try:
-        t_load = time.monotonic()
-        expr = load_expr(expr_path, cache_dir=cache_dir)
-        load_elapsed = time.monotonic() - t_load
-        span.add_event("run.expr_loaded", {"elapsed_s": load_elapsed})
-        logger.info("run.expr_loaded", elapsed_s=load_elapsed)
+        with timed(span, logger, "run.expr_loaded"):
+            expr = load_expr(expr_path, cache_dir=cache_dir)
 
         if limit is not None:
             expr = expr.limit(limit)
 
-        t_exec = time.monotonic()
-        arbitrate_output_format(expr, output_path, output_format)
-        exec_elapsed = time.monotonic() - t_exec
+        with timed(span, logger, "run.done", output_format=str(output_format)):
+            arbitrate_output_format(expr, output_path, output_format)
 
-        output_metrics = {
-            "elapsed_s": exec_elapsed,
-            "output_format": str(output_format),
-        }
-        if output_path and output_path != "-":
-            output_file = Path(output_path)
-            if output_file.exists():
-                output_metrics["bytes"] = output_file.stat().st_size
-                if output_format == OutputFormats.parquet:
-                    try:
-                        import pyarrow.parquet as pq
+        file_metrics = _compute_file_metrics(output_format, output_path)
+        if file_metrics:
+            span.add_event("run.output_written", file_metrics)
+            logger.info("run.output_written", **file_metrics)
 
-                        output_metrics["rows"] = pq.read_metadata(output_file).num_rows
-                    except Exception:
-                        pass
-
-        span.add_event("run.output_written", output_metrics)
-        logger.info("run.done", **output_metrics)
         span.set_status(StatusCode.OK)
 
     except Exception as e:
@@ -373,7 +371,6 @@ def unbind_and_serve_command(
     cache_dir=None,
     typ=None,
 ):
-    import xorq
     import xorq.expr.relations
     from xorq.caching.strategy import SnapshotStrategy
     from xorq.common.utils.logging_utils import get_print_logger

@@ -350,15 +350,19 @@ def test_run_command_logging(tmp_path):
     assert "elapsed_s" in loaded_call.kwargs
     assert loaded_call.kwargs["elapsed_s"] >= 0
 
-    # run.done includes file metrics for parquet output
+    # run.done carries timing + output_format (from timed)
     done_call = next(c for c in info_calls if c.args[0] == "run.done")
     assert "elapsed_s" in done_call.kwargs
-    assert "bytes" in done_call.kwargs
-    assert done_call.kwargs["bytes"] > 0
-    assert "rows" in done_call.kwargs
-    assert done_call.kwargs["rows"] == 3
+    assert "output_format" in done_call.kwargs
+
+    # run.output_written carries file metrics for parquet output
+    written_call = next(c for c in info_calls if c.args[0] == "run.output_written")
+    assert "bytes" in written_call.kwargs
+    assert written_call.kwargs["bytes"] > 0
+    assert "rows" in written_call.kwargs
+    assert written_call.kwargs["rows"] == 3
     # rows uses pq.read_metadata (parquet footer) — verify it matches the actual file
-    assert pq.read_metadata(output_path).num_rows == done_call.kwargs["rows"]
+    assert pq.read_metadata(output_path).num_rows == written_call.kwargs["rows"]
 
 
 def test_run_command_error_logging(tmp_path):
