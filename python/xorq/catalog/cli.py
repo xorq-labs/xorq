@@ -15,7 +15,7 @@ def click_handler(e):
 
 def _init_hint(ctx):
     """Return the `xorq catalog ... init` command the user should run."""
-    group_ctx = ctx.parent
+    group_ctx = ctx.parent or ctx
     parts = ["xorq catalog"]
     if name := group_ctx.params.get("name"):
         parts.append(f"--name {name}")
@@ -149,9 +149,11 @@ def cli(ctx, tui, name, path, url, root_repo, init):
     )
     match tui:
         case True:
+            with click_context_catalog(ctx):
+                catalog = ctx.obj.make_catalog(init=False)
             from xorq.catalog.tui import CatalogTUI
 
-            app = CatalogTUI(partial(ctx.obj.make_catalog, init=False))
+            app = CatalogTUI(lambda: catalog)
             app.run()
             ctx.exit(0)
         case _:

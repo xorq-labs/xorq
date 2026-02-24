@@ -697,3 +697,13 @@ def test_missing_catalog_hint_includes_name(runner, tmpdir, monkeypatch):
     assert result.exit_code != 0
     assert "--name my-catalog" in result.output
     assert "init" in result.output
+
+
+# --- TUI validation ---
+
+
+def test_tui_missing_catalog_shows_hint(runner, tmpdir):
+    missing = str(Path(tmpdir).joinpath("no-such-catalog"))
+    result = runner.invoke(cli, ["--path", missing, "--tui"])
+    assert result.exit_code != 0
+    assert "init" in result.output
