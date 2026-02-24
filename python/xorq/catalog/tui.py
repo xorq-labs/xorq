@@ -1,3 +1,5 @@
+import re
+import tarfile
 from datetime import datetime
 from functools import cache
 from pathlib import Path
@@ -219,8 +221,6 @@ def maybe_entry_info(
 
 @maybe(default=())
 def maybe_extract_backends(entry) -> tuple[str, ...]:
-    import tarfile
-
     with tarfile.open(entry.catalog_path, "r:gz") as tf:
         f = tf.extractfile(f"{entry.name}/profiles.yaml")
         if f is None:
@@ -588,9 +588,6 @@ class ExploreScreen(Screen):
 
     @work(thread=True)
     def _load_profiles(self) -> None:
-        import re
-        import tarfile
-
         env_re = re.compile(r"^\$\{(.+)\}$|^\$(.+)$")
 
         def _extract_env_vars(kwargs):
