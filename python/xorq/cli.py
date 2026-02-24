@@ -206,6 +206,83 @@ def run_command(
     arbitrate_output_format(expr, output_path, output_format)
 
 
+@_lazy_span("cli.run_cached_command")
+def run_cached_command(
+    expr_path,
+    output_path=None,
+    output_format=OutputFormats.default,
+    cache_dir=None,
+    limit=None,
+    cache_type="modification-time",
+    ttl=None,
+):
+    """
+    Execute an artifact with a ParquetCache wrapping the top-level expression.
+
+    Parameters
+    ----------
+    expr_path : str
+        Path to the expr in the builds dir
+    output_path : str
+        Path to write output. Defaults to os.devnull
+    output_format : OutputFormats | str, optional
+        Output format, either "csv", "json", "arrow", or "parquet". Defaults to "parquet"
+    cache_dir : Path, optional
+        Directory where the parquet cache files will be generated
+    limit : int, optional
+        Limit number of rows to output. Defaults to None (no limit).
+    cache_type : str, optional
+        Cache type: "modification-time" for ParquetCache (default), "snapshot"
+        for ParquetSnapshotCache (or ParquetTTLSnapshotCache when --ttl is set).
+    ttl : int, optional
+        TTL in seconds for snapshot cache type. When set, uses
+        ParquetTTLSnapshotCache instead of ParquetSnapshotCache.
+    """
+    import datetime
+
+    from opentelemetry import trace
+
+    from xorq.caching import ParquetCache, ParquetSnapshotCache, ParquetTTLSnapshotCache
+    from xorq.ibis_yaml.compiler import load_expr
+
+    cache_dir = _get_cache_dir(cache_dir)
+
+    span = trace.get_current_span()
+    span.add_event(
+        "run_cached.params",
+        {
+            "expr_path": str(expr_path),
+            "output_path": str(output_path),
+            "output_format": output_format,
+            "cache_type": cache_type,
+        },
+    )
+
+    expr = load_expr(expr_path, cache_dir=cache_dir)
+
+    match (cache_type, ttl):
+        case ("modification-time", None):
+            cache = ParquetCache.from_kwargs(base_path=cache_dir)
+        case (_, int(seconds)):
+            ttl_delta = datetime.timedelta(seconds=seconds)
+            cache = ParquetTTLSnapshotCache.from_kwargs(
+                base_path=cache_dir, ttl=ttl_delta
+            )
+        case ("snapshot", None):
+            cache = ParquetSnapshotCache.from_kwargs(base_path=cache_dir)
+        case _:
+            raise click.BadParameter(
+                f"Unknown cache type: {cache_type!r}. "
+                "Must be 'modification-time' or 'snapshot'."
+            )
+
+    expr = expr.cache(cache=cache)
+
+    if limit is not None:
+        expr = expr.limit(limit)
+    arbitrate_output_format(expr, output_path, output_format)
+
+
 def arbitrate_output_format(expr, output_path, output_format):
     match (output_path, output_format):
         case (None, _):
@@ -591,6 +668,54 @@ def build(script_path, expr_name, builds_dir, cache_dir, debug):
 def run(build_path, cache_dir, output_path, output_format, limit):
     """Run a build from a builds directory."""
     run_command(build_path, output_path, output_format, cache_dir, limit)
+
+
+@cli.command("run-cached")
+@click.argument("build_path")
+@click.option(
+    "--cache-dir",
+    default=None,
+    help="Directory for all generated parquet files cache",
+)
+@click.option(
+    "-o",
+    "--output-path",
+    default=None,
+    help=f"Path to write output (default: {os.devnull})",
+)
+@click.option(
+    "-f",
+    "--format",
+    "output_format",
+    type=click.Choice([f.value for f in OutputFormats]),
+    default=OutputFormats.default,
+    help="Output format (default: parquet)",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=None,
+    help="Limit number of rows to output",
+)
+@click.option(
+    "--cache-type",
+    type=click.Choice(["modification-time", "snapshot"]),
+    default="modification-time",
+    help="Cache strategy: 'modification-time' (ParquetCache, default) or 'snapshot' (ParquetSnapshotCache)",
+)
+@click.option(
+    "--ttl",
+    type=int,
+    default=None,
+    help="TTL in seconds for snapshot cache (uses ParquetTTLSnapshotCache when set)",
+)
+def run_cached(
+    build_path, cache_dir, output_path, output_format, limit, cache_type, ttl
+):
+    """Run a build with a ParquetCache wrapping the expression."""
+    run_cached_command(
+        build_path, output_path, output_format, cache_dir, limit, cache_type, ttl
+    )
 
 
 @cli.command("run-unbound")
