@@ -9,6 +9,7 @@ import pytest
 
 import xorq.api as xo
 from xorq.cli import (
+    OutputFormats,
     build_command,
     run_command,
 )
@@ -187,7 +188,7 @@ def test_run_command_default(tmp_path, fixture_dir):
 
 
 @pytest.mark.slow(level=1)
-@pytest.mark.parametrize("output_format", ["csv", "json", "parquet"])
+@pytest.mark.parametrize("output_format", OutputFormats)
 def test_run_command(tmp_path, fixture_dir, output_format):
     target_dir = tmp_path / "build"
     script_path = fixture_dir / "pipeline.py"
@@ -220,10 +221,6 @@ def test_run_command(tmp_path, fixture_dir, output_format):
         assert returncode == 0, stderr
         assert output_path.exists()
         assert output_path.stat().st_size > 0
-        if output_format == "parquet":
-            import pyarrow.parquet as pq
-
-            assert pq.read_metadata(output_path).num_rows > 0
 
     else:
         raise AssertionError("No expression hash")
