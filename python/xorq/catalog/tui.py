@@ -38,9 +38,11 @@ XORQ_DARK = Theme(
 
 COLUMNS = ("KIND", "ALIAS", "HASH", "BACKENDS", "OUTPUT", "CACHED", "TAGS")
 
-REFLOG_COLUMNS = ("HASH", "DATE", "MESSAGE")
+SCHEMA_PREVIEW_COLUMNS = ("NAME", "TYPE")
 
 REVISION_COLUMNS = ("STATUS", "HASH", "COLUMNS", "CACHED", "DATE")
+
+ALIAS_COLUMNS = ("ALIAS",)
 
 
 def maybe(default):
@@ -137,17 +139,6 @@ class CatalogRowData:
 
 
 @frozen
-class GitLogRowData:
-    hash: str = ""
-    date: str = ""
-    message: str = ""
-
-    @property
-    def row(self) -> tuple[str, ...]:
-        return (self.hash, self.date, self.message)
-
-
-@frozen
 class ExploreData:
     hash: str = ""
     alias: str = ""
@@ -239,19 +230,6 @@ def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
         cached=cached,
         tags=tags,
         cached_expr=expr,
-    )
-
-
-@maybe(default=())
-def snapshot_git_reflog(catalog, max_count=50) -> tuple[GitLogRowData, ...]:
-    entries = list(catalog.repo.head.log())
-    return tuple(
-        GitLogRowData(
-            hash=entry.newhexsha[:12],
-            date=datetime.fromtimestamp(entry.time[0]).strftime("%Y-%m-%d %H:%M"),
-            message=entry.message.strip()[:80],
-        )
-        for entry in reversed(entries[-max_count:])
     )
 
 
@@ -353,8 +331,8 @@ class CatalogScreen(Screen):
         yield Header(show_clock=True)
         with Vertical(id="catalog-panel"):
             yield DataTable(id="catalog-table")
-        with Vertical(id="log-panel"):
-            yield DataTable(id="log-table")
+        with Vertical(id="schema-panel"):
+            yield DataTable(id="schema-preview-table")
         yield Static("", id="status-bar")
         yield Footer()
 
@@ -365,17 +343,29 @@ class CatalogScreen(Screen):
         for col in COLUMNS:
             table.add_column(col, key=col)
 
-        log_table = self.query_one("#log-table", DataTable)
-        log_table.cursor_type = "row"
-        log_table.zebra_stripes = True
-        for col in REFLOG_COLUMNS:
-            log_table.add_column(col, key=col)
+        schema_table = self.query_one("#schema-preview-table", DataTable)
+        schema_table.cursor_type = "row"
+        schema_table.zebra_stripes = True
+        for col in SCHEMA_PREVIEW_COLUMNS:
+            schema_table.add_column(col, key=col)
 
         self.query_one("#catalog-panel").border_title = "Expressions"
-        self.query_one("#log-panel").border_title = "Git Reflog"
+        self.query_one("#schema-panel").border_title = "Schema"
         self.query_one("#status-bar", Static).update(" Loading catalog...")
 
         self.set_interval(self._refresh_interval, self._do_refresh)
+
+    @on(DataTable.RowHighlighted, "#catalog-table")
+    def _on_catalog_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        schema_table = self.query_one("#schema-preview-table", DataTable)
+        schema_table.clear()
+        if event.row_key is None:
+            return
+        row_data = self._row_cache.get(str(event.row_key.value))
+        if row_data is None:
+            return
+        for name, dtype in maybe_schema(row_data.cached_expr):
+            schema_table.add_row(name, dtype)
 
     @work(thread=True, exclusive=True)
     def _do_refresh(self) -> None:
@@ -396,8 +386,7 @@ class CatalogScreen(Screen):
         # one row per hash; row_key is the hash itself
         expected_keys: frozenset[str] = frozenset(current_hashes)
 
-        # render reflog + cached rows immediately
-        reflog_rows = snapshot_git_reflog(catalog)
+        # render cached rows immediately
         cached_rows = tuple(
             sorted(
                 (self._row_cache[k] for k in expected_keys if k in self._row_cache),
@@ -405,9 +394,7 @@ class CatalogScreen(Screen):
             )
         )
         new_keys = expected_keys - self._row_cache.keys()
-        self.app.call_from_thread(
-            self._render_refresh_start, reflog_rows, repo_path, cached_rows
-        )
+        self.app.call_from_thread(self._render_refresh_start, repo_path, cached_rows)
 
         # load new entries incrementally (one row per hash)
         for entry_hash in new_keys:
@@ -425,7 +412,7 @@ class CatalogScreen(Screen):
         stamp = datetime.now().strftime("%H:%M:%S")
         self.app.call_from_thread(self._render_refresh_done, stamp, repo_path)
 
-    def _render_refresh_start(self, reflog_rows, repo_path, cached_rows) -> None:
+    def _render_refresh_start(self, repo_path, cached_rows) -> None:
         catalog_name = Path(repo_path).name
         self.query_one("#catalog-panel").border_title = f"Expressions — {catalog_name}"
 
@@ -434,11 +421,6 @@ class CatalogScreen(Screen):
         table.clear()
         for row_data in cached_rows:
             table.add_row(*row_data.row, key=row_data.row_key)
-
-        log_table = self.query_one("#log-table", DataTable)
-        log_table.clear()
-        for i, log_row in enumerate(reflog_rows):
-            log_table.add_row(*log_row.row, key=str(i))
 
     def _render_catalog_row(self, row_data) -> None:
         self.query_one("#catalog-table", DataTable).add_row(
@@ -503,6 +485,7 @@ class ExploreScreen(Screen):
         ("3", "tab_revisions", "Revisions"),
         ("4", "tab_info", "Info"),
         ("5", "tab_profiles", "Profiles"),
+        ("6", "tab_aliases", "Aliases"),
         ("j", "cursor_down", "Down"),
         ("k", "cursor_up", "Up"),
         ("enter", "select_row", "Select"),
@@ -545,6 +528,8 @@ class ExploreScreen(Screen):
                         yield Static("", id="metadata-content")
             with TabPane("Profiles", id="pane-profiles"):
                 yield DataTable(id="profiles-table")
+            with TabPane("Aliases", id="pane-aliases"):
+                yield DataTable(id="aliases-table")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -553,6 +538,12 @@ class ExploreScreen(Screen):
         schema_table.zebra_stripes = True
         schema_table.add_column("NAME", key="name")
         schema_table.add_column("TYPE", key="type")
+
+        aliases_table = self.query_one("#aliases-table", DataTable)
+        aliases_table.cursor_type = "row"
+        aliases_table.zebra_stripes = True
+        for col in ALIAS_COLUMNS:
+            aliases_table.add_column(col, key=col)
 
         data_table = self.query_one("#data-table", DataTable)
         data_table.cursor_type = "row"
@@ -664,6 +655,12 @@ class ExploreScreen(Screen):
             self.query_one("#metadata-section").display = True
             metadata_text = "\n".join(f"{k}: {v}" for k, v in data.metadata)
             self.query_one("#metadata-content", Static).update(metadata_text)
+
+        aliases_table = self.query_one("#aliases-table", DataTable)
+        aliases_table.clear()
+        if self._row_data is not None:
+            for i, alias_name in enumerate(self._row_data.aliases):
+                aliases_table.add_row(alias_name, key=str(i))
 
         if data.is_cached is True:
             self.query_one("#pane-data", TabPane).disabled = False
@@ -807,6 +804,8 @@ class ExploreScreen(Screen):
         match tabs.active:
             case "pane-schema":
                 return self.query_one("#schema-table", DataTable)
+            case "pane-aliases":
+                return self.query_one("#aliases-table", DataTable)
             case "pane-data":
                 return self.query_one("#data-table", DataTable)
             case "pane-revisions":
@@ -835,6 +834,9 @@ class ExploreScreen(Screen):
 
     def action_tab_schema(self) -> None:
         self.query_one("#explore-tabs", TabbedContent).active = "pane-schema"
+
+    def action_tab_aliases(self) -> None:
+        self.query_one("#explore-tabs", TabbedContent).active = "pane-aliases"
 
     def action_tab_data(self) -> None:
         pane = self.query_one("#pane-data", TabPane)
@@ -890,11 +892,11 @@ class CatalogTUI(App):
     #catalog-table {
         height: 1fr;
     }
-    #log-panel {
+    #schema-panel {
         height: 1fr;
         border: solid $primary;
     }
-    #log-table {
+    #schema-preview-table {
         height: 1fr;
     }
     #status-bar {
@@ -937,6 +939,9 @@ class CatalogTUI(App):
     }
     .info-section Static {
         height: auto;
+    }
+    #aliases-table {
+        height: 1fr;
     }
     #profiles-table {
         height: 1fr;

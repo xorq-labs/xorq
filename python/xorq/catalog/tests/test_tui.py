@@ -15,14 +15,14 @@ import pytest
 from textual.widgets import DataTable, Static, TabbedContent
 
 from xorq.catalog.tui import (
+    ALIAS_COLUMNS,
     COLUMNS,
-    REFLOG_COLUMNS,
+    SCHEMA_PREVIEW_COLUMNS,
     CatalogRowData,
     CatalogScreen,
     CatalogTUI,
     ExploreData,
     ExploreScreen,
-    GitLogRowData,
     RevisionRowData,
     _format_cached,
     _format_column_count,
@@ -171,12 +171,6 @@ class TestCatalogRowData:
             row.aliases = ("new-name",)
 
 
-class TestGitLogRowData:
-    def test_row_tuple(self):
-        row = GitLogRowData(hash="abc123", date="2025-01-01", message="init")
-        assert row.row == ("abc123", "2025-01-01", "init")
-
-
 class TestRevisionRowData:
     def test_current(self):
         row = RevisionRowData(
@@ -238,10 +232,10 @@ class TestCatalogScreenComposition:
                     == COLUMNS
                 )
 
-                log_table = app.screen.query_one("#log-table", DataTable)
+                schema_table = app.screen.query_one("#schema-preview-table", DataTable)
                 assert (
-                    tuple(col.label.plain for col in log_table.columns.values())
-                    == REFLOG_COLUMNS
+                    tuple(col.label.plain for col in schema_table.columns.values())
+                    == SCHEMA_PREVIEW_COLUMNS
                 )
 
         _run(_test())
@@ -266,8 +260,8 @@ class TestCatalogScreenComposition:
                 catalog_panel = app.screen.query_one("#catalog-panel")
                 assert "Expressions" in str(catalog_panel.border_title)
 
-                log_panel = app.screen.query_one("#log-panel")
-                assert log_panel.border_title == "Git Reflog"
+                schema_panel = app.screen.query_one("#schema-panel")
+                assert schema_panel.border_title == "Schema"
 
         _run(_test())
 
@@ -428,6 +422,11 @@ class TestExploreScreenTabNavigation:
                 await pilot.press("5")
                 await pilot.pause()
                 assert tabs.active == "pane-profiles"
+
+                # Tab 6 = Aliases (always enabled)
+                await pilot.press("6")
+                await pilot.pause()
+                assert tabs.active == "pane-aliases"
 
         _run(_test())
 
@@ -599,18 +598,11 @@ class TestCatalogScreenRefresh:
                 screen = app.screen
                 assert isinstance(screen, CatalogScreen)
 
-                reflog_rows = (
-                    GitLogRowData(hash="aaa", date="2025-01-01", message="init"),
-                    GitLogRowData(hash="bbb", date="2025-01-02", message="add entry"),
-                )
-                screen._render_refresh_start(reflog_rows, "/tmp/fake", SAMPLE_ROWS)
+                screen._render_refresh_start("/tmp/fake", SAMPLE_ROWS)
                 await pilot.pause()
 
                 catalog_table = screen.query_one("#catalog-table", DataTable)
                 assert catalog_table.row_count == len(SAMPLE_ROWS)
-
-                log_table = screen.query_one("#log-table", DataTable)
-                assert log_table.row_count == len(reflog_rows)
 
         _run(_test())
 
@@ -622,7 +614,7 @@ class TestCatalogScreenRefresh:
                 screen = app.screen
                 assert isinstance(screen, CatalogScreen)
 
-                screen._render_refresh_start((), "/tmp/fake", SAMPLE_ROWS)
+                screen._render_refresh_start("/tmp/fake", SAMPLE_ROWS)
                 await pilot.pause()
 
                 table = screen.query_one("#catalog-table", DataTable)
@@ -670,7 +662,7 @@ class TestMultipleAliases:
                     cached=True,
                 )
 
-                screen._render_refresh_start((), "/tmp/fake", (row,))
+                screen._render_refresh_start("/tmp/fake", (row,))
                 await pilot.pause()
 
                 table = screen.query_one("#catalog-table", DataTable)
@@ -689,12 +681,149 @@ class TestMultipleAliases:
                 screen = app.screen
 
                 row = CatalogRowData(kind="expr", aliases=(), hash="def456")
-                screen._render_refresh_start((), "/tmp/fake", (row,))
+                screen._render_refresh_start("/tmp/fake", (row,))
                 await pilot.pause()
 
                 table = screen.query_one("#catalog-table", DataTable)
                 assert table.row_count == 1
                 keys = [str(k.value) for k in table.rows.keys()]
                 assert "def456" in keys
+
+        _run(_test())
+
+
+class TestSchemaPreview:
+    def _make_expr_with_schema(self, schema_dict):
+        expr = MagicMock()
+        expr.schema.return_value = schema_dict
+        return expr
+
+    def test_cursor_move_updates_schema_preview(self):
+        async def _test():
+            expr_a = self._make_expr_with_schema({"id": "int64", "name": "string"})
+            expr_b = self._make_expr_with_schema({"x": "float64"})
+            rows = (
+                CatalogRowData(
+                    kind="expr",
+                    aliases=("a",),
+                    hash="aaa",
+                    cached_expr=expr_a,
+                ),
+                CatalogRowData(
+                    kind="expr",
+                    aliases=("b",),
+                    hash="bbb",
+                    cached_expr=expr_b,
+                ),
+            )
+            app = _make_tui()
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                screen = app.screen
+                assert isinstance(screen, CatalogScreen)
+
+                # Populate rows and cache
+                screen._render_refresh_start("/tmp/fake", rows)
+                screen._row_cache = {r.row_key: r for r in rows}
+                await pilot.pause()
+
+                # Move to first row — schema should show id, name
+                await pilot.press("j")
+                await pilot.pause()
+                schema_table = screen.query_one("#schema-preview-table", DataTable)
+                # After moving down, cursor is on row 1 (bbb)
+                assert schema_table.row_count == 1
+                assert schema_table.get_cell_at((0, 0)) == "x"
+
+                # Move back up — schema should show id, name
+                await pilot.press("k")
+                await pilot.pause()
+                assert schema_table.row_count == 2
+                assert schema_table.get_cell_at((0, 0)) == "id"
+                assert schema_table.get_cell_at((1, 0)) == "name"
+
+        _run(_test())
+
+    def test_schema_preview_empty_on_no_expr(self):
+        async def _test():
+            rows = (CatalogRowData(kind="expr", aliases=(), hash="aaa"),)
+            app = _make_tui()
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                screen = app.screen
+                screen._render_refresh_start("/tmp/fake", rows)
+                screen._row_cache = {r.row_key: r for r in rows}
+                await pilot.pause()
+
+                schema_table = screen.query_one("#schema-preview-table", DataTable)
+                # maybe_schema returns () for None expr, so table stays empty
+                assert schema_table.row_count == 0
+
+        _run(_test())
+
+
+class TestAliasesTab:
+    def test_aliases_tab_exists_with_correct_columns(self):
+        async def _test():
+            entry = _make_mock_entry("abc123")
+            app = _make_tui()
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                app.push_screen(ExploreScreen(entry, ""))
+                await pilot.pause()
+
+                aliases_table = app.screen.query_one("#aliases-table", DataTable)
+                col_labels = tuple(
+                    col.label.plain for col in aliases_table.columns.values()
+                )
+                assert col_labels == ALIAS_COLUMNS
+
+        _run(_test())
+
+    def test_aliases_rendered(self):
+        async def _test():
+            entry = _make_mock_entry("abc123")
+            row_data = CatalogRowData(
+                kind="expr",
+                aliases=("latest", "v1", "prod"),
+                hash="abc123",
+            )
+            app = _make_tui()
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                screen = ExploreScreen(entry, "v1", row_data=row_data)
+                app.push_screen(screen)
+                await pilot.pause()
+
+                data = ExploreData(hash="abc123", alias="v1")
+                screen._render_explore(data)
+                await pilot.pause()
+
+                aliases_table = screen.query_one("#aliases-table", DataTable)
+                assert aliases_table.row_count == 3
+
+                rows = [
+                    aliases_table.get_cell_at((i, 0))
+                    for i in range(aliases_table.row_count)
+                ]
+                assert "latest" in rows
+                assert "v1" in rows
+                assert "prod" in rows
+
+        _run(_test())
+
+    def test_keybinding_6_activates_aliases_tab(self):
+        async def _test():
+            entry = _make_mock_entry("abc123")
+            app = _make_tui()
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                app.push_screen(ExploreScreen(entry, ""))
+                await pilot.pause()
+
+                await pilot.press("6")
+                await pilot.pause()
+                tabs = app.screen.query_one("#explore-tabs", TabbedContent)
+                assert tabs.active == "pane-aliases"
 
         _run(_test())
