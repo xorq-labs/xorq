@@ -4,9 +4,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import click
-from git import NoSuchPathError
-
-from xorq.catalog.catalog import Catalog
 
 
 def click_handler(e):
@@ -37,6 +34,8 @@ def click_context(*typs):
 
 @contextmanager
 def click_context_catalog(ctx):
+    from git import NoSuchPathError
+
     try:
         yield
     except click.ClickException:
@@ -54,6 +53,8 @@ click_context_default = partial(click_context, AssertionError, Exception)
 
 
 def _make_catalog_for_completion(ctx):
+    from xorq.catalog.catalog import Catalog
+
     catalog_ctx = ctx.parent
     return Catalog.from_kwargs(
         name=catalog_ctx.params.get("name"),
@@ -120,6 +121,8 @@ def _complete_alias_names(ctx, param, incomplete):
 @click.pass_context
 def cli(ctx, name, path, url, root_repo, init):
     """Manage xorq build-artifact catalogs."""
+    from xorq.catalog.catalog import Catalog
+
     ctx.obj = SimpleNamespace(
         make_catalog=partial(
             Catalog.from_kwargs,
@@ -316,6 +319,8 @@ def sync(ctx):
 )
 def clone(url, dest_name, dest_path):
     """Clone a catalog from a remote URL."""
+    from xorq.catalog.catalog import Catalog
+
     with click_context_default():
         match (dest_path, dest_name):
             case (None, None):

@@ -538,6 +538,16 @@ def init_command(
 
 
 class PdbGroup(click.Group):
+    def get_command(self, ctx, cmd_name):
+        if cmd_name == "catalog" and "catalog" not in self.commands:
+            _load_catalog_cli()
+        return super().get_command(ctx, cmd_name)
+
+    def list_commands(self, ctx):
+        if "catalog" not in self.commands:
+            _load_catalog_cli()
+        return super().list_commands(ctx)
+
     def invoke(self, ctx):
         try:
             if ctx.params.get("pdb_runcall"):
@@ -968,9 +978,6 @@ def _load_catalog_cli():
     from xorq.catalog.cli import cli as _catalog_cli
 
     cli.add_command(_catalog_cli, "catalog")
-
-
-_load_catalog_cli()
 
 
 def main():
