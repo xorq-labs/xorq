@@ -46,32 +46,38 @@ def test_ls_exists(batting):
     assert attr is not None
 
 
+@pytest.mark.postgres
 def test_ls_cache_nodes(cached_two):
     assert len(cached_two.ls.cached_nodes) == 2
 
 
+@pytest.mark.postgres
 def test_cache(cached_two):
     assert cached_two.ls.is_cached
     assert cached_two.ls.cache
 
 
+@pytest.mark.postgres
 def test_caches(cached_two):
     assert cached_two.ls.is_cached
     assert len(cached_two.ls.caches) == len(cached_two.ls.cached_nodes)
 
 
+@pytest.mark.postgres
 def test_backends(duck_batting_raw, cached_two, cached_two_joined):
     assert len(duck_batting_raw.ls.backends) == 1
     assert len(cached_two.ls.backends) == 2
     assert len(cached_two_joined.ls.backends) == 3
 
 
+@pytest.mark.postgres
 def test_is_multiengine(duck_batting_raw, cached_two, cached_two_joined):
     assert not duck_batting_raw.ls.is_multiengine
     assert cached_two.ls.is_multiengine
     assert cached_two_joined.ls.is_multiengine
 
 
+@pytest.mark.postgres
 def test_dts(cached_two, cached_two_joined):
     dts = cached_two.ls.dts
     assert len(dts) == 1
@@ -82,11 +88,13 @@ def test_dts(cached_two, cached_two_joined):
     assert not any(dt.source.name == Backend.name for dt in dts)
 
 
+@pytest.mark.postgres
 def test_is_cached(cached_two, cached_two_joined):
     assert cached_two.ls.is_cached
     assert not cached_two_joined.ls.is_cached
 
 
+@pytest.mark.postgres
 def test_has_cached(cached_two, cached_two_joined):
     els = cached_two.ls
     assert els.is_cached and els.has_cached
@@ -94,10 +102,12 @@ def test_has_cached(cached_two, cached_two_joined):
     assert not els.is_cached and els.has_cached
 
 
+@pytest.mark.postgres
 def test_uncached(cached_two):
     assert cached_two.ls.has_cached and not cached_two.ls.uncached.ls.has_cached
 
 
+@pytest.mark.postgres
 def test_uncached_one(cached_two):
     assert (
         cached_two.ls.is_cached
@@ -106,6 +116,7 @@ def test_uncached_one(cached_two):
     )
 
 
+@pytest.mark.postgres
 def test_exists(cached_two):
     cache = cached_two.ls.cache
 

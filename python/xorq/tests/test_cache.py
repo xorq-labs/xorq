@@ -1,6 +1,11 @@
+import pytest
+
 import xorq.api as xo
 from xorq.caching import ParquetCache, SourceCache
 from xorq.tests.util import assert_frame_equal
+
+
+pytestmark = pytest.mark.postgres
 
 
 def test_cross_source_cache(pg):

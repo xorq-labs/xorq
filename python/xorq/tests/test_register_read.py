@@ -267,7 +267,7 @@ def test_get_object_metadata_gcs():
         lambda: xo.connect(),
         lambda: xo.datafusion.connect(),
         lambda: xo.duckdb.connect(),
-        lambda: xo.postgres.connect_env(),
+        pytest.param(lambda: xo.postgres.connect_env(), marks=pytest.mark.postgres),
     ],
 )
 def test_expr_over_same_table_multiple_times(parquet_dir, get_con):
@@ -296,6 +296,7 @@ def test_expr_over_same_table_multiple_times(parquet_dir, get_con):
     assert_frame_equal(first.sort_values(col), second.sort_values(col))
 
 
+@pytest.mark.postgres
 def test_read_postgres():
     import os
 

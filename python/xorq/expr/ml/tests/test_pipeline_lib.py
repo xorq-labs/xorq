@@ -505,11 +505,11 @@ def get_scorers_by_type():
     cluster = {name for name, module in non_ml if "cluster" in module}
 
     return {
-        "classification": classification,
-        "regression": regression,
-        "cluster": cluster,
-        "proba": proba,
-        "multilabel": multilabel,
+        "classification": sorted(classification),
+        "regression": sorted(regression),
+        "cluster": sorted(cluster),
+        "proba": sorted(proba),
+        "multilabel": sorted(multilabel),
     }
 
 

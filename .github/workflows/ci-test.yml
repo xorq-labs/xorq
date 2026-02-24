@@ -57,6 +57,7 @@ jobs:
             extras: []
           - name: core
             services: true
+            parallel: true
             extras:
               - --extra examples
               - --extra postgres
@@ -72,6 +73,11 @@ jobs:
             services: true
             extras:
               - --extra gizmosql
+              - --extra duckdb
+          - name: trino
+            services: true
+            extras:
+              - --extra trino
               - --extra duckdb
     steps:
       - uses: actions/checkout@v6
@@ -108,7 +114,7 @@ jobs:
         run: docker compose up --build --wait
 
       - name: pytest
-        run: uv run --no-sync pytest --import-mode=importlib --cov --cov-report=xml -m ${{ matrix.backend.name }} -k 'not script_execution and not slow'
+        run: uv run --no-sync pytest --import-mode=importlib --cov --cov-report=xml -m ${{ matrix.backend.name }} -k 'not script_execution and not slow'${{ matrix.backend.parallel && ' -n auto --dist=loadfile' || '' }}
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres
