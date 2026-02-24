@@ -1,8 +1,9 @@
 from datetime import datetime
-from functools import cache
+from functools import cache, wraps
+from pathlib import Path
 
 import yaml
-from attr import frozen
+from attr import field, frozen
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Vertical, VerticalScroll
@@ -42,6 +43,22 @@ REFLOG_COLUMNS = ("HASH", "DATE", "MESSAGE")
 REVISION_COLUMNS = ("STATUS", "HASH", "COLUMNS", "CACHED", "DATE")
 
 
+def maybe(default):
+    """Decorator: on exception, return *default* instead of raising."""
+
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            except Exception:
+                return default
+
+        return wrapper
+
+    return decorator
+
+
 def _format_cached(value: bool | None) -> str:
     match value:
         case True:
@@ -71,6 +88,7 @@ class CatalogRowData:
     column_count: int | None = None
     cached: bool | None = None
     tags: tuple[str, ...] = ()
+    cached_expr: object = field(default=None, eq=False, hash=False, repr=False)
 
     @property
     @cache
@@ -162,79 +180,66 @@ class RevisionRowData:
         )
 
 
-def _check_cached(expr) -> bool:
+@maybe(default=False)
+def maybe_check_cached(expr) -> bool:
     """Walk the expression tree for any materialized CachedNode."""
-    try:
-        if not expr.ls.has_cached:
-            return False
-        return any(cn.to_expr().ls.exists() for cn in expr.ls.cached_nodes)
-    except Exception:
+    if not expr.ls.has_cached:
         return False
+    return any(cn.to_expr().ls.exists() for cn in expr.ls.cached_nodes)
 
 
-def _safe_entry_info(
+@maybe(default=(None, None, (), None))
+def maybe_entry_info(
     entry,
-) -> tuple[int | None, bool | None, tuple[str, ...]]:
-    try:
-        expr = entry.expr
-        column_count = len(expr.columns)
-        cached = _check_cached(expr)
-        tags = tuple(t.tag for t in expr.ls.tags if t.tag is not None)
-    except Exception:
-        column_count, cached, tags = None, None, ()
-    return column_count, cached, tags
+) -> tuple[int | None, bool | None, tuple[str, ...], object]:
+    expr = entry.expr
+    column_count = len(expr.columns)
+    cached = maybe_check_cached(expr)
+    tags = tuple(t.tag for t in expr.ls.tags if t.tag is not None)
+    return column_count, cached, tags, expr
 
 
-def _extract_backends(entry) -> tuple[str, ...]:
+@maybe(default=())
+def maybe_extract_backends(entry) -> tuple[str, ...]:
     import tarfile
 
-    try:
-        with tarfile.open(entry.catalog_path, "r:gz") as tf:
-            f = tf.extractfile(f"{entry.name}/profiles.yaml")
-            if f is None:
-                return ()
-            data = yaml.safe_load(f.read())
-        if not isinstance(data, dict):
+    with tarfile.open(entry.catalog_path, "r:gz") as tf:
+        f = tf.extractfile(f"{entry.name}/profiles.yaml")
+        if f is None:
             return ()
-        return tuple(
-            pdata.get("con_name", "?")
-            for pdata in data.values()
-            if isinstance(pdata, dict)
-        )
-    except Exception:
+        data = yaml.safe_load(f.read())
+    if not isinstance(data, dict):
         return ()
-
-
-def snapshot_catalog(catalog) -> tuple[CatalogRowData, ...]:
-    alias_lookup = {ca.catalog_entry.name: ca.alias for ca in catalog.catalog_aliases}
     return tuple(
-        CatalogRowData(
-            kind="expr",
-            alias=alias_lookup.get(entry.name, ""),
-            hash=entry.name,
-            backends=_extract_backends(entry),
-            column_count=column_count,
-            cached=cached,
-            tags=tags,
-        )
-        for entry in catalog.catalog_entries
-        for column_count, cached, tags in (_safe_entry_info(entry),)
+        pdata.get("con_name", "?") for pdata in data.values() if isinstance(pdata, dict)
     )
 
 
+def _load_catalog_row(entry, alias="") -> CatalogRowData:
+    column_count, cached, tags, expr = maybe_entry_info(entry)
+    return CatalogRowData(
+        kind="expr",
+        alias=alias,
+        hash=entry.name,
+        backends=maybe_extract_backends(entry),
+        column_count=column_count,
+        cached=cached,
+        tags=tags,
+        cached_expr=expr,
+    )
+
+
+@maybe(default=())
 def snapshot_git_reflog(catalog, max_count=50) -> tuple[GitLogRowData, ...]:
-    try:
-        entries = list(catalog.repo.head.log())
-        return tuple(
-            GitLogRowData(
-                hash=entry.newhexsha[:12],
-                date=datetime.fromtimestamp(entry.time[0]).strftime("%Y-%m-%d %H:%M"),
-                message=entry.message.strip()[:80],
-            )
-            for entry in reversed(entries[-max_count:])
+    entries = list(catalog.repo.head.log())
+    return tuple(
+        GitLogRowData(
+            hash=entry.newhexsha[:12],
+            date=datetime.fromtimestamp(entry.time[0]).strftime("%Y-%m-%d %H:%M"),
+            message=entry.message.strip()[:80],
         )
-    except Exception:
-        return ()
+        for entry in reversed(entries[-max_count:])
+    )
 
 
 def _build_lineage_chain(expr) -> tuple[str, ...]:
@@ -249,79 +254,65 @@ def _build_lineage_chain(expr) -> tuple[str, ...]:
             case _:
                 pass
 
-    try:
-        return tuple(reversed(tuple(_walk(to_node(expr)))))
-    except Exception:
-        return ("(lineage unavailable)",)
+    return tuple(reversed(tuple(_walk(to_node(expr)))))
 
 
-def _safe_expr(entry):
-    try:
-        return entry.expr
-    except Exception:
-        return None
+@maybe(default=None)
+def maybe_expr(entry):
+    return entry.expr
 
 
-def _safe_schema(expr) -> tuple[tuple[str, str], ...]:
-    if expr is None:
-        return ()
-    try:
-        return tuple((name, str(dtype)) for name, dtype in expr.schema().items())
-    except Exception:
-        return ()
+@maybe(default=())
+def maybe_schema(expr) -> tuple[tuple[str, str], ...]:
+    return tuple((name, str(dtype)) for name, dtype in expr.schema().items())
 
 
-def _safe_lineage(expr) -> str:
-    if expr is None:
-        return "(unavailable)"
-    try:
-        chain = _build_lineage_chain(expr)
-        return " → ".join(chain) if chain else "(empty)"
-    except Exception:
-        return "(unavailable)"
+@maybe(default="(unavailable)")
+def maybe_lineage(expr) -> str:
+    chain = _build_lineage_chain(expr)
+    return " → ".join(chain) if chain else "(empty)"
 
 
-def _safe_cache_info(expr) -> tuple[bool | None, str | None]:
+@maybe(default=None)
+def maybe_cache_path(expr) -> str | None:
+    paths = expr.ls.get_cache_paths()
+    return str(paths[0]) if paths else None
+
+
+def maybe_cache_info(expr) -> tuple[bool | None, str | None]:
     if expr is None:
         return None, None
-    try:
-        is_cached = _check_cached(expr)
-    except Exception:
-        return None, None
+    is_cached = maybe_check_cached(expr)
     if not is_cached:
         return is_cached, None
-    try:
-        paths = expr.ls.get_cache_paths()
-        return True, str(paths[0]) if paths else None
-    except Exception:
-        return True, None
+    return True, maybe_cache_path(expr)
 
 
-def _safe_metadata(entry) -> tuple[tuple[str, str], ...]:
-    try:
-        if not entry.metadata_path.exists():
-            return ()
-        meta = yaml.safe_load(entry.metadata_path.read_text())
-        match meta:
-            case dict():
-                return tuple((str(k), str(v)) for k, v in meta.items())
-            case _:
-                return ()
-    except Exception:
+@maybe(default=())
+def maybe_metadata(entry) -> tuple[tuple[str, str], ...]:
+    if not entry.metadata_path.exists():
         return ()
+    meta = yaml.safe_load(entry.metadata_path.read_text())
+    match meta:
+        case dict():
+            return tuple((str(k), str(v)) for k, v in meta.items())
+        case _:
+            return ()
 
 
-def _build_explore_data(entry, alias) -> ExploreData:
-    expr = _safe_expr(entry)
-    is_cached, cache_path = _safe_cache_info(expr)
+def _build_explore_data(
+    entry, alias, known_cached=None, cached_expr=None
+) -> ExploreData:
+    expr = cached_expr if cached_expr is not None else maybe_expr(entry)
+    computed_cached, cache_path = maybe_cache_info(expr)
     return ExploreData(
         hash=entry.name,
         alias=alias,
-        schema_items=_safe_schema(expr),
-        lineage_text=_safe_lineage(expr),
-        is_cached=is_cached,
+        schema_items=maybe_schema(expr),
+        lineage_text=maybe_lineage(expr),
+        is_cached=known_cached if known_cached is not None else computed_cached,
         cache_path=cache_path,
-        metadata=_safe_metadata(entry),
+        metadata=maybe_metadata(entry),
         has_alias=bool(alias),
     )
 
@@ -339,6 +330,10 @@ class CatalogScreen(Screen):
         ("enter", "explore", "Explore"),
         ("e", "explore", "Explore"),
     )
+
+    def __init__(self):
+        super().__init__()
+        self._row_cache: dict[str, CatalogRowData] = {}
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -362,40 +357,75 @@ class CatalogScreen(Screen):
         for col in REFLOG_COLUMNS:
             log_table.add_column(col, key=col)
 
-        catalog_name = self.app._catalog.repo_path.name
-        self.query_one("#catalog-panel").border_title = f"Expressions — {catalog_name}"
+        self.query_one("#catalog-panel").border_title = "Expressions"
         self.query_one("#log-panel").border_title = "Git Reflog"
+        self.query_one("#status-bar", Static).update(" Loading catalog...")
 
-        self._do_refresh()
         self.set_interval(REFRESH_INTERVAL, self._do_refresh)
 
     @work(thread=True, exclusive=True)
     def _do_refresh(self) -> None:
         catalog = self.app._catalog
-        rows = snapshot_catalog(catalog)
-        reflog_rows = snapshot_git_reflog(catalog)
-        stamp = datetime.now().strftime("%H:%M:%S")
+        if catalog is None:
+            return
         repo_path = catalog.repo.working_dir
+        current_hashes = frozenset(catalog.list())
+        alias_lookup = {
+            ca.catalog_entry.name: ca.alias for ca in catalog.catalog_aliases
+        }
+
+        # render reflog + cached rows immediately
+        reflog_rows = snapshot_git_reflog(catalog)
+        cached_rows = tuple(
+            self._row_cache[h] for h in current_hashes if h in self._row_cache
+        )
+        new_hashes = current_hashes - self._row_cache.keys()
         self.app.call_from_thread(
-            self._render_refresh, rows, reflog_rows, stamp, repo_path
+            self._render_refresh_start, reflog_rows, repo_path, cached_rows
         )
 
-    def _render_refresh(self, rows, reflog_rows, stamp, repo_path) -> None:
+        # load new entries incrementally
+        for entry_hash in new_hashes:
+            entry = catalog.get_catalog_entry(entry_hash)
+            row_data = _load_catalog_row(entry, alias_lookup.get(entry_hash, ""))
+            self._row_cache[entry_hash] = row_data
+            self.app.call_from_thread(self._render_catalog_row, row_data)
+
+        # evict removed entries
+        removed = self._row_cache.keys() - current_hashes
+        for h in removed:
+            del self._row_cache[h]
+
+        stamp = datetime.now().strftime("%H:%M:%S")
+        self.app.call_from_thread(self._render_refresh_done, stamp, repo_path)
+
+    def _render_refresh_start(self, reflog_rows, repo_path, cached_rows) -> None:
+        catalog_name = Path(repo_path).name
+        self.query_one("#catalog-panel").border_title = f"Expressions — {catalog_name}"
+
         table = self.query_one("#catalog-table", DataTable)
-        cursor_row = table.cursor_row
+        self._saved_cursor = table.cursor_row
         table.clear()
-        for row_data in rows:
+        for row_data in cached_rows:
             table.add_row(*row_data.row, key=row_data.hash)
-        if cursor_row is not None and len(rows) > 0:
-            table.move_cursor(row=min(cursor_row, len(rows) - 1))
 
         log_table = self.query_one("#log-table", DataTable)
         log_table.clear()
         for i, log_row in enumerate(reflog_rows):
             log_table.add_row(*log_row.row, key=str(i))
 
+    def _render_catalog_row(self, row_data) -> None:
+        self.query_one("#catalog-table", DataTable).add_row(
+            *row_data.row, key=row_data.hash
+        )
+
+    def _render_refresh_done(self, stamp, repo_path) -> None:
+        table = self.query_one("#catalog-table", DataTable)
+        count = table.row_count
+        if self._saved_cursor is not None and count > 0:
+            table.move_cursor(row=min(self._saved_cursor, count - 1))
         self.query_one("#status-bar", Static).update(
-            f" {len(rows)} entries | {repo_path} | refreshed {stamp}"
+            f" {count} entries | {repo_path} | refreshed {stamp}"
         )
 
     def action_cursor_down(self) -> None:
@@ -431,7 +461,10 @@ class CatalogScreen(Screen):
             if alias
             else None
         )
-        self.app.push_screen(ExploreScreen(entry, alias, catalog_alias=catalog_alias))
+        row_data = self._row_cache.get(entry_hash)
+        self.app.push_screen(
+            ExploreScreen(entry, alias, catalog_alias=catalog_alias, row_data=row_data)
+        )
 
 
 class ExploreScreen(Screen):
@@ -448,11 +481,12 @@ class ExploreScreen(Screen):
         ("enter", "select_row", "Select"),
     )
 
-    def __init__(self, entry, alias, catalog_alias=None):
+    def __init__(self, entry, alias, catalog_alias=None, row_data=None):
         super().__init__()
         self._entry = entry
         self._alias = alias
         self._catalog_alias = catalog_alias
+        self._row_data = row_data
         self._explore_data = None
         self._data_loaded = False
         self._revisions_loaded = False
@@ -566,7 +600,14 @@ class ExploreScreen(Screen):
 
     @work(thread=True)
     def _load_explore_data(self) -> None:
-        data = _build_explore_data(self._entry, self._alias)
+        known_cached = self._row_data.cached if self._row_data is not None else None
+        cached_expr = self._row_data.cached_expr if self._row_data is not None else None
+        data = _build_explore_data(
+            self._entry,
+            self._alias,
+            known_cached=known_cached,
+            cached_expr=cached_expr,
+        )
         self.app.call_from_thread(self._render_explore, data)
 
     def _render_explore(self, data) -> None:
@@ -642,7 +683,11 @@ class ExploreScreen(Screen):
     @work(thread=True)
     def _load_data_preview(self) -> None:
         try:
-            expr = self._entry.expr
+            expr = (
+                self._row_data.cached_expr
+                if self._row_data is not None and self._row_data.cached_expr is not None
+                else self._entry.expr
+            )
             df = expr.head(50).execute()
             columns = tuple(str(c) for c in df.columns)
             rows = tuple(
@@ -689,8 +734,8 @@ class ExploreScreen(Screen):
                 exists = rev_entry.exists()
             except Exception:
                 exists = False
-            col_count, cached, _ = (
-                _safe_entry_info(rev_entry) if exists else (None, None, ())
+            col_count, cached, _, _ = (
+                maybe_entry_info(rev_entry) if exists else (None, None, (), None)
             )
             row = RevisionRowData(
                 hash=rev_entry.name,
@@ -871,11 +916,22 @@ class CatalogTUI(App):
     }
     """
 
-    def __init__(self, catalog):
+    def __init__(self, make_catalog):
         super().__init__()
-        self._catalog = catalog
+        self._catalog = None
+        self._make_catalog = make_catalog
         self.register_theme(XORQ_DARK)
         self.theme = "xorq-dark"
 
     def on_mount(self) -> None:
         self.push_screen(CatalogScreen())
+        self._load_catalog()
+
+    @work(thread=True)
+    def _load_catalog(self) -> None:
+        catalog = self._make_catalog()
+        self.app.call_from_thread(self._set_catalog, catalog)
+
+    def _set_catalog(self, catalog) -> None:
+        self._catalog = catalog
+        self.screen._do_refresh()

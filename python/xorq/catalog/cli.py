@@ -151,8 +151,7 @@ def cli(ctx, tui, name, path, url, root_repo, init):
         case True:
             from xorq.catalog.tui import CatalogTUI
 
-            catalog = ctx.obj.make_catalog(init=False)
-            app = CatalogTUI(catalog)
+            app = CatalogTUI(partial(ctx.obj.make_catalog, init=False))
             app.run()
             ctx.exit(0)
         case _:
