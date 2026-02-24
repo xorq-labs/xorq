@@ -133,6 +133,21 @@ def cli(ctx, name, path, url, root_repo, init):
 
 
 @cli.command()
+@click.option("--refresh", default=10, type=float, help="Refresh interval in seconds.")
+@click.pass_context
+def tui(ctx, refresh):
+    """Launch terminal UI."""
+    with click_context_catalog(ctx):
+        ctx.obj.make_catalog(init=False)  # validate catalog exists
+    from xorq.catalog.tui import CatalogTUI
+
+    app = CatalogTUI(
+        partial(ctx.obj.make_catalog, init=False), refresh_interval=refresh
+    )
+    app.run()
+
+
+@cli.command()
 @click.pass_context
 def init(ctx):
     """Initialize a new catalog."""

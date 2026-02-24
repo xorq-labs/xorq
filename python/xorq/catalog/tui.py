@@ -19,7 +19,7 @@ from textual.widgets import (
 )
 
 
-REFRESH_INTERVAL = 10
+DEFAULT_REFRESH_INTERVAL = 10
 
 XORQ_DARK = Theme(
     name="xorq-dark",
@@ -82,13 +82,18 @@ def _format_column_count(n: int | None) -> str:
 @frozen
 class CatalogRowData:
     kind: str = "expr"
-    alias: str = ""
+    aliases: tuple[str, ...] = ()
     hash: str = ""
     backends: tuple[str, ...] = ()
     column_count: int | None = None
     cached: bool | None = None
     tags: tuple[str, ...] = ()
     cached_expr: object = field(default=None, eq=False, hash=False, repr=False)
+
+    @property
+    @cache
+    def aliases_display(self) -> str:
+        return ", ".join(self.aliases) if self.aliases else ""
 
     @property
     @cache
@@ -111,14 +116,18 @@ class CatalogRowData:
         return ", ".join(self.tags) if self.tags else ""
 
     @property
+    def sort_key(self) -> tuple[str, str]:
+        return (self.aliases_display, self.hash)
+
+    @property
     def row_key(self) -> str:
-        return f"{self.hash}|{self.alias}" if self.alias else self.hash
+        return self.hash
 
     @property
     def row(self) -> tuple[str, ...]:
         return (
             self.kind,
-            self.alias,
+            self.aliases_display,
             self.hash,
             self.backends_display,
             self.output_display,
@@ -219,11 +228,11 @@ def maybe_extract_backends(entry) -> tuple[str, ...]:
     )
 
 
-def _load_catalog_row(entry, alias="") -> CatalogRowData:
+def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
     column_count, cached, tags, expr = maybe_entry_info(entry)
     return CatalogRowData(
         kind="expr",
-        alias=alias,
+        aliases=aliases,
         hash=entry.name,
         backends=maybe_extract_backends(entry),
         column_count=column_count,
@@ -335,8 +344,9 @@ class CatalogScreen(Screen):
         ("e", "explore", "Explore"),
     )
 
-    def __init__(self):
+    def __init__(self, refresh_interval=DEFAULT_REFRESH_INTERVAL):
         super().__init__()
+        self._refresh_interval = refresh_interval
         self._row_cache: dict[str, CatalogRowData] = {}
 
     def compose(self) -> ComposeResult:
@@ -365,7 +375,7 @@ class CatalogScreen(Screen):
         self.query_one("#log-panel").border_title = "Git Reflog"
         self.query_one("#status-bar", Static).update(" Loading catalog...")
 
-        self.set_interval(REFRESH_INTERVAL, self._do_refresh)
+        self.set_interval(self._refresh_interval, self._do_refresh)
 
     @work(thread=True, exclusive=True)
     def _do_refresh(self) -> None:
@@ -375,43 +385,37 @@ class CatalogScreen(Screen):
         repo_path = catalog.repo.working_dir
         current_hashes = frozenset(catalog.list())
 
-        # build a multimap: hash -> tuple of aliases
+        # build a multimap: hash -> sorted tuple of aliases
         alias_multimap: dict[str, list[str]] = {}
         for ca in catalog.catalog_aliases:
             alias_multimap.setdefault(ca.catalog_entry.name, []).append(ca.alias)
         alias_multimap_frozen: dict[str, tuple[str, ...]] = {
-            k: tuple(v) for k, v in alias_multimap.items()
+            k: tuple(sorted(v)) for k, v in alias_multimap.items()
         }
 
-        # compute the set of expected row_keys for all current hashes
-        expected_keys: set[str] = set()
-        for h in current_hashes:
-            for alias in alias_multimap_frozen.get(h, ("",)):
-                key = f"{h}|{alias}" if alias else h
-                expected_keys.add(key)
+        # one row per hash; row_key is the hash itself
+        expected_keys: frozenset[str] = frozenset(current_hashes)
 
         # render reflog + cached rows immediately
         reflog_rows = snapshot_git_reflog(catalog)
         cached_rows = tuple(
-            self._row_cache[k] for k in expected_keys if k in self._row_cache
+            sorted(
+                (self._row_cache[k] for k in expected_keys if k in self._row_cache),
+                key=lambda r: r.sort_key,
+            )
         )
         new_keys = expected_keys - self._row_cache.keys()
         self.app.call_from_thread(
             self._render_refresh_start, reflog_rows, repo_path, cached_rows
         )
 
-        # load new entries incrementally
-        for entry_hash in current_hashes:
-            entry = None
-            for alias in alias_multimap_frozen.get(entry_hash, ("",)):
-                key = f"{entry_hash}|{alias}" if alias else entry_hash
-                if key not in new_keys:
-                    continue
-                if entry is None:
-                    entry = catalog.get_catalog_entry(entry_hash)
-                row_data = _load_catalog_row(entry, alias)
-                self._row_cache[row_data.row_key] = row_data
-                self.app.call_from_thread(self._render_catalog_row, row_data)
+        # load new entries incrementally (one row per hash)
+        for entry_hash in new_keys:
+            entry = catalog.get_catalog_entry(entry_hash)
+            aliases = alias_multimap_frozen.get(entry_hash, ())
+            row_data = _load_catalog_row(entry, aliases)
+            self._row_cache[row_data.row_key] = row_data
+            self.app.call_from_thread(self._render_catalog_row, row_data)
 
         # evict removed entries
         removed = self._row_cache.keys() - expected_keys
@@ -443,6 +447,7 @@ class CatalogScreen(Screen):
 
     def _render_refresh_done(self, stamp, repo_path) -> None:
         table = self.query_one("#catalog-table", DataTable)
+        table.sort("ALIAS", "HASH")
         count = table.row_count
         if self._saved_cursor is not None and count > 0:
             table.move_cursor(row=min(self._saved_cursor, count - 1))
@@ -464,25 +469,28 @@ class CatalogScreen(Screen):
         if table.row_count == 0:
             return
         row_key, _ = table.coordinate_to_cell_key(table.cursor_coordinate)
-        raw_key = str(row_key.value)
-        entry_hash, _, alias = raw_key.partition("|")
+        entry_hash = str(row_key.value)
         catalog = self.app._catalog
         try:
             entry = catalog.get_catalog_entry(entry_hash)
         except (AssertionError, KeyError):
             self.notify("Entry not found", severity="error")
             return
+        row_data = self._row_cache.get(entry_hash)
+        aliases = row_data.aliases if row_data is not None else ()
+        first_alias = aliases[0] if aliases else ""
         catalog_alias = (
             next(
-                (ca for ca in catalog.catalog_aliases if ca.alias == alias),
+                (ca for ca in catalog.catalog_aliases if ca.alias == first_alias),
                 None,
             )
-            if alias
+            if first_alias
             else None
         )
-        row_data = self._row_cache.get(raw_key)
         self.app.push_screen(
-            ExploreScreen(entry, alias, catalog_alias=catalog_alias, row_data=row_data)
+            ExploreScreen(
+                entry, first_alias, catalog_alias=catalog_alias, row_data=row_data
+            )
         )
 
 
@@ -935,15 +943,16 @@ class CatalogTUI(App):
     }
     """
 
-    def __init__(self, make_catalog):
+    def __init__(self, make_catalog, refresh_interval=DEFAULT_REFRESH_INTERVAL):
         super().__init__()
         self._catalog = None
         self._make_catalog = make_catalog
+        self._refresh_interval = refresh_interval
         self.register_theme(XORQ_DARK)
         self.theme = "xorq-dark"
 
     def on_mount(self) -> None:
-        self.push_screen(CatalogScreen())
+        self.push_screen(CatalogScreen(refresh_interval=self._refresh_interval))
         self._load_catalog()
 
     @work(thread=True)

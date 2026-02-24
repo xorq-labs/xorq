@@ -73,7 +73,7 @@ def _make_tui(catalog=None):
 SAMPLE_ROWS = (
     CatalogRowData(
         kind="expr",
-        alias="my-model",
+        aliases=("my-model",),
         hash="abc123",
         backends=("duckdb",),
         column_count=5,
@@ -82,7 +82,7 @@ SAMPLE_ROWS = (
     ),
     CatalogRowData(
         kind="expr",
-        alias="",
+        aliases=(),
         hash="def456",
         backends=("postgres", "duckdb"),
         column_count=None,
@@ -161,18 +161,14 @@ class TestCatalogRowData:
         row = CatalogRowData(backends=("duckdb", "postgres", "duckdb"))
         assert row.backends_display == "duckdb, postgres"
 
-    def test_row_key_with_alias(self):
-        row = SAMPLE_ROWS[0]
-        assert row.row_key == "abc123|my-model"
-
-    def test_row_key_without_alias(self):
-        row = SAMPLE_ROWS[1]
-        assert row.row_key == "def456"
+    def test_row_key_is_hash(self):
+        assert SAMPLE_ROWS[0].row_key == "abc123"
+        assert SAMPLE_ROWS[1].row_key == "def456"
 
     def test_frozen(self):
         row = SAMPLE_ROWS[0]
         with pytest.raises(AttributeError):
-            row.alias = "new-name"
+            row.aliases = ("new-name",)
 
 
 class TestGitLogRowData:
@@ -631,7 +627,7 @@ class TestCatalogScreenRefresh:
 
                 table = screen.query_one("#catalog-table", DataTable)
                 keys = [str(k.value) for k in table.rows.keys()]
-                assert "abc123|my-model" in keys
+                assert "abc123" in keys
                 assert "def456" in keys
 
         _run(_test())
@@ -655,7 +651,7 @@ class TestCatalogScreenRefresh:
 
 
 class TestMultipleAliases:
-    """Two aliases for the same hash should produce two distinct table rows."""
+    """Multiple aliases for the same hash should appear in a single row."""
 
     def test_two_aliases_same_hash(self):
         async def _test():
@@ -665,32 +661,23 @@ class TestMultipleAliases:
                 screen = app.screen
                 assert isinstance(screen, CatalogScreen)
 
-                row_v1 = CatalogRowData(
+                row = CatalogRowData(
                     kind="expr",
-                    alias="v1",
-                    hash="abc123",
-                    backends=("duckdb",),
-                    column_count=5,
-                    cached=True,
-                )
-                row_latest = CatalogRowData(
-                    kind="expr",
-                    alias="latest",
+                    aliases=("latest", "v1"),
                     hash="abc123",
                     backends=("duckdb",),
                     column_count=5,
                     cached=True,
                 )
 
-                screen._render_refresh_start((), "/tmp/fake", (row_v1, row_latest))
+                screen._render_refresh_start((), "/tmp/fake", (row,))
                 await pilot.pause()
 
                 table = screen.query_one("#catalog-table", DataTable)
-                assert table.row_count == 2
+                assert table.row_count == 1
 
                 keys = [str(k.value) for k in table.rows.keys()]
-                assert "abc123|v1" in keys
-                assert "abc123|latest" in keys
+                assert "abc123" in keys
 
         _run(_test())
 
@@ -701,7 +688,7 @@ class TestMultipleAliases:
                 await pilot.pause()
                 screen = app.screen
 
-                row = CatalogRowData(kind="expr", alias="", hash="def456")
+                row = CatalogRowData(kind="expr", aliases=(), hash="def456")
                 screen._render_refresh_start((), "/tmp/fake", (row,))
                 await pilot.pause()
 
