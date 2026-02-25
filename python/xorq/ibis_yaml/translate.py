@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import datetime
 import decimal
 import functools
@@ -647,6 +648,19 @@ def _str_to_yaml(string: str, context: TranslationContext) -> str:
 @register_from_yaml_handler("str")
 def _str_from_yaml(yaml_dict: dict, context: TranslationContext) -> str:
     return yaml_dict["value"]
+
+
+@translate_to_yaml.register(bytes)
+def _bytes_to_yaml(value: bytes, context: TranslationContext) -> dict:
+    return {
+        "op": "bytes",
+        "value": base64.b64encode(value).decode("ascii"),
+    }
+
+
+@register_from_yaml_handler("bytes")
+def _bytes_from_yaml(yaml_dict: dict, context: TranslationContext) -> bytes:
+    return base64.b64decode(yaml_dict["value"])
 
 
 @translate_to_yaml.register(ops.Alias)
