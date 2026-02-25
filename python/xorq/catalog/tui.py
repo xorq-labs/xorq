@@ -42,7 +42,7 @@ XORQ_DARK = Theme(
     dark=True,
 )
 
-COLUMNS = ("KIND", "ALIAS", "HASH", "BACKENDS", "OUTPUT", "CACHED", "ROOT TAG")
+COLUMNS = ("KIND", "ALIAS", "HASH", "BACKEND", "OUTPUT", "CACHED", "ROOT TAG")
 COLUMN_WIDTHS: dict[str, int] = {}
 
 SCHEMA_PREVIEW_COLUMNS = ("NAME", "TYPE")
@@ -514,17 +514,23 @@ class CatalogScreen(Screen):
             for i, row_data in enumerate(rows):
                 table.add_row(*row_data.row, key=str(i))
 
+    def _focused_table(self) -> DataTable:
+        focused = self.app.focused
+        if isinstance(focused, DataTable):
+            return focused
+        return self.query_one("#catalog-table", DataTable)
+
     def action_scroll_left(self) -> None:
-        self.query_one("#catalog-table", DataTable).action_scroll_left()
+        self._focused_table().action_scroll_left()
 
     def action_cursor_down(self) -> None:
-        self.query_one("#catalog-table", DataTable).action_cursor_down()
+        self._focused_table().action_cursor_down()
 
     def action_cursor_up(self) -> None:
-        self.query_one("#catalog-table", DataTable).action_cursor_up()
+        self._focused_table().action_cursor_up()
 
     def action_scroll_right(self) -> None:
-        self.query_one("#catalog-table", DataTable).action_scroll_right()
+        self._focused_table().action_scroll_right()
 
     def action_quit_app(self) -> None:
         self.app.exit()
