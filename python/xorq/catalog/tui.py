@@ -197,7 +197,6 @@ class RevisionRowData:
 
 
 def _check_cached(expr) -> bool:
-    """Walk the expression tree for any materialized CachedNode."""
     if not expr.ls.has_cached:
         return False
     return any(cn.to_expr().ls.exists() for cn in expr.ls.cached_nodes)
