@@ -1,8 +1,12 @@
+import tempfile
+from pathlib import Path
+
 import pytest
 
 import xorq.api as xo
 import xorq.expr.datatypes as dt
-from xorq.common.utils.graph_utils import to_node
+import xorq.vendor.ibis.expr.operations as ops
+from xorq.common.utils.graph_utils import gen_children_of, to_node
 from xorq.common.utils.lineage_utils import (
     GenericNode,
     TextTree,
@@ -10,6 +14,7 @@ from xorq.common.utils.lineage_utils import (
     build_column_trees,
     build_tree,
 )
+from xorq.vendor.ibis.expr.operations.core import Node
 
 
 @xo.udf.make_pandas_udf(
@@ -80,7 +85,6 @@ def test_build_column_trees_and_display(sample_expression):
 
 
 def test_complete_lineage_for_total_discount_column(sample_expression):
-    import xorq.vendor.ibis.expr.operations as ops
     from xorq.vendor.ibis.expr.operations.reductions import Sum
 
     column_trees = build_column_trees(sample_expression)
@@ -131,3 +135,182 @@ def test_complete_lineage_for_total_discount_column(sample_expression):
         if isinstance(node, (ops.InMemoryTable, ops.UnboundTable, ops.DatabaseTable))
     ]
     assert len(table_nodes) > 0, "Should trace back to original table"
+
+
+@pytest.fixture
+def multi_join_expression():
+    """Build a 4-table join expression that creates nested JoinChains.
+
+    Simulates the real-world pattern where sub-expressions are loaded from the
+    catalog (YAML round-trip) then joined via ``into_backend``.  The resulting
+    expression has 3 nested JoinChains whose shared sub-graphs are traversed
+    exponentially by ``_build_column_tree`` (which lacks memoization).
+    """
+    from xorq.ibis_yaml.compiler import build_expr, load_expr
+
+    batting = xo.memtable(
+        {
+            "playerID": ["a", "b"],
+            "yearID": [2007, 1975],
+            "teamID": ["CHA", "MIL"],
+            "G": [25, 137],
+            "AB": [0, 465],
+            "H": [0, 109],
+        },
+        name="batting",
+    )
+    people_mem = xo.memtable(
+        {
+            "playerID": ["a", "b"],
+            "nameFirst": ["David", "Hank"],
+            "nameLast": ["Aardsma", "Aaron"],
+        },
+        name="people",
+    )
+    salaries_mem = xo.memtable(
+        {
+            "playerID": ["a", "b"],
+            "yearID": [2007, 1975],
+            "teamID": ["CHA", "MIL"],
+            "salary": [387500, 240000],
+        },
+        name="salaries",
+    )
+    fielding_mem = xo.memtable(
+        {
+            "playerID": ["a", "b"],
+            "yearID": [2007, 1975],
+            "teamID": ["CHA", "MIL"],
+            "POS": ["P", "LF"],
+        },
+        name="fielding",
+    )
+
+    # YAML round-trip each table (simulates loading from the catalog)
+    with tempfile.TemporaryDirectory() as td:
+        p_dir = build_expr(people_mem, builds_dir=Path(td) / "p")
+        s_dir = build_expr(salaries_mem, builds_dir=Path(td) / "s")
+        f_dir = build_expr(fielding_mem, builds_dir=Path(td) / "f")
+        people = load_expr(p_dir)
+        salaries = load_expr(s_dir)
+        fielding = load_expr(f_dir)
+
+    backend = batting._find_backend()
+    people_slim = people[["playerID", "nameFirst", "nameLast"]].into_backend(backend)
+    salaries_slim = salaries[["playerID", "yearID", "teamID", "salary"]].into_backend(
+        backend
+    )
+    fielding_slim = fielding[["playerID", "yearID", "teamID", "POS"]].into_backend(
+        backend
+    )
+
+    with_names = (
+        batting.filter(batting.AB > 100)
+        .join(people_slim, predicates="playerID", how="left")
+        .drop("playerID_right")
+    )
+    with_salary = with_names.join(
+        salaries_slim,
+        predicates=["playerID", "yearID", "teamID"],
+        how="left",
+    ).drop("playerID_right", "yearID_right", "teamID_right")
+    return with_salary.join(
+        fielding_slim,
+        predicates=["playerID", "yearID", "teamID"],
+        how="left",
+    ).drop("playerID_right", "yearID_right", "teamID_right")
+
+
+def _count_unique_dag_nodes(expr):
+    """Count unique nodes reachable via gen_children_of."""
+    visited = set()
+    stack = [to_node(expr)]
+    while stack:
+        n = stack.pop()
+        if id(n) not in visited:
+            visited.add(id(n))
+            stack.extend(gen_children_of(n))
+    return len(visited)
+
+
+def _count_unique_generic_nodes(root: GenericNode) -> int:
+    seen, stack = set(), [root]
+    while stack:
+        n = stack.pop()
+        if id(n) not in seen:
+            seen.add(id(n))
+            stack.extend(n.children)
+    return len(seen)
+
+
+def _build_column_tree_memoized(node: Node, _memo: dict | None = None) -> GenericNode:
+    """Gold-standard recursive implementation with id-keyed memoization."""
+    if _memo is None:
+        _memo = {}
+    key = id(node)
+    if key in _memo:
+        return _memo[key]
+
+    match node:
+        case ops.Field(rel=ops.Project(values=values)) as field_node:
+            # include the field and recurse into its mapped expression
+            mapped = values[field_node.name]
+            child = _build_column_tree_memoized(to_node(mapped), _memo)
+            result = GenericNode(op=field_node, children=(child,))
+
+        case ops.Field() as field_node:
+            children = tuple(
+                _build_column_tree_memoized(to_node(child), _memo)
+                for child in gen_children_of(field_node)
+            )
+            result = GenericNode(op=field_node, children=children)
+
+        case ops.Project() as proj:
+            result = _build_column_tree_memoized(to_node(proj.parent), _memo)
+
+        case _:
+            children = tuple(
+                _build_column_tree_memoized(to_node(child), _memo)
+                for child in gen_children_of(node)
+            )
+            result = GenericNode(op=node, children=children)
+
+    _memo[key] = result
+    return result
+
+
+def _assert_matches_gold(expr):
+    op = to_node(expr)
+    cols = getattr(op, "values", None) or getattr(op, "fields", {})
+    gold_memo = {}
+    assert len(cols) > 0, (
+        f"Expression has no columns to compare; got {type(to_node(expr)).__name__}"
+    )
+    for name, v in cols.items():
+        node = to_node(v)
+        assert _build_column_tree(node) == _build_column_tree_memoized(
+            node, gold_memo
+        ), f"Column '{name}': graph-based result differs from memoized gold standard"
+    assert _build_column_tree(op) == _build_column_tree_memoized(op, gold_memo), (
+        "graph-based result for the full expression root differs from memoized gold standard"
+    )
+
+
+def test_build_column_tree_matches_memoized_on_sample(sample_expression):
+    _assert_matches_gold(sample_expression)
+
+
+@pytest.mark.benchmark
+def test_build_column_tree_matches_memoized_on_multi_join(multi_join_expression):
+    _assert_matches_gold(multi_join_expression)
+
+
+def test_build_column_tree_output_size_bounded(multi_join_expression):
+    node = to_node(multi_join_expression)
+    result = _build_column_tree(node)
+    unique_input = _count_unique_dag_nodes(multi_join_expression)
+    unique_output = _count_unique_generic_nodes(result)
+    assert unique_output <= unique_input, (
+        f"Output DAG has {unique_output} unique GenericNodes for {unique_input} "
+        f"unique input nodes — suggests repeated construction"
+    )
