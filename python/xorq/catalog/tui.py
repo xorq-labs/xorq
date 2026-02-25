@@ -196,28 +196,23 @@ class RevisionRowData:
         )
 
 
-@maybe(default=False)
-def maybe_check_cached(expr) -> bool:
+def _check_cached(expr) -> bool:
     """Walk the expression tree for any materialized CachedNode."""
     if not expr.ls.has_cached:
         return False
     return any(cn.to_expr().ls.exists() for cn in expr.ls.cached_nodes)
 
 
-@maybe(default=(None, None, "", None))
-def maybe_entry_info(
-    entry,
-) -> tuple[int | None, bool | None, str, object]:
+def _entry_info(entry) -> tuple[int, bool, str, object]:
     expr = entry.expr
     column_count = len(expr.columns)
-    cached = maybe_check_cached(expr)
+    cached = _check_cached(expr)
     tags = expr.ls.tags
     root_tag = tags[0].tag if tags else ""
     return column_count, cached, root_tag or "", expr
 
 
-@maybe(default=())
-def maybe_extract_backends(entry) -> tuple[str, ...]:
+def _extract_backends(entry) -> tuple[str, ...]:
     with tarfile.open(entry.catalog_path, "r:gz") as tf:
         f = tf.extractfile(f"{entry.name}/profiles.yaml")
         if f is None:
@@ -231,12 +226,16 @@ def maybe_extract_backends(entry) -> tuple[str, ...]:
 
 
 def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
-    column_count, cached, root_tag, expr = maybe_entry_info(entry)
+    try:
+        column_count, cached, root_tag, expr = _entry_info(entry)
+    except Exception:
+        # expr deserialization can fail (e.g. missing module for pickled callable)
+        column_count, cached, root_tag, expr = None, None, "", None
     return CatalogRowData(
         kind="expr",
         aliases=aliases,
         hash=entry.name,
-        backends=maybe_extract_backends(entry),
+        backends=_extract_backends(entry),
         column_count=column_count,
         cached=cached,
         root_tag=root_tag,
@@ -311,7 +310,7 @@ def maybe_cache_path(expr) -> str | None:
 def maybe_cache_info(expr) -> tuple[bool | None, str | None]:
     if expr is None:
         return None, None
-    is_cached = maybe_check_cached(expr)
+    is_cached = _check_cached(expr)
     if not is_cached:
         return is_cached, None
     return True, maybe_cache_path(expr)
@@ -748,9 +747,8 @@ class ExploreScreen(Screen):
 
         if data.has_alias:
             self.query_one("#pane-revisions", TabPane).disabled = False
-            self.query_one("#revisions-status", Static).update(
-                " Revisions (select tab to load)"
-            )
+            self._revisions_loaded = True
+            self._load_revisions()
         else:
             self.query_one("#revisions-status", Static).update(
                 " No alias — revisions unavailable"
@@ -842,7 +840,7 @@ class ExploreScreen(Screen):
             except Exception:
                 exists = False
             col_count, cached, _, _ = (
-                maybe_entry_info(rev_entry) if exists else (None, None, (), None)
+                _entry_info(rev_entry) if exists else (None, None, "", None)
             )
             row = RevisionRowData(
                 hash=rev_entry.name,
