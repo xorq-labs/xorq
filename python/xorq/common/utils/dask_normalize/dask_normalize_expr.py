@@ -287,27 +287,28 @@ def normalize_ibis_datatype(datatype):
 @dask.base.normalize_token.register(rel.Read)
 def normalize_read(read):
     read_kwargs = dict(read.read_kwargs)
-    path = next(
-        el
-        for el in (
-            read_kwargs.get(name)
-            for name in (
-                "path",
-                "source",
-                "source_list",  # duckdb
-            )
-        )
-        if el
+    try_names = (
+        "path",
+        "paths",  # duckdb read_parquet
+        "source",
+        "source_list",  # duckdb
     )
+    try:
+        path = next(el for el in (read_kwargs.get(name) for name in try_names) if el)
+    except StopIteration:
+        raise ValueError("unable to find path name in read_kwargs")
+    if isinstance(path, (list, tuple)):
+        # normalize_filenames may have converted a single path to a list
+        path = path[0] if len(path) == 1 else path
     if isinstance(path, (str, pathlib.Path)):
         path = str(path)
         if path.startswith("http") or path.startswith("https:"):
-            req = urllib.request.Request(path, method="HEAD")
+            req = urllib.request.Request(
+                path, method="HEAD", headers={"User-Agent": ""}
+            )
             resp = urllib.request.urlopen(req)
-
             headers = resp.info()
-
-            tpls = tuple(
+            tpls = (("url", path),) + tuple(
                 (k, headers.get(k))
                 for k in (
                     "Last-Modified",
