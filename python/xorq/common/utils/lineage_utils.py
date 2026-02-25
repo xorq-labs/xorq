@@ -12,6 +12,7 @@ import xorq.expr.relations as rel
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.common.utils.graph_utils import (
+    bfs,
     gen_children_of,
     to_node,
 )
@@ -71,47 +72,37 @@ class GenericNode:
         return evolve(self, **changes)
 
 
-def _build_column_tree(node: Node, _memo: dict | None = None) -> GenericNode:
-    if _memo is None:
-        _memo = {}
-    key = id(node)
-    if key in _memo:
-        return _memo[key]
+def _build_column_tree(node: Node) -> GenericNode:
+    graph, _ = bfs(node).toposort()
+    results: dict[Node, GenericNode] = {}
 
-    match node:
-        case ops.Field(rel=ops.Project(values=values)) as field_node:
-            # include the field and recurse into its mapped expression
-            mapped = values[field_node.name]
-            child = _build_column_tree(to_node(mapped), _memo)
-            result = GenericNode(op=field_node, children=(child,))
+    for n in graph:
+        match n:
+            case ops.Field(rel=ops.Project(values=values)) as field_node:
+                # include the field and follow it into its mapped expression
+                child = results[to_node(values[field_node.name])]
+                results[n] = GenericNode(op=field_node, children=(child,))
 
-        case ops.Field() as field_node:
-            children = tuple(
-                _build_column_tree(to_node(child), _memo)
-                for child in gen_children_of(field_node)
-            )
-            result = GenericNode(op=field_node, children=children)
+            case ops.Field() as field_node:
+                children = tuple(results[c] for c in gen_children_of(field_node))
+                results[n] = GenericNode(op=field_node, children=children)
 
-        case ops.Project() as proj:
-            result = _build_column_tree(to_node(proj.parent), _memo)
+            case ops.Project() as proj:
+                # Project is transparent: resolve to its parent's GenericNode
+                results[n] = results[to_node(proj.parent)]
 
-        case _:
-            children = tuple(
-                _build_column_tree(to_node(child), _memo)
-                for child in gen_children_of(node)
-            )
-            result = GenericNode(op=node, children=children)
+            case _:
+                children = tuple(results[c] for c in gen_children_of(n))
+                results[n] = GenericNode(op=n, children=children)
 
-    _memo[key] = result
-    return result
+    return results[node]
 
 
 def build_column_trees(expr: Any) -> dict[str, GenericNode]:
     """Builds a lineage tree for each column in the expression."""
     op = to_node(expr)
     cols = getattr(op, "values", None) or getattr(op, "fields", {})
-    memo: dict = {}
-    return {k: _build_column_tree(to_node(v), memo) for k, v in cols.items()}
+    return {k: _build_column_tree(to_node(v)) for k, v in cols.items()}
 
 
 @singledispatch

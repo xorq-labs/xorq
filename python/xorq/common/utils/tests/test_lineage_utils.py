@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 
 import xorq.api as xo
-import xorq.common.utils.lineage_utils as lu
 import xorq.expr.datatypes as dt
+import xorq.vendor.ibis.expr.operations as ops
 from xorq.common.utils.graph_utils import gen_children_of, to_node
 from xorq.common.utils.lineage_utils import (
     GenericNode,
@@ -14,6 +14,7 @@ from xorq.common.utils.lineage_utils import (
     build_column_trees,
     build_tree,
 )
+from xorq.vendor.ibis.expr.operations.core import Node
 
 
 @xo.udf.make_pandas_udf(
@@ -84,7 +85,6 @@ def test_build_column_trees_and_display(sample_expression):
 
 
 def test_complete_lineage_for_total_discount_column(sample_expression):
-    import xorq.vendor.ibis.expr.operations as ops
     from xorq.vendor.ibis.expr.operations.reductions import Sum
 
     column_trees = build_column_trees(sample_expression)
@@ -233,45 +233,84 @@ def _count_unique_dag_nodes(expr):
     return len(visited)
 
 
-def _count_build_column_tree_calls(expr, cap=200_000):
-    """Count _build_column_tree invocations, aborting at *cap*."""
-    orig = lu._build_column_tree
-    calls = [0]
-
-    def counted(node, *args, **kwargs):
-        calls[0] += 1
-        if calls[0] >= cap:
-            raise RuntimeError(f"call cap ({cap:,}) reached")
-        return orig(node, *args, **kwargs)
-
-    lu._build_column_tree = counted
-    try:
-        build_column_trees(expr)
-    except RuntimeError:
-        pass
-    finally:
-        lu._build_column_tree = orig
-    return calls[0]
+def _count_unique_generic_nodes(root: GenericNode) -> int:
+    seen, stack = set(), [root]
+    while stack:
+        n = stack.pop()
+        if id(n) not in seen:
+            seen.add(id(n))
+            stack.extend(n.children)
+    return len(seen)
 
 
-def test_build_column_trees_scales_linearly_on_multi_join(multi_join_expression):
-    """build_column_trees should complete in O(nodes) calls, not O(N^k).
+def _build_column_tree_memoized(node: Node, _memo: dict | None = None) -> GenericNode:
+    """Gold-standard recursive implementation with id-keyed memoization."""
+    if _memo is None:
+        _memo = {}
+    key = id(node)
+    if key in _memo:
+        return _memo[key]
 
-    Without memoization, 3 nested JoinChains cause 100K+ recursive calls for
-    ~100 unique DAG nodes because every shared sub-graph is re-traversed from
-    scratch.  The memoization cache in _build_column_tree (keyed by node
-    identity) keeps the call count to a small multiple of the unique node count.
+    match node:
+        case ops.Field(rel=ops.Project(values=values)) as field_node:
+            # include the field and recurse into its mapped expression
+            mapped = values[field_node.name]
+            child = _build_column_tree_memoized(to_node(mapped), _memo)
+            result = GenericNode(op=field_node, children=(child,))
 
-    See https://github.com/xorq-labs/xorq/issues/1618
-    """
-    unique_nodes = _count_unique_dag_nodes(multi_join_expression)
-    call_count = _count_build_column_tree_calls(multi_join_expression)
+        case ops.Field() as field_node:
+            children = tuple(
+                _build_column_tree_memoized(to_node(child), _memo)
+                for child in gen_children_of(field_node)
+            )
+            result = GenericNode(op=field_node, children=children)
 
-    # A well-memoized traversal should need no more than ~10x the unique
-    # nodes.  The current implementation exceeds 1000x.
-    max_reasonable_calls = unique_nodes * 10
-    assert call_count <= max_reasonable_calls, (
-        f"build_column_trees made {call_count:,} calls for {unique_nodes} unique "
-        f"DAG nodes (ratio {call_count / unique_nodes:.0f}x). "
-        f"Expected at most {max_reasonable_calls:,} calls with memoization."
+        case ops.Project() as proj:
+            result = _build_column_tree_memoized(to_node(proj.parent), _memo)
+
+        case _:
+            children = tuple(
+                _build_column_tree_memoized(to_node(child), _memo)
+                for child in gen_children_of(node)
+            )
+            result = GenericNode(op=node, children=children)
+
+    _memo[key] = result
+    return result
+
+
+def _assert_matches_gold(expr):
+    op = to_node(expr)
+    cols = getattr(op, "values", None) or getattr(op, "fields", {})
+    gold_memo = {}
+    assert len(cols) > 0, (
+        f"Expression has no columns to compare; got {type(to_node(expr)).__name__}"
+    )
+    for name, v in cols.items():
+        node = to_node(v)
+        assert _build_column_tree(node) == _build_column_tree_memoized(
+            node, gold_memo
+        ), f"Column '{name}': graph-based result differs from memoized gold standard"
+    assert _build_column_tree(op) == _build_column_tree_memoized(op, gold_memo), (
+        "graph-based result for the full expression root differs from memoized gold standard"
+    )
+
+
+def test_build_column_tree_matches_memoized_on_sample(sample_expression):
+    _assert_matches_gold(sample_expression)
+
+
+@pytest.mark.benchmark
+def test_build_column_tree_matches_memoized_on_multi_join(multi_join_expression):
+    _assert_matches_gold(multi_join_expression)
+
+
+def test_build_column_tree_output_size_bounded(multi_join_expression):
+    node = to_node(multi_join_expression)
+    result = _build_column_tree(node)
+    unique_input = _count_unique_dag_nodes(multi_join_expression)
+    unique_output = _count_unique_generic_nodes(result)
+    assert unique_output <= unique_input, (
+        f"Output DAG has {unique_output} unique GenericNodes for {unique_input} "
+        f"unique input nodes — suggests repeated construction"
     )
