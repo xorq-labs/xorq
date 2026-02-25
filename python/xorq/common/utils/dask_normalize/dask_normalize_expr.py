@@ -293,21 +293,25 @@ def normalize_read(read):
             read_kwargs.get(name)
             for name in (
                 "path",
+                "paths",  # duckdb read_parquet
                 "source",
-                "source_list",  # duckdb
+                "source_list",
             )
         )
         if el
     )
+    if isinstance(path, (list, tuple)):
+        # normalize_filenames may have converted a single path to a list
+        path = path[0] if len(path) == 1 else path
     if isinstance(path, (str, pathlib.Path)):
         path = str(path)
         if path.startswith("http") or path.startswith("https:"):
-            req = urllib.request.Request(path, method="HEAD")
+            req = urllib.request.Request(
+                path, method="HEAD", headers={"User-Agent": ""}
+            )
             resp = urllib.request.urlopen(req)
-
             headers = resp.info()
-
-            tpls = tuple(
+            tpls = (("url", path),) + tuple(
                 (k, headers.get(k))
                 for k in (
                     "Last-Modified",
