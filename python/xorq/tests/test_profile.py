@@ -39,6 +39,7 @@ def test_con_has_profile(con_name):
     assert profile.almost_equals(other._profile)
 
 
+@pytest.mark.postgres
 @pytest.mark.parametrize("connect", remote_connectors)
 def test_remote_con_works(connect):
     con = connect()
@@ -67,7 +68,11 @@ def test_profiles(monkeypatch, tmp_path):
     assert not profiles.list()
 
 
-@pytest.mark.parametrize("connector", remote_connectors + local_connectors)
+@pytest.mark.parametrize(
+    "connector",
+    [pytest.param(c, marks=pytest.mark.postgres) for c in remote_connectors]
+    + list(local_connectors),
+)
 def test_save_load(connector, monkeypatch, tmp_path):
     monkeypatch.setattr(xo.options.profiles, "profile_dir", tmp_path)
     # In the is case letsql has a raw passwords so its value is

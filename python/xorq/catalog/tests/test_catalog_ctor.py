@@ -30,7 +30,7 @@ def _make_bare_clone(source_catalog, tmpdir_path):
 def test_catalog_ctor_fails(tmpdir):
     uninited_repo = Repo.init(Path(tmpdir), mkdir=True)
     with pytest.raises(
-        ValueError, match="Reference at 'refs/heads/master' does not exist"
+        ValueError, match="Reference at 'refs/heads/(master|main)' does not exist"
     ):
         Catalog(uninited_repo)
 

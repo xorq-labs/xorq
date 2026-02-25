@@ -141,10 +141,14 @@ def test_deferred_read_to_sql(con, pins_resource, request):
 
 @pytest.mark.parametrize(
     "get_con,pins_resource",
-    itertools.product(
-        (lambda: xo.pandas.connect(), lambda: xo.postgres.connect_env()),
-        ("iris_csv", "astronauts_parquet"),
-    ),
+    [
+        pytest.param(con, pins_resource, marks=marks)
+        for con, marks in [
+            (lambda: xo.pandas.connect(), []),
+            (lambda: xo.postgres.connect_env(), [pytest.mark.postgres]),
+        ]
+        for pins_resource in ("iris_csv", "astronauts_parquet")
+    ],
 )
 def test_deferred_read(get_con, pins_resource, request):
     from adbc_driver_manager import ProgrammingError
@@ -167,6 +171,7 @@ def test_deferred_read(get_con, pins_resource, request):
     assert pins_resource.table_name not in tuple(con.tables)
 
 
+@pytest.mark.postgres
 @pytest.mark.parametrize(
     "get_con,pins_resource",
     itertools.product(
@@ -187,18 +192,18 @@ def test_deferred_read_temporary(get_con, pins_resource, request):
 
 @pytest.mark.parametrize(
     "get_con,pins_resource,filter_",
-    (
-        (con, pins_resource, filter_)
-        for con in (
-            lambda: xo.pandas.connect(),
-            lambda: xo.postgres.connect_env(),
-            lambda: xo.duckdb.connect(),
-        )
+    [
+        pytest.param(con, pins_resource, filter_, marks=marks)
+        for con, marks in [
+            (lambda: xo.pandas.connect(), []),
+            (lambda: xo.postgres.connect_env(), [pytest.mark.postgres]),
+            (lambda: xo.duckdb.connect(), []),
+        ]
         for (pins_resource, filter_) in (
             ("iris_csv", filter_sepal_length),
             ("astronauts_parquet", filter_field21),
         )
-    ),
+    ],
 )
 def test_cached_deferred_read(get_con, pins_resource, filter_, request, tmp_path):
     from adbc_driver_manager import ProgrammingError
@@ -261,7 +266,10 @@ def test_cached_deferred_read(get_con, pins_resource, filter_, request, tmp_path
 
 @pytest.mark.parametrize(
     "get_con",
-    (lambda: xo.pandas.connect(), lambda: xo.postgres.connect_env()),
+    [
+        lambda: xo.pandas.connect(),
+        pytest.param(lambda: xo.postgres.connect_env(), marks=pytest.mark.postgres),
+    ],
 )
 def test_cached_csv_mutate(get_con, iris_csv, tmp_path):
     con = get_con()
@@ -323,6 +331,7 @@ def test_deferred_read_cache(con, tmp_path, method_name, path, remote):
     assert not expr.execute().empty
 
 
+@pytest.mark.postgres
 def test_deferred_read_kwargs(pg):
     name = "iris"
     read0, read1 = (

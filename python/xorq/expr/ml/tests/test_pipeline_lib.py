@@ -7,6 +7,7 @@ import xorq.api as xo
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.relations import Tag
+from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
 
 sklearn = pytest.importorskip("sklearn")
@@ -504,13 +505,18 @@ def get_scorers_by_type():
 
     cluster = {name for name, module in non_ml if "cluster" in module}
 
-    return {
-        "classification": classification,
-        "regression": regression,
-        "cluster": cluster,
-        "proba": proba,
-        "multilabel": multilabel,
-    }
+    return FrozenOrderedDict(
+        **dict(
+            (k, tuple(sorted(v)))
+            for k, v in (
+                ("classification", classification),
+                ("regression", regression),
+                ("cluster", cluster),
+                ("proba", proba),
+                ("multilabel", multilabel),
+            )
+        )
+    )
 
 
 SCORERS_BY_TYPE = get_scorers_by_type()
