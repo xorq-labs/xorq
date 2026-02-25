@@ -13,13 +13,13 @@ def click_handler(e):
 def _init_hint(ctx):
     """Return the `xorq catalog ... init` command the user should run."""
     group_ctx = ctx.parent or ctx
-    parts = ["xorq catalog"]
-    if name := group_ctx.params.get("name"):
-        parts.append(f"--name {name}")
-    elif path := group_ctx.params.get("path"):
-        parts.append(f"--path {path}")
-    parts.append("init")
-    return " ".join(parts)
+    match (group_ctx.params.get("name"), group_ctx.params.get("path")):
+        case (str() as name, _):
+            return f"xorq catalog --name {name} init"
+        case (_, str() as path):
+            return f"xorq catalog --path {path} init"
+        case _:
+            return "xorq catalog init"
 
 
 @contextmanager
@@ -250,7 +250,7 @@ def info(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         click.echo(f"path:    {catalog.repo_path}")
         click.echo(f"commit:  {catalog.repo.head.commit.hexsha[:12]}")
-        remotes = [r.name for r in catalog.repo.remotes]
+        remotes = tuple(r.name for r in catalog.repo.remotes)
         click.echo(f"remotes: {', '.join(remotes) if remotes else '(none)'}")
         click.echo(f"entries: {len(catalog.list())}")
         click.echo(f"aliases: {len(catalog.list_aliases())}")

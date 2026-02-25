@@ -43,7 +43,6 @@ XORQ_DARK = Theme(
 )
 
 COLUMNS = ("KIND", "ALIAS", "HASH", "BACKEND", "OUTPUT", "CACHED", "ROOT TAG")
-COLUMN_WIDTHS: dict[str, int] = {}
 
 SCHEMA_PREVIEW_COLUMNS = ("NAME", "TYPE")
 
@@ -307,12 +306,13 @@ def maybe_cache_path(expr) -> str | None:
 
 
 def maybe_cache_info(expr) -> tuple[bool | None, str | None]:
-    if expr is None:
-        return None, None
-    is_cached = _check_cached(expr)
-    if not is_cached:
-        return is_cached, None
-    return True, maybe_cache_path(expr)
+    match expr:
+        case None:
+            return None, None
+        case _ if not _check_cached(expr):
+            return False, None
+        case _:
+            return True, maybe_cache_path(expr)
 
 
 @maybe(default=())
@@ -352,6 +352,7 @@ def _build_explore_data(
 class CatalogScreen(Screen):
     BINDINGS = (
         ("q", "quit_app", "Quit"),
+        ("ctrl+c", "quit_app", "Quit"),
         ("h", "scroll_left", "Left"),
         ("j", "cursor_down", "Down"),
         ("k", "cursor_up", "Up"),
@@ -384,7 +385,7 @@ class CatalogScreen(Screen):
         table.cursor_type = "row"
         table.zebra_stripes = True
         for col in COLUMNS:
-            table.add_column(col, key=col, width=COLUMN_WIDTHS.get(col))
+            table.add_column(col, key=col)
 
         schema_table = self.query_one("#schema-preview-table", DataTable)
         schema_table.cursor_type = "row"
@@ -548,16 +549,15 @@ class CatalogScreen(Screen):
             self.notify("Entry not found", severity="error")
             return
         row_data = self._row_cache.get(entry_hash)
-        aliases = row_data.aliases if row_data is not None else ()
-        first_alias = aliases[0] if aliases else ""
-        catalog_alias = (
-            next(
-                (ca for ca in catalog.catalog_aliases if ca.alias == first_alias),
-                None,
-            )
-            if first_alias
-            else None
-        )
+        match row_data:
+            case CatalogRowData(aliases=(first_alias, *_)):
+                catalog_alias = next(
+                    (ca for ca in catalog.catalog_aliases if ca.alias == first_alias),
+                    None,
+                )
+            case _:
+                first_alias = ""
+                catalog_alias = None
         self.app.push_screen(
             ExploreScreen(
                 entry, first_alias, catalog_alias=catalog_alias, row_data=row_data
@@ -569,6 +569,7 @@ class ExploreScreen(Screen):
     BINDINGS = (
         ("q", "go_back", "Back"),
         ("escape", "go_back", "Back"),
+        ("ctrl+c", "quit_app", "Quit"),
         ("1", "tab_revisions", "Revisions"),
         ("2", "tab_schema", "Schema"),
         ("3", "tab_data", "Data"),
@@ -728,12 +729,12 @@ class ExploreScreen(Screen):
 
         self.query_one("#lineage-content", Static).update(data.lineage_text)
 
-        match data.is_cached:
-            case True:
+        match (data.is_cached, data.cache_path):
+            case (True, str() as path):
+                cache_text = f"● cached\n  Path: {path}"
+            case (True, _):
                 cache_text = "● cached"
-                if data.cache_path:
-                    cache_text += f"\n  Path: {data.cache_path}"
-            case False:
+            case (False, _):
                 cache_text = "○ uncached"
             case _:
                 cache_text = "— unknown"
@@ -913,6 +914,9 @@ class ExploreScreen(Screen):
 
     def action_go_back(self) -> None:
         self.dismiss()
+
+    def action_quit_app(self) -> None:
+        self.app.exit()
 
     def action_scroll_left(self) -> None:
         table = self._active_table()
