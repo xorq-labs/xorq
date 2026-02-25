@@ -2,6 +2,8 @@ import cProfile
 import inspect
 import pstats
 import tempfile
+import time
+from contextlib import contextmanager
 from pstats import SortKey
 
 
@@ -18,3 +20,13 @@ def profile(stmt, field=SortKey.CUMULATIVE):
     if field is not None:
         p = p.sort_stats(field)
     return p
+
+
+@contextmanager
+def timed(span, logger, event_name, **extra):
+    t = time.monotonic()
+    yield lambda: time.monotonic() - t
+    elapsed = time.monotonic() - t
+    payload = {"elapsed_s": elapsed, **extra}
+    span.add_event(event_name, payload)
+    logger.info(event_name, **payload)
