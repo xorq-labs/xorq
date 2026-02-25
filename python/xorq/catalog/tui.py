@@ -352,8 +352,10 @@ def _build_explore_data(
 class CatalogScreen(Screen):
     BINDINGS = (
         ("q", "quit_app", "Quit"),
+        ("h", "scroll_left", "Left"),
         ("j", "cursor_down", "Down"),
         ("k", "cursor_up", "Up"),
+        ("l", "scroll_right", "Right"),
         ("enter", "explore", "Explore"),
         ("e", "explore", "Explore"),
         ("g", "toggle_git_log", "Git Log"),
@@ -512,11 +514,17 @@ class CatalogScreen(Screen):
             for i, row_data in enumerate(rows):
                 table.add_row(*row_data.row, key=str(i))
 
+    def action_scroll_left(self) -> None:
+        self.query_one("#catalog-table", DataTable).action_scroll_left()
+
     def action_cursor_down(self) -> None:
         self.query_one("#catalog-table", DataTable).action_cursor_down()
 
     def action_cursor_up(self) -> None:
         self.query_one("#catalog-table", DataTable).action_cursor_up()
+
+    def action_scroll_right(self) -> None:
+        self.query_one("#catalog-table", DataTable).action_scroll_right()
 
     def action_quit_app(self) -> None:
         self.app.exit()
@@ -561,8 +569,10 @@ class ExploreScreen(Screen):
         ("4", "tab_info", "Info"),
         ("5", "tab_profiles", "Profiles"),
         ("6", "tab_aliases", "Aliases"),
+        ("h", "scroll_left", "Left"),
         ("j", "cursor_down", "Down"),
         ("k", "cursor_up", "Up"),
+        ("l", "scroll_right", "Right"),
         ("enter", "select_row", "Select"),
     )
 
@@ -898,6 +908,11 @@ class ExploreScreen(Screen):
     def action_go_back(self) -> None:
         self.dismiss()
 
+    def action_scroll_left(self) -> None:
+        table = self._active_table()
+        if table is not None:
+            table.action_scroll_left()
+
     def action_cursor_down(self) -> None:
         table = self._active_table()
         if table is not None:
@@ -911,6 +926,11 @@ class ExploreScreen(Screen):
             table.action_cursor_up()
         else:
             self.query_one("#info-scroll", VerticalScroll).scroll_up()
+
+    def action_scroll_right(self) -> None:
+        table = self._active_table()
+        if table is not None:
+            table.action_scroll_right()
 
     def action_tab_schema(self) -> None:
         self.query_one("#explore-tabs", TabbedContent).active = "pane-schema"
