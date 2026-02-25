@@ -92,7 +92,7 @@ SAMPLE_ROWS = (
         backends=("duckdb",),
         column_count=5,
         cached=True,
-        tags=("v1", "latest"),
+        root_tag="v1",
     ),
     CatalogRowData(
         kind="expr",
@@ -101,7 +101,7 @@ SAMPLE_ROWS = (
         backends=("postgres", "duckdb"),
         column_count=None,
         cached=False,
-        tags=(),
+        root_tag="",
     ),
 )
 
@@ -164,7 +164,7 @@ class TestCatalogRowData:
             "duckdb",
             "5 cols",
             "●",
-            "v1, latest",
+            "v1",
         )
 
     def test_empty_fields(self):
@@ -422,8 +422,8 @@ class TestExploreScreenTabNavigation:
 
                 tabs = app.screen.query_one("#explore-tabs", TabbedContent)
 
-                # Tab 1 = Schema (default)
-                await pilot.press("1")
+                # Tab 2 = Schema (always enabled)
+                await pilot.press("2")
                 await pilot.pause()
                 assert tabs.active == "pane-schema"
 
@@ -454,9 +454,9 @@ class TestExploreScreenTabNavigation:
                 app.push_screen(ExploreScreen(entry, ""))
                 await pilot.pause()
 
-                await pilot.press("2")
+                await pilot.press("3")
                 await pilot.pause()
-                # Tab should not have switched (still on schema or wherever)
+                # Tab should not have switched (Data is disabled)
                 tabs = app.screen.query_one("#explore-tabs", TabbedContent)
                 assert tabs.active != "pane-data"
 
@@ -472,9 +472,14 @@ class TestExploreScreenTabNavigation:
                 app.push_screen(ExploreScreen(entry, ""))
                 await pilot.pause()
 
-                await pilot.press("3")
+                # Move to Schema first, then try pressing 1 (Revisions)
+                await pilot.press("2")
                 await pilot.pause()
                 tabs = app.screen.query_one("#explore-tabs", TabbedContent)
+                assert tabs.active == "pane-schema"
+
+                await pilot.press("1")
+                await pilot.pause()
                 assert tabs.active != "pane-revisions"
 
         _run(_test())
@@ -612,7 +617,7 @@ class TestCatalogScreenRefresh:
                 screen = app.screen
                 assert isinstance(screen, CatalogScreen)
 
-                screen._render_refresh_start("/tmp/fake", SAMPLE_ROWS)
+                screen._render_refresh("/tmp/fake", SAMPLE_ROWS)
                 await pilot.pause()
 
                 catalog_table = screen.query_one("#catalog-table", DataTable)
@@ -628,7 +633,7 @@ class TestCatalogScreenRefresh:
                 screen = app.screen
                 assert isinstance(screen, CatalogScreen)
 
-                screen._render_refresh_start("/tmp/fake", SAMPLE_ROWS)
+                screen._render_refresh("/tmp/fake", SAMPLE_ROWS)
                 await pilot.pause()
 
                 table = screen.query_one("#catalog-table", DataTable)
@@ -638,14 +643,13 @@ class TestCatalogScreenRefresh:
 
         _run(_test())
 
-    def test_render_refresh_done_updates_status(self):
+    def test_render_status_updates_status_bar(self):
         async def _test():
             app = _make_tui()
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
                 screen = app.screen
-                screen._saved_cursor = 0
-                screen._render_refresh_done("12:00:00", "/tmp/fake")
+                screen._render_status("12:00:00", "/tmp/fake")
                 await pilot.pause()
 
                 status = screen.query_one("#status-bar", Static)
@@ -676,7 +680,7 @@ class TestMultipleAliases:
                     cached=True,
                 )
 
-                screen._render_refresh_start("/tmp/fake", (row,))
+                screen._render_refresh("/tmp/fake", (row,))
                 await pilot.pause()
 
                 table = screen.query_one("#catalog-table", DataTable)
@@ -695,7 +699,7 @@ class TestMultipleAliases:
                 screen = app.screen
 
                 row = CatalogRowData(kind="expr", aliases=(), hash="def456")
-                screen._render_refresh_start("/tmp/fake", (row,))
+                screen._render_refresh("/tmp/fake", (row,))
                 await pilot.pause()
 
                 table = screen.query_one("#catalog-table", DataTable)
@@ -737,7 +741,7 @@ class TestSchemaPreview:
                 assert isinstance(screen, CatalogScreen)
 
                 # Populate rows and cache
-                screen._render_refresh_start("/tmp/fake", rows)
+                screen._render_refresh("/tmp/fake", rows)
                 screen._row_cache = {r.row_key: r for r in rows}
                 await pilot.pause()
 
@@ -765,7 +769,7 @@ class TestSchemaPreview:
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
                 screen = app.screen
-                screen._render_refresh_start("/tmp/fake", rows)
+                screen._render_refresh("/tmp/fake", rows)
                 screen._row_cache = {r.row_key: r for r in rows}
                 await pilot.pause()
 

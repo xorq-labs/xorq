@@ -42,7 +42,8 @@ XORQ_DARK = Theme(
     dark=True,
 )
 
-COLUMNS = ("KIND", "ALIAS", "HASH", "BACKENDS", "OUTPUT", "CACHED", "TAGS")
+COLUMNS = ("KIND", "ALIAS", "HASH", "BACKENDS", "OUTPUT", "CACHED", "ROOT TAG")
+COLUMN_WIDTHS: dict[str, int] = {"ALIAS": 12}
 
 SCHEMA_PREVIEW_COLUMNS = ("NAME", "TYPE")
 
@@ -85,7 +86,7 @@ class CatalogRowData:
     backends: tuple[str, ...] = field(factory=tuple, validator=instance_of(tuple))
     column_count: int | None = field(default=None, validator=optional(instance_of(int)))
     cached: bool | None = field(default=None, validator=optional(instance_of(bool)))
-    tags: tuple[str, ...] = field(factory=tuple, validator=instance_of(tuple))
+    root_tag: str = field(default="", validator=instance_of(str))
     cached_expr: object = field(default=None, eq=False, hash=False, repr=False)
 
     @property
@@ -110,8 +111,8 @@ class CatalogRowData:
 
     @property
     @cache
-    def tags_display(self) -> str:
-        return ", ".join(self.tags) if self.tags else ""
+    def root_tag_display(self) -> str:
+        return self.root_tag
 
     @property
     def sort_key(self) -> tuple[str, str]:
@@ -130,7 +131,7 @@ class CatalogRowData:
             self.backends_display,
             self.output_display,
             self.cached_display,
-            self.tags_display,
+            self.root_tag_display,
         )
 
 
@@ -203,15 +204,16 @@ def maybe_check_cached(expr) -> bool:
     return any(cn.to_expr().ls.exists() for cn in expr.ls.cached_nodes)
 
 
-@maybe(default=(None, None, (), None))
+@maybe(default=(None, None, "", None))
 def maybe_entry_info(
     entry,
-) -> tuple[int | None, bool | None, tuple[str, ...], object]:
+) -> tuple[int | None, bool | None, str, object]:
     expr = entry.expr
     column_count = len(expr.columns)
     cached = maybe_check_cached(expr)
-    tags = tuple(t.tag for t in expr.ls.tags if t.tag is not None)
-    return column_count, cached, tags, expr
+    tags = expr.ls.tags
+    root_tag = tags[0].tag if tags else ""
+    return column_count, cached, root_tag or "", expr
 
 
 @maybe(default=())
@@ -229,7 +231,7 @@ def maybe_extract_backends(entry) -> tuple[str, ...]:
 
 
 def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
-    column_count, cached, tags, expr = maybe_entry_info(entry)
+    column_count, cached, root_tag, expr = maybe_entry_info(entry)
     return CatalogRowData(
         kind="expr",
         aliases=aliases,
@@ -237,7 +239,7 @@ def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
         backends=maybe_extract_backends(entry),
         column_count=column_count,
         cached=cached,
-        tags=tags,
+        root_tag=root_tag,
         cached_expr=expr,
     )
 
@@ -255,6 +257,20 @@ def _build_lineage_chain(expr) -> tuple[str, ...]:
                 pass
 
     return tuple(reversed(tuple(_walk(to_node(expr)))))
+
+
+def _build_alias_multimap(
+    catalog_aliases,
+) -> dict[str, tuple[str, ...]]:
+    from itertools import groupby
+    from operator import attrgetter
+
+    key = attrgetter("catalog_entry.name")
+    sorted_aliases = sorted(catalog_aliases, key=key)
+    return {
+        name: tuple(sorted(ca.alias for ca in group))
+        for name, group in groupby(sorted_aliases, key=key)
+    }
 
 
 def _build_git_log_rows(repo, max_count=100) -> tuple[GitLogRowData, ...]:
@@ -349,7 +365,6 @@ class CatalogScreen(Screen):
         super().__init__()
         self._refresh_interval = refresh_interval
         self._row_cache: dict[str, CatalogRowData] = {}
-        self._saved_cursor: int | None = None
         self._git_log_visible = False
         self._git_log_loaded = False
 
@@ -369,7 +384,7 @@ class CatalogScreen(Screen):
         table.cursor_type = "row"
         table.zebra_stripes = True
         for col in COLUMNS:
-            table.add_column(col, key=col)
+            table.add_column(col, key=col, width=COLUMN_WIDTHS.get(col))
 
         schema_table = self.query_one("#schema-preview-table", DataTable)
         schema_table.cursor_type = "row"
@@ -410,70 +425,69 @@ class CatalogScreen(Screen):
         if catalog is None:
             return
         repo_path = catalog.repo.working_dir
-        current_hashes = frozenset(catalog.list())
+        expected_keys = frozenset(catalog.list())
 
-        # build a multimap: hash -> sorted tuple of aliases
-        alias_multimap: dict[str, list[str]] = {}
-        for ca in catalog.catalog_aliases:
-            alias_multimap.setdefault(ca.catalog_entry.name, []).append(ca.alias)
-        alias_multimap_frozen: dict[str, tuple[str, ...]] = {
-            k: tuple(sorted(v)) for k, v in alias_multimap.items()
-        }
+        # build alias multimap: hash -> sorted tuple of aliases
+        alias_multimap = _build_alias_multimap(catalog.catalog_aliases)
 
-        # one row per hash; row_key is the hash itself
-        expected_keys: frozenset[str] = frozenset(current_hashes)
-
-        # render cached rows immediately
+        # preserve insertion order from _row_cache (dict is ordered in Python 3.7+)
         cached_rows = tuple(
-            sorted(
-                (self._row_cache[k] for k in expected_keys if k in self._row_cache),
-                key=lambda r: r.sort_key,
-            )
+            self._row_cache[k] for k in self._row_cache if k in expected_keys
         )
         new_keys = expected_keys - self._row_cache.keys()
-        self.app.call_from_thread(self._render_refresh_start, repo_path, cached_rows)
+        removed = self._row_cache.keys() - expected_keys
 
-        # load new entries incrementally (one row per hash)
+        # evict removed entries
+        self._row_cache = {
+            k: v for k, v in self._row_cache.items() if k in expected_keys
+        }
+
+        match (bool(removed), bool(cached_rows)):
+            case (True, _) | (_, False):
+                # re-render when rows were removed or on first refresh
+                self.app.call_from_thread(self._render_refresh, repo_path, cached_rows)
+            case _:
+                pass
+
+        # load new entries incrementally (expensive I/O, off the main thread)
         for entry_hash in new_keys:
             entry = catalog.get_catalog_entry(entry_hash)
-            aliases = alias_multimap_frozen.get(entry_hash, ())
+            aliases = alias_multimap.get(entry_hash, ())
             row_data = _load_catalog_row(entry, aliases)
             self._row_cache[row_data.row_key] = row_data
             self.app.call_from_thread(self._render_catalog_row, row_data)
-
-        # evict removed entries
-        removed = self._row_cache.keys() - expected_keys
-        for k in removed:
-            del self._row_cache[k]
 
         if self._git_log_visible:
             git_rows = _build_git_log_rows(catalog.repo)
             self.app.call_from_thread(self._render_git_log, git_rows)
 
         stamp = datetime.now().strftime("%H:%M:%S")
-        self.app.call_from_thread(self._render_refresh_done, stamp, repo_path)
+        self.app.call_from_thread(self._render_status, stamp, repo_path)
 
-    def _render_refresh_start(self, repo_path, cached_rows) -> None:
-        catalog_name = Path(repo_path).name
-        self.query_one("#catalog-panel").border_title = f"Expressions — {catalog_name}"
+    def _render_refresh(self, repo_path, cached_rows) -> None:
+        with self.app.batch_update():
+            catalog_name = Path(repo_path).name
+            self.query_one(
+                "#catalog-panel"
+            ).border_title = f"Expressions — {catalog_name}"
 
-        table = self.query_one("#catalog-table", DataTable)
-        self._saved_cursor = table.cursor_row
-        table.clear()
-        for row_data in cached_rows:
-            table.add_row(*row_data.row, key=row_data.row_key)
+            table = self.query_one("#catalog-table", DataTable)
+            saved_cursor = table.cursor_row
+            table.clear()
+            for row_data in cached_rows:
+                table.add_row(*row_data.row, key=row_data.row_key)
+            count = table.row_count
+            if saved_cursor is not None and count > 0:
+                table.move_cursor(row=min(saved_cursor, count - 1))
 
     def _render_catalog_row(self, row_data) -> None:
-        self.query_one("#catalog-table", DataTable).add_row(
-            *row_data.row, key=row_data.row_key
-        )
+        with self.app.batch_update():
+            self.query_one("#catalog-table", DataTable).add_row(
+                *row_data.row, key=row_data.row_key
+            )
 
-    def _render_refresh_done(self, stamp, repo_path) -> None:
-        table = self.query_one("#catalog-table", DataTable)
-        table.sort("ALIAS", "HASH")
-        count = table.row_count
-        if self._saved_cursor is not None and count > 0:
-            table.move_cursor(row=min(self._saved_cursor, count - 1))
+    def _render_status(self, stamp, repo_path) -> None:
+        count = self.query_one("#catalog-table", DataTable).row_count
         self.query_one("#status-bar", Static).update(
             f" {count} entries | {repo_path} | refreshed {stamp}"
         )
@@ -494,10 +508,11 @@ class CatalogScreen(Screen):
         self.app.call_from_thread(self._render_git_log, rows)
 
     def _render_git_log(self, rows) -> None:
-        table = self.query_one("#git-log-table", DataTable)
-        table.clear()
-        for i, row_data in enumerate(rows):
-            table.add_row(*row_data.row, key=str(i))
+        with self.app.batch_update():
+            table = self.query_one("#git-log-table", DataTable)
+            table.clear()
+            for i, row_data in enumerate(rows):
+                table.add_row(*row_data.row, key=str(i))
 
     def action_cursor_down(self) -> None:
         self.query_one("#catalog-table", DataTable).action_cursor_down()
@@ -542,9 +557,9 @@ class ExploreScreen(Screen):
     BINDINGS = (
         ("q", "go_back", "Back"),
         ("escape", "go_back", "Back"),
-        ("1", "tab_schema", "Schema"),
-        ("2", "tab_data", "Data"),
-        ("3", "tab_revisions", "Revisions"),
+        ("1", "tab_revisions", "Revisions"),
+        ("2", "tab_schema", "Schema"),
+        ("3", "tab_data", "Data"),
         ("4", "tab_info", "Info"),
         ("5", "tab_profiles", "Profiles"),
         ("6", "tab_aliases", "Aliases"),
@@ -572,14 +587,14 @@ class ExploreScreen(Screen):
             id="breadcrumb",
         )
         with TabbedContent(id="explore-tabs"):
+            with TabPane("Revisions", id="pane-revisions", disabled=True):
+                yield Static("Loading...", id="revisions-status")
+                yield DataTable(id="revisions-table")
             with TabPane("Schema", id="pane-schema"):
                 yield DataTable(id="schema-table")
             with TabPane("Data", id="pane-data", disabled=True):
                 yield Static("Loading...", id="data-status")
                 yield DataTable(id="data-table")
-            with TabPane("Revisions", id="pane-revisions", disabled=True):
-                yield Static("Loading...", id="revisions-status")
-                yield DataTable(id="revisions-table")
             with TabPane("Info", id="pane-info"):
                 with VerticalScroll(id="info-scroll"):
                     with Vertical(id="lineage-section", classes="info-section"):
@@ -608,7 +623,7 @@ class ExploreScreen(Screen):
             aliases_table.add_column(col, key=col)
 
         data_table = self.query_one("#data-table", DataTable)
-        data_table.cursor_type = "row"
+        data_table.cursor_type = "none"
         data_table.zebra_stripes = True
         data_table.loading = True
 
@@ -771,7 +786,7 @@ class ExploreScreen(Screen):
                 if self._row_data is not None and self._row_data.cached_expr is not None
                 else self._entry.expr
             )
-            df = expr.head(50).execute()
+            df = self._execute_preview(expr)
             columns = tuple(str(c) for c in df.columns)
             rows = tuple(
                 tuple(str(v) for v in row) for row in df.itertuples(index=False)
@@ -780,6 +795,14 @@ class ExploreScreen(Screen):
             self.app.call_from_thread(self._render_data, columns, rows, total_rows)
         except Exception as e:
             self.app.call_from_thread(self._render_data_error, str(e))
+
+    def _execute_preview(self, expr):
+        try:
+            return expr.head(50).execute()
+        except Exception:
+            # connection may be stale; reload from catalog entry and retry
+            fresh_expr = self._entry.expr
+            return fresh_expr.head(50).execute()
 
     def _render_data(self, columns, rows, total_rows) -> None:
         self.query_one("#data-status", Static).update(
@@ -791,6 +814,7 @@ class ExploreScreen(Screen):
             data_table.add_column(col, key=col)
         for i, row in enumerate(rows):
             data_table.add_row(*row, key=str(i))
+        data_table.cursor_type = "row"
 
     def _render_data_error(self, message) -> None:
         self.query_one("#data-status", Static).update(f" Error loading data: {message}")
