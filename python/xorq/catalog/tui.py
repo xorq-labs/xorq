@@ -43,7 +43,7 @@ XORQ_DARK = Theme(
 )
 
 COLUMNS = ("KIND", "ALIAS", "HASH", "BACKENDS", "OUTPUT", "CACHED", "ROOT TAG")
-COLUMN_WIDTHS: dict[str, int] = {"ALIAS": 12}
+COLUMN_WIDTHS: dict[str, int] = {}
 
 SCHEMA_PREVIEW_COLUMNS = ("NAME", "TYPE")
 
@@ -968,6 +968,7 @@ class CatalogTUI(App):
     #catalog-panel {
         height: 2fr;
         border: solid $primary;
+        background: $surface;
     }
     #catalog-table {
         height: 1fr;
