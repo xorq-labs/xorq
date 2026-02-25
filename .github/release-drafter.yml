@@ -1,0 +1,44 @@
+exclude-labels:
+  - ignore
+  - release
+  - dependencies
+name-template: 'xorq unreleased'
+version-template: unreleased
+
+change-template: '- $TITLE (#$NUMBER)'
+
+categories:
+  - title: 🚀 Performance improvements
+    labels:
+      - performance
+      - perf
+  - title: ✨ Enhancements
+    labels:
+      - feature
+      - enhancement
+  - title: 🐞 Bug fixes
+    labels:
+      - fix
+      - bugfix
+      - bug
+  - title: 📖 Documentation
+    labels:
+      - documentation
+      - docs
+  - title: 📦 Build system
+    labels:
+      - build
+      - ci
+      - chore
+  - title: 🛠️ Other improvements
+    labels:
+      - internal
+      - maintenance
+
+template: |
+  ## Changes
+
+  $CHANGES
+
+  Thank you to all our contributors for making this release possible!
+  $CONTRIBUTORS
