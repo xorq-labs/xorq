@@ -4,9 +4,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import click
-from git import NoSuchPathError
-
-from xorq.catalog.catalog import Catalog
 
 
 def click_handler(e):
@@ -15,14 +12,14 @@ def click_handler(e):
 
 def _init_hint(ctx):
     """Return the `xorq catalog ... init` command the user should run."""
-    group_ctx = ctx.parent
-    parts = ["xorq catalog"]
-    if name := group_ctx.params.get("name"):
-        parts.append(f"--name {name}")
-    elif path := group_ctx.params.get("path"):
-        parts.append(f"--path {path}")
-    parts.append("init")
-    return " ".join(parts)
+    group_ctx = ctx.parent or ctx
+    match (group_ctx.params.get("name"), group_ctx.params.get("path")):
+        case (str() as name, _):
+            return f"xorq catalog --name {name} init"
+        case (_, str() as path):
+            return f"xorq catalog --path {path} init"
+        case _:
+            return "xorq catalog init"
 
 
 @contextmanager
@@ -37,6 +34,8 @@ def click_context(*typs):
 
 @contextmanager
 def click_context_catalog(ctx):
+    from git import NoSuchPathError
+
     try:
         yield
     except click.ClickException:
@@ -54,6 +53,8 @@ click_context_default = partial(click_context, AssertionError, Exception)
 
 
 def _make_catalog_for_completion(ctx):
+    from xorq.catalog.catalog import Catalog
+
     catalog_ctx = ctx.parent
     return Catalog.from_kwargs(
         name=catalog_ctx.params.get("name"),
@@ -88,7 +89,7 @@ def _complete_alias_names(ctx, param, incomplete):
         return []
 
 
-@click.group()
+@click.group(invoke_without_command=True)
 @click.option(
     "-n", "--name", default=None, help="Catalog name (mutually exclusive with --path)."
 )
@@ -120,6 +121,8 @@ def _complete_alias_names(ctx, param, incomplete):
 @click.pass_context
 def cli(ctx, name, path, url, root_repo, init):
     """Manage xorq build-artifact catalogs."""
+    from xorq.catalog.catalog import Catalog
+
     ctx.obj = SimpleNamespace(
         make_catalog=partial(
             Catalog.from_kwargs,
@@ -130,6 +133,21 @@ def cli(ctx, name, path, url, root_repo, init):
             init=init,
         )
     )
+
+
+@cli.command()
+@click.option("--refresh", default=10, type=float, help="Refresh interval in seconds.")
+@click.pass_context
+def tui(ctx, refresh):
+    """Launch terminal UI."""
+    with click_context_catalog(ctx):
+        ctx.obj.make_catalog(init=False)  # validate catalog exists
+    from xorq.catalog.tui import CatalogTUI
+
+    app = CatalogTUI(
+        partial(ctx.obj.make_catalog, init=False), refresh_interval=refresh
+    )
+    app.run()
 
 
 @cli.command()
@@ -232,7 +250,7 @@ def info(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         click.echo(f"path:    {catalog.repo_path}")
         click.echo(f"commit:  {catalog.repo.head.commit.hexsha[:12]}")
-        remotes = [r.name for r in catalog.repo.remotes]
+        remotes = tuple(r.name for r in catalog.repo.remotes)
         click.echo(f"remotes: {', '.join(remotes) if remotes else '(none)'}")
         click.echo(f"entries: {len(catalog.list())}")
         click.echo(f"aliases: {len(catalog.list_aliases())}")
@@ -301,6 +319,8 @@ def sync(ctx):
 )
 def clone(url, dest_name, dest_path):
     """Clone a catalog from a remote URL."""
+    from xorq.catalog.catalog import Catalog
+
     with click_context_default():
         match (dest_path, dest_name):
             case (None, None):
