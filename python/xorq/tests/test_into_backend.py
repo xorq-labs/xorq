@@ -150,6 +150,7 @@ def remove_unexpected_tables(dirty):
         )
 
 
+@pytest.mark.postgres
 def test_multiple_record_batches(pg):
     con = xo.connect()
 
@@ -169,6 +170,7 @@ def test_multiple_record_batches(pg):
     assert 0 < len(res) <= 15
 
 
+@pytest.mark.postgres
 @pytest.mark.parametrize("method", [xo.to_pyarrow, xo.to_pyarrow_batches, xo.execute])
 def test_into_backend_simple(pg, method):
     con = xo.connect()
@@ -181,6 +183,7 @@ def test_into_backend_simple(pg, method):
     assert len(res) > 0
 
 
+@pytest.mark.postgres
 @pytest.mark.parametrize("method", ["to_pyarrow", "to_pyarrow_batches", "execute"])
 def test_into_backend_complex(pg, method):
     con = xo.connect()
@@ -203,6 +206,7 @@ def test_into_backend_complex(pg, method):
     assert 0 < len(res) <= 15
 
 
+@pytest.mark.postgres
 def test_double_into_backend_batches(pg):
     con = xo.connect()
     ddb_con = xo.duckdb.connect()
@@ -243,6 +247,7 @@ def test_into_backend_cache(pg, tmp_path):
     assert 0 < len(res) <= 15
 
 
+@pytest.mark.postgres
 def test_into_backend_duckdb(pg):
     ddb = xo.duckdb.connect()
     t = pg.table("batting").into_backend(ddb, "ls_batting")
@@ -262,6 +267,7 @@ def test_into_backend_duckdb(pg):
     assert len(created) == 3
 
 
+@pytest.mark.postgres
 def test_into_backend_duckdb_expr(pg):
     ddb = xo.duckdb.connect()
     t = pg.table("batting").into_backend(ddb, "ls_batting")
@@ -277,6 +283,7 @@ def test_into_backend_duckdb_expr(pg):
     assert len(created) == 3
 
 
+@pytest.mark.trino
 def test_into_backend_duckdb_trino(trino_table):
     db_con = xo.duckdb.connect()
     expr = trino_table.head(10_000).into_backend(db_con).pipe(make_merged)
@@ -291,6 +298,7 @@ def test_into_backend_duckdb_trino(trino_table):
     assert len(created) == 3
 
 
+@pytest.mark.trino
 def test_multiple_into_backend_duckdb_xorq(trino_table):
     db_con = xo.duckdb.connect()
     ls_con = xo.connect()
@@ -325,6 +333,7 @@ def test_into_backend_duckdb_trino_cached(trino_table, tmp_path):
     assert len(df) > 0
 
 
+@pytest.mark.trino
 def test_into_backend_to_pyarrow_batches(trino_table):
     db_con = xo.duckdb.connect()
     df = (
@@ -337,6 +346,7 @@ def test_into_backend_to_pyarrow_batches(trino_table):
     assert not df.empty
 
 
+@pytest.mark.postgres
 def test_to_pyarrow_batches_simple(pg):
     con = xo.duckdb.connect()
 
@@ -352,6 +362,7 @@ def test_to_pyarrow_batches_simple(pg):
     assert not df.empty
 
 
+@pytest.mark.postgres
 def test_join(ls_con, alltypes, alltypes_df):
     first_10 = alltypes_df.head(10)
     in_memory = ls_con.create_table("in_memory", first_10).into_backend(
@@ -391,6 +402,7 @@ def union_subsets(alltypes, alltypes_df):
     return (a, b, c), (da, db, dc)
 
 
+@pytest.mark.postgres
 @pytest.mark.parametrize("distinct", [False, True], ids=["all", "distinct"])
 def test_union(ls_con, union_subsets, distinct):
     (a, _, _), (da, db, dc) = union_subsets
@@ -407,6 +419,7 @@ def test_union(ls_con, union_subsets, distinct):
     assert_frame_equal(result, expected)
 
 
+@pytest.mark.postgres
 def test_union_mixed_distinct(ls_con, union_subsets):
     (a, _, _), (da, db, dc) = union_subsets
 
@@ -540,6 +553,7 @@ def test_join_with_trivial_predicate(
     assert len(result) == len(expected)
 
 
+@pytest.mark.postgres
 @pytest.mark.parametrize(
     "backend_name",
     [
@@ -571,6 +585,7 @@ def test_multiple_pipes(pg, backend_name):
     assert expr.execute() is not None
 
 
+@pytest.mark.postgres
 @pytest.mark.parametrize(
     "function",
     ["to_pyarrow", "execute", "to_pyarrow_batches"],
@@ -596,6 +611,7 @@ def test_duckdb_datafusion_roundtrip(ls_con, pg, duckdb_con, function, remote):
     assert any(table_name.startswith(KEY_PREFIX) for table_name in source.list_tables())
 
 
+@pytest.mark.postgres
 @pytest.mark.parametrize(
     "tables",
     [
@@ -634,6 +650,7 @@ def test_execution_expr_multiple_tables(ls_con, tables, request, mocker):
     assert getattr(spy, "call_count", 0) == int(native_backend)
 
 
+@pytest.mark.postgres
 @pytest.mark.parametrize(
     "tables",
     [
@@ -689,6 +706,7 @@ def test_execution_expr_multiple_tables_cached(ls_con, tables, request):
     )
 
 
+@pytest.mark.postgres
 def test_no_registration_same_table_name(ls_con, pg_batting):
     ddb_con = xo.duckdb.connect()
     table = pg_batting[["playerID", "yearID"]].to_pyarrow()
@@ -703,6 +721,7 @@ def test_no_registration_same_table_name(ls_con, pg_batting):
     assert expr.execute() is not None
 
 
+@pytest.mark.postgres
 @pytest.mark.parametrize("backend_name", ["", "duckdb"])
 def test_multi_engine_cache(pg, ls_con, ls_batting, tmp_path, backend_name):
     other_con = load_backend(backend_name).connect() if backend_name else xo.connect()

@@ -1,10 +1,18 @@
 import operator
+import pathlib
 
 import pytest
 import toolz
 
 import xorq.api as xo
 from xorq.expr.udf import make_pandas_udf
+
+
+def pytest_collection_modifyitems(items):
+    flight_tests_dir = pathlib.Path(__file__).parent
+    for item in items:
+        if pathlib.Path(item.fspath).is_relative_to(flight_tests_dir):
+            item.add_marker(pytest.mark.xdist_group(name="flight"))
 
 
 field_name = "price_per_carat"
