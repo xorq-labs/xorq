@@ -707,18 +707,18 @@ def _resolve_alias(alias, namespace=None):
     CatalogEntry
         The catalog entry the alias points to.
     """
-    from xorq.catalog.catalog import Catalog
+    from xorq.catalog.catalog import Catalog, CatalogAlias
 
     catalog = Catalog.from_kwargs(name=namespace, init=False)
-    alias_map = {ca.alias: ca for ca in catalog.catalog_aliases}
-    if alias not in alias_map:
-        available = ", ".join(sorted(alias_map)) or "(none)"
+    aliases = catalog.list_aliases()
+    if alias not in aliases:
+        available = ", ".join(sorted(aliases)) or "(none)"
         raise click.ClickException(
             f"Unknown alias: {alias!r}. Available aliases: {available}"
         )
     # Latest revision is the current symlink target; future --revision
     # flag can use catalog_alias.list_revisions() to select older ones.
-    return alias_map[alias].catalog_entry
+    return CatalogAlias.from_name(alias, catalog).catalog_entry
 
 
 @cli.command("run")
