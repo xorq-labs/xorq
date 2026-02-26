@@ -29,8 +29,6 @@ jobs:
       matrix:
         include:
           - slow-level: 1
-            python-version: "3.10"
-          - slow-level: 1
             python-version: "3.12"
           - slow-level: 2
             python-version: "3.12"
@@ -59,7 +57,8 @@ jobs:
         working-directory: ${{ github.workspace }}
 
       - name: start services
-        run: docker compose up --build --wait
+        if: matrix.slow-level != 3
+        run: docker compose up postgres --build --wait
 
       - name: pytest
         run: uv run --no-sync -- pytest --verbose --import-mode=importlib --numprocesses auto --dist loadgroup --cov --cov-report=xml -m 'slow(level=${{ matrix.slow-level }})' --durations=70

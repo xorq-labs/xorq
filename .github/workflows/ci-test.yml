@@ -41,6 +41,10 @@ jobs:
           - name: xorq
             services: false
             extras: []
+          - name: xorq
+            python-version: "3.10"
+            services: false
+            extras: []
           - name: pyiceberg
             services: false
             extras:
