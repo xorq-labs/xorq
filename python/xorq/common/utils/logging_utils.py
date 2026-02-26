@@ -283,23 +283,19 @@ class Run:
 
 @frozen
 class Runs:
-    """Collection of runs for a given expression hash."""
+    """Run store for a given runs directory."""
 
-    expr_hash: str = field(validator=instance_of(str))
     runs_dir: Path = field(validator=instance_of(Path))
 
-    @property
-    def _expr_dir(self) -> Path:
-        return self.runs_dir / self.expr_hash
-
-    def list(self) -> tuple[Run, ...]:
-        """Return runs for this expression, most recent first."""
-        if not self._expr_dir.exists():
+    def list(self, expr_hash: str) -> tuple[Run, ...]:
+        """Return runs for this expression hash, most recent first."""
+        expr_dir = self.runs_dir / expr_hash
+        if not expr_dir.exists():
             return ()
         return tuple(
-            Run(run_id=p.name, expr_hash=self.expr_hash, runs_dir=self.runs_dir)
+            Run(run_id=p.name, expr_hash=expr_hash, runs_dir=self.runs_dir)
             for p in sorted(
-                (p for p in self._expr_dir.iterdir() if p.is_dir()),
+                (p for p in expr_dir.iterdir() if p.is_dir()),
                 key=lambda p: p.name,
                 reverse=True,
             )

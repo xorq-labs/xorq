@@ -516,7 +516,7 @@ def test_run_command_writes_run_store(tmp_path):
         run_command(str(expr_path), str(output_path), "parquet")
 
         expr_hash = expr_path.name
-        run_list = Runs(expr_hash=expr_hash, runs_dir=runs_dir).list()
+        run_list = Runs(runs_dir=runs_dir).list(expr_hash)
         assert len(run_list) == 1, "Expected exactly one run to be recorded"
 
         run: Run = run_list[0]
@@ -566,7 +566,7 @@ def test_run_command_run_store_error_status(tmp_path):
             run_command(str(nonexistent_path), str(tmp_path / "out.parquet"))
 
         expr_hash = nonexistent_path.name
-        run_list = Runs(expr_hash=expr_hash, runs_dir=runs_dir).list()
+        run_list = Runs(runs_dir=runs_dir).list(expr_hash)
         assert len(run_list) == 1
 
         meta = run_list[0].read_meta()
@@ -595,7 +595,7 @@ def test_run_store_multiple_runs(tmp_path):
         run_command(str(expr_path), str(output_path), "parquet")
 
         expr_hash = expr_path.name
-        run_list = Runs(expr_hash=expr_hash, runs_dir=runs_dir).list()
+        run_list = Runs(runs_dir=runs_dir).list(expr_hash)
         assert len(run_list) == 2
         assert run_list[0].run_id != run_list[1].run_id
 
