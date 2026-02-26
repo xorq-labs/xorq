@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   linux:
-    runs-on: ubuntu-latest
+    runs-on: bigger-runner
     strategy:
       matrix:
         include:
@@ -62,7 +62,7 @@ jobs:
         run: docker compose up --build --wait
 
       - name: pytest
-        run: uv run --no-sync -- pytest --verbose --import-mode=importlib --cov --cov-report=xml -m 'slow(level=${{ matrix.slow-level }})' --durations=70
+        run: uv run --no-sync -- pytest --verbose --import-mode=importlib -n auto --dist loadgroup --cov --cov-report=xml -m 'slow(level=${{ matrix.slow-level }})' --durations=70
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres
