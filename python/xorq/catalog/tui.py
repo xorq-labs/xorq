@@ -1,5 +1,6 @@
 import re
 import tarfile
+import threading
 from datetime import datetime
 from functools import cache
 from pathlib import Path
@@ -368,6 +369,7 @@ class CatalogScreen(Screen):
         self._row_cache: dict[str, CatalogRowData] = {}
         self._git_log_visible = False
         self._git_log_loaded = False
+        self._refresh_lock = threading.Lock()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -420,8 +422,16 @@ class CatalogScreen(Screen):
         for name, dtype in maybe_schema(row_data.cached_expr):
             schema_table.add_row(name, dtype)
 
-    @work(thread=True, exclusive=True)
+    @work(thread=True)
     def _do_refresh(self) -> None:
+        if not self._refresh_lock.acquire(blocking=False):
+            return
+        try:
+            self._do_refresh_locked()
+        finally:
+            self._refresh_lock.release()
+
+    def _do_refresh_locked(self) -> None:
         catalog = self.app._catalog
         if catalog is None:
             return
