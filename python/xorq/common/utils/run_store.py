@@ -21,6 +21,9 @@ import json
 from contextlib import contextmanager
 from pathlib import Path
 
+from attr import field, frozen
+from attr.validators import instance_of
+
 
 def get_xorq_runs_dir() -> Path:
     # NOTE: modifying env var XORQ_RUNS_LOGS_DIR won't have any impact after first import
@@ -36,18 +39,35 @@ def _make_run_id(expr_hash: str) -> str:
     return f"{expr_hash}-{ts}"
 
 
+@frozen
 class RunLogger:
     """Writes structured events to run.jsonl and a summary to meta.json."""
 
-    def __init__(self, run_id: str, run_dir: Path, params: dict):
-        self.run_id = run_id
-        self.run_dir = run_dir
-        self._log_path = run_dir / "run.jsonl"
-        self._meta_path = run_dir / "meta.json"
-        self._started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        self._params = params
-        self._fh = self._log_path.open("a", encoding="utf-8")
-        self._finalized = False
+    run_id: str = field(validator=instance_of(str))
+    run_dir: Path = field(validator=instance_of(Path))
+    _params: dict = field(validator=instance_of(dict))
+    _started_at = field(init=False)
+    _fh = field(init=False)
+
+    def __attrs_post_init__(self):
+        object.__setattr__(
+            self,
+            "_started_at",
+            datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        )
+        object.__setattr__(self, "_fh", self._log_path.open("a", encoding="utf-8"))
+
+    @property
+    def _log_path(self) -> Path:
+        return self.run_dir / "run.jsonl"
+
+    @property
+    def _meta_path(self) -> Path:
+        return self.run_dir / "meta.json"
+
+    @property
+    def _finalized(self) -> bool:
+        return self._meta_path.exists()
 
     def log_event(self, event: str, **fields):
         record = {
@@ -62,7 +82,6 @@ class RunLogger:
         """Write meta.json and close the log file. Idempotent."""
         if self._finalized:
             return
-        self._finalized = True
         try:
             self._fh.close()
         except Exception:
