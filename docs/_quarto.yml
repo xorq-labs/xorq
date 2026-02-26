@@ -294,7 +294,7 @@ website:
             - id: catalog-operations-section
               section: "Catalog operations"
               contents:
-                - reference/XorqCatalog.qmd
+                - reference/Catalog.qmd
                 - reference/Build.qmd
                 - reference/Alias.qmd
                 - reference/CatalogMetadata.qmd
@@ -496,7 +496,7 @@ quartodoc:
       desc: "Compute catalog management"
       contents:
         - name: Catalog
-          package: xorq.catalog
+          package: xorq.catalog.api
 
     - title: Type System
       desc: "Data types and schemas"
