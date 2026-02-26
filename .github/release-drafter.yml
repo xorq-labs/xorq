@@ -7,6 +7,40 @@ version-template: unreleased
 
 change-template: '- $TITLE (#$NUMBER)'
 
+autolabeler:
+  - label: 'release'
+    title:
+      - '/^release:/i'
+  - label: 'dependencies'
+    title:
+      - '/^chore\(deps\):/i'
+      - '/^fix\(deps\):/i'
+  - label: 'perf'
+    title:
+      - '/^perf(\(.*\))?:/i'
+  - label: 'feature'
+    title:
+      - '/^feat(\(.*\))?:/i'
+  - label: 'fix'
+    title:
+      - '/^fix(\(.*\))?:/i'
+  - label: 'docs'
+    title:
+      - '/^docs(\(.*\))?:/i'
+      - '/^chore\(docs\):/i'
+  - label: 'ci'
+    title:
+      - '/^ci(\(.*\))?:/i'
+      - '/^chore\(ci\):/i'
+  - label: 'chore'
+    title:
+      - '/^chore(\(.*\))?:/i'
+  - label: 'internal'
+    title:
+      - '/^ref(\(.*\))?:/i'
+      - '/^refactor(\(.*\))?:/i'
+      - '/^spike(\(.*\))?:/i'
+
 categories:
   - title: 🚀 Performance improvements
     labels:
