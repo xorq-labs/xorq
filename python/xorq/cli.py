@@ -692,14 +692,14 @@ def build(script_path, expr_name, builds_dir, cache_dir, debug):
     build_command(script_path, expr_name, builds_dir, cache_dir, debug)
 
 
-def _resolve_alias(alias, namespace=None):
+def _resolve_alias(alias, name=None):
     """Resolve a catalog alias to a CatalogEntry (latest revision).
 
     Parameters
     ----------
     alias : str
         Alias name to look up.
-    namespace : str, optional
+    name : str, optional
         Catalog name for scoping the lookup.
 
     Returns
@@ -709,7 +709,7 @@ def _resolve_alias(alias, namespace=None):
     """
     from xorq.catalog.catalog import Catalog, CatalogAlias
 
-    catalog = Catalog.from_kwargs(name=namespace, init=False)
+    catalog = Catalog.from_kwargs(name=name, init=False)
     aliases = catalog.list_aliases()
     if alias not in aliases:
         available = ", ".join(sorted(aliases)) or "(none)"
@@ -730,7 +730,8 @@ def _resolve_alias(alias, namespace=None):
     help="Run a catalog entry by alias (latest revision).",
 )
 @click.option(
-    "--namespace",
+    "-n",
+    "--name",
     default=None,
     help="Catalog name for scoping the alias lookup.",
 )
@@ -759,7 +760,7 @@ def _resolve_alias(alias, namespace=None):
     default=None,
     help="Limit number of rows to output",
 )
-def run(build_path, alias, namespace, cache_dir, output_path, output_format, limit):
+def run(build_path, alias, name, cache_dir, output_path, output_format, limit):
     """Run a build from a builds directory or by catalog alias."""
     match (build_path, alias):
         case (None, None):
@@ -769,12 +770,12 @@ def run(build_path, alias, namespace, cache_dir, output_path, output_format, lim
         case (None, str()):
             from xorq.catalog.tar_utils import extract_build_tgz_context
 
-            entry = _resolve_alias(alias, namespace=namespace)
+            entry = _resolve_alias(alias, name=name)
             with extract_build_tgz_context(entry.catalog_path) as build_dir:
                 run_command(build_dir, output_path, output_format, cache_dir, limit)
         case (str(), None):
-            if namespace is not None:
-                raise click.UsageError("--namespace is only valid with --alias.")
+            if name is not None:
+                raise click.UsageError("--name is only valid with --alias.")
             run_command(build_path, output_path, output_format, cache_dir, limit)
 
 
