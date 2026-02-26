@@ -510,40 +510,42 @@ def test_run_command_writes_run_store(tmp_path):
     output_path = tmp_path / "out.parquet"
     runs_dir = tmp_path / "runs"
 
-    with patch("xorq.common.utils.run_store.DEFAULT_RUNS_DIR", runs_dir):
+    with patch("xorq.common.utils.run_store.get_xorq_runs_dir", return_value=runs_dir):
         run_command(str(expr_path), str(output_path), "parquet")
 
-    expr_hash = expr_path.name
-    run_ids = list_runs(expr_hash, runs_dir=runs_dir)
-    assert len(run_ids) == 1, "Expected exactly one run to be recorded"
+        expr_hash = expr_path.name
+        run_ids = list_runs(expr_hash)
+        assert len(run_ids) == 1, "Expected exactly one run to be recorded"
 
-    run_id = run_ids[0]
-    assert run_id.startswith(expr_hash), "Run ID should start with the expression hash"
+        run_id = run_ids[0]
+        assert run_id.startswith(expr_hash), (
+            "Run ID should start with the expression hash"
+        )
 
-    meta = read_meta(expr_hash, run_id, runs_dir=runs_dir)
-    assert meta is not None
-    assert meta["status"] == "ok"
-    assert meta["run_id"] == run_id
-    assert meta["expr_hash"] == expr_hash
-    assert meta["expr_path"] == str(expr_path)
-    assert meta["output_format"] == "parquet"
-    assert "started_at" in meta
-    assert "completed_at" in meta
+        meta = read_meta(expr_hash, run_id)
+        assert meta is not None
+        assert meta["status"] == "ok"
+        assert meta["run_id"] == run_id
+        assert meta["expr_hash"] == expr_hash
+        assert meta["expr_path"] == str(expr_path)
+        assert meta["output_format"] == "parquet"
+        assert "started_at" in meta
+        assert "completed_at" in meta
 
-    events = read_events(expr_hash, run_id, runs_dir=runs_dir)
-    event_names = [e["event"] for e in events]
-    assert "run.start" in event_names
-    assert "run.expr_loaded" in event_names
-    assert "run.done" in event_names
-    assert "run.output_written" in event_names
+        events = read_events(expr_hash, run_id)
+        event_names = [e["event"] for e in events]
+        assert "run.start" in event_names
+        assert "run.expr_loaded" in event_names
+        assert "run.done" in event_names
+        assert "run.output_written" in event_names
 
-    loaded_event = next(e for e in events if e["event"] == "run.expr_loaded")
-    assert "elapsed_s" in loaded_event
-    assert loaded_event["elapsed_s"] >= 0
+        loaded_event = next(e for e in events if e["event"] == "run.expr_loaded")
+        assert "elapsed_s" in loaded_event
+        assert loaded_event["elapsed_s"] >= 0
 
-    written_event = next(e for e in events if e["event"] == "run.output_written")
-    assert "bytes" in written_event
-    assert written_event["bytes"] > 0
+        written_event = next(e for e in events if e["event"] == "run.output_written")
+        assert "bytes" in written_event
+        assert written_event["bytes"] > 0
 
 
 def test_run_command_run_store_error_status(tmp_path):
@@ -555,18 +557,18 @@ def test_run_command_run_store_error_status(tmp_path):
     runs_dir = tmp_path / "runs"
     nonexistent_path = tmp_path / "does_not_exist"
 
-    with patch("xorq.common.utils.run_store.DEFAULT_RUNS_DIR", runs_dir):
+    with patch("xorq.common.utils.run_store.get_xorq_runs_dir", return_value=runs_dir):
         with pytest.raises(Exception):
             run_command(str(nonexistent_path), str(tmp_path / "out.parquet"))
 
-    expr_hash = nonexistent_path.name
-    run_ids = list_runs(expr_hash, runs_dir=runs_dir)
-    assert len(run_ids) == 1
+        expr_hash = nonexistent_path.name
+        run_ids = list_runs(expr_hash)
+        assert len(run_ids) == 1
 
-    meta = read_meta(expr_hash, run_ids[0], runs_dir=runs_dir)
-    assert meta is not None
-    assert meta["status"] == "error"
-    assert "error" in meta
+        meta = read_meta(expr_hash, run_ids[0])
+        assert meta is not None
+        assert meta["status"] == "error"
+        assert "error" in meta
 
 
 def test_run_store_multiple_runs(tmp_path):
@@ -582,14 +584,14 @@ def test_run_store_multiple_runs(tmp_path):
     output_path = tmp_path / "out.parquet"
     runs_dir = tmp_path / "runs"
 
-    with patch("xorq.common.utils.run_store.DEFAULT_RUNS_DIR", runs_dir):
+    with patch("xorq.common.utils.run_store.get_xorq_runs_dir", return_value=runs_dir):
         run_command(str(expr_path), str(output_path), "parquet")
         run_command(str(expr_path), str(output_path), "parquet")
 
-    expr_hash = expr_path.name
-    run_ids = list_runs(expr_hash, runs_dir=runs_dir)
-    assert len(run_ids) == 2
-    assert run_ids[0] != run_ids[1]
+        expr_hash = expr_path.name
+        run_ids = list_runs(expr_hash)
+        assert len(run_ids) == 2
+        assert run_ids[0] != run_ids[1]
 
 
 @pytest.mark.parametrize(

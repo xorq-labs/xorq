@@ -22,7 +22,13 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
-DEFAULT_RUNS_DIR = Path("~/.local/share/xorq/runs").expanduser()
+def get_xorq_runs_dir() -> Path:
+    # NOTE: modifying env var XORQ_RUNS_LOGS_DIR won't have any impact after first import
+    from xorq.config import env_config
+
+    if path := env_config.XORQ_RUNS_LOGS_DIR:
+        return Path(path).expanduser()
+    return Path("~/.local/share/xorq/runs").expanduser()
 
 
 def _make_run_id(expr_hash: str) -> str:
@@ -67,11 +73,9 @@ class RunLogger:
             "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "status": status,
             **self._params,
+            **({"otel_trace_id": otel_trace_id} if otel_trace_id is not None else {}),
+            **({"error": error} if error is not None else {}),
         }
-        if otel_trace_id is not None:
-            meta["otel_trace_id"] = otel_trace_id
-        if error is not None:
-            meta["error"] = error
         self._meta_path.write_text(json.dumps(meta, indent=2) + "\n")
 
 
@@ -105,7 +109,7 @@ def run_logger(expr_hash: str, params: dict, runs_dir=None):
     ``_finalized``).
     """
     try:
-        runs_dir_path = Path(runs_dir or DEFAULT_RUNS_DIR).expanduser()
+        runs_dir_path = Path(runs_dir) if runs_dir is not None else get_xorq_runs_dir()
         run_id = _make_run_id(expr_hash)
         run_dir = runs_dir_path / expr_hash / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -131,9 +135,13 @@ def run_logger(expr_hash: str, params: dict, runs_dir=None):
 # ---------------------------------------------------------------------------
 
 
+def _resolve_runs_dir(runs_dir) -> Path:
+    return Path(runs_dir) if runs_dir is not None else get_xorq_runs_dir()
+
+
 def list_expr_hashes(runs_dir=None) -> tuple[str, ...]:
     """Return sorted tuple of expression hashes that have at least one run."""
-    runs_dir_path = Path(runs_dir or DEFAULT_RUNS_DIR).expanduser()
+    runs_dir_path = _resolve_runs_dir(runs_dir)
     if not runs_dir_path.exists():
         return ()
     return tuple(sorted(p.name for p in runs_dir_path.iterdir() if p.is_dir()))
@@ -141,7 +149,7 @@ def list_expr_hashes(runs_dir=None) -> tuple[str, ...]:
 
 def list_runs(expr_hash: str, runs_dir=None) -> tuple[str, ...]:
     """Return run IDs for an expression hash, most recent first."""
-    runs_dir_path = Path(runs_dir or DEFAULT_RUNS_DIR).expanduser()
+    runs_dir_path = _resolve_runs_dir(runs_dir)
     expr_dir = runs_dir_path / expr_hash
     if not expr_dir.exists():
         return ()
@@ -155,7 +163,7 @@ def list_runs(expr_hash: str, runs_dir=None) -> tuple[str, ...]:
 
 def read_meta(expr_hash: str, run_id: str, runs_dir=None) -> dict | None:
     """Read the ``meta.json`` for a specific run, or ``None`` if not found."""
-    runs_dir_path = Path(runs_dir or DEFAULT_RUNS_DIR).expanduser()
+    runs_dir_path = _resolve_runs_dir(runs_dir)
     meta_path = runs_dir_path / expr_hash / run_id / "meta.json"
     if not meta_path.exists():
         return None
@@ -164,7 +172,7 @@ def read_meta(expr_hash: str, run_id: str, runs_dir=None) -> dict | None:
 
 def read_events(expr_hash: str, run_id: str, runs_dir=None) -> tuple[dict, ...]:
     """Read all events from ``run.jsonl`` for a specific run."""
-    runs_dir_path = Path(runs_dir or DEFAULT_RUNS_DIR).expanduser()
+    runs_dir_path = _resolve_runs_dir(runs_dir)
     log_path = runs_dir_path / expr_hash / run_id / "run.jsonl"
     if not log_path.exists():
         return ()
