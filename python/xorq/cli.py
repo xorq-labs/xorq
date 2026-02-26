@@ -205,7 +205,7 @@ def run_command(
     from opentelemetry import trace
     from opentelemetry.trace import StatusCode
 
-    from xorq.common.utils.logging_utils import get_logger, run_logger
+    from xorq.common.utils.logging_utils import RunLogger, get_logger
     from xorq.common.utils.profile_utils import timed
     from xorq.ibis_yaml.compiler import load_expr
 
@@ -240,7 +240,7 @@ def run_command(
     )
 
     try:
-        with run_logger(expr_hash, run_params) as rl:
+        with RunLogger.from_expr_hash(expr_hash, params=run_params) as rl:
             rl.log_event("run.start", **run_params)
 
             t = time.monotonic()

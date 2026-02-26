@@ -193,6 +193,43 @@ class RunLogger:
         }
         self._meta_path.write_text(json.dumps(meta, indent=2) + "\n")
 
+    @classmethod
+    @contextmanager
+    def from_expr_hash(cls, expr_hash: str, *, params: dict, runs_dir=None):
+        """Context manager that creates a :class:`RunLogger` and finalizes it on exit.
+
+        If the run store directory cannot be created (e.g. permission error), a
+        no-op :class:`_NullRunLogger` is yielded so the actual run is not affected.
+
+        On successful exit the caller is expected to call
+        ``rl.finalize(status="ok", otel_trace_id=...)`` explicitly so the OTel
+        trace ID can be recorded.  The context manager's ``finally`` block calls
+        ``finalize`` only if it has not already been called (idempotent guard on
+        ``_finalized``).
+        """
+        try:
+            runs_dir_path = (
+                Path(runs_dir) if runs_dir is not None else get_xorq_runs_dir()
+            )
+            run_id = _make_run_id(expr_hash)
+            run_dir = runs_dir_path / expr_hash / run_id
+            run_dir.mkdir(parents=True, exist_ok=True)
+            rl = cls(run_id=run_id, run_dir=run_dir, params=params)
+        except Exception:
+            rl = _NullRunLogger()
+
+        error_msg = None
+        try:
+            yield rl
+        except Exception as exc:
+            error_msg = str(exc)
+            raise
+        finally:
+            rl.finalize(
+                status="error" if error_msg else "ok",
+                error=error_msg,
+            )
+
 
 class _NullRunLogger:
     """No-op RunLogger used when the run store cannot be initialized."""
@@ -207,41 +244,6 @@ class _NullRunLogger:
         self, status: str = "ok", otel_trace_id: str = None, error: str = None
     ):
         pass
-
-
-@contextmanager
-def run_logger(expr_hash: str, params: dict, runs_dir=None):
-    """Context manager that creates a :class:`RunLogger` and finalizes it on exit.
-
-    If the run store directory cannot be created (e.g. permission error), a
-    no-op :class:`_NullRunLogger` is yielded so the actual run is not affected.
-
-    On successful exit the caller is expected to call
-    ``rl.finalize(status="ok", otel_trace_id=...)`` explicitly so the OTel
-    trace ID can be recorded.  The context manager's ``finally`` block calls
-    ``finalize`` only if it has not already been called (idempotent guard on
-    ``_finalized``).
-    """
-    try:
-        runs_dir_path = Path(runs_dir) if runs_dir is not None else get_xorq_runs_dir()
-        run_id = _make_run_id(expr_hash)
-        run_dir = runs_dir_path / expr_hash / run_id
-        run_dir.mkdir(parents=True, exist_ok=True)
-        rl = RunLogger(run_id=run_id, run_dir=run_dir, params=params)
-    except Exception:
-        rl = _NullRunLogger()
-
-    error_msg = None
-    try:
-        yield rl
-    except Exception as exc:
-        error_msg = str(exc)
-        raise
-    finally:
-        rl.finalize(
-            status="error" if error_msg else "ok",
-            error=error_msg,
-        )
 
 
 @frozen
