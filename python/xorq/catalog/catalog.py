@@ -159,7 +159,7 @@ class Catalog:
         return catalog_entry.exists()
 
     def get_catalog_entry(self, name):
-        assert name in self.list()
+        assert name in self.list(), f"Entry '{name}' not found in catalog"
         catalog_entry = CatalogEntry(name, self)
         return catalog_entry
 
@@ -324,7 +324,9 @@ class Catalog:
 
     @staticmethod
     def init_repo_path(repo_path, bare=False):
-        assert not (repo_path := Path(repo_path)).exists()
+        assert not (repo_path := Path(repo_path)).exists(), (
+            f"Catalog repo already exists at {repo_path}"
+        )
         repo = Repo.init(repo_path, mkdir=True, bare=bare)
         repo.index.commit("initial commit")
         return repo
@@ -335,8 +337,10 @@ class BuildTgz:
     path = field(validator=instance_of(Path), converter=Path)
 
     def __attrs_post_init__(self):
-        assert "".join(self.path.suffixes) in VALID_SUFFIXES
-        assert self.path.exists()
+        assert "".join(self.path.suffixes) in VALID_SUFFIXES, (
+            f"Invalid archive suffix '{self.path.suffixes}', expected one of {VALID_SUFFIXES}"
+        )
+        assert self.path.exists(), f"Build archive not found at {self.path}"
         test_tgz(self.path)
 
     @property
@@ -387,7 +391,9 @@ class CatalogAddition:
         return message
 
     def _add(self):
-        assert not self.catalog.contains(self.name)
+        assert not self.catalog.contains(self.name), (
+            f"Entry '{self.name}' already exists in catalog"
+        )
         self.ensure_dirs()
         catalog_entry = self.catalog_entry
         catalog_entry.metadata_path.write_text(yaml.safe_dump(self.metadata))
@@ -427,7 +433,7 @@ class CatalogEntry:
     def __attrs_post_init__(self):
         self.assert_consistency()
         if self.require_exists:
-            assert self.exists()
+            assert self.exists(), f"Catalog entry '{self.name}' does not exist"
 
     @property
     def repo_path(self):
@@ -590,7 +596,9 @@ class CatalogRemoval:
     def _remove(self):
         catalog_entry = self.catalog_entry
         catalog = catalog_entry.catalog
-        assert catalog_entry.exists()
+        assert catalog_entry.exists(), (
+            f"Cannot remove entry '{catalog_entry.name}': not found in catalog"
+        )
         index = catalog.repo.index
         #
         for catalog_alias in self.catalog_entry.aliases:
