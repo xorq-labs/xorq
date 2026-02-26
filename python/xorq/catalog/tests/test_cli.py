@@ -458,6 +458,33 @@ def test_list_populated(runner, catalog_path, data_dict):
         assert name in result.output
 
 
+# --- list-aliases command ---
+
+
+def test_list_aliases_invalid_path(runner):
+    result = runner.invoke(cli, ["--path", "/nonexistent/path", "list-aliases"])
+    assert result.exit_code != 0
+    assert "init" in result.output
+
+
+def test_list_aliases_empty(runner, catalog_path):
+    result = runner.invoke(cli, ["--path", catalog_path, "list-aliases"])
+    assert result.exit_code == 0, result.output
+    assert "No aliases." in result.output
+
+
+def test_list_aliases_populated(runner, catalog_path, data_dict):
+    path = str(next(iter(data_dict.values())))
+    runner.invoke(cli, ["--path", catalog_path, "add", path])
+    name = Path(path).name.removesuffix("".join(Path(path).suffixes))
+    runner.invoke(cli, ["--path", catalog_path, "add-alias", name, "alias-a"])
+    runner.invoke(cli, ["--path", catalog_path, "add-alias", name, "alias-b"])
+    result = runner.invoke(cli, ["--path", catalog_path, "list-aliases"])
+    assert result.exit_code == 0, result.output
+    assert "alias-a" in result.output
+    assert "alias-b" in result.output
+
+
 # --- get command ---
 
 
@@ -657,6 +684,7 @@ def test_subcommand_help(runner):
         "remove-alias",
         "info",
         "list",
+        "list-aliases",
         "get",
         "push",
         "pull",
