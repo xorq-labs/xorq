@@ -285,6 +285,51 @@ def test_list_revisions_commit_objects(catalog_populated):
     assert hasattr(commit, "author")
 
 
+def test_catalog_alias_from_name(catalog_populated):
+    name = catalog_populated.list()[0]
+    alias = "from-name-alias"
+    catalog_populated.add_alias(name, alias)
+
+    catalog_alias = CatalogAlias.from_name(alias, catalog_populated)
+
+    assert isinstance(catalog_alias, CatalogAlias)
+    assert catalog_alias.alias == alias
+    assert catalog_alias.catalog_entry.name == name
+    assert catalog_alias.alias_path.is_symlink()
+    assert catalog_alias.catalog_entry.exists()
+
+
+def test_catalog_alias_from_name_nonexistent_raises(catalog_populated):
+    with pytest.raises(ValueError, match="no such alias"):
+        CatalogAlias.from_name("does-not-exist", catalog_populated)
+
+
+def test_catalog_alias_from_name_entry_consistency(catalog_populated):
+    name = catalog_populated.list()[0]
+    alias = "consistency-alias"
+    catalog_populated.add_alias(name, alias)
+
+    catalog_alias = CatalogAlias.from_name(alias, catalog_populated)
+
+    catalog_alias.catalog_entry.assert_consistency()
+    assert catalog_alias.catalog_entry.metadata_path.exists()
+    assert catalog_alias.catalog_entry.catalog_path.exists()
+
+
+def test_catalog_alias_from_name_matches_catalog_aliases(catalog_populated):
+    name = catalog_populated.list()[0]
+    alias = "match-alias"
+    catalog_populated.add_alias(name, alias)
+
+    from_name = CatalogAlias.from_name(alias, catalog_populated)
+    from_catalog = next(
+        ca for ca in catalog_populated.catalog_aliases if ca.alias == alias
+    )
+
+    assert from_name.alias == from_catalog.alias
+    assert from_name.catalog_entry.name == from_catalog.catalog_entry.name
+
+
 def test_catalog_entry_relocatable(repo_cloned_bare, tmpdir):
     cloned = Catalog.clone_from(
         repo_cloned_bare.working_dir, Path(tmpdir).joinpath("cloned")

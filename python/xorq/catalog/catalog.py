@@ -576,6 +576,21 @@ class CatalogAlias:
             self._remove()
         return self
 
+    @classmethod
+    def from_name(cls, name, catalog):
+        alias_path = catalog.repo_path.joinpath(
+            CatalogInfix.ALIAS,
+            name,
+        ).with_suffix(PREFERRED_SUFFIX)
+        if alias_path.exists():
+            catalog_alias = CatalogAlias(
+                name,
+                CatalogEntry(alias_path.resolve().with_suffix("").name, catalog),
+            )
+            return catalog_alias
+        else:
+            raise ValueError(f"no such alias {name}")
+
 
 @frozen
 class CatalogRemoval:
