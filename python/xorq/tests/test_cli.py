@@ -345,8 +345,9 @@ def test_run_cached_command_cache_types(tmp_path, fixture_dir, cache_type, ttl):
 
 
 @pytest.mark.slow(level=1)
+@pytest.mark.xdist_group(name="serve")
 @pytest.mark.parametrize(
-    "host,port,cache_dir", [(None, None, None), ("localhost", "5000", "cache")]
+    "host,port,cache_dir", [(None, None, None), ("localhost", None, "cache")]
 )
 def test_serve_command(tmp_path, fixture_dir, cache_dir, host, port):
     target_dir = tmp_path / "build"
