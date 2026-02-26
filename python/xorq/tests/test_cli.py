@@ -501,7 +501,7 @@ def test_run_command_writes_run_store(tmp_path):
     """run_command writes meta.json and run.jsonl to the run store."""
     from unittest.mock import patch
 
-    from xorq.common.utils.run_store import list_runs, read_events, read_meta
+    from xorq.common.utils.run_store import Run, Runs
 
     expr = xo.memtable({"x": [10, 20, 30]}, name="t")
     expr_path = build_expr(
@@ -514,25 +514,25 @@ def test_run_command_writes_run_store(tmp_path):
         run_command(str(expr_path), str(output_path), "parquet")
 
         expr_hash = expr_path.name
-        run_ids = list_runs(expr_hash)
-        assert len(run_ids) == 1, "Expected exactly one run to be recorded"
+        run_list = Runs(expr_hash=expr_hash, runs_dir=runs_dir).list()
+        assert len(run_list) == 1, "Expected exactly one run to be recorded"
 
-        run_id = run_ids[0]
-        assert run_id.startswith(expr_hash), (
+        run: Run = run_list[0]
+        assert run.run_id.startswith(expr_hash), (
             "Run ID should start with the expression hash"
         )
 
-        meta = read_meta(expr_hash, run_id)
+        meta = run.read_meta()
         assert meta is not None
         assert meta["status"] == "ok"
-        assert meta["run_id"] == run_id
+        assert meta["run_id"] == run.run_id
         assert meta["expr_hash"] == expr_hash
         assert meta["expr_path"] == str(expr_path)
         assert meta["output_format"] == "parquet"
         assert "started_at" in meta
         assert "completed_at" in meta
 
-        events = read_events(expr_hash, run_id)
+        events = run.read_events()
         event_names = [e["event"] for e in events]
         assert "run.start" in event_names
         assert "run.expr_loaded" in event_names
@@ -552,7 +552,7 @@ def test_run_command_run_store_error_status(tmp_path):
     """run_command writes status=error to meta.json when the run fails."""
     from unittest.mock import patch
 
-    from xorq.common.utils.run_store import list_runs, read_meta
+    from xorq.common.utils.run_store import Runs
 
     runs_dir = tmp_path / "runs"
     nonexistent_path = tmp_path / "does_not_exist"
@@ -562,10 +562,10 @@ def test_run_command_run_store_error_status(tmp_path):
             run_command(str(nonexistent_path), str(tmp_path / "out.parquet"))
 
         expr_hash = nonexistent_path.name
-        run_ids = list_runs(expr_hash)
-        assert len(run_ids) == 1
+        run_list = Runs(expr_hash=expr_hash, runs_dir=runs_dir).list()
+        assert len(run_list) == 1
 
-        meta = read_meta(expr_hash, run_ids[0])
+        meta = run_list[0].read_meta()
         assert meta is not None
         assert meta["status"] == "error"
         assert "error" in meta
@@ -575,7 +575,7 @@ def test_run_store_multiple_runs(tmp_path):
     """Each invocation of run_command produces a separate run directory."""
     from unittest.mock import patch
 
-    from xorq.common.utils.run_store import list_runs
+    from xorq.common.utils.run_store import Runs
 
     expr = xo.memtable({"v": [1, 2]}, name="t2")
     expr_path = build_expr(
@@ -589,9 +589,9 @@ def test_run_store_multiple_runs(tmp_path):
         run_command(str(expr_path), str(output_path), "parquet")
 
         expr_hash = expr_path.name
-        run_ids = list_runs(expr_hash)
-        assert len(run_ids) == 2
-        assert run_ids[0] != run_ids[1]
+        run_list = Runs(expr_hash=expr_hash, runs_dir=runs_dir).list()
+        assert len(run_list) == 2
+        assert run_list[0].run_id != run_list[1].run_id
 
 
 @pytest.mark.parametrize(

@@ -103,7 +103,6 @@ class _NullRunLogger:
 
     run_id = None
     run_dir = None
-    _finalized = False
 
     def log_event(self, event: str, **fields):
         pass
@@ -149,39 +148,63 @@ def run_logger(expr_hash: str, params: dict, runs_dir=None):
         )
 
 
-def _resolve_runs_dir(runs_dir) -> Path:
-    return Path(runs_dir) if runs_dir is not None else get_xorq_runs_dir()
+@frozen
+class Run:
+    """A single recorded run, readable from disk."""
 
+    run_id: str = field(validator=instance_of(str))
+    expr_hash: str = field(validator=instance_of(str))
+    runs_dir: Path = field(validator=instance_of(Path))
 
-def list_runs(expr_hash: str, runs_dir=None) -> tuple[str, ...]:
-    """Return run IDs for an expression hash, most recent first."""
-    runs_dir_path = _resolve_runs_dir(runs_dir)
-    expr_dir = runs_dir_path / expr_hash
-    if not expr_dir.exists():
-        return ()
-    return tuple(
-        sorted(
-            (p.name for p in expr_dir.iterdir() if p.is_dir()),
-            reverse=True,
+    @property
+    def run_dir(self) -> Path:
+        return self.runs_dir / self.expr_hash / self.run_id
+
+    @property
+    def _meta_path(self) -> Path:
+        return self.run_dir / "meta.json"
+
+    @property
+    def _log_path(self) -> Path:
+        return self.run_dir / "run.jsonl"
+
+    def read_meta(self) -> dict | None:
+        """Read ``meta.json`` for this run, or ``None`` if not yet written."""
+        if not self._meta_path.exists():
+            return None
+        return json.loads(self._meta_path.read_text())
+
+    def read_events(self) -> tuple[dict, ...]:
+        """Read all events from ``run.jsonl`` for this run."""
+        if not self._log_path.exists():
+            return ()
+        return tuple(
+            json.loads(line)
+            for line in self._log_path.read_text().splitlines()
+            if line.strip()
         )
-    )
 
 
-def read_meta(expr_hash: str, run_id: str, runs_dir=None) -> dict | None:
-    """Read the ``meta.json`` for a specific run, or ``None`` if not found."""
-    runs_dir_path = _resolve_runs_dir(runs_dir)
-    meta_path = runs_dir_path / expr_hash / run_id / "meta.json"
-    if not meta_path.exists():
-        return None
-    return json.loads(meta_path.read_text())
+@frozen
+class Runs:
+    """Collection of runs for a given expression hash."""
 
+    expr_hash: str = field(validator=instance_of(str))
+    runs_dir: Path = field(validator=instance_of(Path))
 
-def read_events(expr_hash: str, run_id: str, runs_dir=None) -> tuple[dict, ...]:
-    """Read all events from ``run.jsonl`` for a specific run."""
-    runs_dir_path = _resolve_runs_dir(runs_dir)
-    log_path = runs_dir_path / expr_hash / run_id / "run.jsonl"
-    if not log_path.exists():
-        return ()
-    return tuple(
-        json.loads(line) for line in log_path.read_text().splitlines() if line.strip()
-    )
+    @property
+    def _expr_dir(self) -> Path:
+        return self.runs_dir / self.expr_hash
+
+    def list(self) -> tuple[Run, ...]:
+        """Return runs for this expression, most recent first."""
+        if not self._expr_dir.exists():
+            return ()
+        return tuple(
+            Run(run_id=p.name, expr_hash=self.expr_hash, runs_dir=self.runs_dir)
+            for p in sorted(
+                (p for p in self._expr_dir.iterdir() if p.is_dir()),
+                key=lambda p: p.name,
+                reverse=True,
+            )
+        )
