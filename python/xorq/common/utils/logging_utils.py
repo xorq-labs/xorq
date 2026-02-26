@@ -178,10 +178,6 @@ class RunLogger:
         """Write meta.json and close the log file. Idempotent."""
         if self._finalized:
             return
-        try:
-            self._fh.close()
-        except Exception:
-            pass
         meta = {
             "run_id": self.run_id,
             "started_at": self._started_at,
@@ -191,7 +187,11 @@ class RunLogger:
             **({"otel_trace_id": otel_trace_id} if otel_trace_id is not None else {}),
             **({"error": error} if error is not None else {}),
         }
-        self._meta_path.write_text(json.dumps(meta, indent=2) + "\n")
+        try:
+            self._fh.close()
+            self._meta_path.write_text(json.dumps(meta, indent=2) + "\n")
+        except Exception:
+            pass
 
     @classmethod
     @contextmanager
