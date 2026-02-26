@@ -200,17 +200,30 @@ def run_command(
     -------
 
     """
+    import time
+
     from opentelemetry import trace
     from opentelemetry.trace import StatusCode
 
     from xorq.common.utils.logging_utils import get_logger
     from xorq.common.utils.profile_utils import timed
+    from xorq.common.utils.run_store import run_logger
     from xorq.ibis_yaml.compiler import load_expr
 
     logger = get_logger(__name__)
     cache_dir = _get_cache_dir(cache_dir)
 
     span = trace.get_current_span()
+
+    expr_hash = Path(expr_path).name
+    run_params = {
+        "expr_hash": expr_hash,
+        "expr_path": str(expr_path),
+        "output_path": str(output_path),
+        "output_format": str(output_format),
+        "limit": limit,
+    }
+
     span.add_event(
         "run.params",
         {
@@ -228,21 +241,41 @@ def run_command(
     )
 
     try:
-        with timed(span, logger, "run.expr_loaded"):
-            expr = load_expr(expr_path, cache_dir=cache_dir)
+        with run_logger(expr_hash, run_params) as rl:
+            rl.log_event("run.start", **run_params)
 
-        if limit is not None:
-            expr = expr.limit(limit)
+            t = time.monotonic()
+            with timed(span, logger, "run.expr_loaded"):
+                expr = load_expr(expr_path, cache_dir=cache_dir)
+            rl.log_event("run.expr_loaded", elapsed_s=round(time.monotonic() - t, 3))
 
-        with timed(span, logger, "run.done", output_format=str(output_format)):
-            arbitrate_output_format(expr, output_path, output_format)
+            if limit is not None:
+                expr = expr.limit(limit)
 
-        file_metrics = _compute_file_metrics(output_format, output_path)
-        if file_metrics:
-            span.add_event("run.output_written", file_metrics)
-            logger.info("run.output_written", **file_metrics)
+            t = time.monotonic()
+            with timed(span, logger, "run.done", output_format=str(output_format)):
+                arbitrate_output_format(expr, output_path, output_format)
+            rl.log_event(
+                "run.done",
+                elapsed_s=round(time.monotonic() - t, 3),
+                output_format=str(output_format),
+            )
 
-        span.set_status(StatusCode.OK)
+            file_metrics = _compute_file_metrics(output_format, output_path)
+            if file_metrics:
+                span.add_event("run.output_written", file_metrics)
+                logger.info("run.output_written", **file_metrics)
+                rl.log_event("run.output_written", **file_metrics)
+
+            span.set_status(StatusCode.OK)
+
+            span_ctx = span.get_span_context()
+            otel_trace_id = (
+                format(span_ctx.trace_id, "032x")
+                if span_ctx and span_ctx.is_valid
+                else None
+            )
+            rl.finalize(status="ok", otel_trace_id=otel_trace_id)
 
     except Exception as e:
         span.set_status(StatusCode.ERROR, str(e))
