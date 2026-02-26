@@ -501,7 +501,7 @@ def test_run_command_writes_run_store(tmp_path):
     """run_command writes meta.json and run.jsonl to the run store."""
     from unittest.mock import patch
 
-    from xorq.common.utils.run_store import Run, Runs
+    from xorq.common.utils.logging_utils import Run, Runs
 
     expr = xo.memtable({"x": [10, 20, 30]}, name="t")
     expr_path = build_expr(
@@ -510,7 +510,9 @@ def test_run_command_writes_run_store(tmp_path):
     output_path = tmp_path / "out.parquet"
     runs_dir = tmp_path / "runs"
 
-    with patch("xorq.common.utils.run_store.get_xorq_runs_dir", return_value=runs_dir):
+    with patch(
+        "xorq.common.utils.logging_utils.get_xorq_runs_dir", return_value=runs_dir
+    ):
         run_command(str(expr_path), str(output_path), "parquet")
 
         expr_hash = expr_path.name
@@ -552,12 +554,14 @@ def test_run_command_run_store_error_status(tmp_path):
     """run_command writes status=error to meta.json when the run fails."""
     from unittest.mock import patch
 
-    from xorq.common.utils.run_store import Runs
+    from xorq.common.utils.logging_utils import Runs
 
     runs_dir = tmp_path / "runs"
     nonexistent_path = tmp_path / "does_not_exist"
 
-    with patch("xorq.common.utils.run_store.get_xorq_runs_dir", return_value=runs_dir):
+    with patch(
+        "xorq.common.utils.logging_utils.get_xorq_runs_dir", return_value=runs_dir
+    ):
         with pytest.raises(Exception):
             run_command(str(nonexistent_path), str(tmp_path / "out.parquet"))
 
@@ -575,7 +579,7 @@ def test_run_store_multiple_runs(tmp_path):
     """Each invocation of run_command produces a separate run directory."""
     from unittest.mock import patch
 
-    from xorq.common.utils.run_store import Runs
+    from xorq.common.utils.logging_utils import Runs
 
     expr = xo.memtable({"v": [1, 2]}, name="t2")
     expr_path = build_expr(
@@ -584,7 +588,9 @@ def test_run_store_multiple_runs(tmp_path):
     output_path = tmp_path / "out.parquet"
     runs_dir = tmp_path / "runs"
 
-    with patch("xorq.common.utils.run_store.get_xorq_runs_dir", return_value=runs_dir):
+    with patch(
+        "xorq.common.utils.logging_utils.get_xorq_runs_dir", return_value=runs_dir
+    ):
         run_command(str(expr_path), str(output_path), "parquet")
         run_command(str(expr_path), str(output_path), "parquet")
 

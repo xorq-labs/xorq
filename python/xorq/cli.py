@@ -205,9 +205,8 @@ def run_command(
     from opentelemetry import trace
     from opentelemetry.trace import StatusCode
 
-    from xorq.common.utils.logging_utils import get_logger
+    from xorq.common.utils.logging_utils import get_logger, run_logger
     from xorq.common.utils.profile_utils import timed
-    from xorq.common.utils.run_store import run_logger
     from xorq.ibis_yaml.compiler import load_expr
 
     logger = get_logger(__name__)
