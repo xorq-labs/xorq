@@ -143,8 +143,20 @@ class Pins(Config):
         return pins.board(**_kwargs)
 
     def get_path(self, name, board=None, **kwargs):
+        import tempfile
+
+        from filelock import FileLock
+
         board = board or self.get_board()
-        (path,) = board.pin_download(name, **kwargs)
+
+        # Cross-process lock keyed by pin name to prevent concurrent
+        # downloads from corrupting cached files under pytest-xdist.
+        lock_path = pathlib.Path(tempfile.gettempdir()) / f"xorq-pin-{name}.lock"
+        lock = FileLock(lock_path, timeout=120)
+
+        with lock:
+            (path,) = board.pin_download(name, **kwargs)
+
         return path
 
 
