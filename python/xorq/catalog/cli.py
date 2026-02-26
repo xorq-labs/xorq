@@ -242,6 +242,17 @@ def list_entries(ctx):
             click.echo(name)
 
 
+@cli.command("list-aliases")
+@click.pass_context
+def list_aliases(ctx):
+    """List all aliases."""
+    with click_context_catalog(ctx):
+        catalog = ctx.obj.make_catalog(init=False)
+        aliases = catalog.list_aliases() or ("No aliases.",)
+        for alias in aliases:
+            click.echo(alias)
+
+
 @cli.command()
 @click.pass_context
 def info(ctx):
