@@ -803,7 +803,8 @@ class ExploreScreen(Screen):
             df = self._execute_preview(expr)
             columns = tuple(str(c) for c in df.columns)
             rows = tuple(
-                tuple(str(v) for v in row) for row in df.itertuples(index=False)
+                tuple(str(round(v, 2)) if isinstance(v, float) else str(v) for v in row)
+                for row in df.itertuples(index=False)
             )
             total_rows = len(df)
             self.app.call_from_thread(self._render_data, columns, rows, total_rows)
