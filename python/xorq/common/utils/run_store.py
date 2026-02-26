@@ -130,21 +130,8 @@ def run_logger(expr_hash: str, params: dict, runs_dir=None):
         )
 
 
-# ---------------------------------------------------------------------------
-# Read-side helpers (for inspection / future TUI use)
-# ---------------------------------------------------------------------------
-
-
 def _resolve_runs_dir(runs_dir) -> Path:
     return Path(runs_dir) if runs_dir is not None else get_xorq_runs_dir()
-
-
-def list_expr_hashes(runs_dir=None) -> tuple[str, ...]:
-    """Return sorted tuple of expression hashes that have at least one run."""
-    runs_dir_path = _resolve_runs_dir(runs_dir)
-    if not runs_dir_path.exists():
-        return ()
-    return tuple(sorted(p.name for p in runs_dir_path.iterdir() if p.is_dir()))
 
 
 def list_runs(expr_hash: str, runs_dir=None) -> tuple[str, ...]:
