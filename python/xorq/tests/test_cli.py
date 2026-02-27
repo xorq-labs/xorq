@@ -433,43 +433,46 @@ def test_run_command_stdout(tmp_path, fixture_dir, output_format):
 
 def test_run_command_logging(tmp_path):
     """Test that run_command emits expected structured log events with metrics."""
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import patch
 
     import pyarrow.parquet as pq
 
-    # Build a self-contained memtable expression (no postgres needed)
+    from xorq.common.utils.logging_utils import Run, Runs
+
     expr = xo.memtable({"a": [1, 2, 3], "b": [4, 5, 6]}, name="test_table")
     expr_path = build_expr(
         expr, builds_dir=tmp_path / "builds", cache_dir=tmp_path / "cache"
     )
     output_path = tmp_path / "out.parquet"
+    runs_dir = tmp_path / "runs"
 
-    mock_logger = MagicMock()
-    with patch("xorq.common.utils.logging_utils.get_logger", return_value=mock_logger):
+    with patch(
+        "xorq.common.utils.logging_utils.get_xorq_runs_dir", return_value=runs_dir
+    ):
         run_command(str(expr_path), str(output_path), "parquet")
 
-    info_calls = mock_logger.info.call_args_list
-    event_names = [c.args[0] for c in info_calls]
-    assert "run.start" in event_names
-    assert "run.expr_loaded" in event_names
-    assert "run.done" in event_names
+    expr_hash = expr_path.name
+    run: Run = Runs(expr_dir=runs_dir / expr_hash).runs[0]
+    events = run.read_events()
+    by_name = {e["event"]: e for e in events}
 
     # run.start captures all input params
-    start_call = next(c for c in info_calls if c.args[0] == "run.start")
-    assert start_call.kwargs["expr_path"] == str(expr_path)
-    assert start_call.kwargs["output_path"] == str(output_path)
-    assert "output_format" in start_call.kwargs
-    assert "limit" in start_call.kwargs
+    assert "run.start" in by_name
+    start = by_name["run.start"]
+    assert start["expr_path"] == str(expr_path)
+    assert start["output_path"] == str(output_path)
+    assert "output_format" in start
+    assert "limit" in start
 
     # run.expr_loaded has elapsed timing
-    loaded_call = next(c for c in info_calls if c.args[0] == "run.expr_loaded")
-    assert "elapsed_s" in loaded_call.kwargs
-    assert loaded_call.kwargs["elapsed_s"] >= 0
+    assert "run.expr_loaded" in by_name
+    assert by_name["run.expr_loaded"]["elapsed_s"] >= 0
 
-    # run.done carries timing + output_format (from timed)
-    done_call = next(c for c in info_calls if c.args[0] == "run.done")
-    assert "elapsed_s" in done_call.kwargs
-    assert "output_format" in done_call.kwargs
+    # run.done carries timing + output_format
+    assert "run.done" in by_name
+    done = by_name["run.done"]
+    assert "elapsed_s" in done
+    assert "output_format" in done
 
     # run.output_written carries file metrics for parquet output
     written_call = next(c for c in info_calls if c.args[0] == "run.output_written")
