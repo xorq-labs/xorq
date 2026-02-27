@@ -146,7 +146,7 @@ class RunLogger:
     """Writes structured events to run.jsonl and a summary to meta.json."""
 
     run_dir: Path = field(validator=instance_of(Path))
-    _params: dict = field(factory=dict)
+    params_tuple = field(validator=instance_of(tuple), default=())
 
     @property
     def run_id(self) -> str:
@@ -214,7 +214,7 @@ class RunLogger:
             "started_at": self._started_at,
             "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "status": status,
-            **self._params,
+            **dict(self.params_tuple),
             **({"otel_trace_id": otel_trace_id} if otel_trace_id is not None else {}),
             **({"error": error} if error is not None else {}),
         }
@@ -226,7 +226,9 @@ class RunLogger:
 
     @classmethod
     @contextmanager
-    def from_expr_hash(cls, expr_hash: str, *, params: dict = None, runs_dir=None):
+    def from_expr_hash(
+        cls, expr_hash: str, *, params_tuple: tuple = None, runs_dir=None
+    ):
         """Context manager that creates a :class:`RunLogger` and finalizes it on exit.
 
         If the run store directory cannot be created (e.g. permission error), a
@@ -245,8 +247,11 @@ class RunLogger:
             run_id = cls._make_run_id(expr_hash)
             run_dir = runs_dir_path / expr_hash / run_id
             run_dir.mkdir(parents=True, exist_ok=True)
-            rl = cls(run_dir=run_dir, params=params or {"expr_hash": expr_hash})
-        except Exception:
+            rl = cls(
+                run_dir=run_dir,
+                params_tuple=params_tuple or (("expr_hash", expr_hash),),
+            )
+        except IOError:
             rl = _NullRunLogger()
 
         error_msg = None

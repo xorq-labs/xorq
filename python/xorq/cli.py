@@ -196,19 +196,19 @@ def run_command(
     span = trace.get_current_span()
 
     expr_hash = Path(expr_path).name
-    run_params = {
-        "expr_hash": expr_hash,
-        "expr_path": str(expr_path),
-        "output_path": str(output_path),
-        "output_format": str(output_format),
-        "limit": limit,
-    }
+    run_params = (
+        ("expr_hash", expr_hash),
+        ("expr_path", str(expr_path)),
+        ("output_path", str(output_path)),
+        ("output_format", str(output_format)),
+        ("limit", limit),
+    )
 
-    span.add_event("run.params", run_params)
+    span.add_event("run.params", dict(run_params))
 
     try:
-        with RunLogger.from_expr_hash(expr_hash, params=run_params) as rl:
-            rl.log_event("run.start", **run_params)
+        with RunLogger.from_expr_hash(expr_hash, params_tuple=run_params) as rl:
+            rl.log_event("run.start", **dict(run_params))
 
             with timed() as get_elapsed:
                 expr = load_expr(expr_path, cache_dir=cache_dir)
