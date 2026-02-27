@@ -156,22 +156,6 @@ def build_command(
     print(build_path)
 
 
-def _compute_file_metrics(output_format, output_path):
-    metrics = {}
-    if output_path and output_path != "-":
-        output_file = Path(output_path)
-        if output_file.exists():
-            metrics["bytes"] = output_file.stat().st_size
-            if output_format == OutputFormats.parquet:
-                try:
-                    import pyarrow.parquet as pq
-
-                    metrics["rows"] = pq.read_metadata(output_file).num_rows
-                except ImportError:
-                    pass
-    return metrics
-
-
 @_lazy_span("cli.run_command")
 def run_command(
     expr_path,
@@ -200,8 +184,6 @@ def run_command(
     -------
 
     """
-    import time
-
     from opentelemetry import trace
     from opentelemetry.trace import StatusCode
 
@@ -243,24 +225,24 @@ def run_command(
         with RunLogger.from_expr_hash(expr_hash, params=run_params) as rl:
             rl.log_event("run.start", **run_params)
 
-            t = time.monotonic()
-            with timed(span, logger, "run.expr_loaded"):
+            with timed(span, logger, "run.expr_loaded") as get_elapsed:
                 expr = load_expr(expr_path, cache_dir=cache_dir)
-            rl.log_event("run.expr_loaded", elapsed_s=round(time.monotonic() - t, 3))
+            rl.log_event("run.expr_loaded", elapsed_s=round(get_elapsed(), 3))
 
             if limit is not None:
                 expr = expr.limit(limit)
 
-            t = time.monotonic()
-            with timed(span, logger, "run.done", output_format=str(output_format)):
+            with timed(
+                span, logger, "run.done", output_format=str(output_format)
+            ) as get_elapsed:
                 arbitrate_output_format(expr, output_path, output_format)
             rl.log_event(
                 "run.done",
-                elapsed_s=round(time.monotonic() - t, 3),
+                elapsed_s=round(get_elapsed(), 3),
                 output_format=str(output_format),
             )
 
-            file_metrics = _compute_file_metrics(output_format, output_path)
+            file_metrics = RunLogger._compute_file_metrics(output_format, output_path)
             if file_metrics:
                 span.add_event("run.output_written", file_metrics)
                 logger.info("run.output_written", **file_metrics)

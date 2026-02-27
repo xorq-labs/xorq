@@ -497,8 +497,7 @@ def test_run_command_error_logging(tmp_path):
     assert "error" in exception_call.kwargs
 
 
-def test_run_command_writes_run_store(tmp_path):
-    """run_command writes meta.json and run.jsonl to the run store."""
+def test_run_command_writes_run_logger(tmp_path):
     from unittest.mock import patch
 
     from xorq.common.utils.logging_utils import Run, Runs
@@ -516,10 +515,10 @@ def test_run_command_writes_run_store(tmp_path):
         run_command(str(expr_path), str(output_path), "parquet")
 
         expr_hash = expr_path.name
-        run_list = Runs(runs_dir=runs_dir).list(expr_hash)
-        assert len(run_list) == 1, "Expected exactly one run to be recorded"
+        runs_obj = Runs(expr_dir=runs_dir / expr_hash)
+        assert len(runs_obj.list()) == 1, "Expected exactly one run to be recorded"
 
-        run: Run = run_list[0]
+        run: Run = runs_obj.runs[0]
         assert run.run_id.startswith(expr_hash), (
             "Run ID should start with the expression hash"
         )
@@ -550,8 +549,7 @@ def test_run_command_writes_run_store(tmp_path):
         assert written_event["bytes"] > 0
 
 
-def test_run_command_run_store_error_status(tmp_path):
-    """run_command writes status=error to meta.json when the run fails."""
+def test_run_command_run_logger_error_status(tmp_path):
     from unittest.mock import patch
 
     from xorq.common.utils.logging_utils import Runs
@@ -566,17 +564,16 @@ def test_run_command_run_store_error_status(tmp_path):
             run_command(str(nonexistent_path), str(tmp_path / "out.parquet"))
 
         expr_hash = nonexistent_path.name
-        run_list = Runs(runs_dir=runs_dir).list(expr_hash)
-        assert len(run_list) == 1
+        runs_obj = Runs(expr_dir=runs_dir / expr_hash)
+        assert len(runs_obj.list()) == 1
 
-        meta = run_list[0].read_meta()
+        meta = runs_obj.runs[0].read_meta()
         assert meta is not None
         assert meta["status"] == "error"
         assert "error" in meta
 
 
-def test_run_store_multiple_runs(tmp_path):
-    """Each invocation of run_command produces a separate run directory."""
+def test_run_logger_multiple_runs(tmp_path):
     from unittest.mock import patch
 
     from xorq.common.utils.logging_utils import Runs
@@ -595,9 +592,9 @@ def test_run_store_multiple_runs(tmp_path):
         run_command(str(expr_path), str(output_path), "parquet")
 
         expr_hash = expr_path.name
-        run_list = Runs(runs_dir=runs_dir).list(expr_hash)
-        assert len(run_list) == 2
-        assert run_list[0].run_id != run_list[1].run_id
+        run_ids = Runs(expr_dir=runs_dir / expr_hash).list()
+        assert len(run_ids) == 2
+        assert run_ids[0] != run_ids[1]
 
 
 @pytest.mark.parametrize(

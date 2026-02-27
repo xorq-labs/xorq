@@ -9,6 +9,12 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
+
+try:
+    from enum import StrEnum
+except ImportError:
+    from strenum import StrEnum
+
 import structlog
 from attr import field, frozen
 from attr.validators import instance_of
@@ -121,6 +127,11 @@ log_initial_state()
 # while remaining tied to the expression that produced them.
 
 
+class RunLogFile(StrEnum):
+    LOG = "run.jsonl"
+    META = "meta.json"
+
+
 def get_xorq_runs_dir() -> Path:
     # NOTE: modifying env var XORQ_RUNS_LOGS_DIR won't have any impact after first import
     from xorq.config import env_config
@@ -130,18 +141,13 @@ def get_xorq_runs_dir() -> Path:
     return Path("~/.local/share/xorq/runs").expanduser()
 
 
-def _make_run_id(expr_hash: str) -> str:
-    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    return f"{expr_hash}-{ts}"
-
-
 @frozen
 class RunLogger:
     """Writes structured events to run.jsonl and a summary to meta.json."""
 
     run_id: str = field(validator=instance_of(str))
     run_dir: Path = field(validator=instance_of(Path))
-    _params: dict = field(validator=instance_of(dict))
+    _params: dict = field(factory=dict)
     _started_at = field(init=False)
     _fh = field(init=False)
 
@@ -153,13 +159,34 @@ class RunLogger:
         )
         object.__setattr__(self, "_fh", self._log_path.open("a", encoding="utf-8"))
 
+    @staticmethod
+    def _make_run_id(expr_hash: str) -> str:
+        ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        return f"{expr_hash}-{ts}"
+
+    @staticmethod
+    def _compute_file_metrics(output_format, output_path) -> dict:
+        metrics = {}
+        if output_path and output_path != "-":
+            output_file = Path(output_path)
+            if output_file.exists():
+                metrics["bytes"] = output_file.stat().st_size
+                if str(output_format) == "parquet":
+                    try:
+                        import pyarrow.parquet as pq
+
+                        metrics["rows"] = pq.read_metadata(output_file).num_rows
+                    except ImportError:
+                        pass
+        return metrics
+
     @property
     def _log_path(self) -> Path:
-        return self.run_dir / "run.jsonl"
+        return self.run_dir / RunLogFile.LOG
 
     @property
     def _meta_path(self) -> Path:
-        return self.run_dir / "meta.json"
+        return self.run_dir / RunLogFile.META
 
     @property
     def _finalized(self) -> bool:
@@ -195,7 +222,7 @@ class RunLogger:
 
     @classmethod
     @contextmanager
-    def from_expr_hash(cls, expr_hash: str, *, params: dict, runs_dir=None):
+    def from_expr_hash(cls, expr_hash: str, *, params: dict = None, runs_dir=None):
         """Context manager that creates a :class:`RunLogger` and finalizes it on exit.
 
         If the run store directory cannot be created (e.g. permission error), a
@@ -211,10 +238,10 @@ class RunLogger:
             runs_dir_path = (
                 Path(runs_dir) if runs_dir is not None else get_xorq_runs_dir()
             )
-            run_id = _make_run_id(expr_hash)
+            run_id = cls._make_run_id(expr_hash)
             run_dir = runs_dir_path / expr_hash / run_id
             run_dir.mkdir(parents=True, exist_ok=True)
-            rl = cls(run_id=run_id, run_dir=run_dir, params=params)
+            rl = cls(run_id=run_id, run_dir=run_dir, params=params or {})
         except Exception:
             rl = _NullRunLogger()
 
@@ -250,21 +277,19 @@ class _NullRunLogger:
 class Run:
     """A single recorded run, readable from disk."""
 
-    run_id: str = field(validator=instance_of(str))
-    expr_hash: str = field(validator=instance_of(str))
-    runs_dir: Path = field(validator=instance_of(Path))
+    run_dir: Path = field(validator=instance_of(Path))
 
     @property
-    def run_dir(self) -> Path:
-        return self.runs_dir / self.expr_hash / self.run_id
+    def run_id(self) -> str:
+        return self.run_dir.name
 
     @property
     def _meta_path(self) -> Path:
-        return self.run_dir / "meta.json"
+        return self.run_dir / RunLogFile.META
 
     @property
     def _log_path(self) -> Path:
-        return self.run_dir / "run.jsonl"
+        return self.run_dir / RunLogFile.LOG
 
     def read_meta(self) -> dict | None:
         """Read ``meta.json`` for this run, or ``None`` if not yet written."""
@@ -285,20 +310,24 @@ class Run:
 
 @frozen
 class Runs:
-    """Run store for a given runs directory."""
+    """Run store for a given expression directory."""
 
-    runs_dir: Path = field(validator=instance_of(Path))
+    expr_dir: Path = field(validator=instance_of(Path))
 
-    def list(self, expr_hash: str) -> tuple[Run, ...]:
-        """Return runs for this expression hash, most recent first."""
-        expr_dir = self.runs_dir / expr_hash
-        if not expr_dir.exists():
+    def list(self) -> tuple[str, ...]:
+        """Return run IDs most recent first (cheap: no Run objects created)."""
+        if not self.expr_dir.exists():
             return ()
         return tuple(
-            Run(run_id=p.name, expr_hash=expr_hash, runs_dir=self.runs_dir)
+            p.name
             for p in sorted(
-                (p for p in expr_dir.iterdir() if p.is_dir()),
+                (p for p in self.expr_dir.iterdir() if p.is_dir()),
                 key=lambda p: p.name,
                 reverse=True,
             )
         )
+
+    @property
+    def runs(self) -> tuple[Run, ...]:
+        """Return Run objects most recent first."""
+        return tuple(Run(run_dir=self.expr_dir / run_id) for run_id in self.list())
