@@ -187,11 +187,10 @@ def run_command(
     from opentelemetry import trace
     from opentelemetry.trace import StatusCode
 
-    from xorq.common.utils.logging_utils import RunLogger, get_logger
+    from xorq.common.utils.logging_utils import RunLogger
     from xorq.common.utils.profile_utils import timed
     from xorq.ibis_yaml.compiler import load_expr
 
-    logger = get_logger(__name__)
     cache_dir = _get_cache_dir(cache_dir)
 
     span = trace.get_current_span()
@@ -205,47 +204,35 @@ def run_command(
         "limit": limit,
     }
 
-    span.add_event(
-        "run.params",
-        {
-            "expr_path": str(expr_path),
-            "output_path": str(output_path),
-            "output_format": output_format,
-        },
-    )
-    logger.info(
-        "run.start",
-        expr_path=str(expr_path),
-        output_path=str(output_path),
-        output_format=str(output_format),
-        limit=limit,
-    )
+    span.add_event("run.params", run_params)
 
     try:
         with RunLogger.from_expr_hash(expr_hash, params=run_params) as rl:
             rl.log_event("run.start", **run_params)
 
-            with timed(span, logger, "run.expr_loaded") as get_elapsed:
+            with timed() as get_elapsed:
                 expr = load_expr(expr_path, cache_dir=cache_dir)
-            rl.log_event("run.expr_loaded", elapsed_s=round(get_elapsed(), 3))
+            load_metrics = {"elapsed_s": round(get_elapsed(), 3)}
+            span.add_event("run.expr_loaded", load_metrics)
+            rl.log_event("run.expr_loaded", **load_metrics)
 
             if limit is not None:
                 expr = expr.limit(limit)
 
-            with timed(
-                span, logger, "run.done", output_format=str(output_format)
-            ) as get_elapsed:
+            with timed() as get_elapsed:
                 arbitrate_output_format(expr, output_path, output_format)
-            rl.log_event(
-                "run.done",
-                elapsed_s=round(get_elapsed(), 3),
-                output_format=str(output_format),
-            )
+
+            execute_metrics = {
+                "elapsed_s": round(get_elapsed(), 3),
+                "output_format": str(output_format),
+            }
+
+            span.add_event("run.done", execute_metrics)
+            rl.log_event("run.done", **execute_metrics)
 
             file_metrics = RunLogger._compute_file_metrics(output_format, output_path)
             if file_metrics:
                 span.add_event("run.output_written", file_metrics)
-                logger.info("run.output_written", **file_metrics)
                 rl.log_event("run.output_written", **file_metrics)
 
             span.set_status(StatusCode.OK)
@@ -261,7 +248,6 @@ def run_command(
     except Exception as e:
         span.set_status(StatusCode.ERROR, str(e))
         span.record_exception(e)
-        logger.exception("run.failed", error=str(e))
         raise
 
 

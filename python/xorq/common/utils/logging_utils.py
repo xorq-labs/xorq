@@ -145,9 +145,13 @@ def get_xorq_runs_dir() -> Path:
 class RunLogger:
     """Writes structured events to run.jsonl and a summary to meta.json."""
 
-    run_id: str = field(validator=instance_of(str))
     run_dir: Path = field(validator=instance_of(Path))
     _params: dict = field(factory=dict)
+
+    @property
+    def run_id(self) -> str:
+        return self.run_dir.name
+
     _started_at = field(init=False)
     _fh = field(init=False)
 
@@ -241,7 +245,7 @@ class RunLogger:
             run_id = cls._make_run_id(expr_hash)
             run_dir = runs_dir_path / expr_hash / run_id
             run_dir.mkdir(parents=True, exist_ok=True)
-            rl = cls(run_id=run_id, run_dir=run_dir, params=params or {})
+            rl = cls(run_dir=run_dir, params=params or {"expr_hash": expr_hash})
         except Exception:
             rl = _NullRunLogger()
 

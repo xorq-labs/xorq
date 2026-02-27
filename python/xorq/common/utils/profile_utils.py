@@ -23,10 +23,6 @@ def profile(stmt, field=SortKey.CUMULATIVE):
 
 
 @contextmanager
-def timed(span, logger, event_name, **extra):
+def timed():
     t = time.monotonic()
     yield lambda: time.monotonic() - t
-    elapsed = time.monotonic() - t
-    payload = {"elapsed_s": elapsed, **extra}
-    span.add_event(event_name, payload)
-    logger.info(event_name, **payload)
