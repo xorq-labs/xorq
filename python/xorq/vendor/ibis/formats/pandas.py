@@ -89,7 +89,7 @@ class PandasData(DataMapper):
     @classmethod
     def infer_table(cls, df):
         pairs = []
-        for column_name in df.dtypes:
+        for column_name in list(df.columns):
             if not isinstance(column_name, str):
                 raise TypeError(
                     "Column names must be strings to use the pandas backend"
