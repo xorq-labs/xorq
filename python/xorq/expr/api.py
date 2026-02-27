@@ -523,10 +523,12 @@ def to_parquet(
     import pyarrow.parquet as pq
     import pyarrow_hotfix  # noqa: F401
 
-    with to_pyarrow_batches(expr, params=params) as batch_reader:
-        with pq.ParquetWriter(path, batch_reader.schema, **kwargs) as writer:
-            for batch in batch_reader:
-                writer.write_batch(batch)
+    with (
+        to_pyarrow_batches(expr, params=params) as batch_reader,
+        pq.ParquetWriter(path, batch_reader.schema, **kwargs) as writer,
+    ):
+        for batch in batch_reader:
+            writer.write_batch(batch)
 
 
 def to_csv(
@@ -556,10 +558,12 @@ def to_csv(
     import pyarrow.csv as pcsv
     import pyarrow_hotfix  # noqa: F401
 
-    with pcsv.CSVWriter(path, schema=expr.schema().to_pyarrow(), **kwargs) as writer:
-        with to_pyarrow_batches(expr, params=params) as batch_reader:
-            for batch in batch_reader:
-                writer.write_batch(batch)
+    with (
+        pcsv.CSVWriter(path, schema=expr.schema().to_pyarrow(), **kwargs) as writer,
+        to_pyarrow_batches(expr, params=params) as batch_reader,
+    ):
+        for batch in batch_reader:
+            writer.write_batch(batch)
 
 
 def to_json(
@@ -586,12 +590,14 @@ def to_json(
 
     from xorq.common.utils.io_utils import maybe_open
 
-    with maybe_open(path, "w") as f:
-        with to_pyarrow_batches(expr, params=params) as batch_reader:
-            for batch in batch_reader:
-                df = batch.to_pandas()
-                batch_json = df.to_json(orient="records", lines=True)
-                f.write(batch_json)
+    with (
+        maybe_open(path, "w") as f,
+        to_pyarrow_batches(expr, params=params) as batch_reader,
+    ):
+        for batch in batch_reader:
+            df = batch.to_pandas()
+            batch_json = df.to_json(orient="records", lines=True)
+            f.write(batch_json)
 
 
 def get_plans(expr):

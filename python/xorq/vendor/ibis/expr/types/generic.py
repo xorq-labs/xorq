@@ -1040,7 +1040,7 @@ class Value(Expr):
         │    10 │ NULL   │     6 │    NULL │
         └───────┴────────┴───────┴─────────┘
         """
-        cases, results = zip(branch, *branches)
+        cases, results = zip(branch, *branches, strict=False)
         return ops.SimpleCase(
             base=self, cases=cases, results=results, default=else_
         ).to_expr()
@@ -1991,10 +1991,7 @@ class Column(Value, _FixedTextJupyterMixin):
         │ Torgersen │ Adelie      │
         └───────────┴─────────────┘
         """
-        if isinstance(quantile, Sequence):
-            op = ops.MultiQuantile
-        else:
-            op = ops.Quantile
+        op = ops.MultiQuantile if isinstance(quantile, Sequence) else ops.Quantile
         return op(self, quantile, where=self._bind_to_parent_table(where)).to_expr()
 
     def nunique(self, where: ir.BooleanValue | None = None) -> ir.IntegerScalar:

@@ -30,7 +30,8 @@ def to_sql(expr: ir.Expr) -> str:
         compiler_provider = expr.ls.uncached._find_backend(use_default=True)
         if getattr(compiler_provider, "compiler", None) is None:
             warnings.warn(
-                f"{compiler_provider} is not a SQL backend, so no SQL string will be generated"
+                f"{compiler_provider} is not a SQL backend, so no SQL string will be generated",
+                stacklevel=2,
             )
             return ""
     except XorqError:

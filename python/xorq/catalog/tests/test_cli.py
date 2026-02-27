@@ -531,7 +531,7 @@ def test_check_catches_inconsistency(runner, catalog_path, tmpdir):
     catalog = Catalog.from_kwargs(path=catalog_path, init=False)
     tgz_path = write_tgz(
         Path(tmpdir).joinpath("build.tgz"),
-        {name: b"" for name in REQUIRED_TGZ_NAMES},
+        dict.fromkeys(REQUIRED_TGZ_NAMES, b""),
     )
     catalog_addition = CatalogAddition(BuildTgz(tgz_path), catalog)
     catalog_addition.ensure_dirs()

@@ -189,16 +189,16 @@ def test_cache_recreate(alltypes):
     ts = tuple(con.create_table("alltypes", alltypes_df) for con in cons)
     exprs = tuple(make_expr(t) for t in ts)
 
-    for con, expr in zip(cons, exprs):
+    for con, expr in zip(cons, exprs, strict=False):
         # FIXME: execute one, simply check the other returns true for `expr.ls.exists()`
         expr.cache(cache=SourceCache.from_kwargs(source=con)).execute()
 
     (con_cached_tables0, con_cached_tables1) = (
-        set(
+        {
             table_name
             for table_name in con.list_tables()
             if table_name.startswith(KEY_PREFIX)
-        )
+        }
         for con in cons
     )
 
@@ -375,13 +375,13 @@ def test_cache_default_path_set(batting, ls_con, tmp_path):
 
     result = expr.execute()
 
-    cache_files = list(
+    cache_files = [
         path
         for path in tmp_path.iterdir()
         if path.is_file()
         and path.name.startswith(KEY_PREFIX)
         and path.name.endswith(".parquet")
-    )
+    ]
 
     assert result is not None
     assert cache_files

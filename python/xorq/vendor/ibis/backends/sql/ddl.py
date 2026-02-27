@@ -52,16 +52,13 @@ class Base(ABC):
     def format_schema(self, schema):
         elements = [
             f"{self.quote(name)} {self.format_dtype(t)}"
-            for name, t in zip(schema.names, schema.types)
+            for name, t in zip(schema.names, schema.types, strict=False)
         ]
         return "({})".format(",\n ".join(elements))
 
     def format_partition(self, partition, partition_schema):
         def _format_partition_kv(k, v, type):
-            if type == dt.string:
-                value_formatted = f'"{v}"'
-            else:
-                value_formatted = str(v)
+            value_formatted = f'"{v}"' if type == dt.string else str(v)
 
             return f"{k}={value_formatted}"
 
@@ -77,7 +74,7 @@ class Base(ABC):
                     tok = name
                 tokens.append(tok)
         else:
-            for name, value in zip(partition_schema, partition):
+            for name, value in zip(partition_schema, partition, strict=False):
                 tok = _format_partition_kv(name, value, partition_schema[name])
                 tokens.append(tok)
 

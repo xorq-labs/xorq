@@ -76,7 +76,7 @@ def predict_sklearn(model, df):
 def predict_proba_sklearn(model, df):
     """Predict class probabilities using sklearn model."""
     proba = model.predict_proba(df)
-    return [row for row in proba]
+    return list(proba)
 
 
 @toolz.curry
@@ -175,7 +175,7 @@ class DeferredFitOther:
             deferred_model = deferred_model.as_table().cache(cache=self.cache)
         return deferred_model
 
-    @functools.cache
+    @functools.cache  # noqa: B019
     # if we don't cache this, we get extra tags
     def make_deferred_other(self, fn, return_type, name_infix):
         wrapped_fn = self._inner_other(

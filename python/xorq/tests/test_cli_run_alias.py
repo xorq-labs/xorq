@@ -71,16 +71,20 @@ def test_resolve_alias(catalog_with_alias):
 
 def test_resolve_alias_unknown(catalog_with_alias):
     catalog, _ = catalog_with_alias
-    with patch.object(Catalog, "from_kwargs", return_value=catalog):
-        with pytest.raises(click.ClickException, match="Unknown alias"):
-            _resolve_alias("no-such")
+    with (
+        patch.object(Catalog, "from_kwargs", return_value=catalog),
+        pytest.raises(click.ClickException, match="Unknown alias"),
+    ):
+        _resolve_alias("no-such")
 
 
 def test_resolve_alias_lists_available(catalog_with_alias):
     catalog, _ = catalog_with_alias
-    with patch.object(Catalog, "from_kwargs", return_value=catalog):
-        with pytest.raises(click.ClickException, match="my-alias"):
-            _resolve_alias("no-such")
+    with (
+        patch.object(Catalog, "from_kwargs", return_value=catalog),
+        pytest.raises(click.ClickException, match="my-alias"),
+    ):
+        _resolve_alias("no-such")
 
 
 def test_resolve_alias_with_name(catalog_with_alias):

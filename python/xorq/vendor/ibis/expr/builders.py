@@ -171,9 +171,7 @@ class WindowBuilder(Builder):
         return start, end
 
     def _determine_how(self, start, end):
-        if start and not start.dtype.is_integer():
-            return self.range
-        elif end and not end.dtype.is_integer():
+        if start and not start.dtype.is_integer() or end and not end.dtype.is_integer():
             return self.range
         else:
             return self.rows

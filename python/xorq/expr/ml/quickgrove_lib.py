@@ -69,11 +69,11 @@ def _calculate_bounds(
         import pandas as pd
 
         pd._testing.assert_almost_equal(sum(test_sizes), 1)
-    except AssertionError:
-        raise ValueError("Test sizes must sum to 1")
+    except AssertionError as err:
+        raise ValueError("Test sizes must sum to 1") from err
 
     cumulative_sizes = tuple(toolz.accumulate(operator.add, (0,) + test_sizes))
-    bounds = tuple(zip(cumulative_sizes[:-1], cumulative_sizes[1:]))
+    bounds = tuple(zip(cumulative_sizes[:-1], cumulative_sizes[1:], strict=False))
     return bounds
 
 
@@ -146,7 +146,7 @@ def _validate_model_features(
 
     unsupported = [
         f"{name}: {type_}"
-        for name, type_ in zip(schema, feature_types)
+        for name, type_ in zip(schema, feature_types, strict=False)
         if type_ not in supported_types
     ]
     if unsupported:
@@ -260,7 +260,7 @@ def make_quickgrove_udf(
             pattern=ValueOf(SUPPORTED_TYPES[type_]),
             typehint=SUPPORTED_TYPES[type_],
         )
-        for name, type_ in zip(schema, feature_types)
+        for name, type_ in zip(schema, feature_types, strict=False)
     }
 
     def fn_from_arrays(*arrays):
@@ -292,21 +292,22 @@ def collect_predicates(filter_op: ops.Filter) -> List[dict]:
 
     predicates = []
     for pred in filter_op.predicates:
-        if isinstance(pred, (ops.Less, ops.Greater, ops.GreaterEqual)):
-            if isinstance(pred.left, ops.Field) and isinstance(pred.right, ops.Literal):
-                field_name = pred.left.name
-                if isinstance(parent_op.values.get(field_name), ops.ScalarUDF):
-                    raise ValueError(
-                        f"Unsupported predicate on UDF column: {field_name}"
-                    )
+        if (
+            isinstance(pred, (ops.Less, ops.Greater, ops.GreaterEqual))
+            and isinstance(pred.left, ops.Field)
+            and isinstance(pred.right, ops.Literal)
+        ):
+            field_name = pred.left.name
+            if isinstance(parent_op.values.get(field_name), ops.ScalarUDF):
+                raise ValueError(f"Unsupported predicate on UDF column: {field_name}")
 
-                predicates.append(
-                    {
-                        "column": field_name,
-                        "op": pred.__class__.__name__,
-                        "value": pred.right.value,
-                    }
-                )
+            predicates.append(
+                {
+                    "column": field_name,
+                    "op": pred.__class__.__name__,
+                    "value": pred.right.value,
+                }
+            )
     return predicates
 
 
@@ -327,7 +328,9 @@ def make_pruned_udf(
 
     if not pred_feature_names.issubset(model_feature_names):
         warnings.warn(
-            "Feature not found in predicates, skipping pruning...", UserWarning
+            "Feature not found in predicates, skipping pruning...",
+            UserWarning,
+            stacklevel=2,
         )
         return original_udf
 
@@ -352,7 +355,7 @@ def make_pruned_udf(
         name: Argument(
             pattern=ValueOf(SUPPORTED_TYPES[type_]), typehint=SUPPORTED_TYPES[type_]
         )
-        for name, type_ in zip(schema, feature_types)
+        for name, type_ in zip(schema, feature_types, strict=False)
     }
 
     def fn_from_arrays(*arrays):

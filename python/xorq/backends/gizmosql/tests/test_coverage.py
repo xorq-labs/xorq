@@ -249,7 +249,7 @@ def test_vendored_to_pyarrow_scalar(con, batting):
 
     scalar_expr = batting.count()
     result = Backend.to_pyarrow(con, scalar_expr)
-    assert isinstance(result, pa.Scalar) or isinstance(result, int)
+    assert isinstance(result, (pa.Scalar, int))
 
 
 # ── vendored to_pyarrow_batches ─────────────────────────────────────────────
@@ -372,7 +372,7 @@ def test_create_temp_view(con):
             result = cur.fetch_arrow_table()
         assert result.column("answer")[0].as_py() == 42
     finally:
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(Exception):  # noqa: SIM117  # _safe_raw_sql needs its own block
             with con._safe_raw_sql(f'DROP VIEW IF EXISTS "{view_name}"'):
                 pass
 

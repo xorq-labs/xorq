@@ -82,7 +82,8 @@ def dissoc_get_all(dct, *keys):
 def process_dict(dct, from_to_f):
     values = dissoc_get_all(dct, *from_to_f)
     processed = {
-        to_: f(value) for ((_, (to_, f)), value) in zip(from_to_f.items(), values)
+        to_: f(value)
+        for ((_, (to_, f)), value) in zip(from_to_f.items(), values, strict=False)
     }
     return processed
 
@@ -108,7 +109,7 @@ def process_value(dct):
                 (lst,) = dissoc_get_all(value, "values")
                 value = tuple(map(process_value, lst))
             else:
-                value = tuple()
+                value = ()
         case _:
             raise ValueError(f"Unhandled type {value_type}")
     return (value_type, value)
@@ -288,7 +289,8 @@ class Span:
             *(
                 dissoc_get_all(resource_span, "resource", "scopeSpans")
                 for resource_span in resource_spans
-            )
+            ),
+            strict=False,
         )
         assert all(
             dissoc_get_all(resource, "attributes") == ([required_attribute],)
@@ -299,7 +301,8 @@ class Span:
             *(
                 dissoc_get_all(scope_span, "scope", "spans")
                 for scope_span in scope_spans
-            )
+            ),
+            strict=False,
         )
         assert all(scope == required_scope for scope in scopes)
         return tuple(Span.from_dict(dct) for spans in spanss for dct in spans)
@@ -310,7 +313,7 @@ class Trace:
     spans = field(validator=deep_iterable(instance_of(Span), instance_of(tuple)))
 
     def __attrs_post_init__(self):
-        end_datetimes = list(span.end_datetime for span in self.spans)
+        end_datetimes = [span.end_datetime for span in self.spans]
         if not sorted(end_datetimes) == end_datetimes:
             raise ValueError("span end_datetimes must be in sorted order")
 
@@ -326,16 +329,16 @@ class Trace:
 
     @property
     def closed(self):
-        trace_ids = set(span.trace_id for span in self.spans)
-        closed_trace_ids = set(
+        trace_ids = {span.trace_id for span in self.spans}
+        closed_trace_ids = {
             span.trace_id for span in self.spans if not span.parent_span_id
-        )
+        }
         return trace_ids == closed_trace_ids and bool(
             toolz.excepts(Exception, operator.attrgetter("trace_metrics"))(self)
         )
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def trace_id(self):
         dct = toolz.groupby(
             compose(bool, operator.attrgetter("links")),
@@ -344,7 +347,7 @@ class Trace:
         with_links = dct.get(True, ())
         without_links = dct.get(False, ())
         if without_links:
-            trace_id, *rest = set(span.trace_id for span in without_links)
+            trace_id, *rest = {span.trace_id for span in without_links}
             assert not rest
             if with_links:
                 # FIXME: handle links within links
@@ -353,16 +356,16 @@ class Trace:
             return trace_id
         elif with_links:
             # for now, require that there only be one linked traceId
-            trace_id, *rest = set(
+            trace_id, *rest = {
                 link.trace_id for span in with_links for link in span.links
-            )
+            }
             assert not rest
             return trace_id
         else:
             raise ValueError("trace has no spans with or without links")
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def parent_span(self):
         (parent_span, *rest) = (
             span for span in self.spans if not span.parent_span_id and not span.links
@@ -410,7 +413,7 @@ class Trace:
         else:
             return 0
 
-    @functools.cache
+    @functools.cache  # noqa: B019
     def get_depths(self):
         spans = tuple(span for span in self.spans if span != self.parent_span)
         depths = {
@@ -418,9 +421,9 @@ class Trace:
         }
         depth = 1
         while spans:
-            parent_span_ids = set(span.span_id for span in depths[depth - 1])
+            parent_span_ids = {span.span_id for span in depths[depth - 1]}
             dct = toolz.groupby(
-                lambda span: span.parent_span_id in parent_span_ids,
+                lambda span, _ids=parent_span_ids: span.parent_span_id in _ids,
                 spans,
             )
             at_depth = dct.get(True, ())
@@ -568,19 +571,19 @@ class TraceMetrics:
         )
         assert len(oir) == len(mr)
         oir_ids, mr_ids = (
-            set(
+            {
                 attribute.value
                 for el in which
                 for event in el.events
                 for attribute in event.attributes
                 if attribute.name == "reader_id"
-            )
+            }
             for which in (oir, mr)
         )
         assert oir_ids == mr_ids
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def default_metrics(self):
         return {
             "trace_id": self.trace.trace_id,
@@ -589,7 +592,7 @@ class TraceMetrics:
         }
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def metrics(self):
         dct = {
             metric.name: metric.calc_metric(self.trace) for metric in self.trace_metrics
@@ -611,7 +614,7 @@ class FileTailer:
 
     def get_line(self):
         content = self._fh.readline()
-        while not content or not content[-1] == "\n":
+        while not content or content[-1] != "\n":
             time.sleep(self.sleep_duration)
             content += self._fh.readline()
         return content

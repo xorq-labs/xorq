@@ -134,7 +134,7 @@ class Schema(Concrete, Coercible, MapSet):
         if not pairs:
             return cls({})
 
-        names, types = zip(*pairs)
+        names, types = zip(*pairs, strict=False)
 
         # validate unique field names
         name_counts = Counter(names)
@@ -145,7 +145,7 @@ class Schema(Concrete, Coercible, MapSet):
             raise IntegrityError(f"Duplicate column name(s): {duplicate_names}")
 
         # construct the schema
-        return cls(dict(zip(names, types)))
+        return cls(dict(zip(names, types, strict=False)))
 
     @classmethod
     def from_numpy(cls, numpy_schema):

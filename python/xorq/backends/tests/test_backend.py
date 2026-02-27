@@ -41,7 +41,7 @@ def test_con_equality(connect_parts):
     # where do we want to the connection to be the same?
     n = 3
     connect = get_method(connect_parts)
-    cons = set(connect() for _ in range(3))
+    cons = {connect() for _ in range(3)}
     assert len(cons) == n
 
 

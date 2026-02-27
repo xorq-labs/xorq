@@ -139,7 +139,7 @@ class DuckDBCompiler(SQLGlotCompiler):
                 sge.PropertyEQ(
                     this=sg.to_identifier(name, quoted=self.quoted), expression=value
                 )
-                for name, value in zip(names, values)
+                for name, value in zip(names, values, strict=False)
             ]
         )
 
@@ -195,10 +195,7 @@ class DuckDBCompiler(SQLGlotCompiler):
         else:
             start = self.f.least(arg_length, self._neg_idx_to_pos(arg, start))
 
-        if stop is None:
-            stop = arg_length
-        else:
-            stop = self._neg_idx_to_pos(arg, stop)
+        stop = arg_length if stop is None else self._neg_idx_to_pos(arg, stop)
 
         return self.f.list_slice(arg, start + 1, stop)
 
@@ -240,7 +237,9 @@ class DuckDBCompiler(SQLGlotCompiler):
         body = sge.Struct.from_arg_list(
             [
                 sge.PropertyEQ(this=k, expression=v[i])
-                for k, v in zip(map(sge.convert, op.dtype.value_type.names), arg)
+                for k, v in zip(
+                    map(sge.convert, op.dtype.value_type.names), arg, strict=False
+                )
             ]
         )
         func = sge.Lambda(this=body, expressions=[i])
@@ -475,7 +474,9 @@ class DuckDBCompiler(SQLGlotCompiler):
                         self.visit_Literal(
                             ops.Literal(v, field_dtype), value=v, dtype=field_dtype
                         )
-                        for field_dtype, v in zip(dtype.types, value.values())
+                        for field_dtype, v in zip(
+                            dtype.types, value.values(), strict=False
+                        )
                     ]
                 ),
                 op.dtype,

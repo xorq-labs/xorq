@@ -82,7 +82,7 @@ def restore_udf(name, bases, type_kwargs, ctor_kwargs):
 
 
 def reduce_udf(self, udf_meta_names=udf_meta_names):
-    ctor_kwargs = dict(zip(self.argnames, self.args))
+    ctor_kwargs = dict(zip(self.argnames, self.args, strict=False))
     fields = {
         name: Argument(pattern=rlz.ValueOf(value.dtype), typehint=value.dtype)
         for name, value in ctor_kwargs.items()
@@ -168,7 +168,7 @@ class _UDF(abc.ABC):
             arg_names = list(inspect.signature(fn).parameters)
             fields = {
                 arg_name: Argument(pattern=rlz.ValueOf(typ), typehint=typ)
-                for arg_name, typ in zip(arg_names, arg_types)
+                for arg_name, typ in zip(arg_names, arg_types, strict=False)
             }
 
         func_name = name if name is not None else fn.__name__

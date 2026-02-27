@@ -201,16 +201,35 @@ drop = [
 ]
 
 [tool.ruff.lint]
-extend-select = ["I", "ICN"]
+extend-select = [
+    "I",        # isort
+    "ICN",      # import conventions
+    "B",        # flake8-bugbear: mutable default args (B006), etc.
+    "C4",       # flake8-comprehensions: prefer comprehensions
+    "FURB",     # refurb: modernisation (tuple/frozenset/set literals)
+    "PLR2004",  # magic value in comparison
+    "PLR6301",  # method could be @staticmethod
+    "SIM",      # flake8-simplify: collapse nested ifs, redundant conditions
+]
 
 [tool.ruff.lint.per-file-ignores]
 "python/xorq/__init__.py" = ["I001"]
 "python/xorq/api.py" = ["I001"]
+"python/xorq/vendor/**" = ["B", "C4", "FURB", "PLR", "SIM"]
+# Examples and docs are demonstration code: magic values, zip without strict, and
+# style simplifications are intentional for readability.
+"examples/**" = ["PLR2004", "B905", "SIM"]
+"docs/**" = ["PLR2004", "B905", "SIM"]
+# Tests naturally use magic values in assertions.
+"python/xorq/**/tests/**" = ["PLR2004"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["xorq"]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 lines-after-imports = 2
+
+[tool.pylint."messages control"]
+enable = ["W0201"]
 
 [tool.codespell]
 skip = "*.lock,.direnv,.git,docs/_freeze/**/html.json"

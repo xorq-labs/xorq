@@ -239,10 +239,7 @@ def format_column(
         max_width = None
         min_width = 20
     else:
-        if dtype.is_string():
-            min_width = min(20, max_width)
-        else:
-            min_width = max_width
+        min_width = min(20, max_width) if dtype.is_string() else max_width
 
     return out, min_width, max_width
 
@@ -465,7 +462,7 @@ def _to_rich_table(
             end_section=True,
         )
 
-    for row in zip(*col_data):
+    for row in zip(*col_data, strict=False):
         add_row(*row)
 
     # If the rows are truncated, add a trailing ellipsis row

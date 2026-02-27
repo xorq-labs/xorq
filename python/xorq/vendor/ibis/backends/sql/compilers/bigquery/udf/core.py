@@ -299,7 +299,7 @@ class PythonToJavaScriptTranslator:
         return "{{{}}}".format(
             ", ".join(
                 f"[{self.visit(key)}]: {self.visit(value)}"
-                for key, value in zip(node.keys, node.values)
+                for key, value in zip(node.keys, node.values, strict=False)
             )
         )
 
@@ -382,7 +382,7 @@ class PythonToJavaScriptTranslator:
 
         left = node.left
         comparisons = []
-        for op, right in zip(ops, rights):
+        for op, right in zip(ops, rights, strict=False):
             comparisons.append(
                 f"({self.visit(left)} {self.visit(op)} {self.visit(right)})"
             )

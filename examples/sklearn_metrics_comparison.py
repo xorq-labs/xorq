@@ -90,7 +90,7 @@ def compute_metrics(clf, X_train, X_test, y_train, y_test):
             target=target,
             pred="my_predicted",
             metric=metric_fn,
-            metric_kwargs=kwargs if kwargs else (),
+            metric_kwargs=kwargs or (),
         ).execute()
         for name, metric_fn, kwargs in metric_configs
     }

@@ -202,7 +202,7 @@ def prepare_predicates(
             else:
                 lk = rk = pred
 
-            for lhs, rhs in zip(bind(left, lk), bind(right, rk)):
+            for lhs, rhs in zip(bind(left, lk), bind(right, rk), strict=False):
                 lhs = deref_left.dereference(lhs.op())
                 rhs = deref_right.dereference(rhs.op())
                 yield comparison(lhs, rhs)

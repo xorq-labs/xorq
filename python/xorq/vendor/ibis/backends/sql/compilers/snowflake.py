@@ -149,7 +149,7 @@ $$""",
         name = type(udf_node).__name__
         signature = ", ".join(
             f"{name} {self.type_mapper.to_string(arg.dtype)}"
-            for name, arg in zip(udf_node.argnames, udf_node.args)
+            for name, arg in zip(udf_node.argnames, udf_node.args, strict=False)
         )
         return_type = SnowflakeType.to_string(udf_node.dtype)
         lines, _ = inspect.getsourcelines(udf_node.__func__)
@@ -383,7 +383,7 @@ $$""",
 
     def visit_StructColumn(self, op, *, names, values):
         return self.f.object_construct_keep_null(
-            *itertools.chain.from_iterable(zip(names, values))
+            *itertools.chain.from_iterable(zip(names, values, strict=False))
         )
 
     def visit_StructField(self, op, *, arg, field):

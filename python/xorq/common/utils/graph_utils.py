@@ -59,7 +59,7 @@ def bfs(node):
     from xorq.vendor.ibis.common.graph import Graph
 
     queue = deque((to_node(node),))
-    dct = dict()
+    dct = {}
     while queue:
         if (node := queue.popleft()) not in dct:
             children = tuple(gen_children_of(node))
@@ -100,7 +100,11 @@ def replace_nodes(replacer, expr):
     sub_expr_memo = {}
 
     def do_recreate(op, _kwargs, **kwargs):
-        kwargs = dict(zip(op.__argnames__, op.__args__)) | (_kwargs or {}) | kwargs
+        kwargs = (
+            dict(zip(op.__argnames__, op.__args__, strict=False))
+            | (_kwargs or {})
+            | kwargs
+        )
         return op.__recreate__(kwargs)
 
     def _replace_sub(sub_op):

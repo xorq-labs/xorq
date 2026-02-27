@@ -33,7 +33,7 @@ def arrays_to_df(names, *arrays):
     import pandas as pd
 
     return pd.DataFrame(
-        {name: array.to_pandas() for (name, array) in zip(names, arrays)}
+        {name: array.to_pandas() for (name, array) in zip(names, arrays, strict=False)}
     )
 
 
@@ -841,7 +841,7 @@ def pyarrow_udwf(
     schema,
     return_type,
     name=None,
-    namespace=Namespace(database=None, catalog=None),
+    namespace=Namespace(database=None, catalog=None),  # noqa: B008  # intentional: immutable sentinel default namespace
     base=AggUDF,
     **config_kwargs,
 ):
@@ -1063,14 +1063,7 @@ def pyarrow_udwf(
             **config_kwargs,
             # assert which_evaluate in ("evaluate", "evaluate_all", "evaluate_all_with_rank")
             # **{which_evaluate: fn},
-            **{
-                which_evaluate: fn
-                for which_evaluate in (
-                    "evaluate",
-                    "evaluate_all",
-                    "evaluate_all_with_rank",
-                )
-            },
+            **dict.fromkeys(("evaluate", "evaluate_all", "evaluate_all_with_rank"), fn),
         ),
         "__udf_namespace__": namespace,
         "__module__": __name__,

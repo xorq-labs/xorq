@@ -212,7 +212,7 @@ class Concrete(Immutable, Comparable, Annotable):
     def __reduce__(self):
         # assuming immutability and idempotency of the __init__ method, we can
         # reconstruct the instance from the arguments without additional attributes
-        state = dict(zip(self.__argnames__, self.__args__))
+        state = dict(zip(self.__argnames__, self.__args__, strict=False))
         return (self.__recreate__, (state,))
 
     def __hash__(self) -> int:
@@ -230,7 +230,7 @@ class Concrete(Immutable, Comparable, Annotable):
         return self.__argnames__
 
     def copy(self, **overrides) -> Self:
-        kwargs = dict(zip(self.__argnames__, self.__args__))
+        kwargs = dict(zip(self.__argnames__, self.__args__, strict=False))
         if unknown_args := overrides.keys() - kwargs.keys():
             raise AttributeError(f"Unexpected arguments: {unknown_args}")
         kwargs.update(overrides)

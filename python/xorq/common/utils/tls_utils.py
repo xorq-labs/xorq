@@ -148,7 +148,7 @@ class TLSCert:
     @classmethod
     def from_common_name(
         cls,
-        common_name=socket.gethostname(),
+        common_name=socket.gethostname(),  # noqa: B008  # intentional: captures hostname at definition time
         *,
         sans=(),
         sign_with=None,
@@ -211,7 +211,7 @@ class TLSKwargs:
         return cls(verify_client, ca_tlscert, server_tlscert, client_tlscert)
 
     @classmethod
-    def from_common_name(cls, verify_client=True, common_name=socket.gethostname()):
+    def from_common_name(cls, verify_client=True, common_name=socket.gethostname()):  # noqa: B008  # intentional: captures hostname at definition time
         ca_kwargs = {
             "common_name": "root_cert",
         }

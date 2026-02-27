@@ -182,7 +182,9 @@ def convert_join(join, catalog):
 
         predicate = None
         if desc["join_key"]:
-            for left_key, right_key in zip(desc["source_key"], desc["join_key"]):
+            for left_key, right_key in zip(
+                desc["source_key"], desc["join_key"], strict=False
+            ):
                 left_key = convert(left_key, catalog=catalog)
                 right_key = convert(right_key, catalog=catalog)
                 if predicate is None:
@@ -190,7 +192,7 @@ def convert_join(join, catalog):
                 else:
                     predicate &= left_key == right_key
 
-        if "condition" in desc.keys():
+        if "condition" in desc:
             condition = desc["condition"]
             if predicate is None:
                 predicate = convert(condition, catalog=catalog)
@@ -223,7 +225,7 @@ def replace_operands(agg):
     operands = {operand.alias: operand.this for operand in agg.operands}
 
     def transformer(node):
-        if isinstance(node, sge.Column) and node.name in operands.keys():
+        if isinstance(node, sge.Column) and node.name in operands:
             return operands[node.name]
         return node
 

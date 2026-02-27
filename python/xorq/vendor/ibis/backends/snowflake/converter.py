@@ -93,7 +93,9 @@ class SnowflakePyArrowData(PyArrowData):
             schema=pa.schema(
                 [
                     pa.field(name, array.type, nullable=ibis_dtype.nullable)
-                    for array, (name, ibis_dtype) in zip(columns, schema.items())
+                    for array, (name, ibis_dtype) in zip(
+                        columns, schema.items(), strict=False
+                    )
                 ]
             ),
         )

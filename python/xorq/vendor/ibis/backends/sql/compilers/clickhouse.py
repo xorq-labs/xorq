@@ -370,7 +370,7 @@ class ClickHouseCompiler(SQLGlotCompiler):
                 self.visit_Literal(
                     ops.Literal(v, dtype=field_type), value=v, dtype=field_type
                 )
-                for field_type, v in zip(dtype.types, value.values())
+                for field_type, v in zip(dtype.types, value.values(), strict=False)
             ]
             return self.f.tuple(*fields)
         else:
@@ -507,7 +507,7 @@ class ClickHouseCompiler(SQLGlotCompiler):
         ) % num_weekdays
         return sge.Case(
             this=base,
-            ifs=list(map(self.if_, *zip(*enumerate(days)))),
+            ifs=list(map(self.if_, *zip(*enumerate(days), strict=False))),
             default=sge.convert(""),
         )
 

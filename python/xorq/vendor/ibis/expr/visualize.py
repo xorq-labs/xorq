@@ -50,7 +50,7 @@ def get_type(node):
 
     return '<BR ALIGN="LEFT" />' + '<BR ALIGN="LEFT" />'.join(
         f"<I>{escape(name)}</I>: {escape(str(type))}"
-        for name, type in zip(schema.names, schema.types)
+        for name, type in zip(schema.names, schema.types, strict=False)
     )
 
 
@@ -142,7 +142,7 @@ def to_graph(
                         else:
                             name = None
                     else:
-                        for name, arg in zip(v.argnames, v.args):
+                        for name, arg in zip(v.argnames, v.args, strict=False):
                             if isinstance(arg, tuple) and u in arg:
                                 index = arg.index(u)
                                 name = f"{name}[{index}]"
@@ -152,10 +152,7 @@ def to_graph(
                         else:
                             name = None
 
-                    if name is not None:
-                        label = f"<.{name}>"
-                    else:
-                        label = None
+                    label = f"<.{name}>" if name is not None else None
 
                 g.edge(
                     uhash,
@@ -225,8 +222,8 @@ if __name__ == "__main__":
 
     args = p.parse_args()
 
-    left = ibis.table(dict(a="int64", b="string"), name="left")
-    right = ibis.table(dict(b="string", c="int64", d="string"), name="right")
+    left = ibis.table({"a": "int64", "b": "string"}, name="left")
+    right = ibis.table({"b": "string", "c": "int64", "d": "string"}, name="right")
     expr = (
         left.inner_join(right, "b")
         .select(left.a, b=right.c, c=right.d)

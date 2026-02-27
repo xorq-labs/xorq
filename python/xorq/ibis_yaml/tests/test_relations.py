@@ -54,8 +54,8 @@ def test_aggregation(compiler, t):
 
 
 def test_join(compiler):
-    t1 = ibis.table(dict(a="int", b="string"), name="t1")
-    t2 = ibis.table(dict(b="string", c="float"), name="t2")
+    t1 = ibis.table({"a": "int", "b": "string"}, name="t1")
+    t2 = ibis.table({"b": "string", "c": "float"}, name="t2")
     expr = t1.join(t2, t1.b == t2.b)
     yaml_dict = compiler.to_yaml(expr)
     node_ref = yaml_dict["expression"][RefEnum.node_ref]

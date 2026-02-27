@@ -161,9 +161,7 @@ class Sum(Filterable, Reduction):
     @attribute
     def dtype(self):
         dtype = self.arg.dtype
-        if dtype.is_boolean():
-            return dt.int64
-        elif dtype.is_integer():
+        if dtype.is_boolean() or dtype.is_integer():
             return dt.int64
         elif dtype.is_unsigned_integer():
             return dt.uint64

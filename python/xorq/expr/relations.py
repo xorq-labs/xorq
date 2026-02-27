@@ -74,7 +74,7 @@ def recursive_update(obj, replacements):
             return obj.__recreate__(
                 {
                     name: recursive_update(arg, replacements)
-                    for name, arg in zip(obj.argnames, obj.args)
+                    for name, arg in zip(obj.argnames, obj.args, strict=False)
                 }
             )
     elif isinstance(obj, (tuple, list)):
@@ -571,7 +571,7 @@ class Read(ops.DatabaseTable):
     def make_dt(self):
         method = getattr(self.source, self.method_name)
         args = tuple(v for k, v in self.read_kwargs if k in ("path", "paths"))
-        kwargs = dict((k, v) for k, v in self.read_kwargs if k not in ("path", "paths"))
+        kwargs = {k: v for k, v in self.read_kwargs if k not in ("path", "paths")}
         dt = method(*args, **kwargs).op()
         return dt
 
@@ -634,7 +634,7 @@ def register_and_transform_remote_tables(expr, **kwargs):
             kwargs = kwargs or {}
             if isinstance(node, Relation):
                 updated = {}
-                for k, v in list(kwargs.items()):
+                for _k, v in list(kwargs.items()):
                     try:
                         if v in batches_table:
                             updated[v] = mark_remote_table(v)

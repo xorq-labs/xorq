@@ -202,7 +202,7 @@ class ExasolCompiler(SQLGlotCompiler):
         return self.f.count(STAR)
 
     def visit_CountDistinctStar(self, op, *, arg, where):
-        cols = [sg.column(k, quoted=self.quoted) for k in op.arg.schema.keys()]
+        cols = [sg.column(k, quoted=self.quoted) for k in op.arg.schema]
         if where is not None:
             cols = [self.if_(where, c, NULL) for c in cols]
         row = sge.Tuple(expressions=cols)

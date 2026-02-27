@@ -38,7 +38,7 @@ def test_snowflake_cache_with_name_multiplicity(sf_con):
     table = "CUSTOMER"
     n_tables = (
         sf_con.table("TABLES", database=(catalog, "INFORMATION_SCHEMA"))[
-            lambda t: t.TABLE_NAME == table
+            lambda t: table == t.TABLE_NAME
         ]
         .count()
         .execute()

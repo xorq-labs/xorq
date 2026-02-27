@@ -30,7 +30,7 @@ def test_built_in_udf_properties(compiler):
     assert original_udf.dtype == roundtrip_udf.dtype
     assert len(original_udf.args) == len(roundtrip_udf.args)
 
-    for orig_arg, rt_arg in zip(original_udf.args, roundtrip_udf.args):
+    for orig_arg, rt_arg in zip(original_udf.args, roundtrip_udf.args, strict=False):
         assert orig_arg.dtype == rt_arg.dtype
 
 

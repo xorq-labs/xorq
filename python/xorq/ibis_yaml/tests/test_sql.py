@@ -102,7 +102,7 @@ def test_generate_sql_plans_complex_example():
     assert len(plans["queries"]) == 2
     assert "main" in plans["queries"]
 
-    remote_table_names = [k for k in plans["queries"].keys() if k != "main"]
+    remote_table_names = [k for k in plans["queries"] if k != "main"]
     assert len(remote_table_names) == 1
     remote_table_name = remote_table_names[0]
     assert remote_table_name.startswith("ibis_" + gen_name_namespace)

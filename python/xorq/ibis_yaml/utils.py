@@ -16,9 +16,7 @@ from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 def freeze(obj):
     if isinstance(obj, dict):
         return FrozenOrderedDict({k: freeze(v) for k, v in obj.items()})
-    elif isinstance(obj, list):
-        return tuple(freeze(x) for x in obj)
-    elif isinstance(obj, tuple):
+    elif isinstance(obj, (list, tuple)):
         return tuple(freeze(x) for x in obj)
     return obj
 
@@ -55,7 +53,7 @@ def deep_diff_objects(obj1, obj2, path="root"):
     elif isinstance(obj1, Sequence) and not isinstance(obj1, str):
         if len(obj1) != len(obj2):
             differences.append((path, obj1, obj2))
-        for i, (item1, item2) in enumerate(zip(obj1, obj2)):
+        for i, (item1, item2) in enumerate(zip(obj1, obj2, strict=False)):
             diff_path = f"{path}[{i}]"
             differences.extend(deep_diff_objects(item1, item2, diff_path))
         return differences

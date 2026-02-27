@@ -42,7 +42,7 @@ class KVEncoder:
         """Convert parallel names/values to tuple of {key, value} dicts."""
         return tuple(
             {KVField.KEY: key, KVField.VALUE: float(value)}
-            for key, value in zip(names, values)
+            for key, value in zip(names, values, strict=False)
         )
 
     @staticmethod
@@ -165,7 +165,7 @@ class KVEncoder:
             Column names that have KV_ENCODED_TYPE
         """
         schema = expr.schema()
-        cols_to_check = features if features else tuple(schema.keys())
+        cols_to_check = features or tuple(schema.keys())
         return tuple(
             col
             for col in cols_to_check
@@ -394,7 +394,7 @@ class Structer:
     @classmethod
     def from_names_typ(cls, names, typ):
         """Create a Structer with known schema."""
-        struct = dt.Struct({name: typ for name in names})
+        struct = dt.Struct(dict.fromkeys(names, typ))
         return cls(struct=struct)
 
     @classmethod

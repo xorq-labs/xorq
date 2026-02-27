@@ -293,8 +293,8 @@ def _fold_pairs_from_fold_expr(fold_expr, n_splits):
     fold_cols = [f"fold_{i}" for i in range(n_splits)]
     return tuple(
         (
-            fold_expr.filter(fold_expr[f"fold_{i}"] == 1).drop(*fold_cols),
-            fold_expr.filter(fold_expr[f"fold_{i}"] == 2).drop(*fold_cols),
+            fold_expr.filter(fold_expr[f"fold_{i}"] == 1).drop(*fold_cols),  # noqa: PLR2004  # 1=train, 2=test fold labels
+            fold_expr.filter(fold_expr[f"fold_{i}"] == 2).drop(*fold_cols),  # noqa: PLR2004  # 1=train, 2=test fold labels
         )
         for i in range(n_splits)
     )

@@ -190,12 +190,9 @@ class curry(object):
             # anyway because the function may have `*args`.  This is useful
             # for decorators with signature `func(*args, **kwargs)`.
             return True
-        elif not is_valid_args(func, args, kwargs, sigspec):
-            # Adding more arguments may make the call valid
-            return True
         else:
-            # There was a genuine TypeError
-            return False
+            # Adding more arguments may make the call valid; genuine TypeError otherwise
+            return not is_valid_args(func, args, kwargs, sigspec)
 
     def bind(self, *args, **kwargs):
         return type(self)(self, *args, **kwargs)

@@ -285,7 +285,7 @@ class Node(Hashable):
 
     def __rich_repr__(self):
         """Support for rich reprerentation of the node."""
-        return zip(self.__argnames__, self.__args__)
+        return zip(self.__argnames__, self.__args__, strict=False)
 
     def map(self, fn: Callable, filter: Optional[Finder] = None) -> dict[Node, Any]:
         """Apply a function to all nodes in the graph.
@@ -315,7 +315,7 @@ class Node(Hashable):
             # minor optimization to directly recurse into the children
             kwargs = {
                 k: _recursive_lookup(v, results)
-                for k, v in zip(node.__argnames__, node.__args__)
+                for k, v in zip(node.__argnames__, node.__args__, strict=False)
             }
             results[node] = fn(node, results, **kwargs)
 
@@ -357,7 +357,7 @@ class Node(Hashable):
             # minor optimization to directly recurse into the children
             kwargs = {
                 k: _recursive_lookup(v, results)
-                for k, v in zip(node.__argnames__, node.__args__)
+                for k, v in zip(node.__argnames__, node.__args__, strict=False)
             }
             results[node] = fn(node, results, **kwargs)
 
@@ -530,7 +530,7 @@ class Node(Hashable):
             kwargs = {}
             # Apply already rewritten nodes to the children of the node
             changed = False
-            for k, v in zip(node.__argnames__, node.__args__):
+            for k, v in zip(node.__argnames__, node.__args__, strict=False):
                 v, vchanged = _apply_replacements(v, replacements)
                 changed |= vchanged
                 kwargs[k] = v

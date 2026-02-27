@@ -44,11 +44,13 @@ def extract_build_tgz_context(tgz_path):
 
 
 def write_tgz(path, relpath_to_bytes):
-    with tempfile.TemporaryDirectory() as td:
-        with tarfile.TarFile.gzopen((path := Path(path)), "w") as tfh:
-            for relpath, byts in dict(relpath_to_bytes).items():
-                p = Path(td).joinpath(relpath)
-                p.parent.mkdir(exist_ok=True, parents=True)
-                p.write_bytes(byts)
-                tfh.add(p, arcname=relpath)
+    with (
+        tempfile.TemporaryDirectory() as td,
+        tarfile.TarFile.gzopen((path := Path(path)), "w") as tfh,
+    ):
+        for relpath, byts in dict(relpath_to_bytes).items():
+            p = Path(td).joinpath(relpath)
+            p.parent.mkdir(exist_ok=True, parents=True)
+            p.write_bytes(byts)
+            tfh.add(p, arcname=relpath)
     return path

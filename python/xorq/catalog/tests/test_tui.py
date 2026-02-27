@@ -70,7 +70,7 @@ def _make_mock_catalog(entries=(), aliases=(), commits=()):
     catalog.repo.iter_commits.return_value = commits
     catalog.list.return_value = [e.name for e in entries]
     catalog.catalog_aliases = aliases
-    for entry in entries:
+    for _entry in entries:
         catalog.get_catalog_entry.side_effect = (
             lambda h, _entries={e.name: e for e in entries}: _entries[h]
         )
@@ -637,7 +637,7 @@ class TestCatalogScreenRefresh:
                 await pilot.pause()
 
                 table = screen.query_one("#catalog-table", DataTable)
-                keys = [str(k.value) for k in table.rows.keys()]
+                keys = [str(k.value) for k in table.rows]
                 assert "abc123" in keys
                 assert "def456" in keys
 
@@ -686,7 +686,7 @@ class TestMultipleAliases:
                 table = screen.query_one("#catalog-table", DataTable)
                 assert table.row_count == 1
 
-                keys = [str(k.value) for k in table.rows.keys()]
+                keys = [str(k.value) for k in table.rows]
                 assert "abc123" in keys
 
         _run(_test())
@@ -704,7 +704,7 @@ class TestMultipleAliases:
 
                 table = screen.query_one("#catalog-table", DataTable)
                 assert table.row_count == 1
-                keys = [str(k.value) for k in table.rows.keys()]
+                keys = [str(k.value) for k in table.rows]
                 assert "def456" in keys
 
         _run(_test())

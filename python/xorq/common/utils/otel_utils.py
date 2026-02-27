@@ -77,7 +77,7 @@ else:
         ConsoleSpanExporter(
             out=sys.stdout
             if otel_config.get("OTEL_EXPORTER_CONSOLE_FALLBACK")
-            else open(os.devnull, "w")
+            else open(os.devnull, "w")  # noqa: SIM115  # lifetime managed by ConsoleSpanExporter
         )
     )
 provider.add_span_processor(processor)

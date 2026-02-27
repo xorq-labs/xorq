@@ -22,7 +22,7 @@ def patch_normalize_token(*typs, f):
     try:
         with patch.dict(
             dask.base.normalize_token._lookup,
-            values={typ: f for typ in typs},
+            values=dict.fromkeys(typs, f),
         ) as dct:
             yield dct
     finally:
@@ -86,7 +86,7 @@ def manual_file_digest(path, digest=hashlib.md5, size=2**20):
     from contextlib import closing
     from tarfile import ExFileObject
 
-    fh = path if isinstance(path, ExFileObject) else pathlib.Path(path).open("rb")
+    fh = path if isinstance(path, ExFileObject) else pathlib.Path(path).open("rb")  # noqa: SIM115  # managed by closing(fh) below
     with closing(fh):
         obj = digest()
         for chunk in itertools.takewhile(

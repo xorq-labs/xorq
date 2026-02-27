@@ -131,7 +131,7 @@ class Backend(
         con = self.con
         with con.cursor() as cursor, con.transaction():
             cursor.execute(create_stmt_sql).executemany(
-                sql, zip(*table.to_pydict().values())
+                sql, zip(*table.to_pydict().values(), strict=False)
             )
 
     @contextlib.contextmanager
@@ -635,10 +635,7 @@ ORDER BY a.attnum ASC"""
             properties.append(sge.TemporaryProperty())
 
         if obj is not None:
-            if not isinstance(obj, ir.Expr):
-                table = ibis.memtable(obj)
-            else:
-                table = obj
+            table = ibis.memtable(obj) if not isinstance(obj, ir.Expr) else obj
 
             self._run_pre_execute_hooks(table)
 
@@ -646,10 +643,7 @@ ORDER BY a.attnum ASC"""
         else:
             query = None
 
-        if overwrite:
-            temp_name = util.gen_name(f"{self.name}_table")
-        else:
-            temp_name = name
+        temp_name = util.gen_name(f"{self.name}_table") if overwrite else name
 
         if not schema:
             schema = table.schema()

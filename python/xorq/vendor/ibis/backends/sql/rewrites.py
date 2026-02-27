@@ -552,7 +552,7 @@ def lower_bucket(_, **kwargs):
         results.append(bucket_id)
         bucket_id += 1
 
-    for j, (lower, upper) in enumerate(zip(_.buckets, _.buckets[1:])):
+    for j, (lower, upper) in enumerate(zip(_.buckets, _.buckets[1:], strict=False)):
         if _.close_extreme and (
             (_.closed == "right" and j == 0)
             or (_.closed == "left" and j == (user_num_buckets - 1))

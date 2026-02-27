@@ -1,7 +1,6 @@
 import re
 import tarfile
 from datetime import datetime
-from functools import cache
 from pathlib import Path
 
 import yaml
@@ -89,27 +88,22 @@ class CatalogRowData:
     cached_expr: object = field(default=None, eq=False, hash=False, repr=False)
 
     @property
-    @cache
     def aliases_display(self) -> str:
         return ", ".join(self.aliases) if self.aliases else ""
 
     @property
-    @cache
     def backends_display(self) -> str:
         return ", ".join(sorted(set(self.backends))) if self.backends else ""
 
     @property
-    @cache
     def output_display(self) -> str:
         return _format_column_count(self.column_count)
 
     @property
-    @cache
     def cached_display(self) -> str:
         return _format_cached(self.cached)
 
     @property
-    @cache
     def root_tag_display(self) -> str:
         return self.root_tag
 
@@ -170,17 +164,14 @@ class RevisionRowData:
     is_current: bool = field(default=False, validator=instance_of(bool))
 
     @property
-    @cache
     def cached_display(self) -> str:
         return _format_cached(self.cached)
 
     @property
-    @cache
     def status_display(self) -> str:
         return "CURRENT →" if self.is_current else ""
 
     @property
-    @cache
     def columns_display(self) -> str:
         return _format_column_count(self.column_count)
 
@@ -610,7 +601,7 @@ class ExploreScreen(Screen):
             with TabPane("Data", id="pane-data", disabled=True):
                 yield Static("Loading...", id="data-status")
                 yield DataTable(id="data-table")
-            with TabPane("Info", id="pane-info"):
+            with TabPane("Info", id="pane-info"):  # noqa: SIM117  # Textual widget composers must stay nested
                 with VerticalScroll(id="info-scroll"):
                     with Vertical(id="lineage-section", classes="info-section"):
                         yield Static("", id="lineage-content")
@@ -987,7 +978,7 @@ class ExploreScreen(Screen):
         explore_screens = tuple(
             s for s in self.app.screen_stack if isinstance(s, ExploreScreen)
         )
-        if len(explore_screens) >= 2:
+        if len(explore_screens) >= 2:  # noqa: PLR2004  # max drill-down depth is 2
             self.notify("Maximum drill-down depth reached", severity="warning")
             return
         self.app.push_screen(ExploreScreen(rev_entry, ""))

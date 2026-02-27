@@ -239,7 +239,7 @@ class PandasExecutor(PandasUtils):
 
     @classmethod
     def visit_StructColumn(cls, op: ops.StructColumn, names, values):
-        return cls.rowwise(lambda row: dict(zip(names, row)), values)
+        return cls.rowwise(lambda row: dict(zip(names, row, strict=False)), values)
 
     @classmethod
     def visit_ArrayConcat(cls, op: ops.ArrayConcat, arg):
@@ -457,10 +457,7 @@ class PandasExecutor(PandasUtils):
 
     @classmethod
     def visit_Lag(cls, op: ops.Lag | ops.Lead, arg, offset, default):
-        if isinstance(op, ops.Lag):
-            sign = operator.pos
-        else:
-            sign = operator.neg
+        sign = operator.pos if isinstance(op, ops.Lag) else operator.neg
 
         if op.offset is not None and op.offset.dtype.is_interval():
 
@@ -609,11 +606,11 @@ class PandasExecutor(PandasUtils):
     ):
         try:
             return source.dictionary[name]
-        except KeyError:
+        except KeyError as err:
             raise UnboundExpressionError(
                 f"{name} is not a table in the {source.name!r} backend, you "
                 "probably tried to execute an expression without a data source"
-            )
+            ) from err
 
     @classmethod
     def visit_InMemoryTable(cls, op: ops.InMemoryTable, name, schema, data):
@@ -742,7 +739,7 @@ class PandasExecutor(PandasUtils):
             return df.drop(columns=["_merge"])
         elif how == "semi":
             mask = cls.asseries(True, like=left)
-            for left_pred, right_pred in zip(left_on, right_on):
+            for left_pred, right_pred in zip(left_on, right_on, strict=False):
                 mask = mask & left_pred.isin(right_pred)
             return left[mask]
         else:
@@ -847,10 +844,7 @@ class PandasExecutor(PandasUtils):
 
     @classmethod
     def visit_DropNull(cls, op: ops.DropNull, parent, how, subset):
-        if op.subset is not None:
-            subset = [col.name for col in op.subset]
-        else:
-            subset = None
+        subset = [col.name for col in op.subset] if op.subset is not None else None
         return parent.dropna(how=how, subset=subset)
 
     @classmethod
