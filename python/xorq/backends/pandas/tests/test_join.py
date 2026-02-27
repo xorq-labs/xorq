@@ -620,7 +620,7 @@ def test_multijoin(tracts_df, fields_df, harvest_df):
         }
     )
 
-    tracts, fields, harvest = map(conn.table, ["tracts", "fields", "harvest"])
+    tracts, fields, harvest = map(conn.table, ("tracts", "fields", "harvest"))
 
     fielded = harvest.inner_join(
         fields,

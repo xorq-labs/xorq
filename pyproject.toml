@@ -208,7 +208,6 @@ extend-select = [
     "C4",       # flake8-comprehensions: prefer comprehensions
     "FURB",     # refurb: modernisation (tuple/frozenset/set literals)
     "PLR2004",  # magic value in comparison
-    "PLR6301",  # method could be @staticmethod
     "SIM",      # flake8-simplify: collapse nested ifs, redundant conditions
 ]
 
