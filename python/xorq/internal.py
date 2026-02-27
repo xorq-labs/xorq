@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 from typing import List
 
 import pyarrow as pa
@@ -76,9 +76,8 @@ class AbstractTableProvider(ABC):
         pass
 
 
-class WindowEvaluator(ABC):
-    @abstractmethod
-    def memoize(self) -> None:
+class WindowEvaluator(metaclass=ABCMeta):  # noqa: B024  # intentional: optional interface, subclasses override needed methods
+    def memoize(self) -> None:  # noqa: B027  # intentional: optional override for window memoization
         pass
 
     def get_range(self, idx: int, num_rows: int) -> tuple[int, int]:
@@ -87,21 +86,18 @@ class WindowEvaluator(ABC):
     def is_causal(self) -> bool:
         return False
 
-    @abstractmethod
     def evaluate_all(self, values: list[pa.Array], num_rows: int) -> pa.Array:
-        pass
+        return pa.array([])
 
-    @abstractmethod
     def evaluate(
         self, values: list[pa.Array], eval_range: tuple[int, int]
     ) -> pa.Scalar:
-        pass
+        return pa.scalar(None)
 
-    @abstractmethod
     def evaluate_all_with_rank(
         self, num_rows: int, ranks_in_partition: list[tuple[int, int]]
     ) -> pa.Array:
-        pass
+        return pa.array([])
 
     def supports_bounded_execution(self) -> bool:
         return False
