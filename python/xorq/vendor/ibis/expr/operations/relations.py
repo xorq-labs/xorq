@@ -424,6 +424,23 @@ class InMemoryTable(PhysicalTable):
     schema: Schema
     data: TableProxy
 
+    def __equals__(self, other) -> bool:
+        import pandas as pd
+
+        from xorq.vendor.ibis.formats.pandas import PandasDataFrameProxy
+
+        if isinstance(self.data, PandasDataFrameProxy):
+            assert self.argnames == ("name", "schema", "data") and isinstance(
+                self.data.obj, pd.DataFrame
+            )
+            return (
+                hash(self) == hash(other)
+                and (self.name, self.schema) == (other.name, other.schema)
+                and isinstance(other, PandasDataFrameProxy)
+                and self.data.obj.equals(other.data.obj)
+            )
+        return hash(self) == hash(other) and self.__args__ == other.__args__
+
 
 @public
 class SQLQueryResult(Relation):
