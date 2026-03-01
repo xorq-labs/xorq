@@ -3,6 +3,12 @@
 import threading
 from unittest.mock import patch
 
+import pytest
+
+
+pytest.importorskip("duckdb")
+pytest.importorskip("sqlite3")
+
 import xorq.backends.duckdb as duckdb
 import xorq.backends.sqlite as sqlite
 from xorq.backends.lazy import LazyBackend
