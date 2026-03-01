@@ -11,6 +11,7 @@ from attr.validators import (
     optional,
 )
 
+from xorq.backends._lazy import LazyBackend
 from xorq.common.utils.env_utils import compiled_env_var_substitution_re
 from xorq.common.utils.inspect_utils import get_arguments
 from xorq.loader import _load_entry_points, load_backend
@@ -198,12 +199,24 @@ class Profile:
         dask_hash = dask.base.tokenize(toolz.dissoc(self.as_dict(), "idx"))
         return f"{dask_hash}_{self.idx}"
 
-    def get_con(self, **kwargs):
-        """Create a connection using this profile's parameters."""
+    def _get_connect(self, **kwargs):
         _kwargs = dict(self.kwargs_tuple) | kwargs
         connect = getattr(load_backend(self.con_name), "connect")
-        con = connect(**_kwargs)
-        return con
+        return connect, _kwargs
+
+    def get_con(self, **kwargs):
+        """Create a connection using this profile's parameters."""
+        connect, _kwargs = self._get_connect(**kwargs)
+        return connect(**_kwargs)
+
+    def get_lazy_con(self, **kwargs):
+        """Return a LazyBackend wrapping an unconnected backend instance.
+
+        The backend's ``do_connect`` is deferred until the first attribute
+        access, so no network or filesystem connection is established here.
+        """
+        connect, _kwargs = self._get_connect(**kwargs)
+        return LazyBackend(connect.__wrapped__.__self__, **_kwargs)
 
     def clone(self, idx=None, **kwargs):
         idx = idx if idx is not None else self.idx

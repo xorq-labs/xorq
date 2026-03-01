@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 import dask
+import pyarrow.parquet as pq
 import toolz
 import yaml
 from attr import (
@@ -164,8 +165,6 @@ class ArtifactStore:
         return path
 
     def write_parquet(self, table, *path_parts) -> pathlib.Path:
-        import pyarrow.parquet as pq  # noqa: PLC0415
-
         with self._write(*path_parts) as (path, f):
             pq.write_table(table, path)
         return path
@@ -248,14 +247,15 @@ def dehydrate_cons(cons):
     return dehydrated
 
 
-def hydrate_cons(hash_to_profile_kwargs):
+def hydrate_cons(hash_to_profile_kwargs, lazy=False):
     def kwargs_to_con(kwargs):
         match dct := dict(kwargs):
             case {"kwargs_tuple": dict()}:
                 dct["kwargs_tuple"] = tuple(dct["kwargs_tuple"].items())
             case _:
                 dct["kwargs_tuple"] = tuple(map(tuple, dct["kwargs_tuple"]))
-        con = Profile(**dct).get_con()
+        profile = Profile(**dct)
+        con = profile.get_lazy_con() if lazy else profile.get_con()
         return con
 
     profiles = toolz.valmap(
@@ -556,8 +556,15 @@ class ExprLoader:
     def artifact_store(self):
         return ArtifactStore(self.expr_path)
 
-    def load_expr(self, raise_on_unbound: bool = True):
-        profiles = hydrate_cons(self.artifact_store.load_yaml(DumpFiles.profiles))
+    def load_expr(
+        self,
+        raise_on_unbound: bool = True,
+        lazy: bool = False,
+        read_only_parquet_metadata: bool = False,
+    ):
+        profiles = hydrate_cons(
+            self.artifact_store.load_yaml(DumpFiles.profiles), lazy=lazy
+        )
         yaml_dict = self.artifact_store.load_yaml(DumpFiles.expr)
         entry = self.artifact_store.read_json(DumpFiles.expr_metadata)
         if raise_on_unbound and entry.get("kind") == ExprKind.UnboundExpr:
@@ -565,17 +572,25 @@ class ExprLoader:
                 "expression is unbound; pass raise_on_unbound=False to load anyway"
             )
         expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
-        expr = self.deferred_reads_to_memtables(expr, self.expr_path)
+        expr = self.deferred_reads_to_memtables(
+            expr, self.expr_path, read_only_parquet_metadata=read_only_parquet_metadata
+        )
         if self.cache_dir:
             expr = self.replace_base_path(expr, base_path=Path(self.cache_dir))
         return expr
 
     @staticmethod
-    def deferred_reads_to_memtables(loaded, expr_path):
+    def deferred_reads_to_memtables(
+        loaded, expr_path, read_only_parquet_metadata=False
+    ):
         def deferred_read_to_memtable(dr):
             assert any(key == MemtableTypes.inmemory for key, _ in dr.read_kwargs)
-            path = next(v for k, v in dr.read_kwargs if k == "path")
-            df = read_parquet(expr_path.joinpath(path)).execute()
+            path = expr_path.joinpath(next(v for k, v in dr.read_kwargs if k == "path"))
+            df = (
+                pq.read_schema(path).empty_table().to_pandas()
+                if read_only_parquet_metadata
+                else read_parquet(path).execute()
+            )
             mt = ibis.memtable(df, schema=dr.schema, name=dr.name)
             return mt.op()
 
@@ -618,9 +633,14 @@ class ExprLoader:
 @functools.wraps(ExprLoader)
 def load_expr(expr_path, **kwargs):
     raise_on_unbound = kwargs.pop("raise_on_unbound", False)
+    lazy = kwargs.pop("lazy", False)
+    read_only_parquet_metadata = kwargs.pop("read_only_parquet_metadata", False)
     expr_loader = ExprLoader(expr_path, **kwargs)
-    expr = expr_loader.load_expr(raise_on_unbound=raise_on_unbound)
-    return expr
+    return expr_loader.load_expr(
+        raise_on_unbound=raise_on_unbound,
+        lazy=lazy,
+        read_only_parquet_metadata=read_only_parquet_metadata,
+    )
 
 
 # todo: rename to dump_expr
