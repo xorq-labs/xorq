@@ -152,41 +152,37 @@ def test_thread_safety_connect_once():
 # ---------------------------------------------------------------------------
 
 
-def test_duckdb_lazy_as_table_source():
+def test_duckdb_lazy_as_table_source(tmp_path):
     """LazyBackend as source in ops.DatabaseTable — connection deferred until execute."""
+
     from xorq.vendor.ibis import Schema
     from xorq.vendor.ibis.expr import operations as ops
 
-    raw = duckdb.Backend()
-    lazy = LazyBackend(raw, database=":memory:")
+    db_file = tmp_path / "nums.duckdb"
 
-    # Seed data via a *separate* in-memory connection (shared file not needed).
+    # Seed the file with a plain connected backend.
     seed = duckdb.Backend()
-    seed.do_connect(database=":memory:")
+    seed.do_connect(database=str(db_file))
     seed.con.execute("CREATE TABLE nums AS SELECT 1 AS a, 'x' AS b")
+    seed.disconnect()
 
-    # For this test we directly connect lazy to the same seeded con so the
-    # table exists; the point is that *before* execute() is called the
-    # LazyBackend is unconnected.
-    lazy2 = LazyBackend(seed, database=":memory:")
-    assert (
-        lazy2.is_connected is False
-    )  # seed already connected but lazy2 wraps it unconnected
-
-    # Build the expression without triggering connection on our fresh lazy backend.
-    schema = Schema({"a": "int64", "b": "string"})
+    # Build a LazyBackend pointing at the file — not connected yet.
+    lazy = LazyBackend(duckdb.Backend(), database=str(db_file))
     assert lazy.is_connected is False
 
     # Simulate what load_expr does: create a DatabaseTable with source=lazy.
-    # We use the seeded backend directly to avoid needing a persistent file.
+    schema = Schema({"a": "int64", "b": "string"})
     table_op = ops.DatabaseTable(
         name="nums",
         schema=schema,
-        source=seed,
+        source=lazy,
         namespace=ops.Namespace(),
     )
     expr = table_op.to_expr()
+
+    # Connection is established only here, when the query actually runs.
     result = expr.execute()
+    assert lazy.is_connected is True
     assert list(result.columns) == ["a", "b"]
     assert len(result) == 1
 
