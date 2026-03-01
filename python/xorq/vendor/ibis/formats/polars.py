@@ -173,6 +173,9 @@ class PolarsData(DataMapper):
 
 
 class PolarsDataFrameProxy(TableProxy[pl.DataFrame]):
+    def proxy_equals(self, other: "PolarsDataFrameProxy") -> bool:
+        return self.obj.frame_equal(other.obj)
+
     def to_frame(self) -> pd.DataFrame:
         return self.obj.to_pandas()
 

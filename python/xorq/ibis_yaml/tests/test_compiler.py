@@ -670,3 +670,23 @@ def test_pandas_memtable_comparison(builds_dir):
     expr2 = xo.memtable(df, name="name")
     joined = expr.join(expr2, predicates="a")
     xo.build_expr(joined, builds_dir=builds_dir)
+
+
+def test_pyarrow_memtable_comparison(builds_dir):
+    import pyarrow as pa
+
+    table = pa.table({"a": [1]})
+    expr = xo.memtable(table, name="name")
+    expr2 = xo.memtable(table, name="name")
+    joined = expr.join(expr2, predicates="a")
+    xo.build_expr(joined, builds_dir=builds_dir)
+
+
+def test_polars_memtable_comparison(builds_dir):
+    pl = pytest.importorskip("polars")
+
+    df = pl.DataFrame({"a": [1]})
+    expr = xo.memtable(df, name="name")
+    expr2 = xo.memtable(df, name="name")
+    joined = expr.join(expr2, predicates="a")
+    xo.build_expr(joined, builds_dir=builds_dir)
