@@ -205,6 +205,22 @@ class Profile:
         con = connect(**_kwargs)
         return con
 
+    def get_lazy_con(self, **kwargs):
+        """Return a LazyBackend wrapping an unconnected backend instance.
+
+        The backend's ``do_connect`` is deferred until the first attribute
+        access, so no network or filesystem connection is established here.
+        """
+        from xorq.backends.lazy import LazyBackend
+
+        entry_point = next(
+            ep for ep in _load_entry_points() if ep.name == self.con_name
+        )
+        module = entry_point.load()
+        backend = module.Backend()
+        _kwargs = dict(self.kwargs_tuple) | kwargs
+        return LazyBackend(backend, **_kwargs)
+
     def clone(self, idx=None, **kwargs):
         idx = idx if idx is not None else self.idx
         kwargs_tuple = tuple((dict(self.kwargs_tuple) | kwargs).items())

@@ -255,14 +255,15 @@ def dehydrate_cons(cons):
     return dehydrated
 
 
-def hydrate_cons(hash_to_profile_kwargs):
+def hydrate_cons(hash_to_profile_kwargs, lazy=False):
     def kwargs_to_con(kwargs):
         match dct := dict(kwargs):
             case {"kwargs_tuple": dict()}:
                 dct["kwargs_tuple"] = tuple(dct["kwargs_tuple"].items())
             case _:
                 dct["kwargs_tuple"] = tuple(map(tuple, dct["kwargs_tuple"]))
-        con = Profile(**dct).get_con()
+        profile = Profile(**dct)
+        con = profile.get_lazy_con() if lazy else profile.get_con()
         return con
 
     profiles = toolz.valmap(
@@ -544,6 +545,7 @@ class ExprLoader:
     cache_dir = field(
         validator=optional(or_(instance_of(Path), instance_of(str))), default=None
     )
+    lazy = field(validator=instance_of(bool), default=False)
 
     @property
     def expr_hash(self):
@@ -555,7 +557,9 @@ class ExprLoader:
         return ArtifactStore(self.expr_path)
 
     def load_expr(self):
-        profiles = hydrate_cons(self.artifact_store.load_yaml(DumpFiles.profiles))
+        profiles = hydrate_cons(
+            self.artifact_store.load_yaml(DumpFiles.profiles), lazy=self.lazy
+        )
         yaml_dict = self.artifact_store.load_yaml(DumpFiles.expr)
         expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
         expr = self.deferred_reads_to_memtables(expr, self.expr_path)
