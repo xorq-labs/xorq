@@ -282,8 +282,7 @@ class Backend(
 
         # This is the same table as initial_table unless overwrite == True
         final_table = sg.table(name, catalog=catalog, db=database, quoted=quoted)
-        with self._safe_raw_sql(create_stmt):
-            pass
+        self._execute_ddl(create_stmt)
 
         with self.con.cursor() as cur:
             if query is not None:
@@ -400,6 +399,13 @@ class Backend(
             yield cur
         finally:
             cur.close()
+
+    def _execute_ddl(self, query: str | sg.Expression) -> None:
+        """Execute a DDL/DML statement."""
+        with contextlib.suppress(AttributeError):
+            query = query.sql(dialect=self.dialect)
+        with self.con.cursor() as cur:
+            cur.execute(query)
 
     def list_catalogs(self, like: str | None = None) -> list[str]:
         col = "catalog_name"
@@ -618,8 +624,7 @@ class Backend(
             if not loaded
         )
         for command in commands:
-            with self._safe_raw_sql(command):
-                pass
+            self._execute_ddl(command)
 
     def load_extension(self, extension: str, force_install: bool = False) -> None:
         """Install and load a duckdb extension by name or path.
@@ -643,8 +648,7 @@ class Backend(
             )
 
         name = sg.table(name, catalog=catalog, quoted=self.compiler.quoted)
-        with self._safe_raw_sql(sge.Create(this=name, kind="SCHEMA", replace=force)):
-            pass
+        self._execute_ddl(sge.Create(this=name, kind="SCHEMA", replace=force))
 
     def drop_database(
         self, name: str, /, *, catalog: str | None = None, force: bool = False
@@ -655,8 +659,7 @@ class Backend(
             )
 
         name = sg.table(name, catalog=catalog, quoted=self.compiler.quoted)
-        with self._safe_raw_sql(sge.Drop(this=name, kind="SCHEMA", replace=force)):
-            pass
+        self._execute_ddl(sge.Drop(this=name, kind="SCHEMA", replace=force))
 
     @util.experimental
     def read_json(
@@ -987,8 +990,7 @@ class Backend(
             f"database={database}' AS {catalog} (TYPE mysql)"
         )
 
-        with self._safe_raw_sql(query_con):
-            pass
+        self._execute_ddl(query_con)
 
         return self.table(table_name, database=(catalog, database))
 
@@ -1079,8 +1081,7 @@ class Backend(
         if read_only:
             code += " (READ_ONLY)"
 
-        with self._safe_raw_sql(code):
-            pass
+        self._execute_ddl(code)
 
     def detach(self, name: str) -> None:
         """Detach a database from the current DuckDB session.
@@ -1092,8 +1093,7 @@ class Backend(
 
         """
         name = sg.to_identifier(name).sql(self.name)
-        with self._safe_raw_sql(f"DETACH {name}"):
-            pass
+        self._execute_ddl(f"DETACH {name}")
 
     def attach_sqlite(
         self,
@@ -1135,10 +1135,8 @@ class Backend(
 
         """
         self.load_extension("sqlite")
-        with self._safe_raw_sql(f"SET GLOBAL sqlite_all_varchar={all_varchar}"):
-            pass
-        with self._safe_raw_sql(f"CALL sqlite_attach('{path}', overwrite={overwrite})"):
-            pass
+        self._execute_ddl(f"SET GLOBAL sqlite_all_varchar={all_varchar}")
+        self._execute_ddl(f"CALL sqlite_attach('{path}', overwrite={overwrite})")
 
     @util.experimental
     def read_xlsx(
@@ -1258,8 +1256,7 @@ class Backend(
         args.extend(f"{k.upper()} {v!r}" for k, v in kwargs.items())
         copy_cmd = f"COPY ({query}) TO {str(path)!r} ({', '.join(args)})"
         self.load_extension("excel")
-        with self._safe_raw_sql(copy_cmd):
-            pass
+        self._execute_ddl(copy_cmd)
 
     def register_filesystem(self, filesystem: AbstractFileSystem):
         """Register an `fsspec` filesystem object with DuckDB.
@@ -1545,8 +1542,7 @@ class Backend(
                 for col_name in schema.names
             )
             create_sql = f'CREATE OR REPLACE TABLE "{op.name}" ({columns})'
-            with self._safe_raw_sql(create_sql):
-                pass
+            self._execute_ddl(create_sql)
             return
 
         # Downcast large Arrow types for Flight SQL compatibility
@@ -1568,8 +1564,7 @@ class Backend(
         )
 
     def _create_temp_view(self, table_name, source):
-        with self._safe_raw_sql(self._get_temp_view_definition(table_name, source)):
-            pass
+        self._execute_ddl(self._get_temp_view_definition(table_name, source))
 
 
 # ── Register gizmosql as a DuckDB dialect alias ──────────────────────────────
