@@ -236,7 +236,10 @@ def test_load_expr_limit_is_pushed_into_parquet_read(builds_dir, parquet_dir):
 # ---------------------------------------------------------------------------
 
 
-def _write_parquet_files(parquet_dir: Path, n_rows: int = 1_000) -> None:
+@pytest.fixture
+def lahman_parquet_dir(tmp_path_factory, n_rows: int = 1_000) -> Path:
+    """Write synthetic Lahman-style parquet files and return the directory."""
+    parquet_dir = tmp_path_factory.mktemp("lahman_parquet")
     player_ids = [f"player{i:04d}" for i in range(n_rows)]
     years = [1990 + (i % 30) for i in range(n_rows)]
     teams = [f"T{i % 20:02d}" for i in range(n_rows)]
@@ -270,9 +273,11 @@ def _write_parquet_files(parquet_dir: Path, n_rows: int = 1_000) -> None:
         }
     ).to_parquet(parquet_dir / "fielding.parquet", index=False)
 
+    return parquet_dir
+
 
 def _make_multi_join_expr(parquet_dir: Path):
-    """batting from postgres; people/salaries/fielding from 1000-row parquet files."""
+
     pg = xo.postgres.connect_examples()
     batting = pg.table("batting")
     pg_backend = batting._find_backend()
@@ -327,7 +332,7 @@ def _mean_load_time(expr_path: Path, n_runs: int = 10, **kwargs) -> float:
 
 @pytest.mark.benchmark
 @pytest.mark.postgres
-def test_lazy_load_expr_faster_than_eager_postgres(builds_dir, tmp_path):
+def test_lazy_load_expr_faster_than_eager_postgres(builds_dir, lahman_parquet_dir):
     """lazy=True must be faster than lazy=False when expr contains a postgres connection.
 
     The eager path establishes a real network connection to postgres on every
@@ -335,15 +340,11 @@ def test_lazy_load_expr_faster_than_eager_postgres(builds_dir, tmp_path):
     backend in a LazyBackend that only connects on execute().  We assert a
     meaningful speedup: lazy must be at least 1.5x faster than eager.
     """
-    parquet_dir = tmp_path / "parquet"
-    parquet_dir.mkdir()
-    _write_parquet_files(parquet_dir)
-
-    expr = _make_multi_join_expr(parquet_dir)
+    expr = _make_multi_join_expr(lahman_parquet_dir)
     expr_path = build_expr(expr, builds_dir=builds_dir)
 
     eager_s = _mean_load_time(expr_path, lazy=False)
-    lazy_s = _mean_load_time(expr_path, lazy=True)
+    lazy_s = _mean_load_time(expr_path, lazy=True, limit=10)
     speedup = eager_s / lazy_s
 
     assert speedup > 1.5, (
