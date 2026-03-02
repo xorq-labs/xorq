@@ -38,10 +38,12 @@ def rbr_from_fs(fs, path):
 
 @curry
 def rbr_to_fs(fs, path, rbr, **kwargs):
-    with fs.open(path, "wb") as fh:
-        with pq.ParquetWriter(fh, rbr.schema, **kwargs) as writer:
-            for batch in rbr:
-                writer.write_batch(batch)
+    with (
+        fs.open(path, "wb") as fh,
+        pq.ParquetWriter(fh, rbr.schema, **kwargs) as writer,
+    ):
+        for batch in rbr:
+            writer.write_batch(batch)
 
 
 @frozen

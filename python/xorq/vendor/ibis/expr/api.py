@@ -301,7 +301,7 @@ def schema(
     if len(names) != len(types):
         raise ValueError("Schema names and types must have the same length")
 
-    return sch.Schema.from_tuples(zip(names, types))
+    return sch.Schema.from_tuples(zip(names, types, strict=False))
 
 
 _table_names = (f"unbound_table_{i:d}" for i in itertools.count())
@@ -358,10 +358,7 @@ def table(
       a int64
     """
     if name is None:
-        if isinstance(schema, type):
-            name = schema.__name__
-        else:
-            name = next(_table_names)
+        name = schema.__name__ if isinstance(schema, type) else next(_table_names)
     if catalog is not None and database is None:
         raise ValueError(
             "A catalog-only namespace is invalid in Ibis, "
@@ -497,7 +494,7 @@ def _memtable(
             "names",
             (f"col{i:d}" for i in builtins.range(len(cols))),
         )
-        df = df.rename(columns=dict(zip(cols, newcols)))
+        df = df.rename(columns=dict(zip(cols, newcols, strict=False)))
 
     if columns is not None:
         if (provided_col := len(columns)) != (exist_col := len(df.columns)):
@@ -506,7 +503,7 @@ def _memtable(
                 f"`columns` has {provided_col} elements but `data` has {exist_col} columns."
             )
 
-        df = df.rename(columns=dict(zip(df.columns, columns)))
+        df = df.rename(columns=dict(zip(df.columns, columns, strict=False)))
 
     # verify that the DataFrame has no duplicate column names because ibis
     # doesn't allow that
@@ -537,7 +534,7 @@ def _memtable_from_pyarrow_table(
 
     if columns is not None:
         assert schema is None, "if `columns` is not `None` then `schema` must be `None`"
-        schema = sch.Schema(dict(zip(columns, sch.infer(data).values())))
+        schema = sch.Schema(dict(zip(columns, sch.infer(data).values(), strict=False)))
     return ops.InMemoryTable(
         name=name if name is not None else util.gen_name("pyarrow_memtable"),
         schema=sch.infer(data) if schema is None else schema,
@@ -562,7 +559,7 @@ def _memtable_from_polars_dataframe(
 
     if columns is not None:
         assert schema is None, "if `columns` is not `None` then `schema` must be `None`"
-        schema = sch.Schema(dict(zip(columns, sch.infer(data).values())))
+        schema = sch.Schema(dict(zip(columns, sch.infer(data).values(), strict=False)))
     return ops.InMemoryTable(
         name=name if name is not None else util.gen_name("polars_memtable"),
         schema=sch.infer(data) if schema is None else schema,
@@ -1239,7 +1236,7 @@ def cases(
     │ divisible by 2 │
     └────────────────┘
     """
-    cases, results = zip(branch, *branches)
+    cases, results = zip(branch, *branches, strict=False)
     return ops.SearchedCase(cases=cases, results=results, default=else_).to_expr()
 
 

@@ -255,7 +255,10 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                     type_string, nullable=is_nullable == "YES"
                 )
                 for name, type_string, is_nullable in zip(
-                    result["column_name"], result["data_type"], result["is_nullable"]
+                    result["column_name"],
+                    result["data_type"],
+                    result["is_nullable"],
+                    strict=False,
                 )
             }
         )
@@ -265,9 +268,11 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         for name, func in inspect.getmembers(
             udfs,
-            predicate=lambda m: callable(m)
-            and not m.__name__.startswith("_")
-            and m.__module__ == udfs.__name__,
+            predicate=lambda m: (
+                callable(m)
+                and not m.__name__.startswith("_")
+                and m.__module__ == udfs.__name__
+            ),
         ):
             annotations = typing.get_type_hints(func)
             argnames = list(inspect.signature(func).parameters.keys())
@@ -300,7 +305,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         for agg_node in expr.op().find(ops.AggUDF):
             if agg_node.__input_type__ == InputType.PYARROW:
-                if set(("evaluate", "evaluate_all")).intersection(agg_node.__config__):
+                if {"evaluate", "evaluate_all"}.intersection(agg_node.__config__):
                     udwf = _compile_pyarrow_udwf(agg_node)
                     self.con.register_udwf(udwf)
                 else:
@@ -620,9 +625,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 "storage_options", {}
             )
 
-        if schema := kwargs.get("schema"):
-            if isinstance(schema, ibis.Schema):
-                kwargs["schema"] = schema.to_pyarrow()
+        if (schema := kwargs.get("schema")) and isinstance(schema, ibis.Schema):
+            kwargs["schema"] = schema.to_pyarrow()
 
         # Our other backends support overwriting views / tables when re-registering
         self.con.deregister_table(table_name)
@@ -690,12 +694,12 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         try:
             from deltalake import DeltaTable
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "The deltalake extra is required to use the "
                 "read_delta method. You can install it using pip:\n\n"
                 "pip install 'ibis-framework[deltalake]'\n"
-            )
+            ) from err
 
         delta_table = DeltaTable(source_table, **kwargs)
 
@@ -904,10 +908,12 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         self._import_pyarrow()
         import pyarrow.parquet as pq
 
-        with expr.to_pyarrow_batches(params=params) as batch_reader:
-            with pq.ParquetWriter(path, batch_reader.schema, **kwargs) as writer:
-                for batch in batch_reader:
-                    writer.write_batch(batch)
+        with (
+            expr.to_pyarrow_batches(params=params) as batch_reader,
+            pq.ParquetWriter(path, batch_reader.schema, **kwargs) as writer,
+        ):
+            for batch in batch_reader:
+                writer.write_batch(batch)
 
 
 @contextlib.contextmanager

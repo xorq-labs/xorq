@@ -256,7 +256,7 @@ class Backend(SQLBackend, UrlFromPath):
             )
             row = cur.fetchone()
             if row is not None:
-                for name, typ in zip(unknown, row):
+                for name, typ in zip(unknown, row, strict=False):
                     _, nullable = table_info[name]
                     table_info[name] = (typ, nullable)
             else:
@@ -405,7 +405,7 @@ class Backend(SQLBackend, UrlFromPath):
                     f"{label} has unsupported type {dtype}"
                 )
 
-        for argname, arg in zip(udf_node.argnames, udf_node.args):
+        for argname, arg in zip(udf_node.argnames, udf_node.args, strict=False):
             check_dtype(arg.dtype, argname)
         check_dtype(udf_node.dtype)
 

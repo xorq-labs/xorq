@@ -235,7 +235,7 @@ def project_wrap_reduction(_, rel):
     if _.relations == {rel}:
         # The reduction is fully originating from the `rel`, so turn
         # it into a window function of `rel`
-        return ops.WindowFunction(_, order_by=getattr(_, "order_by", tuple()))
+        return ops.WindowFunction(_, order_by=getattr(_, "order_by", ()))
     else:
         # 1. The reduction doesn't depend on any table, constructed from
         #    scalar values, so turn it into a scalar subquery.
@@ -265,10 +265,7 @@ def filter_wrap_reduction(_):
     # Wrap reductions or fields referencing an aggregation without a group by -
     # which are scalar fields - in a scalar subquery. In the latter case we
     # use the reduction value from the aggregation.
-    if isinstance(_, ops.Field):
-        value = _.rel.values[_.name]
-    else:
-        value = _
+    value = _.rel.values[_.name] if isinstance(_, ops.Field) else _
     return ops.ScalarSubquery(value.to_expr().as_table())
 
 

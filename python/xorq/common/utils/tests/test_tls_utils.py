@@ -153,7 +153,7 @@ def test_tls_flight_server():
 def test_tls_flight_server_fails():
     tls_kwargs = TLSKwargs.from_common_name(verify_client=False)
     flight_url = xo.flight.FlightUrl(scheme="grpc+tls")
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017  # intentional: any exception (TLS config error type varies)
         # grpc+tls but no ca cert
         server = xo.flight.FlightServer(
             flight_url=flight_url,
@@ -172,7 +172,7 @@ def test_tls_flight_server_fails():
 
     # but client doesn't trust signer
     tlscert = TLSCert.from_common_name()
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017  # intentional: any exception (TLS trust error type varies)
         client = xo.flight.client.FlightClient(
             **server.flight_url.client_kwargs,
             tls_root_certs=tlscert.cert_bytes,
@@ -221,7 +221,7 @@ def test_mtls_flight_client_failure():
     bad_client_kwargs = tls_kwargs.client_kwargs | {
         "tls_root_certs": tlscert.cert_bytes,
     }
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017  # intentional: any exception (TLS trust error type varies)
         xo.flight.client.FlightClient(
             **server.flight_url.client_kwargs,
             **bad_client_kwargs,
@@ -232,7 +232,7 @@ def test_mtls_flight_client_failure():
         "cert_chain": tlscert.cert_bytes,
         "private_key": tlscert.private_key_bytes,
     }
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017  # intentional: any exception (TLS cert error type varies)
         xo.flight.client.FlightClient(
             **server.flight_url.client_kwargs,
             **bad_client_kwargs,

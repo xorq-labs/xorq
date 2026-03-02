@@ -234,20 +234,14 @@ class Backend(
             database = "main"
 
         if obj is not None:
-            if not isinstance(obj, ir.Expr):
-                table = ibis.memtable(obj)
-            else:
-                table = obj
+            table = ibis.memtable(obj) if not isinstance(obj, ir.Expr) else obj
 
             self._run_pre_execute_hooks(table)
             query = self.compiler.to_sqlglot(table)
         else:
             query = None
 
-        if schema is None:
-            schema = table.schema()
-        else:
-            schema = ibis.schema(schema)
+        schema = table.schema() if schema is None else ibis.schema(schema)
 
         # schema.null_fields is not available in vendored ibis v9.5.0
         null_fields = {name for name, dtype in schema.items() if dtype.is_null()}
@@ -258,10 +252,7 @@ class Backend(
                 f"NULL columns: {null_fields}"
             )
 
-        if overwrite:
-            temp_name = util.gen_name("gizmosql_table")
-        else:
-            temp_name = name
+        temp_name = util.gen_name("gizmosql_table") if overwrite else name
 
         initial_table = sg.table(temp_name, catalog=catalog, db=database, quoted=quoted)
         target = sge.Schema(this=initial_table, expressions=schema.to_sqlglot(dialect))
@@ -389,7 +380,7 @@ class Backend(
         return sch.Schema(
             {
                 name: type_mapper.from_string(typ, nullable=null == "YES")
-                for name, typ, null in zip(names, types, nullables)
+                for name, typ, null in zip(names, types, nullables, strict=False)
             }
         )
 
@@ -503,7 +494,7 @@ class Backend(
         if use_encryption:
             connection_scheme += "+tls"
 
-        db_kwargs = dict(username=user, password=password)
+        db_kwargs = {"username": user, "password": password}
         if use_encryption and disable_certificate_verification is not None:
             db_kwargs[DatabaseOptions.TLS_SKIP_VERIFY.value] = str(
                 disable_certificate_verification
@@ -559,10 +550,8 @@ class Backend(
 
         # setting this to false disables magic variables-as-tables discovery
         if vparse(self.version) > vparse("1"):
-            try:
+            with contextlib.suppress(Exception):
                 self.settings["python_enable_replacements"] = False
-            except Exception:
-                pass
 
         self._record_batch_readers_consumed = {}
 
@@ -1174,7 +1163,7 @@ class Backend(
                     )
                     else col.to_pandas()
                 )
-                for name, col in zip(table.column_names, table.columns)
+                for name, col in zip(table.column_names, table.columns, strict=False)
             }
         )
         df = DuckDBPandasData.convert_table(df, expr.as_table().schema())
@@ -1222,7 +1211,7 @@ class Backend(
             {
                 name: type_mapper.from_string(typ, nullable=null == "YES")
                 for name, typ, null in zip(
-                    rows["column_name"], rows["column_type"], rows["null"]
+                    rows["column_name"], rows["column_type"], rows["null"], strict=False
                 )
             }
         )

@@ -418,7 +418,7 @@ class CatalogAddition:
 
     @classmethod
     def from_expr(cls, expr, catalog):
-        ntfh = tempfile.NamedTemporaryFile(suffix=PREFERRED_SUFFIX)
+        ntfh = tempfile.NamedTemporaryFile(suffix=PREFERRED_SUFFIX)  # noqa: SIM115  # file is managed via maybe_tmpfile lifetime
         with build_expr_context_tgz(expr) as tgz_path:
             shutil.copy(tgz_path, ntfh.name)
         return cls(BuildTgz(ntfh.name), catalog, maybe_tmpfile=ntfh)

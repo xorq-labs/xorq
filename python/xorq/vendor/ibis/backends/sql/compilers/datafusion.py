@@ -465,7 +465,7 @@ class DataFusionCompiler(SQLGlotCompiler):
                     ),
                     # can't use set subtraction here since the schema keys'
                     # order matters and set subtraction doesn't preserve order
-                    (k for k in op.parent.schema.keys() if k not in groups),
+                    (k for k in op.parent.schema if k not in groups),
                 )
             )
             table = (
@@ -494,7 +494,7 @@ class DataFusionCompiler(SQLGlotCompiler):
 
     def visit_StructColumn(self, op, *, names, values):
         args = []
-        for name, value in zip(names, values):
+        for name, value in zip(names, values, strict=False):
             args.append(sge.convert(name))
             args.append(value)
         return self.f.named_struct(*args)

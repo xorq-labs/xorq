@@ -299,14 +299,14 @@ $$ {defn["source"]} $$"""
         # overwrite session parameters that are required for ibis + snowflake
         # to work
         session_parameters.update(
-            dict(
+            {
                 # Use Arrow for query results
-                PYTHON_CONNECTOR_QUERY_RESULT_FORMAT="arrow_force",
+                "PYTHON_CONNECTOR_QUERY_RESULT_FORMAT": "arrow_force",
                 # JSON output must be strict for null versus undefined
-                STRICT_JSON_OUTPUT=True,
+                "STRICT_JSON_OUTPUT": True,
                 # Timezone must be UTC
-                TIMEZONE="UTC",
-            ),
+                "TIMEZONE": "UTC",
+            },
         )
 
         with contextlib.closing(con.cursor()) as cur:
@@ -344,7 +344,8 @@ $$ {defn["source"]} $$"""
                     cur.execute(stmt)
                 except Exception as e:  # noqa: BLE001
                     warnings.warn(
-                        f"Unable to create Ibis UDFs, some functionality will not work: {e}"
+                        f"Unable to create Ibis UDFs, some functionality will not work: {e}",
+                        stacklevel=2,
                     )
 
     @util.deprecated(as_of="10.0", instead="use from_connection instead")
@@ -876,10 +877,7 @@ $$ {defn["source"]} $$"""
             properties.append(sge.SchemaCommentProperty(this=sge.convert(comment)))
 
         if obj is not None:
-            if not isinstance(obj, ir.Expr):
-                table = ibis.memtable(obj)
-            else:
-                table = obj
+            table = ibis.memtable(obj) if not isinstance(obj, ir.Expr) else obj
 
             self._run_pre_execute_hooks(table)
 

@@ -219,7 +219,7 @@ class FlinkCompiler(SQLGlotCompiler):
                     self.visit_Literal(
                         ops.Literal(col, dtype=dtype), value=col, dtype=dtype
                     )
-                    for col, dtype in zip(row, schema.types)
+                    for col, dtype in zip(row, schema.types, strict=False)
                 ]
             )
             for row in tuples
@@ -255,7 +255,7 @@ class FlinkCompiler(SQLGlotCompiler):
                     self.visit_Literal(
                         ops.Literal(v, dtype=key_type), value=v, dtype=key_type
                     )
-                    for v in value.keys()
+                    for v in value
                 )
             )
             values = self.f.array(
@@ -469,10 +469,7 @@ class FlinkCompiler(SQLGlotCompiler):
         unit = op.interval.dtype.unit.name
         unit_var = self.v[unit]
 
-        if offset is None:
-            offset = 0
-        else:
-            offset = op.offset.value
+        offset = 0 if offset is None else op.offset.value
 
         bucket_width = op.interval.value
         unit_func = self.f["dayofmonth" if unit.upper() == "DAY" else unit]

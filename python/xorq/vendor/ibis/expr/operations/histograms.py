@@ -34,12 +34,11 @@ class Bucket(Value):
     def __init__(self, buckets, include_under, include_over, **kwargs):
         if not buckets:
             raise ValidationError("Must be at least one bucket edge")
-        elif len(buckets) == 1:
-            if not include_under or not include_over:
-                raise ValidationError(
-                    "If one bucket edge provided, must have "
-                    "include_under=True and include_over=True"
-                )
+        elif len(buckets) == 1 and (not include_under or not include_over):
+            raise ValidationError(
+                "If one bucket edge provided, must have "
+                "include_under=True and include_over=True"
+            )
         super().__init__(
             buckets=buckets,
             include_under=include_under,

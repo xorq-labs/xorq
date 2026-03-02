@@ -299,10 +299,7 @@ class SqlglotType(TypeMapper):
         else:
             precision = int(precision.this.this)
 
-        if scale is None:
-            scale = cls.default_decimal_scale
-        else:
-            scale = int(scale.this.this)
+        scale = cls.default_decimal_scale if scale is None else int(scale.this.this)
 
         return dt.Decimal(precision, scale, nullable=cls.default_nullable)
 
@@ -310,10 +307,7 @@ class SqlglotType(TypeMapper):
     def _from_sqlglot_GEOMETRY(
         cls, arg: sge.DataTypeParam | None = None, srid: sge.DataTypeParam | None = None
     ) -> sge.DataType:
-        if arg is not None:
-            typeclass = _geotypes[arg.this.this]
-        else:
-            typeclass = dt.GeoSpatial
+        typeclass = _geotypes[arg.this.this] if arg is not None else dt.GeoSpatial
         if srid is not None:
             srid = int(srid.this.this)
         return typeclass(geotype="geometry", nullable=cls.default_nullable, srid=srid)
@@ -322,10 +316,7 @@ class SqlglotType(TypeMapper):
     def _from_sqlglot_GEOGRAPHY(
         cls, arg: sge.DataTypeParam | None = None, srid: sge.DataTypeParam | None = None
     ) -> sge.DataType:
-        if arg is not None:
-            typeclass = _geotypes[arg.this.this]
-        else:
-            typeclass = dt.GeoSpatial
+        typeclass = _geotypes[arg.this.this] if arg is not None else dt.GeoSpatial
         if srid is not None:
             srid = int(srid.this.this)
         return typeclass(geotype="geography", nullable=cls.default_nullable, srid=srid)
@@ -939,10 +930,7 @@ class ExasolType(SqlglotType):
         else:
             precision = int(precision.this.this)
 
-        if scale is None:
-            scale = cls.default_decimal_scale
-        else:
-            scale = int(scale.this.this)
+        scale = cls.default_decimal_scale if scale is None else int(scale.this.this)
 
         if not scale:
             if 0 < precision <= 3:

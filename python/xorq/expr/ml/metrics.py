@@ -235,42 +235,42 @@ def _build_metric_return_types():
         {
             # Tuple of scalars -> Struct
             class_likelihood_ratios: dt.Struct(
-                dict(
-                    positive_likelihood_ratio=dt.float64,
-                    negative_likelihood_ratio=dt.float64,
-                )
+                {
+                    "positive_likelihood_ratio": dt.float64,
+                    "negative_likelihood_ratio": dt.float64,
+                }
             ),
             homogeneity_completeness_v_measure: dt.Struct(
-                dict(
-                    homogeneity=dt.float64,
-                    completeness=dt.float64,
-                    v_measure=dt.float64,
-                )
+                {
+                    "homogeneity": dt.float64,
+                    "completeness": dt.float64,
+                    "v_measure": dt.float64,
+                }
             ),
             # Confusion matrices -> Array(Array(int64))
             confusion_matrix: dt.Array(dt.Array(dt.int64)),
             pair_confusion_matrix: dt.Array(dt.Array(dt.int64)),
             # Curves -> Struct of arrays
             roc_curve: dt.Struct(
-                dict(
-                    fpr=dt.Array(dt.float64),
-                    tpr=dt.Array(dt.float64),
-                    thresholds=dt.Array(dt.float64),
-                )
+                {
+                    "fpr": dt.Array(dt.float64),
+                    "tpr": dt.Array(dt.float64),
+                    "thresholds": dt.Array(dt.float64),
+                }
             ),
             precision_recall_curve: dt.Struct(
-                dict(
-                    precision=dt.Array(dt.float64),
-                    recall=dt.Array(dt.float64),
-                    thresholds=dt.Array(dt.float64),
-                )
+                {
+                    "precision": dt.Array(dt.float64),
+                    "recall": dt.Array(dt.float64),
+                    "thresholds": dt.Array(dt.float64),
+                }
             ),
             det_curve: dt.Struct(
-                dict(
-                    fpr=dt.Array(dt.float64),
-                    fnr=dt.Array(dt.float64),
-                    thresholds=dt.Array(dt.float64),
-                )
+                {
+                    "fpr": dt.Array(dt.float64),
+                    "fnr": dt.Array(dt.float64),
+                    "thresholds": dt.Array(dt.float64),
+                }
             ),
             # Per-sample metrics -> Array(float64)
             silhouette_samples: dt.Array(dt.float64),
@@ -430,7 +430,7 @@ class MetricComputation:
         match self.return_type:
             case dt.Struct() as s:
                 names = s.names
-                return lambda raw: dict(zip(names, raw))
+                return lambda raw: dict(zip(names, raw, strict=False))
             case dt.Array():
                 return lambda raw: raw.tolist()
             case dt.Float64():

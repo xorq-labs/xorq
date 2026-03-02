@@ -135,8 +135,10 @@ class Registry:
                 raise ValueError(f"don't know how to handle which={which}")
         try:
             return freeze(dct[ref])
-        except KeyError:
-            raise ValueError(f"ref {ref} not found in definitions for which={which}")
+        except KeyError as err:
+            raise ValueError(
+                f"ref {ref} not found in definitions for which={which}"
+            ) from err
 
 
 def _is_absolute_path(instance, attribute, value):

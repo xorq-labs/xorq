@@ -136,8 +136,8 @@ def get_snowflake_last_modification_time(dt):
     )
     values = (
         con.table("TABLES", database=(database, "INFORMATION_SCHEMA"))[
-            lambda t: t.TABLE_NAME == table
-        ][lambda t: t.TABLE_SCHEMA == schema]
+            lambda t: table == t.TABLE_NAME
+        ][lambda t: schema == t.TABLE_SCHEMA]
         .LAST_ALTERED.execute()
         .values
     )

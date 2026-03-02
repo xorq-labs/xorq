@@ -1319,7 +1319,7 @@ class Object(Slotted, Pattern):
         # the pattern requirest more positional arguments than the object has
         if len(value.__match_args__) < len(self.args):
             return NoMatch
-        patterns = dict(zip(value.__match_args__, self.args))
+        patterns = dict(zip(value.__match_args__, self.args, strict=False))
         patterns.update(self.kwargs)
 
         fields = {}
@@ -1358,7 +1358,7 @@ class Node(Slotted, Pattern):
 
         newargs = {}
         changed = False
-        for name, arg in zip(value.__argnames__, value.__args__):
+        for name, arg in zip(value.__argnames__, value.__args__, strict=False):
             result = self.each_arg.match(arg, context)
             if result is NoMatch:
                 newargs[name] = arg
@@ -1514,7 +1514,7 @@ class PatternList(Slotted, Pattern):
             return NoMatch
 
         result = []
-        for pattern, value in zip(self.patterns, values):
+        for pattern, value in zip(self.patterns, values, strict=False):
             value = pattern.match(value, context)
             if value is NoMatch:
                 return NoMatch
@@ -1540,7 +1540,7 @@ class VariadicPatternList(Slotted, Pattern):
         result = []
 
         following_patterns = self.patterns[1:] + (Nothing(),)
-        for current, following in zip(self.patterns, following_patterns):
+        for current, following in zip(self.patterns, following_patterns, strict=False):
             original = current
             current = _maybe_unwrap_capture(current)
             following = _maybe_unwrap_capture(following)

@@ -233,7 +233,7 @@ class MSSQLCompiler(SQLGlotCompiler):
         days = calendar.day_name
         return sge.Case(
             this=self.f.datepart(self.v.weekday, arg) - 1,
-            ifs=list(map(self.if_, *zip(*enumerate(days)))),
+            ifs=list(map(self.if_, *zip(*enumerate(days), strict=False))),
         )
 
     def visit_DateTimestampTruncate(self, op, *, arg, unit):

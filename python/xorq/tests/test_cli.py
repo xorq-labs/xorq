@@ -487,9 +487,11 @@ def test_run_command_error_logging(tmp_path):
 
     mock_logger = MagicMock()
     nonexistent_path = tmp_path / "does_not_exist"
-    with patch("xorq.common.utils.logging_utils.get_logger", return_value=mock_logger):
-        with pytest.raises(Exception):
-            run_command(str(nonexistent_path), str(tmp_path / "out.parquet"))
+    with (
+        patch("xorq.common.utils.logging_utils.get_logger", return_value=mock_logger),
+        pytest.raises(Exception),  # noqa: B017  # intentional: any exception from nonexistent path
+    ):
+        run_command(str(nonexistent_path), str(tmp_path / "out.parquet"))
 
     assert mock_logger.exception.called
     exception_call = mock_logger.exception.call_args

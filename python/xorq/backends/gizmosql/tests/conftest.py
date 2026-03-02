@@ -153,6 +153,6 @@ def temp_table(con):
 
     name = util.gen_name("temp_table")
     yield name
-    with contextlib.suppress(Exception):
+    with contextlib.suppress(Exception):  # noqa: SIM117  # _safe_raw_sql needs its own block
         with con._safe_raw_sql(f'DROP TABLE IF EXISTS "{name}"'):
             pass

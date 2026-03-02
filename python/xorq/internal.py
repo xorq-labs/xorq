@@ -1,4 +1,4 @@
-from abc import ABCMeta, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 from typing import List
 
 import pyarrow as pa
@@ -42,7 +42,7 @@ __all__ = [
 ]
 
 
-class Accumulator(metaclass=ABCMeta):
+class Accumulator(ABC):
     @abstractmethod
     def state(self) -> List[pa.Scalar]:
         pass
@@ -60,13 +60,13 @@ class Accumulator(metaclass=ABCMeta):
         pass
 
 
-class OptimizationRule(metaclass=ABCMeta):
+class OptimizationRule(ABC):
     @abstractmethod
     def try_optimize(self, plan: LogicalPlan) -> LogicalPlan:
         pass
 
 
-class AbstractTableProvider(metaclass=ABCMeta):
+class AbstractTableProvider(ABC):
     @abstractmethod
     def schema(self):
         pass
@@ -76,8 +76,8 @@ class AbstractTableProvider(metaclass=ABCMeta):
         pass
 
 
-class WindowEvaluator(metaclass=ABCMeta):
-    def memoize(self) -> None:
+class WindowEvaluator(metaclass=ABCMeta):  # noqa: B024  # intentional: optional interface, subclasses override needed methods
+    def memoize(self) -> None:  # noqa: B027  # intentional: optional override for window memoization
         pass
 
     def get_range(self, idx: int, num_rows: int) -> tuple[int, int]:
@@ -87,17 +87,17 @@ class WindowEvaluator(metaclass=ABCMeta):
         return False
 
     def evaluate_all(self, values: list[pa.Array], num_rows: int) -> pa.Array:
-        pass
+        return pa.array([])
 
     def evaluate(
         self, values: list[pa.Array], eval_range: tuple[int, int]
     ) -> pa.Scalar:
-        pass
+        return pa.scalar(None)
 
     def evaluate_all_with_rank(
         self, num_rows: int, ranks_in_partition: list[tuple[int, int]]
     ) -> pa.Array:
-        pass
+        return pa.array([])
 
     def supports_bounded_execution(self) -> bool:
         return False

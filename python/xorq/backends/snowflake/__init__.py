@@ -215,14 +215,14 @@ class Backend(IbisSnowflakeBackend):
         # overwrite session parameters that are required for ibis + snowflake
         # to work
         session_parameters.update(
-            dict(
+            {
                 # Use Arrow for query results
-                PYTHON_CONNECTOR_QUERY_RESULT_FORMAT="arrow_force",
+                "PYTHON_CONNECTOR_QUERY_RESULT_FORMAT": "arrow_force",
                 # JSON output must be strict for null versus undefined
-                STRICT_JSON_OUTPUT=True,
+                "STRICT_JSON_OUTPUT": True,
                 # Timezone must be UTC
-                TIMEZONE="UTC",
-            ),
+                "TIMEZONE": "UTC",
+            },
         )
 
         with contextlib.closing(con.cursor()) as cur:
@@ -244,7 +244,7 @@ class Backend(IbisSnowflakeBackend):
                 try:
                     cur.execute(use_stmt)
                 except Exception as e:  # noqa: BLE001
-                    warnings.warn(f"Unable to set catalog,db: {e}")
+                    warnings.warn(f"Unable to set catalog,db: {e}", stacklevel=2)
 
         if create_object_udfs:
             create_stmt = sge.Create(
@@ -264,14 +264,12 @@ class Backend(IbisSnowflakeBackend):
                     cur.execute(stmt)
                 except Exception as e:  # noqa: BLE001
                     warnings.warn(
-                        f"Unable to create Ibis UDFs, some functionality will not work: {e}"
+                        f"Unable to create Ibis UDFs, some functionality will not work: {e}",
+                        stacklevel=2,
                     )
         # without this self.current_{catalog,database} is not synchronized with con.{database,schema}
-        with contextlib.closing(con.cursor()) as cur:
-            try:
-                cur.execute("SELECT CURRENT_TIME")
-            except Exception:  # noqa: BLE001
-                pass
+        with contextlib.closing(con.cursor()) as cur, contextlib.suppress(Exception):  # noqa: BLE001
+            cur.execute("SELECT CURRENT_TIME")
 
     @property
     def adbc(self):

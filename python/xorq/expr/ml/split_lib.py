@@ -57,11 +57,11 @@ def _calculate_bounds(
         import pandas as pd
 
         pd._testing.assert_almost_equal(sum(test_sizes), 1)
-    except AssertionError:
-        raise ValueError("Test sizes must sum to 1")
+    except AssertionError as err:
+        raise ValueError("Test sizes must sum to 1") from err
 
     cumulative_sizes = tuple(toolz.accumulate(operator.add, (0,) + test_sizes))
-    bounds = tuple(zip(cumulative_sizes[:-1], cumulative_sizes[1:]))
+    bounds = tuple(zip(cumulative_sizes[:-1], cumulative_sizes[1:], strict=False))
     return bounds
 
 
@@ -222,7 +222,7 @@ def calc_split_column(
 def train_test_splits(
     table: ir.Table,
     test_sizes: Iterable[float] | float,
-    unique_key: str | tuple[str] | list[str] | Selector = s.all(),
+    unique_key: str | tuple[str] | list[str] | Selector = s.all(),  # noqa: B008  # intentional: ibis selector sentinel default
     num_buckets: int = 10000,
     random_seed: int | None = None,
 ) -> Iterator[ir.Table]:
@@ -305,7 +305,9 @@ def train_test_splits(
 
     return (
         table.filter(cs).tag(split_i=split_i, split_size=split_size, **tag_kwargs)
-        for split_i, (cs, split_size) in enumerate(zip(conditions, test_sizes))
+        for split_i, (cs, split_size) in enumerate(
+            zip(conditions, test_sizes, strict=False)
+        )
     )
 
 

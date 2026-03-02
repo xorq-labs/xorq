@@ -38,16 +38,16 @@ def map_ibis(val, kwargs=None):
 
         cls = getattr(importlib.import_module(f"xorq.vendor.{module}"), attr)
 
-        kwargs = kwargs if kwargs else dict(zip(val.argnames, val.args))
+        kwargs = kwargs or dict(zip(val.argnames, val.args, strict=False))
         kwargs = toolz.valmap(
             map_ibis,
-            kwargs if kwargs else dict(zip(val.argnames, val.args)),
+            kwargs or dict(zip(val.argnames, val.args, strict=False)),
         )
 
         return cls(**kwargs)
 
-    except AttributeError:
-        raise NotImplementedError(f"{type(val)} is not implemented")
+    except AttributeError as err:
+        raise NotImplementedError(f"{type(val)} is not implemented") from err
 
 
 @map_ibis.register(int)
@@ -81,7 +81,13 @@ def map_cast(cast, kwargs=None):
 @map_ibis.register(IbisSchema)
 def map_schema(schema, kwargs=None):
     return Schema(
-        dict(zip(schema.names, tuple(map_ibis(typ, kwargs) for typ in schema.types)))
+        dict(
+            zip(
+                schema.names,
+                tuple(map_ibis(typ, kwargs) for typ in schema.types),
+                strict=False,
+            )
+        )
     )
 
 

@@ -62,17 +62,19 @@ class SnapshotStrategy(CacheStrategy):
         # normalize_scalar_udf recursively tokenizes computed_kwargs_expr, both
         # of which share sub-expressions that get re-tokenized without caching.
         typs = map(type, expr.ls.backends)
-        with patch_normalize_op_caching():
-            with patch_normalize_token(*typs, f=self.normalize_backend):
-                with patch_normalize_token(
-                    ops.DatabaseTable,
-                    f=self.normalize_databasetable,
-                ):
-                    with patch_normalize_token(
-                        Read,
-                        f=self.cached_normalize_read,
-                    ):
-                        yield
+        with (
+            patch_normalize_op_caching(),
+            patch_normalize_token(*typs, f=self.normalize_backend),
+            patch_normalize_token(
+                ops.DatabaseTable,
+                f=self.normalize_databasetable,
+            ),
+            patch_normalize_token(
+                Read,
+                f=self.cached_normalize_read,
+            ),
+        ):
+            yield
 
     @staticmethod
     @functools.cache

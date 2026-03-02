@@ -175,10 +175,7 @@ def test_array_repeat_scalar(client, n, mul):
     array = ibis.array(raw_array)
     expr = mul(array, n)
     result = client.execute(expr)
-    if n > 0:
-        expected = np.tile(raw_array, n)
-    else:
-        expected = np.array([], dtype=raw_array.dtype)
+    expected = np.tile(raw_array, n) if n > 0 else np.array([], dtype=raw_array.dtype)
     nt.assert_array_equal(result, expected)
 
 

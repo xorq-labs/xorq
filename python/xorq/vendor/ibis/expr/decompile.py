@@ -115,7 +115,7 @@ def scalar_parameter(op, dtype, counter):
 @translate.register(ops.UnboundTable)
 @translate.register(ops.DatabaseTable)
 def table(op, schema, name, **kwargs):
-    fields = dict(zip(schema.names, map(str, schema.types)))
+    fields = dict(zip(schema.names, map(str, schema.types), strict=False))
     return f"ibis.table(name={name!r}, schema={fields})"
 
 
@@ -308,7 +308,7 @@ def ifelse(op, bool_expr, true_expr, false_null_expr):
 def switch_case(op, cases, results, default, base=None):
     out = f"{base}.case()" if base else "ibis.case()"
 
-    for case, result in zip(cases, results):
+    for case, result in zip(cases, results, strict=False):
         out = f"{out}.when({case}, {result})"
 
     if default is not None:

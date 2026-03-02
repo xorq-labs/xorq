@@ -190,15 +190,9 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         else:
             query = None
 
-        if schema is None:
-            schema = table.schema()
-        else:
-            schema = ibis.schema(schema)
+        schema = table.schema() if schema is None else ibis.schema(schema)
 
-        if overwrite:
-            temp_name = util.gen_name("duckdb_table")
-        else:
-            temp_name = name
+        temp_name = util.gen_name("duckdb_table") if overwrite else name
 
         initial_table = sg.table(temp_name, catalog=catalog, db=database, quoted=quoted)
         target = sge.Schema(
@@ -327,7 +321,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         return sch.Schema(
             {
                 name: type_mapper.from_string(typ, nullable=null == "YES")
-                for name, typ, null in zip(names, types, nullables)
+                for name, typ, null in zip(names, types, nullables, strict=False)
             }
         )
 
@@ -1363,7 +1357,8 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
                     "unexpected results. Either recreate the table from a new "
                     "`pyarrow.RecordBatchReader`, or use `Table.cache()`/"
                     "`con.create_table()` to consume and store the results in "
-                    "the backend to reuse later."
+                    "the backend to reuse later.",
+                    stacklevel=2,
                 )
             elif started is False:
                 self._record_batch_readers_consumed[t.name] = True
@@ -1486,7 +1481,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
                     )
                     else col.to_pandas()
                 )
-                for name, col in zip(table.column_names, table.columns)
+                for name, col in zip(table.column_names, table.columns, strict=False)
             }
         )
         df = DuckDBPandasData.convert_table(df, expr.as_table().schema())
@@ -1780,7 +1775,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
             {
                 name: type_mapper.from_string(typ, nullable=null == "YES")
                 for name, typ, null in zip(
-                    rows["column_name"], rows["column_type"], rows["null"]
+                    rows["column_name"], rows["column_type"], rows["null"], strict=False
                 )
             }
         )

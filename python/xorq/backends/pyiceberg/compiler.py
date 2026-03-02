@@ -78,7 +78,7 @@ def project(op, **kw):
     scan = translate(op.parent, **kw)
 
     selections = []
-    for name, arg in op.values.items():
+    for _name, arg in op.values.items():
         if isinstance(arg, ops.Value):
             translated = translate(arg, **kw)
             selections.append(translated)

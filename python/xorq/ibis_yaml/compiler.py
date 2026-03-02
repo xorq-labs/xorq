@@ -105,7 +105,10 @@ class CleanDictYAMLDumper(yaml.SafeDumper):
         return self.represent_dict(dict(data))
 
     def represent_ibis_schema(self, data):
-        schema_dict = {name: str(dtype) for name, dtype in zip(data.names, data.types)}
+        schema_dict = {
+            name: str(dtype)
+            for name, dtype in zip(data.names, data.types, strict=False)
+        }
         return self.represent_mapping("tag:yaml.org,2002:map", schema_dict)
 
     def represent_posix_path(self, data):
@@ -272,9 +275,9 @@ def hydrate_cons(hash_to_profile_kwargs):
     return profiles
 
 
-def make_read_op(parquet_path, read_kwargs, con=_backend_init()):
+def make_read_op(parquet_path, read_kwargs, con=_backend_init()):  # noqa: B008  # intentional: singleton backend connection as default
     op = deferred_read_parquet(parquet_path, con, **read_kwargs).op()
-    args = dict(zip(op.__argnames__, op.__args__))
+    args = dict(zip(op.__argnames__, op.__args__, strict=False))
     op = op.__recreate__(args)
     return op
 
@@ -313,12 +316,12 @@ class ExprDumper:
                 object.__setattr__(self, attrname, Path(value))
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def artifact_store(self):
         return ArtifactStore.from_path_and_expr(self.builds_dir, self.expr)
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def expr_path(self):
         return self.artifact_store.root_path
 
@@ -518,13 +521,12 @@ class ExprDumper:
         expr, path_to_writer0 = self._replace_tables(expr)
 
         profiles = dehydrate_cons(find_all_sources(expr))
-        path_to_writer2 = {
-            path: writer
-            for (path, writer) in (
+        path_to_writer2 = dict(
+            (
                 self._prepare_metadata_file(),
                 self._prepare_profiles_file(profiles),
             )
-        }
+        )
         path_to_writer = path_to_writer0 | path_to_writer2
         if self.debug:
             # write SQL plan and deferred-read artifacts if debug enabled
@@ -550,7 +552,7 @@ class ExprLoader:
         return self.expr_path.name
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def artifact_store(self):
         return ArtifactStore(self.expr_path)
 
@@ -598,7 +600,8 @@ class ExprLoader:
                     ),
                 )
                 return node.__recreate__(
-                    dict(zip(node.argnames, node.args)) | {"cache": evolved}
+                    dict(zip(node.argnames, node.args, strict=False))
+                    | {"cache": evolved}
                 )
             elif kwargs:
                 return node.__recreate__(kwargs)

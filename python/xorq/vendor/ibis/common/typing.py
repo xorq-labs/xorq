@@ -105,7 +105,7 @@ def get_type_params(obj: Any) -> dict[str, type]:
         result.update(get_type_params(base))
 
     param_names = (p.__name__ for p in params)
-    result.update(zip(param_names, args))
+    result.update(zip(param_names, args, strict=False))
 
     return result
 
@@ -186,10 +186,7 @@ def evaluate_annotations(
     """
     module = sys.modules.get(module_name, None)
     globalns = getattr(module, "__dict__", None)
-    if class_name is None:
-        localns = None
-    else:
-        localns = dict(Self=f"{module_name}.{class_name}")
+    localns = None if class_name is None else {"Self": f"{module_name}.{class_name}"}
 
     result = {}
     for k, v in annots.items():

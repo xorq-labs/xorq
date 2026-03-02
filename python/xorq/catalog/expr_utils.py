@@ -18,9 +18,8 @@ def build_expr_context(expr):
 
 @contextmanager
 def build_expr_context_tgz(expr):
-    with build_expr_context(expr) as build_dir:
-        with make_tgz_context(build_dir) as tgz_path:
-            yield tgz_path
+    with build_expr_context(expr) as build_dir, make_tgz_context(build_dir) as tgz_path:
+        yield tgz_path
 
 
 def load_expr_from_tgz(tgz_path):

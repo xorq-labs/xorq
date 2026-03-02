@@ -142,7 +142,7 @@ y_score_ml = ovr.predict_proba(X_ml[70:])
 label_names = tuple(f"label_{i}" for i in range(Y_ml.shape[1]))
 ml_df = pd.DataFrame(y_true_ml, columns=list(label_names))
 # Store scores as a single array-valued column (mimics predict_proba storage)
-ml_df["scores"] = [row for row in y_score_ml]
+ml_df["scores"] = list(y_score_ml)
 ml_expr = con.register(ml_df, "multilabel_array")
 
 make_ml_metric = deferred_sklearn_metric(target=label_names, pred="scores")

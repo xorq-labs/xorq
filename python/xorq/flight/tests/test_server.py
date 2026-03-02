@@ -65,14 +65,16 @@ def make_connection_from_name(backend_name):
 def test_port_in_use(connection, port):
     assert port is not None
     flight_url = make_flight_url(port)
-    with pytest.raises(OSError, match="Address already in use"):
-        with FlightServer(
+    with (
+        pytest.raises(OSError, match="Address already in use"),
+        FlightServer(
             flight_url=flight_url,
             make_connection=make_connection_from_name(connection),
-        ) as _:
-            # entering the above context releases the port
-            # so we won't raise until we enter the second context and try to use it
-            flight_url2 = FlightUrl(port=port)  # noqa: F841
+        ) as _,
+    ):
+        # entering the above context releases the port
+        # so we won't raise until we enter the second context and try to use it
+        flight_url2 = FlightUrl(port=port)  # noqa: F841
 
 
 class Answer42Action(A.AbstractAction):

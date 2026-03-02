@@ -678,6 +678,7 @@ class Table(Expr, _FixedTextJupyterMixin):
             "deprecated and will be removed in version 10.0. Please use "
             "`Table.select` or `Table.filter` instead.",
             FutureWarning,
+            stacklevel=2,
         )
         values = self.bind(args)
 
@@ -3405,10 +3406,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         from xorq.common.utils.caching_utils import find_backend
         from xorq.expr.relations import CachedNode
 
-        if cache:
-            expr = maybe_prevent_cross_source_caching(self, cache)
-        else:
-            expr = self
+        expr = maybe_prevent_cross_source_caching(self, cache) if cache else self
 
         current_backend, _ = find_backend(expr.op(), use_default=True)
         cache = cache or SourceCache.from_kwargs(source=current_backend)
@@ -3754,7 +3752,7 @@ class Table(Expr, _FixedTextJupyterMixin):
             match_result = names_pattern.match(col_name)
             row = {
                 name: names_transform[name](value)
-                for name, value in zip(names_to, match_result.groups())
+                for name, value in zip(names_to, match_result.groups(), strict=False)
             }
             row[values_to] = values_transform(pivot_col)
             pieces.append(ibis.struct(row))

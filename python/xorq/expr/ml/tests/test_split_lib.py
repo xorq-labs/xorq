@@ -25,16 +25,15 @@ def test_train_test_splits_intersections():
 
     # init table
     table = memtable([(i, "val") for i in range(N)], columns=["key1", "val"])
-    results = [
-        r
-        for r in xo.train_test_splits(
+    results = list(
+        xo.train_test_splits(
             table,
             unique_key="key1",
             test_sizes=test_size,
             num_buckets=N,
             random_seed=42,
         )
-    ]
+    )
 
     # make sure all splits mutually exclusive
     # These are all  a \ b  U  a intersect b  where b are the other splits
@@ -203,7 +202,7 @@ def test_train_test_splits_deterministic_with_seed():
         )
     )
 
-    for s1, s2 in zip(splits1, splits2):
+    for s1, s2 in zip(splits1, splits2, strict=False):
         assert_frame_equal(s1.execute(), s2.execute())
 
 
@@ -240,7 +239,7 @@ def test_train_test_splits_with_all_selector():
             table, test_sizes=0.2, unique_key=s.all(), num_buckets=N, random_seed=0
         )
     )
-    for s1, s2 in zip(splits, splits2):
+    for s1, s2 in zip(splits, splits2, strict=False):
         assert_frame_equal(s1.execute(), s2.execute())
 
 
@@ -300,16 +299,15 @@ def test_train_test_splits_intersections_parameterized_pass(connect_method):
 
     table = con.table(test_table_name)
 
-    results = [
-        r
-        for r in xo.train_test_splits(
+    results = list(
+        xo.train_test_splits(
             table,
             unique_key="key1",
             test_sizes=test_size,
             num_buckets=N,
             random_seed=42,
         )
-    ]
+    )
 
     # make sure all splits mutually exclusive
     # These are all  a \ b  U  a intersect b  where b are the other splits

@@ -39,7 +39,8 @@ def get_split_tree(repo):
                 *(
                     (str(with_pure_suffix(p, "")), "".join(p.suffixes))
                     for p in (p.relative_to(parent) for p in ps)
-                )
+                ),
+                strict=False,
             )
         )
         for parent, ps in dct.items()

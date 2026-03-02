@@ -162,10 +162,7 @@ class TrinoCompiler(SQLGlotCompiler):
         else:
             start = self.f.least(arg_length, _neg_idx_to_pos(arg_length, start))
 
-        if stop is None:
-            stop = arg_length
-        else:
-            stop = _neg_idx_to_pos(arg_length, stop)
+        stop = arg_length if stop is None else _neg_idx_to_pos(arg_length, stop)
 
         return self.f.slice(arg, start + 1, stop - start)
 
@@ -321,7 +318,7 @@ class TrinoCompiler(SQLGlotCompiler):
         elif dtype.is_struct():
             items = [
                 self.visit_Literal(ops.Literal(v, fdtype), value=v, dtype=fdtype)
-                for fdtype, v in zip(dtype.types, value.values())
+                for fdtype, v in zip(dtype.types, value.values(), strict=False)
             ]
             return self.cast(sge.Struct(expressions=items), dtype)
         elif dtype.is_timestamp():

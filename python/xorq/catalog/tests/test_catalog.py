@@ -31,9 +31,9 @@ def test_catalog_add(catalog, data_dict):
     for catalog_entry in catalog_entries:
         catalog_entry.assert_consistency()
     catalog.assert_consistency()
-    assert set(catalog.list()) == set(
+    assert set(catalog.list()) == {
         with_pure_suffix(path).name for path in data_dict.values()
-    )
+    }
 
     # test not exists condition
     path = next(iter(data_dict.values()))
@@ -149,7 +149,7 @@ def test_test_tgz(elide, catalog, tmpdir):
 def test_assert_consistency(catalog, tmpdir):
     tgz_path = write_tgz(
         Path(tmpdir).joinpath("build.tgz"),
-        {name: b"" for name in REQUIRED_TGZ_NAMES},
+        dict.fromkeys(REQUIRED_TGZ_NAMES, b""),
     )
     catalog_addition = CatalogAddition(BuildTgz(tgz_path), catalog)
     catalog_addition.ensure_dirs()
@@ -207,7 +207,7 @@ def test_add_alias_multiple(catalog_populated):
     names = catalog_populated.list()
     aliases = [f"alias-{i}" for i in range(len(names))]
 
-    for name, alias in zip(names, aliases):
+    for name, alias in zip(names, aliases, strict=False):
         catalog_populated.add_alias(name, alias)
 
     catalog_aliases = catalog_populated.catalog_aliases

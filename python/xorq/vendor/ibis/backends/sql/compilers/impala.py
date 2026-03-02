@@ -108,7 +108,7 @@ class ImpalaCompiler(SQLGlotCompiler):
     def visit_CountDistinctStar(self, op, *, arg, where):
         expressions = (
             sg.column(name, table=arg.alias_or_name, quoted=self.quoted)
-            for name in op.arg.schema.keys()
+            for name in op.arg.schema
         )
         if where is not None:
             expressions = (self.if_(where, expr, NULL) for expr in expressions)

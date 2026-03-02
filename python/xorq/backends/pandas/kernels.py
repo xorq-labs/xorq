@@ -24,9 +24,7 @@ from xorq.backends.pandas.helpers import isnull
 
 def substring_rowwise(row):
     arg, start, length = row["arg"], row["start"], row["length"]
-    if isnull(arg):
-        return None
-    elif isnull(start):
+    if isnull(arg) or isnull(start):
         return None
     elif isnull(length):
         return arg[start:]
@@ -390,7 +388,7 @@ rowwise = {
     ops.EndsWith: lambda row: row["arg"].endswith(row["end"]),
     ops.IntegerRange: integer_range_rowwise,
     ops.JSONGetItem: lambda row: safe_json_getitem(row["arg"], row["index"]),
-    ops.Map: lambda row: dict(zip(row["keys"], row["values"])),
+    ops.Map: lambda row: dict(zip(row["keys"], row["values"], strict=False)),
     ops.MapGet: lambda row: safe_get(row["arg"], row["key"], row["default"]),
     ops.MapContains: lambda row: safe_contains(row["arg"], row["key"]),
     ops.MapMerge: lambda row: safe_merge(row["left"], row["right"]),
@@ -462,9 +460,9 @@ serieswise = {
     ops.EndsWith: lambda arg, end: arg.str.endswith(end),
     ops.ExtractDay: lambda arg: arg.dt.day,
     ops.ExtractDayOfYear: lambda arg: arg.dt.dayofyear,
-    ops.ExtractEpochSeconds: lambda arg: arg.astype("datetime64[s]")
-    .astype("int64")
-    .astype("int32"),
+    ops.ExtractEpochSeconds: lambda arg: (
+        arg.astype("datetime64[s]").astype("int64").astype("int32")
+    ),
     ops.ExtractHour: lambda arg: arg.dt.hour,
     ops.ExtractMicrosecond: lambda arg: arg.dt.microsecond,
     ops.ExtractMillisecond: lambda arg: arg.dt.microsecond // 1000,

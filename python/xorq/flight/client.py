@@ -69,7 +69,9 @@ class FlightClient:
             self._options = None
 
     def _wait_on_healthcheck(self, n_tries=None, sleep_n=1):
-        for attempt_i in itertools.islice(itertools.count(), n_tries):
+        attempt_count = 0
+        for _ in itertools.islice(itertools.count(), n_tries):
+            attempt_count += 1
             try:
                 self.do_action(
                     "healthcheck",
@@ -98,7 +100,7 @@ class FlightClient:
             finally:
                 logger.info(f"Flight server unavailable, sleeping {sleep_n} seconds")
                 time.sleep(sleep_n)
-        raise RuntimeError(f"failed to connect after {attempt_i} attempts")
+        raise RuntimeError(f"failed to connect after {attempt_count} attempts")
 
     # FIXME: rename to execute_table, add execute that return pd.DataFrame
     def execute(self, expr, **kwargs):
@@ -215,18 +217,18 @@ class FlightClient:
     def do_exchange_batches(self, command, reader):
         def do_writes(writer, reader):
             writer.begin(reader.schema)
-            i = -1
-            for i, batch in enumerate(reader, 1):
+            _i = -1
+            for _i, batch in enumerate(reader, 1):
                 writer.write_batch(batch)
             writer.done_writing()
-            return i
+            return _i
 
         def do_reads(_reader, queue):
-            i = -1
-            for i, batch in enumerate(_reader, 1):
+            _i = -1
+            for _i, batch in enumerate(_reader, 1):
                 queue.put(batch.data)
             queue.put(None)
-            return i
+            return _i
 
         def do_writes_reads(command, reader, queue):
             descriptor = pa.flight.FlightDescriptor.for_command(command)

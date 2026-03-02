@@ -46,7 +46,7 @@ def import_ipynb(path, module_name):
         # Clean up if execution fails
         if module_name in sys.modules:
             del sys.modules[module_name]
-        raise ImportError(f"Error executing notebook code: {e}")
+        raise ImportError(f"Error executing notebook code: {e}") from e
 
     return module
 
@@ -87,7 +87,7 @@ def import_from_gist(user, gist):
     path = f"https://gist.githubusercontent.com/{user}/{gist}/raw/"
     req = urllib.request.Request(path, method="GET")
     resp = urllib.request.urlopen(req)
-    if resp.code != 200:
+    if resp.code != 200:  # noqa: PLR2004  # HTTP 200 OK is self-explanatory
         raise ValueError(f"failed to fetch gist: HTTP {resp.code}")
     with tempfile.NamedTemporaryFile() as ntfh:
         path = Path(ntfh.name)

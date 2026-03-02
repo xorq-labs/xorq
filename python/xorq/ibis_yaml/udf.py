@@ -79,13 +79,17 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     for i, arg_yaml in enumerate(args_yaml):
         arg_name = f"arg{i}"
 
-        if RefEnum.node_ref in arg_yaml and (
-            node := compiler.definitions[RegistryEnum.nodes].get(
-                arg_yaml[RefEnum.node_ref]
+        if (
+            RefEnum.node_ref in arg_yaml
+            and (
+                node := compiler.definitions[RegistryEnum.nodes].get(
+                    arg_yaml[RefEnum.node_ref]
+                )
             )
+            and node.get("op") == "Field"
+            and "name" in node
         ):
-            if node.get("op") == "Field" and "name" in node:
-                arg_name = node["name"]
+            arg_name = node["name"]
 
         schema[arg_name] = args[i].type()
 
@@ -137,7 +141,7 @@ def _namespace_to_yaml(ns: ops.Namespace, context: TranslationContext) -> dict:
     return freeze(
         {
             "op": "Namespace",
-            "dict": {argname: arg for argname, arg in zip(ns.argnames, ns.args)},
+            "dict": dict(zip(ns.argnames, ns.args, strict=False)),
         }
     )
 
@@ -174,19 +178,12 @@ def make_op_kwargs(op):
     argnames = op.argnames
     if argnames and argnames[-1] == "where":
         (*argnames, _) = argnames
-    kwargs = {argname: arg for (argname, arg) in zip(argnames, op.args)}
+    kwargs = dict(zip(argnames, op.args, strict=False))
     return kwargs
 
 
 def kwargs_to_schema(kwargs):
-    schema = ibis.schema(
-        {
-            argname: typ
-            for (argname, typ) in (
-                (argname, arg.type()) for argname, arg in kwargs.items()
-            )
-        }
-    )
+    schema = ibis.schema({argname: arg.type() for argname, arg in kwargs.items()})
     return schema
 
 

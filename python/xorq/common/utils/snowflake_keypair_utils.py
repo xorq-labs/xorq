@@ -263,7 +263,8 @@ def maybe_decrypt_private_key(kwargs):
                     pass
                 case _:
                     warnings.warn(
-                        f"expecting str and only str, found: {type(private_key)}"
+                        f"expecting str and only str, found: {type(private_key)}",
+                        stacklevel=2,
                     )
         case _:
             raise ValueError("private_key must be passed")

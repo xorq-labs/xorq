@@ -95,7 +95,7 @@ class NumpySchema(SchemaMapper):
     @classmethod
     def from_ibis(cls, schema):
         numpy_types = map(NumpyType.from_ibis, schema.types)
-        return list(zip(schema.names, numpy_types))
+        return list(zip(schema.names, numpy_types, strict=False))
 
     @classmethod
     def to_ibis(cls, schema):

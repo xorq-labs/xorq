@@ -78,8 +78,8 @@ def test_walk_nodes():
 def test_find_all_sources():
     (created_sources, _, expr) = make_expr()
     found_sources = find_all_sources(expr)
-    actual = set(con._profile for con in created_sources)
-    expected = set(con._profile for con in found_sources)
+    actual = {con._profile for con in created_sources}
+    expected = {con._profile for con in found_sources}
     assert actual == expected
 
 
@@ -110,6 +110,7 @@ def test_replace_computed_kwargs_expr(parquet_dir):
                 t, unique_key=tuple(t.columns), test_sizes=0.5, random_seed=42
             ),
             ("train", "test"),
+            strict=False,
         )
     )
     target = "price"

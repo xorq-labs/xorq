@@ -177,10 +177,7 @@ class Attribute(Annotation):
         The default value for the field.
 
         """
-        if callable(self.default):
-            value = self.default(this)
-        else:
-            value = self.default
+        value = self.default(this) if callable(self.default) else self.default
         return self.validate(name, value, this)
 
     def __call__(self, default):
@@ -386,7 +383,7 @@ class Signature(inspect.Signature):
             patterns = {}
         elif isinstance(patterns, (list, tuple)):
             # create a mapping of parameter name to pattern
-            patterns = dict(zip(sig.parameters.keys(), patterns))
+            patterns = dict(zip(sig.parameters.keys(), patterns, strict=False))
         elif not isinstance(patterns, dict):
             raise TypeError(f"patterns must be a list or dict, got {type(patterns)}")
 

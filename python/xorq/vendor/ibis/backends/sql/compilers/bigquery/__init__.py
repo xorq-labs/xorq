@@ -679,10 +679,7 @@ class BigQueryCompiler(SQLGlotCompiler):
         return self.f.timestamp_trunc(arg, self.v[unit], dialect=self.dialect)
 
     def visit_DateTruncate(self, op, *, arg, unit):
-        if unit == DateUnit.WEEK:
-            unit = "WEEK(MONDAY)"
-        else:
-            unit = unit.name
+        unit = "WEEK(MONDAY)" if unit == DateUnit.WEEK else unit.name
         return self.f.date_trunc(arg, self.v[unit], dialect=self.dialect)
 
     def visit_TimeTruncate(self, op, *, arg, unit):
@@ -796,7 +793,7 @@ class BigQueryCompiler(SQLGlotCompiler):
         )
         struct_fields = [
             arr[self.f.safe_offset(idx)].as_(name)
-            for name, arr in zip(op.dtype.value_type.names, arg)
+            for name, arr in zip(op.dtype.value_type.names, arg, strict=False)
         ]
         return self.f.array(
             sge.Select(kind="STRUCT", expressions=struct_fields).from_(indices)
@@ -975,7 +972,7 @@ class BigQueryCompiler(SQLGlotCompiler):
         row = sge.Concat(
             expressions=[
                 self.f.to_json_string(sg.column(x, quoted=self.quoted))
-                for x in op.arg.schema.keys()
+                for x in op.arg.schema
             ]
         )
         if where is not None:
@@ -1080,10 +1077,7 @@ class BigQueryCompiler(SQLGlotCompiler):
 
     def visit_TimestampBucket(self, op, *, arg, interval, offset):
         arg_dtype = op.arg.dtype
-        if arg_dtype.timezone is not None:
-            funcname = "timestamp"
-        else:
-            funcname = "datetime"
+        funcname = "timestamp" if arg_dtype.timezone is not None else "datetime"
 
         func = self.f[f"{funcname}_bucket"]
 

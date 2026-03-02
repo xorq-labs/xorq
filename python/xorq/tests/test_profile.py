@@ -12,7 +12,8 @@ from xorq.vendor.ibis.backends.profiles import Profile, Profiles
 local_con_names = ("duckdb", "xorq", "datafusion", "pandas", "pyiceberg")
 remote_connectors = (lambda: xo.postgres.connect_env(),)
 local_connectors = tuple(
-    lambda: getattr(xo, con_name).connect() for con_name in local_con_names
+    (lambda cn: lambda: getattr(xo, cn).connect())(con_name)
+    for con_name in local_con_names
 )
 
 
@@ -83,12 +84,10 @@ def test_save_load(connector, monkeypatch, tmp_path):
     profile = con._profile
     profile.save(check_secrets=False)
 
-    others = tuple(
-        (
-            profiles.get(profile.hash_name),
-            profiles[profile.hash_name],
-            profile.load(profile.hash_name),
-        )
+    others = (
+        profiles.get(profile.hash_name),
+        profiles[profile.hash_name],
+        profile.load(profile.hash_name),
     )
 
     for other in others:

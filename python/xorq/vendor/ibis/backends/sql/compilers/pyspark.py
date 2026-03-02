@@ -459,10 +459,7 @@ class PySparkCompiler(SQLGlotCompiler):
         return self.f.regexp_replace(arg, pattern, replacement)
 
     def visit_JSONGetItem(self, op, *, arg, index):
-        if op.index.dtype.is_integer():
-            fmt = "$[%s]"
-        else:
-            fmt = "$.%s"
+        fmt = "$[%s]" if op.index.dtype.is_integer() else "$.%s"
         path = self.f.format_string(fmt, index)
         return self.f.get_json_object(arg, path)
 

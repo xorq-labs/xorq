@@ -74,7 +74,7 @@ class PandasSchema(SchemaMapper):
     def from_ibis(cls, schema):
         names = schema.names
         types = [PandasType.from_ibis(t) for t in schema.types]
-        return list(zip(names, types))
+        return list(zip(names, types, strict=False))
 
 
 class PandasData(DataMapper):
@@ -89,7 +89,7 @@ class PandasData(DataMapper):
     @classmethod
     def infer_table(cls, df):
         pairs = []
-        for column_name in df.dtypes.keys():
+        for column_name in list(df.columns):
             if not isinstance(column_name, str):
                 raise TypeError(
                     "Column names must be strings to use the pandas backend"
@@ -292,11 +292,11 @@ class PandasData(DataMapper):
             items = (
                 values.items()
                 if isinstance(values, dict)
-                else zip(names, util.promote_list(values))
+                else zip(names, util.promote_list(values), strict=False)
             )
             return {
                 k: converter(v) if v is not None else v
-                for converter, (k, v) in zip(converters, items)
+                for converter, (k, v) in zip(converters, items, strict=False)
             }
 
         return convert
@@ -370,7 +370,11 @@ class PandasData(DataMapper):
 
             row = dict(raw_row)
             return dict(
-                zip(map(convert_key, row.keys()), map(convert_value, row.values()))
+                zip(
+                    map(convert_key, row.keys()),
+                    map(convert_value, row.values()),
+                    strict=False,
+                )
             )
 
         return convert
@@ -380,9 +384,7 @@ class PandasData(DataMapper):
         from uuid import UUID
 
         def convert(value):
-            if value is None:
-                return value
-            elif isinstance(value, UUID):
+            if value is None or isinstance(value, UUID):
                 return value
             elif isinstance(value, bytes):
                 return UUID(bytes=value)

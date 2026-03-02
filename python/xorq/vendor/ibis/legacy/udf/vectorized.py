@@ -36,7 +36,7 @@ def _coerce_to_dict(
     - `np.ndarray`
     - `pd.Series`
     """
-    return dict(zip(output_type.names, data))
+    return dict(zip(output_type.names, data, strict=False))
 
 
 def _coerce_to_np_array(

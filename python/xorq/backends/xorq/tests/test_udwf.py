@@ -6,6 +6,19 @@ from xorq.internal import WindowEvaluator, udwf
 
 
 class ExponentialSmoothDefault(WindowEvaluator):
+    def memoize(self) -> None:
+        pass
+
+    def evaluate(
+        self, values: list[pa.Array], eval_range: tuple[int, int]
+    ) -> pa.Scalar:
+        pass
+
+    def evaluate_all_with_rank(
+        self, num_rows: int, ranks_in_partition: list[tuple[int, int]]
+    ) -> pa.Array:
+        pass
+
     def __init__(self, alpha: float) -> None:
         self.alpha = alpha
 
@@ -26,6 +39,17 @@ class ExponentialSmoothDefault(WindowEvaluator):
 
 
 class ExponentialSmoothBounded(WindowEvaluator):
+    def memoize(self) -> None:
+        pass
+
+    def evaluate_all(self, values: list[pa.Array], num_rows: int) -> pa.Array:
+        pass
+
+    def evaluate_all_with_rank(
+        self, num_rows: int, ranks_in_partition: list[tuple[int, int]]
+    ) -> pa.Array:
+        pass
+
     def __init__(self, alpha: float) -> None:
         self.alpha = alpha
 
@@ -57,6 +81,17 @@ class ExponentialSmoothBounded(WindowEvaluator):
 
 
 class ExponentialSmoothRank(WindowEvaluator):
+    def memoize(self) -> None:
+        pass
+
+    def evaluate_all(self, values: list[pa.Array], num_rows: int) -> pa.Array:
+        pass
+
+    def evaluate(
+        self, values: list[pa.Array], eval_range: tuple[int, int]
+    ) -> pa.Scalar:
+        pass
+
     def __init__(self, alpha: float) -> None:
         self.alpha = alpha
 
@@ -83,6 +118,17 @@ class ExponentialSmoothRank(WindowEvaluator):
 
 
 class ExponentialSmoothFrame(WindowEvaluator):
+    def memoize(self) -> None:
+        pass
+
+    def evaluate_all(self, values: list[pa.Array], num_rows: int) -> pa.Array:
+        pass
+
+    def evaluate_all_with_rank(
+        self, num_rows: int, ranks_in_partition: list[tuple[int, int]]
+    ) -> pa.Array:
+        pass
+
     def __init__(self, alpha: float) -> None:
         self.alpha = alpha
 
@@ -115,6 +161,19 @@ class SmoothTwoColumn(WindowEvaluator):
     If the second column is above a threshold, then smooth over the first column from
     the previous and next rows.
     """
+
+    def memoize(self) -> None:
+        pass
+
+    def evaluate(
+        self, values: list[pa.Array], eval_range: tuple[int, int]
+    ) -> pa.Scalar:
+        pass
+
+    def evaluate_all_with_rank(
+        self, num_rows: int, ranks_in_partition: list[tuple[int, int]]
+    ) -> pa.Array:
+        pass
 
     def __init__(self, alpha: float) -> None:
         self.alpha = alpha

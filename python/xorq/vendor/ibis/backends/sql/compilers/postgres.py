@@ -170,7 +170,7 @@ class PostgresCompiler(SQLGlotCompiler):
             ident=self.__sql_name__(udf_node),
             signature=", ".join(
                 f"{argname} {type_mapper.to_string(arg.dtype)}"
-                for argname, arg in zip(argnames, udf_node.args)
+                for argname, arg in zip(argnames, udf_node.args, strict=False)
             ),
             return_type=type_mapper.to_string(udf_node.dtype),
             language=config.get("language", "plpython3u"),
@@ -647,10 +647,7 @@ class PostgresCompiler(SQLGlotCompiler):
         else:
             start = self.f.least(arg_length, neg_to_pos_index(arg_length, start))
 
-        if stop is None:
-            stop = arg_length
-        else:
-            stop = neg_to_pos_index(arg_length, stop)
+        stop = arg_length if stop is None else neg_to_pos_index(arg_length, stop)
 
         slice_expr = sge.Slice(this=start + 1, expression=stop)
         return sge.paren(arg, copy=False)[slice_expr]

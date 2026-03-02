@@ -314,10 +314,7 @@ def rewrite_join(_, **kwargs):
 
 @replace(ops.Limit)
 def rewrite_limit(_, **kwargs):
-    if isinstance(_.n, ops.Value):
-        n = _.n.to_expr()
-    else:
-        n = ibis.literal(_.n)
+    n = _.n.to_expr() if isinstance(_.n, ops.Value) else ibis.literal(_.n)
 
     if isinstance(_.offset, ops.Value):
         offset = _.offset.to_expr()

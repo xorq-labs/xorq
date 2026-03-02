@@ -12,10 +12,7 @@ def normalize_decimal(
     context = Context(prec=38 if precision is None else precision)
 
     try:
-        if isinstance(value, float):
-            out = Decimal(str(value))
-        else:
-            out = Decimal(value)
+        out = Decimal(str(value)) if isinstance(value, float) else Decimal(value)
     except InvalidOperation:
         raise TypeError(f"Unable to construct decimal from {value!r}")
 

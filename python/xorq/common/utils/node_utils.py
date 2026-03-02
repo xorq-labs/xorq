@@ -147,11 +147,11 @@ def gen_downstream(expr, downstream_of):
 
 
 def elide_downstream_cached_node(expr, downstream_of):
-    cns = set(
+    cns = {
         el
         for el in gen_downstream(expr, downstream_of)
         if isinstance(el, rel.CachedNode)
-    )
+    }
 
     def elide_cached_node(node, kwargs):
         if node in cns:
@@ -170,7 +170,7 @@ def expr_to_unbound(expr, hash, tag, typs, strategy=None):
 
     found = find_node(expr, hash=hash, tag=tag, typs=typs, strategy=strategy)
     found_expr = found.to_expr()
-    to_unbind_hash = hash if hash else compute_expr_hash(found_expr, strategy)
+    to_unbind_hash = hash or compute_expr_hash(found_expr, strategy)
     found_con = None
     match find_all_sources(found_expr):
         case []:
@@ -183,7 +183,8 @@ def expr_to_unbound(expr, hash, tag, typs, strategy=None):
                     import xorq.api as xo
 
                     warnings.warn(
-                        "Found empty memtable, presuming partial_expr, using xo.connect()"
+                        "Found empty memtable, presuming partial_expr, using xo.connect()",
+                        stacklevel=2,
                     )
                     found_con = xo.connect()
                 case _:
@@ -208,12 +209,12 @@ def expr_to_unbound(expr, hash, tag, typs, strategy=None):
 
 
 def recreate(op, **kwargs):
-    new_kwargs = dict(zip(op.argnames, op.args)) | kwargs
+    new_kwargs = dict(zip(op.argnames, op.args, strict=False)) | kwargs
     return op.__recreate__(new_kwargs)
 
 
 def update_read_kwargs(old_read_kwargs, new_read_kwargs):
-    existing = set(name for name, _ in old_read_kwargs)
+    existing = {name for name, _ in old_read_kwargs}
     to_append = tuple(
         (name, value) for (name, value) in new_read_kwargs if name not in existing
     )

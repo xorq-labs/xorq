@@ -30,13 +30,13 @@ def get_dtype_yaml(yaml_dict, expression, key="type"):
 @pytest.fixture
 def t():
     return ibis.table(
-        dict(
-            a="int64",
-            b="string",
-            c="float64",
-            d="timestamp",
-            e="date",
-        ),
+        {
+            "a": "int64",
+            "b": "string",
+            "c": "float64",
+            "d": "timestamp",
+            "e": "date",
+        },
         name="test_table",
     )
 

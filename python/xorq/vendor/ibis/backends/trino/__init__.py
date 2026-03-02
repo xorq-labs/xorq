@@ -319,6 +319,7 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
             warnings.warn(
                 "The `password` parameter is deprecated and will be removed in 10.0; use `auth` instead",
                 FutureWarning,
+                stacklevel=2,
             )
 
         if (

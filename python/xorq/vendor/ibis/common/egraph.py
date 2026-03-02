@@ -391,10 +391,7 @@ class Pattern(Slotted):
         counter = counter or itertools.count()
 
         if var is None:
-            if self.name is None:
-                var = Variable(next(counter))
-            else:
-                var = Variable(self.name)
+            var = Variable(next(counter)) if self.name is None else Variable(self.name)
 
         args = []
         for arg in self.args:
@@ -645,7 +642,7 @@ class EGraph:
 
         """
         subst = {}
-        for arg, patarg in zip(args, patargs):
+        for arg, patarg in zip(args, patargs, strict=False):
             if isinstance(patarg, Variable):
                 if isinstance(arg, ENode):
                     subst[patarg.name] = self._eclasses.find(arg)
@@ -774,7 +771,7 @@ class EGraph:
         """
         enode = self._as_enode(node)
         enode = self._eclasses.find(enode)
-        costs = {en: (math.inf, None) for en in self._eclasses.keys()}
+        costs = dict.fromkeys(self._eclasses.keys(), (math.inf, None))
 
         def enode_cost(enode):
             cost = 1

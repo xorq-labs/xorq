@@ -779,7 +779,7 @@ class SQLGlotCompiler(abc.ABC):
                     self.visit_Literal(
                         ops.Literal(k, key_type), value=k, dtype=key_type
                     )
-                    for k in value.keys()
+                    for k in value
                 )
             )
 
@@ -799,7 +799,7 @@ class SQLGlotCompiler(abc.ABC):
                 self.visit_Literal(
                     ops.Literal(v, field_dtype), value=v, dtype=field_dtype
                 ).as_(k, quoted=self.quoted)
-                for field_dtype, (k, v) in zip(dtype.types, value.items())
+                for field_dtype, (k, v) in zip(dtype.types, value.items(), strict=False)
             ]
             return sge.Struct.from_arg_list(items)
         elif dtype.is_uuid():
@@ -1070,7 +1070,7 @@ class SQLGlotCompiler(abc.ABC):
 
         args = []
 
-        for oparg, arg in zip(op.args, kw.values()):
+        for oparg, arg in zip(op.args, kw.values(), strict=False):
             if (arg_dtype := oparg.dtype).is_boolean():
                 arg = self.cast(arg, dt.Int32(nullable=arg_dtype.nullable))
             args.append(arg)
@@ -1104,7 +1104,10 @@ class SQLGlotCompiler(abc.ABC):
 
     def visit_StructColumn(self, op, *, names, values):
         return sge.Struct.from_arg_list(
-            [value.as_(name, quoted=self.quoted) for name, value in zip(names, values)]
+            [
+                value.as_(name, quoted=self.quoted)
+                for name, value in zip(names, values, strict=False)
+            ]
         )
 
     def visit_StructField(self, op, *, arg, field):
@@ -1545,7 +1548,9 @@ class SQLGlotCompiler(abc.ABC):
         **kwargs,
     ) -> sg.table:
         new_op = op.make_unbound_dt()
-        return self.visit_node(new_op, **dict(zip(new_op.argnames, new_op.args)))
+        return self.visit_node(
+            new_op, **dict(zip(new_op.argnames, new_op.args, strict=False))
+        )
 
     def add_query_to_expr(self, *, name: str, table: ir.Table, query: str) -> str:
         dialect = self.dialect

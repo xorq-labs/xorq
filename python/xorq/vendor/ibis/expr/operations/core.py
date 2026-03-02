@@ -128,10 +128,7 @@ class Value(Node, Coercible, DefaultTypeVars, Generic[T, S]):
     def to_expr(self):
         import xorq.vendor.ibis.expr.types as ir
 
-        if self.shape.is_columnar():
-            typename = self.dtype.column
-        else:
-            typename = self.dtype.scalar
+        typename = self.dtype.column if self.shape.is_columnar() else self.dtype.scalar
 
         return getattr(ir, typename)(self)
 

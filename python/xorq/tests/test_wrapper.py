@@ -64,7 +64,7 @@ def test_memtable_ops_dict():
             id="dataframe",
         ),
         param(
-            lambda: xo.memtable([dict(a=1), dict(a=2)]),
+            lambda: xo.memtable([{"a": 1}, {"a": 2}]),
             pd.DataFrame({"a": [1, 2]}),
             id="list_of_dicts",
         ),

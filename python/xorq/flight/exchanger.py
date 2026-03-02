@@ -182,7 +182,7 @@ class EchoExchanger(AbstractExchanger):
                 elif chunk.data:
                     writer.write_batch(chunk.data)
                 else:
-                    assert False, "Should not happen"
+                    raise AssertionError("Should not happen")
 
         return exchange_echo
 
@@ -250,10 +250,7 @@ class PandasUDFExchanger(AbstractExchanger):
         def f(schema_in):
             # FIXME: what to send if schema_in does not match schema_in_required?
             field_schema = ibis.schema({self.name: self.typ})
-            if self.append:
-                schema_out = schema_in | field_schema
-            else:
-                schema_out = field_schema
+            schema_out = schema_in | field_schema if self.append else field_schema
             return schema_out
 
         return f

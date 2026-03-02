@@ -25,7 +25,7 @@ def test_setup_console_metrics_simple(capsys):
     setup_console_metrics()
     dummy_do_get(None, None)
 
-    for i in range(20):
+    for _i in range(20):
         time.sleep(1)
         if (
             "flight_server.requests_total{method=dummy_do_get} 1"
@@ -33,4 +33,4 @@ def test_setup_console_metrics_simple(capsys):
         ):
             return
 
-    assert False
+    raise AssertionError()

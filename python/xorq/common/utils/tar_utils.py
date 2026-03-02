@@ -31,23 +31,20 @@ def uv_sdist_member_filter(member):
 
 
 def gunzip_path(from_, to_):
-    with gzip.GzipFile(from_, "rb") as gfh:
-        with to_.open("wb") as fh:
-            shutil.copyfileobj(gfh, fh)
+    with gzip.GzipFile(from_, "rb") as gfh, to_.open("wb") as fh:
+        shutil.copyfileobj(gfh, fh)
     return to_
 
 
 def gzip_path(from_, to_):
-    with from_.open("rb") as fh:
-        with gzip.GzipFile(to_, "wb") as gfh:
-            shutil.copyfileobj(fh, gfh)
+    with from_.open("rb") as fh, gzip.GzipFile(to_, "wb") as gfh:
+        shutil.copyfileobj(fh, gfh)
     return to_
 
 
 def copy_path(from_, to_):
-    with from_.open("rb") as from_fh:
-        with to_.open("wb") as to_fh:
-            shutil.copyfileobj(from_fh, to_fh)
+    with from_.open("rb") as from_fh, to_.open("wb") as to_fh:
+        shutil.copyfileobj(from_fh, to_fh)
 
 
 def tar_append(tar_path, append_path, **kwargs):
@@ -82,7 +79,7 @@ def calc_tgz_content_hexdigest(path, member_filter=uv_sdist_member_filter):
         }
         print(tuple(sorted(dct.items())))
         md5 = hashlib.md5()
-        for key, value in sorted(dct.items()):
+        for _key, value in sorted(dct.items()):
             # can't use key: top level dir changes shouldn't impact hash
             # md5.update(key.encode("ascii"))
             md5.update(value.encode("ascii"))
@@ -100,7 +97,7 @@ class TGZProxy:
         assert any(full_suffix.endswith(suffix) for suffix in self.valid_full_suffixes)
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def root_dir(self):
         return get_root_dir(self.tgz_path)
 
@@ -133,9 +130,8 @@ class TGZProxy:
 
     def extract_toplevel_name(self, name, dest):
         dest = Path(dest)
-        with dest.open("wb") as ofh:
-            with self.open_toplevel_member(name) as ifh:
-                ofh.write(ifh.read())
+        with dest.open("wb") as ofh, self.open_toplevel_member(name) as ifh:
+            ofh.write(ifh.read())
         return dest
 
     @property
@@ -169,12 +165,12 @@ class TGZAppender:
         return dict(self.kwargs_tuple)
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def root_dir(self):
         return get_root_dir(self.tgz_path)
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def _tmpdir(self):
         return TemporaryDirectory()
 
@@ -183,14 +179,14 @@ class TGZAppender:
         return Path(self._tmpdir.name)
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def gunzipped_path(self):
         gunzipped_path = self.tmpdir.joinpath("gunzipped.tar")
         gunzip_path(self.tgz_path, gunzipped_path)
         return gunzipped_path
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def appended_path(self):
         appended_path = self.tmpdir.joinpath("appended.tar")
         copy_path(self.gunzipped_path, appended_path)
@@ -198,7 +194,7 @@ class TGZAppender:
         return appended_path
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def appended_tgz_path(self):
         appended_tgz_path = self.tmpdir.joinpath(self.tgz_path.name)
         gzip_path(self.appended_path, appended_tgz_path)
@@ -212,7 +208,7 @@ class TGZAppender:
         kwargs_tuple = tuple(({"arcname": arcname} | kwargs).items())
         self = cls(tgz_path, append_path, kwargs_tuple=kwargs_tuple)
         # make sure the append is successful
-        self.appended_tgz_path
+        self.appended_tgz_path  # noqa: B018  # access triggers side-effect (performs append)
         renamed = self.tgz_path.with_name(self.tgz_path.name + suffix)
         self.tgz_path.rename(renamed)
         self.appended_tgz_path.rename(self.tgz_path)
