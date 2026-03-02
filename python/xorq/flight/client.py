@@ -69,7 +69,7 @@ class FlightClient:
             self._options = None
 
     def _wait_on_healthcheck(self, n_tries=None, sleep_n=1):
-        for attempt_i in itertools.islice(itertools.count(), n_tries):
+        for attempt_i in itertools.islice(itertools.count(), n_tries):  # noqa: B007
             try:
                 self.do_action(
                     "healthcheck",
@@ -216,14 +216,14 @@ class FlightClient:
         def do_writes(writer, reader):
             writer.begin(reader.schema)
             i = -1
-            for i, batch in enumerate(reader, 1):
+            for i, batch in enumerate(reader, 1):  # noqa: B007
                 writer.write_batch(batch)
             writer.done_writing()
             return i
 
         def do_reads(_reader, queue):
             i = -1
-            for i, batch in enumerate(_reader, 1):
+            for i, batch in enumerate(_reader, 1):  # noqa: B007
                 queue.put(batch.data)
             queue.put(None)
             return i

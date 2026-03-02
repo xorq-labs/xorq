@@ -183,7 +183,8 @@ def expr_to_unbound(expr, hash, tag, typs, strategy=None):
                     import xorq.api as xo
 
                     warnings.warn(
-                        "Found empty memtable, presuming partial_expr, using xo.connect()"
+                        "Found empty memtable, presuming partial_expr, using xo.connect()",
+                        stacklevel=2,
                     )
                     found_con = xo.connect()
                 case _:
@@ -208,7 +209,7 @@ def expr_to_unbound(expr, hash, tag, typs, strategy=None):
 
 
 def recreate(op, **kwargs):
-    new_kwargs = dict(zip(op.argnames, op.args)) | kwargs
+    new_kwargs = dict(zip(op.argnames, op.args, strict=False)) | kwargs
     return op.__recreate__(new_kwargs)
 
 

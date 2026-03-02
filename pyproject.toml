@@ -201,11 +201,19 @@ drop = [
 ]
 
 [tool.ruff.lint]
-extend-select = ["I", "ICN"]
+extend-select = [
+    "I",    # isort
+    "ICN",  # import conventions
+    "B",    # flake8-bugbear: mutable default args, exception chaining, etc.
+]
 
 [tool.ruff.lint.per-file-ignores]
 "python/xorq/__init__.py" = ["I001"]
 "python/xorq/api.py" = ["I001"]
+"python/xorq/vendor/**" = ["B"]
+# Examples and docs use B905 (zip without strict) intentionally for readability.
+"examples/**" = ["B905"]
+"docs/**" = ["B905"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["xorq"]

@@ -182,7 +182,7 @@ class EchoExchanger(AbstractExchanger):
                 elif chunk.data:
                     writer.write_batch(chunk.data)
                 else:
-                    assert False, "Should not happen"
+                    raise AssertionError("Should not happen")
 
         return exchange_echo
 

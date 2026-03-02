@@ -244,7 +244,7 @@ class Backend(IbisSnowflakeBackend):
                 try:
                     cur.execute(use_stmt)
                 except Exception as e:  # noqa: BLE001
-                    warnings.warn(f"Unable to set catalog,db: {e}")
+                    warnings.warn(f"Unable to set catalog,db: {e}", stacklevel=2)
 
         if create_object_udfs:
             create_stmt = sge.Create(
@@ -264,7 +264,8 @@ class Backend(IbisSnowflakeBackend):
                     cur.execute(stmt)
                 except Exception as e:  # noqa: BLE001
                     warnings.warn(
-                        f"Unable to create Ibis UDFs, some functionality will not work: {e}"
+                        f"Unable to create Ibis UDFs, some functionality will not work: {e}",
+                        stacklevel=2,
                     )
         # without this self.current_{catalog,database} is not synchronized with con.{database,schema}
         with contextlib.closing(con.cursor()) as cur:

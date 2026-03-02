@@ -143,7 +143,7 @@ def test_postgres_snapshot(pg, con):
     modify_postgres_table(dt)
     executed2 = expr_cached.execute()
     assert executed0.equals(executed2)
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017
         assert_n_scans_changes(dt, n_scans_after)
 
     executed3 = expr_cached.ls.uncached.execute()
@@ -161,7 +161,7 @@ def test_postgres_parquet_snapshot(pg, tmp_path):
 
     def assert_n_scans_changes(dt, n_scans_before):
         do_analyze(dt.source, dt.name)
-        for i in range(10):  # noqa: F402
+        for _i in range(10):  # noqa: F402
             # give postgres some time to update its tables
             time.sleep(0.1)
             n_scans_after = get_postgres_n_scans(dt)
@@ -204,7 +204,7 @@ def test_postgres_parquet_snapshot(pg, tmp_path):
     modify_postgres_table(dt)
     executed2 = expr_cached.execute()
     assert executed0.equals(executed2)
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017
         assert_n_scans_changes(dt, n_scans_after)
 
     executed3 = expr_cached.ls.uncached.execute()

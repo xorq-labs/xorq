@@ -78,7 +78,7 @@ def make_estimator_typ(fit, return_type, name=None, *, transform=None, predict=N
 
     assert isinstance(return_type, dt.DataType)
     other, which = arbitrate_transform_predict(transform, predict)
-    assert hasattr(fit, "__call__") and hasattr(other, "__call__")
+    assert callable(fit) and callable(other)
 
     def wrapped_fit(self, *args, **kwargs):
         self._model = fit(*args, **kwargs)
@@ -413,19 +413,19 @@ class FittedStep:
         return get_predict_return_type(self)
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def _deferred_fit_transform(self):
         assert self.is_transform
         return DeferredFitOther.from_fitted_step(self, mode="transform")
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def _deferred_fit_predict(self):
         assert self.is_predict
         return DeferredFitOther.from_fitted_step(self, mode="predict")
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def _deferred_fit_other(self):
         # Backward compat: prefer transform, fall back to predict
         return (
@@ -492,7 +492,7 @@ class FittedStep:
         )
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def model(self):
         import pandas as pd
 
@@ -506,7 +506,7 @@ class FittedStep:
         return pickle.loads(obj)
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     @cexcepts(ValueError)
     def structer(self):
         return Structer.from_instance_expr(

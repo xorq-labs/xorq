@@ -70,7 +70,7 @@ def _make_mock_catalog(entries=(), aliases=(), commits=()):
     catalog.repo.iter_commits.return_value = commits
     catalog.list.return_value = [e.name for e in entries]
     catalog.catalog_aliases = aliases
-    for entry in entries:
+    for _entry in entries:
         catalog.get_catalog_entry.side_effect = (
             lambda h, _entries={e.name: e for e in entries}: _entries[h]
         )

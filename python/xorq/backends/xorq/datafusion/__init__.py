@@ -255,7 +255,10 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                     type_string, nullable=is_nullable == "YES"
                 )
                 for name, type_string, is_nullable in zip(
-                    result["column_name"], result["data_type"], result["is_nullable"]
+                    result["column_name"],
+                    result["data_type"],
+                    result["is_nullable"],
+                    strict=False,
                 )
             }
         )
@@ -265,9 +268,11 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         for name, func in inspect.getmembers(
             udfs,
-            predicate=lambda m: callable(m)
-            and not m.__name__.startswith("_")
-            and m.__module__ == udfs.__name__,
+            predicate=lambda m: (
+                callable(m)
+                and not m.__name__.startswith("_")
+                and m.__module__ == udfs.__name__
+            ),
         ):
             annotations = typing.get_type_hints(func)
             argnames = list(inspect.signature(func).parameters.keys())
@@ -690,12 +695,12 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         try:
             from deltalake import DeltaTable
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "The deltalake extra is required to use the "
                 "read_delta method. You can install it using pip:\n\n"
                 "pip install 'ibis-framework[deltalake]'\n"
-            )
+            ) from err
 
         delta_table = DeltaTable(source_table, **kwargs)
 

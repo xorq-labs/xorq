@@ -430,7 +430,7 @@ class MetricComputation:
         match self.return_type:
             case dt.Struct() as s:
                 names = s.names
-                return lambda raw: dict(zip(names, raw))
+                return lambda raw: dict(zip(names, raw, strict=False))
             case dt.Array():
                 return lambda raw: raw.tolist()
             case dt.Float64():

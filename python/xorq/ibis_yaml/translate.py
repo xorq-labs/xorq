@@ -75,7 +75,7 @@ def _object_to_yaml(obj: ops.Node, context: Any) -> dict:
         {"op": obj.__class__.__name__}
         | {
             name: context.translate_to_yaml(arg)
-            for name, arg in zip(obj.argnames, obj.args)
+            for name, arg in zip(obj.argnames, obj.args, strict=False)
         }
         | {
             name: context.translate_to_yaml(getattr(obj, attribute))
@@ -269,7 +269,7 @@ def _translate_struct_type(dtype: dt.Struct) -> dict:
             "name": "Struct",
             "fields": {
                 name: _translate_type(field_type)
-                for name, field_type in zip(dtype.names, dtype.types)
+                for name, field_type in zip(dtype.names, dtype.types, strict=False)
             },
             "nullable": dtype.nullable,
         }
@@ -323,7 +323,7 @@ def _datatype_to_yaml(dtype: dt.DataType, context: TranslationContext) -> dict:
             argname: context.translate_to_yaml(arg)
             if context is not None
             else translate_to_yaml(arg, context)
-            for argname, arg in zip(dtype.argnames, dtype.args)
+            for argname, arg in zip(dtype.argnames, dtype.args, strict=False)
         }
     )
 
@@ -486,8 +486,10 @@ def database_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ib
 
     try:
         con = context.profiles[profile_name]
-    except KeyError:
-        raise ValueError(f"Profile {profile_name!r} not found in context.profiles")
+    except KeyError as err:
+        raise ValueError(
+            f"Profile {profile_name!r} not found in context.profiles"
+        ) from err
     return ops.DatabaseTable(
         schema=schema,
         source=con,
@@ -521,8 +523,10 @@ def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
     profile_name = yaml_dict.get("source")
     try:
         source = context.profiles[profile_name]
-    except KeyError:
-        raise ValueError(f"Profile {profile_name!r} not found in context.profiles")
+    except KeyError as err:
+        raise ValueError(
+            f"Profile {profile_name!r} not found in context.profiles"
+        ) from err
     cache = load_cache_from_yaml(yaml_dict["cache"], context)
 
     op = CachedNode(
@@ -563,8 +567,10 @@ def _remotetable_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.E
         )
     try:
         con = context.profiles[profile_name]
-    except KeyError:
-        raise ValueError(f"Profile {profile_name!r} not found in context.profiles")
+    except KeyError as err:
+        raise ValueError(
+            f"Profile {profile_name!r} not found in context.profiles"
+        ) from err
 
     remote_expr = context.translate_from_yaml(remote_expr_yaml)
 
@@ -586,7 +592,8 @@ def warn_on_local_path(items: dict) -> None:
         paths = normalize_filenames(path)
         if any(map(f, paths)):
             warnings.warn(
-                "The Read op path is using a local filesystem path, running the build may not work in other environments."
+                "The Read op path is using a local filesystem path, running the build may not work in other environments.",
+                stacklevel=2,
             )
 
 

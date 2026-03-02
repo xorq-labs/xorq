@@ -15,7 +15,7 @@ def test_attributes():
         assert isinstance(example, Example)
 
     with pytest.raises(AttributeError):
-        xo.examples.missing
+        xo.examples.missing  # noqa: B018
 
 
 @pytest.mark.parametrize(

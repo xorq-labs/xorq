@@ -106,7 +106,7 @@ def test_map_column_contains_key_column(alltypes):
 def test_map_construct_dict(con, keys, values):
     expr = xo.map(keys, values)
     result = con.execute(expr.name("tmp"))
-    assert result == dict(zip(keys, values))
+    assert result == dict(zip(keys, values, strict=False))
 
 
 def test_map_construct_array_column(con, alltypes, alltypes_df):

@@ -8,7 +8,9 @@ try:
     import cityhash  # noqa: F401
 except ImportError:
     warnings.warn(
-        "cityhash is not installed, some functionality will not work", UserWarning
+        "cityhash is not installed, some functionality will not work",
+        UserWarning,
+        stacklevel=2,
     )
 
 from xorq.common.utils.logging_utils import get_logger
@@ -40,7 +42,7 @@ def maybe_hotfix(obj, attrname, target_tokenized, hotfix, definitely=False):
 
     if definitely or (tokenized == target_tokenized):
         if not isinstance(hotfix, property):
-            setattr(hotfix, "_original", to_hotfix)
+            hotfix._original = to_hotfix
         else:
             if tokenized != none_tokenized:
                 raise ValueError("Don't know how to retain _original")

@@ -33,7 +33,7 @@ def arrays_to_df(names, *arrays):
     import pandas as pd
 
     return pd.DataFrame(
-        {name: array.to_pandas() for (name, array) in zip(names, arrays)}
+        {name: array.to_pandas() for (name, array) in zip(names, arrays, strict=False)}
     )
 
 
@@ -841,7 +841,7 @@ def pyarrow_udwf(
     schema,
     return_type,
     name=None,
-    namespace=Namespace(database=None, catalog=None),
+    namespace=Namespace(database=None, catalog=None),  # noqa: B008
     base=AggUDF,
     **config_kwargs,
 ):

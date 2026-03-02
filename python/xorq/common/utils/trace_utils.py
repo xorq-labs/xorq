@@ -82,7 +82,8 @@ def dissoc_get_all(dct, *keys):
 def process_dict(dct, from_to_f):
     values = dissoc_get_all(dct, *from_to_f)
     processed = {
-        to_: f(value) for ((_, (to_, f)), value) in zip(from_to_f.items(), values)
+        to_: f(value)
+        for ((_, (to_, f)), value) in zip(from_to_f.items(), values, strict=False)
     }
     return processed
 
@@ -288,7 +289,8 @@ class Span:
             *(
                 dissoc_get_all(resource_span, "resource", "scopeSpans")
                 for resource_span in resource_spans
-            )
+            ),
+            strict=False,
         )
         assert all(
             dissoc_get_all(resource, "attributes") == ([required_attribute],)
@@ -299,7 +301,8 @@ class Span:
             *(
                 dissoc_get_all(scope_span, "scope", "spans")
                 for scope_span in scope_spans
-            )
+            ),
+            strict=False,
         )
         assert all(scope == required_scope for scope in scopes)
         return tuple(Span.from_dict(dct) for spans in spanss for dct in spans)
@@ -335,7 +338,7 @@ class Trace:
         )
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def trace_id(self):
         dct = toolz.groupby(
             compose(bool, operator.attrgetter("links")),
@@ -362,7 +365,7 @@ class Trace:
             raise ValueError("trace has no spans with or without links")
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def parent_span(self):
         (parent_span, *rest) = (
             span for span in self.spans if not span.parent_span_id and not span.links
@@ -410,7 +413,7 @@ class Trace:
         else:
             return 0
 
-    @functools.cache
+    @functools.cache  # noqa: B019
     def get_depths(self):
         spans = tuple(span for span in self.spans if span != self.parent_span)
         depths = {
@@ -420,7 +423,7 @@ class Trace:
         while spans:
             parent_span_ids = set(span.span_id for span in depths[depth - 1])
             dct = toolz.groupby(
-                lambda span: span.parent_span_id in parent_span_ids,
+                lambda span: span.parent_span_id in parent_span_ids,  # noqa: B023
                 spans,
             )
             at_depth = dct.get(True, ())
@@ -580,7 +583,7 @@ class TraceMetrics:
         assert oir_ids == mr_ids
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def default_metrics(self):
         return {
             "trace_id": self.trace.trace_id,
@@ -589,7 +592,7 @@ class TraceMetrics:
         }
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def metrics(self):
         dct = {
             metric.name: metric.calc_metric(self.trace) for metric in self.trace_metrics

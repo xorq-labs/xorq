@@ -82,7 +82,7 @@ def calc_tgz_content_hexdigest(path, member_filter=uv_sdist_member_filter):
         }
         print(tuple(sorted(dct.items())))
         md5 = hashlib.md5()
-        for key, value in sorted(dct.items()):
+        for _key, value in sorted(dct.items()):
             # can't use key: top level dir changes shouldn't impact hash
             # md5.update(key.encode("ascii"))
             md5.update(value.encode("ascii"))
@@ -100,7 +100,7 @@ class TGZProxy:
         assert any(full_suffix.endswith(suffix) for suffix in self.valid_full_suffixes)
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def root_dir(self):
         return get_root_dir(self.tgz_path)
 
@@ -169,12 +169,12 @@ class TGZAppender:
         return dict(self.kwargs_tuple)
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def root_dir(self):
         return get_root_dir(self.tgz_path)
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def _tmpdir(self):
         return TemporaryDirectory()
 
@@ -183,14 +183,14 @@ class TGZAppender:
         return Path(self._tmpdir.name)
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def gunzipped_path(self):
         gunzipped_path = self.tmpdir.joinpath("gunzipped.tar")
         gunzip_path(self.tgz_path, gunzipped_path)
         return gunzipped_path
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def appended_path(self):
         appended_path = self.tmpdir.joinpath("appended.tar")
         copy_path(self.gunzipped_path, appended_path)
@@ -198,7 +198,7 @@ class TGZAppender:
         return appended_path
 
     @property
-    @functools.cache
+    @functools.cache  # noqa: B019
     def appended_tgz_path(self):
         appended_tgz_path = self.tmpdir.joinpath(self.tgz_path.name)
         gzip_path(self.appended_path, appended_tgz_path)
@@ -212,7 +212,7 @@ class TGZAppender:
         kwargs_tuple = tuple(({"arcname": arcname} | kwargs).items())
         self = cls(tgz_path, append_path, kwargs_tuple=kwargs_tuple)
         # make sure the append is successful
-        self.appended_tgz_path
+        self.appended_tgz_path  # noqa: B018
         renamed = self.tgz_path.with_name(self.tgz_path.name + suffix)
         self.tgz_path.rename(renamed)
         self.appended_tgz_path.rename(self.tgz_path)

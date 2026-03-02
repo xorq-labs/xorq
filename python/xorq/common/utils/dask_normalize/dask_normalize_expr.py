@@ -295,8 +295,8 @@ def normalize_read(read):
     )
     try:
         path = next(el for el in (read_kwargs.get(name) for name in try_names) if el)
-    except StopIteration:
-        raise ValueError("unable to find path name in read_kwargs")
+    except StopIteration as err:
+        raise ValueError("unable to find path name in read_kwargs") from err
     if isinstance(path, (list, tuple)):
         # normalize_filenames may have converted a single path to a list
         path = path[0] if len(path) == 1 else path

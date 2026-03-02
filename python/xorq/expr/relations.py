@@ -74,7 +74,7 @@ def recursive_update(obj, replacements):
             return obj.__recreate__(
                 {
                     name: recursive_update(arg, replacements)
-                    for name, arg in zip(obj.argnames, obj.args)
+                    for name, arg in zip(obj.argnames, obj.args, strict=False)
                 }
             )
     elif isinstance(obj, (tuple, list)):
@@ -634,7 +634,7 @@ def register_and_transform_remote_tables(expr, **kwargs):
             kwargs = kwargs or {}
             if isinstance(node, Relation):
                 updated = {}
-                for k, v in list(kwargs.items()):
+                for _k, v in list(kwargs.items()):
                     try:
                         if v in batches_table:
                             updated[v] = mark_remote_table(v)

@@ -17,7 +17,7 @@ def make_struct_type(names, arrow_types):
                 field_name,
                 arrow_type,
             )
-            for field_name, arrow_type in zip(names, arrow_types)
+            for field_name, arrow_type in zip(names, arrow_types, strict=False)
         )
     )
 
