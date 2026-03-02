@@ -959,7 +959,7 @@ class FittedPipeline:
         """
         from xorq.expr.ml.metrics import _default_scorer_for_model
 
-        return _default_scorer_for_model(self.predict_step.model)
+        return _default_scorer_for_model(self.predict_step.instance)
 
     def score_expr(self, expr, scorer=None, **kwargs):
         """Compute metrics using deferred execution.
@@ -982,7 +982,7 @@ class FittedPipeline:
         """
         from xorq.expr.ml.metrics import Scorer, deferred_sklearn_metric
 
-        s = Scorer.from_spec(scorer, model=self.predict_step.model)
+        s = Scorer.from_spec(scorer, model=self.predict_step.instance)
 
         # Route predictions based on response_method
         method = ResponseMethod(s.response_method)

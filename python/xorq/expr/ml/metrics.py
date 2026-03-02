@@ -45,7 +45,10 @@ def _default_scorer_for_model(model):
     Parameters
     ----------
     model : estimator
-        A fitted sklearn estimator.
+        An sklearn estimator instance (fitted or unfitted).  Only the
+        class hierarchy (``ClassifierMixin``, ``RegressorMixin``,
+        ``ClusterMixin``) is inspected, so a fitted model is never
+        required.
 
     Returns
     -------
@@ -105,9 +108,10 @@ class Scorer:
         ----------
         scorer : str, callable, _BaseScorer, Scorer, or None
             The scorer specification to normalize.
-        model : estimator, optional
-            A fitted sklearn estimator, used to determine the default scorer
-            when scorer is None.
+        model : estimator or None, optional
+            An sklearn estimator instance (fitted or unfitted), used to
+            determine the default scorer when scorer is None.  Only the
+            class hierarchy is inspected.
 
         Returns
         -------

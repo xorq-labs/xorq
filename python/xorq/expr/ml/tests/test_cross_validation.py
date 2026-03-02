@@ -429,38 +429,41 @@ class TestDeferredCrossValScoreMatchesSklearn:
 
 
 class TestDeferredCrossValScoreLazy:
-    """Tests that expression construction is fully deferred (no eager execution)."""
+    """Tests that expression construction is fully deferred (no eager execution).
+
+    We patch ``Expr.execute`` at the base class so that *any* ``.execute()``
+    call on *any* expression (not just the top-level input) is detected.
+    The previous tests only patched the input table, which missed internal
+    executions such as ``FittedStep.deferred_model.execute()``.
+    """
 
     def test_sklearn_splitter_no_execute_during_construction(
         self,
         classification_data,
         classifier_pipeline,
     ):
-        """Building a CrossValScore with an sklearn splitter must NOT call .execute().
+        """Building a CrossValScore with an sklearn splitter must NOT call
+        Expr.execute() anywhere in the expression graph."""
+        from unittest.mock import MagicMock, patch
 
-        The old implementation eagerly materialized the table to get row indices.
-        The new UDWF-based implementation should be fully lazy.
-        """
-        from unittest.mock import patch
+        from xorq.vendor.ibis.expr.types import Expr
 
-        cv = KFold(n_splits=3, shuffle=True, random_state=42)
+        sentinel = MagicMock(
+            side_effect=AssertionError(
+                "Expr.execute() was called during expression construction"
+            )
+        )
 
-        with patch.object(
-            type(classification_data),
-            "execute",
-            wraps=classification_data.execute,
-        ) as mock_execute:
+        with patch.object(Expr, "execute", sentinel):
             result = deferred_cross_val_score(
                 classifier_pipeline,
                 classification_data,
                 features=FEATURES,
                 target=TARGET,
-                cv=cv,
+                cv=KFold(n_splits=3, shuffle=True, random_state=42),
             )
-            # Construction should not trigger any .execute() calls
-            mock_execute.assert_not_called()
 
-        # The result should still be a valid CrossValScore
+        sentinel.assert_not_called()
         assert isinstance(result, CrossValScore)
         assert len(result) == 3
 
@@ -469,14 +472,19 @@ class TestDeferredCrossValScoreLazy:
         classification_data,
         classifier_pipeline,
     ):
-        """Building a CrossValScore with int cv must NOT call .execute()."""
-        from unittest.mock import patch
+        """Building a CrossValScore with int cv must NOT call
+        Expr.execute() anywhere in the expression graph."""
+        from unittest.mock import MagicMock, patch
 
-        with patch.object(
-            type(classification_data),
-            "execute",
-            wraps=classification_data.execute,
-        ) as mock_execute:
+        from xorq.vendor.ibis.expr.types import Expr
+
+        sentinel = MagicMock(
+            side_effect=AssertionError(
+                "Expr.execute() was called during expression construction"
+            )
+        )
+
+        with patch.object(Expr, "execute", sentinel):
             result = deferred_cross_val_score(
                 classifier_pipeline,
                 classification_data,
@@ -485,8 +493,8 @@ class TestDeferredCrossValScoreLazy:
                 cv=3,
                 random_seed=42,
             )
-            mock_execute.assert_not_called()
 
+        sentinel.assert_not_called()
         assert isinstance(result, CrossValScore)
         assert len(result) == 3
 
