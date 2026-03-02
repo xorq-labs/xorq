@@ -546,6 +546,7 @@ class ExprLoader:
         validator=optional(or_(instance_of(Path), instance_of(str))), default=None
     )
     lazy = field(validator=instance_of(bool), default=False)
+    limit = field(validator=optional(instance_of(int)), default=None)
 
     @property
     def expr_hash(self):
@@ -562,17 +563,18 @@ class ExprLoader:
         )
         yaml_dict = self.artifact_store.load_yaml(DumpFiles.expr)
         expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
-        expr = self.deferred_reads_to_memtables(expr, self.expr_path)
+        expr = self.deferred_reads_to_memtables(expr, self.expr_path, limit=self.limit)
         if self.cache_dir:
             expr = self.replace_base_path(expr, base_path=Path(self.cache_dir))
         return expr
 
     @staticmethod
-    def deferred_reads_to_memtables(loaded, expr_path):
+    def deferred_reads_to_memtables(loaded, expr_path, limit=None):
         def deferred_read_to_memtable(dr):
             assert any(key == MemtableTypes.inmemory for key, _ in dr.read_kwargs)
             path = next(v for k, v in dr.read_kwargs if k == "path")
-            df = read_parquet(expr_path.joinpath(path)).execute()
+            expr = read_parquet(expr_path.joinpath(path))
+            df = (expr.limit(limit) if limit is not None else expr).execute()
             mt = ibis.memtable(df, schema=dr.schema, name=dr.name)
             return mt.op()
 

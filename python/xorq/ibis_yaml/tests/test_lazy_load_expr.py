@@ -1,4 +1,6 @@
-"""Tests for load_expr(..., lazy=True) — backends are LazyBackend instances."""
+"""Tests for load_expr(..., lazy=True / limit=N) options."""
+
+import pandas as pd
 
 import xorq.api as xo
 from xorq.backends.lazy import LazyBackend
@@ -128,3 +130,39 @@ def test_load_expr_default_is_not_lazy(builds_dir, parquet_dir):
     loaded = load_expr(build_path)
 
     assert not any(isinstance(src, LazyBackend) for src in find_all_sources(loaded))
+
+
+# ---------------------------------------------------------------------------
+# load_expr(limit=N) — deferred_reads_to_memtables row cap
+# ---------------------------------------------------------------------------
+
+
+def _memtable_build_path(builds_dir, n_rows=50):
+    """Build an expr from an in-memory DataFrame so deferred_reads_to_memtables fires."""
+    df = pd.DataFrame({"x": range(n_rows), "y": range(n_rows)})
+    expr = xo.memtable(df)
+    return build_expr(expr, builds_dir=builds_dir), n_rows
+
+
+def test_load_expr_limit_caps_rows(builds_dir):
+    """limit=N must return at most N rows from the in-memory parquet read."""
+    build_path, n_rows = _memtable_build_path(builds_dir)
+
+    result = load_expr(build_path, limit=10).execute()
+    assert len(result) == 10
+
+
+def test_load_expr_limit_none_returns_all_rows(builds_dir):
+    """limit=None (default) must return all rows."""
+    build_path, n_rows = _memtable_build_path(builds_dir)
+
+    result = load_expr(build_path, limit=None).execute()
+    assert len(result) == n_rows
+
+
+def test_load_expr_limit_larger_than_dataset_returns_all(builds_dir):
+    """limit larger than the dataset must return all rows, not raise."""
+    build_path, n_rows = _memtable_build_path(builds_dir)
+
+    result = load_expr(build_path, limit=n_rows * 10).execute()
+    assert len(result) == n_rows
