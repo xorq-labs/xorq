@@ -242,7 +242,7 @@ markers = [
     "pyiceberg",
     "core",
     "sqlite",
-    "gizmosql: GizmoSQL (DuckDB over Arrow Flight SQL) tests"
+    "gizmosql: GizmoSQL (DuckDB over Arrow Flight SQL) tests",
 ]
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"
