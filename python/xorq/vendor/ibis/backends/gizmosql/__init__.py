@@ -12,7 +12,6 @@ from urllib.parse import unquote_plus
 
 import sqlglot as sg
 import sqlglot.expressions as sge
-from adbc_driver_gizmosql import DatabaseOptions
 from adbc_driver_gizmosql import dbapi as gizmosql
 from packaging.version import parse as vparse
 
@@ -28,13 +27,11 @@ from xorq.vendor.ibis.backends.gizmosql.converter import DuckDBPandasData
 from xorq.vendor.ibis.backends.sql import SQLBackend
 from xorq.vendor.ibis.backends.sql.compilers.base import (
     STAR,
-    AlterTable,
     C,
-    RenameTable,
 )
 
 
-__version__ = "0.1.2"
+__version__ = "1.0.0"
 
 # Default batch size for ADBC bulk ingest operations
 _INGEST_BATCH_SIZE = 10_000
@@ -47,6 +44,7 @@ if TYPE_CHECKING:
     import polars as pl
     import pyarrow as pa
     import torch
+    from fsspec import AbstractFileSystem
 
     import xorq.vendor.ibis.expr.datatypes as dt
     from xorq.vendor.ibis.expr.schema import SchemaLike
@@ -67,12 +65,10 @@ class _Settings:
     def __setitem__(self, key, value):
         with self.con.cursor() as cur:
             cur.execute(f"SET {key} = {str(value)!r}")
-            cur.fetchall()
 
     def __repr__(self):
         with self.con.cursor() as cur:
-            cur.execute("SELECT * FROM duckdb_settings()")
-            return repr(cur.fetchall())
+            return repr(cur.execute("SELECT * FROM duckdb_settings()").fetchall())
 
 
 class Backend(
@@ -141,6 +137,18 @@ class Backend(
             kwargs["disable_certificate_verification"] = (
                 kwargs.pop("disableCertificateVerification", "false").lower() == "true"
             )
+
+        if "authType" in kwargs:
+            kwargs["auth_type"] = kwargs.pop("authType")
+
+        if "oauthPort" in kwargs:
+            kwargs["oauth_port"] = int(kwargs.pop("oauthPort"))
+
+        if "oauthTimeout" in kwargs:
+            kwargs["oauth_timeout"] = int(kwargs.pop("oauthTimeout"))
+
+        if "openBrowser" in kwargs:
+            kwargs["open_browser"] = kwargs.pop("openBrowser", "true").lower() == "true"
 
         return self.connect(**kwargs)
 
@@ -274,52 +282,43 @@ class Backend(
 
         # This is the same table as initial_table unless overwrite == True
         final_table = sg.table(name, catalog=catalog, db=database, quoted=quoted)
-        with self._safe_raw_sql(create_stmt) as create_table_cur:
-            # Force lazy execution: the CREATE TABLE must take effect
-            # before the INSERT below can reference the new table.
-            create_table_cur.fetchall()
-            with self.con.cursor() as cur:
-                if query is not None:
-                    insert_stmt = sge.insert(
-                        query, into=initial_table, columns=table.columns
-                    ).sql(dialect)
-                    cur.execute(insert_stmt)
-                    cur.fetchall()
+        self._execute_ddl(create_stmt)
 
-                if overwrite:
+        with self.con.cursor() as cur:
+            if query is not None:
+                insert_stmt = sge.insert(
+                    query, into=initial_table, columns=table.columns
+                ).sql(dialect)
+                cur.execute(insert_stmt)
+
+            if overwrite:
+                cur.execute(
+                    sge.Drop(kind="TABLE", this=final_table, exists=True).sql(
+                        dialect=self.dialect
+                    ),
+                )
+                if temp:
                     cur.execute(
-                        sge.Drop(kind="TABLE", this=final_table, exists=True).sql(
-                            dialect=self.dialect
-                        )
+                        sge.Create(
+                            kind="TABLE",
+                            this=final_table,
+                            expression=sg.select(STAR).from_(initial_table),
+                            properties=sge.Properties(expressions=properties),
+                        ).sql(dialect=self.dialect),
                     )
-                    cur.fetchall()
-                    # TODO: This branching should be removed once DuckDB >=0.9.3 is
-                    # our lower bound (there's an upstream bug in 0.9.2 that
-                    # disallows renaming temp tables)
-                    if temp:
-                        cur.execute(
-                            sge.Create(
-                                kind="TABLE",
-                                this=final_table,
-                                expression=sg.select(STAR).from_(initial_table),
-                                properties=sge.Properties(expressions=properties),
-                            ).sql(dialect=self.dialect)
-                        )
-                        cur.fetchall()
-                        cur.execute(
-                            sge.Drop(kind="TABLE", this=initial_table, exists=True).sql(
-                                dialect=self.dialect
-                            )
-                        )
-                        cur.fetchall()
-                    else:
-                        cur.execute(
-                            AlterTable(
-                                this=initial_table,
-                                actions=[RenameTable(this=final_table)],
-                            ).sql(dialect=self.dialect)
-                        )
-                        cur.fetchall()
+                    cur.execute(
+                        sge.Drop(kind="TABLE", this=initial_table, exists=True).sql(
+                            dialect=self.dialect
+                        ),
+                    )
+                else:
+                    cur.execute(
+                        sge.Alter(
+                            this=initial_table,
+                            kind="TABLE",
+                            actions=[sge.AlterRename(this=final_table)],
+                        ).sql(dialect=self.dialect),
+                    )
 
         return self.table(name, database=(catalog, database))
 
@@ -399,13 +398,14 @@ class Backend(
         try:
             yield cur
         finally:
-            # GizmoSQL uses lazy execution over Flight SQL: DML results must
-            # be consumed (fetched) for the statement to take effect.  If the
-            # caller already consumed them (e.g. via fetch_arrow_table()) the
-            # second fetch is harmless - we just suppress any errors.
-            with contextlib.suppress(Exception):
-                cur.fetchall()
             cur.close()
+
+    def _execute_ddl(self, query: str | sg.Expression) -> None:
+        """Execute a DDL/DML statement."""
+        with contextlib.suppress(AttributeError):
+            query = query.sql(dialect=self.dialect)
+        with self.con.cursor() as cur:
+            cur.execute(query)
 
     def list_catalogs(self, like: str | None = None) -> list[str]:
         col = "catalog_name"
@@ -459,6 +459,10 @@ class Backend(
         schema: str | None = None,
         use_encryption: bool | None = None,
         disable_certificate_verification: bool | None = None,
+        auth_type: str = "password",
+        oauth_port: int | None = None,
+        oauth_timeout: int | None = None,
+        open_browser: bool | None = None,
         **kwargs: Any,
     ) -> None:
         """Create an Ibis client connected to GizmoSQL database.
@@ -481,6 +485,14 @@ class Backend(
             Use encryption via TLS
         disable_certificate_verification
             Disable certificate verification
+        auth_type
+            Authentication type. Default "password". Can also be "oauth".
+        oauth_port
+            Port for OAuth callback server.
+        oauth_timeout
+            Timeout in seconds for OAuth flow.
+        open_browser
+            Whether to automatically open the browser for OAuth.
         kwargs
             Additional keyword arguments to pass to the backend client connection.
 
@@ -503,15 +515,26 @@ class Backend(
         if use_encryption:
             connection_scheme += "+tls"
 
-        db_kwargs = {"username": user, "password": password}
-        if use_encryption and disable_certificate_verification is not None:
-            db_kwargs[DatabaseOptions.TLS_SKIP_VERIFY.value] = str(
-                disable_certificate_verification
-            ).lower()
-
-        self.con = gizmosql.connect(
-            uri=f"{connection_scheme}://{host}:{port}", db_kwargs=db_kwargs
+        connect_kwargs = dict(
+            uri=f"{connection_scheme}://{host}:{port}",
+            auth_type=auth_type,
         )
+
+        if auth_type == "password":
+            connect_kwargs["username"] = user
+            connect_kwargs["password"] = password
+
+        if oauth_port is not None:
+            connect_kwargs["oauth_port"] = oauth_port
+        if oauth_timeout is not None:
+            connect_kwargs["oauth_timeout"] = oauth_timeout
+        if open_browser is not None:
+            connect_kwargs["open_browser"] = open_browser
+
+        if use_encryption and disable_certificate_verification is not None:
+            connect_kwargs["tls_skip_verify"] = disable_certificate_verification
+
+        self.con = gizmosql.connect(**connect_kwargs)
 
         vendor_version = self.con.adbc_get_info().get("vendor_version")
 
@@ -585,21 +608,23 @@ class Backend(
             .where(sg.not_(C.installed & C.loaded))
         )
         with self._safe_raw_sql(query) as cur:
-            if not (not_installed_or_loaded := cur.fetchall()):
-                return
+            not_installed_or_loaded = cur.fetchall()
 
-            commands = [
-                "FORCE " * force_install + f"INSTALL '{extension}'"
-                for extension, installed, _ in not_installed_or_loaded
-                if not installed
-            ]
-            commands.extend(
-                f"LOAD '{extension}'"
-                for extension, _, loaded in not_installed_or_loaded
-                if not loaded
-            )
-            for command in commands:
-                cur.execute(command)
+        if not not_installed_or_loaded:
+            return
+
+        commands = [
+            "FORCE " * force_install + f"INSTALL '{extension}'"
+            for extension, installed, _ in not_installed_or_loaded
+            if not installed
+        ]
+        commands.extend(
+            f"LOAD '{extension}'"
+            for extension, _, loaded in not_installed_or_loaded
+            if not loaded
+        )
+        for command in commands:
+            self._execute_ddl(command)
 
     def load_extension(self, extension: str, force_install: bool = False) -> None:
         """Install and load a duckdb extension by name or path.
@@ -623,8 +648,7 @@ class Backend(
             )
 
         name = sg.table(name, catalog=catalog, quoted=self.compiler.quoted)
-        with self._safe_raw_sql(sge.Create(this=name, kind="SCHEMA", replace=force)):
-            pass
+        self._execute_ddl(sge.Create(this=name, kind="SCHEMA", replace=force))
 
     def drop_database(
         self, name: str, /, *, catalog: str | None = None, force: bool = False
@@ -635,8 +659,7 @@ class Backend(
             )
 
         name = sg.table(name, catalog=catalog, quoted=self.compiler.quoted)
-        with self._safe_raw_sql(sge.Drop(this=name, kind="SCHEMA", replace=force)):
-            pass
+        self._execute_ddl(sge.Drop(this=name, kind="SCHEMA", replace=force))
 
     @util.experimental
     def read_json(
@@ -967,8 +990,7 @@ class Backend(
             f"database={database}' AS {catalog} (TYPE mysql)"
         )
 
-        with self._safe_raw_sql(query_con):
-            pass
+        self._execute_ddl(query_con)
 
         return self.table(table_name, database=(catalog, database))
 
@@ -988,6 +1010,33 @@ class Backend(
         -------
         ir.Table
             The just-registered table.
+
+        Examples
+        --------
+        >>> import ibis
+        >>> import sqlite3
+        >>> ibis.options.interactive = True
+        >>> con = sqlite3.connect("/tmp/sqlite.db")
+        >>> with con:
+        ...     con.execute("DROP TABLE IF EXISTS t")  # doctest: +ELLIPSIS
+        ...     con.execute("CREATE TABLE t (a INT, b TEXT)")  # doctest: +ELLIPSIS
+        ...     con.execute(
+        ...         "INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c')"
+        ...     )  # doctest: +ELLIPSIS
+        <...>
+        >>> con.close()
+        >>> con = ibis.connect("duckdb://")
+        >>> t = con.read_sqlite("/tmp/sqlite.db", table_name="t")
+        >>> t
+        ┏━━━━━━━┳━━━━━━━━┓
+        ┃ a     ┃ b      ┃
+        ┡━━━━━━━╇━━━━━━━━┩
+        │ int64 │ string │
+        ├───────┼────────┤
+        │     1 │ a      │
+        │     2 │ b      │
+        │     3 │ c      │
+        └───────┴────────┘
 
         """
         if table_name is None:
@@ -1032,8 +1081,7 @@ class Backend(
         if read_only:
             code += " (READ_ONLY)"
 
-        with self._safe_raw_sql(code) as cur:
-            cur.fetchall()
+        self._execute_ddl(code)
 
     def detach(self, name: str) -> None:
         """Detach a database from the current DuckDB session.
@@ -1045,9 +1093,7 @@ class Backend(
 
         """
         name = sg.to_identifier(name).sql(self.name)
-        with self.con.cursor() as cur:
-            cur.execute(f"DETACH {name}")
-            cur.fetchall()
+        self._execute_ddl(f"DETACH {name}")
 
     def attach_sqlite(
         self,
@@ -1067,11 +1113,195 @@ class Backend(
         all_varchar
             Set all SQLite columns to type `VARCHAR` to avoid type errors on ingestion.
 
+        Examples
+        --------
+        >>> import ibis
+        >>> import sqlite3
+        >>> con = sqlite3.connect("/tmp/attach_sqlite.db")
+        >>> with con:
+        ...     con.execute("DROP TABLE IF EXISTS t")  # doctest: +ELLIPSIS
+        ...     con.execute("CREATE TABLE t (a INT, b TEXT)")  # doctest: +ELLIPSIS
+        ...     con.execute(
+        ...         "INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c')"
+        ...     )  # doctest: +ELLIPSIS
+        <...>
+        >>> con.close()
+        >>> con = ibis.connect("duckdb://")
+        >>> con.list_tables()
+        []
+        >>> con.attach_sqlite("/tmp/attach_sqlite.db")
+        >>> con.list_tables()
+        ['t']
+
         """
         self.load_extension("sqlite")
-        with self._safe_raw_sql(f"SET GLOBAL sqlite_all_varchar={all_varchar}") as cur:
-            cur.execute(f"CALL sqlite_attach('{path}', overwrite={overwrite})")
-            cur.fetchall()
+        self._execute_ddl(f"SET GLOBAL sqlite_all_varchar={all_varchar}")
+        self._execute_ddl(f"CALL sqlite_attach('{path}', overwrite={overwrite})")
+
+    @util.experimental
+    def read_xlsx(
+        self,
+        path: str | Path,
+        /,
+        *,
+        sheet: str | None = None,
+        range: str | None = None,
+        **kwargs,
+    ) -> ir.Table:
+        """Read an Excel file into a DuckDB table. This requires duckdb>=1.2.0.
+
+        Parameters
+        ----------
+        path
+            The path to the Excel file.
+        sheet
+            The name of the sheet to read, eg 'Sheet3'.
+        range
+            The range of cells to read, eg 'A5:Z'.
+        kwargs
+            Additional args passed to the backend's read function.
+
+        Returns
+        -------
+        ir.Table
+            The just-registered table.
+
+        See Also
+        --------
+        [DuckDB's `excel` extension docs for reading](https://duckdb.org/docs/stable/extensions/excel.html#reading-xlsx-files)
+
+        Examples
+        --------
+        >>> import os
+        >>> import ibis
+        >>> t = ibis.memtable({"a": [1, 2, 3], "b": ["a", "b", "c"]})
+        >>> con = ibis.duckdb.connect()
+        >>> con.to_xlsx(t, "/tmp/test.xlsx", header=True)
+        >>> assert os.path.exists("/tmp/test.xlsx")
+        >>> t = con.read_xlsx("/tmp/test.xlsx")
+        >>> t.columns
+        ('a', 'b')
+        """
+        table_name = util.gen_name("read_xlsx")
+
+        if sheet:
+            kwargs["sheet"] = sheet
+
+        if range:
+            kwargs["range"] = range
+
+        options = [
+            sg.to_identifier(key).eq(sge.convert(val)) for key, val in kwargs.items()
+        ]
+
+        self.load_extension("excel")
+        self._create_temp_view(
+            table_name,
+            sg.select(STAR).from_(self.compiler.f.read_xlsx(str(path), *options)),
+        )
+        return self.table(table_name)
+
+    def to_xlsx(
+        self,
+        expr: ir.Table,
+        /,
+        path: str | Path,
+        *,
+        sheet: str = "Sheet1",
+        header: bool = False,
+        params: Mapping[ir.Scalar, Any] | None = None,
+        **kwargs: Any,
+    ):
+        """Write a table to an Excel file.
+
+        Parameters
+        ----------
+        expr
+            Ibis table expression to write to an excel file.
+        path
+            Excel output path.
+        sheet
+            The name of the sheet to write to, eg 'Sheet3'.
+        header
+            Whether to include the column names as the first row.
+        params
+            Additional Ibis expression parameters to pass to the backend's
+            write function.
+        kwargs
+            Additional arguments passed to the backend's write function.
+
+        Notes
+        -----
+        Requires DuckDB >= 1.2.0.
+
+        See Also
+        --------
+        [DuckDB's `excel` extension docs for writing](https://duckdb.org/docs/stable/extensions/excel.html#writing-xlsx-files)
+
+        Examples
+        --------
+        >>> import os
+        >>> import ibis
+        >>> t = ibis.memtable({"a": [1, 2, 3], "b": ["a", "b", "c"]})
+        >>> con = ibis.duckdb.connect()
+        >>> con.to_xlsx(t, "/tmp/test.xlsx")
+        >>> os.path.exists("/tmp/test.xlsx")
+        True
+        """
+        self._run_pre_execute_hooks(expr)
+        query = self.compile(expr, params=params)
+        kwargs["sheet"] = sheet
+        kwargs["header"] = header
+        args = ["FORMAT 'xlsx'"]
+        args.extend(f"{k.upper()} {v!r}" for k, v in kwargs.items())
+        copy_cmd = f"COPY ({query}) TO {str(path)!r} ({', '.join(args)})"
+        self.load_extension("excel")
+        self._execute_ddl(copy_cmd)
+
+    def register_filesystem(self, filesystem: AbstractFileSystem):
+        """Register an `fsspec` filesystem object with DuckDB.
+
+        This allow a user to read from any `fsspec` compatible filesystem using
+        `read_csv`, `read_parquet`, `read_json`, etc.
+
+
+        ::: {.callout-note}
+        Creating an `fsspec` filesystem requires that the corresponding
+        backend-specific `fsspec` helper library is installed.
+
+        e.g. to connect to Google Cloud Storage, `gcsfs` must be installed.
+        :::
+
+        Parameters
+        ----------
+        filesystem
+            The fsspec filesystem object to register with DuckDB.
+            See https://duckdb.org/docs/guides/python/filesystems for details.
+
+        Examples
+        --------
+        >>> import ibis
+        >>> import fsspec
+        >>> ibis.options.interactive = True
+        >>> gcs = fsspec.filesystem("gcs")
+        >>> con = ibis.duckdb.connect()
+        >>> con.register_filesystem(gcs)
+        >>> t = con.read_csv(
+        ...     "gcs://ibis-examples/data/band_members.csv.gz",
+        ...     table_name="band_members",
+        ... )
+        >>> t
+        ┏━━━━━━━━┳━━━━━━━━━┓
+        ┃ name   ┃ band    ┃
+        ┡━━━━━━━━╇━━━━━━━━━┩
+        │ string │ string  │
+        ├────────┼─────────┤
+        │ Mick   │ Stones  │
+        │ John   │ Beatles │
+        │ Paul   │ Beatles │
+        └────────┴─────────┘
+        """
+        self.con.register_filesystem(filesystem)
 
     def _to_pyarrow_table(
         self,
@@ -1312,8 +1542,7 @@ class Backend(
                 for col_name in schema.names
             )
             create_sql = f'CREATE OR REPLACE TABLE "{op.name}" ({columns})'
-            with self._safe_raw_sql(create_sql):
-                pass
+            self._execute_ddl(create_sql)
             return
 
         # Downcast large Arrow types for Flight SQL compatibility
@@ -1335,8 +1564,7 @@ class Backend(
         )
 
     def _create_temp_view(self, table_name, source):
-        with self._safe_raw_sql(self._get_temp_view_definition(table_name, source)):
-            pass
+        self._execute_ddl(self._get_temp_view_definition(table_name, source))
 
 
 # ── Register gizmosql as a DuckDB dialect alias ──────────────────────────────

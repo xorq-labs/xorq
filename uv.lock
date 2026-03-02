@@ -27,15 +27,15 @@ wheels = [
 
 [[package]]
 name = "adbc-driver-gizmosql"
-version = "0.1.1"
+version = "1.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "adbc-driver-flightsql" },
     { name = "pyarrow" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5b/4a/017a37dbf851fa03e05148135fc78619d15f861ef456fe5d2fe81b8f16b6/adbc_driver_gizmosql-0.1.1.tar.gz", hash = "sha256:eb75dff9d3fa85917a11a51b1344a842cb68abea1a569138bb739440359a7a62", size = 17416, upload-time = "2026-02-11T23:14:18.166Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/71/9e/3370662f86c9da30df0b80b461bcad1931c0293fdf6be2f9785d636deac2/adbc_driver_gizmosql-1.1.2.tar.gz", hash = "sha256:f315de89e7d7360e5f6870934530b2dc0d2bd76ecc7285648a0f34bf34f32fba", size = 23537, upload-time = "2026-03-02T18:43:03.433Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8a/4c/e40692a6b63b8105b62688288f8f0174df76157e439a145f4c8e58843e03/adbc_driver_gizmosql-0.1.1-py3-none-any.whl", hash = "sha256:8689e42dcac802a0eecc02729819cadd2e8fa2283725c3df9677e107039b2e2d", size = 13619, upload-time = "2026-02-11T23:14:16.735Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/cc/42574b9d0b6e191f4b2e1589eb71a3c45fd86d85252da6af1c94306defe0/adbc_driver_gizmosql-1.1.2-py3-none-any.whl", hash = "sha256:8108dfb6eb06941b8ca1c9984b9f2606394809c46d75098b81745b52ddb6f2f3", size = 16334, upload-time = "2026-03-02T18:43:01.411Z" },
 ]
 
 [[package]]
@@ -5842,7 +5842,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "adbc-driver-gizmosql", marker = "extra == 'gizmosql'", specifier = ">=0.1.0" },
+    { name = "adbc-driver-gizmosql", marker = "extra == 'gizmosql'", specifier = ">=1.1.2" },
     { name = "adbc-driver-postgresql", marker = "extra == 'examples'", specifier = ">=1.4.0" },
     { name = "adbc-driver-postgresql", marker = "extra == 'postgres'", specifier = ">=1.4.0" },
     { name = "adbc-driver-snowflake", marker = "extra == 'snowflake'", specifier = ">=1.5.0" },
@@ -5877,7 +5877,7 @@ requires-dist = [
     { name = "pins", extras = ["gcs"], marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=0.8.3,<1" },
     { name = "prometheus-client", specifier = ">=0.22.1" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'postgres'", specifier = ">=3.2.0" },
-    { name = "pyarrow", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=13.0.0,<22" },
+    { name = "pyarrow", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=13.0.0,<24" },
     { name = "pyarrow-hotfix", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.4,<1" },
     { name = "pyiceberg", extras = ["sql-sqlite", "sql-postgres"], marker = "extra == 'examples'", specifier = ">=0.9.0" },
     { name = "pyiceberg", extras = ["sql-sqlite", "sql-postgres"], marker = "extra == 'pyiceberg'", specifier = ">=0.9.0" },
