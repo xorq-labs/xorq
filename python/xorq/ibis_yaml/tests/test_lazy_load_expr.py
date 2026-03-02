@@ -1,8 +1,10 @@
 """Tests for load_expr(..., lazy=True / limit=N) options."""
 
 import time
+from pathlib import Path
 
 import pandas as pd
+import pytest
 
 import xorq.api as xo
 from xorq.backends.lazy import LazyBackend
@@ -226,4 +228,125 @@ def test_load_expr_limit_is_pushed_into_parquet_read(builds_dir, parquet_dir):
         f"Expected full-dataset read ({full_time:.4f}s) to be slower than "
         f"limit={limits[0]} read ({small_time:.4f}s).\n"
         + "\n".join(f"  limit={lim:>7}: {t:.4f}s" for lim, t in zip(limits, times))
+    )
+
+
+# ---------------------------------------------------------------------------
+# load_expr(lazy=True) — postgres connection overhead benchmark
+# ---------------------------------------------------------------------------
+
+
+def _write_parquet_files(parquet_dir: Path, n_rows: int = 1_000) -> None:
+    player_ids = [f"player{i:04d}" for i in range(n_rows)]
+    years = [1990 + (i % 30) for i in range(n_rows)]
+    teams = [f"T{i % 20:02d}" for i in range(n_rows)]
+
+    pd.DataFrame(
+        {
+            "playerID": player_ids,
+            "nameFirst": [f"First{i}" for i in range(n_rows)],
+            "nameLast": [f"Last{i}" for i in range(n_rows)],
+        }
+    ).to_parquet(parquet_dir / "people.parquet", index=False)
+
+    pd.DataFrame(
+        {
+            "playerID": player_ids,
+            "yearID": years,
+            "teamID": teams,
+            "salary": [100_000 + i * 500 for i in range(n_rows)],
+        }
+    ).to_parquet(parquet_dir / "salaries.parquet", index=False)
+
+    pd.DataFrame(
+        {
+            "playerID": player_ids,
+            "yearID": years,
+            "teamID": teams,
+            "POS": [
+                ["P", "C", "1B", "2B", "SS", "3B", "LF", "CF", "RF"][i % 9]
+                for i in range(n_rows)
+            ],
+        }
+    ).to_parquet(parquet_dir / "fielding.parquet", index=False)
+
+
+def _make_multi_join_expr(parquet_dir: Path):
+    """batting from postgres; people/salaries/fielding from 1000-row parquet files."""
+    pg = xo.postgres.connect_examples()
+    batting = pg.table("batting")
+    pg_backend = batting._find_backend()
+
+    local = xo.connect()
+
+    people = deferred_read_parquet(
+        parquet_dir / "people.parquet", local, table_name="people"
+    )
+    salaries = deferred_read_parquet(
+        parquet_dir / "salaries.parquet", local, table_name="salaries"
+    )
+    fielding = deferred_read_parquet(
+        parquet_dir / "fielding.parquet", local, table_name="fielding"
+    )
+
+    people_pg = people[["playerID", "nameFirst", "nameLast"]].into_backend(pg_backend)
+    salaries_pg = salaries[["playerID", "yearID", "teamID", "salary"]].into_backend(
+        pg_backend
+    )
+    fielding_pg = fielding[["playerID", "yearID", "teamID", "POS"]].into_backend(
+        pg_backend
+    )
+
+    with_names = (
+        batting.filter(batting.AB > 0)
+        .join(people_pg, predicates="playerID", how="left")
+        .drop("playerID_right")
+    )
+    with_salary = with_names.join(
+        salaries_pg,
+        predicates=["playerID", "yearID", "teamID"],
+        how="left",
+    ).drop("playerID_right", "yearID_right", "teamID_right")
+    return with_salary.join(
+        fielding_pg,
+        predicates=["playerID", "yearID", "teamID"],
+        how="left",
+    ).drop("playerID_right", "yearID_right", "teamID_right")
+
+
+def _mean_load_time(expr_path: Path, n_runs: int = 10, **kwargs) -> float:
+    """Return mean load_expr wall time in seconds over n_runs iterations."""
+    # warmup
+    for _ in range(3):
+        load_expr(expr_path, **kwargs)
+    t0 = time.perf_counter()
+    for _ in range(n_runs):
+        load_expr(expr_path, **kwargs)
+    return (time.perf_counter() - t0) / n_runs
+
+
+@pytest.mark.benchmark
+@pytest.mark.postgres
+def test_lazy_load_expr_faster_than_eager_postgres(builds_dir, tmp_path):
+    """lazy=True must be faster than lazy=False when expr contains a postgres connection.
+
+    The eager path establishes a real network connection to postgres on every
+    load_expr call.  The lazy path skips the connection entirely, wrapping the
+    backend in a LazyBackend that only connects on execute().  We assert a
+    meaningful speedup: lazy must be at least 1.5x faster than eager.
+    """
+    parquet_dir = tmp_path / "parquet"
+    parquet_dir.mkdir()
+    _write_parquet_files(parquet_dir)
+
+    expr = _make_multi_join_expr(parquet_dir)
+    expr_path = build_expr(expr, builds_dir=builds_dir)
+
+    eager_s = _mean_load_time(expr_path, lazy=False)
+    lazy_s = _mean_load_time(expr_path, lazy=True)
+    speedup = eager_s / lazy_s
+
+    assert speedup > 1.5, (
+        f"Expected lazy load_expr to be >1.5x faster than eager, "
+        f"got {speedup:.2f}x  (eager={eager_s * 1000:.1f}ms, lazy={lazy_s * 1000:.1f}ms)"
     )
