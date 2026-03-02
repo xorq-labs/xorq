@@ -388,3 +388,91 @@ def test_from_connection(con):
     assert new_backend.current_database == "main"
     tables = new_backend.list_tables()
     assert isinstance(tables, list)
+
+
+# ── _from_url OAuth kwargs ───────────────────────────────────────────────────
+
+
+def test_from_url_oauth_kwargs():
+    """_from_url converts camelCase OAuth kwargs to snake_case."""
+    from xorq.vendor.ibis.backends.gizmosql import Backend
+
+    parsed_kwargs = {}
+    original_connect = Backend.connect
+
+    def mock_connect(self, **kwargs):
+        parsed_kwargs.update(kwargs)
+        raise ConnectionError("mock")
+
+    Backend.connect = mock_connect
+    try:
+        backend = Backend()
+        url = ParseResult(
+            scheme="gizmosql",
+            netloc="user:pass@host:31337",
+            path="",
+            params="",
+            query="",
+            fragment="",
+        )
+        with pytest.raises(ConnectionError, match="mock"):
+            backend._from_url(
+                url,
+                authType="oauth",
+                oauthPort="8080",
+                oauthTimeout="120",
+                openBrowser="false",
+            )
+        assert parsed_kwargs["auth_type"] == "oauth"
+        assert parsed_kwargs["oauth_port"] == 8080
+        assert parsed_kwargs["oauth_timeout"] == 120
+        assert parsed_kwargs["open_browser"] is False
+    finally:
+        Backend.connect = original_connect
+
+
+# ── DuckDBPyArrowData converter ──────────────────────────────────────────────
+
+
+def test_pyarrow_data_convert_scalar_null():
+    """DuckDBPyArrowData.convert_scalar handles null scalars."""
+    import xorq.vendor.ibis.expr.datatypes as dt
+    from xorq.vendor.ibis.backends.gizmosql.converter import DuckDBPyArrowData
+
+    result = DuckDBPyArrowData.convert_scalar(
+        pa.scalar(None, type=pa.int64()), dt.int64
+    )
+    assert isinstance(result, pa.Scalar)
+    assert result.as_py() is None
+
+
+def test_pyarrow_data_convert_scalar_non_null():
+    """DuckDBPyArrowData.convert_scalar passes through non-null scalars."""
+    import xorq.vendor.ibis.expr.datatypes as dt
+    from xorq.vendor.ibis.backends.gizmosql.converter import DuckDBPyArrowData
+
+    result = DuckDBPyArrowData.convert_scalar(pa.scalar(42, type=pa.int64()), dt.int64)
+    assert result.as_py() == 42
+
+
+def test_pyarrow_data_convert_column_all_null():
+    """DuckDBPyArrowData.convert_column handles all-null columns."""
+    import xorq.vendor.ibis.expr.datatypes as dt
+    from xorq.vendor.ibis.backends.gizmosql.converter import DuckDBPyArrowData
+
+    col = pa.chunked_array([pa.array([None, None, None], type=pa.int64())])
+    result = DuckDBPyArrowData.convert_column(col, dt.int64)
+    assert isinstance(result, pa.ChunkedArray)
+    assert len(result) == 3
+    assert result.null_count == 3
+
+
+def test_pyarrow_data_convert_column_non_null():
+    """DuckDBPyArrowData.convert_column passes through non-null columns."""
+    import xorq.vendor.ibis.expr.datatypes as dt
+    from xorq.vendor.ibis.backends.gizmosql.converter import DuckDBPyArrowData
+
+    col = pa.chunked_array([pa.array([1, 2, 3], type=pa.int64())])
+    result = DuckDBPyArrowData.convert_column(col, dt.int64)
+    assert isinstance(result, pa.ChunkedArray)
+    assert result.null_count == 0
