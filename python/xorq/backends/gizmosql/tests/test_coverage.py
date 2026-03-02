@@ -549,3 +549,236 @@ def test_do_connect_password_kwargs(mocker):
     assert call_kwargs["password"] == "mypass"
     # OAuth kwargs should NOT be present
     assert "oauth_port" not in call_kwargs
+
+
+# ── read_xlsx (mocked) ──────────────────────────────────────────────────────
+
+
+def test_read_xlsx_basic(mocker):
+    """read_xlsx calls load_extension, _create_temp_view, and returns a table."""
+    from xorq.vendor.ibis.backends.gizmosql import Backend
+
+    backend = Backend()
+    mock_table = mocker.MagicMock()
+    mocker.patch.object(backend, "load_extension")
+    mocker.patch.object(backend, "_create_temp_view")
+    mocker.patch.object(backend, "table", return_value=mock_table)
+
+    result = backend.read_xlsx("/tmp/test.xlsx")
+
+    backend.load_extension.assert_called_once_with("excel")
+    backend._create_temp_view.assert_called_once()
+    backend.table.assert_called_once()
+    assert result is mock_table
+
+
+def test_read_xlsx_with_sheet_and_range(mocker):
+    """read_xlsx passes sheet and range kwargs."""
+    from xorq.vendor.ibis.backends.gizmosql import Backend
+
+    backend = Backend()
+    mock_table = mocker.MagicMock()
+    mocker.patch.object(backend, "load_extension")
+    mocker.patch.object(backend, "_create_temp_view")
+    mocker.patch.object(backend, "table", return_value=mock_table)
+
+    result = backend.read_xlsx("/tmp/test.xlsx", sheet="Sheet2", range="A1:Z10")
+
+    backend.load_extension.assert_called_once_with("excel")
+    backend._create_temp_view.assert_called_once()
+    assert result is mock_table
+
+
+# ── to_xlsx (mocked) ────────────────────────────────────────────────────────
+
+
+def test_to_xlsx(mocker):
+    """to_xlsx compiles the expression and executes COPY command."""
+    from xorq.vendor.ibis.backends.gizmosql import Backend
+
+    backend = Backend()
+    mocker.patch.object(backend, "_run_pre_execute_hooks")
+    mocker.patch.object(backend, "compile", return_value="SELECT 1 AS a")
+    mocker.patch.object(backend, "load_extension")
+    mocker.patch.object(backend, "_execute_ddl")
+
+    mock_expr = mocker.MagicMock()
+    backend.to_xlsx(mock_expr, "/tmp/output.xlsx", sheet="MySheet", header=True)
+
+    backend._run_pre_execute_hooks.assert_called_once_with(mock_expr)
+    backend.compile.assert_called_once_with(mock_expr, params=None)
+    backend.load_extension.assert_called_once_with("excel")
+    backend._execute_ddl.assert_called_once()
+    # Verify the COPY command format
+    copy_cmd = backend._execute_ddl.call_args[0][0]
+    assert "COPY" in copy_cmd
+    assert "FORMAT 'xlsx'" in copy_cmd
+    assert "/tmp/output.xlsx" in copy_cmd
+
+
+# ── register_filesystem (mocked) ────────────────────────────────────────────
+
+
+def test_register_filesystem(mocker):
+    """register_filesystem delegates to self.con.register_filesystem."""
+    from xorq.vendor.ibis.backends.gizmosql import Backend
+
+    backend = Backend()
+    mock_con = mocker.MagicMock()
+    backend.con = mock_con
+    mock_fs = mocker.MagicMock()
+
+    backend.register_filesystem(mock_fs)
+
+    mock_con.register_filesystem.assert_called_once_with(mock_fs)
+
+
+# ── create_table with temp=True and overwrite=True ──────────────────────────
+
+
+def test_create_table_temp_overwrite(con, temp_table):
+    """create_table with temp=True and overwrite=True uses CREATE + DROP path."""
+    t1 = xo.memtable({"x": [1, 2]})
+    con.create_table(temp_table, t1, temp=True)
+    assert con.table(temp_table).count().execute() == 2
+
+    t2 = xo.memtable({"x": [10, 20, 30]})
+    con.create_table(temp_table, t2, overwrite=True, temp=True)
+    assert con.table(temp_table).count().execute() == 3
+
+
+# ── _load_extensions with force_install ─────────────────────────────────────
+
+
+def test_load_extension_force_install(mocker):
+    """load_extension with force_install generates FORCE INSTALL commands."""
+    from xorq.vendor.ibis.backends.gizmosql import Backend
+
+    backend = Backend()
+    mock_con = mocker.MagicMock()
+    backend.con = mock_con
+
+    # Mock the _safe_raw_sql context to return extensions needing install
+    mock_cursor = mocker.MagicMock()
+    mock_cursor.fetchall.return_value = [
+        ("my_ext", False, False),  # not installed, not loaded
+    ]
+    mock_cursor.__enter__ = mocker.MagicMock(return_value=mock_cursor)
+    mock_cursor.__exit__ = mocker.MagicMock(return_value=False)
+    mocker.patch.object(backend, "_safe_raw_sql", return_value=mock_cursor)
+    mocker.patch.object(backend, "_execute_ddl")
+
+    backend._load_extensions(["my_ext"], force_install=True)
+
+    # Should have called _execute_ddl with FORCE INSTALL and LOAD
+    calls = backend._execute_ddl.call_args_list
+    assert len(calls) == 2
+    assert "FORCE INSTALL 'my_ext'" in calls[0][0][0]
+    assert "LOAD 'my_ext'" in calls[1][0][0]
+
+
+def test_load_extensions_already_loaded(mocker):
+    """_load_extensions returns early when all extensions are loaded."""
+    from xorq.vendor.ibis.backends.gizmosql import Backend
+
+    backend = Backend()
+    mock_con = mocker.MagicMock()
+    backend.con = mock_con
+
+    mock_cursor = mocker.MagicMock()
+    mock_cursor.fetchall.return_value = []  # nothing to install/load
+    mock_cursor.__enter__ = mocker.MagicMock(return_value=mock_cursor)
+    mock_cursor.__exit__ = mocker.MagicMock(return_value=False)
+    mocker.patch.object(backend, "_safe_raw_sql", return_value=mock_cursor)
+    mocker.patch.object(backend, "_execute_ddl")
+
+    backend._load_extensions(["my_ext"])
+
+    # Should NOT have called _execute_ddl
+    backend._execute_ddl.assert_not_called()
+
+
+# ── attach / detach / attach_sqlite (mocked) ────────────────────────────────
+
+
+def test_attach(mocker):
+    """attach delegates to _execute_ddl."""
+    from xorq.vendor.ibis.backends.gizmosql import Backend
+
+    backend = Backend()
+    mocker.patch.object(backend, "_execute_ddl")
+
+    backend.attach("/tmp/test.duckdb")
+    backend._execute_ddl.assert_called_once()
+    assert "/tmp/test.duckdb" in backend._execute_ddl.call_args[0][0]
+
+
+def test_attach_with_name_and_read_only(mocker):
+    """attach passes name and read_only options."""
+    from xorq.vendor.ibis.backends.gizmosql import Backend
+
+    backend = Backend()
+    mocker.patch.object(backend, "_execute_ddl")
+
+    backend.attach("/tmp/test.duckdb", name="mydb", read_only=True)
+    cmd = backend._execute_ddl.call_args[0][0]
+    assert "ATTACH" in cmd
+    assert "mydb" in cmd
+    assert "READ_ONLY" in cmd
+
+
+def test_detach(mocker):
+    """detach delegates to _execute_ddl."""
+    from xorq.vendor.ibis.backends.gizmosql import Backend
+
+    backend = Backend()
+    mocker.patch.object(backend, "_execute_ddl")
+
+    backend.detach("mydb")
+    backend._execute_ddl.assert_called_once()
+    assert "DETACH" in backend._execute_ddl.call_args[0][0]
+
+
+def test_attach_sqlite(mocker):
+    """attach_sqlite calls load_extension and _execute_ddl."""
+    from xorq.vendor.ibis.backends.gizmosql import Backend
+
+    backend = Backend()
+    mocker.patch.object(backend, "load_extension")
+    mocker.patch.object(backend, "_execute_ddl")
+
+    backend.attach_sqlite("/tmp/test.sqlite")
+
+    backend.load_extension.assert_called_once_with("sqlite")
+    assert backend._execute_ddl.call_count == 2
+    calls = [c[0][0] for c in backend._execute_ddl.call_args_list]
+    assert any("sqlite_all_varchar" in c for c in calls)
+    assert any("sqlite_attach" in c for c in calls)
+
+
+# ── read_mysql (mocked) ─────────────────────────────────────────────────────
+
+
+def test_read_mysql(mocker):
+    """read_mysql delegates to _execute_ddl and returns a table."""
+    from xorq.vendor.ibis.backends.gizmosql import Backend
+
+    backend = Backend()
+    mock_table = mocker.MagicMock()
+    mocker.patch.object(backend, "_load_extensions")
+    mocker.patch.object(backend, "_execute_ddl")
+    mocker.patch.object(backend, "table", return_value=mock_table)
+
+    result = backend.read_mysql(
+        "mysql://root:secret@localhost:3306/shop",
+        table_name="orders",
+        catalog="my_mysql",
+    )
+
+    backend._load_extensions.assert_called_once_with(["mysql"])
+    backend._execute_ddl.assert_called_once()
+    ddl_cmd = backend._execute_ddl.call_args[0][0]
+    assert "ATTACH" in ddl_cmd
+    assert "my_mysql" in ddl_cmd
+    assert "TYPE mysql" in ddl_cmd
+    assert result is mock_table
