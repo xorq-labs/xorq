@@ -547,6 +547,7 @@ class ExprLoader:
     )
     lazy = field(validator=instance_of(bool), default=False)
     limit = field(validator=optional(instance_of(int)), default=None)
+    only_metadata = field(validator=instance_of(bool), default=False)
 
     @property
     def expr_hash(self):
@@ -563,18 +564,25 @@ class ExprLoader:
         )
         yaml_dict = self.artifact_store.load_yaml(DumpFiles.expr)
         expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
-        expr = self.deferred_reads_to_memtables(expr, self.expr_path, limit=self.limit)
+        expr = self.deferred_reads_to_memtables(
+            expr, self.expr_path, limit=self.limit, only_metadata=self.only_metadata
+        )
         if self.cache_dir:
             expr = self.replace_base_path(expr, base_path=Path(self.cache_dir))
         return expr
 
     @staticmethod
-    def deferred_reads_to_memtables(loaded, expr_path, limit=None):
+    def deferred_reads_to_memtables(loaded, expr_path, limit=None, only_metadata=False):
         def deferred_read_to_memtable(dr):
+            import pyarrow.parquet as pq
+
             assert any(key == MemtableTypes.inmemory for key, _ in dr.read_kwargs)
             path = next(v for k, v in dr.read_kwargs if k == "path")
-            expr = read_parquet(expr_path.joinpath(path))
-            df = (expr.limit(limit) if limit is not None else expr).execute()
+            if only_metadata:
+                df = pq.read_schema(expr_path.joinpath(path)).empty_table().to_pandas()
+            else:
+                expr = read_parquet(expr_path.joinpath(path))
+                df = (expr.limit(limit) if limit is not None else expr).execute()
             mt = ibis.memtable(df, schema=dr.schema, name=dr.name)
             return mt.op()
 

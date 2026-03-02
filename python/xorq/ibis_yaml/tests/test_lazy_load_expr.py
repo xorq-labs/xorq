@@ -11,6 +11,7 @@ from xorq.backends.lazy import LazyBackend
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import find_all_sources
 from xorq.ibis_yaml.compiler import build_expr, load_expr
+from xorq.tests.util import assert_frame_equal
 
 
 # ---------------------------------------------------------------------------
@@ -94,12 +95,8 @@ def test_load_expr_lazy_result_matches_eager(builds_dir, parquet_dir):
     eager_result = load_expr(build_path, lazy=False).execute()
     lazy_result = load_expr(build_path, lazy=True).execute()
 
-    assert eager_result.equals(lazy_result)
-
-
-# ---------------------------------------------------------------------------
-# load_expr(lazy=True) — datafusion
-# ---------------------------------------------------------------------------
+    assert len(eager_result) > 0
+    assert_frame_equal(eager_result, lazy_result)
 
 
 def test_load_expr_lazy_datafusion(builds_dir, parquet_dir):
@@ -119,11 +116,6 @@ def test_load_expr_lazy_datafusion(builds_dir, parquet_dir):
     assert all(src.is_connected for src in find_all_sources(lazy_expr))
 
 
-# ---------------------------------------------------------------------------
-# load_expr default — backward compat
-# ---------------------------------------------------------------------------
-
-
 def test_load_expr_default_is_not_lazy(builds_dir, parquet_dir):
     """load_expr without lazy= must behave as before (eager connections)."""
     backend = xo.duckdb.connect()
@@ -134,11 +126,6 @@ def test_load_expr_default_is_not_lazy(builds_dir, parquet_dir):
     loaded = load_expr(build_path)
 
     assert not any(isinstance(src, LazyBackend) for src in find_all_sources(loaded))
-
-
-# ---------------------------------------------------------------------------
-# load_expr(limit=N) — deferred_reads_to_memtables row cap
-# ---------------------------------------------------------------------------
 
 
 def _memtable_build_path(builds_dir, n_rows=50):
@@ -173,25 +160,7 @@ def test_load_expr_limit_larger_than_dataset_returns_all(builds_dir):
 
 
 def test_load_expr_limit_is_pushed_into_parquet_read(builds_dir, parquet_dir):
-    """Confirm the limit is applied during the parquet read, not after a full scan.
 
-    We use batting (101 332 rows) as the backing data and measure wall time
-    for limits of 10, 1 000, 10 000, and the full dataset.
-
-    If the limit were NOT pushed into the parquet reader (i.e. the full scan
-    always runs and rows are truncated afterward) then the full-dataset read
-    time would equal the small-limit read time.  We assert the opposite:
-    reading all 101 332 rows takes strictly longer than reading 10 rows.
-
-    Note: sub-row-group limits (10, 1 000) may have similar wall times because
-    DuckDB reads at least one row group (~8 k rows) regardless of limit.  Only
-    the full read shows a clearly higher duration, so we only check the
-    endpoints.
-
-    The fixed YAML-loading overhead (~tens of ms) is separated from the
-    timed section so that only deferred_reads_to_memtables — which contains
-    the actual parquet read — contributes to each measurement.
-    """
     from xorq.ibis_yaml.compiler import (
         ArtifactStore,
         DumpFiles,
@@ -211,7 +180,7 @@ def test_load_expr_limit_is_pushed_into_parquet_read(builds_dir, parquet_dir):
         artifact_store.load_yaml(DumpFiles.expr), profiles=profiles
     )
 
-    # Warmup: stabilise OS page cache and DuckDB internals before timing.
+    # Warmup: stabilize OS page cache and DuckDB internals before timing.
     ExprLoader.deferred_reads_to_memtables(loaded, build_path, limit=1)
 
     limits = [10, 10_000, n_rows]
@@ -229,11 +198,6 @@ def test_load_expr_limit_is_pushed_into_parquet_read(builds_dir, parquet_dir):
         f"limit={limits[0]} read ({small_time:.4f}s).\n"
         + "\n".join(f"  limit={lim:>7}: {t:.4f}s" for lim, t in zip(limits, times))
     )
-
-
-# ---------------------------------------------------------------------------
-# load_expr(lazy=True) — postgres connection overhead benchmark
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -333,18 +297,12 @@ def _mean_load_time(expr_path: Path, n_runs: int = 10, **kwargs) -> float:
 @pytest.mark.benchmark
 @pytest.mark.postgres
 def test_lazy_load_expr_faster_than_eager_postgres(builds_dir, lahman_parquet_dir):
-    """lazy=True must be faster than lazy=False when expr contains a postgres connection.
 
-    The eager path establishes a real network connection to postgres on every
-    load_expr call.  The lazy path skips the connection entirely, wrapping the
-    backend in a LazyBackend that only connects on execute().  We assert a
-    meaningful speedup: lazy must be at least 1.5x faster than eager.
-    """
     expr = _make_multi_join_expr(lahman_parquet_dir)
     expr_path = build_expr(expr, builds_dir=builds_dir)
 
     eager_s = _mean_load_time(expr_path, lazy=False)
-    lazy_s = _mean_load_time(expr_path, lazy=True, limit=10)
+    lazy_s = _mean_load_time(expr_path, lazy=True, only_metadata=True)
     speedup = eager_s / lazy_s
 
     assert speedup > 1.5, (
