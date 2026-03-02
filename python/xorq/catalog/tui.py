@@ -1,6 +1,7 @@
 import re
 import tarfile
 from datetime import datetime
+from functools import cache
 from pathlib import Path
 
 import yaml
@@ -56,6 +57,7 @@ def maybe(default, exc=Exception):
     return cexcepts(exc, handler=return_constant(default))
 
 
+@cache
 def _format_cached(value: bool | None) -> str:
     match value:
         case True:
@@ -66,6 +68,7 @@ def _format_cached(value: bool | None) -> str:
             return "—"
 
 
+@cache
 def _format_column_count(n: int | None) -> str:
     match n:
         case None:
