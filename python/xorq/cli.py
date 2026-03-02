@@ -208,7 +208,7 @@ def run_command(
 
     try:
         with RunLogger.from_expr_hash(expr_hash, params_tuple=run_params) as rl:
-            rl.log_event("run.start", **dict(run_params))
+            rl.log_event("run.start", dict(run_params))
 
             with timed() as get_elapsed:
                 expr = load_expr(expr_path, cache_dir=cache_dir)
