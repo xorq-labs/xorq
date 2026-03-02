@@ -476,3 +476,76 @@ def test_pyarrow_data_convert_column_non_null():
     result = DuckDBPyArrowData.convert_column(col, dt.int64)
     assert isinstance(result, pa.ChunkedArray)
     assert result.null_count == 0
+
+
+# ── do_connect OAuth kwargs ──────────────────────────────────────────────────
+
+
+def test_do_connect_oauth_kwargs(mocker):
+    """do_connect passes OAuth kwargs to gizmosql.connect."""
+    from xorq.vendor.ibis.backends.gizmosql import Backend
+
+    mock_conn = mocker.MagicMock()
+    mock_conn.adbc_get_info.return_value = {"vendor_version": "duckdb v1.1.3"}
+    mock_conn.cursor.return_value.__enter__ = mocker.MagicMock()
+    mock_conn.cursor.return_value.__exit__ = mocker.MagicMock(return_value=False)
+
+    mock_connect = mocker.patch(
+        "xorq.vendor.ibis.backends.gizmosql.gizmosql.connect",
+        return_value=mock_conn,
+    )
+
+    backend = Backend()
+    backend.do_connect(
+        host="localhost",
+        port=31337,
+        auth_type="oauth",
+        oauth_port=8080,
+        oauth_timeout=120,
+        open_browser=False,
+        use_encryption=True,
+        disable_certificate_verification=True,
+    )
+
+    call_kwargs = mock_connect.call_args[1]
+    assert call_kwargs["uri"] == "grpc+tls://localhost:31337"
+    assert call_kwargs["auth_type"] == "oauth"
+    assert call_kwargs["oauth_port"] == 8080
+    assert call_kwargs["oauth_timeout"] == 120
+    assert call_kwargs["open_browser"] is False
+    assert call_kwargs["tls_skip_verify"] is True
+    # password auth kwargs should NOT be present for oauth
+    assert "username" not in call_kwargs
+    assert "password" not in call_kwargs
+
+
+def test_do_connect_password_kwargs(mocker):
+    """do_connect passes username/password for password auth_type."""
+    from xorq.vendor.ibis.backends.gizmosql import Backend
+
+    mock_conn = mocker.MagicMock()
+    mock_conn.adbc_get_info.return_value = {"vendor_version": "duckdb v1.1.3"}
+    mock_conn.cursor.return_value.__enter__ = mocker.MagicMock()
+    mock_conn.cursor.return_value.__exit__ = mocker.MagicMock(return_value=False)
+
+    mock_connect = mocker.patch(
+        "xorq.vendor.ibis.backends.gizmosql.gizmosql.connect",
+        return_value=mock_conn,
+    )
+
+    backend = Backend()
+    backend.do_connect(
+        host="localhost",
+        port=31337,
+        user="myuser",
+        password="mypass",
+        auth_type="password",
+    )
+
+    call_kwargs = mock_connect.call_args[1]
+    assert call_kwargs["uri"] == "grpc://localhost:31337"
+    assert call_kwargs["auth_type"] == "password"
+    assert call_kwargs["username"] == "myuser"
+    assert call_kwargs["password"] == "mypass"
+    # OAuth kwargs should NOT be present
+    assert "oauth_port" not in call_kwargs
