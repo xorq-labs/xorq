@@ -5877,7 +5877,7 @@ requires-dist = [
     { name = "pins", extras = ["gcs"], marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=0.8.3,<1" },
     { name = "prometheus-client", specifier = ">=0.22.1" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'postgres'", specifier = ">=3.2.0" },
-    { name = "pyarrow", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=13.0.0,<24" },
+    { name = "pyarrow", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=13.0.0,<22" },
     { name = "pyarrow-hotfix", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.4,<1" },
     { name = "pyiceberg", extras = ["sql-sqlite", "sql-postgres"], marker = "extra == 'examples'", specifier = ">=0.9.0" },
     { name = "pyiceberg", extras = ["sql-sqlite", "sql-postgres"], marker = "extra == 'pyiceberg'", specifier = ">=0.9.0" },
