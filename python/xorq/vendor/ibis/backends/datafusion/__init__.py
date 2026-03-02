@@ -190,9 +190,11 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         for name, func in inspect.getmembers(
             udfs,
-            predicate=lambda m: callable(m)
-            and not m.__name__.startswith("_")
-            and m.__module__ == udfs.__name__,
+            predicate=lambda m: (
+                callable(m)
+                and not m.__name__.startswith("_")
+                and m.__module__ == udfs.__name__
+            ),
         ):
             annotations = typing.get_type_hints(func)
             argnames = list(inspect.signature(func).parameters.keys())
@@ -342,9 +344,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             catalog = self.con.catalog()
 
         if database is not None:
-            database = catalog.database(database)
+            database = catalog.schema(database)
         else:
-            database = catalog.database()
+            database = catalog.schema()
 
         table = database.table(table_name)
         return sch.schema(table.schema)

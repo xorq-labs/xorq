@@ -173,25 +173,57 @@ def test_load_expr_limit_larger_than_dataset_returns_all(builds_dir):
 def test_load_expr_limit_is_pushed_into_parquet_read(builds_dir, parquet_dir):
     """Confirm the limit is applied during the parquet read, not after a full scan.
 
-    We use functional_alltypes (7 300 rows) as the backing data.  Reading
-    10 rows must be meaningfully faster than reading all rows; the large
-    row-count ratio (730×) makes this reliable even on fast hardware.
+    We use batting (101 332 rows) as the backing data and measure wall time
+    for limits of 10, 1 000, 10 000, and the full dataset.
+
+    If the limit were NOT pushed into the parquet reader (i.e. the full scan
+    always runs and rows are truncated afterward) then the full-dataset read
+    time would equal the small-limit read time.  We assert the opposite:
+    reading all 101 332 rows takes strictly longer than reading 10 rows.
+
+    Note: sub-row-group limits (10, 1 000) may have similar wall times because
+    DuckDB reads at least one row group (~8 k rows) regardless of limit.  Only
+    the full read shows a clearly higher duration, so we only check the
+    endpoints.
+
+    The fixed YAML-loading overhead (~tens of ms) is separated from the
+    timed section so that only deferred_reads_to_memtables — which contains
+    the actual parquet read — contributes to each measurement.
     """
-    df = pd.read_parquet(parquet_dir / "functional_alltypes.parquet")
-    n_rows = len(df)  # 7300
+    from xorq.ibis_yaml.compiler import (
+        ArtifactStore,
+        DumpFiles,
+        ExprLoader,
+        YamlExpressionTranslator,
+        hydrate_cons,
+    )
+
+    df = pd.read_parquet(parquet_dir / "batting.parquet")
+    n_rows = len(df)  # 101_332
     build_path = build_expr(xo.memtable(df), builds_dir=builds_dir)
 
-    t0 = time.perf_counter()
-    small_result = load_expr(build_path, limit=10).execute()
-    t_small = time.perf_counter() - t0
+    # Do YAML loading once — fixed overhead, not part of the timed section.
+    artifact_store = ArtifactStore(build_path)
+    profiles = hydrate_cons(artifact_store.load_yaml(DumpFiles.profiles))
+    loaded = YamlExpressionTranslator.from_yaml(
+        artifact_store.load_yaml(DumpFiles.expr), profiles=profiles
+    )
 
-    t0 = time.perf_counter()
-    full_result = load_expr(build_path, limit=n_rows).execute()
-    t_full = time.perf_counter() - t0
+    # Warmup: stabilise OS page cache and DuckDB internals before timing.
+    ExprLoader.deferred_reads_to_memtables(loaded, build_path, limit=1)
 
-    assert len(small_result) == 10
-    assert len(full_result) == n_rows
-    assert t_small < t_full, (
-        f"Expected reading 10 rows ({t_small:.4f}s) to be faster than "
-        f"reading {n_rows} rows ({t_full:.4f}s)"
+    limits = [10, 10_000, n_rows]
+    times = []
+    for limit in limits:
+        t0 = time.perf_counter()
+        expr = ExprLoader.deferred_reads_to_memtables(loaded, build_path, limit=limit)
+        times.append(time.perf_counter() - t0)
+        assert len(expr.execute()) == limit
+
+    small_time = times[0]
+    full_time = times[-1]
+    assert full_time > small_time, (
+        f"Expected full-dataset read ({full_time:.4f}s) to be slower than "
+        f"limit={limits[0]} read ({small_time:.4f}s).\n"
+        + "\n".join(f"  limit={lim:>7}: {t:.4f}s" for lim, t in zip(limits, times))
     )
