@@ -9,6 +9,8 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
+from opentelemetry.trace import SpanContext
+
 
 try:
     from enum import StrEnum
@@ -184,6 +186,15 @@ class RunLogger:
                         pass
         return metrics
 
+    @staticmethod
+    def _get_otel_trace_id(span_ctx: SpanContext) -> str | None:
+
+        trace_id = span_ctx.trace_id
+        otel_trace_id = (
+            format(trace_id, "032x") if span_ctx and span_ctx.is_valid else None
+        )
+        return otel_trace_id
+
     @property
     def _log_path(self) -> Path:
         return self.run_dir / RunLogFile.LOG
@@ -196,7 +207,7 @@ class RunLogger:
     def _finalized(self) -> bool:
         return self._meta_path.exists()
 
-    def log_event(self, event: str, **fields):
+    def log_event(self, event: str, fields: dict = None):
         record = {
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "event": event,
@@ -205,17 +216,28 @@ class RunLogger:
         self._fh.write(json.dumps(record) + "\n")
         self._fh.flush()
 
-    def finalize(self, status: str, otel_trace_id: str = None, error: str = None):
+    def finalize(
+        self,
+        status: str,
+        span_context: SpanContext = None,
+        error: str = None,
+    ):
         """Write meta.json and close the log file. Idempotent."""
         if self._finalized:
             return
+
         meta = {
             "run_id": self.run_id,
             "started_at": self._started_at,
             "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "status": status,
             **dict(self.params_tuple),
-            **({"otel_trace_id": otel_trace_id} if otel_trace_id is not None else {}),
+            **(
+                {"otel_trace_id": otel_trace_id}
+                if (otel_trace_id := RunLogger._get_otel_trace_id(span_context))
+                is not None
+                else {}
+            ),
             **({"error": error} if error is not None else {}),
         }
         try:

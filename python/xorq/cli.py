@@ -212,42 +212,35 @@ def run_command(
 
             with timed() as get_elapsed:
                 expr = load_expr(expr_path, cache_dir=cache_dir)
-            load_metrics = {"elapsed_s": round(get_elapsed(), 3)}
-            span.add_event("run.expr_loaded", load_metrics)
-            rl.log_event("run.expr_loaded", **load_metrics)
+                load_metrics = {"elapsed_s": round(get_elapsed(), 3)}
+                span.add_event("run.expr_loaded", load_metrics)
+                rl.log_event("run.expr_loaded", load_metrics)
 
             if limit is not None:
                 expr = expr.limit(limit)
 
             with timed() as get_elapsed:
                 arbitrate_output_format(expr, output_path, output_format)
+                execute_metrics = {
+                    "elapsed_s": round(get_elapsed(), 3),
+                    "output_format": str(output_format),
+                }
 
-            execute_metrics = {
-                "elapsed_s": round(get_elapsed(), 3),
-                "output_format": str(output_format),
-            }
-
-            span.add_event("run.done", execute_metrics)
-            rl.log_event("run.done", **execute_metrics)
+                span.add_event("run.done", execute_metrics)
+                rl.log_event("run.done", execute_metrics)
 
             file_metrics = RunLogger._compute_file_metrics(output_format, output_path)
             if file_metrics:
                 span.add_event("run.output_written", file_metrics)
-                rl.log_event("run.output_written", **file_metrics)
+                rl.log_event("run.output_written", file_metrics)
 
             span.set_status(StatusCode.OK)
-
-            span_ctx = span.get_span_context()
-            otel_trace_id = (
-                format(span_ctx.trace_id, "032x")
-                if span_ctx and span_ctx.is_valid
-                else None
-            )
-            rl.finalize(status="ok", otel_trace_id=otel_trace_id)
+            rl.finalize(status="ok", span_context=span.get_span_context())
 
     except Exception as e:
         span.set_status(StatusCode.ERROR, str(e))
         span.record_exception(e)
+        rl.finalize(status="error", span_context=span.get_span_context())
         raise
 
 
