@@ -1,5 +1,7 @@
 """Tests for load_expr(..., lazy=True / limit=N) options."""
 
+import time
+
 import pandas as pd
 
 import xorq.api as xo
@@ -166,3 +168,30 @@ def test_load_expr_limit_larger_than_dataset_returns_all(builds_dir):
 
     result = load_expr(build_path, limit=n_rows * 10).execute()
     assert len(result) == n_rows
+
+
+def test_load_expr_limit_is_pushed_into_parquet_read(builds_dir, parquet_dir):
+    """Confirm the limit is applied during the parquet read, not after a full scan.
+
+    We use functional_alltypes (7 300 rows) as the backing data.  Reading
+    10 rows must be meaningfully faster than reading all rows; the large
+    row-count ratio (730×) makes this reliable even on fast hardware.
+    """
+    df = pd.read_parquet(parquet_dir / "functional_alltypes.parquet")
+    n_rows = len(df)  # 7300
+    build_path = build_expr(xo.memtable(df), builds_dir=builds_dir)
+
+    t0 = time.perf_counter()
+    small_result = load_expr(build_path, limit=10).execute()
+    t_small = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    full_result = load_expr(build_path, limit=n_rows).execute()
+    t_full = time.perf_counter() - t0
+
+    assert len(small_result) == 10
+    assert len(full_result) == n_rows
+    assert t_small < t_full, (
+        f"Expected reading 10 rows ({t_small:.4f}s) to be faster than "
+        f"reading {n_rows} rows ({t_full:.4f}s)"
+    )
