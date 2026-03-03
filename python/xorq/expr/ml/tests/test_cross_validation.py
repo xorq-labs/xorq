@@ -440,29 +440,25 @@ def test_regressor_kfold_matches_sklearn(regression_data, regressor_pipeline):
 def test_sklearn_splitter_no_execute_during_construction(
     classification_data,
     classifier_pipeline,
+    monkeypatch,
 ):
     """Building a CrossValScore with an sklearn splitter must NOT call
     Expr.execute() anywhere in the expression graph."""
-    from unittest.mock import MagicMock, patch
-
     from xorq.vendor.ibis.expr.types import Expr
 
-    sentinel = MagicMock(
-        side_effect=AssertionError(
-            "Expr.execute() was called during expression construction"
-        )
+    def raise_error(*args, **kwargs):
+        raise AssertionError("Expr.execute() was called during expression construction")
+
+    monkeypatch.setattr(Expr, "execute", raise_error)
+
+    result = deferred_cross_val_score(
+        classifier_pipeline,
+        classification_data,
+        features=FEATURES,
+        target=TARGET,
+        cv=KFold(n_splits=3, shuffle=True, random_state=42),
     )
 
-    with patch.object(Expr, "execute", sentinel):
-        result = deferred_cross_val_score(
-            classifier_pipeline,
-            classification_data,
-            features=FEATURES,
-            target=TARGET,
-            cv=KFold(n_splits=3, shuffle=True, random_state=42),
-        )
-
-    sentinel.assert_not_called()
     assert isinstance(result, CrossValScore)
     assert len(result) == 3
 
@@ -470,30 +466,26 @@ def test_sklearn_splitter_no_execute_during_construction(
 def test_int_cv_no_execute_during_construction(
     classification_data,
     classifier_pipeline,
+    monkeypatch,
 ):
     """Building a CrossValScore with int cv must NOT call
     Expr.execute() anywhere in the expression graph."""
-    from unittest.mock import MagicMock, patch
-
     from xorq.vendor.ibis.expr.types import Expr
 
-    sentinel = MagicMock(
-        side_effect=AssertionError(
-            "Expr.execute() was called during expression construction"
-        )
+    def raise_error(*args, **kwargs):
+        raise AssertionError("Expr.execute() was called during expression construction")
+
+    monkeypatch.setattr(Expr, "execute", raise_error)
+
+    result = deferred_cross_val_score(
+        classifier_pipeline,
+        classification_data,
+        features=FEATURES,
+        target=TARGET,
+        cv=3,
+        random_seed=42,
     )
 
-    with patch.object(Expr, "execute", sentinel):
-        result = deferred_cross_val_score(
-            classifier_pipeline,
-            classification_data,
-            features=FEATURES,
-            target=TARGET,
-            cv=3,
-            random_seed=42,
-        )
-
-    sentinel.assert_not_called()
     assert isinstance(result, CrossValScore)
     assert len(result) == 3
 
