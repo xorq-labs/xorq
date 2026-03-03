@@ -794,8 +794,11 @@ class Pipeline:
             transformed = fitted_step.transform(
                 transformed, retain_others=retain_others_during_fit
             )
-            # hack: unclear why we need to do this, but we do
-            transformed = transformed.pipe(do_into_backend)
+            # KV-encoded outputs (e.g. OneHotEncoder, SelectKBest) flow through
+            # struct field extraction in nested DataFusion queries; materialization
+            # avoids type-propagation failures for list<struct> columns.
+            if fitted_step.structer.has_kv_output:
+                transformed = transformed.pipe(do_into_backend)
             features = fitted_step.structer.get_output_columns(
                 fitted_step.dest_col or "transformed"
             )
@@ -884,7 +887,9 @@ class FittedPipeline:
     def transform(self, expr, tag=True):
         transformed = expr
         for fitted_step in self.transform_steps:
-            transformed = fitted_step.transform(transformed).pipe(do_into_backend)
+            transformed = fitted_step.transform(transformed)
+            if fitted_step.structer.has_kv_output:
+                transformed = transformed.pipe(do_into_backend)
         if tag:
             transformed = transformed.tag(
                 "FittedPipeline-transform",
