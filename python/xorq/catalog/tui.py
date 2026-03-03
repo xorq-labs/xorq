@@ -57,7 +57,6 @@ def maybe(default, exc=Exception):
     return cexcepts(exc, handler=return_constant(default))
 
 
-@cache
 def _format_cached(value: bool | None) -> str:
     match value:
         case True:
@@ -68,7 +67,6 @@ def _format_cached(value: bool | None) -> str:
             return "—"
 
 
-@cache
 def _format_column_count(n: int | None) -> str:
     match n:
         case None:
@@ -91,22 +89,27 @@ class CatalogRowData:
     cached_expr: object = field(default=None, eq=False, hash=False, repr=False)
 
     @property
+    @cache
     def aliases_display(self) -> str:
         return ", ".join(self.aliases) if self.aliases else ""
 
     @property
+    @cache
     def backends_display(self) -> str:
         return ", ".join(sorted(set(self.backends))) if self.backends else ""
 
     @property
+    @cache
     def output_display(self) -> str:
         return _format_column_count(self.column_count)
 
     @property
+    @cache
     def cached_display(self) -> str:
         return _format_cached(self.cached)
 
     @property
+    @cache
     def root_tag_display(self) -> str:
         return self.root_tag
 
@@ -167,14 +170,17 @@ class RevisionRowData:
     is_current: bool = field(default=False, validator=instance_of(bool))
 
     @property
+    @cache
     def cached_display(self) -> str:
         return _format_cached(self.cached)
 
     @property
+    @cache
     def status_display(self) -> str:
         return "CURRENT →" if self.is_current else ""
 
     @property
+    @cache
     def columns_display(self) -> str:
         return _format_column_count(self.column_count)
 

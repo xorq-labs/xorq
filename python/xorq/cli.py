@@ -71,7 +71,7 @@ def uv_build_command(
     )
     # should we execv here instead?
     # ensure we do copy_sdist
-    sdist_builder.build_path  # noqa: B018
+    sdist_builder.build_path
     popened = sdist_builder._uv_tool_run_xorq_build
     print(popened.stderr, file=sys.stderr, end="")
     print(popened.stdout, file=sys.stdout, end="")

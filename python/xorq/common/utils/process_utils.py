@@ -52,20 +52,20 @@ class Popened:
         if isinstance(self.args, str):
             assert self.kwargs.get("shell")
         if not self.deferred:
-            self.popen  # noqa: B018
+            self.popen
 
     @property
     def kwargs(self):
         return dict(self.kwargs_tuple)
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def popen(self):
         popen = non_blocking_subprocess_run(self.args, **self.kwargs)
         return popen
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def stdout_peeker(self):
         from xorq.common.utils.io_utils import Peeker
 
@@ -75,7 +75,7 @@ class Popened:
         return self.stdout_peeker.peek(size)
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def communicated(self):
         # Read already-peeked bytes from the BytesIO buffer (non-blocking)
         peeked = self.stdout_peeker.buf.read() if self.stdout_peeker else b""
@@ -86,7 +86,7 @@ class Popened:
         return (_stdout, _stderr)
 
     def wait(self):
-        self.communicated  # noqa: B018
+        self.communicated
         self.popen.wait()
 
     @property
@@ -108,7 +108,7 @@ class Popened:
     @property
     def returncode(self):
         # ensure we have executed
-        self.communicated  # noqa: B018
+        self.communicated
         return self.popen.returncode
 
     @classmethod

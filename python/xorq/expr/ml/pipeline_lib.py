@@ -413,19 +413,19 @@ class FittedStep:
         return get_predict_return_type(self)
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def _deferred_fit_transform(self):
         assert self.is_transform
         return DeferredFitOther.from_fitted_step(self, mode="transform")
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def _deferred_fit_predict(self):
         assert self.is_predict
         return DeferredFitOther.from_fitted_step(self, mode="predict")
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def _deferred_fit_other(self):
         # Backward compat: prefer transform, fall back to predict
         return (
@@ -492,7 +492,7 @@ class FittedStep:
         )
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def model(self):
         import pandas as pd
 
@@ -506,7 +506,7 @@ class FittedStep:
         return pickle.loads(obj)
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     @cexcepts(ValueError)
     def structer(self):
         return Structer.from_instance_expr(

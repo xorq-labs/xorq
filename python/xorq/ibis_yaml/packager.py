@@ -52,7 +52,7 @@ class Sdister:
         return self.project_path.joinpath(PYPROJECT_NAME)
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def _tmpdir(self):
         return TemporaryDirectory()
 
@@ -61,7 +61,7 @@ class Sdister:
         return Path(self._tmpdir.name)
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def _uv_build_popened(self):
         args = (
             "uv",
@@ -94,7 +94,7 @@ class Sdister:
             TGZAppender.append_toplevel(sdist_path, requirements_path)
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def sdist_path(self):
         self.ensure_requirements_member()
         return self._sdist_path
@@ -130,7 +130,7 @@ class SdistBuilder:
         assert self.requirements_path.exists()
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def _tmpdir(self):
         return TemporaryDirectory()
 
@@ -143,7 +143,7 @@ class SdistBuilder:
         return self.tmpdir.joinpath(REQUIREMENTS_NAME)
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def untgzed_path(self):
         tp = TGZProxy(self.sdist_path)
         untgzed_path = tp.extract_toplevel(self.tmpdir)
@@ -162,7 +162,7 @@ class SdistBuilder:
                 self.requirements_path.write_text(requirements_text)
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def _uv_tool_run_xorq_build(self):
         args = self.args if self.args else ("xorq", "build", str(self.script_path))
         popened = uv_tool_run(
@@ -177,7 +177,7 @@ class SdistBuilder:
         # FIXME: don't capture stdout so user can still use --pdb
         return Path(self._uv_tool_run_xorq_build.stdout.strip())
 
-    @functools.cache  # noqa: B019
+    @functools.cache
     def copy_sdist(self):
         target = self.get_build_path().joinpath(BUILD_SDIST_NAME)
         copy_path(self.sdist_path, target)
@@ -221,7 +221,7 @@ class SdistRunner:
         return self.build_path.joinpath(BUILD_SDIST_NAME)
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def _tmpdir(self):
         return TemporaryDirectory()
 
@@ -246,7 +246,7 @@ class SdistRunner:
                 self.requirements_path.write_text(requirements_text)
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def _uv_tool_run_xorq_run(self):
         self.ensure_requirements_path()
         args = self.args if self.args else ("xorq", "run", str(self.build_path))

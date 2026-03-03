@@ -51,7 +51,7 @@ class PinsResource:
         return f"test-{self.name}"
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def path(self):
         return pathlib.Path(xo.options.pins.get_path(self.name))
 
@@ -79,7 +79,7 @@ class PinsResource:
                 raise ValueError(f"unsupported suffix {self.suffix!r}")
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def df(self):
         return self.immediate_reader(self.path)
 

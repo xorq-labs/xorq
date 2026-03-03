@@ -61,4 +61,4 @@ def test_fittedstep_model(cache_cls):
         train, features=features, target=target, cache=cache
     )
     for fitted_step in (*fitted_pipeline.transform_steps, fitted_pipeline.predict_step):
-        fitted_step.model  # noqa: B018
+        fitted_step.model

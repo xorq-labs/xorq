@@ -313,12 +313,12 @@ class ExprDumper:
                 object.__setattr__(self, attrname, Path(value))
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def artifact_store(self):
         return ArtifactStore.from_path_and_expr(self.builds_dir, self.expr)
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def expr_path(self):
         return self.artifact_store.root_path
 
@@ -550,7 +550,7 @@ class ExprLoader:
         return self.expr_path.name
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def artifact_store(self):
         return ArtifactStore(self.expr_path)
 

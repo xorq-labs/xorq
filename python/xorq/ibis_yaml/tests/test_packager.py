@@ -102,7 +102,7 @@ def test_sdist_builder_no_requirements_fails(template, tmpdir):
         sdist_builder = SdistBuilder(
             script_path=script_path, sdist_path=sdist_path, require_requirements=True
         )
-        sdist_builder  # noqa: B018
+        sdist_builder
 
 
 @pytest.mark.slow(level=2)

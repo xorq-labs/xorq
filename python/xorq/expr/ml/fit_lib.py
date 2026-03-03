@@ -175,7 +175,7 @@ class DeferredFitOther:
             deferred_model = deferred_model.as_table().cache(cache=self.cache)
         return deferred_model
 
-    @functools.cache  # noqa: B019
+    @functools.cache
     # if we don't cache this, we get extra tags
     def make_deferred_other(self, fn, return_type, name_infix):
         wrapped_fn = self._inner_other(

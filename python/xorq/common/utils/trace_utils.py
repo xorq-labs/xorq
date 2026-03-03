@@ -335,7 +335,7 @@ class Trace:
         )
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def trace_id(self):
         dct = toolz.groupby(
             compose(bool, operator.attrgetter("links")),
@@ -362,7 +362,7 @@ class Trace:
             raise ValueError("trace has no spans with or without links")
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def parent_span(self):
         (parent_span, *rest) = (
             span for span in self.spans if not span.parent_span_id and not span.links
@@ -410,7 +410,7 @@ class Trace:
         else:
             return 0
 
-    @functools.cache  # noqa: B019
+    @functools.cache
     def get_depths(self):
         spans = tuple(span for span in self.spans if span != self.parent_span)
         depths = {
@@ -580,7 +580,7 @@ class TraceMetrics:
         assert oir_ids == mr_ids
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def default_metrics(self):
         return {
             "trace_id": self.trace.trace_id,
@@ -589,7 +589,7 @@ class TraceMetrics:
         }
 
     @property
-    @functools.cache  # noqa: B019
+    @functools.cache
     def metrics(self):
         dct = {
             metric.name: metric.calc_metric(self.trace) for metric in self.trace_metrics

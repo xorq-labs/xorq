@@ -84,8 +84,7 @@ def test_backend_get_flight_udxf():
         target=functools.partial(server.serve, block=True), daemon=True
     )
     server_thread.start()
-    server.client  # noqa: B018
-
+    server.client
     con = xo.connect()
     backend = xo.flight.connect(**flight_url.client_kwargs, tls_kwargs=tls_kwargs)
 
