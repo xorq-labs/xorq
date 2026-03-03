@@ -332,6 +332,7 @@ def make_pandas_expr_udf(
 
     construct.on_expr = on_expr
     construct.fn = fn
+    construct.return_type = return_type
     return construct
 
 

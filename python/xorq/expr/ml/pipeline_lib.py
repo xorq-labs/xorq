@@ -911,15 +911,19 @@ class FittedPipeline:
         if not (method := getattr(self.predict_step, methodname, None)):
             raise ValueError(f"predict step does not have a method named {methodname}")
         transformed = self.transform(expr, tag=False)
-        predicted = (
-            method(transformed, name=name)
-            .pipe(do_into_backend)
-            .tag(
-                tag_name,
-                **{tag_key: tuple(self.predict_step.tag_kwargs.items())},
-            )
+        predicted = method(transformed, name=name)
+        # Array-typed UDF outputs (e.g. predict_proba returning Array[float64]) cause
+        # issues in DataFusion when referenced multiple times in metric computations;
+        # materialization avoids stream exhaustion on second reference.
+        deferred_method = getattr(self.predict_step, f"deferred_{methodname}", None)
+        if deferred_method is not None and isinstance(
+            deferred_method.return_type, dt.Array
+        ):
+            predicted = predicted.pipe(do_into_backend)
+        return predicted.tag(
+            tag_name,
+            **{tag_key: tuple(self.predict_step.tag_kwargs.items())},
         )
-        return predicted
 
     def predict_proba(self, expr, name=None):
         return self.invoke_predict_method(
