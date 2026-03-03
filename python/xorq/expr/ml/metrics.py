@@ -45,7 +45,10 @@ def _default_scorer_for_model(model):
     Parameters
     ----------
     model : estimator
-        A fitted sklearn estimator.
+        An sklearn estimator instance (fitted or unfitted).  Only the
+        class hierarchy (``ClassifierMixin``, ``RegressorMixin``,
+        ``ClusterMixin``) is inspected, so a fitted model is never
+        required.
 
     Returns
     -------
@@ -98,16 +101,32 @@ class Scorer:
     )
 
     @classmethod
-    def from_spec(cls, scorer, model=None):
-        """Normalize str | callable | _BaseScorer | None -> Scorer.
+    def from_model(cls, model):
+        """Create a Scorer from a model's default metric.
 
         Parameters
         ----------
-        scorer : str, callable, _BaseScorer, Scorer, or None
+        model : estimator
+            An sklearn estimator instance (fitted or unfitted).  Only the
+            class hierarchy is inspected to determine the default scorer.
+
+        Returns
+        -------
+        Scorer
+            A Scorer using the model's default metric (accuracy for
+            classifiers, r2 for regressors, adjusted_rand for clusterers).
+        """
+        scorer_obj = _default_scorer_for_model(model)
+        return cls._from_scorer_obj(scorer_obj)
+
+    @classmethod
+    def from_spec(cls, scorer):
+        """Normalize str | callable | _BaseScorer -> Scorer.
+
+        Parameters
+        ----------
+        scorer : str, callable, _BaseScorer, or Scorer
             The scorer specification to normalize.
-        model : estimator, optional
-            A fitted sklearn estimator, used to determine the default scorer
-            when scorer is None.
 
         Returns
         -------
@@ -118,10 +137,6 @@ class Scorer:
         from sklearn.metrics._scorer import _BaseScorer
 
         match scorer:
-            case None:
-                scorer_obj = _default_scorer_for_model(model)
-                return cls._from_scorer_obj(scorer_obj)
-
             case str():
                 scorer_obj = get_scorer(scorer)
                 return cls._from_scorer_obj(scorer_obj)
@@ -152,7 +167,7 @@ class Scorer:
 
             case _:
                 raise ValueError(
-                    f"scorer must be a string, callable, _BaseScorer, Scorer, or None, "
+                    f"scorer must be a string, callable, _BaseScorer, or Scorer, "
                     f"got {type(scorer)}"
                 )
 
