@@ -662,3 +662,31 @@ def test_generated_name_sanitization_memtable(
     assert get_uid_prefix(expr_name)
     assert not get_uid_prefix(build_name)
     snapshot.assert_match(build_name, "memory-build-name.txt")
+
+
+def test_pandas_memtable_comparison(builds_dir):
+    df = pd.DataFrame({"a": [1]})
+    expr = xo.memtable(df, name="name")
+    expr2 = xo.memtable(df, name="name")
+    joined = expr.join(expr2, predicates="a")
+    xo.build_expr(joined, builds_dir=builds_dir)
+
+
+def test_pyarrow_memtable_comparison(builds_dir):
+    import pyarrow as pa
+
+    table = pa.table({"a": [1]})
+    expr = xo.memtable(table, name="name")
+    expr2 = xo.memtable(table, name="name")
+    joined = expr.join(expr2, predicates="a")
+    xo.build_expr(joined, builds_dir=builds_dir)
+
+
+def test_polars_memtable_comparison(builds_dir):
+    pl = pytest.importorskip("polars")
+
+    df = pl.DataFrame({"a": [1]})
+    expr = xo.memtable(df, name="name")
+    expr2 = xo.memtable(df, name="name")
+    joined = expr.join(expr2, predicates="a")
+    xo.build_expr(joined, builds_dir=builds_dir)

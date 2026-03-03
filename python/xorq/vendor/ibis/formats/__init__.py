@@ -244,6 +244,10 @@ class TableProxy(PseudoHashable[T]):
         return len(self.obj)
 
     @abstractmethod
+    def proxy_equals(self, other: "TableProxy") -> bool:  # pragma: no cover
+        """Return True if the underlying data compares equal to other's data."""
+
+    @abstractmethod
     def to_frame(self) -> pd.DataFrame:  # pragma: no cover
         """Convert this input to a pandas DataFrame."""
 

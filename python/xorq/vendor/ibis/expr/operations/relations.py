@@ -424,6 +424,14 @@ class InMemoryTable(PhysicalTable):
     schema: Schema
     data: TableProxy
 
+    def __equals__(self, other) -> bool:
+        return (
+            hash(self) == hash(other)
+            and (self.name, self.schema) == (other.name, other.schema)
+            and type(self.data) is type(other.data)
+            and self.data.proxy_equals(other.data)
+        )
+
 
 @public
 class SQLQueryResult(Relation):

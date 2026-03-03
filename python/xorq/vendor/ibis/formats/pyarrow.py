@@ -337,6 +337,9 @@ class PyArrowData(DataMapper):
 
 
 class PyArrowTableProxy(TableProxy):
+    def proxy_equals(self, other: "PyArrowTableProxy") -> bool:
+        return self.obj.equals(other.obj)
+
     def to_frame(self):
         return self.obj.to_pandas()
 

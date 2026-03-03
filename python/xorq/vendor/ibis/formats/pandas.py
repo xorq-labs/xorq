@@ -392,6 +392,9 @@ class PandasData(DataMapper):
 
 
 class PandasDataFrameProxy(TableProxy[pd.DataFrame]):
+    def proxy_equals(self, other: "PandasDataFrameProxy") -> bool:
+        return self.obj.equals(other.obj)
+
     def to_frame(self) -> pd.DataFrame:
         return self.obj
 
