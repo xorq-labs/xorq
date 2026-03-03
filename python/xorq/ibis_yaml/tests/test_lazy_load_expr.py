@@ -242,7 +242,7 @@ def lahman_parquet_dir(tmp_path_factory, n_rows: int = 1_000) -> Path:
 
 def _make_multi_join_expr(parquet_dir: Path):
 
-    pg = xo.postgres.connect_examples()
+    pg = xo.postgres.connect_env()
     batting = pg.table("batting")
     pg_backend = batting._find_backend()
 
