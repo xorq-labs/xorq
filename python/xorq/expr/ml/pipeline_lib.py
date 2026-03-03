@@ -780,6 +780,9 @@ class Pipeline:
         features = features or tuple(col for col in expr.columns if col != target)
         fitted_steps = ()
         transformed = expr
+        # During fit, other (non-feature) columns are only needed if a predict
+        # step will require the target column in the intermediate result.
+        retain_others_during_fit = bool(self.predict_step)
         for step in self.transform_steps:
             fitted_step = step.fit(
                 transformed,
@@ -788,7 +791,9 @@ class Pipeline:
                 cache=cache,
             )
             fitted_steps += (fitted_step,)
-            transformed = fitted_step.transform(transformed)
+            transformed = fitted_step.transform(
+                transformed, retain_others=retain_others_during_fit
+            )
             # hack: unclear why we need to do this, but we do
             transformed = transformed.pipe(do_into_backend)
             features = fitted_step.structer.get_output_columns(
