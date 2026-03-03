@@ -137,8 +137,8 @@ class DeferredFitOther:
 
     @property
     def schema(self):
-        schema = self.expr.select(self.features).schema()
-        return schema
+        expr_schema = self.expr.schema()
+        return ibis.schema({f: expr_schema[f] for f in self.features})
 
     @property
     def encoded_cols(self):
