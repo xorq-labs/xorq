@@ -108,7 +108,7 @@ class Scorer:
         ----------
         scorer : str, callable, _BaseScorer, Scorer, or None
             The scorer specification to normalize.
-        model : estimator or None, optional
+        model : estimator or None
             An sklearn estimator instance (fitted or unfitted), used to
             determine the default scorer when scorer is None.  Only the
             class hierarchy is inspected.

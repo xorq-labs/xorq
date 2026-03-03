@@ -359,16 +359,16 @@ def deferred_cross_val_score(
         Feature column names.
     target : str
         Target column name.
-    cv : int or sklearn splitter, optional
+    cv : int or sklearn splitter
         Cross-validation strategy. If int, uses train_test_splits to create
         that many equal-sized folds. If an sklearn splitter object (e.g.
         KFold, StratifiedKFold), uses its .split() method to generate
         train/test indices. Default is 5.
-    scoring : str, callable, _BaseScorer, Scorer, or None, optional
+    scoring : str, callable, _BaseScorer, Scorer, or None
         Scorer specification passed to FittedPipeline.score_expr(). If None,
         uses the model's default scorer (accuracy for classifiers, r2 for
         regressors). Default is None.
-    random_seed : int or None, optional
+    random_seed : int or None
         Random seed for reproducibility.  When cv is an int, controls
         hash-based fold partitioning.  When cv is an sklearn splitter,
         controls the deterministic row ordering used to guarantee that
@@ -376,7 +376,7 @@ def deferred_cross_val_score(
         fold assignments with standalone sklearn, sort the pandas
         DataFrame with :func:`apply_deterministic_sort` using the same
         seed before calling ``cross_val_score``.  Default is None.
-    order_by : str, tuple of str, or None, optional
+    order_by : str, tuple of str, or None
         Column(s) to sort by before folding.  Overrides the default
         hash-based sort.  Required for ``TimeSeriesSplit`` to specify
         the temporal ordering column.  Default is None.
