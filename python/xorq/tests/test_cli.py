@@ -529,9 +529,9 @@ def test_run_command_writes_run_logger(tmp_path):
         assert len(runs_obj.list()) == 1, "Expected exactly one run to be recorded"
 
         run: Run = runs_obj.runs[0]
-        assert run.run_id.startswith(expr_hash), (
-            "Run ID should start with the expression hash"
-        )
+        import uuid
+
+        assert uuid.UUID(run.run_id).version == 4, "Run ID should be a UUID4"
 
         meta = run.read_meta()
         assert meta is not None

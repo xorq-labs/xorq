@@ -6,6 +6,7 @@ import os
 import pathlib
 import subprocess
 import tempfile
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -121,12 +122,11 @@ log_initial_state()
 #
 #     ~/.local/share/xorq/runs/
 #       <expr_hash>/
-#         <run_id>/            # e.g. abc123ef-20260226T143022Z
+#         <run_id>/            # e.g. 550e8400-e29b-41d4-a716-446655440000
 #           run.jsonl          # append-only event log (one JSON object per line)
 #           meta.json          # summary written on completion
 #
-# The run ID is ``<expr_hash>-<UTC timestamp>``, making runs sortable by time
-# while remaining tied to the expression that produced them.
+# The run ID is a UUID4, unique across all runs.
 
 
 class RunLogFile(StrEnum):
@@ -166,9 +166,8 @@ class RunLogger:
         object.__setattr__(self, "_fh", self._log_path.open("a", encoding="utf-8"))
 
     @staticmethod
-    def _make_run_id(expr_hash: str) -> str:
-        ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-        return f"{expr_hash}-{ts}"
+    def _make_run_id() -> str:
+        return str(uuid.uuid4())
 
     @staticmethod
     def _compute_file_metrics(output_format, output_path) -> dict:
@@ -267,7 +266,7 @@ class RunLogger:
             runs_dir_path = (
                 Path(runs_dir) if runs_dir is not None else get_xorq_runs_dir()
             )
-            run_id = cls._make_run_id(expr_hash)
+            run_id = cls._make_run_id()
             run_dir = runs_dir_path / expr_hash / run_id
             run_dir.mkdir(parents=True, exist_ok=True)
             rl = cls(
@@ -354,7 +353,7 @@ class Runs:
             p.name
             for p in sorted(
                 (p for p in self.expr_dir.iterdir() if p.is_dir()),
-                key=lambda p: p.name,
+                key=lambda p: p.stat().st_mtime,
                 reverse=True,
             )
         )
