@@ -798,32 +798,32 @@ def test_scorer_from_spec_scorer_passthrough():
     assert result is original
 
 
-def test_scorer_from_spec_none_classifier():
-    """None with classifier -> accuracy_score."""
+def test_scorer_from_model_classifier():
+    """Classifier -> accuracy_score."""
     from sklearn.linear_model import LogisticRegression
 
     from xorq.expr.ml.metrics import Scorer
 
     model = LogisticRegression()
     model.fit([[0], [1]], [0, 1])
-    s = Scorer.from_spec(None, model=model)
+    s = Scorer.from_model(model)
     assert s.metric_fn is accuracy_score
 
 
-def test_scorer_from_spec_none_regressor():
-    """None with regressor -> r2_score."""
+def test_scorer_from_model_regressor():
+    """Regressor -> r2_score."""
     from sklearn.linear_model import LinearRegression
 
     from xorq.expr.ml.metrics import Scorer
 
     model = LinearRegression()
     model.fit([[0], [1]], [0.0, 1.0])
-    s = Scorer.from_spec(None, model=model)
+    s = Scorer.from_model(model)
     assert s.metric_fn is r2_score
 
 
-def test_scorer_from_spec_none_cluster():
-    """None with clusterer -> adjusted_rand_score."""
+def test_scorer_from_model_cluster():
+    """Clusterer -> adjusted_rand_score."""
     from sklearn.cluster import KMeans
     from sklearn.metrics import adjusted_rand_score
 
@@ -831,7 +831,7 @@ def test_scorer_from_spec_none_cluster():
 
     model = KMeans(n_clusters=2, n_init=1)
     model.fit([[0], [1]])
-    s = Scorer.from_spec(None, model=model)
+    s = Scorer.from_model(model)
     assert s.metric_fn is adjusted_rand_score
 
 
