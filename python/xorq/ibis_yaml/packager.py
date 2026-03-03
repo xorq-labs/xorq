@@ -164,7 +164,7 @@ class SdistBuilder:
     @property
     @functools.cache
     def _uv_tool_run_xorq_build(self):
-        args = self.args if self.args else ("xorq", "build", str(self.script_path))
+        args = self.args or ("xorq", "build", str(self.script_path))
         popened = uv_tool_run(
             *args,
             with_=str(self.untgzed_path),
@@ -249,7 +249,7 @@ class SdistRunner:
     @functools.cache
     def _uv_tool_run_xorq_run(self):
         self.ensure_requirements_path()
-        args = self.args if self.args else ("xorq", "run", str(self.build_path))
+        args = self.args or ("xorq", "run", str(self.build_path))
         # FIXME: enable streaming output
         popened = uv_tool_run(
             *args,

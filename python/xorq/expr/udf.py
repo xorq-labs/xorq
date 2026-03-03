@@ -1063,14 +1063,7 @@ def pyarrow_udwf(
             **config_kwargs,
             # assert which_evaluate in ("evaluate", "evaluate_all", "evaluate_all_with_rank")
             # **{which_evaluate: fn},
-            **{
-                which_evaluate: fn
-                for which_evaluate in (
-                    "evaluate",
-                    "evaluate_all",
-                    "evaluate_all_with_rank",
-                )
-            },
+            **dict.fromkeys(("evaluate", "evaluate_all", "evaluate_all_with_rank"), fn),
         ),
         "__udf_namespace__": namespace,
         "__module__": __name__,

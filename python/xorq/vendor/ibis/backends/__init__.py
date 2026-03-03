@@ -885,7 +885,7 @@ class BaseBackend(abc.ABC, _FileIOHandler, CacheHandler):
         """
 
     def __getstate__(self):
-        return dict(_con_args=self._con_args, _con_kwargs=self._con_kwargs)
+        return {"_con_args": self._con_args, "_con_kwargs": self._con_kwargs}
 
     def __rich_repr__(self):
         yield "name", self.name

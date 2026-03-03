@@ -225,8 +225,8 @@ if __name__ == "__main__":
 
     args = p.parse_args()
 
-    left = ibis.table(dict(a="int64", b="string"), name="left")
-    right = ibis.table(dict(b="string", c="int64", d="string"), name="right")
+    left = ibis.table({"a": "int64", "b": "string"}, name="left")
+    right = ibis.table({"b": "string", "c": "int64", "d": "string"}, name="right")
     expr = (
         left.inner_join(right, "b")
         .select(left.a, b=right.c, c=right.d)

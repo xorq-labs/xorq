@@ -503,7 +503,7 @@ class Backend(
         if use_encryption:
             connection_scheme += "+tls"
 
-        db_kwargs = dict(username=user, password=password)
+        db_kwargs = {"username": user, "password": password}
         if use_encryption and disable_certificate_verification is not None:
             db_kwargs[DatabaseOptions.TLS_SKIP_VERIFY.value] = str(
                 disable_certificate_verification

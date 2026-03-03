@@ -56,7 +56,7 @@ def test_create_table(con):
 @pytest.mark.parametrize(
     "keys",
     [
-        param(tuple(), id="empty"),
+        param((), id="empty"),
         param((xo.asc("yearID"),), id="one-column"),
         param((xo.asc("yearID"), xo.desc("stint")), id="two-columns"),
     ],

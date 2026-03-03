@@ -38,10 +38,10 @@ def map_ibis(val, kwargs=None):
 
         cls = getattr(importlib.import_module(f"xorq.vendor.{module}"), attr)
 
-        kwargs = kwargs if kwargs else dict(zip(val.argnames, val.args))
+        kwargs = kwargs or dict(zip(val.argnames, val.args))
         kwargs = toolz.valmap(
             map_ibis,
-            kwargs if kwargs else dict(zip(val.argnames, val.args)),
+            kwargs or dict(zip(val.argnames, val.args)),
         )
 
         return cls(**kwargs)

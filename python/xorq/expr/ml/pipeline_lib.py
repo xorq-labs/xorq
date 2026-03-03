@@ -618,9 +618,7 @@ class FittedStep:
         import xorq.api as xo
 
         schema = self.expr.select(self.features).schema()
-        empty_table = xo.memtable(
-            [{name: None for name in schema.names}], schema=schema
-        )
+        empty_table = xo.memtable([dict.fromkeys(schema.names)], schema=schema)
         col = self.feature_importances_raw(empty_table, name)
         return col.as_table().tag(**self.tag_kwargs)
 

@@ -137,7 +137,7 @@ def _namespace_to_yaml(ns: ops.Namespace, context: TranslationContext) -> dict:
     return freeze(
         {
             "op": "Namespace",
-            "dict": {argname: arg for argname, arg in zip(ns.argnames, ns.args)},
+            "dict": dict(zip(ns.argnames, ns.args)),
         }
     )
 
@@ -174,19 +174,12 @@ def make_op_kwargs(op):
     argnames = op.argnames
     if argnames and argnames[-1] == "where":
         (*argnames, _) = argnames
-    kwargs = {argname: arg for (argname, arg) in zip(argnames, op.args)}
+    kwargs = dict(zip(argnames, op.args))
     return kwargs
 
 
 def kwargs_to_schema(kwargs):
-    schema = ibis.schema(
-        {
-            argname: typ
-            for (argname, typ) in (
-                (argname, arg.type()) for argname, arg in kwargs.items()
-            )
-        }
-    )
+    schema = ibis.schema({argname: arg.type() for argname, arg in kwargs.items()})
     return schema
 
 

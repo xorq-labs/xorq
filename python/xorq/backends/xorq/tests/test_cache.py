@@ -194,11 +194,11 @@ def test_cache_recreate(alltypes):
         expr.cache(cache=SourceCache.from_kwargs(source=con)).execute()
 
     (con_cached_tables0, con_cached_tables1) = (
-        set(
+        {
             table_name
             for table_name in con.list_tables()
             if table_name.startswith(KEY_PREFIX)
-        )
+        }
         for con in cons
     )
 
@@ -375,13 +375,13 @@ def test_cache_default_path_set(batting, ls_con, tmp_path):
 
     result = expr.execute()
 
-    cache_files = list(
+    cache_files = [
         path
         for path in tmp_path.iterdir()
         if path.is_file()
         and path.name.startswith(KEY_PREFIX)
         and path.name.endswith(".parquet")
-    )
+    ]
 
     assert result is not None
     assert cache_files

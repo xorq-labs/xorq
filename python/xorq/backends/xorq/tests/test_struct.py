@@ -47,7 +47,7 @@ def test_all_fields(struct, struct_df):
     }
 
 
-_SIMPLE_DICT = dict(a=1, b="2", c=3.0)
+_SIMPLE_DICT = {"a": 1, "b": "2", "c": 3.0}
 _STRUCT_LITERAL = xo.struct(
     _SIMPLE_DICT,
     type="struct<a: int64, b: string, c: float64>",
@@ -67,13 +67,13 @@ def test_literal(con, field):
 
 def test_struct_column(alltypes, alltypes_df):
     t = alltypes
-    expr = t.select(s=xo.struct(dict(a=t.string_col, b=1, c=t.bigint_col)))
-    assert expr.s.type() == dt.Struct(dict(a=dt.string, b=dt.int8, c=dt.int64))
+    expr = t.select(s=xo.struct({"a": t.string_col, "b": 1, "c": t.bigint_col}))
+    assert expr.s.type() == dt.Struct({"a": dt.string, "b": dt.int8, "c": dt.int64})
     result = xo.execute(expr)
     expected = pd.DataFrame(
         {
             "s": [
-                dict(a=a, b=1, c=c)
+                {"a": a, "b": 1, "c": c}
                 for a, c in zip(alltypes_df.string_col, alltypes_df.bigint_col)
             ]
         }
@@ -97,7 +97,7 @@ def test_collect_into_struct(alltypes):
         .group_by(group="string_col")
         .agg(
             val=lambda t: xo.struct(
-                dict(key=t.bigint_col.collect().cast("array<int64>"))
+                {"key": t.bigint_col.collect().cast("array<int64>")}
             )
         )
     )

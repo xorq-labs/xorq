@@ -22,7 +22,7 @@ def otel_instrument_reader(reader):
     span = trace.get_current_span()
     ctx = span.get_span_context()
     span_link = trace.Link(ctx)
-    event_ids = {"reader_id": id(reader), "trace_id": hex(ctx.trace_id)[2:]}
+    event_ids = {"reader_id": id(reader), "trace_id": f"{ctx.trace_id:x}"}
     span.add_event(
         "span.metrics.rbr.make_reader",
         event_ids,

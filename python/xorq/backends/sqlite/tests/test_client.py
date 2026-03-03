@@ -15,7 +15,7 @@ from xorq.vendor import ibis
 def test_attach_file(tmp_path):
     dbpath = str(tmp_path / "attached.db")
     path_client = xo.sqlite.connect(dbpath)
-    path_client.create_table("test", schema=ibis.schema(dict(a="int")))
+    path_client.create_table("test", schema=ibis.schema({"a": "int"}))
 
     client = xo.sqlite.connect()
 

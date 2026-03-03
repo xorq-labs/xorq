@@ -613,11 +613,11 @@ def harvest_df():
 
 def test_multijoin(tracts_df, fields_df, harvest_df):
     conn = xo.pandas.connect(
-        dict(
-            tracts=tracts_df,
-            fields=fields_df,
-            harvest=harvest_df,
-        )
+        {
+            "tracts": tracts_df,
+            "fields": fields_df,
+            "harvest": harvest_df,
+        }
     )
 
     tracts, fields, harvest = map(conn.table, "tracts fields harvest".split())

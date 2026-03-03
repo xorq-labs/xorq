@@ -76,7 +76,7 @@ def predict_sklearn(model, df):
 def predict_proba_sklearn(model, df):
     """Predict class probabilities using sklearn model."""
     proba = model.predict_proba(df)
-    return [row for row in proba]
+    return list(proba)
 
 
 @toolz.curry

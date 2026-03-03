@@ -57,7 +57,7 @@ def _create_temp_table_with_schema(con, temp_table_name, schema, data=None):
         param(
             xo.memtable(
                 [(1, 2.0, "3")],
-                schema=xo.schema(dict(a="int8", b="float32", c="string")),
+                schema=xo.schema({"a": "int8", "b": "float32", "c": "string"}),
             ),
             pd.DataFrame([(1, 2.0, "3")], columns=list("abc")).astype(
                 {"a": "int8", "b": "float32"}
@@ -76,7 +76,7 @@ def _create_temp_table_with_schema(con, temp_table_name, schema, data=None):
             id="dataframe",
         ),
         param(
-            xo.memtable([dict(a=1), dict(a=2)]),
+            xo.memtable([{"a": 1}, {"a": 2}]),
             pd.DataFrame({"a": [1, 2]}),
             id="list_of_dicts",
         ),

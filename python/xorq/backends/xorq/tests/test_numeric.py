@@ -202,7 +202,7 @@ def test_isnan_isinf(
         param(L(5.556).sqrt(), math.sqrt(5.556), id="sqrt"),
         param(
             L(5.556).log(2),
-            math.log(5.556, 2),
+            math.log2(5.556),
             id="log-base",
         ),
         param(
@@ -212,7 +212,7 @@ def test_isnan_isinf(
         ),
         param(
             L(5.556).log2(),
-            math.log(5.556, 2),
+            math.log2(5.556),
             id="log2",
         ),
         param(

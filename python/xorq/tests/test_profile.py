@@ -84,12 +84,10 @@ def test_save_load(connector, monkeypatch, tmp_path):
     profile = con._profile
     profile.save(check_secrets=False)
 
-    others = tuple(
-        (
-            profiles.get(profile.hash_name),
-            profiles[profile.hash_name],
-            profile.load(profile.hash_name),
-        )
+    others = (
+        profiles.get(profile.hash_name),
+        profiles[profile.hash_name],
+        profile.load(profile.hash_name),
     )
 
     for other in others:

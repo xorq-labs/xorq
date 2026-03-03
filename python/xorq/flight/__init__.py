@@ -161,7 +161,7 @@ class FlightServer:
         from xorq.expr.relations import FlightUDXF
 
         # Find all FlightUDXF nodes in the expression
-        exchangers = tuple(set(node.udxf for node in walk_nodes((FlightUDXF,), expr)))
+        exchangers = tuple({node.udxf for node in walk_nodes((FlightUDXF,), expr)})
 
         flight_url_kwargs = {
             key: value for key, value in (("host", host), ("port", port)) if value
