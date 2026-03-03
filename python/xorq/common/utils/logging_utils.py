@@ -149,11 +149,6 @@ class RunLogger:
 
     run_dir: Path = field(validator=instance_of(Path))
     params_tuple = field(validator=instance_of(tuple), default=())
-
-    @property
-    def run_id(self) -> str:
-        return self.run_dir.name
-
     _started_at = field(init=False)
     _fh = field(init=False)
 
@@ -165,35 +160,9 @@ class RunLogger:
         )
         object.__setattr__(self, "_fh", self._log_path.open("a", encoding="utf-8"))
 
-    @staticmethod
-    def _make_run_id() -> str:
-        return str(uuid.uuid4())
-
-    @staticmethod
-    def _compute_file_metrics(output_format, output_path) -> dict:
-        metrics = {}
-        if output_path and output_path != "-":
-            output_file = Path(output_path)
-            if output_file.exists():
-                metrics["bytes"] = output_file.stat().st_size
-                if str(output_format) == "parquet":
-                    try:
-                        import pyarrow.parquet as pq
-
-                        metrics["rows"] = pq.read_metadata(output_file).num_rows
-                    except ImportError:
-                        pass
-        return metrics
-
-    @staticmethod
-    def _get_otel_trace_id(span_ctx: SpanContext) -> str | None:
-
-        otel_trace_id = (
-            format(span_ctx.trace_id, "032x")
-            if span_ctx and span_ctx.is_valid
-            else None
-        )
-        return otel_trace_id
+    @property
+    def run_id(self) -> str:
+        return self.run_dir.name
 
     @property
     def _log_path(self) -> Path:
@@ -245,6 +214,36 @@ class RunLogger:
             self._meta_path.write_text(json.dumps(meta, indent=2) + "\n")
         except Exception:
             pass
+
+    @staticmethod
+    def _make_run_id() -> str:
+        return str(uuid.uuid4())
+
+    @staticmethod
+    def _compute_file_metrics(output_format, output_path) -> dict:
+        metrics = {}
+        if output_path and output_path != "-":
+            output_file = Path(output_path)
+            if output_file.exists():
+                metrics["bytes"] = output_file.stat().st_size
+                if str(output_format) == "parquet":
+                    try:
+                        import pyarrow.parquet as pq
+
+                        metrics["rows"] = pq.read_metadata(output_file).num_rows
+                    except ImportError:
+                        pass
+        return metrics
+
+    @staticmethod
+    def _get_otel_trace_id(span_ctx: SpanContext) -> str | None:
+
+        otel_trace_id = (
+            format(span_ctx.trace_id, "032x")
+            if span_ctx and span_ctx.is_valid
+            else None
+        )
+        return otel_trace_id
 
     @classmethod
     @contextmanager
@@ -345,6 +344,11 @@ class Runs:
 
     expr_dir: Path = field(validator=instance_of(Path))
 
+    @property
+    def runs(self) -> tuple[Run, ...]:
+        """Return Run objects most recent first."""
+        return tuple(Run(run_dir=self.expr_dir / run_id) for run_id in self.list())
+
     def list(self) -> tuple[str, ...]:
         """Return run IDs most recent first (cheap: no Run objects created)."""
         if not self.expr_dir.exists():
@@ -357,8 +361,3 @@ class Runs:
                 reverse=True,
             )
         )
-
-    @property
-    def runs(self) -> tuple[Run, ...]:
-        """Return Run objects most recent first."""
-        return tuple(Run(run_dir=self.expr_dir / run_id) for run_id in self.list())
