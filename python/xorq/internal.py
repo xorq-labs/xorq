@@ -76,8 +76,8 @@ class AbstractTableProvider(metaclass=ABCMeta):
         pass
 
 
-class WindowEvaluator(metaclass=ABCMeta):
-    def memoize(self) -> None:
+class WindowEvaluator(metaclass=ABCMeta):  # noqa: B024
+    def memoize(self) -> None:  # noqa: B027
         pass
 
     def get_range(self, idx: int, num_rows: int) -> tuple[int, int]:
@@ -86,15 +86,15 @@ class WindowEvaluator(metaclass=ABCMeta):
     def is_causal(self) -> bool:
         return False
 
-    def evaluate_all(self, values: list[pa.Array], num_rows: int) -> pa.Array:
+    def evaluate_all(self, values: list[pa.Array], num_rows: int) -> pa.Array:  # noqa: B027
         pass
 
-    def evaluate(
+    def evaluate(  # noqa: B027
         self, values: list[pa.Array], eval_range: tuple[int, int]
     ) -> pa.Scalar:
         pass
 
-    def evaluate_all_with_rank(
+    def evaluate_all_with_rank(  # noqa: B027
         self, num_rows: int, ranks_in_partition: list[tuple[int, int]]
     ) -> pa.Array:
         pass

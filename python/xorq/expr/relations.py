@@ -634,7 +634,7 @@ def register_and_transform_remote_tables(expr, **kwargs):
             kwargs = kwargs or {}
             if isinstance(node, Relation):
                 updated = {}
-                for k, v in list(kwargs.items()):
+                for _k, v in list(kwargs.items()):
                     try:
                         if v in batches_table:
                             updated[v] = mark_remote_table(v)

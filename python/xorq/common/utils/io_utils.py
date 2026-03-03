@@ -83,12 +83,12 @@ class Peeker:
             return return_constant(False)
         else:
 
-            def timed_out(timeout=timeout, then=datetime.now()):
+            def timed_out(timeout=timeout, then=datetime.now()):  # noqa: B008
                 return (datetime.now() - then).total_seconds() > timeout
 
             return timed_out
 
-    def peek_line(self, n=1, timed_out=return_constant(False)):
+    def peek_line(self, n=1, timed_out=return_constant(False)):  # noqa: B008
         buf = b""
         for n_chars in itertools.count(1):
             if (buf := self.peek(n_chars)).count(b"\n") >= n or timed_out():

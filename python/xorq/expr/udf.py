@@ -841,7 +841,7 @@ def pyarrow_udwf(
     schema,
     return_type,
     name=None,
-    namespace=Namespace(database=None, catalog=None),
+    namespace=Namespace(database=None, catalog=None),  # noqa: B008
     base=AggUDF,
     **config_kwargs,
 ):

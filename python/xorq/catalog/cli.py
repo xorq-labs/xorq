@@ -157,10 +157,12 @@ def init(ctx):
     with click_context_catalog(ctx):
         try:
             catalog = ctx.obj.make_catalog(init=True)
-        except AssertionError:
+        except AssertionError as err:
             # init_repo_path asserts the path does not already exist
             probe = ctx.obj.make_catalog(init=False)
-            raise click.ClickException(f"Catalog already exists at {probe.repo_path}")
+            raise click.ClickException(
+                f"Catalog already exists at {probe.repo_path}"
+            ) from err
     click.echo(f"Initialized catalog at {catalog.repo_path}")
 
 

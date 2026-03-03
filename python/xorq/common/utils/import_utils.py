@@ -46,7 +46,7 @@ def import_ipynb(path, module_name):
         # Clean up if execution fails
         if module_name in sys.modules:
             del sys.modules[module_name]
-        raise ImportError(f"Error executing notebook code: {e}")
+        raise ImportError(f"Error executing notebook code: {e}") from e
 
     return module
 

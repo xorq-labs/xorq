@@ -462,9 +462,9 @@ serieswise = {
     ops.EndsWith: lambda arg, end: arg.str.endswith(end),
     ops.ExtractDay: lambda arg: arg.dt.day,
     ops.ExtractDayOfYear: lambda arg: arg.dt.dayofyear,
-    ops.ExtractEpochSeconds: lambda arg: arg.astype("datetime64[s]")
-    .astype("int64")
-    .astype("int32"),
+    ops.ExtractEpochSeconds: lambda arg: (
+        arg.astype("datetime64[s]").astype("int64").astype("int32")
+    ),
     ops.ExtractHour: lambda arg: arg.dt.hour,
     ops.ExtractMicrosecond: lambda arg: arg.dt.microsecond,
     ops.ExtractMillisecond: lambda arg: arg.dt.microsecond // 1000,

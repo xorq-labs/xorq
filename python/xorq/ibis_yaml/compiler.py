@@ -272,7 +272,7 @@ def hydrate_cons(hash_to_profile_kwargs):
     return profiles
 
 
-def make_read_op(parquet_path, read_kwargs, con=_backend_init()):
+def make_read_op(parquet_path, read_kwargs, con=_backend_init()):  # noqa: B008
     op = deferred_read_parquet(parquet_path, con, **read_kwargs).op()
     args = dict(zip(op.__argnames__, op.__args__))
     op = op.__recreate__(args)

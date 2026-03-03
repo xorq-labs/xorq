@@ -78,7 +78,7 @@ def make_estimator_typ(fit, return_type, name=None, *, transform=None, predict=N
 
     assert isinstance(return_type, dt.DataType)
     other, which = arbitrate_transform_predict(transform, predict)
-    assert hasattr(fit, "__call__") and hasattr(other, "__call__")
+    assert callable(fit) and callable(other)
 
     def wrapped_fit(self, *args, **kwargs):
         self._model = fit(*args, **kwargs)

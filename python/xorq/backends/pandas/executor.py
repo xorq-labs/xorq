@@ -609,11 +609,11 @@ class PandasExecutor(PandasUtils):
     ):
         try:
             return source.dictionary[name]
-        except KeyError:
+        except KeyError as err:
             raise UnboundExpressionError(
                 f"{name} is not a table in the {source.name!r} backend, you "
                 "probably tried to execute an expression without a data source"
-            )
+            ) from err
 
     @classmethod
     def visit_InMemoryTable(cls, op: ops.InMemoryTable, name, schema, data):

@@ -420,7 +420,7 @@ class Trace:
         while spans:
             parent_span_ids = set(span.span_id for span in depths[depth - 1])
             dct = toolz.groupby(
-                lambda span: span.parent_span_id in parent_span_ids,
+                lambda span: span.parent_span_id in parent_span_ids,  # noqa: B023
                 spans,
             )
             at_depth = dct.get(True, ())

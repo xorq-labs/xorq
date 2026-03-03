@@ -46,8 +46,8 @@ def map_ibis(val, kwargs=None):
 
         return cls(**kwargs)
 
-    except AttributeError:
-        raise NotImplementedError(f"{type(val)} is not implemented")
+    except AttributeError as err:
+        raise NotImplementedError(f"{type(val)} is not implemented") from err
 
 
 @map_ibis.register(int)

@@ -82,7 +82,7 @@ def calc_tgz_content_hexdigest(path, member_filter=uv_sdist_member_filter):
         }
         print(tuple(sorted(dct.items())))
         md5 = hashlib.md5()
-        for key, value in sorted(dct.items()):
+        for _key, value in sorted(dct.items()):
             # can't use key: top level dir changes shouldn't impact hash
             # md5.update(key.encode("ascii"))
             md5.update(value.encode("ascii"))

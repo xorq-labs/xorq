@@ -85,7 +85,6 @@ def test_backend_get_flight_udxf():
     )
     server_thread.start()
     server.client
-
     con = xo.connect()
     backend = xo.flight.connect(**flight_url.client_kwargs, tls_kwargs=tls_kwargs)
 
