@@ -242,7 +242,7 @@ def lahman_parquet_dir(tmp_path_factory, n_rows: int = 1_000) -> Path:
 
 def _make_multi_join_expr(parquet_dir: Path):
 
-    pg = xo.postgres.connect_env()
+    pg = xo.postgres.connect_examples()
     batting = pg.table("batting")
     pg_backend = batting._find_backend()
 
@@ -294,7 +294,6 @@ def _mean_load_time(expr_path: Path, n_runs: int = 10, **kwargs) -> float:
     return (time.perf_counter() - t0) / n_runs
 
 
-@pytest.mark.benchmark
 @pytest.mark.postgres
 def test_lazy_load_expr_faster_than_eager_postgres(builds_dir, lahman_parquet_dir):
 
