@@ -203,7 +203,7 @@ def test_train_test_splits_deterministic_with_seed():
         )
     )
 
-    for s1, s2 in zip(splits1, splits2, strict=False):
+    for s1, s2 in zip(splits1, splits2):
         assert_frame_equal(s1.execute(), s2.execute())
 
 
@@ -240,7 +240,7 @@ def test_train_test_splits_with_all_selector():
             table, test_sizes=0.2, unique_key=s.all(), num_buckets=N, random_seed=0
         )
     )
-    for s1, s2 in zip(splits, splits2, strict=False):
+    for s1, s2 in zip(splits, splits2):
         assert_frame_equal(s1.execute(), s2.execute())
 
 

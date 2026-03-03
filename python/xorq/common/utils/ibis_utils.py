@@ -38,10 +38,10 @@ def map_ibis(val, kwargs=None):
 
         cls = getattr(importlib.import_module(f"xorq.vendor.{module}"), attr)
 
-        kwargs = kwargs if kwargs else dict(zip(val.argnames, val.args, strict=False))
+        kwargs = kwargs if kwargs else dict(zip(val.argnames, val.args))
         kwargs = toolz.valmap(
             map_ibis,
-            kwargs if kwargs else dict(zip(val.argnames, val.args, strict=False)),
+            kwargs if kwargs else dict(zip(val.argnames, val.args)),
         )
 
         return cls(**kwargs)
@@ -81,13 +81,7 @@ def map_cast(cast, kwargs=None):
 @map_ibis.register(IbisSchema)
 def map_schema(schema, kwargs=None):
     return Schema(
-        dict(
-            zip(
-                schema.names,
-                tuple(map_ibis(typ, kwargs) for typ in schema.types),
-                strict=False,
-            )
-        )
+        dict(zip(schema.names, tuple(map_ibis(typ, kwargs) for typ in schema.types)))
     )
 
 

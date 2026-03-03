@@ -73,7 +73,7 @@ def _calculate_bounds(
         raise ValueError("Test sizes must sum to 1") from err
 
     cumulative_sizes = tuple(toolz.accumulate(operator.add, (0,) + test_sizes))
-    bounds = tuple(zip(cumulative_sizes[:-1], cumulative_sizes[1:], strict=False))
+    bounds = tuple(zip(cumulative_sizes[:-1], cumulative_sizes[1:]))
     return bounds
 
 
@@ -146,7 +146,7 @@ def _validate_model_features(
 
     unsupported = [
         f"{name}: {type_}"
-        for name, type_ in zip(schema, feature_types, strict=False)
+        for name, type_ in zip(schema, feature_types)
         if type_ not in supported_types
     ]
     if unsupported:
@@ -260,7 +260,7 @@ def make_quickgrove_udf(
             pattern=ValueOf(SUPPORTED_TYPES[type_]),
             typehint=SUPPORTED_TYPES[type_],
         )
-        for name, type_ in zip(schema, feature_types, strict=False)
+        for name, type_ in zip(schema, feature_types)
     }
 
     def fn_from_arrays(*arrays):
@@ -354,7 +354,7 @@ def make_pruned_udf(
         name: Argument(
             pattern=ValueOf(SUPPORTED_TYPES[type_]), typehint=SUPPORTED_TYPES[type_]
         )
-        for name, type_ in zip(schema, feature_types, strict=False)
+        for name, type_ in zip(schema, feature_types)
     }
 
     def fn_from_arrays(*arrays):

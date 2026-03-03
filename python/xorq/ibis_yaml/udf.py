@@ -137,9 +137,7 @@ def _namespace_to_yaml(ns: ops.Namespace, context: TranslationContext) -> dict:
     return freeze(
         {
             "op": "Namespace",
-            "dict": {
-                argname: arg for argname, arg in zip(ns.argnames, ns.args, strict=False)
-            },
+            "dict": {argname: arg for argname, arg in zip(ns.argnames, ns.args)},
         }
     )
 
@@ -176,7 +174,7 @@ def make_op_kwargs(op):
     argnames = op.argnames
     if argnames and argnames[-1] == "where":
         (*argnames, _) = argnames
-    kwargs = {argname: arg for (argname, arg) in zip(argnames, op.args, strict=False)}
+    kwargs = {argname: arg for (argname, arg) in zip(argnames, op.args)}
     return kwargs
 
 

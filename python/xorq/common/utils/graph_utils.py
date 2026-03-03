@@ -100,11 +100,7 @@ def replace_nodes(replacer, expr):
     sub_expr_memo = {}
 
     def do_recreate(op, _kwargs, **kwargs):
-        kwargs = (
-            dict(zip(op.__argnames__, op.__args__, strict=False))
-            | (_kwargs or {})
-            | kwargs
-        )
+        kwargs = dict(zip(op.__argnames__, op.__args__)) | (_kwargs or {}) | kwargs
         return op.__recreate__(kwargs)
 
     def _replace_sub(sub_op):

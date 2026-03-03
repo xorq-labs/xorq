@@ -152,9 +152,7 @@ class Backend(SQLBackend):
             pa.schema(
                 [
                     pa.field(name, type=typ)
-                    for name, typ in zip(
-                        obj.schema.names, obj.schema.types, strict=False
-                    )
+                    for name, typ in zip(obj.schema.names, obj.schema.types)
                 ]
             )
         )

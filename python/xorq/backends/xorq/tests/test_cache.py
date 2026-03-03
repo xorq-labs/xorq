@@ -189,7 +189,7 @@ def test_cache_recreate(alltypes):
     ts = tuple(con.create_table("alltypes", alltypes_df) for con in cons)
     exprs = tuple(make_expr(t) for t in ts)
 
-    for con, expr in zip(cons, exprs, strict=False):
+    for con, expr in zip(cons, exprs):
         # FIXME: execute one, simply check the other returns true for `expr.ls.exists()`
         expr.cache(cache=SourceCache.from_kwargs(source=con)).execute()
 

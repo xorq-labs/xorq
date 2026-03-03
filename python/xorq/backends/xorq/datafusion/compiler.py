@@ -614,7 +614,7 @@ class DataFusionCompiler(SQLGlotCompiler):
 
     def visit_StructColumn(self, op, *, names, values):
         args = []
-        for name, value in zip(names, values, strict=False):
+        for name, value in zip(names, values):
             args.append(sge.convert(name))
             args.append(value)
         return self.f.named_struct(*args)

@@ -75,7 +75,7 @@ def _object_to_yaml(obj: ops.Node, context: Any) -> dict:
         {"op": obj.__class__.__name__}
         | {
             name: context.translate_to_yaml(arg)
-            for name, arg in zip(obj.argnames, obj.args, strict=False)
+            for name, arg in zip(obj.argnames, obj.args)
         }
         | {
             name: context.translate_to_yaml(getattr(obj, attribute))
@@ -269,7 +269,7 @@ def _translate_struct_type(dtype: dt.Struct) -> dict:
             "name": "Struct",
             "fields": {
                 name: _translate_type(field_type)
-                for name, field_type in zip(dtype.names, dtype.types, strict=False)
+                for name, field_type in zip(dtype.names, dtype.types)
             },
             "nullable": dtype.nullable,
         }
@@ -323,7 +323,7 @@ def _datatype_to_yaml(dtype: dt.DataType, context: TranslationContext) -> dict:
             argname: context.translate_to_yaml(arg)
             if context is not None
             else translate_to_yaml(arg, context)
-            for argname, arg in zip(dtype.argnames, dtype.args, strict=False)
+            for argname, arg in zip(dtype.argnames, dtype.args)
         }
     )
 

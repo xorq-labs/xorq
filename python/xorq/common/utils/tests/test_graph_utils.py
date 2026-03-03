@@ -110,7 +110,6 @@ def test_replace_computed_kwargs_expr(parquet_dir):
                 t, unique_key=tuple(t.columns), test_sizes=0.5, random_seed=42
             ),
             ("train", "test"),
-            strict=False,
         )
     )
     target = "price"

@@ -42,7 +42,7 @@ class KVEncoder:
         """Convert parallel names/values to tuple of {key, value} dicts."""
         return tuple(
             {KVField.KEY: key, KVField.VALUE: float(value)}
-            for key, value in zip(names, values, strict=False)
+            for key, value in zip(names, values)
         )
 
     @staticmethod

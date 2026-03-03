@@ -255,10 +255,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                     type_string, nullable=is_nullable == "YES"
                 )
                 for name, type_string, is_nullable in zip(
-                    result["column_name"],
-                    result["data_type"],
-                    result["is_nullable"],
-                    strict=False,
+                    result["column_name"], result["data_type"], result["is_nullable"]
                 )
             }
         )

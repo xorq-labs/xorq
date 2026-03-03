@@ -209,7 +209,7 @@ def expr_to_unbound(expr, hash, tag, typs, strategy=None):
 
 
 def recreate(op, **kwargs):
-    new_kwargs = dict(zip(op.argnames, op.args, strict=False)) | kwargs
+    new_kwargs = dict(zip(op.argnames, op.args)) | kwargs
     return op.__recreate__(new_kwargs)
 
 

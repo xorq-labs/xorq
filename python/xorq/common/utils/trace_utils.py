@@ -82,8 +82,7 @@ def dissoc_get_all(dct, *keys):
 def process_dict(dct, from_to_f):
     values = dissoc_get_all(dct, *from_to_f)
     processed = {
-        to_: f(value)
-        for ((_, (to_, f)), value) in zip(from_to_f.items(), values, strict=False)
+        to_: f(value) for ((_, (to_, f)), value) in zip(from_to_f.items(), values)
     }
     return processed
 
@@ -289,8 +288,7 @@ class Span:
             *(
                 dissoc_get_all(resource_span, "resource", "scopeSpans")
                 for resource_span in resource_spans
-            ),
-            strict=False,
+            )
         )
         assert all(
             dissoc_get_all(resource, "attributes") == ([required_attribute],)
@@ -301,8 +299,7 @@ class Span:
             *(
                 dissoc_get_all(scope_span, "scope", "spans")
                 for scope_span in scope_spans
-            ),
-            strict=False,
+            )
         )
         assert all(scope == required_scope for scope in scopes)
         return tuple(Span.from_dict(dct) for spans in spanss for dct in spans)

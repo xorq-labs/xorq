@@ -61,7 +61,7 @@ def _calculate_bounds(
         raise ValueError("Test sizes must sum to 1") from err
 
     cumulative_sizes = tuple(toolz.accumulate(operator.add, (0,) + test_sizes))
-    bounds = tuple(zip(cumulative_sizes[:-1], cumulative_sizes[1:], strict=False))
+    bounds = tuple(zip(cumulative_sizes[:-1], cumulative_sizes[1:]))
     return bounds
 
 
@@ -305,9 +305,7 @@ def train_test_splits(
 
     return (
         table.filter(cs).tag(split_i=split_i, split_size=split_size, **tag_kwargs)
-        for split_i, (cs, split_size) in enumerate(
-            zip(conditions, test_sizes, strict=False)
-        )
+        for split_i, (cs, split_size) in enumerate(zip(conditions, test_sizes))
     )
 
 

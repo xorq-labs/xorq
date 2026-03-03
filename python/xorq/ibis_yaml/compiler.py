@@ -105,10 +105,7 @@ class CleanDictYAMLDumper(yaml.SafeDumper):
         return self.represent_dict(dict(data))
 
     def represent_ibis_schema(self, data):
-        schema_dict = {
-            name: str(dtype)
-            for name, dtype in zip(data.names, data.types, strict=False)
-        }
+        schema_dict = {name: str(dtype) for name, dtype in zip(data.names, data.types)}
         return self.represent_mapping("tag:yaml.org,2002:map", schema_dict)
 
     def represent_posix_path(self, data):
@@ -277,7 +274,7 @@ def hydrate_cons(hash_to_profile_kwargs):
 
 def make_read_op(parquet_path, read_kwargs, con=_backend_init()):  # noqa: B008
     op = deferred_read_parquet(parquet_path, con, **read_kwargs).op()
-    args = dict(zip(op.__argnames__, op.__args__, strict=False))
+    args = dict(zip(op.__argnames__, op.__args__))
     op = op.__recreate__(args)
     return op
 
@@ -601,8 +598,7 @@ class ExprLoader:
                     ),
                 )
                 return node.__recreate__(
-                    dict(zip(node.argnames, node.args, strict=False))
-                    | {"cache": evolved}
+                    dict(zip(node.argnames, node.args)) | {"cache": evolved}
                 )
             elif kwargs:
                 return node.__recreate__(kwargs)

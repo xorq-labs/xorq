@@ -33,7 +33,7 @@ def arrays_to_df(names, *arrays):
     import pandas as pd
 
     return pd.DataFrame(
-        {name: array.to_pandas() for (name, array) in zip(names, arrays, strict=False)}
+        {name: array.to_pandas() for (name, array) in zip(names, arrays)}
     )
 
 

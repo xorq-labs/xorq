@@ -207,7 +207,7 @@ def test_add_alias_multiple(catalog_populated):
     names = catalog_populated.list()
     aliases = [f"alias-{i}" for i in range(len(names))]
 
-    for name, alias in zip(names, aliases, strict=False):
+    for name, alias in zip(names, aliases):
         catalog_populated.add_alias(name, alias)
 
     catalog_aliases = catalog_populated.catalog_aliases

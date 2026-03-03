@@ -74,9 +74,7 @@ def test_struct_column(alltypes, alltypes_df):
         {
             "s": [
                 dict(a=a, b=1, c=c)
-                for a, c in zip(
-                    alltypes_df.string_col, alltypes_df.bigint_col, strict=False
-                )
+                for a, c in zip(alltypes_df.string_col, alltypes_df.bigint_col)
             ]
         }
     )

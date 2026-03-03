@@ -46,7 +46,7 @@ class PandasUtils:
     def asframe(cls, values: dict | tuple, concat=True):
         """Construct a DataFrame from a dict or tuple of Series objects."""
         if isinstance(values, dict):
-            names, values = zip(*values.items(), strict=False)
+            names, values = zip(*values.items())
         elif isinstance(values, tuple):
             names = [f"_{i}" for i in range(len(values))]
         else:

@@ -74,7 +74,7 @@ def recursive_update(obj, replacements):
             return obj.__recreate__(
                 {
                     name: recursive_update(arg, replacements)
-                    for name, arg in zip(obj.argnames, obj.args, strict=False)
+                    for name, arg in zip(obj.argnames, obj.args)
                 }
             )
     elif isinstance(obj, (tuple, list)):

@@ -239,7 +239,7 @@ class PandasExecutor(PandasUtils):
 
     @classmethod
     def visit_StructColumn(cls, op: ops.StructColumn, names, values):
-        return cls.rowwise(lambda row: dict(zip(names, row, strict=False)), values)
+        return cls.rowwise(lambda row: dict(zip(names, row)), values)
 
     @classmethod
     def visit_ArrayConcat(cls, op: ops.ArrayConcat, arg):
@@ -742,7 +742,7 @@ class PandasExecutor(PandasUtils):
             return df.drop(columns=["_merge"])
         elif how == "semi":
             mask = cls.asseries(True, like=left)
-            for left_pred, right_pred in zip(left_on, right_on, strict=False):
+            for left_pred, right_pred in zip(left_on, right_on):
                 mask = mask & left_pred.isin(right_pred)
             return left[mask]
         else:
