@@ -324,9 +324,7 @@ def test_splitter_produces_correct_folds(
             id="RepeatedKFold-accuracy",
         ),
         param(
-            lambda: RepeatedStratifiedKFold(
-                n_splits=3, n_repeats=2, random_state=42
-            ),
+            lambda: RepeatedStratifiedKFold(n_splits=3, n_repeats=2, random_state=42),
             "f1",
             id="RepeatedStratifiedKFold-f1",
         ),
@@ -336,9 +334,7 @@ def test_splitter_produces_correct_folds(
             id="ShuffleSplit-accuracy",
         ),
         param(
-            lambda: StratifiedShuffleSplit(
-                n_splits=4, test_size=0.25, random_state=42
-            ),
+            lambda: StratifiedShuffleSplit(n_splits=4, test_size=0.25, random_state=42),
             "accuracy",
             id="StratifiedShuffleSplit-accuracy",
         ),
@@ -415,9 +411,7 @@ def test_regressor_kfold_matches_sklearn(regression_data, regressor_pipeline):
         random_seed=RANDOM_SEED,
     ).execute()
 
-    df = apply_deterministic_sort(
-        regression_data, random_seed=RANDOM_SEED
-    ).execute()
+    df = apply_deterministic_sort(regression_data, random_seed=RANDOM_SEED).execute()
     sklearn_scores = cross_val_score(
         regressor_pipeline.instance,
         df[list(FEATURES)].values,
@@ -493,9 +487,7 @@ def test_int_cv_no_execute_during_construction(
 # --- Tests for the fold_expr attribute on CrossValScore ---
 
 
-def test_fold_expr_has_fold_columns_int_cv(
-    classification_data, classifier_pipeline
-):
+def test_fold_expr_has_fold_columns_int_cv(classification_data, classifier_pipeline):
     result = deferred_cross_val_score(
         classifier_pipeline,
         classification_data,
@@ -529,9 +521,7 @@ def test_fold_expr_has_fold_columns_sklearn_cv(
         assert f"fold_{i}" in fold_df.columns
 
 
-def test_fold_expr_values_are_0_1_or_2(
-    classification_data, classifier_pipeline
-):
+def test_fold_expr_values_are_0_1_or_2(classification_data, classifier_pipeline):
     """Fold columns use ternary encoding: 0=unused, 1=train, 2=test."""
     result = deferred_cross_val_score(
         classifier_pipeline,
@@ -565,9 +555,7 @@ def test_fold_expr_each_row_is_test_in_exactly_one_fold_int_cv(
     assert (test_counts == 1).all()
 
 
-def test_fold_expr_row_count_matches_original(
-    classification_data, classifier_pipeline
-):
+def test_fold_expr_row_count_matches_original(classification_data, classifier_pipeline):
     result = deferred_cross_val_score(
         classifier_pipeline,
         classification_data,
@@ -576,9 +564,7 @@ def test_fold_expr_row_count_matches_original(
         cv=3,
         random_seed=42,
     )
-    assert (
-        result.fold_expr.count().execute() == classification_data.count().execute()
-    )
+    assert result.fold_expr.count().execute() == classification_data.count().execute()
 
 
 @pytest.mark.parametrize("cv, expected_folds", CLASSIFIER_SPLITTERS)
@@ -657,9 +643,7 @@ def test_rejects_non_pipeline(classification_data):
         ),
     ),
 )
-def test_rejects_group_based_splitters(
-    classification_data, classifier_pipeline, cv
-):
+def test_rejects_group_based_splitters(classification_data, classifier_pipeline, cv):
     with pytest.raises(TypeError, match="Group-based splitters are not supported"):
         deferred_cross_val_score(
             classifier_pipeline,
