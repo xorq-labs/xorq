@@ -475,29 +475,36 @@ def test_run_command_logging(tmp_path):
     assert "output_format" in done
 
     # run.output_written carries file metrics for parquet output
-    written_call = next(c for c in info_calls if c.args[0] == "run.output_written")
-    assert "bytes" in written_call.kwargs
-    assert written_call.kwargs["bytes"] > 0
-    assert "rows" in written_call.kwargs
-    assert written_call.kwargs["rows"] == 3
+    assert "run.output_written" in by_name
+    written = by_name["run.output_written"]
+    assert "bytes" in written
+    assert written["bytes"] > 0
+    assert "rows" in written
+    assert written["rows"] == 3
     # rows uses pq.read_metadata (parquet footer) — verify it matches the actual file
-    assert pq.read_metadata(output_path).num_rows == written_call.kwargs["rows"]
+    assert pq.read_metadata(output_path).num_rows == written["rows"]
 
 
 def test_run_command_error_logging(tmp_path):
-    """Test that run_command logs run.failed and re-raises exceptions."""
-    from unittest.mock import MagicMock, patch
+    """Test that run_command records error status in meta and re-raises exceptions."""
+    from unittest.mock import patch
 
-    mock_logger = MagicMock()
+    from xorq.common.utils.logging_utils import Run, Runs
+
+    runs_dir = tmp_path / "runs"
     nonexistent_path = tmp_path / "does_not_exist"
-    with patch("xorq.common.utils.logging_utils.get_logger", return_value=mock_logger):
+    expr_hash = nonexistent_path.name
+
+    with patch(
+        "xorq.common.utils.logging_utils.get_xorq_runs_dir", return_value=runs_dir
+    ):
         with pytest.raises(Exception):  # noqa: B017
             run_command(str(nonexistent_path), str(tmp_path / "out.parquet"))
 
-    assert mock_logger.exception.called
-    exception_call = mock_logger.exception.call_args
-    assert exception_call.args[0] == "run.failed"
-    assert "error" in exception_call.kwargs
+    run: Run = Runs(expr_dir=runs_dir / expr_hash).runs[0]
+    meta = run.read_meta()
+    assert meta["status"] == "error"
+    assert "error" in meta
 
 
 def test_run_command_writes_run_logger(tmp_path):
@@ -563,7 +570,7 @@ def test_run_command_run_logger_error_status(tmp_path):
     with patch(
         "xorq.common.utils.logging_utils.get_xorq_runs_dir", return_value=runs_dir
     ):
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             run_command(str(nonexistent_path), str(tmp_path / "out.parquet"))
 
         expr_hash = nonexistent_path.name
