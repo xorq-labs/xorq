@@ -894,13 +894,9 @@ class FittedPipeline:
 
     def predict(self, expr, name=None):
         transformed = self.transform(expr, tag=False)
-        return (
-            self.predict_step.predict(transformed, name=name)
-            .pipe(do_into_backend)
-            .tag(
-                "FittedPipeline-predict",
-                predict_tags=tuple(self.predict_step.tag_kwargs.items()),
-            )
+        return self.predict_step.predict(transformed, name=name).tag(
+            "FittedPipeline-predict",
+            predict_tags=tuple(self.predict_step.tag_kwargs.items()),
         )
 
     @toolz.curry
