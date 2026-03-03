@@ -30,12 +30,12 @@ def ibis_astronauts(ibis_con):
 @pytest.fixture
 def t():
     return ibis.table(
-        dict(
-            a="int64",
-            b="string",
-            c="float64",
-            d="timestamp",
-            e="date",
-        ),
+        {
+            "a": "int64",
+            "b": "string",
+            "c": "float64",
+            "d": "timestamp",
+            "e": "date",
+        },
         name="test_table",
     )

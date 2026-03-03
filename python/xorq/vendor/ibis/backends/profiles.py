@@ -191,7 +191,7 @@ class Profile:
 
     @property
     def kwargs_dict(self):
-        return {k: v for k, v in self.kwargs_tuple}
+        return dict(self.kwargs_tuple)
 
     @property
     def hash_name(self):
@@ -222,7 +222,11 @@ class Profile:
 
     def as_yaml(self):
         return yaml.safe_dump(
-            dict(con_name=self.con_name, kwargs_dict=self.kwargs_dict, idx=self.idx)
+            {
+                "con_name": self.con_name,
+                "kwargs_dict": self.kwargs_dict,
+                "idx": self.idx,
+            }
         )
 
     def save(self, profile_dir=None, alias=None, clobber=False, check_secrets=True):

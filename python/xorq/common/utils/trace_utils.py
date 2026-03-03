@@ -108,7 +108,7 @@ def process_value(dct):
                 (lst,) = dissoc_get_all(value, "values")
                 value = tuple(map(process_value, lst))
             else:
-                value = tuple()
+                value = ()
         case _:
             raise ValueError(f"Unhandled type {value_type}")
     return (value_type, value)
@@ -310,7 +310,7 @@ class Trace:
     spans = field(validator=deep_iterable(instance_of(Span), instance_of(tuple)))
 
     def __attrs_post_init__(self):
-        end_datetimes = list(span.end_datetime for span in self.spans)
+        end_datetimes = [span.end_datetime for span in self.spans]
         if not sorted(end_datetimes) == end_datetimes:
             raise ValueError("span end_datetimes must be in sorted order")
 
@@ -326,10 +326,10 @@ class Trace:
 
     @property
     def closed(self):
-        trace_ids = set(span.trace_id for span in self.spans)
-        closed_trace_ids = set(
+        trace_ids = {span.trace_id for span in self.spans}
+        closed_trace_ids = {
             span.trace_id for span in self.spans if not span.parent_span_id
-        )
+        }
         return trace_ids == closed_trace_ids and bool(
             toolz.excepts(Exception, operator.attrgetter("trace_metrics"))(self)
         )
@@ -344,7 +344,7 @@ class Trace:
         with_links = dct.get(True, ())
         without_links = dct.get(False, ())
         if without_links:
-            trace_id, *rest = set(span.trace_id for span in without_links)
+            trace_id, *rest = {span.trace_id for span in without_links}
             assert not rest
             if with_links:
                 # FIXME: handle links within links
@@ -353,9 +353,9 @@ class Trace:
             return trace_id
         elif with_links:
             # for now, require that there only be one linked traceId
-            trace_id, *rest = set(
+            trace_id, *rest = {
                 link.trace_id for span in with_links for link in span.links
-            )
+            }
             assert not rest
             return trace_id
         else:
@@ -418,7 +418,7 @@ class Trace:
         }
         depth = 1
         while spans:
-            parent_span_ids = set(span.span_id for span in depths[depth - 1])
+            parent_span_ids = {span.span_id for span in depths[depth - 1]}
             dct = toolz.groupby(
                 lambda span: span.parent_span_id in parent_span_ids,  # noqa: B023
                 spans,
@@ -568,13 +568,13 @@ class TraceMetrics:
         )
         assert len(oir) == len(mr)
         oir_ids, mr_ids = (
-            set(
+            {
                 attribute.value
                 for el in which
                 for event in el.events
                 for attribute in event.attributes
                 if attribute.name == "reader_id"
-            )
+            }
             for which in (oir, mr)
         )
         assert oir_ids == mr_ids

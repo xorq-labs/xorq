@@ -22,7 +22,7 @@ def patch_normalize_token(*typs, f):
     try:
         with patch.dict(
             dask.base.normalize_token._lookup,
-            values={typ: f for typ in typs},
+            values=dict.fromkeys(typs, f),
         ) as dct:
             yield dct
     finally:

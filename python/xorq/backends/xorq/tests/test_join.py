@@ -153,7 +153,7 @@ def test_join_with_pandas_non_null_typed_columns(batting, awards_players):
     assert len(batting_schema) == 1
     assert batting_schema["yearID"].is_integer()
 
-    assert sch.infer(awards_players_filt) == sch.Schema(dict(yearID="int"))
+    assert sch.infer(awards_players_filt) == sch.Schema({"yearID": "int"})
     assert isinstance(awards_players_filt, pd.DataFrame)
     expr = batting_filt.join(awards_players_filt, "yearID")
     df = expr.execute()

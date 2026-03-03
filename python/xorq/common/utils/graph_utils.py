@@ -59,7 +59,7 @@ def bfs(node):
     from xorq.vendor.ibis.common.graph import Graph
 
     queue = deque((to_node(node),))
-    dct = dict()
+    dct = {}
     while queue:
         if (node := queue.popleft()) not in dct:
             children = tuple(gen_children_of(node))

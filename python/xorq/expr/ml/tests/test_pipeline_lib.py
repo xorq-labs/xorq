@@ -506,8 +506,8 @@ def get_scorers_by_type():
     cluster = {name for name, module in non_ml if "cluster" in module}
 
     return FrozenOrderedDict(
-        **dict(
-            (k, tuple(sorted(v)))
+        **{
+            k: tuple(sorted(v))
             for k, v in (
                 ("classification", classification),
                 ("regression", regression),
@@ -515,7 +515,7 @@ def get_scorers_by_type():
                 ("proba", proba),
                 ("multilabel", multilabel),
             )
-        )
+        }
     )
 
 

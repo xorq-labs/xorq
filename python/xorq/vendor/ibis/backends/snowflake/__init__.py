@@ -299,14 +299,14 @@ $$ {defn["source"]} $$"""
         # overwrite session parameters that are required for ibis + snowflake
         # to work
         session_parameters.update(
-            dict(
+            {
                 # Use Arrow for query results
-                PYTHON_CONNECTOR_QUERY_RESULT_FORMAT="arrow_force",
+                "PYTHON_CONNECTOR_QUERY_RESULT_FORMAT": "arrow_force",
                 # JSON output must be strict for null versus undefined
-                STRICT_JSON_OUTPUT=True,
+                "STRICT_JSON_OUTPUT": True,
                 # Timezone must be UTC
-                TIMEZONE="UTC",
-            ),
+                "TIMEZONE": "UTC",
+            },
         )
 
         with contextlib.closing(con.cursor()) as cur:

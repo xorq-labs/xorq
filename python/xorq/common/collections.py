@@ -19,7 +19,7 @@ def _find_backend(value):
         CachedNode,
         Read,
     )
-    (backend, *rest) = set(table.source for table in value.find(node_types))
+    (backend, *rest) = {table.source for table in value.find(node_types)}
     if len(rest) > 1:
         raise ValueError("Multiple backends found for this expression")
     return backend

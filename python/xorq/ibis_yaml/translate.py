@@ -583,7 +583,7 @@ def warn_on_local_path(items: dict) -> None:
 
     def is_local_path(any: str | Path) -> bool:
         parsed = urlparse(any)
-        return not parsed.scheme or parsed.scheme in ("file",)
+        return not parsed.scheme or parsed.scheme == "file"
 
     if path := next(
         (v for k, v in dict(items).items() if k in ("path", "source")), None

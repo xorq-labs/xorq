@@ -1414,7 +1414,7 @@ class TestMetricFnMultilabel:
         label_names = tuple(f"label_{i}" for i in range(Y.shape[1]))
         df = pd.DataFrame(y_true, columns=list(label_names))
         # Store y_score as a single array column (mimics predict_proba storage)
-        df["predict_proba"] = [row for row in y_score]
+        df["predict_proba"] = list(y_score)
 
         expr = api.register(df, "multilabel_test")
         return expr, label_names, y_true, y_score
@@ -1876,11 +1876,11 @@ class TestDeferredAucFromCurve:
 
         # Mock an expression whose .type() returns a dt.Struct with wrong field names
         fake_struct_type = dt.Struct(
-            dict(
-                x=dt.Array(dt.float64),
-                y=dt.Array(dt.float64),
-                z=dt.Array(dt.float64),
-            )
+            {
+                "x": dt.Array(dt.float64),
+                "y": dt.Array(dt.float64),
+                "z": dt.Array(dt.float64),
+            }
         )
         mock_expr = MagicMock()
         mock_expr.type.return_value = fake_struct_type

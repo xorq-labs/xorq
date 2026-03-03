@@ -189,7 +189,7 @@ def evaluate_annotations(
     if class_name is None:
         localns = None
     else:
-        localns = dict(Self=f"{module_name}.{class_name}")
+        localns = {"Self": f"{module_name}.{class_name}"}
 
     result = {}
     for k, v in annots.items():

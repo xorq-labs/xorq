@@ -202,9 +202,11 @@ drop = [
 
 [tool.ruff.lint]
 extend-select = [
-    "I",    # isort
-    "ICN",  # import conventions
-    "B",    # flake8-bugbear: mutable default args, exception chaining, etc.
+    "I",      # isort
+    "ICN",    # import conventions
+    "B",      # flake8-bugbear: mutable default args, exception chaining, etc.
+    "C4",     # flake8-comprehensions: unnecessary list/dict/set comprehensions
+    "FURB",   # refurb: modernize Python code
 ]
 ignore = [
     "B018",  # useless-expression: side-effect property access is intentional

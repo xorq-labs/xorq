@@ -134,5 +134,5 @@ def test_map_contains_null(con):
 
 
 def test_map_length(con):
-    expr = xo.literal(dict(a="A", b="B")).length()
+    expr = xo.literal({"a": "A", "b": "B"}).length()
     assert con.execute(expr) == 2

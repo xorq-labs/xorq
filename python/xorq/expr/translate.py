@@ -449,6 +449,6 @@ def sql_to_ibis(
         dialect=dialect,
     )
 
-    catalog = Catalog({name: table for name, table in catalog.items()})
+    catalog = Catalog(dict(catalog.items()))
 
     return convert(plan.to_variant(), catalog=catalog)

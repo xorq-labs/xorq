@@ -302,7 +302,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         for agg_node in expr.op().find(ops.AggUDF):
             if agg_node.__input_type__ == InputType.PYARROW:
-                if set(("evaluate", "evaluate_all")).intersection(agg_node.__config__):
+                if {"evaluate", "evaluate_all"}.intersection(agg_node.__config__):
                     udwf = _compile_pyarrow_udwf(agg_node)
                     self.con.register_udwf(udwf)
                 else:

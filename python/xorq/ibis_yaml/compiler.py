@@ -518,13 +518,12 @@ class ExprDumper:
         expr, path_to_writer0 = self._replace_tables(expr)
 
         profiles = dehydrate_cons(find_all_sources(expr))
-        path_to_writer2 = {
-            path: writer
-            for (path, writer) in (
+        path_to_writer2 = dict(
+            (
                 self._prepare_metadata_file(),
                 self._prepare_profiles_file(profiles),
             )
-        }
+        )
         path_to_writer = path_to_writer0 | path_to_writer2
         if self.debug:
             # write SQL plan and deferred-read artifacts if debug enabled

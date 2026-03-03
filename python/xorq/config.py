@@ -122,12 +122,10 @@ class Pins(Config):
 
     protocol: str = "gcs"
     path: str = "letsql-pins"
-    storage_options: dict[str, Any] = dict(
-        (
-            ("cache_timeout", 0),
-            ("token", "anon"),
-        )
-    )
+    storage_options: dict[str, Any] = {
+        "cache_timeout": 0,
+        "token": "anon",
+    }
 
     def get_board(self, **kwargs):
         import pins

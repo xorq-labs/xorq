@@ -94,7 +94,7 @@ def parse(
 
     def geotype_parser(typ: type[dt.DataType]) -> dt.DataType:
         return spaceless_string(typ.__name__.lower()).then(
-            (srid_geotype | geotype_part | srid_part).optional(dict()).combine_dict(typ)
+            (srid_geotype | geotype_part | srid_part).optional({}).combine_dict(typ)
         )
 
     primitive = (
