@@ -130,190 +130,198 @@ def test_profile_hash_order_independence():
     assert cloned.hash_name.split("_")[0] == profile1.hash_name.split("_")[0]
 
 
-class TestParseEnvVars:
-    def test_empty_dict(self):
-        """Test with empty dictionary."""
-        assert maybe_substitute_env_vars({}) == {}
+def test_parse_env_vars_empty_dict():
+    """Test with empty dictionary."""
+    assert maybe_substitute_env_vars({}) == {}
 
-    def test_no_env_vars(self):
-        """Test with dictionary containing no environment variables."""
-        input_dict = {
-            "host": "localhost",
-            "port": 5432,
-            "user": "postgres",
-            "non_string": 123,
-            "none_value": None,
-            "empty_string": "",
-        }
-        assert maybe_substitute_env_vars(input_dict) == input_dict
 
-    def test_dollar_brace_format(self, monkeypatch):
-        """Test with ${VAR} format environment variables."""
-        # Set environment variables for testing
-        monkeypatch.setenv("TEST_USER", "testuser")
-        monkeypatch.setenv("TEST_PASSWORD", "secretpass")
+def test_parse_env_vars_no_env_vars():
+    """Test with dictionary containing no environment variables."""
+    input_dict = {
+        "host": "localhost",
+        "port": 5432,
+        "user": "postgres",
+        "non_string": 123,
+        "none_value": None,
+        "empty_string": "",
+    }
+    assert maybe_substitute_env_vars(input_dict) == input_dict
 
-        input_dict = {
-            "host": "localhost",
-            "port": 5432,
-            "user": "${TEST_USER}",
-            "password": "${TEST_PASSWORD}",
-            "non_env": "regular_value",
-        }
 
-        expected = {
-            "host": "localhost",
-            "port": 5432,
-            "user": "testuser",
-            "password": "secretpass",
-            "non_env": "regular_value",
-        }
+def test_parse_env_vars_dollar_brace_format(monkeypatch):
+    """Test with ${VAR} format environment variables."""
+    # Set environment variables for testing
+    monkeypatch.setenv("TEST_USER", "testuser")
+    monkeypatch.setenv("TEST_PASSWORD", "secretpass")
 
-        assert maybe_substitute_env_vars(input_dict) == expected
+    input_dict = {
+        "host": "localhost",
+        "port": 5432,
+        "user": "${TEST_USER}",
+        "password": "${TEST_PASSWORD}",
+        "non_env": "regular_value",
+    }
 
-    def test_dollar_format(self, monkeypatch):
-        """Test with $VAR format environment variables."""
-        # Set environment variables for testing
-        monkeypatch.setenv("TEST_USER", "testuser")
-        monkeypatch.setenv("TEST_PASSWORD", "secretpass")
+    expected = {
+        "host": "localhost",
+        "port": 5432,
+        "user": "testuser",
+        "password": "secretpass",
+        "non_env": "regular_value",
+    }
 
-        input_dict = {
-            "host": "localhost",
-            "port": 5432,
-            "user": "$TEST_USER",
-            "password": "$TEST_PASSWORD",
-            "non_env": "regular_value",
-        }
+    assert maybe_substitute_env_vars(input_dict) == expected
 
-        expected = {
-            "host": "localhost",
-            "port": 5432,
-            "user": "testuser",
-            "password": "secretpass",
-            "non_env": "regular_value",
-        }
 
-        assert maybe_substitute_env_vars(input_dict) == expected
+def test_parse_env_vars_dollar_format(monkeypatch):
+    """Test with $VAR format environment variables."""
+    # Set environment variables for testing
+    monkeypatch.setenv("TEST_USER", "testuser")
+    monkeypatch.setenv("TEST_PASSWORD", "secretpass")
 
-    def test_mixed_formats(self, monkeypatch):
-        """Test with mixed ${VAR} and $VAR formats."""
-        # Set environment variables for testing
-        monkeypatch.setenv("TEST_USER", "testuser")
-        monkeypatch.setenv("TEST_PASSWORD", "secretpass")
+    input_dict = {
+        "host": "localhost",
+        "port": 5432,
+        "user": "$TEST_USER",
+        "password": "$TEST_PASSWORD",
+        "non_env": "regular_value",
+    }
 
-        input_dict = {
-            "host": "localhost",
-            "port": 5432,
-            "user": "${TEST_USER}",
-            "password": "$TEST_PASSWORD",
-            "non_env": "regular_value",
-        }
+    expected = {
+        "host": "localhost",
+        "port": 5432,
+        "user": "testuser",
+        "password": "secretpass",
+        "non_env": "regular_value",
+    }
 
-        expected = {
-            "host": "localhost",
-            "port": 5432,
-            "user": "testuser",
-            "password": "secretpass",
-            "non_env": "regular_value",
-        }
+    assert maybe_substitute_env_vars(input_dict) == expected
 
-        assert maybe_substitute_env_vars(input_dict) == expected
 
-    def test_non_string_values(self, monkeypatch):
-        """Test with non-string values."""
-        monkeypatch.setenv("TEST_VAR", "test_value")
+def test_parse_env_vars_mixed_formats(monkeypatch):
+    """Test with mixed ${VAR} and $VAR formats."""
+    # Set environment variables for testing
+    monkeypatch.setenv("TEST_USER", "testuser")
+    monkeypatch.setenv("TEST_PASSWORD", "secretpass")
 
-        input_dict = {
-            "string": "${TEST_VAR}",
-            "integer": 123,
-            "float": 45.67,
-            "boolean": True,
-            "none": None,
-            "list": [1, 2, 3],
-            "dict": {"a": 1, "b": 2},
-        }
+    input_dict = {
+        "host": "localhost",
+        "port": 5432,
+        "user": "${TEST_USER}",
+        "password": "$TEST_PASSWORD",
+        "non_env": "regular_value",
+    }
 
-        expected = {
-            "string": "test_value",
-            "integer": 123,
-            "float": 45.67,
-            "boolean": True,
-            "none": None,
-            "list": [1, 2, 3],
-            "dict": {"a": 1, "b": 2},
-        }
+    expected = {
+        "host": "localhost",
+        "port": 5432,
+        "user": "testuser",
+        "password": "secretpass",
+        "non_env": "regular_value",
+    }
 
-        assert maybe_substitute_env_vars(input_dict) == expected
+    assert maybe_substitute_env_vars(input_dict) == expected
 
-    def test_missing_env_var(self, monkeypatch):
-        """Test with missing environment variables - should raise ValueError."""
-        monkeypatch.setenv("EXISTING_VAR", "exists")
 
-        input_dict = {
-            "existing": "${EXISTING_VAR}",
-            "missing": "${MISSING_VAR}",
-            "regular": "value",
-        }
+def test_parse_env_vars_non_string_values(monkeypatch):
+    """Test with non-string values."""
+    monkeypatch.setenv("TEST_VAR", "test_value")
 
-        with pytest.raises(KeyError, match="'MISSING_VAR'"):
-            maybe_substitute_env_vars(input_dict)
+    input_dict = {
+        "string": "${TEST_VAR}",
+        "integer": 123,
+        "float": 45.67,
+        "boolean": True,
+        "none": None,
+        "list": [1, 2, 3],
+        "dict": {"a": 1, "b": 2},
+    }
 
-    def test_dollar_sign_in_string(self, monkeypatch):
-        """Test with strings containing dollar signs but not as env vars."""
-        input_dict = {
-            "code": "a$b$c",
-            "text": "This costs $5",
-            "complex": "a${non-env}b",  # Not a proper env var syntax
-        }
+    expected = {
+        "string": "test_value",
+        "integer": 123,
+        "float": 45.67,
+        "boolean": True,
+        "none": None,
+        "list": [1, 2, 3],
+        "dict": {"a": 1, "b": 2},
+    }
 
-        expected = {
-            "code": "a$b$c",
-            "text": "This costs $5",
-            "complex": "a${non-env}b",
-        }
+    assert maybe_substitute_env_vars(input_dict) == expected
 
-        assert maybe_substitute_env_vars(input_dict) == expected
 
-    def test_preserve_case(self, monkeypatch):
-        """Test that environment variable case is preserved."""
-        monkeypatch.setenv("UPPERCASE", "value1")
-        monkeypatch.setenv("lowercase", "value2")
-        monkeypatch.setenv("MixedCase", "value3")
+def test_parse_env_vars_missing_env_var(monkeypatch):
+    """Test with missing environment variables - should raise ValueError."""
+    monkeypatch.setenv("EXISTING_VAR", "exists")
 
-        input_dict = {
-            "var1": "${UPPERCASE}",
-            "var2": "${lowercase}",
-            "var3": "${MixedCase}",
-        }
+    input_dict = {
+        "existing": "${EXISTING_VAR}",
+        "missing": "${MISSING_VAR}",
+        "regular": "value",
+    }
 
-        expected = {
-            "var1": "value1",
-            "var2": "value2",
-            "var3": "value3",
-        }
+    with pytest.raises(KeyError, match="'MISSING_VAR'"):
+        maybe_substitute_env_vars(input_dict)
 
-        assert maybe_substitute_env_vars(input_dict) == expected
 
-    def test_nested_structures(self, monkeypatch):
-        """Test how function handles nested structures (should only process top level)."""
-        monkeypatch.setenv("TEST_VAR", "test_value")
+def test_parse_env_vars_dollar_sign_in_string(monkeypatch):
+    """Test with strings containing dollar signs but not as env vars."""
+    input_dict = {
+        "code": "a$b$c",
+        "text": "This costs $5",
+        "complex": "a${non-env}b",  # Not a proper env var syntax
+    }
 
-        input_dict = {
-            "top_level": "${TEST_VAR}",
-            "nested_dict": {
-                "env_var": "${TEST_VAR}",  # This should not be processed
-                "normal": "value",
-            },
-            "list_with_vars": ["${TEST_VAR}", "normal"],  # This should not be processed
-        }
+    expected = {
+        "code": "a$b$c",
+        "text": "This costs $5",
+        "complex": "a${non-env}b",
+    }
 
-        expected = {
-            "top_level": "test_value",
-            "nested_dict": {"env_var": "${TEST_VAR}", "normal": "value"},
-            "list_with_vars": ["${TEST_VAR}", "normal"],
-        }
+    assert maybe_substitute_env_vars(input_dict) == expected
 
-        assert maybe_substitute_env_vars(input_dict) == expected
+
+def test_parse_env_vars_preserve_case(monkeypatch):
+    """Test that environment variable case is preserved."""
+    monkeypatch.setenv("UPPERCASE", "value1")
+    monkeypatch.setenv("lowercase", "value2")
+    monkeypatch.setenv("MixedCase", "value3")
+
+    input_dict = {
+        "var1": "${UPPERCASE}",
+        "var2": "${lowercase}",
+        "var3": "${MixedCase}",
+    }
+
+    expected = {
+        "var1": "value1",
+        "var2": "value2",
+        "var3": "value3",
+    }
+
+    assert maybe_substitute_env_vars(input_dict) == expected
+
+
+def test_parse_env_vars_nested_structures(monkeypatch):
+    """Test how function handles nested structures (should only process top level)."""
+    monkeypatch.setenv("TEST_VAR", "test_value")
+
+    input_dict = {
+        "top_level": "${TEST_VAR}",
+        "nested_dict": {
+            "env_var": "${TEST_VAR}",  # This should not be processed
+            "normal": "value",
+        },
+        "list_with_vars": ["${TEST_VAR}", "normal"],  # This should not be processed
+    }
+
+    expected = {
+        "top_level": "test_value",
+        "nested_dict": {"env_var": "${TEST_VAR}", "normal": "value"},
+        "list_with_vars": ["${TEST_VAR}", "normal"],
+    }
+
+    assert maybe_substitute_env_vars(input_dict) == expected
 
 
 def test_connection_with_env_vars_preserves_env_vars(monkeypatch, tmp_path):
@@ -379,181 +387,188 @@ def test_connection_with_env_vars_preserves_env_vars(monkeypatch, tmp_path):
         assert tables1 == tables2
 
 
-class TestCheckForExposedSecrets:
-    def test_password_no_env_var(self):
-        """Test that a profile with password not using env var is rejected."""
-        profile = Profile(
-            con_name="postgres",
-            kwargs_tuple=(
-                ("host", "localhost"),
-                ("port", 5432),
-                ("database", "postgres"),
-                ("user", "postgres"),
-                ("password", "secret"),  # Not using env var
-            ),
-        )
+def test_check_for_exposed_secrets_password_no_env_var():
+    """Test that a profile with password not using env var is rejected."""
+    profile = Profile(
+        con_name="postgres",
+        kwargs_tuple=(
+            ("host", "localhost"),
+            ("port", 5432),
+            ("database", "postgres"),
+            ("user", "postgres"),
+            ("password", "secret"),  # Not using env var
+        ),
+    )
 
-        with pytest.raises(ValueError) as excinfo:
-            profile.check_for_exposed_secrets()
-
-        # Check error message contains password
-        assert "'password'" in str(excinfo.value)
-        assert "$password or ${password}" in str(excinfo.value)
-
-    def test_password_with_env_var_dollar(self):
-        """Test that a profile with password using $ENV_VAR format is accepted."""
-        profile = Profile(
-            con_name="postgres",
-            kwargs_tuple=(
-                ("host", "localhost"),
-                ("port", 5432),
-                ("database", "postgres"),
-                ("user", "postgres"),
-                ("password", "$PASSWORD"),  # Using env var
-            ),
-        )
-
-        # Should not raise an error
+    with pytest.raises(ValueError) as excinfo:
         profile.check_for_exposed_secrets()
 
-    def test_password_with_env_var_dollar_brace(self):
-        """Test that a profile with password using ${ENV_VAR} format is accepted."""
-        profile = Profile(
-            con_name="postgres",
-            kwargs_tuple=(
-                ("host", "localhost"),
-                ("port", 5432),
-                ("database", "postgres"),
-                ("user", "postgres"),
-                ("password", "${PASSWORD}"),  # Using env var
-            ),
-        )
+    # Check error message contains password
+    assert "'password'" in str(excinfo.value)
+    assert "$password or ${password}" in str(excinfo.value)
 
-        # Should not raise an error
+
+def test_check_for_exposed_secrets_password_with_env_var_dollar():
+    """Test that a profile with password using $ENV_VAR format is accepted."""
+    profile = Profile(
+        con_name="postgres",
+        kwargs_tuple=(
+            ("host", "localhost"),
+            ("port", 5432),
+            ("database", "postgres"),
+            ("user", "postgres"),
+            ("password", "$PASSWORD"),  # Using env var
+        ),
+    )
+
+    # Should not raise an error
+    profile.check_for_exposed_secrets()
+
+
+def test_check_for_exposed_secrets_password_with_env_var_dollar_brace():
+    """Test that a profile with password using ${ENV_VAR} format is accepted."""
+    profile = Profile(
+        con_name="postgres",
+        kwargs_tuple=(
+            ("host", "localhost"),
+            ("port", 5432),
+            ("database", "postgres"),
+            ("user", "postgres"),
+            ("password", "${PASSWORD}"),  # Using env var
+        ),
+    )
+
+    # Should not raise an error
+    profile.check_for_exposed_secrets()
+
+
+def test_check_for_exposed_secrets_postgres_specific_secret_keys():
+    """Test that postgres-specific secret keys are checked."""
+    profile = Profile(
+        con_name="postgres",
+        kwargs_tuple=(
+            ("host", "localhost"),
+            ("port", 5432),
+            ("database", "postgres"),
+            ("user", "postgres"),
+            ("password", "$PASSWORD"),  # Using env var
+            ("sslcert", "/path/to/cert"),  # Not using env var
+        ),
+    )
+
+    with pytest.raises(ValueError) as excinfo:
         profile.check_for_exposed_secrets()
 
-    def test_postgres_specific_secret_keys(self):
-        """Test that postgres-specific secret keys are checked."""
-        profile = Profile(
-            con_name="postgres",
-            kwargs_tuple=(
-                ("host", "localhost"),
-                ("port", 5432),
-                ("database", "postgres"),
-                ("user", "postgres"),
-                ("password", "$PASSWORD"),  # Using env var
-                ("sslcert", "/path/to/cert"),  # Not using env var
-            ),
-        )
+    # Check error message contains sslcert
+    assert "'sslcert'" in str(excinfo.value)
 
-        with pytest.raises(ValueError) as excinfo:
-            profile.check_for_exposed_secrets()
 
-        # Check error message contains sslcert
-        assert "'sslcert'" in str(excinfo.value)
+def test_check_for_exposed_secrets_snowflake_specific_secret_keys():
+    """Test that snowflake-specific secret keys are checked."""
+    profile = Profile(
+        con_name="snowflake",
+        kwargs_tuple=(
+            ("host", "localhost"),
+            ("database", "snowflake"),
+            ("password", "$PASSWORD"),  # Using env var
+            (
+                "user",
+                "snowuser",
+            ),  # Not using env var - snowflake treats this as sensitive
+        ),
+    )
 
-    def test_snowflake_specific_secret_keys(self):
-        """Test that snowflake-specific secret keys are checked."""
-        profile = Profile(
-            con_name="snowflake",
-            kwargs_tuple=(
-                ("host", "localhost"),
-                ("database", "snowflake"),
-                ("password", "$PASSWORD"),  # Using env var
-                (
-                    "user",
-                    "snowuser",
-                ),  # Not using env var - snowflake treats this as sensitive
-            ),
-        )
+    with pytest.raises(ValueError) as excinfo:
+        profile.check_for_exposed_secrets()
 
-        with pytest.raises(ValueError) as excinfo:
-            profile.check_for_exposed_secrets()
+    # Check error message contains user
+    assert "'user'" in str(excinfo.value)
 
-        # Check error message contains user
-        assert "'user'" in str(excinfo.value)
 
-    def test_check_secrets_disabled(self, tmp_path):
-        """Test that check_secrets=False allows profiles with secrets."""
-        profile = Profile(
-            con_name="postgres",
-            kwargs_tuple=(
-                ("host", "localhost"),
-                ("port", 5432),
-                ("database", "postgres"),
-                ("user", "postgres"),
-                ("password", "secret"),  # Not using env var
-            ),
-        )
+def test_check_for_exposed_secrets_check_secrets_disabled(tmp_path):
+    """Test that check_secrets=False allows profiles with secrets."""
+    profile = Profile(
+        con_name="postgres",
+        kwargs_tuple=(
+            ("host", "localhost"),
+            ("port", 5432),
+            ("database", "postgres"),
+            ("user", "postgres"),
+            ("password", "secret"),  # Not using env var
+        ),
+    )
 
-        # Should not raise an error when check_secrets=False
-        profile.save(tmp_path, check_secrets=False)
-        with pytest.raises(ValueError, match="Profile contains exposed secret keys"):
-            profile.save(tmp_path, check_secrets=True)
+    # Should not raise an error when check_secrets=False
+    profile.save(tmp_path, check_secrets=False)
+    with pytest.raises(ValueError, match="Profile contains exposed secret keys"):
+        profile.save(tmp_path, check_secrets=True)
 
-    def test_multiple_exposed_secrets(self):
-        """Test error message when multiple secrets are exposed."""
-        profile = Profile(
-            con_name="snowflake",
-            kwargs_tuple=(
-                ("host", "localhost"),
-                ("database", "snowflake"),
-                ("password", "secret"),  # Not using env var
-                ("user", "admin"),  # Not using env var
-                ("account", "acc123"),  # Not using env var
-            ),
-        )
 
-        with pytest.raises(ValueError) as excinfo:
-            profile.check_for_exposed_secrets()
+def test_check_for_exposed_secrets_multiple_exposed_secrets():
+    """Test error message when multiple secrets are exposed."""
+    profile = Profile(
+        con_name="snowflake",
+        kwargs_tuple=(
+            ("host", "localhost"),
+            ("database", "snowflake"),
+            ("password", "secret"),  # Not using env var
+            ("user", "admin"),  # Not using env var
+            ("account", "acc123"),  # Not using env var
+        ),
+    )
 
-        # Check error message contains all secrets
-        error_msg = str(excinfo.value)
-        assert "'password'" in error_msg
-        assert "'user'" in error_msg
-        assert "'account'" in error_msg
+    with pytest.raises(ValueError) as excinfo:
+        profile.check_for_exposed_secrets()
 
-    def test_unknown_backend_defaults_to_password(self):
-        """Test that unknown backends default to checking password."""
-        profile = Profile(
-            con_name="duckdb",  # Not in the secret_keys dict
-            kwargs_tuple=(
-                ("path", "mydb.duckdb"),
-                ("password", "secret"),  # Not using env var
-            ),
-        )
+    # Check error message contains all secrets
+    error_msg = str(excinfo.value)
+    assert "'password'" in error_msg
+    assert "'user'" in error_msg
+    assert "'account'" in error_msg
 
-        with pytest.raises(ValueError) as excinfo:
-            profile.check_for_exposed_secrets()
 
-        # Check error message contains password
-        assert "'password'" in str(excinfo.value)
+def test_check_for_exposed_secrets_unknown_backend_defaults_to_password():
+    """Test that unknown backends default to checking password."""
+    profile = Profile(
+        con_name="duckdb",  # Not in the secret_keys dict
+        kwargs_tuple=(
+            ("path", "mydb.duckdb"),
+            ("password", "secret"),  # Not using env var
+        ),
+    )
 
-    def test_save_method_calls_check_secrets_fail_then_pass(
-        self, tmp_path, monkeypatch
-    ):
-        """Test that save() method calls _check_for_exposed_secrets."""
-        profile = Profile(
-            con_name="postgres",
-            kwargs_tuple=(
-                ("host", "localhost"),
-                ("port", 5432),
-                ("database", "postgres"),
-                ("user", "postgres"),
-                ("password", "secret"),  # Not using env var
-            ),
-        )
+    with pytest.raises(ValueError) as excinfo:
+        profile.check_for_exposed_secrets()
 
-        # Override the profile directory for testing
-        monkeypatch.setattr("xorq.api.options.profiles.profile_dir", tmp_path)
+    # Check error message contains password
+    assert "'password'" in str(excinfo.value)
 
-        with pytest.raises(ValueError) as excinfo:
-            profile.save()
 
-        assert "'password'" in str(excinfo.value)
+def test_check_for_exposed_secrets_save_method_calls_check_secrets_fail_then_pass(
+    tmp_path, monkeypatch
+):
+    """Test that save() method calls _check_for_exposed_secrets."""
+    profile = Profile(
+        con_name="postgres",
+        kwargs_tuple=(
+            ("host", "localhost"),
+            ("port", 5432),
+            ("database", "postgres"),
+            ("user", "postgres"),
+            ("password", "secret"),  # Not using env var
+        ),
+    )
 
-        # Should succeed with check_secrets=False
-        profile.save(check_secrets=False)
+    # Override the profile directory for testing
+    monkeypatch.setattr("xorq.api.options.profiles.profile_dir", tmp_path)
+
+    with pytest.raises(ValueError) as excinfo:
+        profile.save()
+
+    assert "'password'" in str(excinfo.value)
+
+    # Should succeed with check_secrets=False
+    profile.save(check_secrets=False)
 
 
 def test_profile_from_con_preserves_env_vars(monkeypatch, tmp_path):
