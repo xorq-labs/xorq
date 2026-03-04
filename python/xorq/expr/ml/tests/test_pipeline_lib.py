@@ -1077,3 +1077,39 @@ class TestClusteringPredict:
 
         with pytest.raises(ValueError, match="must have transform or predict method"):
             step.fit(t, features=features)
+
+    def test_pipeline_fit_without_target_for_clustering(self, cluster_data):
+        """Test Pipeline.fit allows ClusterMixin predict steps without a target."""
+        import numpy as np
+        from sklearn.cluster import MiniBatchKMeans
+        from sklearn.pipeline import Pipeline as SklearnPipeline
+        from sklearn.preprocessing import StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import Pipeline
+
+        t = xo.memtable(cluster_data)
+        features = ("num1", "num2")
+
+        sklearn_pipe = SklearnPipeline(
+            [
+                ("scaler", StandardScaler()),
+                (
+                    "clusterer",
+                    MiniBatchKMeans(n_clusters=2, random_state=42, n_init=10),
+                ),
+            ]
+        )
+
+        xorq_pipeline = Pipeline.from_instance(sklearn_pipe)
+        fitted = xorq_pipeline.fit(t, features=features)
+
+        # Should be able to predict without ever providing a target
+        result = fitted.predict(t)
+        xorq_labels = result.execute()[ResponseMethod.PREDICT].values
+
+        # Verify against sklearn
+        X = np.array([cluster_data["num1"], cluster_data["num2"]]).T
+        sklearn_pipe.fit(X)
+        sklearn_labels = sklearn_pipe.predict(X)
+
+        np.testing.assert_array_equal(xorq_labels, sklearn_labels)
