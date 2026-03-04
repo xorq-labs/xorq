@@ -50,8 +50,7 @@ from xorq.vendor.ibis.expr.datatypes.parse import parse
         ("varchar(100)", dt.string),
         ("!varchar(100)", dt.String(nullable=False)),
         ("char(10)", dt.string),
-        # string(N) — Postgres serialises VARCHAR(N) as string(N) via str(dtype);
-        # the length qualifier carries no semantic meaning and must be stripped
+        # string(N) — length qualifier carries no semantic meaning and is stripped
         ("string(50)", dt.string),
         ("!string(50)", dt.String(nullable=False)),
         ("string(255)", dt.string),
