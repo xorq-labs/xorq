@@ -433,68 +433,178 @@ def test_run_command_stdout(tmp_path, fixture_dir, output_format):
 
 def test_run_command_logging(tmp_path):
     """Test that run_command emits expected structured log events with metrics."""
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import patch
 
     import pyarrow.parquet as pq
 
-    # Build a self-contained memtable expression (no postgres needed)
+    from xorq.common.utils.logging_utils import Run, Runs
+
     expr = xo.memtable({"a": [1, 2, 3], "b": [4, 5, 6]}, name="test_table")
     expr_path = build_expr(
         expr, builds_dir=tmp_path / "builds", cache_dir=tmp_path / "cache"
     )
     output_path = tmp_path / "out.parquet"
+    runs_dir = tmp_path / "runs"
 
-    mock_logger = MagicMock()
-    with patch("xorq.common.utils.logging_utils.get_logger", return_value=mock_logger):
+    with patch(
+        "xorq.common.utils.logging_utils.get_xorq_runs_dir", return_value=runs_dir
+    ):
         run_command(str(expr_path), str(output_path), "parquet")
 
-    info_calls = mock_logger.info.call_args_list
-    event_names = [c.args[0] for c in info_calls]
-    assert "run.start" in event_names
-    assert "run.expr_loaded" in event_names
-    assert "run.done" in event_names
+    expr_hash = expr_path.name
+    run: Run = Runs(expr_dir=runs_dir / expr_hash).runs[0]
+    events = run.read_events()
+    by_name = {e["event"]: e for e in events}
 
     # run.start captures all input params
-    start_call = next(c for c in info_calls if c.args[0] == "run.start")
-    assert start_call.kwargs["expr_path"] == str(expr_path)
-    assert start_call.kwargs["output_path"] == str(output_path)
-    assert "output_format" in start_call.kwargs
-    assert "limit" in start_call.kwargs
+    assert "run.start" in by_name
+    start = by_name["run.start"]
+    assert start["expr_path"] == str(expr_path)
+    assert start["output_path"] == str(output_path)
+    assert "output_format" in start
+    assert "limit" in start
 
     # run.expr_loaded has elapsed timing
-    loaded_call = next(c for c in info_calls if c.args[0] == "run.expr_loaded")
-    assert "elapsed_s" in loaded_call.kwargs
-    assert loaded_call.kwargs["elapsed_s"] >= 0
+    assert "run.expr_loaded" in by_name
+    assert by_name["run.expr_loaded"]["elapsed_s"] >= 0
 
-    # run.done carries timing + output_format (from timed)
-    done_call = next(c for c in info_calls if c.args[0] == "run.done")
-    assert "elapsed_s" in done_call.kwargs
-    assert "output_format" in done_call.kwargs
+    # run.done carries timing + output_format
+    assert "run.done" in by_name
+    done = by_name["run.done"]
+    assert "elapsed_s" in done
+    assert "output_format" in done
 
     # run.output_written carries file metrics for parquet output
-    written_call = next(c for c in info_calls if c.args[0] == "run.output_written")
-    assert "bytes" in written_call.kwargs
-    assert written_call.kwargs["bytes"] > 0
-    assert "rows" in written_call.kwargs
-    assert written_call.kwargs["rows"] == 3
+    assert "run.output_written" in by_name
+    written = by_name["run.output_written"]
+    assert "bytes" in written
+    assert written["bytes"] > 0
+    assert "rows" in written
+    assert written["rows"] == 3
     # rows uses pq.read_metadata (parquet footer) — verify it matches the actual file
-    assert pq.read_metadata(output_path).num_rows == written_call.kwargs["rows"]
+    assert pq.read_metadata(output_path).num_rows == written["rows"]
 
 
 def test_run_command_error_logging(tmp_path):
-    """Test that run_command logs run.failed and re-raises exceptions."""
-    from unittest.mock import MagicMock, patch
+    """Test that run_command records error status in meta and re-raises exceptions."""
+    from unittest.mock import patch
 
-    mock_logger = MagicMock()
+    from xorq.common.utils.logging_utils import Run, Runs
+
+    runs_dir = tmp_path / "runs"
     nonexistent_path = tmp_path / "does_not_exist"
-    with patch("xorq.common.utils.logging_utils.get_logger", return_value=mock_logger):
+    expr_hash = nonexistent_path.name
+
+    with patch(
+        "xorq.common.utils.logging_utils.get_xorq_runs_dir", return_value=runs_dir
+    ):
         with pytest.raises(Exception):  # noqa: B017
             run_command(str(nonexistent_path), str(tmp_path / "out.parquet"))
 
-    assert mock_logger.exception.called
-    exception_call = mock_logger.exception.call_args
-    assert exception_call.args[0] == "run.failed"
-    assert "error" in exception_call.kwargs
+    run: Run = Runs(expr_dir=runs_dir / expr_hash).runs[0]
+    meta = run.read_meta()
+    assert meta["status"] == "error"
+    assert "error" in meta
+
+
+def test_run_command_writes_run_logger(tmp_path):
+    from unittest.mock import patch
+
+    from xorq.common.utils.logging_utils import Run, Runs
+
+    expr = xo.memtable({"x": [10, 20, 30]}, name="t")
+    expr_path = build_expr(
+        expr, builds_dir=tmp_path / "builds", cache_dir=tmp_path / "cache"
+    )
+    output_path = tmp_path / "out.parquet"
+    runs_dir = tmp_path / "runs"
+
+    with patch(
+        "xorq.common.utils.logging_utils.get_xorq_runs_dir", return_value=runs_dir
+    ):
+        run_command(str(expr_path), str(output_path), "parquet")
+
+        expr_hash = expr_path.name
+        runs_obj = Runs(expr_dir=runs_dir / expr_hash)
+        assert len(runs_obj.list()) == 1, "Expected exactly one run to be recorded"
+
+        run: Run = runs_obj.runs[0]
+        import uuid
+
+        assert uuid.UUID(run.run_id).version == 4, "Run ID should be a UUID4"
+
+        meta = run.read_meta()
+        assert meta is not None
+        assert meta["status"] == "ok"
+        assert meta["run_id"] == run.run_id
+        assert meta["expr_hash"] == expr_hash
+        assert meta["expr_path"] == str(expr_path)
+        assert meta["output_format"] == "parquet"
+        assert "started_at" in meta
+        assert "completed_at" in meta
+
+        events = run.read_events()
+        event_names = [e["event"] for e in events]
+        assert "run.start" in event_names
+        assert "run.expr_loaded" in event_names
+        assert "run.done" in event_names
+        assert "run.output_written" in event_names
+
+        loaded_event = next(e for e in events if e["event"] == "run.expr_loaded")
+        assert "elapsed_s" in loaded_event
+        assert loaded_event["elapsed_s"] >= 0
+
+        written_event = next(e for e in events if e["event"] == "run.output_written")
+        assert "bytes" in written_event
+        assert written_event["bytes"] > 0
+
+
+def test_run_command_run_logger_error_status(tmp_path):
+    from unittest.mock import patch
+
+    from xorq.common.utils.logging_utils import Runs
+
+    runs_dir = tmp_path / "runs"
+    nonexistent_path = tmp_path / "does_not_exist"
+
+    with patch(
+        "xorq.common.utils.logging_utils.get_xorq_runs_dir", return_value=runs_dir
+    ):
+        with pytest.raises(Exception):  # noqa: B017
+            run_command(str(nonexistent_path), str(tmp_path / "out.parquet"))
+
+        expr_hash = nonexistent_path.name
+        runs_obj = Runs(expr_dir=runs_dir / expr_hash)
+        assert len(runs_obj.list()) == 1
+
+        meta = runs_obj.runs[0].read_meta()
+        assert meta is not None
+        assert meta["status"] == "error"
+        assert "error" in meta
+
+
+def test_run_logger_multiple_runs(tmp_path):
+    from unittest.mock import patch
+
+    from xorq.common.utils.logging_utils import Runs
+
+    expr = xo.memtable({"v": [1, 2]}, name="t2")
+    expr_path = build_expr(
+        expr, builds_dir=tmp_path / "builds", cache_dir=tmp_path / "cache"
+    )
+    output_path = tmp_path / "out.parquet"
+    runs_dir = tmp_path / "runs"
+
+    with patch(
+        "xorq.common.utils.logging_utils.get_xorq_runs_dir", return_value=runs_dir
+    ):
+        run_command(str(expr_path), str(output_path), "parquet")
+        run_command(str(expr_path), str(output_path), "parquet")
+
+        expr_hash = expr_path.name
+        run_ids = Runs(expr_dir=runs_dir / expr_hash).list()
+        assert len(run_ids) == 2
+        assert run_ids[0] != run_ids[1]
 
 
 @pytest.mark.parametrize(
