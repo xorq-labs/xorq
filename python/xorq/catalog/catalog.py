@@ -35,18 +35,9 @@ from xorq.catalog.constants import (
     VALID_SUFFIXES,
     CatalogInfix,
 )
-from xorq.catalog.expr_utils import (
-    build_expr_context,
-    build_expr_context_tgz,
-    load_expr_from_tgz,
-)
 from xorq.catalog.git_utils import (
     add_as_submodule,
     commit_context,
-)
-from xorq.catalog.tar_utils import (
-    make_tgz_context,
-    test_tgz,
 )
 
 
@@ -97,10 +88,14 @@ class Catalog:
             return catalog_entry
 
     def _add_build_dir(self, build_dir, sync=True, aliases=()):
+        from xorq.catalog.tar_utils import make_tgz_context  # noqa: PLC0415
+
         with make_tgz_context(build_dir) as tgz_path:
             return self._add_tgz(tgz_path, sync=sync, aliases=aliases)
 
     def _add_expr(self, expr, sync=True, aliases=()):
+        from xorq.catalog.expr_utils import build_expr_context  # noqa: PLC0415
+
         with build_expr_context(expr) as path:
             return self._add_build_dir(path, sync=sync, aliases=aliases)
 
@@ -337,6 +332,8 @@ class BuildTgz:
     path = field(validator=instance_of(Path), converter=Path)
 
     def __attrs_post_init__(self):
+        from xorq.catalog.tar_utils import test_tgz  # noqa: PLC0415
+
         assert "".join(self.path.suffixes) in VALID_SUFFIXES, (
             f"Invalid archive suffix '{self.path.suffixes}', expected one of {VALID_SUFFIXES}"
         )
@@ -420,6 +417,8 @@ class CatalogAddition:
 
     @classmethod
     def from_expr(cls, expr, catalog):
+        from xorq.catalog.expr_utils import build_expr_context_tgz  # noqa: PLC0415
+
         ntfh = tempfile.NamedTemporaryFile(suffix=PREFERRED_SUFFIX)
         with build_expr_context_tgz(expr) as tgz_path:
             shutil.copy(tgz_path, ntfh.name)
@@ -457,6 +456,8 @@ class CatalogEntry:
 
     @property
     def expr(self):
+        from xorq.catalog.expr_utils import load_expr_from_tgz  # noqa: PLC0415
+
         return load_expr_from_tgz(self.catalog_path)
 
     @property
