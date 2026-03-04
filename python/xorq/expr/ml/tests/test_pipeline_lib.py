@@ -4,6 +4,7 @@ from numbers import Real
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.cluster import MiniBatchKMeans
 
 import xorq.api as xo
 import xorq.expr.datatypes as dt
@@ -1010,12 +1011,6 @@ class TestClusteringPredict:
 
     def test_pipeline_fit_without_target_for_clustering(self, cluster_data):
         """Test Pipeline.fit allows ClusterMixin predict steps without a target."""
-        import numpy as np
-        from sklearn.cluster import MiniBatchKMeans
-        from sklearn.pipeline import Pipeline as SklearnPipeline
-        from sklearn.preprocessing import StandardScaler
-
-        from xorq.expr.ml.pipeline_lib import Pipeline
 
         t = xo.memtable(cluster_data)
         features = ("num1", "num2")

@@ -776,7 +776,7 @@ class Pipeline:
         """
 
         if not target and self.predict_step:
-            from sklearn.base import ClusterMixin
+            from sklearn.base import ClusterMixin  # noqa: PLC0415
 
             if not isinstance(self.predict_step.instance, ClusterMixin):
                 raise ValueError("Can't infer target for a prediction step")
