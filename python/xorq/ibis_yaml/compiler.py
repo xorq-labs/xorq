@@ -255,14 +255,15 @@ def dehydrate_cons(cons):
     return dehydrated
 
 
-def hydrate_cons(hash_to_profile_kwargs):
+def hydrate_cons(hash_to_profile_kwargs, lazy=False):
     def kwargs_to_con(kwargs):
         match dct := dict(kwargs):
             case {"kwargs_tuple": dict()}:
                 dct["kwargs_tuple"] = tuple(dct["kwargs_tuple"].items())
             case _:
                 dct["kwargs_tuple"] = tuple(map(tuple, dct["kwargs_tuple"]))
-        con = Profile(**dct).get_con()
+        profile = Profile(**dct)
+        con = profile.get_lazy_con() if lazy else profile.get_con()
         return con
 
     profiles = toolz.valmap(
@@ -543,6 +544,9 @@ class ExprLoader:
     cache_dir = field(
         validator=optional(or_(instance_of(Path), instance_of(str))), default=None
     )
+    lazy = field(validator=instance_of(bool), default=False)
+    limit = field(validator=optional(instance_of(int)), default=None)
+    only_metadata = field(validator=instance_of(bool), default=False)
 
     @property
     def expr_hash(self):
@@ -554,20 +558,30 @@ class ExprLoader:
         return ArtifactStore(self.expr_path)
 
     def load_expr(self):
-        profiles = hydrate_cons(self.artifact_store.load_yaml(DumpFiles.profiles))
+        profiles = hydrate_cons(
+            self.artifact_store.load_yaml(DumpFiles.profiles), lazy=self.lazy
+        )
         yaml_dict = self.artifact_store.load_yaml(DumpFiles.expr)
         expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
-        expr = self.deferred_reads_to_memtables(expr, self.expr_path)
+        expr = self.deferred_reads_to_memtables(
+            expr, self.expr_path, limit=self.limit, only_metadata=self.only_metadata
+        )
         if self.cache_dir:
             expr = self.replace_base_path(expr, base_path=Path(self.cache_dir))
         return expr
 
     @staticmethod
-    def deferred_reads_to_memtables(loaded, expr_path):
+    def deferred_reads_to_memtables(loaded, expr_path, limit=None, only_metadata=False):
         def deferred_read_to_memtable(dr):
+            import pyarrow.parquet as pq
+
             assert any(key == MemtableTypes.inmemory for key, _ in dr.read_kwargs)
             path = next(v for k, v in dr.read_kwargs if k == "path")
-            df = read_parquet(expr_path.joinpath(path)).execute()
+            if only_metadata:
+                df = pq.read_schema(expr_path.joinpath(path)).empty_table().to_pandas()
+            else:
+                expr = read_parquet(expr_path.joinpath(path))
+                df = (expr.limit(limit) if limit is not None else expr).execute()
             mt = ibis.memtable(df, schema=dr.schema, name=dr.name)
             return mt.op()
 

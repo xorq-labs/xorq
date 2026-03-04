@@ -344,9 +344,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             catalog = self.con.catalog()
 
         if database is not None:
-            database = catalog.database(database)
+            database = catalog.schema(database)
         else:
-            database = catalog.database()
+            database = catalog.schema()
 
         table = database.table(table_name)
         return sch.schema(table.schema)
