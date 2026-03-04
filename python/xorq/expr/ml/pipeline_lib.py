@@ -794,10 +794,11 @@ class Pipeline:
             transformed = fitted_step.transform(
                 transformed, retain_others=retain_others_during_fit
             )
-            # KV-encoded outputs (e.g. OneHotEncoder, SelectKBest) flow through
-            # struct field extraction in nested DataFusion queries; materialization
-            # avoids type-propagation failures for list<struct> columns.
-            if fitted_step.structer.has_kv_output:
+            # When the structer has a struct (is not pure KV-encoded), maybe_unpack
+            # calls expr.unpack(), creating struct field references in the DataFusion
+            # SQL that can't be resolved without materializing the intermediate result.
+            # Pure KV-encoded outputs (struct is None) skip unpack and don't need it.
+            if not fitted_step.structer.is_kv_encoded:
                 transformed = transformed.pipe(do_into_backend)
             features = fitted_step.structer.get_output_columns(
                 fitted_step.dest_col or "transformed"
@@ -888,7 +889,7 @@ class FittedPipeline:
         transformed = expr
         for fitted_step in self.transform_steps:
             transformed = fitted_step.transform(transformed)
-            if fitted_step.structer.has_kv_output:
+            if not fitted_step.structer.is_kv_encoded:
                 transformed = transformed.pipe(do_into_backend)
         if tag:
             transformed = transformed.tag(
@@ -912,13 +913,7 @@ class FittedPipeline:
             raise ValueError(f"predict step does not have a method named {methodname}")
         transformed = self.transform(expr, tag=False)
         predicted = method(transformed, name=name)
-        # Array-typed UDF outputs (e.g. predict_proba returning Array[float64]) cause
-        # issues in DataFusion when referenced multiple times in metric computations;
-        # materialization avoids stream exhaustion on second reference.
-        deferred_method = getattr(self.predict_step, f"deferred_{methodname}", None)
-        if deferred_method is not None and isinstance(
-            deferred_method.return_type, dt.Array
-        ):
+        if any(dtype.is_nested() for dtype in predicted.schema().values()):
             predicted = predicted.pipe(do_into_backend)
         return predicted.tag(
             tag_name,
