@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import pathlib
+from pathlib import Path
 
 import dask
 import pandas as pd
@@ -11,9 +12,9 @@ import pytest
 import toolz
 import yaml
 
-import xorq.api as xo
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations.relations as rel
+from xorq import api as xo
 from xorq.caching import (
     ParquetCache,
     ParquetSnapshotCache,
@@ -687,3 +688,94 @@ def test_polars_memtable_comparison(builds_dir):
     expr2 = xo.memtable(df, name="name")
     joined = expr.join(expr2, predicates="a")
     xo.build_expr(joined, builds_dir=builds_dir)
+
+
+def make_lahman_parquet_dir(tmp_dir: Path, n_rows: int = 1_000) -> Path:
+    parquet_dir = tmp_dir / "lahman_parquet"
+    parquet_dir.mkdir(parents=True, exist_ok=True)
+
+    player_ids = [f"player{i:04d}" for i in range(n_rows)]
+    years = [1990 + (i % 30) for i in range(n_rows)]
+    teams = [f"T{i % 20:02d}" for i in range(n_rows)]
+
+    pd.DataFrame(
+        {
+            "playerID": player_ids,
+            "nameFirst": [f"First{i}" for i in range(n_rows)],
+            "nameLast": [f"Last{i}" for i in range(n_rows)],
+        }
+    ).to_parquet(parquet_dir / "people.parquet", index=False)
+
+    pd.DataFrame(
+        {
+            "playerID": player_ids,
+            "yearID": years,
+            "teamID": teams,
+            "salary": [100_000 + i * 500 for i in range(n_rows)],
+        }
+    ).to_parquet(parquet_dir / "salaries.parquet", index=False)
+
+    pd.DataFrame(
+        {
+            "playerID": player_ids,
+            "yearID": years,
+            "teamID": teams,
+            "POS": [
+                ["P", "C", "1B", "2B", "SS", "3B", "LF", "CF", "RF"][i % 9]
+                for i in range(n_rows)
+            ],
+        }
+    ).to_parquet(parquet_dir / "fielding.parquet", index=False)
+
+    return parquet_dir
+
+
+def make_multi_join_expr(parquet_dir: Path):
+    pg = xo.postgres.connect_examples()
+    batting = pg.table("batting")
+    pg_backend = batting._find_backend()
+
+    local = xo.connect()
+
+    people = deferred_read_parquet(
+        parquet_dir / "people.parquet", local, table_name="people"
+    )
+    salaries = deferred_read_parquet(
+        parquet_dir / "salaries.parquet", local, table_name="salaries"
+    )
+    fielding = deferred_read_parquet(
+        parquet_dir / "fielding.parquet", local, table_name="fielding"
+    )
+
+    people_pg = people[["playerID", "nameFirst", "nameLast"]].into_backend(pg_backend)
+    salaries_pg = salaries[["playerID", "yearID", "teamID", "salary"]].into_backend(
+        pg_backend
+    )
+    fielding_pg = fielding[["playerID", "yearID", "teamID", "POS"]].into_backend(
+        pg_backend
+    )
+
+    with_names = (
+        batting.filter(batting.AB > 0)
+        .join(people_pg, predicates="playerID", how="left")
+        .drop("playerID_right")
+    )
+    with_salary = with_names.join(
+        salaries_pg,
+        predicates=["playerID", "yearID", "teamID"],
+        how="left",
+    ).drop("playerID_right", "yearID_right", "teamID_right")
+    return with_salary.join(
+        fielding_pg,
+        predicates=["playerID", "yearID", "teamID"],
+        how="left",
+    ).drop("playerID_right", "yearID_right", "teamID_right")
+
+
+def test_multi_join_expr_yaml_line_count(tmp_path, builds_dir):
+    parquet_dir = make_lahman_parquet_dir(tmp_path)
+    expr = make_multi_join_expr(parquet_dir)
+    build_path = build_expr(expr, builds_dir=builds_dir)
+    expr_yaml_path = build_path / DumpFiles.expr
+    line_count = len(expr_yaml_path.read_text().splitlines())
+    assert line_count < 1200, f"expr.yaml has {line_count} lines (expected < 1200)"

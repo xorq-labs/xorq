@@ -17,7 +17,7 @@ def test_equals(compiler):
     assert dtype_yaml == {
         "op": "DataType",
         "type": "Boolean",
-        "nullable": {"op": "bool", "value": True},
+        "nullable": True,
     }
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)

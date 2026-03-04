@@ -20,7 +20,7 @@ def test_string_concat(compiler):
     assert dtype_yaml == {
         "op": "DataType",
         "type": "String",
-        "nullable": {"op": "bool", "value": True},
+        "nullable": True,
     }
 
 
@@ -66,7 +66,7 @@ def test_string_length(compiler):
     assert dtype_yaml == {
         "op": "DataType",
         "type": "Int32",
-        "nullable": {"op": "bool", "value": True},
+        "nullable": True,
     }
 
 

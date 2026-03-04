@@ -44,6 +44,9 @@ def test_aggregation(compiler, t):
     yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
 
+    node_ref = yaml_dict["expression"][RefEnum.node_ref]
+    expression = yaml_dict["definitions"][RegistryEnum.nodes][node_ref]
+
     assert expression["op"] == "Aggregate"
     assert expression["by"]["a"]["op"] == "Field"
     assert expression["by"]["a"]["name"] == "a"
@@ -87,6 +90,6 @@ def test_limit(compiler, t):
     expression = yaml_dict["expression"]
 
     assert expression["op"] == "Limit"
-    assert expression["n"]["value"] == 10
+    assert expression["n"] == 10
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)

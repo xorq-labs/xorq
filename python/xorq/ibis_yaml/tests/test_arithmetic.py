@@ -18,7 +18,7 @@ def test_add(compiler):
     assert dtype_yaml == {
         "op": "DataType",
         "type": "Int8",
-        "nullable": {"op": "bool", "value": True},
+        "nullable": True,
     }
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
@@ -41,7 +41,7 @@ def test_subtract(compiler):
     assert dtype_yaml == {
         "op": "DataType",
         "type": "Int8",
-        "nullable": {"op": "bool", "value": True},
+        "nullable": True,
     }
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
@@ -64,7 +64,7 @@ def test_multiply(compiler):
     assert dtype_yaml == {
         "op": "DataType",
         "type": "Int8",
-        "nullable": {"op": "bool", "value": True},
+        "nullable": True,
     }
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
@@ -87,7 +87,7 @@ def test_divide(compiler):
     assert dtype_yaml == {
         "op": "DataType",
         "type": "Float64",
-        "nullable": {"op": "bool", "value": True},
+        "nullable": True,
     }
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
@@ -106,7 +106,7 @@ def test_mixed_arithmetic(compiler):
     assert dtype_yaml == {
         "op": "DataType",
         "type": "Float64",
-        "nullable": {"op": "bool", "value": True},
+        "nullable": True,
     }
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)

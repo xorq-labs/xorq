@@ -176,13 +176,8 @@ def _interval_unit_from_yaml(yaml_dict: dict, context: TranslationContext) -> an
 
 
 @translate_to_yaml.register(bool)
-def _bool_to_yaml(value: bool, context: TranslationContext) -> dict:
-    return freeze(
-        {
-            "op": "bool",
-            "value": value,
-        }
-    )
+def _bool_to_yaml(value: bool, context: TranslationContext) -> bool:
+    return value
 
 
 @register_from_yaml_handler("bool")
@@ -191,8 +186,8 @@ def _bool_from_yaml(yaml_dict: dict, context: TranslationContext) -> bool:
 
 
 @translate_to_yaml.register(int)
-def _int_to_yaml(val: int, context: TranslationContext) -> dict:
-    return freeze({"op": "int", "value": val})
+def _int_to_yaml(val: int, context: TranslationContext) -> int:
+    return val
 
 
 @register_from_yaml_handler("int")
@@ -436,7 +431,7 @@ def _unbound_table_to_yaml(op: ops.UnboundTable, context: TranslationContext) ->
             "name": op.name,
             "namespace": namespace_dict,
         }
-        | context.registry.register_schema(op.schema)
+        | context.registry.register_schema(op.schema, context)
     )
 
 
@@ -469,7 +464,7 @@ def _database_table_to_yaml(op: ops.DatabaseTable, context: TranslationContext) 
             "profile": profile_name,
             "namespace": namespace_dict,
         }
-        | context.registry.register_schema(op.schema)
+        | context.registry.register_schema(op.schema, context)
     )
     return node_dict
 
@@ -510,7 +505,7 @@ def _cached_node_to_yaml(op: CachedNode, context: any) -> dict:
             "source": op.source._profile.hash_name,
             "cache": translate_cache(op.cache, context),
         }
-        | context.registry.register_schema(op.schema)
+        | context.registry.register_schema(op.schema, context)
     )
 
 
@@ -552,7 +547,7 @@ def _remotetable_to_yaml(op: RemoteTable, context: TranslationContext) -> dict:
             "profile": profile_name,
             "remote_expr": remote_expr_yaml,
         }
-        | context.registry.register_schema(op.schema)
+        | context.registry.register_schema(op.schema, context)
     )
 
 
@@ -620,7 +615,7 @@ def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
             "read_kwargs": read_kwargs,
             "normalize_method": serialize_callable(op.normalize_method),
         }
-        | context.registry.register_schema(op.schema)
+        | context.registry.register_schema(op.schema, context)
     )
 
 
@@ -646,10 +641,7 @@ def _read_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
 
 @translate_to_yaml.register(str)
 def _str_to_yaml(string: str, context: TranslationContext) -> str:
-    return {
-        "op": "str",
-        "value": string,
-    }
+    return string
 
 
 @register_from_yaml_handler("str")
@@ -855,6 +847,7 @@ def _project_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
 
 
 @translate_to_yaml.register(ops.Aggregate)
+@convert_to_node_ref
 def _aggregate_to_yaml(op: ops.Aggregate, context: TranslationContext) -> dict:
     return freeze(
         {
@@ -925,6 +918,18 @@ def _join_to_yaml(op: ops.JoinChain, context: TranslationContext) -> dict:
         },
     }
     return freeze(node_dict)
+
+
+@translate_to_yaml.register(ops.DropColumns)
+@convert_to_node_ref
+def _drop_columns_to_yaml(op: ops.DropColumns, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "DropColumns",
+            "parent": context.translate_to_yaml(op.parent),
+            "columns_to_drop": context.translate_to_yaml(op.columns_to_drop),
+        }
+    )
 
 
 @register_from_yaml_handler("JoinChain")
@@ -1055,6 +1060,18 @@ def _self_reference_from_yaml(yaml_dict: dict, context: TranslationContext) -> i
     return ref.to_expr()
 
 
+@translate_to_yaml.register(ops.JoinReference)
+@convert_to_node_ref
+def _joinreference_to_yaml(op: ops.JoinReference, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "JoinReference",
+            "parent": context.translate_to_yaml(op.parent),
+            "identifier": op.identifier,
+        }
+    )
+
+
 @register_from_yaml_handler("JoinReference")
 def _join_reference_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     table_yaml = yaml_dict["parent"]
@@ -1116,7 +1133,7 @@ def _tag_to_yaml(op: Tag, context: Any) -> dict:
             "parent": context.translate_to_yaml(op.parent),
             "metadata": context.translate_to_yaml(op.metadata),
         }
-        | context.registry.register_schema(op.schema)
+        | context.registry.register_schema(op.schema, context)
     )
 
 

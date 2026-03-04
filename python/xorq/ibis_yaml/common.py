@@ -89,6 +89,11 @@ class Registry:
             case Schema():
                 untagged_repr = ("Schema", tuple(node.items()))
                 node_hash = tokenize(node)
+            case ops.JoinReference():
+                parent_expr = node.to_expr()
+                with SnapshotStrategy().normalization_context(parent_expr):
+                    parent_hash = tokenize(parent_expr.ls.untagged)
+                node_hash = tokenize((parent_hash, node.identifier))
             case _:
                 untagged_repr = node.to_expr().ls.untagged
                 with SnapshotStrategy().normalization_context(node.to_expr()):
@@ -111,13 +116,16 @@ class Registry:
         frozen = freeze({RefEnum.node_ref: node_ref})
         return frozen
 
-    def register_schema(self, schema):
-        frozen_schema = freeze(
-            toolz.valmap(
-                functools.partial(translate_to_yaml, context=None),
-                schema,
+    def register_schema(self, schema, context=None):
+        if context is not None:
+            frozen_schema = freeze(toolz.valmap(context.translate_to_yaml, schema))
+        else:
+            frozen_schema = freeze(
+                toolz.valmap(
+                    functools.partial(translate_to_yaml, context=None),
+                    schema,
+                )
             )
-        )
         schema_ref = f"schema_{tokenize(frozen_schema)[: config.hash_length]}"
         self.schemas.setdefault(schema_ref, frozen_schema)
         frozen = freeze({RefEnum.schema_ref: schema_ref})
@@ -173,7 +181,7 @@ class TranslationContext:
             case RegistryEnum.nodes:
                 return self.registry.register_node(op, frozen)
             case RegistryEnum.schemas:
-                return self.registry.register_schema(op)
+                return self.registry.register_schema(op, self)
             case _:
                 raise ValueError(f"don't know how to register {which}")
 
@@ -220,6 +228,8 @@ def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     match yaml_dict:
         case None:
             return None
+        case bool() | int() | float() | str():
+            return yaml_dict
         case {RefEnum.dtype_ref: dtype_ref, **rest}:
             if rest:
                 raise ValueError(
