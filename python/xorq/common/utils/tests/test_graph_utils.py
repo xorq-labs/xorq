@@ -1,7 +1,7 @@
 import operator
 
+import pytest
 import toolz
-from sklearn.linear_model import LinearRegression
 
 import xorq.api as xo
 import xorq.expr.datatypes as dt
@@ -15,6 +15,9 @@ from xorq.common.utils.graph_utils import (
 )
 from xorq.expr.relations import Tag
 from xorq.ml import deferred_fit_predict_sklearn
+
+
+LinearRegression = pytest.importorskip("sklearn").linear_model.LinearRegression
 
 
 node_types = (

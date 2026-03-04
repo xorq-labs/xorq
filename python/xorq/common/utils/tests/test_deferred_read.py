@@ -5,7 +5,6 @@ import pathlib
 import dask
 import pandas as pd
 import pytest
-from adbc_driver_manager import ProgrammingError
 from attr import (
     field,
     frozen,
@@ -30,6 +29,7 @@ from xorq.tests.util import assert_frame_equal
 
 
 duckdb = pytest.importorskip("duckdb")
+ProgrammingError = pytest.importorskip("adbc_driver_manager").ProgrammingError
 
 
 @frozen

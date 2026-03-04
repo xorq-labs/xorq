@@ -4,7 +4,6 @@ from numbers import Real
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.cluster import MiniBatchKMeans
 
 import xorq.api as xo
 import xorq.expr.datatypes as dt
@@ -20,6 +19,7 @@ sklearn = pytest.importorskip("sklearn")
 
 # sklearn submodule imports
 KMeans = sklearn.cluster.KMeans
+MiniBatchKMeans = sklearn.cluster.MiniBatchKMeans
 RandomForestClassifier = sklearn.ensemble.RandomForestClassifier
 SimpleImputer = sklearn.impute.SimpleImputer
 LinearRegression = sklearn.linear_model.LinearRegression
