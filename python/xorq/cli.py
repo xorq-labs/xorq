@@ -225,7 +225,6 @@ def run_command(
                     "elapsed_s": round(get_elapsed(), 3),
                     "output_format": str(output_format),
                 }
-
                 span.add_event("run.done", execute_metrics)
                 rl.log_event("run.done", execute_metrics)
 
