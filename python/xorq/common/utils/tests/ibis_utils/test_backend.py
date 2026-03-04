@@ -15,42 +15,42 @@ from xorq.common.utils.ibis_utils import (
     ibis_utils_backend_registry_context,
     map_ibis,
 )
-from xorq.common.utils.postgres_utils import (
-    make_connection_defaults as pg_make_connection_defaults,
-)
-from xorq.common.utils.postgres_utils import (
-    make_credential_defaults as pg_make_credential_defaults,
-)
-from xorq.common.utils.snowflake_keypair_utils import maybe_decrypt_private_key
-from xorq.common.utils.snowflake_utils import (
-    make_connection_defaults as sf_make_connection_defaults,
-)
-from xorq.common.utils.snowflake_utils import (
-    make_credential_defaults as sf_make_credential_defaults,
-)
 
 
 ibis = pytest.importorskip("ibis")
 
 
 def connect_postgres():
+    from xorq.common.utils.postgres_utils import (  # noqa: PLC0415
+        make_connection_defaults,
+        make_credential_defaults,
+    )
+
     return ibis.postgres.connect(
         **toolz.valmap(
             maybe_substitute_env_var,
-            (pg_make_credential_defaults() | pg_make_connection_defaults()),
+            (make_credential_defaults() | make_connection_defaults()),
         )
     )
 
 
 def connect_snowflake():
+    from xorq.common.utils.snowflake_keypair_utils import (  # noqa: PLC0415
+        maybe_decrypt_private_key,
+    )
+    from xorq.common.utils.snowflake_utils import (  # noqa: PLC0415
+        make_connection_defaults,
+        make_credential_defaults,
+    )
+
     database = "SNOWFLAKE_SAMPLE_DATA"
     schema = "TPCH_SF1"
 
     connection_defaults = toolz.valmap(
         maybe_substitute_env_var,
         (
-            sf_make_credential_defaults(authenticator=SnowflakeAuthenticator.keypair)
-            | sf_make_connection_defaults()
+            make_credential_defaults(authenticator=SnowflakeAuthenticator.keypair)
+            | make_connection_defaults()
         ),
     )
 
