@@ -53,6 +53,9 @@ jobs:
       - name: Run Ruff
         run: uv run --no-sync ruff check --output-format=github python examples docs
 
+      - name: Run flake8-class-attributes-order
+        run: uv run --no-sync --with flake8 --with flake8-class-attributes-order flake8 python examples
+
       - name: Verify no uncommitted changes
         run: |
           echo "Checking for uncommitted changes in the workspace..."

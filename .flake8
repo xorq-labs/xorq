@@ -1,0 +1,13 @@
+[flake8]
+per-file-ignores =
+    python/xorq/vendor/**:CCE001,CCE002
+class-attributes-order =
+    field
+    __attrs_post_init__
+    property_method
+    method
+    static_method
+    class_method
+    magic_method
+
+

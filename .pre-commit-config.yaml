@@ -23,6 +23,13 @@ repos:
         args: ["--output-format=full", "--fix", "python", "examples", "docs"]
       # Run the formatter.
       - id: ruff-format
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.2.0
+    hooks:
+      - id: flake8
+        additional_dependencies:
+          - flake8-class-attributes-order==0.1.3
+        args: ["python", "examples"]
   - repo: https://github.com/astral-sh/uv-pre-commit
     # uv version.
     rev: 0.10.7
