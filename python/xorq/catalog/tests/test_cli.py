@@ -13,7 +13,6 @@ from xorq.catalog.catalog import (
 )
 from xorq.catalog.cli import cli
 from xorq.catalog.tar_utils import (
-    REQUIRED_TGZ_NAMES,
     extract_build_tgz_context,
     write_tgz,
 )
@@ -21,6 +20,7 @@ from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
     make_build_tgz,
 )
+from xorq.ibis_yaml.compiler import REQUIRED_TGZ_NAMES
 
 
 @pytest.fixture
