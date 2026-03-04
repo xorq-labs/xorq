@@ -776,7 +776,10 @@ class Pipeline:
         """
 
         if not target and self.predict_step:
-            raise ValueError("Can't infer target for a prediction step")
+            from sklearn.base import ClusterMixin
+
+            if not isinstance(self.predict_step.instance, ClusterMixin):
+                raise ValueError("Can't infer target for a prediction step")
         features = features or tuple(col for col in expr.columns if col != target)
         fitted_steps = ()
         transformed = expr
