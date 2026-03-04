@@ -111,7 +111,6 @@ def parse(
             "uint16",
             "uint32",
             "uint64",
-            "string",
             "binary",
             "timestamp",
             "time",
@@ -129,7 +128,7 @@ def parse(
     )
 
     varchar_or_char = (
-        spaceless_string("varchar", "char")
+        spaceless_string("varchar", "char", "string")
         .then(LPAREN.then(RAW_NUMBER).skip(RPAREN).optional())
         .result(dt.string)
     )
