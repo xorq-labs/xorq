@@ -190,9 +190,11 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         for name, func in inspect.getmembers(
             udfs,
-            predicate=lambda m: callable(m)
-            and not m.__name__.startswith("_")
-            and m.__module__ == udfs.__name__,
+            predicate=lambda m: (
+                callable(m)
+                and not m.__name__.startswith("_")
+                and m.__module__ == udfs.__name__
+            ),
         ):
             annotations = typing.get_type_hints(func)
             argnames = list(inspect.signature(func).parameters.keys())

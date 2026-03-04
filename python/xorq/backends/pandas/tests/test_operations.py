@@ -203,8 +203,9 @@ def test_group_by_rename_key(t, df):
     "where",
     [
         lambda t: (t.plain_strings == "a") | (t.plain_strings == "c"),
-        lambda t: (t.dup_strings == "d")
-        & ((t.plain_int64 == 1) | (t.plain_int64 == 3)),
+        lambda t: (
+            (t.dup_strings == "d") & ((t.plain_int64 == 1) | (t.plain_int64 == 3))
+        ),
         lambda t: None,
     ],
 )

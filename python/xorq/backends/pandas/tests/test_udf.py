@@ -260,10 +260,12 @@ def test_udaf_window(t2, df2):
     expr = t2.mutate(rolled=my_mean(t2.b).over(window))
     result = expr.execute().sort_values(["key", "a"])
     expected = df2.sort_values(["key", "a"]).assign(
-        rolled=lambda df: df.groupby("key")
-        .b.rolling(3, min_periods=1)
-        .mean()
-        .reset_index(level=0, drop=True)
+        rolled=lambda df: (
+            df.groupby("key")
+            .b.rolling(3, min_periods=1)
+            .mean()
+            .reset_index(level=0, drop=True)
+        )
     )
     assert_frame_equal(result, expected)
 
@@ -300,10 +302,12 @@ def test_udaf_window_interval():
         df.sort_values(["time", "key"])
         .set_index("time")
         .assign(
-            rolled=lambda df: df.groupby("key")
-            .value.rolling("2D", closed="both")
-            .mean()
-            .reset_index(level=0, drop=True)
+            rolled=lambda df: (
+                df.groupby("key")
+                .value.rolling("2D", closed="both")
+                .mean()
+                .reset_index(level=0, drop=True)
+            )
         )
     ).reset_index(drop=False)
 
@@ -341,23 +345,29 @@ def test_multiple_argument_udaf_window():
     expected = (
         df.sort_values(["key", "a"])
         .assign(
-            wm_b=lambda df: df.groupby("key")
-            .b.rolling(3, min_periods=1)
-            .mean()
-            .reset_index(level=0, drop=True)
+            wm_b=lambda df: (
+                df.groupby("key")
+                .b.rolling(3, min_periods=1)
+                .mean()
+                .reset_index(level=0, drop=True)
+            )
         )
         .assign(
-            wm_c=lambda df: df.groupby("key")
-            .c.rolling(3, min_periods=1)
-            .mean()
-            .reset_index(level=0, drop=True)
+            wm_c=lambda df: (
+                df.groupby("key")
+                .c.rolling(3, min_periods=1)
+                .mean()
+                .reset_index(level=0, drop=True)
+            )
         )
     )
     expected = expected.sort_values(["key", "b"]).assign(
-        wm_c2=lambda df: df.groupby("key")
-        .c.rolling(2, min_periods=1)
-        .mean()
-        .reset_index(level=0, drop=True)
+        wm_c2=lambda df: (
+            df.groupby("key")
+            .c.rolling(2, min_periods=1)
+            .mean()
+            .reset_index(level=0, drop=True)
+        )
     )
     expected = expected.sort_values(["key", "a"])
 

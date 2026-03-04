@@ -780,6 +780,9 @@ class Pipeline:
         features = features or tuple(col for col in expr.columns if col != target)
         fitted_steps = ()
         transformed = expr
+        # During fit, other (non-feature) columns are only needed if a predict
+        # step will require the target column in the intermediate result.
+        retain_others_during_fit = bool(self.predict_step)
         for step in self.transform_steps:
             fitted_step = step.fit(
                 transformed,
@@ -788,9 +791,14 @@ class Pipeline:
                 cache=cache,
             )
             fitted_steps += (fitted_step,)
-            transformed = fitted_step.transform(transformed)
-            # hack: unclear why we need to do this, but we do
-            transformed = transformed.pipe(do_into_backend)
+            transformed = fitted_step.transform(
+                transformed, retain_others=retain_others_during_fit
+            )
+            # KV-encoded outputs (e.g. OneHotEncoder, SelectKBest) flow through
+            # struct field extraction in nested DataFusion queries; materialization
+            # avoids type-propagation failures for list<struct> columns.
+            if fitted_step.structer.has_kv_output:
+                transformed = transformed.pipe(do_into_backend)
             features = fitted_step.structer.get_output_columns(
                 fitted_step.dest_col or "transformed"
             )
@@ -879,7 +887,9 @@ class FittedPipeline:
     def transform(self, expr, tag=True):
         transformed = expr
         for fitted_step in self.transform_steps:
-            transformed = fitted_step.transform(transformed).pipe(do_into_backend)
+            transformed = fitted_step.transform(transformed)
+            if fitted_step.structer.has_kv_output:
+                transformed = transformed.pipe(do_into_backend)
         if tag:
             transformed = transformed.tag(
                 "FittedPipeline-transform",
@@ -889,13 +899,9 @@ class FittedPipeline:
 
     def predict(self, expr, name=None):
         transformed = self.transform(expr, tag=False)
-        return (
-            self.predict_step.predict(transformed, name=name)
-            .pipe(do_into_backend)
-            .tag(
-                "FittedPipeline-predict",
-                predict_tags=tuple(self.predict_step.tag_kwargs.items()),
-            )
+        return self.predict_step.predict(transformed, name=name).tag(
+            "FittedPipeline-predict",
+            predict_tags=tuple(self.predict_step.tag_kwargs.items()),
         )
 
     @toolz.curry
@@ -905,15 +911,19 @@ class FittedPipeline:
         if not (method := getattr(self.predict_step, methodname, None)):
             raise ValueError(f"predict step does not have a method named {methodname}")
         transformed = self.transform(expr, tag=False)
-        predicted = (
-            method(transformed, name=name)
-            .pipe(do_into_backend)
-            .tag(
-                tag_name,
-                **{tag_key: tuple(self.predict_step.tag_kwargs.items())},
-            )
+        predicted = method(transformed, name=name)
+        # Array-typed UDF outputs (e.g. predict_proba returning Array[float64]) cause
+        # issues in DataFusion when referenced multiple times in metric computations;
+        # materialization avoids stream exhaustion on second reference.
+        deferred_method = getattr(self.predict_step, f"deferred_{methodname}", None)
+        if deferred_method is not None and isinstance(
+            deferred_method.return_type, dt.Array
+        ):
+            predicted = predicted.pipe(do_into_backend)
+        return predicted.tag(
+            tag_name,
+            **{tag_key: tuple(self.predict_step.tag_kwargs.items())},
         )
-        return predicted
 
     def predict_proba(self, expr, name=None):
         return self.invoke_predict_method(

@@ -138,7 +138,7 @@ with pytest.warns(FutureWarning, match="v9.0"):
         ),
         param(
             lambda t, win: t.double_col.cummean().over(win),
-            lambda t: (t.double_col.expanding().mean().reset_index(drop=True, level=0)),
+            lambda t: t.double_col.expanding().mean().reset_index(drop=True, level=0),
             id="cummean",
         ),
         param(
@@ -198,9 +198,7 @@ with pytest.warns(FutureWarning, match="v9.0"):
         ),
         param(
             lambda t, win: t.double_col.mean().over(win),
-            lambda gb: (
-                gb.double_col.expanding().mean().reset_index(drop=True, level=0)
-            ),
+            lambda gb: gb.double_col.expanding().mean().reset_index(drop=True, level=0),
             id="mean",
         ),
         param(
