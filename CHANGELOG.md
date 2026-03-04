@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.12] - 2026-03-04
+### Details
+#### Added
+- Add run-cached command by @hussainsultan in [#1613](https://github.com/xorq-labs/xorq/pull/1613)
+- Add structured logging and telemetry to run_command by @mesejo in [#1615](https://github.com/xorq-labs/xorq/pull/1615)
+- Add tui flag with Textual DataTable viewer by @hussainsultan in [#1611](https://github.com/xorq-labs/xorq/pull/1611)
+- Add release-drafter workflow by @mesejo in [#1622](https://github.com/xorq-labs/xorq/pull/1622)
+- Add translation for bytes by @dlovell in [#1625](https://github.com/xorq-labs/xorq/pull/1625)
+- Add autolabeler for conventional commits by @mesejo in [#1634](https://github.com/xorq-labs/xorq/pull/1634)
+- Add catalog list-aliases command by @dlovell in [#1633](https://github.com/xorq-labs/xorq/pull/1633)
+- Add descriptive messages to assert statements by @hussainsultan in [#1639](https://github.com/xorq-labs/xorq/pull/1639)
+- Add --alias and --name flags to xorq run by @hussainsultan in [#1638](https://github.com/xorq-labs/xorq/pull/1638)
+- Add ruff B (flake8-bugbear) rules and fix violations by @mesejo in [#1658](https://github.com/xorq-labs/xorq/pull/1658)
+- Add ruff C4 and FURB rules and fix violations by @mesejo in [#1664](https://github.com/xorq-labs/xorq/pull/1664)
+
+#### Changed
+- Enable parallel testing and add trino backend to matrix by @mesejo in [#1614](https://github.com/xorq-labs/xorq/pull/1614)
+- Bump runner fix failing tests by @ghoersti in [#1629](https://github.com/xorq-labs/xorq/pull/1629)
+- Update Catalog reference file name and package path by @mesejo in [#1630](https://github.com/xorq-labs/xorq/pull/1630)
+- Update dependency filelock to v3.20.3 [security] by @renovate[bot] in [#1637](https://github.com/xorq-labs/xorq/pull/1637)
+- Skip install test on pull requests by @mesejo in [#1641](https://github.com/xorq-labs/xorq/pull/1641)
+- Update pre-commit hook astral-sh/ruff-pre-commit to v0.15.4 by @renovate[bot] in [#1645](https://github.com/xorq-labs/xorq/pull/1645)
+- Update pre-commit hook astral-sh/uv-pre-commit to v0.10.7 by @renovate[bot] in [#1646](https://github.com/xorq-labs/xorq/pull/1646)
+- Update dependency ipykernel to <7.3.0,>=6.29.4 by @renovate[bot] in [#1647](https://github.com/xorq-labs/xorq/pull/1647)
+- Update dependency ipython to <9.11.0,>=8.19.0 by @renovate[bot] in [#1648](https://github.com/xorq-labs/xorq/pull/1648)
+- Update dependency pytest-codspeed to <4.3.1,>=3.0.0 by @renovate[bot] in [#1649](https://github.com/xorq-labs/xorq/pull/1649)
+- Update dependency ruff to v0.15.4 by @renovate[bot] in [#1650](https://github.com/xorq-labs/xorq/pull/1650)
+- Bump urllib3 from 2.5.0 to 2.6.3 by @dependabot[bot] in [#1656](https://github.com/xorq-labs/xorq/pull/1656)
+- Update postgres docker tag to v17.9 by @renovate[bot] in [#1651](https://github.com/xorq-labs/xorq/pull/1651)
+- Bump pyasn1 from 0.6.1 to 0.6.2 by @dependabot[bot] in [#1657](https://github.com/xorq-labs/xorq/pull/1657)
+- Bump nbconvert from 7.16.6 to 7.17.0 by @dependabot[bot] in [#1661](https://github.com/xorq-labs/xorq/pull/1661)
+- Bump aiohttp from 3.12.15 to 3.13.3 by @dependabot[bot] in [#1662](https://github.com/xorq-labs/xorq/pull/1662)
+- Bump python-multipart from 0.0.20 to 0.0.22 by @dependabot[bot] in [#1663](https://github.com/xorq-labs/xorq/pull/1663)
+- Bump protobuf from 6.31.1 to 6.33.5 by @dependabot[bot] in [#1665](https://github.com/xorq-labs/xorq/pull/1665)
+- Bump starlette from 0.47.2 to 0.49.1 by @dependabot[bot] in [#1666](https://github.com/xorq-labs/xorq/pull/1666)
+
+#### Fixed
+- Eliminate exponential traversal in _build_column_tree by @paddymul in [#1619](https://github.com/xorq-labs/xorq/pull/1619)
+- Deferred read hash collision by @dlovell in [#1621](https://github.com/xorq-labs/xorq/pull/1621)
+- Round float values to 2 decimals in data preview by @hussainsultan in [#1632](https://github.com/xorq-labs/xorq/pull/1632)
+- Update dependency fsspec to >=2024.6.1,<2025.12.1 by @renovate[bot] in [#1653](https://github.com/xorq-labs/xorq/pull/1653)
+- Memtable equals by @dlovell in [#1644](https://github.com/xorq-labs/xorq/pull/1644)
+- Avoid eager model execution in score_expr and Scorer.from_spec by @ghoersti in [#1660](https://github.com/xorq-labs/xorq/pull/1660)
+
+#### Removed
+- Remove duplicate run_cached_command definition by @mesejo in [#1624](https://github.com/xorq-labs/xorq/pull/1624)
+- Remove slow-level-1 for py3.10 by @mesejo in [#1635](https://github.com/xorq-labs/xorq/pull/1635)
+
 ## [0.3.11] - 2026-02-24
 ### Details
 #### Added
