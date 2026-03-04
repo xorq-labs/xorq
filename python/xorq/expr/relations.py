@@ -613,9 +613,13 @@ def register_and_transform_remote_tables(expr, **kwargs):
         replicas = SafeTee.tee(batches, count)
         batches_table[arg] = (schema, list(replicas))
 
-    def mark_remote_table(node):
+    def mark_remote_table(node, enrich_name=True):
         schema, batchess = batches_table[node]
-        name = f"{node.name}_cu{next(_count)}_t{len(batchess)}"
+        name = (
+            f"{node.name}_cu{next(_count)}_t{len(batchess)}"
+            if enrich_name
+            else node.name
+        )
         reader = pa.RecordBatchReader.from_batches(schema, batchess.pop())
         result = node.source.read_record_batches(
             reader,
@@ -627,7 +631,7 @@ def register_and_transform_remote_tables(expr, **kwargs):
 
     def replacer(node, kwargs):
         if isinstance(node, RemoteTable):
-            result = mark_remote_table(node)
+            result = mark_remote_table(node, enrich_name=False)
             batches_table[result] = batches_table.pop(node)
             node = result
         else:
