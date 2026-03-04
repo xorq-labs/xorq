@@ -515,10 +515,10 @@ class Backend(
         if use_encryption:
             connection_scheme += "+tls"
 
-        connect_kwargs = dict(
-            uri=f"{connection_scheme}://{host}:{port}",
-            auth_type=auth_type,
-        )
+        connect_kwargs = {
+            "uri": f"{connection_scheme}://{host}:{port}",
+            "auth_type": auth_type,
+        }
 
         if auth_type == "password":
             connect_kwargs["username"] = user
