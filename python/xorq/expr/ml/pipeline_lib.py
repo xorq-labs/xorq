@@ -578,35 +578,28 @@ class FittedStep:
         needs_unpack = not self.structer.is_kv_encoded
         parent = expr.op()
         col_op = col.op()
+
+        # Unwrap alias to get the actual operation
         if isinstance(col_op, ibis_ops.Alias):
             col_op = col_op.arg
+
         if needs_unpack:
             # Fuse add-col + unpack into one Project, avoiding two Table.select /
             # from_targets calls on wide tables.  Builds struct field columns
             # directly from col_op without an intermediate "to_unpack" column.
-            struct_fields = {
-                fname: ibis_ops.StructField(col_op, fname) for fname in col.names
-            }
-            if retain_others:
-                keep = {
-                    n: ibis_ops.Field(parent, n)
-                    for n in expr.columns
-                    if n not in self.features
-                }
-                keep.update(struct_fields)
-            else:
-                keep = struct_fields
+            keep = {fname: ibis_ops.StructField(col_op, fname) for fname in col.names}
         else:
-            # Scalar output: add col, optionally keeping non-feature columns.
-            if retain_others:
-                keep = {
-                    n: ibis_ops.Field(parent, n)
-                    for n in expr.columns
-                    if n not in self.features
-                }
-                keep[col.get_name()] = col_op
-            else:
-                keep = {col.get_name(): col_op}
+            keep = {col.get_name(): col_op}
+
+        if retain_others:
+            # keep non-feature columns.
+            others = {
+                n: ibis_ops.Field(parent, n)
+                for n in expr.columns
+                if n not in self.features
+            }
+            keep = others | keep
+
         return ibis_ops.Project(parent, keep).to_expr().tag(**self.tag_kwargs)
 
     @property
