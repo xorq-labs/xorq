@@ -116,16 +116,13 @@ class Registry:
         frozen = freeze({RefEnum.node_ref: node_ref})
         return frozen
 
-    def register_schema(self, schema, context=None):
-        if context is not None:
-            frozen_schema = freeze(toolz.valmap(context.translate_to_yaml, schema))
-        else:
-            frozen_schema = freeze(
-                toolz.valmap(
-                    functools.partial(translate_to_yaml, context=None),
-                    schema,
-                )
+    def register_schema(self, schema):
+        frozen_schema = freeze(
+            toolz.valmap(
+                functools.partial(translate_to_yaml, context=None),
+                schema,
             )
+        )
         schema_ref = f"schema_{tokenize(frozen_schema)[: config.hash_length]}"
         self.schemas.setdefault(schema_ref, frozen_schema)
         frozen = freeze({RefEnum.schema_ref: schema_ref})
@@ -181,7 +178,7 @@ class TranslationContext:
             case RegistryEnum.nodes:
                 return self.registry.register_node(op, frozen)
             case RegistryEnum.schemas:
-                return self.registry.register_schema(op, self)
+                return self.registry.register_schema(op)
             case _:
                 raise ValueError(f"don't know how to register {which}")
 

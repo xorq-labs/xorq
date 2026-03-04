@@ -431,7 +431,7 @@ def _unbound_table_to_yaml(op: ops.UnboundTable, context: TranslationContext) ->
             "name": op.name,
             "namespace": namespace_dict,
         }
-        | context.registry.register_schema(op.schema, context)
+        | context.registry.register_schema(op.schema)
     )
 
 
@@ -464,7 +464,7 @@ def _database_table_to_yaml(op: ops.DatabaseTable, context: TranslationContext) 
             "profile": profile_name,
             "namespace": namespace_dict,
         }
-        | context.registry.register_schema(op.schema, context)
+        | context.registry.register_schema(op.schema)
     )
     return node_dict
 
@@ -505,7 +505,7 @@ def _cached_node_to_yaml(op: CachedNode, context: any) -> dict:
             "source": op.source._profile.hash_name,
             "cache": translate_cache(op.cache, context),
         }
-        | context.registry.register_schema(op.schema, context)
+        | context.registry.register_schema(op.schema)
     )
 
 
@@ -547,7 +547,7 @@ def _remotetable_to_yaml(op: RemoteTable, context: TranslationContext) -> dict:
             "profile": profile_name,
             "remote_expr": remote_expr_yaml,
         }
-        | context.registry.register_schema(op.schema, context)
+        | context.registry.register_schema(op.schema)
     )
 
 
@@ -615,7 +615,7 @@ def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
             "read_kwargs": read_kwargs,
             "normalize_method": serialize_callable(op.normalize_method),
         }
-        | context.registry.register_schema(op.schema, context)
+        | context.registry.register_schema(op.schema)
     )
 
 
@@ -1133,7 +1133,7 @@ def _tag_to_yaml(op: Tag, context: Any) -> dict:
             "parent": context.translate_to_yaml(op.parent),
             "metadata": context.translate_to_yaml(op.metadata),
         }
-        | context.registry.register_schema(op.schema, context)
+        | context.registry.register_schema(op.schema)
     )
 
 
