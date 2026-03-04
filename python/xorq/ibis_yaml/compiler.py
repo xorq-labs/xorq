@@ -176,7 +176,7 @@ class ArtifactStore:
         return path
 
     def write_parquet(self, table, *path_parts) -> pathlib.Path:
-        import pyarrow.parquet as pq
+        import pyarrow.parquet as pq  # noqa: PLC0415
 
         with self._write(*path_parts) as (path, f):
             pq.write_table(table, path)

@@ -59,8 +59,8 @@ class SafeTee(object):
     @classmethod
     def tee(cls, iterable, n=2):
         """tuple of n independent thread-safe iterators"""
-        from itertools import tee
-        from threading import Lock
+        from itertools import tee  # noqa: PLC0415
+        from threading import Lock  # noqa: PLC0415
 
         lock = Lock()
         return tuple(cls(teeobj, lock) for teeobj in tee(iterable, n))
@@ -125,7 +125,7 @@ class Tag(ops.Relation):
         return self.metadata.get("tag")
 
     def __dask_tokenize__(self):
-        from xorq.common.utils.dask_normalize.dask_normalize_expr import (
+        from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
             normalize_seq_with_caller,
         )
 
@@ -181,7 +181,7 @@ class FlightExpr(DatabaseTableView):
 
     @classmethod
     def validate_schema(cls, input_expr, unbound_expr):
-        from xorq.common.utils.graph_utils import walk_nodes
+        from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
 
         (dt, *rest) = walk_nodes(ops.UnboundTable, unbound_expr)
         if rest or not isinstance(dt, ops.UnboundTable):
@@ -201,10 +201,10 @@ class FlightExpr(DatabaseTableView):
         name=None,
         **kwargs,
     ):
-        from xorq.flight import FlightServer
+        from xorq.flight import FlightServer  # noqa: PLC0415
 
         def roundtrip_cloudpickle(obj):
-            import cloudpickle
+            import cloudpickle  # noqa: PLC0415
 
             return cloudpickle.loads(cloudpickle.dumps(obj))
 
@@ -221,8 +221,8 @@ class FlightExpr(DatabaseTableView):
         )
 
     def to_rbr(self, do_instrument_reader=None):
-        from xorq.flight.action import AddExchangeAction
-        from xorq.flight.exchanger import (
+        from xorq.flight.action import AddExchangeAction  # noqa: PLC0415
+        from xorq.flight.exchanger import (  # noqa: PLC0415
             UnboundExprExchanger,
         )
 
@@ -276,8 +276,8 @@ def flight_serve_unbound(
     make_server=None,
     **kwargs,
 ):
-    from xorq.flight import FlightServer
-    from xorq.flight.exchanger import (
+    from xorq.flight import FlightServer  # noqa: PLC0415
+    from xorq.flight.exchanger import (  # noqa: PLC0415
         UnboundExprExchanger,
     )
 
@@ -348,8 +348,8 @@ class FlightUDXF(DatabaseTableView):
         name=None,
         **kwargs,
     ):
-        from xorq.common.utils.tls_utils import TLSKwargs
-        from xorq.flight import FlightServer
+        from xorq.common.utils.tls_utils import TLSKwargs  # noqa: PLC0415
+        from xorq.flight import FlightServer  # noqa: PLC0415
 
         def make_mtls_server():
             tls_kwargs = TLSKwargs.from_common_name(verify_client=True)
@@ -370,7 +370,7 @@ class FlightUDXF(DatabaseTableView):
         )
 
     def to_rbr(self, do_instrument_reader=None):
-        from xorq.flight.action import AddExchangeAction
+        from xorq.flight.action import AddExchangeAction  # noqa: PLC0415
 
         if do_instrument_reader is None:
             do_instrument_reader = self.do_instrument_reader
@@ -541,7 +541,7 @@ def flight_udxf(
     - The function is curried using toolz.curry, allowing partial application
     """
 
-    from xorq.flight.exchanger import make_udxf
+    from xorq.flight.exchanger import make_udxf  # noqa: PLC0415
 
     udxf = make_udxf(
         process_df,
@@ -661,7 +661,7 @@ def render_backend(con):
 
 
 def get_cache_params(cache):
-    from xorq.caching import (
+    from xorq.caching import (  # noqa: PLC0415
         ParquetCache,
         ParquetSnapshotCache,
         SourceCache,
@@ -702,7 +702,7 @@ def _fmt_read(op, name, method_name, source, **kwargs):
 
 
 def prepare_create_table_from_expr(con, expr, **kwargs):
-    from xorq.expr.api import _transform_expr
+    from xorq.expr.api import _transform_expr  # noqa: PLC0415
 
     if (expr_backend := expr._find_backend()) != con:
         raise ValueError(f"expr backend must be {con}, is {expr_backend}")

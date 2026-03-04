@@ -579,7 +579,7 @@ def _remotetable_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.E
 
 
 def warn_on_local_path(items: dict) -> None:
-    from urllib.parse import urlparse
+    from urllib.parse import urlparse  # noqa: PLC0415
 
     def is_local_path(any: str | Path) -> bool:
         parsed = urlparse(any)
@@ -1212,7 +1212,7 @@ except ImportError:
 
 def _import_estimator_class(module: str, classname: str):
     """Import an sklearn estimator class from module and class name."""
-    import importlib
+    import importlib  # noqa: PLC0415
 
     mod = importlib.import_module(module)
     return getattr(mod, classname)

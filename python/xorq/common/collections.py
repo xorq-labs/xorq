@@ -7,7 +7,7 @@ from xorq.vendor.ibis.expr.operations import relations as ops
 
 # FIXME: create unique function for finding all backends
 def _find_backend(value):
-    from xorq.expr.relations import (
+    from xorq.expr.relations import (  # noqa: PLC0415
         CachedNode,
         Read,
     )

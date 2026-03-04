@@ -178,9 +178,9 @@ def expr_to_unbound(expr, hash, tag, typs, strategy=None):
                 case []:
                     raise ValueError("found no connections")
                 case [mt] if len(mt.data) == 0:
-                    import warnings
+                    import warnings  # noqa: PLC0415
 
-                    import xorq.api as xo
+                    import xorq.api as xo  # noqa: PLC0415
 
                     warnings.warn(
                         "Found empty memtable, presuming partial_expr, using xo.connect()",

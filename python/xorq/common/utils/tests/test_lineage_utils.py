@@ -14,7 +14,9 @@ from xorq.common.utils.lineage_utils import (
     build_column_trees,
     build_tree,
 )
+from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.vendor.ibis.expr.operations.core import Node
+from xorq.vendor.ibis.expr.operations.reductions import Sum
 
 
 @xo.udf.make_pandas_udf(
@@ -85,8 +87,6 @@ def test_build_column_trees_and_display(sample_expression):
 
 
 def test_complete_lineage_for_total_discount_column(sample_expression):
-    from xorq.vendor.ibis.expr.operations.reductions import Sum
-
     column_trees = build_column_trees(sample_expression)
     total_discount_tree = column_trees["total_discount"]
 
@@ -146,8 +146,6 @@ def multi_join_expression():
     expression has 3 nested JoinChains whose shared sub-graphs are traversed
     exponentially by ``_build_column_tree`` (which lacks memoization).
     """
-    from xorq.ibis_yaml.compiler import build_expr, load_expr
-
     batting = xo.memtable(
         {
             "playerID": ["a", "b"],

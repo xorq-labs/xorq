@@ -109,7 +109,9 @@ def normalize_remote_databasetable(dt):
 
 
 def normalize_postgres_databasetable(dt):
-    from xorq.common.utils.postgres_utils import get_postgres_n_reltuples
+    from xorq.common.utils.postgres_utils import (  # noqa: PLC0415
+        get_postgres_n_reltuples,
+    )
 
     if dt.source.name != "postgres":
         raise ValueError(f"expected postgres backend, got {dt.source.name!r}")
@@ -124,7 +126,9 @@ def normalize_postgres_databasetable(dt):
 
 
 def normalize_pyiceberg_database_table(dt):
-    from xorq.common.utils.pyiceberg_utils import get_iceberg_snapshots_ids
+    from xorq.common.utils.pyiceberg_utils import (  # noqa: PLC0415
+        get_iceberg_snapshots_ids,
+    )
 
     if dt.source.name != "pyiceberg":
         raise ValueError(f"expected pyiceberg backend, got {dt.source.name!r}")
@@ -140,7 +144,9 @@ def normalize_pyiceberg_database_table(dt):
 
 
 def normalize_snowflake_databasetable(dt):
-    from xorq.common.utils.snowflake_utils import get_snowflake_last_modification_time
+    from xorq.common.utils.snowflake_utils import (  # noqa: PLC0415
+        get_snowflake_last_modification_time,
+    )
 
     if dt.source.name != "snowflake":
         raise ValueError(f"expected snowflake backend, got {dt.source.name!r}")
@@ -193,7 +199,7 @@ def normalize_duckdb_databasetable(dt):
 
 
 def normalize_sqlite_database_table(dt):
-    from xorq.common.utils.sqlite_utils import get_sqlite_stats
+    from xorq.common.utils.sqlite_utils import get_sqlite_stats  # noqa: PLC0415
 
     if dt.source.name != "sqlite":
         raise ValueError(f"expected sqlite backend, got {dt.source.name!r}")
@@ -536,7 +542,7 @@ def opaque_node_replacer(node, kwargs):
 
 @dask.base.normalize_token.register(ibis.expr.types.Expr)
 def normalize_expr(expr):
-    from xorq.expr.api import get_compiler
+    from xorq.expr.api import get_compiler  # noqa: PLC0415
 
     return normalize_op(expr.op(), compiler=get_compiler(expr))
 

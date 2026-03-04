@@ -104,7 +104,7 @@ class Cache:
             self.storage.drop(key)
 
     def __dask_tokenize__(self):
-        from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
             normalize_seq_with_caller,
         )
 
@@ -193,14 +193,14 @@ class GCSCache(Cache):
     storage_typ = None
 
     def __attrs_post_init__(self):
-        from xorq.common.utils.gcloud_utils import GCStorage
+        from xorq.common.utils.gcloud_utils import GCStorage  # noqa: PLC0415
 
         assert isinstance(self.strategy, self.strategy_typ)
         assert isinstance(self.storage, GCStorage)
 
     @classmethod
     def from_kwargs(cls, bucket_name, source):
-        from xorq.common.utils.gcloud_utils import GCStorage
+        from xorq.common.utils.gcloud_utils import GCStorage  # noqa: PLC0415
 
         strategy = cls.strategy_typ()
         storage = GCStorage(bucket_name=bucket_name, source=source)
@@ -208,7 +208,7 @@ class GCSCache(Cache):
 
 
 def maybe_prevent_cross_source_caching(expr, storage):
-    from xorq.expr.relations import (
+    from xorq.expr.relations import (  # noqa: PLC0415
         into_backend,
     )
 

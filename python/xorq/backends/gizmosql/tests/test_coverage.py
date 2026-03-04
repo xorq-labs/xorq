@@ -18,6 +18,9 @@ import pytest
 
 import xorq.api as xo
 import xorq.common.exceptions as exc
+import xorq.vendor.ibis.expr.datatypes as dt
+from xorq.vendor.ibis.backends.gizmosql import Backend
+from xorq.vendor.ibis.backends.gizmosql.converter import DuckDBPyArrowData
 
 
 pytestmark = pytest.mark.gizmosql
@@ -139,8 +142,6 @@ def test_get_schema_table_not_found(con):
 
 def test_convert_kwargs():
     """_convert_kwargs converts read_only string to bool."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     kwargs = {"read_only": "true"}
     Backend._convert_kwargs(kwargs)
     assert kwargs["read_only"] is True
@@ -204,8 +205,6 @@ def test_read_json(con):
 
 def test_vendored_execute_with_nulls(con):
     """Vendored execute handles columns with null values."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     t = xo.memtable({"a": [1, None, 3], "b": ["x", None, "z"]})
     result = Backend.execute(con, t)
     assert isinstance(result, pd.DataFrame)
@@ -214,8 +213,6 @@ def test_vendored_execute_with_nulls(con):
 
 def test_vendored_execute_with_list_type(con):
     """Vendored execute handles nested (list) types via to_pylist()."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     with con._safe_raw_sql(
         "CREATE OR REPLACE TABLE test_nested AS SELECT [1, 2, 3] AS arr, 'a' AS label"
     ):
@@ -235,8 +232,6 @@ def test_vendored_execute_with_list_type(con):
 
 def test_vendored_to_pyarrow_column(con, batting):
     """Vendored to_pyarrow returns ChunkedArray for column expressions."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     col_expr = batting.limit(5).playerID
     result = Backend.to_pyarrow(con, col_expr)
     assert isinstance(result, pa.ChunkedArray)
@@ -245,8 +240,6 @@ def test_vendored_to_pyarrow_column(con, batting):
 
 def test_vendored_to_pyarrow_scalar(con, batting):
     """Vendored to_pyarrow returns a scalar for scalar expressions."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     scalar_expr = batting.count()
     result = Backend.to_pyarrow(con, scalar_expr)
     assert isinstance(result, pa.Scalar) or isinstance(result, int)
@@ -257,8 +250,6 @@ def test_vendored_to_pyarrow_scalar(con, batting):
 
 def test_vendored_to_pyarrow_batches(con, batting):
     """Vendored to_pyarrow_batches returns RecordBatchReader."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     reader = Backend.to_pyarrow_batches(con, batting.limit(10))
     assert isinstance(reader, pa.ipc.RecordBatchReader)
     table = reader.read_all()
@@ -320,8 +311,6 @@ def test_get_schema_using_query(con):
 
 def test_from_url_parsing(con):
     """_from_url parses URL components correctly."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     url = ParseResult(
         scheme="gizmosql",
         netloc="myuser:mypass@myhost:31337",
@@ -382,8 +371,6 @@ def test_create_temp_view(con):
 
 def test_from_connection(con):
     """from_connection creates a new backend from an existing ADBC connection."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     new_backend = Backend.from_connection(con.con)
     assert new_backend.current_database == "main"
     tables = new_backend.list_tables()
@@ -395,8 +382,6 @@ def test_from_connection(con):
 
 def test_from_url_oauth_kwargs():
     """_from_url converts camelCase OAuth kwargs to snake_case."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     parsed_kwargs = {}
     original_connect = Backend.connect
 
@@ -436,9 +421,6 @@ def test_from_url_oauth_kwargs():
 
 def test_pyarrow_data_convert_scalar_null():
     """DuckDBPyArrowData.convert_scalar handles null scalars."""
-    import xorq.vendor.ibis.expr.datatypes as dt
-    from xorq.vendor.ibis.backends.gizmosql.converter import DuckDBPyArrowData
-
     result = DuckDBPyArrowData.convert_scalar(
         pa.scalar(None, type=pa.int64()), dt.int64
     )
@@ -448,18 +430,12 @@ def test_pyarrow_data_convert_scalar_null():
 
 def test_pyarrow_data_convert_scalar_non_null():
     """DuckDBPyArrowData.convert_scalar passes through non-null scalars."""
-    import xorq.vendor.ibis.expr.datatypes as dt
-    from xorq.vendor.ibis.backends.gizmosql.converter import DuckDBPyArrowData
-
     result = DuckDBPyArrowData.convert_scalar(pa.scalar(42, type=pa.int64()), dt.int64)
     assert result.as_py() == 42
 
 
 def test_pyarrow_data_convert_column_all_null():
     """DuckDBPyArrowData.convert_column handles all-null columns."""
-    import xorq.vendor.ibis.expr.datatypes as dt
-    from xorq.vendor.ibis.backends.gizmosql.converter import DuckDBPyArrowData
-
     col = pa.chunked_array([pa.array([None, None, None], type=pa.int64())])
     result = DuckDBPyArrowData.convert_column(col, dt.int64)
     assert isinstance(result, pa.ChunkedArray)
@@ -469,9 +445,6 @@ def test_pyarrow_data_convert_column_all_null():
 
 def test_pyarrow_data_convert_column_non_null():
     """DuckDBPyArrowData.convert_column passes through non-null columns."""
-    import xorq.vendor.ibis.expr.datatypes as dt
-    from xorq.vendor.ibis.backends.gizmosql.converter import DuckDBPyArrowData
-
     col = pa.chunked_array([pa.array([1, 2, 3], type=pa.int64())])
     result = DuckDBPyArrowData.convert_column(col, dt.int64)
     assert isinstance(result, pa.ChunkedArray)
@@ -483,8 +456,6 @@ def test_pyarrow_data_convert_column_non_null():
 
 def test_do_connect_oauth_kwargs(mocker):
     """do_connect passes OAuth kwargs to gizmosql.connect."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     mock_conn = mocker.MagicMock()
     mock_conn.adbc_get_info.return_value = {"vendor_version": "duckdb v1.1.3"}
     mock_conn.cursor.return_value.__enter__ = mocker.MagicMock()
@@ -521,8 +492,6 @@ def test_do_connect_oauth_kwargs(mocker):
 
 def test_do_connect_password_kwargs(mocker):
     """do_connect passes username/password for password auth_type."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     mock_conn = mocker.MagicMock()
     mock_conn.adbc_get_info.return_value = {"vendor_version": "duckdb v1.1.3"}
     mock_conn.cursor.return_value.__enter__ = mocker.MagicMock()
@@ -556,8 +525,6 @@ def test_do_connect_password_kwargs(mocker):
 
 def test_read_xlsx_basic(mocker):
     """read_xlsx calls load_extension, _create_temp_view, and returns a table."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     backend = Backend()
     mock_table = mocker.MagicMock()
     mocker.patch.object(backend, "load_extension")
@@ -574,8 +541,6 @@ def test_read_xlsx_basic(mocker):
 
 def test_read_xlsx_with_sheet_and_range(mocker):
     """read_xlsx passes sheet and range kwargs."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     backend = Backend()
     mock_table = mocker.MagicMock()
     mocker.patch.object(backend, "load_extension")
@@ -594,8 +559,6 @@ def test_read_xlsx_with_sheet_and_range(mocker):
 
 def test_to_xlsx(mocker):
     """to_xlsx compiles the expression and executes COPY command."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     backend = Backend()
     mocker.patch.object(backend, "_run_pre_execute_hooks")
     mocker.patch.object(backend, "compile", return_value="SELECT 1 AS a")
@@ -621,8 +584,6 @@ def test_to_xlsx(mocker):
 
 def test_register_filesystem(mocker):
     """register_filesystem delegates to self.con.register_filesystem."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     backend = Backend()
     mock_con = mocker.MagicMock()
     backend.con = mock_con
@@ -652,8 +613,6 @@ def test_create_table_temp_overwrite(con, temp_table):
 
 def test_load_extension_force_install(mocker):
     """load_extension with force_install generates FORCE INSTALL commands."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     backend = Backend()
     mock_con = mocker.MagicMock()
     backend.con = mock_con
@@ -679,8 +638,6 @@ def test_load_extension_force_install(mocker):
 
 def test_load_extensions_already_loaded(mocker):
     """_load_extensions returns early when all extensions are loaded."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     backend = Backend()
     mock_con = mocker.MagicMock()
     backend.con = mock_con
@@ -703,8 +660,6 @@ def test_load_extensions_already_loaded(mocker):
 
 def test_attach(mocker):
     """attach delegates to _execute_ddl."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     backend = Backend()
     mocker.patch.object(backend, "_execute_ddl")
 
@@ -715,8 +670,6 @@ def test_attach(mocker):
 
 def test_attach_with_name_and_read_only(mocker):
     """attach passes name and read_only options."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     backend = Backend()
     mocker.patch.object(backend, "_execute_ddl")
 
@@ -729,8 +682,6 @@ def test_attach_with_name_and_read_only(mocker):
 
 def test_detach(mocker):
     """detach delegates to _execute_ddl."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     backend = Backend()
     mocker.patch.object(backend, "_execute_ddl")
 
@@ -741,8 +692,6 @@ def test_detach(mocker):
 
 def test_attach_sqlite(mocker):
     """attach_sqlite calls load_extension and _execute_ddl."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     backend = Backend()
     mocker.patch.object(backend, "load_extension")
     mocker.patch.object(backend, "_execute_ddl")
@@ -761,8 +710,6 @@ def test_attach_sqlite(mocker):
 
 def test_read_mysql(mocker):
     """read_mysql delegates to _execute_ddl and returns a table."""
-    from xorq.vendor.ibis.backends.gizmosql import Backend
-
     backend = Backend()
     mock_table = mocker.MagicMock()
     mocker.patch.object(backend, "_load_extensions")

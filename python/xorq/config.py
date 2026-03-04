@@ -128,7 +128,7 @@ class Pins(Config):
     }
 
     def get_board(self, **kwargs):
-        import pins
+        import pins  # noqa: PLC0415
 
         _kwargs = {
             **{
@@ -141,9 +141,9 @@ class Pins(Config):
         return pins.board(**_kwargs)
 
     def get_path(self, name, board=None, **kwargs):
-        import tempfile
+        import tempfile  # noqa: PLC0415
 
-        from filelock import FileLock
+        from filelock import FileLock  # noqa: PLC0415
 
         board = board or self.get_board()
 

@@ -27,7 +27,7 @@ class Backend(IbisSQLiteBackend):
         overwrite: bool = True,
         **kwargs: Any,
     ) -> ir.Table:
-        from xorq.common.utils.sqlite_utils import SQLiteADBC
+        from xorq.common.utils.sqlite_utils import SQLiteADBC  # noqa: PLC0415
 
         table_name = table_name or gen_name("read_record_batches")
 

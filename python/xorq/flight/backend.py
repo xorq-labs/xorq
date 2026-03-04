@@ -56,7 +56,7 @@ class Backend(SQLBackend):
         temp: bool = False,
         overwrite: bool = False,
     ) -> ir.Table:
-        import pandas as pd
+        import pandas as pd  # noqa: PLC0415
 
         if isinstance(obj, pd.DataFrame):
             obj = pa.Table.from_pandas(obj)
@@ -118,7 +118,7 @@ class Backend(SQLBackend):
         source: pd.DataFrame | pa.Table | pa.RecordBatchReader,
         table_name: str | None = None,
     ) -> ir.Table:
-        import pandas as pd
+        import pandas as pd  # noqa: PLC0415
 
         table_name = table_name or util.gen_name("read_in_memory")
 
@@ -153,7 +153,7 @@ class Backend(SQLBackend):
         table_name: str | None = None,
         **kwargs: Any,
     ) -> ir.Table:
-        import pandas as pd
+        import pandas as pd  # noqa: PLC0415
 
         if isinstance(source, pd.DataFrame):
             source = pa.Table.from_pandas(source)

@@ -1,3 +1,4 @@
+import datetime
 import hashlib
 import json
 import os
@@ -5,6 +6,7 @@ import pathlib
 
 import dask
 import pandas as pd
+import pyarrow as pa
 import pytest
 import toolz
 import yaml
@@ -25,6 +27,7 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
 from xorq.common.utils.name_utils import get_uid_prefix
+from xorq.conftest import array_types_df
 from xorq.ibis_yaml.compiler import (
     ArtifactStore,
     DumpFiles,
@@ -572,8 +575,6 @@ def test_no_sql_or_deferred_when_debug_false(builds_dir):
 
 
 def test_into_backend_with_array_filter(builds_dir):
-    from xorq.conftest import array_types_df
-
     duckdb_con = xo.duckdb.connect()
 
     t = duckdb_con.create_table("array_types", array_types_df)
@@ -600,8 +601,6 @@ def test_roundtrip_parquet_snapshot_cache(builds_dir, tmp_path, users_df):
 
 
 def test_roundtrip_parquet_ttl_snapshot_cache(builds_dir, tmp_path, users_df):
-    import datetime
-
     original = xo.connect()
     ddb = xo.duckdb.connect()
 
@@ -673,8 +672,6 @@ def test_pandas_memtable_comparison(builds_dir):
 
 
 def test_pyarrow_memtable_comparison(builds_dir):
-    import pyarrow as pa
-
     table = pa.table({"a": [1]})
     expr = xo.memtable(table, name="name")
     expr2 = xo.memtable(table, name="name")

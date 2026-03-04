@@ -1,4 +1,5 @@
 import pytest
+from duckdb import CatalogException
 
 import xorq.api as xo
 
@@ -23,8 +24,6 @@ def dirty_duckdb_con(csv_dir):
 
 @pytest.fixture(scope="function")
 def duckdb_con(dirty_duckdb_con):
-    from duckdb import CatalogException
-
     expected_tables = ("ddb_players", "batting")
     for table in dirty_duckdb_con.list_tables():
         if table not in expected_tables:

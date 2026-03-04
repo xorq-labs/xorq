@@ -192,7 +192,7 @@ class SnowflakeKeypair:
 
 
 def assign_public_key(con, user, public_key_str, do_assert=True):
-    from xorq.common.utils.snowflake_utils import execute_statement
+    from xorq.common.utils.snowflake_utils import execute_statement  # noqa: PLC0415
 
     def massage_public_key_str(public_key_str):
         # https://docs.snowflake.com/en/user-guide/key-pair-auth#assign-the-public-key-to-a-snowflake-user
@@ -214,7 +214,7 @@ def assign_public_key(con, user, public_key_str, do_assert=True):
 
 
 def deassign_public_key(con, user, do_assert=True):
-    from xorq.common.utils.snowflake_utils import execute_statement
+    from xorq.common.utils.snowflake_utils import execute_statement  # noqa: PLC0415
 
     stmt = f"ALTER USER {user} UNSET RSA_PUBLIC_KEY;"
     fetched = execute_statement(con, stmt, do_assert=do_assert)

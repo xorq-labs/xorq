@@ -5,6 +5,7 @@ import pathlib
 import dask
 import pandas as pd
 import pytest
+from adbc_driver_manager import ProgrammingError
 from attr import (
     field,
     frozen,
@@ -151,8 +152,6 @@ def test_deferred_read_to_sql(con, pins_resource, request):
     ],
 )
 def test_deferred_read(get_con, pins_resource, request):
-    from adbc_driver_manager import ProgrammingError
-
     con = get_con()
     pins_resource = request.getfixturevalue(pins_resource)
     assert pins_resource.table_name not in con.tables
@@ -206,8 +205,6 @@ def test_deferred_read_temporary(get_con, pins_resource, request):
     ],
 )
 def test_cached_deferred_read(get_con, pins_resource, filter_, request, tmp_path):
-    from adbc_driver_manager import ProgrammingError
-
     con = get_con()
     pins_resource = request.getfixturevalue(pins_resource)
     cache = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import gzip
+import os
+from urllib.request import Request, urlopen
 
 import pandas as pd
 import pyarrow as pa
@@ -228,8 +230,6 @@ def test_get_object_metadata_local_filesystem(data_dir):
 
 
 def test_get_object_metadata_https(ctx):
-    from urllib.request import Request, urlopen
-
     url = "https://raw.githubusercontent.com/ibis-project/testing-data/refs/heads/master/csv/astronauts.csv"
 
     metadata = xo.get_object_metadata(url)
@@ -298,8 +298,6 @@ def test_expr_over_same_table_multiple_times(parquet_dir, get_con):
 
 @pytest.mark.postgres
 def test_read_postgres():
-    import os
-
     uri = (
         f"postgres://{os.environ['POSTGRES_USER']}:"
         f"{os.environ['POSTGRES_PASSWORD']}@"

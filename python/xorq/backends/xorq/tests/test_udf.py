@@ -1,5 +1,6 @@
 import operator
 import pickle
+from math import isclose
 
 import pyarrow as pa
 import pytest
@@ -67,8 +68,6 @@ def test_multiple_arguments_udf_agg_pyarrow(ls_con, batting):
 
 
 def test_multiple_arguments_struct_udf_agg_pyarrow(ls_con, batting):
-    from math import isclose
-
     batting = ls_con.register(xo.execute(batting), "pg-batting")
     actual = centroid(batting.G, batting.G, batting.G).execute()
     expected = xo.execute(batting.G).mean()
@@ -77,8 +76,6 @@ def test_multiple_arguments_struct_udf_agg_pyarrow(ls_con, batting):
 
 
 def test_multiple_arguments_list_udf_agg_pyarrow(ls_con, batting):
-    from math import isclose
-
     batting = ls_con.register(xo.execute(batting), "pg-batting")
     actual = centroid_list(batting.G, batting.G, batting.G).execute()
     expected = xo.execute(batting.G).mean()
@@ -154,8 +151,6 @@ def test_udf_agg_pandas_df(ls_con, alltypes):
 
 
 def test_udf_agg_pandas_df_no_name():
-    import xorq.api as xo
-
     @xo.udf.agg.pandas_df(
         schema=xo.schema({"a": int}),
         return_type=xo.expr.datatypes.Int64(),

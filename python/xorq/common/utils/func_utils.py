@@ -20,7 +20,7 @@ def log_excepts(f, exception=Exception):
     # from xorq.common.utils.logging_utils import get_logger
 
     # print logger
-    from structlog import get_logger
+    from structlog import get_logger  # noqa: PLC0415
 
     logger = get_logger(__name__)
 
@@ -40,7 +40,7 @@ def log_excepts(f, exception=Exception):
 
 @toolz.curry
 def maybe_log_excepts(f, exception=Exception, debug=None):
-    from xorq.config import options
+    from xorq.config import options  # noqa: PLC0415
 
     if options.debug or debug:
         return log_excepts(f, exception=exception)

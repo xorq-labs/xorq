@@ -35,7 +35,7 @@ def patch_normalize_token(*typs, f):
 
 
 def normalize_seq_with_caller(*args, caller=""):
-    from xorq.common.utils.inspect_utils import (
+    from xorq.common.utils.inspect_utils import (  # noqa: PLC0415
         get_enclosing_function,
     )
 
@@ -83,8 +83,8 @@ def gen_batches(path, size=2**20):
 
 
 def manual_file_digest(path, digest=hashlib.md5, size=2**20):
-    from contextlib import closing
-    from tarfile import ExFileObject
+    from contextlib import closing  # noqa: PLC0415
+    from tarfile import ExFileObject  # noqa: PLC0415
 
     fh = path if isinstance(path, ExFileObject) else pathlib.Path(path).open("rb")
     with closing(fh):
@@ -97,7 +97,7 @@ def manual_file_digest(path, digest=hashlib.md5, size=2**20):
 
 
 def file_digest(path, digest=hashlib.md5, size=2**20):
-    from tarfile import ExFileObject
+    from tarfile import ExFileObject  # noqa: PLC0415
 
     if hasattr(hashlib, "file_digest"):
         if isinstance(path, ExFileObject):
@@ -119,9 +119,9 @@ def normalize_read_path_md5sum(path):
 
 @contextmanager
 def patch_normalize_op_caching():
-    import functools
+    import functools  # noqa: PLC0415
 
-    import xorq.common.utils.dask_normalize.dask_normalize_expr as mod
+    import xorq.common.utils.dask_normalize.dask_normalize_expr as mod  # noqa: PLC0415
 
     attr = "normalize_op"
     cached_attr = functools.cache(getattr(mod, attr))

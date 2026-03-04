@@ -8,7 +8,7 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 
 
 def lazy_register_pandas():
-    import pandas as pd
+    import pandas as pd  # noqa: PLC0415
 
     @dask.base.normalize_token.register(pd._libs.interval.Interval)
     def normalize_interval(interval):
@@ -38,9 +38,9 @@ safe_lazy_register("pandas", lazy_register_pandas)
 
 
 def lazy_register_sklearn():
-    from sklearn.base import BaseEstimator
+    from sklearn.base import BaseEstimator  # noqa: PLC0415
 
-    from xorq.ibis_yaml.utils import freeze
+    from xorq.ibis_yaml.utils import freeze  # noqa: PLC0415
 
     @dask.base.normalize_token.register(BaseEstimator)
     def normalize_sklearn_estimator(estimator):
@@ -96,7 +96,7 @@ def normalize_pyarrow_table(table: pa.Table):
 
 @dask.base.normalize_token.register(pa.Schema)
 def normalize_pyarrow_schema(schema: pa.Schema):
-    from xorq.vendor.ibis import Schema
+    from xorq.vendor.ibis import Schema  # noqa: PLC0415
 
     return normalize_seq_with_caller(
         Schema.from_pyarrow(schema).to_pandas(),

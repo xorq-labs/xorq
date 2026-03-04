@@ -78,7 +78,7 @@ def read_pyarrow_stream(
     table_name=None,
     **kwargs,
 ) -> ir.Table:
-    from xorq.config import _backend_init
+    from xorq.config import _backend_init  # noqa: PLC0415
 
     con = con or _backend_init()
     rbr = pa.ipc.open_stream(source, **kwargs)
@@ -136,7 +136,7 @@ def read_csv(
     └───────┴────────┘
 
     """
-    from xorq.config import _backend_init
+    from xorq.config import _backend_init  # noqa: PLC0415
 
     con = _backend_init()
     return con.read_csv(sources, table_name=table_name, **kwargs)
@@ -194,7 +194,7 @@ def read_parquet(
     └───────┴────────┘
 
     """
-    from xorq.config import _backend_init
+    from xorq.config import _backend_init  # noqa: PLC0415
 
     con = _backend_init()
     return con.read_parquet(sources, table_name=table_name, **kwargs)
@@ -205,7 +205,7 @@ def register(
     table_name: str | None = None,
     **kwargs: Any,
 ):
-    from xorq.config import _backend_init
+    from xorq.config import _backend_init  # noqa: PLC0415
 
     con = _backend_init()
     return con.register(source, table_name=table_name, **kwargs)
@@ -216,7 +216,7 @@ def read_postgres(
     table_name: str | None = None,
     **kwargs: Any,
 ):
-    from xorq.config import _backend_init
+    from xorq.config import _backend_init  # noqa: PLC0415
 
     con = _backend_init()
     return con.read_postgres(uri, table_name=table_name, **kwargs)
@@ -290,7 +290,7 @@ def _transform_deferred_reads(expr):
     span = trace.get_current_span()
 
     def replace_read(node, _kwargs):
-        from xorq.expr.relations import Read
+        from xorq.expr.relations import Read  # noqa: PLC0415
 
         if isinstance(node, Read):
             read_kwargs = dict(node.read_kwargs)
@@ -368,7 +368,7 @@ def execute(expr: ir.Expr, **kwargs: Any):
 
 @tracer.start_as_current_span("_remove_tag_nodes")
 def _remove_tag_nodes(expr):
-    from xorq.common.utils.graph_utils import replace_nodes
+    from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
 
     def replacer(node, kwargs):
         if isinstance(node, Tag):
@@ -392,7 +392,7 @@ def _transform_expr(expr, **kwargs):
 
 
 def _pandas_execute(con, expr: ir.Expr, **kwargs):
-    from xorq.expr.relations import FlightExpr, FlightUDXF
+    from xorq.expr.relations import FlightExpr, FlightUDXF  # noqa: PLC0415
 
     span = trace.get_current_span()
 
@@ -432,7 +432,7 @@ def to_pyarrow_batches(
     results
         RecordBatchReader
     """
-    from xorq.expr.relations import FlightExpr, FlightUDXF
+    from xorq.expr.relations import FlightExpr, FlightUDXF  # noqa: PLC0415
 
     span = trace.get_current_span()
 
@@ -519,9 +519,9 @@ def to_parquet(
     >>> penguins = ibis.examples.penguins.fetch()
     >>> penguins.to_parquet(tempfile.mktemp())
     """
-    import pyarrow  # noqa: ICN001, F401
-    import pyarrow.parquet as pq
-    import pyarrow_hotfix  # noqa: F401
+    import pyarrow  # noqa: F401, ICN001, PLC0415
+    import pyarrow.parquet as pq  # noqa: PLC0415
+    import pyarrow_hotfix  # noqa: F401, PLC0415
 
     with to_pyarrow_batches(expr, params=params) as batch_reader:
         with pq.ParquetWriter(path, batch_reader.schema, **kwargs) as writer:
@@ -552,9 +552,9 @@ def to_csv(
     https://arrow.apache.org/docs/python/generated/pyarrow.csv.CSVWriter.htmlditional keyword arguments passed to pyarrow.csv.CSVWriter
     """
 
-    import pyarrow  # noqa: ICN001, F401
-    import pyarrow.csv as pcsv
-    import pyarrow_hotfix  # noqa: F401
+    import pyarrow  # noqa: F401, ICN001, PLC0415
+    import pyarrow.csv as pcsv  # noqa: PLC0415
+    import pyarrow_hotfix  # noqa: F401, PLC0415
 
     with pcsv.CSVWriter(path, schema=expr.schema().to_pyarrow(), **kwargs) as writer:
         with to_pyarrow_batches(expr, params=params) as batch_reader:
@@ -581,10 +581,10 @@ def to_json(
 
     https://github.com/ndjson/ndjson-spec
     """
-    import pyarrow  # noqa: ICN001, F401
-    import pyarrow_hotfix  # noqa: F401
+    import pyarrow  # noqa: F401, ICN001, PLC0415
+    import pyarrow_hotfix  # noqa: F401, PLC0415
 
-    from xorq.common.utils.io_utils import maybe_open
+    from xorq.common.utils.io_utils import maybe_open  # noqa: PLC0415
 
     with maybe_open(path, "w") as f:
         with to_pyarrow_batches(expr, params=params) as batch_reader:
@@ -602,7 +602,7 @@ def get_plans(expr):
 
 
 def get_object_metadata(path: str, **kwargs: Any) -> dict:
-    from xorq.config import _backend_init
+    from xorq.config import _backend_init  # noqa: PLC0415
 
     con = _backend_init()
 

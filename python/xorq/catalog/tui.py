@@ -242,8 +242,8 @@ def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
 
 
 def _build_lineage_chain(expr) -> tuple[str, ...]:
-    from xorq.common.utils.graph_utils import gen_children_of, to_node
-    from xorq.common.utils.lineage_utils import format_node
+    from xorq.common.utils.graph_utils import gen_children_of, to_node  # noqa: PLC0415
+    from xorq.common.utils.lineage_utils import format_node  # noqa: PLC0415
 
     def _walk(node):
         yield format_node(node)
@@ -259,8 +259,8 @@ def _build_lineage_chain(expr) -> tuple[str, ...]:
 def _build_alias_multimap(
     catalog_aliases,
 ) -> dict[str, tuple[str, ...]]:
-    from itertools import groupby
-    from operator import attrgetter
+    from itertools import groupby  # noqa: PLC0415
+    from operator import attrgetter  # noqa: PLC0415
 
     key = attrgetter("catalog_entry.name")
     sorted_aliases = sorted(catalog_aliases, key=key)

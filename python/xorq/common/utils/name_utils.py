@@ -2,9 +2,9 @@ import re
 
 
 def make_name(prefix, to_tokenize):
-    import dask
+    import dask  # noqa: PLC0415
 
-    from xorq.ibis_yaml.config import config
+    from xorq.ibis_yaml.config import config  # noqa: PLC0415
 
     tokenized = dask.base.tokenize(to_tokenize)
     name = ("_" + prefix + "_" + tokenized)[: config.hash_length].lower()

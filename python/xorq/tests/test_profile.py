@@ -603,8 +603,6 @@ def test_profile_from_con_preserves_env_vars(monkeypatch, tmp_path):
 
     except Exception as e:
         if "connection refused" in str(e).lower():
-            import pytest
-
             pytest.skip(f"Database connection failed: {e}")
         else:
             raise

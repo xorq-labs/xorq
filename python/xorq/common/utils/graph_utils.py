@@ -54,9 +54,9 @@ def gen_children_of(node: Node) -> Tuple[Node, ...]:
 
 
 def bfs(node):
-    from collections import deque
+    from collections import deque  # noqa: PLC0415
 
-    from xorq.vendor.ibis.common.graph import Graph
+    from xorq.vendor.ibis.common.graph import Graph  # noqa: PLC0415
 
     queue = deque((to_node(node),))
     dct = {}
@@ -146,7 +146,7 @@ def get_ordered_unique_sources(nodes):
 
 
 def find_all_sources(expr):
-    import xorq.vendor.ibis.expr.operations as ops
+    import xorq.vendor.ibis.expr.operations as ops  # noqa: PLC0415
 
     node_types = (
         ops.DatabaseTable,

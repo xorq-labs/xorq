@@ -10,6 +10,7 @@ from pytest import param
 import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.tests.util import assert_frame_equal, assert_series_equal
+from xorq.vendor.ibis import _
 
 
 @pytest.mark.parametrize(
@@ -89,8 +90,6 @@ def test_field_access_after_case(con):
 
 
 def test_collect_into_struct(alltypes):
-    from xorq.vendor.ibis import _
-
     t = alltypes
     expr = (
         t[_.string_col.isin(("0", "1"))]

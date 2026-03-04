@@ -193,7 +193,7 @@ class DataFusionCompiler(SQLGlotCompiler):
         if to.is_timestamp():
             return self._to_timestamp(arg, to)
         if to.is_decimal():
-            from xorq.vendor.ibis.formats.pyarrow import PyArrowType
+            from xorq.vendor.ibis.formats.pyarrow import PyArrowType  # noqa: PLC0415
 
             return self.f.arrow_cast(arg, f"{PyArrowType.from_ibis(to)}".capitalize())
 

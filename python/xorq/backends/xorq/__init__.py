@@ -132,7 +132,7 @@ class Backend(DataFusionBackend):
             The just-registered table.
 
         """
-        from xorq.backends.postgres import Backend
+        from xorq.backends.postgres import Backend  # noqa: PLC0415
 
         backend = Backend()
         parsed = urllib.parse.urlparse(uri)

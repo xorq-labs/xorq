@@ -22,7 +22,7 @@ from xorq.ml import deferred_fit_predict_sklearn
 
 
 def make_data():
-    import numpy as np
+    import numpy as np  # noqa: PLC0415
 
     X = np.array([[1, 1], [1, 2], [2, 2], [2, 3]])
     # y = 1 * x_0 + 2 * x_1 + 3

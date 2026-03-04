@@ -67,7 +67,7 @@ class Popened:
     @property
     @functools.cache
     def stdout_peeker(self):
-        from xorq.common.utils.io_utils import Peeker
+        from xorq.common.utils.io_utils import Peeker  # noqa: PLC0415
 
         return Peeker(self.popen.stdout) if self.popen.stdout else None
 

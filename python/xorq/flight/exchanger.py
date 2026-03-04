@@ -78,8 +78,8 @@ def streaming_exchange(
 
 
 def find_unbound_next_con(unbound_expr):
-    from xorq.common.utils.graph_utils import find_all_sources
-    from xorq.common.utils.node_utils import gen_downstream
+    from xorq.common.utils.graph_utils import find_all_sources  # noqa: PLC0415
+    from xorq.common.utils.node_utils import gen_downstream  # noqa: PLC0415
 
     match walk_nodes(ops.UnboundTable, unbound_expr):
         case (unbound_op,):

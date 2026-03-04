@@ -122,7 +122,7 @@ class DeferredFitOther:
     cache = field(default=None)
 
     def __attrs_post_init__(self):
-        from xorq.caching import Cache
+        from xorq.caching import Cache  # noqa: PLC0415
 
         if not isinstance(self.cache, (Cache, type(None))):
             raise ValueError(

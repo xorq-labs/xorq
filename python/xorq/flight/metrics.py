@@ -79,8 +79,10 @@ def setup_console_metrics(
     # optional Prometheus endpoint
     if prometheus_port is not None:
         try:
-            import prometheus_client
-            from opentelemetry.exporter.prometheus import PrometheusMetricReader
+            import prometheus_client  # noqa: PLC0415
+            from opentelemetry.exporter.prometheus import (  # noqa: PLC0415
+                PrometheusMetricReader,
+            )
         except ImportError:
             logger.warning(
                 "Prometheus support requires 'opentelemetry-exporter-prometheus' and 'prometheus-client'"
@@ -91,9 +93,9 @@ def setup_console_metrics(
             prometheus_client.start_http_server(prometheus_port)
             logger.info(f"Prometheus metrics available at :{prometheus_port}")
     # include resource attributes for backend grouping
-    import socket
+    import socket  # noqa: PLC0415
 
-    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.resources import Resource  # noqa: PLC0415
 
     resource = Resource.create(
         {

@@ -1,6 +1,8 @@
+import pandas as pd
 import pytest
 
 import xorq.api as xo
+from xorq.api import SessionConfig
 
 
 def test_register_read_csv(csv_dir):
@@ -48,10 +50,6 @@ def test_executed_on_original_backend(parquet_dir, csv_dir, mocker):
 def test_with_config(
     with_repartition_file_scans, keep_partition_by_columns, parquet_dir
 ):
-    import pandas as pd
-
-    from xorq.api import SessionConfig
-
     session_config = (
         SessionConfig()
         .with_repartition_file_scans(with_repartition_file_scans)

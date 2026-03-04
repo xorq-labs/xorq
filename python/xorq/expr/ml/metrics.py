@@ -34,7 +34,7 @@ def _build_known_scorer_funcs():
     (e.g. accuracy_score, mean_squared_error) vs an unknown callable
     (e.g. confusion_matrix, custom fn).
     """
-    from sklearn.metrics import get_scorer, get_scorer_names
+    from sklearn.metrics import get_scorer, get_scorer_names  # noqa: PLC0415
 
     return frozenset(get_scorer(name)._score_func for name in get_scorer_names())
 
@@ -60,8 +60,12 @@ def _default_scorer_for_model(model):
     ValueError
         If model type is not recognized.
     """
-    from sklearn.base import ClassifierMixin, ClusterMixin, RegressorMixin
-    from sklearn.metrics import (
+    from sklearn.base import (  # noqa: PLC0415
+        ClassifierMixin,
+        ClusterMixin,
+        RegressorMixin,
+    )
+    from sklearn.metrics import (  # noqa: PLC0415
         accuracy_score,
         adjusted_rand_score,
         make_scorer,
@@ -133,8 +137,8 @@ class Scorer:
         Scorer
             A normalized Scorer instance.
         """
-        from sklearn.metrics import get_scorer
-        from sklearn.metrics._scorer import _BaseScorer
+        from sklearn.metrics import get_scorer  # noqa: PLC0415
+        from sklearn.metrics._scorer import _BaseScorer  # noqa: PLC0415
 
         match scorer:
             case str():
@@ -202,7 +206,7 @@ def _build_known_non_scorer_metric_fns():
     scorer functions from ``_build_known_scorer_funcs()``, excluding
     pairwise/scorer utilities by module and unsupported metrics by name.
     """
-    import sklearn.metrics
+    import sklearn.metrics  # noqa: PLC0415
 
     _EXCLUDED_NAMES = frozenset(
         {
@@ -235,7 +239,7 @@ def _build_metric_return_types():
     ``deferred_sklearn_metric`` can auto-resolve ``return_type``
     when the caller doesn't provide one explicitly.
     """
-    from sklearn.metrics import (
+    from sklearn.metrics import (  # noqa: PLC0415
         class_likelihood_ratios,
         confusion_matrix,
         det_curve,
@@ -476,7 +480,7 @@ class MetricComputation:
         Handles scalar Series, array-valued Series (np.vstack), and
         raw ndarrays.
         """
-        import pandas as pd
+        import pandas as pd  # noqa: PLC0415
 
         match predictions:
             case pd.Series() as series if len(series) > 0 and isinstance(
@@ -583,7 +587,7 @@ def deferred_sklearn_metric(
     ...     metric=confusion_matrix,
     ... )
     """
-    from sklearn.metrics._scorer import _BaseScorer
+    from sklearn.metrics._scorer import _BaseScorer  # noqa: PLC0415
 
     # Helper to build MetricComputation from a Scorer
     def _from_scorer(scorer, metric_kwargs):
@@ -683,8 +687,8 @@ def deferred_auc_from_curve(curve_expr):
     ... )
     >>> deferred_roc_auc = deferred_auc_from_curve(deferred_roc)
     """
-    import pyarrow as pa
-    from sklearn.metrics import auc
+    import pyarrow as pa  # noqa: PLC0415
+    from sklearn.metrics import auc  # noqa: PLC0415
 
     # Validate type and extract field mapping
     curve_type = curve_expr.type()

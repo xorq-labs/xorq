@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import decimal
+import hashlib
 from operator import invert, neg
 
 import numpy as np
@@ -655,8 +656,6 @@ def test_sample_memtable(con):
 def test_hexdigest(alltypes):
     h1 = alltypes.order_by("id").string_col.hexdigest().execute(limit=10)
     df = alltypes.order_by("id").execute(limit=10)
-
-    import hashlib
 
     def hash_256(col):
         return hashlib.sha256(col.encode()).hexdigest()
