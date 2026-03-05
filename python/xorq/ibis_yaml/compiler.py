@@ -88,6 +88,11 @@ class DumpFiles(StrEnum):
 REQUIRED_TGZ_NAMES = (DumpFiles.expr, DumpFiles.metadata, DumpFiles.profiles)
 
 
+class ExprKind(StrEnum):
+    Expr = "expr"
+    PartialExpr = "partial_expr"
+
+
 class MemtableTypes(StrEnum):
     inmemory = "memtables"
     database_table = "database_tables"
@@ -428,8 +433,9 @@ class ExprDumper:
         )
         return path_to_writer
 
-    @staticmethod
-    def _make_metadata() -> str:
+    def _make_metadata(self) -> str:
+        from xorq.common.utils.graph_utils import has_unbound_table  # noqa: PLC0415
+
         metadata = {
             "current_library_version": xorq.__version__,
             "metadata_version": "0.0.0",  # TODO: make it a real thing
@@ -437,6 +443,9 @@ class ExprDumper:
             if lu._git_is_present()
             else None,
             "sys-version_info": tuple(sys.version_info),
+            "kind": ExprKind.PartialExpr
+            if has_unbound_table(self.expr)
+            else ExprKind.Expr,
         }
         metadata_json = json.dumps(metadata, indent=2)
         return metadata_json
