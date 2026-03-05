@@ -1,3 +1,4 @@
+import json
 import shutil
 from pathlib import Path
 
@@ -23,6 +24,8 @@ from xorq.catalog.tar_utils import (
 from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
 )
+from xorq.catalog.tui import _extract_kind
+from xorq.ibis_yaml.compiler import ExprKind, build_expr
 from xorq.ibis_yaml.compiler import REQUIRED_TGZ_NAMES
 
 
@@ -336,3 +339,31 @@ def test_catalog_entry_relocatable(repo_cloned_bare, tmpdir):
     catalog_entries = cloned.catalog_entries
     exprs = tuple(catalog_entry.expr for catalog_entry in catalog_entries)
     assert exprs
+
+
+def test_build_expr_kind_bound(tmp_path):
+    expr = xo.memtable({"a": [1, 2, 3]})
+    build_dir = build_expr(expr, builds_dir=tmp_path)
+    meta = json.loads((build_dir / "metadata.json").read_text())
+    assert meta["kind"] == ExprKind.Expr
+
+
+def test_build_expr_kind_partial(tmp_path):
+    t = xo.table(schema={"a": "int64"})
+    expr = t.filter(t.a > 0)
+    build_dir = build_expr(expr, builds_dir=tmp_path)
+    meta = json.loads((build_dir / "metadata.json").read_text())
+    assert meta["kind"] == ExprKind.PartialExpr
+
+
+def test_extract_kind_bound(catalog):
+    expr = xo.memtable({"a": [1, 2, 3]})
+    entry = catalog.add(expr)
+    assert _extract_kind(entry) == ExprKind.Expr
+
+
+def test_extract_kind_partial(catalog):
+    t = xo.table(schema={"a": "int64"})
+    expr = t.filter(t.a > 0)
+    entry = catalog.add(expr)
+    assert _extract_kind(entry) == ExprKind.PartialExpr
