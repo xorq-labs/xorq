@@ -18,6 +18,7 @@ from toolz.curried import (
 )
 
 import xorq.expr.datatypes as dt
+import xorq.vendor.ibis.expr.operations as ibis_ops
 from xorq.backends.xorq import connect
 from xorq.caching import (
     ParquetCache,
@@ -517,13 +518,43 @@ class FittedStep:
         others = tuple(other for other in expr.columns if other not in self.features)
         return others
 
+    def _with_col_drop_features(self, expr, col):
+        """Return expr with *col* added and feature columns removed.
+
+        Constructs a ``Project`` op directly with only the O(n_remaining)
+        non-feature fields, bypassing ``Table.select``'s ``DerefMap.from_targets``
+        call which would create O(n_cols) Field nodes for the parent relation.
+        """
+        parent = expr.op()
+        col_name = col.get_name()
+        col_op = col.op()
+        # Project.values requires Unaliased[Value] — strip Alias wrapper if present
+        if isinstance(col_op, ibis_ops.Alias):
+            col_op = col_op.arg
+        keep = {
+            name: ibis_ops.Field(parent, name)
+            for name in expr.columns
+            if name not in self.features
+        }
+        keep[col_name] = col_op
+        return ibis_ops.Project(parent, keep).to_expr()
+
     def transform_unpack(self, expr, retain_others=True, name="to_unpack"):
         struct_col = self.transform_raw(expr).name(name)
-        if retain_others and (others := self.get_others(expr)):
-            expr = expr.select(*others, struct_col)
-        else:
-            expr = struct_col.as_table()
-        return expr.unpack(name)
+        if not retain_others:
+            return struct_col.as_table().unpack(name)
+        # Fuse _with_col_drop_features + unpack into a single Project, bypassing
+        # two separate from_targets calls (one per Table.select).
+        parent = expr.op()
+        col_op = struct_col.op()
+        if isinstance(col_op, ibis_ops.Alias):
+            col_op = col_op.arg
+        keep = {
+            n: ibis_ops.Field(parent, n) for n in expr.columns if n not in self.features
+        }
+        for struct_field_name in struct_col.names:
+            keep[struct_field_name] = ibis_ops.StructField(col_op, struct_field_name)
+        return ibis_ops.Project(parent, keep).to_expr()
 
     def transform_raw(self, expr, name=None):
         # when you use expr.mutate, you want transform_raw
@@ -544,11 +575,32 @@ class FittedStep:
 
     def transform(self, expr, retain_others=True):
         col = self.transform_raw(expr)
-        others = self.get_others(expr) if retain_others else ()
-        expr = expr.select(*others, col) if others else col.as_table()
-        return self.structer.maybe_unpack(expr, col.get_name()).tag(
-            **self.tag_kwargs,
-        )
+        needs_unpack = not self.structer.is_kv_encoded
+        parent = expr.op()
+        col_op = col.op()
+
+        # Unwrap alias to get the actual operation
+        if isinstance(col_op, ibis_ops.Alias):
+            col_op = col_op.arg
+
+        if needs_unpack:
+            # Fuse add-col + unpack into one Project, avoiding two Table.select /
+            # from_targets calls on wide tables.  Builds struct field columns
+            # directly from col_op without an intermediate "to_unpack" column.
+            keep = {fname: ibis_ops.StructField(col_op, fname) for fname in col.names}
+        else:
+            keep = {col.get_name(): col_op}
+
+        if retain_others:
+            # keep non-feature columns.
+            others = {
+                n: ibis_ops.Field(parent, n)
+                for n in expr.columns
+                if n not in self.features
+            }
+            keep = others | keep
+
+        return ibis_ops.Project(parent, keep).to_expr().tag(**self.tag_kwargs)
 
     @property
     def transformed(self):
@@ -562,8 +614,8 @@ class FittedStep:
 
     def predict(self, expr, retain_others=True, name=None):
         col = self.predict_raw(expr, name=name)
-        if retain_others and (others := self.get_others(expr)):
-            expr = expr.select(*others, col)
+        if retain_others:
+            expr = self._with_col_drop_features(expr, col)
         else:
             expr = col.as_table()
         return expr.tag(
@@ -595,11 +647,10 @@ class FittedStep:
     @toolz.curry
     def invoke_method(self, expr, retain_others=True, name=None, *, methodname):
         col = self.invoke_method_raw(expr=expr, name=name, methodname=methodname)
-        expr = (
-            expr.select(*others, col)
-            if retain_others and (others := self.get_others(expr))
-            else col.as_table()
-        )
+        if retain_others:
+            expr = self._with_col_drop_features(expr, col)
+        else:
+            expr = col.as_table()
         return expr.tag(**self.tag_kwargs)
 
     predict_proba_raw = invoke_method_raw(methodname=ResponseMethod.PREDICT_PROBA)
