@@ -85,6 +85,9 @@ class DumpFiles(StrEnum):
     sql = "sql.yaml"
 
 
+REQUIRED_TGZ_NAMES = (DumpFiles.expr, DumpFiles.metadata, DumpFiles.profiles)
+
+
 class MemtableTypes(StrEnum):
     inmemory = "memtables"
     database_table = "database_tables"

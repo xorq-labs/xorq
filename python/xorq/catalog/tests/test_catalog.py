@@ -18,12 +18,12 @@ from xorq.catalog.expr_utils import (
     build_expr_context_tgz,
 )
 from xorq.catalog.tar_utils import (
-    REQUIRED_TGZ_NAMES,
     write_tgz,
 )
 from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
 )
+from xorq.ibis_yaml.compiler import REQUIRED_TGZ_NAMES
 
 
 def test_catalog_add(catalog, data_dict):
