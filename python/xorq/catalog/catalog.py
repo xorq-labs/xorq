@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 import hashlib
-import json
 import shutil
 import tarfile
 import tempfile
@@ -41,6 +40,7 @@ from xorq.catalog.git_utils import (
     add_as_submodule,
     commit_context,
 )
+from xorq.ibis_yaml.compiler import ExprKind
 
 
 abspath = toolz.compose(Path.absolute, Path)
@@ -464,12 +464,15 @@ class CatalogEntry:
 
     @cached_property
     def kind(self) -> str:
+        default_value = str(ExprKind.Expr)
         with tarfile.open(self.catalog_path, "r:gz") as tf:
-            f = tf.extractfile(f"{self.name}/metadata.json")
+            f = tf.extractfile(f"{self.name}/expr.yaml")
             if f is None:
-                return "expr"
-            data = json.loads(f.read())
-        return data.get("kind", "expr")
+                return default_value
+            data = yaml.safe_load(f.read())
+        if not isinstance(data, dict):
+            return default_value
+        return data.get("kind", default_value)
 
     @cached_property
     def backends(self) -> tuple:
