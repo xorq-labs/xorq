@@ -334,8 +334,7 @@ class Trace:
             toolz.excepts(Exception, operator.attrgetter("trace_metrics"))(self)
         )
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def trace_id(self):
         dct = toolz.groupby(
             compose(bool, operator.attrgetter("links")),
@@ -361,8 +360,7 @@ class Trace:
         else:
             raise ValueError("trace has no spans with or without links")
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def parent_span(self):
         (parent_span, *rest) = (
             span for span in self.spans if not span.parent_span_id and not span.links
@@ -388,7 +386,7 @@ class Trace:
         return lineage
 
     def get_depth(self, depth):
-        return self.get_depths().get(depth, ())
+        return self.get_depths.get(depth, ())
 
     def get_duration_delta(self, parent_span_id, lossless_leafs=True):
         parent_span = next(
@@ -410,7 +408,7 @@ class Trace:
         else:
             return 0
 
-    @functools.cache
+    @functools.cached_property
     def get_depths(self):
         spans = tuple(span for span in self.spans if span != self.parent_span)
         depths = {
@@ -579,8 +577,7 @@ class TraceMetrics:
         )
         assert oir_ids == mr_ids
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def default_metrics(self):
         return {
             "trace_id": self.trace.trace_id,
@@ -588,8 +585,7 @@ class TraceMetrics:
             "start_datetime": self.trace.start_datetime,
         }
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def metrics(self):
         dct = {
             metric.name: metric.calc_metric(self.trace) for metric in self.trace_metrics

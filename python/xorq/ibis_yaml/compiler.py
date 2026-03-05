@@ -321,13 +321,11 @@ class ExprDumper:
             case _:
                 object.__setattr__(self, attrname, Path(value))
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def artifact_store(self):
         return ArtifactStore.from_path_and_expr(self.builds_dir, self.expr)
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def expr_path(self):
         return self.artifact_store.root_path
 
@@ -557,8 +555,7 @@ class ExprLoader:
     def expr_hash(self):
         return self.expr_path.name
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def artifact_store(self):
         return ArtifactStore(self.expr_path)
 
