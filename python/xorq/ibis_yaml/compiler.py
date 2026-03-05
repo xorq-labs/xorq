@@ -232,6 +232,11 @@ class YamlExpressionTranslator:
                 {
                     "definitions": context.definitions,
                     "expression": expr_dict,
+                    "kind": str(
+                        ExprKind.UnboundExpr
+                        if has_unbound_table(expr)
+                        else ExprKind.Expr
+                    ),
                 }
             )
 
@@ -434,8 +439,8 @@ class ExprDumper:
         )
         return path_to_writer
 
-    def _make_metadata(self) -> str:
-
+    @staticmethod
+    def _make_metadata() -> str:
         metadata = {
             "current_library_version": xorq.__version__,
             "metadata_version": "0.0.0",  # TODO: make it a real thing
@@ -443,9 +448,6 @@ class ExprDumper:
             if lu._git_is_present()
             else None,
             "sys-version_info": tuple(sys.version_info),
-            "kind": ExprKind.UnboundExpr
-            if has_unbound_table(self.expr)
-            else ExprKind.Expr,
         }
         metadata_json = json.dumps(metadata, indent=2)
         return metadata_json
