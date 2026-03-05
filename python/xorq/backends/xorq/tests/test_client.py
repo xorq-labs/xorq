@@ -1,3 +1,4 @@
+import pandas as pd
 import pyarrow as pa
 import pytest
 from pytest import param
@@ -47,8 +48,6 @@ def test_register_record_batch_reader_with_filter(alltypes, alltypes_df):
 
 
 def test_create_table(con):
-    import pandas as pd
-
     con.create_table("UPPERCASE", schema=ibis.schema({"A": "int"}))
     con.create_table("name", pd.DataFrame({"a": [1]}))
 

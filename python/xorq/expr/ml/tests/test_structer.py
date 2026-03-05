@@ -1,9 +1,49 @@
+import importlib
+
+import numpy as np
 import pandas as pd
 import pytest
 
+
+try:
+    from enum import StrEnum
+except ImportError:
+    from strenum import StrEnum
+
 import xorq.api as xo
 import xorq.expr.datatypes as dt
-from xorq.expr.ml.structer import (
+
+
+sklearn = pytest.importorskip("sklearn")
+
+from sklearn import feature_selection, preprocessing  # noqa: E402
+from sklearn.base import BaseEstimator, TransformerMixin  # noqa: E402
+from sklearn.compose import ColumnTransformer  # noqa: E402
+from sklearn.feature_extraction.text import TfidfVectorizer  # noqa: E402
+from sklearn.feature_selection import (  # noqa: E402
+    SelectKBest,
+    VarianceThreshold,
+    f_classif,
+)
+from sklearn.impute import MissingIndicator, SimpleImputer  # noqa: E402
+from sklearn.linear_model import LogisticRegression  # noqa: E402
+from sklearn.pipeline import (  # noqa: E402
+    FeatureUnion,
+    Pipeline,
+)
+from sklearn.pipeline import Pipeline as SklearnPipeline  # noqa: E402
+from sklearn.preprocessing import (  # noqa: E402
+    MaxAbsScaler,
+    MinMaxScaler,
+    Normalizer,
+    OneHotEncoder,
+    PowerTransformer,
+    QuantileTransformer,
+    RobustScaler,
+    StandardScaler,
+)
+
+from xorq.expr.ml.structer import (  # noqa: E402
     KV_ENCODED_TYPE,
     KVEncoder,
     KVField,
@@ -16,10 +56,9 @@ from xorq.expr.ml.structer import (
     _process_child_structer,
     _process_ct_item,
     _process_fu_item,
+    get_schema_out,
+    get_structer_out,
 )
-
-
-sklearn = pytest.importorskip("sklearn")
 
 
 class TestKVField:
@@ -27,10 +66,6 @@ class TestKVField:
 
     def test_kvfield_is_strenum(self):
         """Test KVField inherits from StrEnum."""
-        try:
-            from enum import StrEnum
-        except ImportError:
-            from strenum import StrEnum
         assert issubclass(KVField, StrEnum)
 
     def test_kvfield_members_are_strings(self):
@@ -107,8 +142,6 @@ class TestKVEncoder:
 
     def test_encode_basic(self):
         """Test KVEncoder.encode with a simple transformer."""
-        from sklearn.preprocessing import OneHotEncoder
-
         df = pd.DataFrame({"cat": ["a", "b", "a"]})
         model = OneHotEncoder(sparse_output=False)
         model.fit(df)
@@ -123,8 +156,6 @@ class TestKVEncoder:
 
     def test_encode_feature_names(self):
         """Test that encode uses get_feature_names_out() for keys."""
-        from sklearn.preprocessing import OneHotEncoder
-
         df = pd.DataFrame({"cat": ["a", "b", "c"]})
         model = OneHotEncoder(sparse_output=False)
         model.fit(df)
@@ -252,8 +283,6 @@ class TestStructer:
 
     def test_maybe_unpack_known_schema(self):
         """Test maybe_unpack unpacks struct column for known schema."""
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         step = xo.Step.from_instance_name(StandardScaler(), name="scaler")
         fitted = step.fit(t, features=("a", "b"))
@@ -269,8 +298,6 @@ class TestStructer:
 
     def test_maybe_unpack_kv_encoded(self):
         """Test maybe_unpack returns expr unchanged for KV-encoded."""
-        from sklearn.preprocessing import OneHotEncoder
-
         t = xo.memtable({"cat": ["a", "b", "a"]})
         step = xo.Step.from_instance_name(OneHotEncoder(), name="ohe")
         fitted = step.fit(t, features=("cat",))
@@ -290,8 +317,6 @@ class TestStructerFromInstance:
 
     def test_standard_scaler(self):
         """Test StandardScaler produces known schema."""
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         structer = Structer.from_instance_expr(StandardScaler(), t, features=("a", "b"))
 
@@ -301,8 +326,6 @@ class TestStructerFromInstance:
 
     def test_simple_imputer(self):
         """Test SimpleImputer produces known schema."""
-        from sklearn.impute import SimpleImputer
-
         t = xo.memtable({"a": [1.0, None], "b": [3.0, 4.0]})
         structer = Structer.from_instance_expr(SimpleImputer(), t, features=("a", "b"))
 
@@ -311,8 +334,6 @@ class TestStructerFromInstance:
 
     def test_missing_indicator_features_all(self):
         """Test MissingIndicator with features='all' produces known boolean schema."""
-        from sklearn.impute import MissingIndicator
-
         t = xo.memtable({"a": [1.0, None], "b": [3.0, 4.0]})
         structer = Structer.from_instance_expr(
             MissingIndicator(features="all"), t, features=("a", "b")
@@ -324,8 +345,6 @@ class TestStructerFromInstance:
 
     def test_missing_indicator_features_missing_only(self):
         """Test MissingIndicator with features='missing-only' produces KV-encoded schema."""
-        from sklearn.impute import MissingIndicator
-
         t = xo.memtable({"a": [1.0, None], "b": [3.0, 4.0]})
         structer = Structer.from_instance_expr(
             MissingIndicator(features="missing-only"), t, features=("a", "b")
@@ -337,8 +356,6 @@ class TestStructerFromInstance:
 
     def test_one_hot_encoder(self):
         """Test OneHotEncoder produces KV-encoded schema."""
-        from sklearn.preprocessing import OneHotEncoder
-
         t = xo.memtable({"cat": ["a", "b", "c"]})
         structer = Structer.from_instance_expr(OneHotEncoder(), t, features=("cat",))
 
@@ -348,8 +365,6 @@ class TestStructerFromInstance:
 
     def test_select_k_best(self):
         """Test SelectKBest produces stub columns when k is known."""
-        from sklearn.feature_selection import SelectKBest
-
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         structer = Structer.from_instance_expr(SelectKBest(k=1), t, features=("a", "b"))
 
@@ -361,8 +376,6 @@ class TestStructerFromInstance:
 
     def test_tfidf_vectorizer(self):
         """Test TfidfVectorizer is KV-encoded and is_series."""
-        from sklearn.feature_extraction.text import TfidfVectorizer
-
         t = xo.memtable({"text": ["hello world", "foo bar"]})
         structer = Structer.from_instance_expr(TfidfVectorizer(), t, features=("text",))
 
@@ -386,8 +399,6 @@ class TestKVEncoderIntegration:
 
     def test_one_hot_encoder_step(self):
         """Test OneHotEncoder through Step interface."""
-        from sklearn.preprocessing import OneHotEncoder
-
         t = xo.memtable({"cat": ["a", "b", "a", "c"]})
         step = xo.Step.from_instance_name(OneHotEncoder(), name="ohe")
         fitted = step.fit(t, features=("cat",))
@@ -406,8 +417,6 @@ class TestKVEncoderIntegration:
 
     def test_tfidf_vectorizer_step(self):
         """Test TfidfVectorizer through Step interface."""
-        from sklearn.feature_extraction.text import TfidfVectorizer
-
         t = xo.memtable({"text": ["hello world", "foo bar", "hello foo"]})
         step = xo.Step.from_instance_name(TfidfVectorizer(), name="tfidf")
         fitted = step.fit(t, features=("text",))
@@ -427,8 +436,6 @@ class TestKVEncoderIntegration:
 
     def test_tfidf_matches_sklearn(self):
         """Test TfidfVectorizer output matches sklearn."""
-        from sklearn.feature_extraction.text import TfidfVectorizer
-
         texts = ["hello world", "foo bar baz", "hello foo"]
         t = xo.memtable({"text": texts})
 
@@ -457,8 +464,6 @@ class TestKVEncoderIntegration:
 
     def test_select_k_best_with_target(self):
         """Test SelectKBest works with target column."""
-        from sklearn.feature_selection import SelectKBest, f_classif
-
         t = xo.memtable(
             {
                 "a": [1.0, 2.0, 3.0, 4.0],
@@ -491,9 +496,6 @@ class TestKVEncoderIntegration:
 
     def test_select_k_best_kv_encoded_input(self):
         """Test SelectKBest with KV-encoded input uses KV-encoding output."""
-        from sklearn.feature_selection import SelectKBest
-        from sklearn.preprocessing import OneHotEncoder
-
         # Create table with KV-encoded column from OneHotEncoder
         t = xo.memtable({"cat": ["a", "b", "a"], "target": [0, 1, 0]})
         ohe_step = xo.Step.from_instance_name(OneHotEncoder(), name="ohe")
@@ -514,9 +516,6 @@ class TestScalerTransformerParity:
 
     def test_minmax_scaler_matches_sklearn(self):
         """Test MinMaxScaler output matches sklearn."""
-        import numpy as np
-        from sklearn.preprocessing import MinMaxScaler
-
         np.random.seed(42)
         data = pd.DataFrame(
             {
@@ -546,9 +545,6 @@ class TestScalerTransformerParity:
 
     def test_maxabs_scaler_matches_sklearn(self):
         """Test MaxAbsScaler output matches sklearn."""
-        import numpy as np
-        from sklearn.preprocessing import MaxAbsScaler
-
         np.random.seed(42)
         data = pd.DataFrame(
             {
@@ -578,9 +574,6 @@ class TestScalerTransformerParity:
 
     def test_robust_scaler_matches_sklearn(self):
         """Test RobustScaler output matches sklearn."""
-        import numpy as np
-        from sklearn.preprocessing import RobustScaler
-
         np.random.seed(42)
         # Include some outliers to test robustness
         data = pd.DataFrame(
@@ -611,9 +604,6 @@ class TestScalerTransformerParity:
 
     def test_normalizer_matches_sklearn(self):
         """Test Normalizer output matches sklearn."""
-        import numpy as np
-        from sklearn.preprocessing import Normalizer
-
         np.random.seed(42)
         data = pd.DataFrame(
             {
@@ -644,9 +634,6 @@ class TestScalerTransformerParity:
 
     def test_power_transformer_matches_sklearn(self):
         """Test PowerTransformer output matches sklearn."""
-        import numpy as np
-        from sklearn.preprocessing import PowerTransformer
-
         np.random.seed(42)
         # Use positive values for yeo-johnson (works with any values, but positive is simpler)
         data = pd.DataFrame(
@@ -679,9 +666,6 @@ class TestScalerTransformerParity:
 
     def test_quantile_transformer_matches_sklearn(self):
         """Test QuantileTransformer output matches sklearn."""
-        import numpy as np
-        from sklearn.preprocessing import QuantileTransformer
-
         np.random.seed(42)
         # Need enough samples for quantile estimation
         data = pd.DataFrame(
@@ -719,8 +703,6 @@ class TestScalerTransformerStructer:
 
     def test_minmax_scaler_produces_known_schema(self):
         """Test MinMaxScaler produces known schema."""
-        from sklearn.preprocessing import MinMaxScaler
-
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         structer = Structer.from_instance_expr(MinMaxScaler(), t, features=("a", "b"))
 
@@ -732,8 +714,6 @@ class TestScalerTransformerStructer:
 
     def test_maxabs_scaler_produces_known_schema(self):
         """Test MaxAbsScaler produces known schema."""
-        from sklearn.preprocessing import MaxAbsScaler
-
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         structer = Structer.from_instance_expr(MaxAbsScaler(), t, features=("a", "b"))
 
@@ -743,8 +723,6 @@ class TestScalerTransformerStructer:
 
     def test_robust_scaler_produces_known_schema(self):
         """Test RobustScaler produces known schema."""
-        from sklearn.preprocessing import RobustScaler
-
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         structer = Structer.from_instance_expr(RobustScaler(), t, features=("a", "b"))
 
@@ -754,8 +732,6 @@ class TestScalerTransformerStructer:
 
     def test_normalizer_produces_known_schema(self):
         """Test Normalizer produces known schema."""
-        from sklearn.preprocessing import Normalizer
-
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         structer = Structer.from_instance_expr(Normalizer(), t, features=("a", "b"))
 
@@ -765,8 +741,6 @@ class TestScalerTransformerStructer:
 
     def test_power_transformer_produces_known_schema(self):
         """Test PowerTransformer produces known schema."""
-        from sklearn.preprocessing import PowerTransformer
-
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         structer = Structer.from_instance_expr(
             PowerTransformer(), t, features=("a", "b")
@@ -778,8 +752,6 @@ class TestScalerTransformerStructer:
 
     def test_quantile_transformer_produces_known_schema(self):
         """Test QuantileTransformer produces known schema."""
-        from sklearn.preprocessing import QuantileTransformer
-
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         structer = Structer.from_instance_expr(
             QuantileTransformer(), t, features=("a", "b")
@@ -801,8 +773,6 @@ class TestOneToOneFeatureMixinParameterized:
     @pytest.fixture
     def numeric_data(self):
         """Generate numeric data for scalers."""
-        import numpy as np
-
         np.random.seed(42)
         n_samples = 100
         return pd.DataFrame(
@@ -815,8 +785,6 @@ class TestOneToOneFeatureMixinParameterized:
     @pytest.fixture
     def positive_data(self):
         """Generate positive numeric data for PowerTransformer box-cox."""
-        import numpy as np
-
         np.random.seed(42)
         n_samples = 100
         return pd.DataFrame(
@@ -864,8 +832,6 @@ class TestOneToOneFeatureMixinParameterized:
         requires_positive,
     ):
         """Test OneToOneFeatureMixin estimators: structer schema and sklearn parity."""
-        from sklearn import preprocessing
-
         data = positive_data if requires_positive else numeric_data
         t = xo.memtable(data)
         features = ("a", "b")
@@ -907,9 +873,6 @@ class TestColumnTransformerStructer:
 
     def test_known_schema_all_transformers(self):
         """Test ColumnTransformer with all known-schema transformers."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"num1": [1.0, 2.0], "num2": [3.0, 4.0]})
         ct = ColumnTransformer(
             [
@@ -927,9 +890,6 @@ class TestColumnTransformerStructer:
 
     def test_kv_encoded_transformer(self):
         """Test ColumnTransformer with KV-encoded transformer."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import OneHotEncoder
-
         t = xo.memtable({"cat": ["a", "b", "c"]})
         ct = ColumnTransformer(
             [
@@ -946,9 +906,6 @@ class TestColumnTransformerStructer:
 
     def test_mixed_known_and_kv_encoded(self):
         """Test ColumnTransformer with mixed known-schema and KV-encoded."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import OneHotEncoder, StandardScaler
-
         t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"]})
         ct = ColumnTransformer(
             [
@@ -969,9 +926,6 @@ class TestColumnTransformerStructer:
 
     def test_passthrough_explicit(self):
         """Test ColumnTransformer with explicit passthrough."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"]})
         ct = ColumnTransformer(
             [
@@ -988,9 +942,6 @@ class TestColumnTransformerStructer:
 
     def test_remainder_passthrough(self):
         """Test ColumnTransformer with remainder='passthrough'."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"], "other": [3.0, 4.0]})
         ct = ColumnTransformer(
             [("scaler", StandardScaler(), ["num"])],
@@ -1006,9 +957,6 @@ class TestColumnTransformerStructer:
 
     def test_remainder_passthrough_with_kv_encoded(self):
         """Test ColumnTransformer with remainder='passthrough' and KV-encoded transformer."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import OneHotEncoder
-
         t = xo.memtable({"cat": ["a", "b"], "num1": [1.0, 2.0], "num2": [3.0, 4.0]})
         ct = ColumnTransformer(
             [("encoder", OneHotEncoder(), ["cat"])],
@@ -1021,9 +969,6 @@ class TestColumnTransformerStructer:
 
     def test_drop_transformer(self):
         """Test ColumnTransformer with drop transformer."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"]})
         ct = ColumnTransformer(
             [
@@ -1041,9 +986,6 @@ class TestColumnTransformerStructer:
 
     def test_nested_column_transformer(self):
         """Test nested ColumnTransformer (ColumnTransformer inside ColumnTransformer)."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0], "c": [5.0, 6.0]})
         inner_ct = ColumnTransformer(
             [
@@ -1067,9 +1009,6 @@ class TestColumnTransformerStructer:
 
     def test_nested_column_transformer_with_kv_encoded(self):
         """Test nested ColumnTransformer where inner has KV-encoded."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import OneHotEncoder, StandardScaler
-
         t = xo.memtable({"cat": ["a", "b"], "num": [1.0, 2.0]})
         inner_ct = ColumnTransformer(
             [
@@ -1092,8 +1031,6 @@ class TestColumnTransformerStructer:
 
     def test_unregistered_child_raises(self):
         """Test ColumnTransformer with unregistered child transformer raises."""
-        from sklearn.base import BaseEstimator, TransformerMixin
-        from sklearn.compose import ColumnTransformer
 
         class CustomTransformer(BaseEstimator, TransformerMixin):
             """Custom transformer not registered with structer_from_instance."""
@@ -1118,9 +1055,6 @@ class TestColumnTransformerStructer:
 
     def test_normalize_columns_list(self):
         """Test _normalize_columns handles list -> tuple."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         ct = ColumnTransformer(
             [
@@ -1136,9 +1070,6 @@ class TestColumnTransformerStructer:
 
     def test_normalize_columns_string(self):
         """Test _normalize_columns handles string -> single-element tuple."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"num": [1.0, 2.0], "other": [3.0, 4.0]})
         ct = ColumnTransformer(
             [
@@ -1153,9 +1084,6 @@ class TestColumnTransformerStructer:
 
     def test_normalize_columns_tuple(self):
         """Test _normalize_columns handles tuple -> tuple (passthrough)."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         ct = ColumnTransformer(
             [
@@ -1171,9 +1099,6 @@ class TestColumnTransformerStructer:
 
     def test_normalize_columns_none(self):
         """Test _normalize_columns handles None -> empty tuple."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         ct = ColumnTransformer(
             [
@@ -1189,9 +1114,6 @@ class TestColumnTransformerStructer:
 
     def test_normalize_columns_invalid_type_raises(self):
         """Test _normalize_columns raises TypeError for unsupported types."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"a": [1.0, 2.0]})
         ct = ColumnTransformer(
             [
@@ -1208,10 +1130,6 @@ class TestFeatureUnionStructer:
 
     def test_known_schema_all_transformers(self):
         """Test FeatureUnion with all known-schema transformers."""
-        from sklearn.impute import SimpleImputer
-        from sklearn.pipeline import FeatureUnion
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"num1": [1.0, 2.0], "num2": [3.0, 4.0]})
         fu = FeatureUnion(
             [
@@ -1231,9 +1149,6 @@ class TestFeatureUnionStructer:
 
     def test_kv_encoded_transformer(self):
         """Test FeatureUnion with KV-encoded transformer."""
-        from sklearn.pipeline import FeatureUnion
-        from sklearn.preprocessing import OneHotEncoder
-
         t = xo.memtable({"cat": ["a", "b", "c"]})
         fu = FeatureUnion(
             [
@@ -1250,9 +1165,6 @@ class TestFeatureUnionStructer:
 
     def test_mixed_known_and_kv_encoded(self):
         """Test FeatureUnion with mixed known-schema and KV-encoded."""
-        from sklearn.pipeline import FeatureUnion
-        from sklearn.preprocessing import OneHotEncoder, StandardScaler
-
         t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"]})
         fu = FeatureUnion(
             [
@@ -1273,8 +1185,6 @@ class TestFeatureUnionStructer:
 
     def test_unregistered_child_raises(self):
         """Test FeatureUnion with unregistered child transformer raises."""
-        from sklearn.base import BaseEstimator, TransformerMixin
-        from sklearn.pipeline import FeatureUnion
 
         class CustomTransformer(BaseEstimator, TransformerMixin):
             """Custom transformer not registered with structer_from_instance."""
@@ -1297,9 +1207,6 @@ class TestFeatureUnionStructer:
 
     def test_nested_feature_union(self):
         """Test nested FeatureUnion."""
-        from sklearn.pipeline import FeatureUnion
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         inner_fu = FeatureUnion(
             [
@@ -1327,10 +1234,6 @@ class TestSklearnPipelineStructer:
 
     def test_known_schema_pipeline(self):
         """Test Pipeline with all known-schema transformers."""
-        from sklearn.impute import SimpleImputer
-        from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"num1": [1.0, 2.0], "num2": [3.0, 4.0]})
         pipe = Pipeline(
             [
@@ -1348,9 +1251,6 @@ class TestSklearnPipelineStructer:
 
     def test_kv_encoded_pipeline(self):
         """Test Pipeline with KV-encoded transformer."""
-        from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import OneHotEncoder
-
         t = xo.memtable({"cat": ["a", "b", "c"]})
         pipe = Pipeline(
             [
@@ -1367,9 +1267,6 @@ class TestSklearnPipelineStructer:
 
     def test_kv_encoded_early_exit(self):
         """Test Pipeline returns KV-encoded once any step is KV-encoded."""
-        from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import OneHotEncoder
-
         t = xo.memtable({"cat": ["a", "b"]})
         # Even if there are steps after OneHotEncoder, we return KV-encoded
         pipe = Pipeline(
@@ -1385,10 +1282,6 @@ class TestSklearnPipelineStructer:
 
     def test_nested_pipeline(self):
         """Test nested Pipeline (Pipeline inside Pipeline)."""
-        from sklearn.impute import SimpleImputer
-        from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         inner_pipe = Pipeline(
             [
@@ -1409,10 +1302,6 @@ class TestSklearnPipelineStructer:
 
     def test_pipeline_with_column_transformer(self):
         """Test Pipeline containing ColumnTransformer."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"]})
         pipe = Pipeline(
             [
@@ -1436,10 +1325,6 @@ class TestSklearnPipelineStructer:
 
     def test_pipeline_with_kv_column_transformer(self):
         """Test Pipeline containing ColumnTransformer with KV-encoded child."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import OneHotEncoder
-
         t = xo.memtable({"cat": ["a", "b"], "num": [1.0, 2.0]})
         pipe = Pipeline(
             [
@@ -1464,8 +1349,6 @@ class TestSklearnPipelineStructer:
 
     def test_unregistered_step_raises(self):
         """Test Pipeline with unregistered transformer raises."""
-        from sklearn.base import BaseEstimator, TransformerMixin
-        from sklearn.pipeline import Pipeline
 
         class CustomTransformer(BaseEstimator, TransformerMixin):
             """Custom transformer not registered with structer_from_instance."""
@@ -1488,8 +1371,6 @@ class TestSklearnPipelineStructer:
 
     def test_empty_pipeline_returns_input_schema(self):
         """Test empty Pipeline returns input schema (passthrough)."""
-        from sklearn.pipeline import Pipeline
-
         t = xo.memtable({"num": [1.0, 2.0]})
         pipe = Pipeline([])
 
@@ -1500,8 +1381,6 @@ class TestSklearnPipelineStructer:
 
     def test_passthrough_step(self):
         """Test Pipeline with 'passthrough' step."""
-        from sklearn.pipeline import Pipeline
-
         t = xo.memtable({"num1": [1.0, 2.0], "num2": [3.0, 4.0]})
         pipe = Pipeline(
             [
@@ -1516,10 +1395,6 @@ class TestSklearnPipelineStructer:
 
     def test_nested_pipeline_with_passthrough(self):
         """Test Pipeline(Pipeline()) where inner pipeline has passthrough columns."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"]})
         inner_pipe = Pipeline(
             [
@@ -1548,10 +1423,6 @@ class TestSklearnPipelineStructer:
 
     def test_chained_feature_transforms(self):
         """Test Pipeline where features change between steps."""
-        from sklearn.feature_selection import SelectKBest
-        from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable(
             {
                 "a": [1.0, 2.0, 3.0, 4.0],
@@ -1577,9 +1448,6 @@ class TestGetStructerOutErrorHandling:
 
     def test_unregistered_base_estimator_raises_value_error(self):
         """Test unregistered BaseEstimator subclass raises ValueError."""
-        from sklearn.base import BaseEstimator
-
-        from xorq.expr.ml.structer import get_structer_out
 
         class UnregisteredEstimator(BaseEstimator):
             pass
@@ -1590,7 +1458,6 @@ class TestGetStructerOutErrorHandling:
 
     def test_non_base_estimator_raises_type_error(self):
         """Test non-BaseEstimator types raise TypeError."""
-        from xorq.expr.ml.structer import get_structer_out
 
         class NotAnEstimator:
             pass
@@ -1601,16 +1468,12 @@ class TestGetStructerOutErrorHandling:
 
     def test_primitive_type_raises_type_error(self):
         """Test primitive types raise TypeError."""
-        from xorq.expr.ml.structer import get_structer_out
-
         t = xo.memtable({"a": [1.0, 2.0]})
         with pytest.raises(TypeError, match="Unexpected type in get_structer_out"):
             get_structer_out("not an estimator", t)
 
     def test_none_raises_type_error(self):
         """Test None raises TypeError."""
-        from xorq.expr.ml.structer import get_structer_out
-
         t = xo.memtable({"a": [1.0, 2.0]})
         with pytest.raises(TypeError, match="Unexpected type in get_structer_out"):
             get_structer_out(None, t)
@@ -1678,11 +1541,6 @@ class TestGetSchemaOut:
 
     def test_column_transformer_basic(self):
         """Test get_schema_out with ColumnTransformer uses sklearn-style prefixes."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import StandardScaler
-
-        from xorq.expr.ml.structer import get_schema_out
-
         t = xo.memtable({"num1": [1.0, 2.0], "num2": [3.0, 4.0]})
         ct = ColumnTransformer(
             [
@@ -1697,11 +1555,6 @@ class TestGetSchemaOut:
 
     def test_column_transformer_passthrough(self):
         """Test get_schema_out with ColumnTransformer passthrough uses prefixes."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import StandardScaler
-
-        from xorq.expr.ml.structer import get_schema_out
-
         t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"]})
         ct = ColumnTransformer(
             [
@@ -1716,11 +1569,6 @@ class TestGetSchemaOut:
 
     def test_column_transformer_remainder_passthrough(self):
         """Test get_schema_out with ColumnTransformer remainder='passthrough'."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import StandardScaler
-
-        from xorq.expr.ml.structer import get_schema_out
-
         t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"], "other": [3.0, 4.0]})
         ct = ColumnTransformer(
             [("scaler", StandardScaler(), ["num"])],
@@ -1735,11 +1583,6 @@ class TestGetSchemaOut:
 
     def test_column_transformer_drop(self):
         """Test get_schema_out with ColumnTransformer drop."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import StandardScaler
-
-        from xorq.expr.ml.structer import get_schema_out
-
         t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"]})
         ct = ColumnTransformer(
             [
@@ -1756,12 +1599,6 @@ class TestGetSchemaOut:
 
     def test_feature_union(self):
         """Test get_schema_out with FeatureUnion uses prefixes."""
-        from sklearn.impute import SimpleImputer
-        from sklearn.pipeline import FeatureUnion
-        from sklearn.preprocessing import StandardScaler
-
-        from xorq.expr.ml.structer import get_schema_out
-
         t = xo.memtable({"num1": [1.0, 2.0], "num2": [3.0, 4.0]})
         fu = FeatureUnion(
             [
@@ -1779,12 +1616,6 @@ class TestGetSchemaOut:
 
     def test_sklearn_pipeline(self):
         """Test get_schema_out with sklearn Pipeline (no prefixes for pipeline)."""
-        from sklearn.impute import SimpleImputer
-        from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import StandardScaler
-
-        from xorq.expr.ml.structer import get_schema_out
-
         t = xo.memtable({"num1": [1.0, 2.0], "num2": [3.0, 4.0]})
         pipe = Pipeline(
             [
@@ -1800,10 +1631,6 @@ class TestGetSchemaOut:
 
     def test_base_estimator(self):
         """Test get_schema_out with simple BaseEstimator (no prefix)."""
-        from sklearn.preprocessing import StandardScaler
-
-        from xorq.expr.ml.structer import get_schema_out
-
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         scaler = StandardScaler()
         schema = get_schema_out(scaler, t, features=("a", "b"))
@@ -1814,11 +1641,6 @@ class TestGetSchemaOut:
 
     def test_nested_column_transformer(self):
         """Test get_schema_out with nested ColumnTransformer uses nested prefixes."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import StandardScaler
-
-        from xorq.expr.ml.structer import get_schema_out
-
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0], "c": [5.0, 6.0]})
         inner_ct = ColumnTransformer(
             [
@@ -1840,12 +1662,6 @@ class TestGetSchemaOut:
 
     def test_pipeline_with_column_transformer(self):
         """Test get_schema_out with Pipeline containing ColumnTransformer."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import StandardScaler
-
-        from xorq.expr.ml.structer import get_schema_out
-
         t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"]})
         pipe = Pipeline(
             [
@@ -1868,8 +1684,6 @@ class TestGetSchemaOut:
 
     def test_unsupported_type_raises(self):
         """Test get_schema_out raises TypeError for non-BaseEstimator types."""
-        from xorq.expr.ml.structer import get_schema_out
-
         t = xo.memtable({"a": [1.0, 2.0]})
 
         with pytest.raises(TypeError, match="Unexpected type in get_structer_out"):
@@ -1885,16 +1699,6 @@ class TestGetSchemaOut:
             - Pipeline (SimpleImputer -> StandardScaler)
           - Pipeline (KV-encoded: categorical via OneHotEncoder)
         """
-        import numpy as np
-        import pandas as pd
-        from sklearn.compose import ColumnTransformer
-        from sklearn.impute import SimpleImputer
-        from sklearn.pipeline import FeatureUnion
-        from sklearn.pipeline import Pipeline as SklearnPipeline
-        from sklearn.preprocessing import OneHotEncoder, StandardScaler
-
-        from xorq.expr.ml.structer import KV_ENCODED_TYPE, get_schema_out
-
         np.random.seed(42)
         n_samples = 20
 
@@ -1975,15 +1779,6 @@ class TestGetSchemaOut:
             - Pipeline (SimpleImputer -> StandardScaler)
           - Pipeline (SimpleImputer -> StandardScaler)
         """
-        import numpy as np
-        import pandas as pd
-        from sklearn.compose import ColumnTransformer
-        from sklearn.impute import SimpleImputer
-        from sklearn.pipeline import Pipeline as SklearnPipeline
-        from sklearn.preprocessing import StandardScaler
-
-        from xorq.expr.ml.structer import get_schema_out
-
         np.random.seed(42)
         n_samples = 20
 
@@ -2055,13 +1850,6 @@ class TestGetSchemaOut:
         Two OneHotEncoders should produce two separate KV-encoded columns,
         not pollute the entire output into one KV column.
         """
-        import numpy as np
-        import pandas as pd
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import OneHotEncoder, StandardScaler
-
-        from xorq.expr.ml.structer import KV_ENCODED_TYPE, get_schema_out
-
         np.random.seed(42)
         n_samples = 20
 
@@ -2103,13 +1891,6 @@ class TestGetSchemaOut:
 
     def test_hybrid_output_preserves_types(self):
         """Test that hybrid output preserves correct types for each column."""
-        import pandas as pd
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import OneHotEncoder, StandardScaler
-
-        import xorq.expr.datatypes as dt
-        from xorq.expr.ml.structer import KV_ENCODED_TYPE, get_schema_out
-
         data = pd.DataFrame(
             {
                 "num": [1.0, 2.0, 3.0],
@@ -2378,8 +2159,6 @@ class TestGetRemainderFields:
 
     def test_get_remainder_fields_basic(self):
         """Test _get_remainder_fields finds unhandled columns."""
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"a": [1.0], "b": [2.0], "c": [3.0]})
         transformer_items = [
             ("scaler", StandardScaler(), ["a"]),
@@ -2393,8 +2172,6 @@ class TestGetRemainderFields:
 
     def test_get_remainder_fields_all_handled(self):
         """Test _get_remainder_fields when all columns are handled."""
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"a": [1.0], "b": [2.0]})
         transformer_items = [
             ("scaler", StandardScaler(), ["a", "b"]),
@@ -2406,8 +2183,6 @@ class TestGetRemainderFields:
 
     def test_get_remainder_fields_ignores_drop(self):
         """Test _get_remainder_fields ignores 'drop' transformer columns."""
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"a": [1.0], "b": [2.0], "c": [3.0]})
         transformer_items = [
             ("scaler", StandardScaler(), ["a"]),
@@ -2423,8 +2198,6 @@ class TestGetRemainderFields:
 
     def test_get_remainder_fields_preserves_types(self):
         """Test _get_remainder_fields preserves column types."""
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"num": [1.0], "cat": ["a"], "int_col": [42]})
         transformer_items = [
             ("scaler", StandardScaler(), ["num"]),
@@ -2462,8 +2235,6 @@ class TestProcessCtItem:
 
     def test_process_ct_item_known_schema_transformer(self):
         """Test _process_ct_item with known-schema transformer."""
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"a": [1.0], "b": [2.0]})
         item = ("scaler", StandardScaler(), ["a", "b"])
         fields, kv_cols = _process_ct_item(t, item)
@@ -2474,8 +2245,6 @@ class TestProcessCtItem:
 
     def test_process_ct_item_kv_encoded_transformer(self):
         """Test _process_ct_item with KV-encoded transformer."""
-        from sklearn.preprocessing import OneHotEncoder
-
         t = xo.memtable({"cat": ["a", "b"]})
         item = ("encoder", OneHotEncoder(), ["cat"])
         fields, kv_cols = _process_ct_item(t, item)
@@ -2508,8 +2277,6 @@ class TestProcessFuItem:
 
     def test_process_fu_item_known_schema(self):
         """Test _process_fu_item with known-schema transformer."""
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"a": [1.0], "b": [2.0]})
         item = ("scaler", StandardScaler())
         fields, kv_cols = _process_fu_item(t, ("a", "b"), item)
@@ -2520,8 +2287,6 @@ class TestProcessFuItem:
 
     def test_process_fu_item_kv_encoded(self):
         """Test _process_fu_item with KV-encoded transformer."""
-        from sklearn.preprocessing import OneHotEncoder
-
         t = xo.memtable({"cat": ["a", "b"]})
         item = ("encoder", OneHotEncoder())
         fields, kv_cols = _process_fu_item(t, ("cat",), item)
@@ -2531,8 +2296,6 @@ class TestProcessFuItem:
 
     def test_process_fu_item_uses_all_features(self):
         """Test _process_fu_item applies transformer to all features."""
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"a": [1.0], "b": [2.0], "c": [3.0]})
         item = ("scaler", StandardScaler())
         fields, _ = _process_fu_item(t, ("a", "b", "c"), item)
@@ -2558,8 +2321,6 @@ class TestAccumulatePipelineStep:
 
     def test_accumulate_pipeline_step_known_schema(self):
         """Test _accumulate_pipeline_step with known-schema transformer."""
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"a": [1.0], "b": [2.0]})
         acc = (("a", "b"), None)
         step = ("scaler", StandardScaler())
@@ -2573,8 +2334,6 @@ class TestAccumulatePipelineStep:
 
     def test_accumulate_pipeline_step_kv_encoded(self):
         """Test _accumulate_pipeline_step with KV-encoded transformer."""
-        from sklearn.preprocessing import OneHotEncoder
-
         t = xo.memtable({"cat": ["a", "b"]})
         acc = (("cat",), None)
         step = ("encoder", OneHotEncoder())
@@ -2587,8 +2346,6 @@ class TestAccumulatePipelineStep:
 
     def test_accumulate_pipeline_step_updates_features(self):
         """Test _accumulate_pipeline_step with known output count updates features."""
-        from sklearn.feature_selection import SelectKBest
-
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0], "target": [0, 1]})
         acc = (("a", "b"), None)
         step = ("selector", SelectKBest(k=1))
@@ -2602,9 +2359,6 @@ class TestAccumulatePipelineStep:
 
     def test_accumulate_pipeline_step_chain(self):
         """Test _accumulate_pipeline_step through multiple steps."""
-        from sklearn.impute import SimpleImputer
-        from sklearn.preprocessing import StandardScaler
-
         t = xo.memtable({"a": [1.0], "b": [2.0]})
         features = ("a", "b")
 
@@ -2666,12 +2420,6 @@ class TestConvertStructWithKv:
 
         The non-KV field would get wrong values or cause index errors.
         """
-        import pandas as pd
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import OneHotEncoder, StandardScaler
-
-        from xorq.expr.ml.structer import get_structer_out
-
         df = pd.DataFrame(
             {
                 "cat": ["a", "b", "a"],
@@ -2722,12 +2470,6 @@ class TestConvertStructWithKv:
 
     def test_non_kv_then_kv_slicing(self):
         """Test slicing when non-KV field precedes KV field."""
-        import pandas as pd
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import OneHotEncoder, StandardScaler
-
-        from xorq.expr.ml.structer import get_structer_out
-
         df = pd.DataFrame(
             {
                 "num": [1.0, 2.0, 3.0],
@@ -2762,12 +2504,6 @@ class TestConvertStructWithKv:
 
     def test_multiple_kv_fields_slicing(self):
         """Test slicing with multiple KV fields."""
-        import pandas as pd
-        from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import OneHotEncoder, StandardScaler
-
-        from xorq.expr.ml.structer import get_structer_out
-
         df = pd.DataFrame(
             {
                 "cat1": ["a", "b", "c"],
@@ -2814,8 +2550,6 @@ class TestFeatureSelectorParity:
     @pytest.fixture
     def classification_data(self):
         """Generate classification data with features and target."""
-        import numpy as np
-
         np.random.seed(42)
         n_samples = 100
         # Create features where some have clear relationship with target
@@ -2871,8 +2605,6 @@ class TestFeatureSelectorParity:
         self, classification_data, selector_cls, selector_kwargs
     ):
         """Test univariate feature selectors match sklearn output."""
-        from sklearn import feature_selection
-
         data = classification_data
         features = ("f1", "f2", "f3", "f4")
         t = xo.memtable(data)
@@ -2905,8 +2637,6 @@ class TestFeatureSelectorParity:
         )
 
         # Compare values (struct output has stub names, so compare values only)
-        import numpy as np
-
         np.testing.assert_allclose(
             xorq_df.reset_index(drop=True).values,
             sklearn_df.reset_index(drop=True).values,
@@ -2919,9 +2649,6 @@ class TestFeatureSelectorParity:
         VarianceThreshold is unique among feature selectors - it doesn't require
         a target variable, making it an unsupervised feature selector.
         """
-        import numpy as np
-        from sklearn.feature_selection import VarianceThreshold
-
         data = classification_data
         features = ("f1", "f2", "f3", "f4")
         t = xo.memtable(data)
@@ -2984,9 +2711,6 @@ class TestFeatureSelectorParity:
         self, classification_data, selector_cls, selector_kwargs
     ):
         """Test model-based feature selectors match sklearn output."""
-        from sklearn import feature_selection
-        from sklearn.linear_model import LogisticRegression
-
         data = classification_data
         features = ("f1", "f2", "f3", "f4")
         t = xo.memtable(data)
@@ -3021,8 +2745,6 @@ class TestFeatureSelectorParity:
         )
 
         # Compare values (struct output has stub names, so compare values only)
-        import numpy as np
-
         np.testing.assert_allclose(
             xorq_df.reset_index(drop=True).values,
             sklearn_df.reset_index(drop=True).values,
@@ -3040,8 +2762,6 @@ class TestClassNamePrefixFeaturesOutMixinParity:
     @pytest.fixture
     def numeric_data(self):
         """Generate numeric data for transformers."""
-        import numpy as np
-
         np.random.seed(42)
         n_samples = 100
         # Create positive features (required for NMF, LDA topic modeling)
@@ -3203,10 +2923,6 @@ class TestClassNamePrefixFeaturesOutMixinParity:
         self, numeric_data, transformer_cls, transformer_kwargs, module, needs_target
     ):
         """Test ClassNamePrefixFeaturesOutMixin transformers match sklearn output."""
-        import importlib
-
-        import numpy as np
-
         data = numeric_data
         features = ("f1", "f2", "f3", "f4")
         t = xo.memtable(data)
@@ -3264,8 +2980,6 @@ class TestKVEncodedTransformersParity:
     @pytest.fixture
     def test_data(self):
         """Create test data with all required column types."""
-        import numpy as np
-
         np.random.seed(42)
         n_samples = 20
 
@@ -3479,10 +3193,6 @@ class TestKVEncodedTransformersParity:
         input_type,
     ):
         """Test KV-encoded transformers match sklearn output."""
-        import importlib
-
-        import numpy as np
-
         data = test_data
         t = xo.memtable(data)
 

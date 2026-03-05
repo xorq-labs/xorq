@@ -30,7 +30,7 @@ def property_wrap_fn(fn):
 
 
 def arrays_to_df(names, *arrays):
-    import pandas as pd
+    import pandas as pd  # noqa: PLC0415
 
     return pd.DataFrame(
         {name: array.to_pandas() for (name, array) in zip(names, arrays)}
@@ -481,7 +481,7 @@ def make_pandas_udf(
     agg : For aggregation functions
     """
 
-    from xorq.vendor.ibis.expr.operations.udf import ScalarUDF
+    from xorq.vendor.ibis.expr.operations.udf import ScalarUDF  # noqa: PLC0415
 
     name = name if name is not None else _make_udf_name(fn)
     bases = (ScalarUDF,)

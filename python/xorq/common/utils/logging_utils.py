@@ -66,7 +66,7 @@ def log_initial_state(hash_diffs=False, cwd=None):
                 **git_state,
             )
         else:
-            import xorq
+            import xorq  # noqa: PLC0415
 
             logger.info("xorq version", version=xorq.__version__)
     except Exception:
@@ -136,7 +136,7 @@ class RunLogFile(StrEnum):
 
 def get_xorq_runs_dir() -> Path:
     # NOTE: modifying env var XORQ_RUNS_LOGS_DIR won't have any impact after first import
-    from xorq.config import env_config
+    from xorq.config import env_config  # noqa: PLC0415
 
     if path := env_config.XORQ_RUNS_LOGS_DIR:
         return Path(path).expanduser()
@@ -228,7 +228,7 @@ class RunLogger:
                 metrics["bytes"] = output_file.stat().st_size
                 if str(output_format) == "parquet":
                     try:
-                        import pyarrow.parquet as pq
+                        import pyarrow.parquet as pq  # noqa: PLC0415
 
                         metrics["rows"] = pq.read_metadata(output_file).num_rows
                     except ImportError:

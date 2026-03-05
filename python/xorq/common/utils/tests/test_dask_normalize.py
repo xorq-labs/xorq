@@ -7,6 +7,7 @@ from unittest.mock import (
     patch,
 )
 
+import cloudpickle
 import dask
 import pytest
 import toolz
@@ -245,8 +246,6 @@ def test_patch_normalize_token():
 
 
 def test_parquet_cache_tokenize_stable_across_cloudpickle():
-    import cloudpickle
-
     con = xo.connect()
     cache = ParquetCache.from_kwargs(source=con)
     token_before = dask.base.tokenize(cache)

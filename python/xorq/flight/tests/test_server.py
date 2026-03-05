@@ -7,6 +7,7 @@ import time
 import pandas as pd
 import pyarrow as pa
 import pytest
+from pyarrow._flight import FlightUnauthenticatedError
 
 import xorq.api as xo
 import xorq.expr.datatypes as dt
@@ -191,8 +192,6 @@ def test_failed_auth(tls_kwargs):
             "password": "not_the_password",
             "tls_root_certs": kwargs["root_certificates"],
         }
-
-        from pyarrow._flight import FlightUnauthenticatedError
 
         with pytest.raises(FlightUnauthenticatedError):
             instance = Backend()

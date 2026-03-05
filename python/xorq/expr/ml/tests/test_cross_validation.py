@@ -1,6 +1,7 @@
 """Tests for deferred_cross_val_score."""
 
 import numpy as np
+import pandas as pd
 import pytest
 from pytest import param
 
@@ -9,6 +10,8 @@ import xorq.api as xo
 
 sklearn = pytest.importorskip("sklearn")
 
+from sklearn.datasets import make_classification, make_regression  # noqa: E402
+from sklearn.linear_model import LinearRegression, LogisticRegression  # noqa: E402
 from sklearn.model_selection import (  # noqa: E402
     KFold,
     RepeatedKFold,
@@ -19,20 +22,21 @@ from sklearn.model_selection import (  # noqa: E402
     TimeSeriesSplit,
     cross_val_score,
 )
+from sklearn.pipeline import Pipeline as SklearnPipeline  # noqa: E402
+from sklearn.preprocessing import StandardScaler  # noqa: E402
 
 from xorq.expr.ml.cross_validation import (  # noqa: E402
     CrossValScore,
     apply_deterministic_sort,
     deferred_cross_val_score,
 )
+from xorq.expr.ml.pipeline_lib import Pipeline  # noqa: E402
+from xorq.vendor.ibis.expr.types import Expr  # noqa: E402
 
 
 @pytest.fixture(scope="module")
 def classification_data():
     """Generate a classification dataset as an ibis table."""
-    import pandas as pd
-    from sklearn.datasets import make_classification
-
     X, y = make_classification(
         n_samples=200,
         n_features=4,
@@ -49,9 +53,6 @@ def classification_data():
 @pytest.fixture(scope="module")
 def regression_data():
     """Generate a regression dataset as an ibis table."""
-    import pandas as pd
-    from sklearn.datasets import make_regression
-
     X, y = make_regression(
         n_samples=200,
         n_features=4,
@@ -67,12 +68,6 @@ def regression_data():
 @pytest.fixture(scope="module")
 def classifier_pipeline():
     """An unfitted xorq Pipeline for classification."""
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.pipeline import Pipeline as SklearnPipeline
-    from sklearn.preprocessing import StandardScaler
-
-    from xorq.expr.ml.pipeline_lib import Pipeline
-
     return Pipeline.from_instance(
         SklearnPipeline(
             [
@@ -86,12 +81,6 @@ def classifier_pipeline():
 @pytest.fixture(scope="module")
 def regressor_pipeline():
     """An unfitted xorq Pipeline for regression."""
-    from sklearn.linear_model import LinearRegression
-    from sklearn.pipeline import Pipeline as SklearnPipeline
-    from sklearn.preprocessing import StandardScaler
-
-    from xorq.expr.ml.pipeline_lib import Pipeline
-
     return Pipeline.from_instance(
         SklearnPipeline(
             [
@@ -438,7 +427,6 @@ def test_sklearn_splitter_no_execute_during_construction(
 ):
     """Building a CrossValScore with an sklearn splitter must NOT call
     Expr.execute() anywhere in the expression graph."""
-    from xorq.vendor.ibis.expr.types import Expr
 
     def raise_error(*args, **kwargs):
         raise AssertionError("Expr.execute() was called during expression construction")
@@ -464,7 +452,6 @@ def test_int_cv_no_execute_during_construction(
 ):
     """Building a CrossValScore with int cv must NOT call
     Expr.execute() anywhere in the expression graph."""
-    from xorq.vendor.ibis.expr.types import Expr
 
     def raise_error(*args, **kwargs):
         raise AssertionError("Expr.execute() was called during expression construction")

@@ -58,7 +58,7 @@ class GCStorage(CacheStorage):
         object.__setattr__(self, "fs", gcsfs.GCSFileSystem())
 
     def __dask_tokenize__(self):
-        from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
             normalize_seq_with_caller,
         )
 

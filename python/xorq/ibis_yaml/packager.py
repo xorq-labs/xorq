@@ -305,7 +305,7 @@ def uv_tool_run(
         else (("stdout", None), ("stderr", None))
     )
     if in_nix_shell():
-        import os
+        import os  # noqa: PLC0415
 
         env = os.environ | {
             "LD_LIBRARY_PATH": os.environ["UV_TOOL_RUN_LD_LIBRARY_PATH"]

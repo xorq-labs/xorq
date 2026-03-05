@@ -31,7 +31,7 @@ def __dir__():
 
 
 def __getattr__(name):
-    from xorq.vendor.ibis import examples as ibex
+    from xorq.vendor.ibis import examples as ibex  # noqa: PLC0415
 
     lookup = get_name_to_suffix()
 

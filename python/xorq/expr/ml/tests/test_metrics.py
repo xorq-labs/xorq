@@ -1,5 +1,7 @@
 """Tests for deferred sklearn metrics evaluation using Pipeline API."""
 
+from unittest.mock import MagicMock
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -7,7 +9,12 @@ import pytest
 import xorq.expr.datatypes as dt
 from xorq.expr import api
 from xorq.expr.ml.enums import ResponseMethod
-from xorq.expr.ml.metrics import deferred_sklearn_metric
+from xorq.expr.ml.metrics import (
+    Scorer,
+    _default_scorer_for_model,
+    deferred_auc_from_curve,
+    deferred_sklearn_metric,
+)
 from xorq.expr.ml.pipeline_lib import Pipeline
 
 
@@ -16,6 +23,7 @@ sklearn = pytest.importorskip("sklearn")
 
 # Access sklearn modules through the sklearn object to avoid E402 linting errors
 make_classification = sklearn.datasets.make_classification
+make_blobs = sklearn.datasets.make_blobs
 make_regression = sklearn.datasets.make_regression
 RandomForestClassifier = sklearn.ensemble.RandomForestClassifier
 RandomForestRegressor = sklearn.ensemble.RandomForestRegressor
@@ -24,15 +32,25 @@ LogisticRegression = sklearn.linear_model.LogisticRegression
 LinearSVC = sklearn.svm.LinearSVC
 StandardScaler = sklearn.preprocessing.StandardScaler
 SkPipeline = sklearn.pipeline.Pipeline
+KMeans = sklearn.cluster.KMeans
+adjusted_rand_score = sklearn.metrics.adjusted_rand_score
 accuracy_score = sklearn.metrics.accuracy_score
+auc = sklearn.metrics.auc
+confusion_matrix = sklearn.metrics.confusion_matrix
+make_scorer = sklearn.metrics.make_scorer
 mean_absolute_error = sklearn.metrics.mean_absolute_error
 mean_squared_error = sklearn.metrics.mean_squared_error
 precision_score = sklearn.metrics.precision_score
+precision_recall_curve = sklearn.metrics.precision_recall_curve
 r2_score = sklearn.metrics.r2_score
 recall_score = sklearn.metrics.recall_score
 roc_auc_score = sklearn.metrics.roc_auc_score
+roc_curve = sklearn.metrics.roc_curve
+det_curve = sklearn.metrics.det_curve
 f1_score = sklearn.metrics.f1_score
 train_test_split = sklearn.model_selection.train_test_split
+OneVsRestClassifier = sklearn.multiclass.OneVsRestClassifier
+BaseEstimator = sklearn.base.BaseEstimator
 
 
 @pytest.fixture
@@ -350,8 +368,6 @@ def test_custom_metric_with_pipeline():
     )
 
     # Define a custom metric wrapped with make_scorer
-    from sklearn.metrics import make_scorer
-
     def custom_metric(y_true, y_pred):
         """A custom metric that returns accuracy * 100."""
         return accuracy_score(y_true, y_pred) * 100
@@ -442,8 +458,6 @@ def test_deferred_nature_with_pipeline():
 def test_predict_proba_metrics():
     """Test that probability-based metrics work with predict_proba."""
     # Create binary classification data
-    from sklearn.datasets import make_classification
-
     X, y = make_classification(
         n_samples=200, n_features=5, n_informative=3, n_classes=2, random_state=42
     )
@@ -719,8 +733,6 @@ def test_sign_auto_detected():
 
 def test_scorer_from_spec_string_input():
     """str -> resolved scorer with sign, kwargs, response_method."""
-    from xorq.expr.ml.metrics import Scorer
-
     s = Scorer.from_spec("accuracy")
     assert s.metric_fn is accuracy_score
     assert s.sign == 1
@@ -729,8 +741,6 @@ def test_scorer_from_spec_string_input():
 
 def test_scorer_from_spec_string_neg_scorer():
     """neg_* string -> sign=-1."""
-    from xorq.expr.ml.metrics import Scorer
-
     s = Scorer.from_spec("neg_mean_squared_error")
     assert s.metric_fn is mean_squared_error
     assert s.sign == -1
@@ -739,8 +749,6 @@ def test_scorer_from_spec_string_neg_scorer():
 
 def test_scorer_from_spec_string_proba_scorer():
     """roc_auc string -> response_method from scorer."""
-    from xorq.expr.ml.metrics import Scorer
-
     s = Scorer.from_spec("roc_auc")
     assert s.metric_fn is roc_auc_score
     assert s.sign == 1
@@ -753,10 +761,6 @@ def test_scorer_from_spec_string_proba_scorer():
 
 def test_scorer_from_spec_base_scorer_input():
     """_BaseScorer -> extracts metric_fn, sign, kwargs."""
-    from sklearn.metrics import make_scorer
-
-    from xorq.expr.ml.metrics import Scorer
-
     scorer_obj = make_scorer(accuracy_score)
     s = Scorer.from_spec(scorer_obj)
     assert s.metric_fn is accuracy_score
@@ -765,8 +769,6 @@ def test_scorer_from_spec_base_scorer_input():
 
 def test_scorer_from_spec_known_callable():
     """Known bare callable -> sign=1, kwargs=(), response_method=predict."""
-    from xorq.expr.ml.metrics import Scorer
-
     s = Scorer.from_spec(accuracy_score)
     assert s.metric_fn is accuracy_score
     assert s.sign == 1
@@ -776,18 +778,12 @@ def test_scorer_from_spec_known_callable():
 
 def test_scorer_from_spec_unknown_callable_raises():
     """Unknown callable -> ValueError."""
-    from sklearn.metrics import confusion_matrix
-
-    from xorq.expr.ml.metrics import Scorer
-
     with pytest.raises(ValueError, match="not a known sklearn scorer function"):
         Scorer.from_spec(confusion_matrix)
 
 
 def test_scorer_from_spec_scorer_passthrough():
     """Scorer input -> returns same instance."""
-    from xorq.expr.ml.metrics import Scorer
-
     original = Scorer(
         metric_fn=accuracy_score,
         sign=1,
@@ -800,10 +796,6 @@ def test_scorer_from_spec_scorer_passthrough():
 
 def test_scorer_from_model_classifier():
     """Classifier -> accuracy_score."""
-    from sklearn.linear_model import LogisticRegression
-
-    from xorq.expr.ml.metrics import Scorer
-
     model = LogisticRegression()
     model.fit([[0], [1]], [0, 1])
     s = Scorer.from_model(model)
@@ -812,10 +804,6 @@ def test_scorer_from_model_classifier():
 
 def test_scorer_from_model_regressor():
     """Regressor -> r2_score."""
-    from sklearn.linear_model import LinearRegression
-
-    from xorq.expr.ml.metrics import Scorer
-
     model = LinearRegression()
     model.fit([[0], [1]], [0.0, 1.0])
     s = Scorer.from_model(model)
@@ -824,11 +812,6 @@ def test_scorer_from_model_regressor():
 
 def test_scorer_from_model_cluster():
     """Clusterer -> adjusted_rand_score."""
-    from sklearn.cluster import KMeans
-    from sklearn.metrics import adjusted_rand_score
-
-    from xorq.expr.ml.metrics import Scorer
-
     model = KMeans(n_clusters=2, n_init=1)
     model.fit([[0], [1]])
     s = Scorer.from_model(model)
@@ -837,16 +820,12 @@ def test_scorer_from_model_cluster():
 
 def test_scorer_from_spec_invalid_input_raises():
     """Non-callable, non-string -> ValueError."""
-    from xorq.expr.ml.metrics import Scorer
-
     with pytest.raises(ValueError, match="scorer must be"):
         Scorer.from_spec(42)
 
 
 def test_scorer_from_spec_string_neg_mean_absolute_error():
     """neg_mean_absolute_error string -> sign=-1, metric_fn=mean_absolute_error."""
-    from xorq.expr.ml.metrics import Scorer
-
     s = Scorer.from_spec("neg_mean_absolute_error")
     assert s.metric_fn is mean_absolute_error
     assert s.sign == -1
@@ -855,8 +834,6 @@ def test_scorer_from_spec_string_neg_mean_absolute_error():
 
 def test_scorer_from_spec_string_r2():
     """r2 string -> sign=1, metric_fn=r2_score."""
-    from xorq.expr.ml.metrics import Scorer
-
     s = Scorer.from_spec("r2")
     assert s.metric_fn is r2_score
     assert s.sign == 1
@@ -865,8 +842,6 @@ def test_scorer_from_spec_string_r2():
 
 def test_scorer_from_spec_string_precision():
     """precision string -> sign=1, metric_fn=precision_score."""
-    from xorq.expr.ml.metrics import Scorer
-
     s = Scorer.from_spec("precision")
     assert s.metric_fn is precision_score
     assert s.sign == 1
@@ -875,8 +850,6 @@ def test_scorer_from_spec_string_precision():
 
 def test_scorer_from_spec_string_recall():
     """recall string -> sign=1, metric_fn=recall_score."""
-    from xorq.expr.ml.metrics import Scorer
-
     s = Scorer.from_spec("recall")
     assert s.metric_fn is recall_score
     assert s.sign == 1
@@ -885,8 +858,6 @@ def test_scorer_from_spec_string_recall():
 
 def test_scorer_from_spec_string_f1():
     """f1 string -> sign=1, metric_fn=f1_score."""
-    from xorq.expr.ml.metrics import Scorer
-
     s = Scorer.from_spec("f1")
     assert s.metric_fn is f1_score
     assert s.sign == 1
@@ -895,8 +866,6 @@ def test_scorer_from_spec_string_f1():
 
 def test_scorer_from_spec_callable_mean_squared_error():
     """Known bare callable mean_squared_error -> sign=1."""
-    from xorq.expr.ml.metrics import Scorer
-
     s = Scorer.from_spec(mean_squared_error)
     assert s.metric_fn is mean_squared_error
     assert s.sign == 1
@@ -905,8 +874,6 @@ def test_scorer_from_spec_callable_mean_squared_error():
 
 def test_scorer_from_spec_callable_r2_score():
     """Known bare callable r2_score -> sign=1."""
-    from xorq.expr.ml.metrics import Scorer
-
     s = Scorer.from_spec(r2_score)
     assert s.metric_fn is r2_score
     assert s.sign == 1
@@ -915,8 +882,6 @@ def test_scorer_from_spec_callable_r2_score():
 
 def test_scorer_from_spec_callable_roc_auc_score():
     """Known bare callable roc_auc_score -> sign=1, response_method=predict."""
-    from xorq.expr.ml.metrics import Scorer
-
     s = Scorer.from_spec(roc_auc_score)
     assert s.metric_fn is roc_auc_score
     assert s.sign == 1
@@ -926,10 +891,6 @@ def test_scorer_from_spec_callable_roc_auc_score():
 
 def test_scorer_from_spec_make_scorer_with_kwargs():
     """make_scorer with extra kwargs -> kwargs preserved."""
-    from sklearn.metrics import make_scorer
-
-    from xorq.expr.ml.metrics import Scorer
-
     scorer_obj = make_scorer(precision_score, average="macro", zero_division=0)
     s = Scorer.from_spec(scorer_obj)
     assert s.metric_fn is precision_score
@@ -938,10 +899,6 @@ def test_scorer_from_spec_make_scorer_with_kwargs():
 
 def test_scorer_from_spec_make_scorer_greater_is_better_false():
     """make_scorer(greater_is_better=False) -> sign=-1."""
-    from sklearn.metrics import make_scorer
-
-    from xorq.expr.ml.metrics import Scorer
-
     scorer_obj = make_scorer(mean_squared_error, greater_is_better=False)
     s = Scorer.from_spec(scorer_obj)
     assert s.metric_fn is mean_squared_error
@@ -1294,8 +1251,6 @@ class TestMetricFnClustering:
 
     @pytest.fixture
     def clustering_expr(self):
-        from sklearn.datasets import make_blobs
-
         X, _ = make_blobs(n_samples=200, centers=3, n_features=4, random_state=42)
         feature_names = tuple(f"f{i}" for i in range(X.shape[1]))
         df = pd.DataFrame(X, columns=list(feature_names))
@@ -1399,8 +1354,6 @@ class TestMetricFnMultilabel:
 
     @pytest.fixture
     def multilabel_expr(self):
-        from sklearn.multiclass import OneVsRestClassifier
-
         rng = np.random.RandomState(42)
         X = rng.randn(100, 5)
         Y = rng.randint(0, 2, size=(100, 3))
@@ -1456,8 +1409,6 @@ class TestMetricFnMultilabel:
     )
     def test_multilabel_metric_tuple_pred(self, metric_func):
         """Scores stored as separate columns; pred is a tuple of str."""
-        from sklearn.multiclass import OneVsRestClassifier
-
         rng = np.random.RandomState(42)
         X = rng.randn(100, 5)
         Y = rng.randint(0, 2, size=(100, 3))
@@ -1718,8 +1669,6 @@ class TestNonScalarMetrics:
 
     def test_silhouette_samples(self):
         """silhouette_samples -> Array(float64)."""
-        from sklearn.datasets import make_blobs
-
         X, _ = make_blobs(n_samples=50, centers=3, n_features=4, random_state=42)
         labels = KMeans(n_clusters=3, random_state=42, n_init=10).fit_predict(X)
 
@@ -1768,10 +1717,6 @@ class TestDeferredAucFromCurve:
         return expr_with_proba, y_true, y_proba
 
     def test_roc_auc(self, proba_expr):
-        from sklearn.metrics import auc, roc_curve
-
-        from xorq.expr.ml.metrics import deferred_auc_from_curve
-
         expr_with_proba, y_true, y_proba = proba_expr
         deferred_roc = deferred_sklearn_metric(
             expr=expr_with_proba,
@@ -1786,10 +1731,6 @@ class TestDeferredAucFromCurve:
         assert abs(result - expected) < 1e-10
 
     def test_precision_recall_auc(self, proba_expr):
-        from sklearn.metrics import auc, precision_recall_curve
-
-        from xorq.expr.ml.metrics import deferred_auc_from_curve
-
         expr_with_proba, y_true, y_proba = proba_expr
         deferred_pr = deferred_sklearn_metric(
             expr=expr_with_proba,
@@ -1804,10 +1745,6 @@ class TestDeferredAucFromCurve:
         assert abs(result - expected) < 1e-10
 
     def test_det_auc(self, proba_expr):
-        from sklearn.metrics import auc, det_curve
-
-        from xorq.expr.ml.metrics import deferred_auc_from_curve
-
         expr_with_proba, y_true, y_proba = proba_expr
         deferred_det = deferred_sklearn_metric(
             expr=expr_with_proba,
@@ -1823,10 +1760,6 @@ class TestDeferredAucFromCurve:
 
     def test_compose_into_table(self, proba_expr):
         """auc composes with other metrics via .as_scalar() + .mutate()."""
-        from sklearn.metrics import roc_curve
-
-        from xorq.expr.ml.metrics import deferred_auc_from_curve
-
         expr_with_proba, _, _ = proba_expr
         deferred_roc = deferred_sklearn_metric(
             expr=expr_with_proba,
@@ -1855,8 +1788,6 @@ class TestDeferredAucFromCurve:
 
     def test_invalid_input_non_struct(self):
         """Raises TypeError for non-Struct expressions."""
-        from xorq.expr.ml.metrics import deferred_auc_from_curve
-
         df = pd.DataFrame({"a": [1, 2, 3], "target": [0, 1, 0]})
         expr = api.register(df, "auc_invalid")
         deferred_acc = deferred_sklearn_metric(
@@ -1870,10 +1801,6 @@ class TestDeferredAucFromCurve:
 
     def test_unrecognized_curve_fields(self):
         """Raises ValueError for Struct with unrecognized field names."""
-        from unittest.mock import MagicMock
-
-        from xorq.expr.ml.metrics import deferred_auc_from_curve
-
         # Mock an expression whose .type() returns a dt.Struct with wrong field names
         fake_struct_type = dt.Struct(
             {
@@ -1898,9 +1825,6 @@ class TestDefaultScorerForModel:
 
     def test_unknown_model_type_raises(self):
         """Non-classifier/regressor/clusterer -> ValueError."""
-        from sklearn.base import BaseEstimator
-
-        from xorq.expr.ml.metrics import _default_scorer_for_model
 
         class UnknownEstimator(BaseEstimator):
             pass
@@ -1915,10 +1839,6 @@ class TestScorerResolveResponseMethod:
 
     def test_unexpected_response_method_raises(self):
         """Non-string, non-tuple _response_method -> ValueError."""
-        from unittest.mock import MagicMock
-
-        from xorq.expr.ml.metrics import Scorer
-
         mock_scorer = MagicMock()
         mock_scorer._response_method = 42  # neither str nor tuple
         with pytest.raises(ValueError, match="Unexpected _response_method"):
@@ -1930,8 +1850,6 @@ class TestDeferredSklearnMetricScorerInput:
 
     def test_scorer_instance_input(self):
         """Passing a Scorer instance directly to deferred_sklearn_metric."""
-        from xorq.expr.ml.metrics import Scorer
-
         df = pd.DataFrame(
             {
                 "target": [0, 1, 0, 1, 1],

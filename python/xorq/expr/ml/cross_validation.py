@@ -101,7 +101,7 @@ def _make_folds_from_int(expr, cv, random_seed):
         The input table with ``fold_0``, ..., ``fold_{k-1}`` columns
         appended (int8, 0=unused, 1=train, 2=test).
     """
-    from xorq.expr.ml.split_lib import calc_split_column
+    from xorq.expr.ml.split_lib import calc_split_column  # noqa: PLC0415
 
     test_sizes = tuple(1.0 / cv for _ in range(cv))
     split_col_name = "__cv_split__"
@@ -165,7 +165,7 @@ def _make_fold_udwf(cv, fold_index, features, target, expr):
         name=f"cv_fold_{fold_index}",
     )
     def assign_fold(self, values, num_rows):
-        import cloudpickle as cp
+        import cloudpickle as cp  # noqa: PLC0415
 
         cv_splitter = cp.loads(self.cv_bytes)
         n_feat = self.n_features
@@ -403,10 +403,10 @@ def deferred_cross_val_score(
     >>> cv_scores = deferred_cross_val_score(pipe, t, features=("x1", "x2"), target="y", cv=5)
     >>> scores = cv_scores.execute()  # materializes all folds
     """
-    from sklearn.model_selection import TimeSeriesSplit
-    from sklearn.model_selection._split import GroupsConsumerMixin
+    from sklearn.model_selection import TimeSeriesSplit  # noqa: PLC0415
+    from sklearn.model_selection._split import GroupsConsumerMixin  # noqa: PLC0415
 
-    from xorq.expr.ml.pipeline_lib import Pipeline
+    from xorq.expr.ml.pipeline_lib import Pipeline  # noqa: PLC0415
 
     if not isinstance(pipeline, Pipeline):
         raise TypeError(

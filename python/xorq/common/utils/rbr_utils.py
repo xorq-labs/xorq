@@ -63,7 +63,7 @@ def make_filtered_reader(reader):
 
 
 def instrument_reader(reader, prefix=""):
-    from xorq.common.utils.logging_utils import get_print_logger
+    from xorq.common.utils.logging_utils import get_print_logger  # noqa: PLC0415
 
     logger = get_print_logger()
 

@@ -665,8 +665,6 @@ def test_execution_expr_multiple_tables(ls_con, tables, request, mocker):
     ],
 )
 def test_execution_expr_multiple_tables_cached(ls_con, tables, request):
-    from xorq.caching import ParquetCache, SourceCache
-
     table_name = "batting"
     left, right = map(request.getfixturevalue, tables)
     (left_source, right_source) = (expr.op().source for expr in (left, right))

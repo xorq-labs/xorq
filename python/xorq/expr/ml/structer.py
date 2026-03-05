@@ -67,7 +67,7 @@ class KVEncoder:
         pandas.Series
             Series of tuples, each containing dicts with 'key' and 'value'
         """
-        import pandas as pd
+        import pandas as pd  # noqa: PLC0415
 
         names = model.get_feature_names_out()
         result = model.transform(df)
@@ -96,7 +96,7 @@ class KVEncoder:
         pandas.DataFrame
             DataFrame with decoded columns
         """
-        import pandas as pd
+        import pandas as pd  # noqa: PLC0415
 
         if len(series) == 0:
             raise ValueError("cannot decode an empty series")
@@ -382,7 +382,7 @@ class Structer:
     @classmethod
     @toolz.curry
     def convert_array(cls, struct, array):
-        import pandas as pd
+        import pandas as pd  # noqa: PLC0415
 
         self = cls(struct)
         return (
@@ -458,8 +458,8 @@ def _get_transformer_items(model):
         For ColumnTransformer: [(name, transformer, columns), ...]
         For FeatureUnion: [(name, transformer), ...]
     """
-    from sklearn.compose import ColumnTransformer
-    from sklearn.pipeline import FeatureUnion
+    from sklearn.compose import ColumnTransformer  # noqa: PLC0415
+    from sklearn.pipeline import FeatureUnion  # noqa: PLC0415
 
     match model:
         case ColumnTransformer(transformers=transformers):
@@ -607,10 +607,10 @@ def get_structer_out(sklearnish, expr, features=None):
     TypeError
         If sklearnish is not a sklearn BaseEstimator or known container type.
     """
-    from sklearn.base import BaseEstimator
-    from sklearn.compose import ColumnTransformer
-    from sklearn.pipeline import FeatureUnion
-    from sklearn.pipeline import Pipeline as SklearnPipeline
+    from sklearn.base import BaseEstimator  # noqa: PLC0415
+    from sklearn.compose import ColumnTransformer  # noqa: PLC0415
+    from sklearn.pipeline import FeatureUnion  # noqa: PLC0415
+    from sklearn.pipeline import Pipeline as SklearnPipeline  # noqa: PLC0415
 
     features = features or tuple(expr.columns)
 
@@ -699,7 +699,7 @@ def get_schema_out(sklearnish, expr, features=None):
     ibis.Schema
         The output schema for the sklearn object.
     """
-    from xorq.vendor import ibis
+    from xorq.vendor import ibis  # noqa: PLC0415
 
     structer = get_structer_out(sklearnish, expr, features)
     return ibis.schema(structer.struct.fields)
@@ -707,24 +707,34 @@ def get_schema_out(sklearnish, expr, features=None):
 
 @structer_from_instance.register_lazy("sklearn")
 def lazy_register_sklearn():
-    from sklearn.base import ClassNamePrefixFeaturesOutMixin, OneToOneFeatureMixin
-    from sklearn.cluster import Birch
-    from sklearn.compose import ColumnTransformer
-    from sklearn.ensemble import RandomTreesEmbedding
-    from sklearn.feature_extraction import DictVectorizer
-    from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
-    from sklearn.feature_selection import (
+    from sklearn.base import (  # noqa: PLC0415
+        ClassNamePrefixFeaturesOutMixin,
+        OneToOneFeatureMixin,
+    )
+    from sklearn.cluster import Birch  # noqa: PLC0415
+    from sklearn.compose import ColumnTransformer  # noqa: PLC0415
+    from sklearn.ensemble import RandomTreesEmbedding  # noqa: PLC0415
+    from sklearn.feature_extraction import DictVectorizer  # noqa: PLC0415
+    from sklearn.feature_extraction.text import (  # noqa: PLC0415
+        CountVectorizer,
+        TfidfVectorizer,
+    )
+    from sklearn.feature_selection import (  # noqa: PLC0415
         GenericUnivariateSelect,
         SelectFdr,
         SelectFpr,
         SelectFwe,
     )
-    from sklearn.feature_selection._base import SelectorMixin
-    from sklearn.impute import KNNImputer, MissingIndicator, SimpleImputer
-    from sklearn.kernel_approximation import AdditiveChi2Sampler
-    from sklearn.pipeline import FeatureUnion
-    from sklearn.pipeline import Pipeline as SklearnPipeline
-    from sklearn.preprocessing import (
+    from sklearn.feature_selection._base import SelectorMixin  # noqa: PLC0415
+    from sklearn.impute import (  # noqa: PLC0415
+        KNNImputer,
+        MissingIndicator,
+        SimpleImputer,
+    )
+    from sklearn.kernel_approximation import AdditiveChi2Sampler  # noqa: PLC0415
+    from sklearn.pipeline import FeatureUnion  # noqa: PLC0415
+    from sklearn.pipeline import Pipeline as SklearnPipeline  # noqa: PLC0415
+    from sklearn.preprocessing import (  # noqa: PLC0415
         KBinsDiscretizer,
         OneHotEncoder,
         PolynomialFeatures,

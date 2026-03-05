@@ -20,8 +20,8 @@ from xorq.common.utils.env_utils import (
 
 
 def localhost_and_listening(uri):
-    import socket
-    import urllib
+    import socket  # noqa: PLC0415
+    import urllib  # noqa: PLC0415
 
     parsed = urllib.parse.urlparse(uri)
     localhost = "localhost"

@@ -12,6 +12,7 @@ from pytest import param
 import xorq.api as xo
 from xorq.tests.util import assert_frame_equal
 from xorq.vendor import ibis
+from xorq.vendor.ibis import _
 
 
 if TYPE_CHECKING:
@@ -123,8 +124,6 @@ def test_dunder_array_table(alltypes, dtype):
 
 @pytest.mark.parametrize("dtype", [None, "f8"])
 def test_dunder_array_column(alltypes, dtype):
-    from xorq.vendor.ibis import _
-
     expr = alltypes.group_by("string_col").agg(int_col=_.int_col.sum()).int_col
     result = np.sort(np.asarray(expr, dtype=dtype))
     expected = np.sort(np.asarray(xo.execute(expr), dtype=dtype))
@@ -223,8 +222,6 @@ def test_repr_mimebundle(alltypes, interactive, expr_type, monkeypatch):
     "option", ["max_rows", "max_length", "max_string", "max_depth"]
 )
 def test_ibis_config_wrapper(option, monkeypatch):
-    from xorq.vendor import ibis
-
     xorq_option_value = getattr(xo.options.repr.interactive, option)
     assert xorq_option_value == getattr(ibis.options.repr.interactive, option)
 

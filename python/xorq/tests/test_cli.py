@@ -1,10 +1,15 @@
+import contextlib
+import io
 import re
 import shutil
 import sys
+import uuid
 from itertools import chain
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
+import pyarrow.parquet as pq
 import pytest
 
 import xorq.api as xo
@@ -13,6 +18,7 @@ from xorq.cli import (
     build_command,
     run_command,
 )
+from xorq.common.utils.logging_utils import Run, Runs
 from xorq.common.utils.node_utils import (
     find_node,
 )
@@ -433,12 +439,6 @@ def test_run_command_stdout(tmp_path, fixture_dir, output_format):
 
 def test_run_command_logging(tmp_path):
     """Test that run_command emits expected structured log events with metrics."""
-    from unittest.mock import patch
-
-    import pyarrow.parquet as pq
-
-    from xorq.common.utils.logging_utils import Run, Runs
-
     expr = xo.memtable({"a": [1, 2, 3], "b": [4, 5, 6]}, name="test_table")
     expr_path = build_expr(
         expr, builds_dir=tmp_path / "builds", cache_dir=tmp_path / "cache"
@@ -487,10 +487,6 @@ def test_run_command_logging(tmp_path):
 
 def test_run_command_error_logging(tmp_path):
     """Test that run_command records error status in meta and re-raises exceptions."""
-    from unittest.mock import patch
-
-    from xorq.common.utils.logging_utils import Run, Runs
-
     runs_dir = tmp_path / "runs"
     nonexistent_path = tmp_path / "does_not_exist"
     expr_hash = nonexistent_path.name
@@ -508,10 +504,6 @@ def test_run_command_error_logging(tmp_path):
 
 
 def test_run_command_writes_run_logger(tmp_path):
-    from unittest.mock import patch
-
-    from xorq.common.utils.logging_utils import Run, Runs
-
     expr = xo.memtable({"x": [10, 20, 30]}, name="t")
     expr_path = build_expr(
         expr, builds_dir=tmp_path / "builds", cache_dir=tmp_path / "cache"
@@ -529,8 +521,6 @@ def test_run_command_writes_run_logger(tmp_path):
         assert len(runs_obj.list()) == 1, "Expected exactly one run to be recorded"
 
         run: Run = runs_obj.runs[0]
-        import uuid
-
         assert uuid.UUID(run.run_id).version == 4, "Run ID should be a UUID4"
 
         meta = run.read_meta()
@@ -560,10 +550,6 @@ def test_run_command_writes_run_logger(tmp_path):
 
 
 def test_run_command_run_logger_error_status(tmp_path):
-    from unittest.mock import patch
-
-    from xorq.common.utils.logging_utils import Runs
-
     runs_dir = tmp_path / "runs"
     nonexistent_path = tmp_path / "does_not_exist"
 
@@ -584,10 +570,6 @@ def test_run_command_run_logger_error_status(tmp_path):
 
 
 def test_run_logger_multiple_runs(tmp_path):
-    from unittest.mock import patch
-
-    from xorq.common.utils.logging_utils import Runs
-
     expr = xo.memtable({"v": [1, 2]}, name="t2")
     expr_path = build_expr(
         expr, builds_dir=tmp_path / "builds", cache_dir=tmp_path / "cache"
@@ -934,17 +916,12 @@ def test_serve_unbound_tag_get_exchange(pipeline_https_build, parquet_dir):
 
 @pytest.mark.slow(level=1)
 def test_serve_unbound_tag_get_exchange_udf(fixture_dir, tmp_path):
-    import pandas as pd
-
     df = pd.DataFrame([float(v) for v in range(10)], columns=["x"])
 
     serve_tag = "full"
 
     builds_dir = tmp_path / "builds"
     script_path = fixture_dir / "pipeline_pandas_udf.py"
-
-    import contextlib
-    import io
 
     # Capture print output
     output = io.StringIO()

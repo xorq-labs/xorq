@@ -252,7 +252,7 @@ class BasePandasBackend(BaseBackend, NoUrl):
     @classmethod
     @lru_cache
     def _get_operations(cls):
-        from xorq.backends.pandas.kernels import supported_operations
+        from xorq.backends.pandas.kernels import supported_operations  # noqa: PLC0415
 
         return supported_operations
 
@@ -306,7 +306,7 @@ class Backend(BasePandasBackend):
     name = "pandas"
 
     def execute(self, query, params=None, limit="default", **kwargs):
-        from xorq.backends.pandas.executor import PandasExecutor
+        from xorq.backends.pandas.executor import PandasExecutor  # noqa: PLC0415
 
         if limit != "default" and limit is not None:
             raise ValueError(

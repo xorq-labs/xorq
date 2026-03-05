@@ -68,7 +68,7 @@ class ParquetStorage(CacheStorage):
     )
 
     def __dask_tokenize__(self):
-        from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
             normalize_seq_with_caller,
         )
 
@@ -120,7 +120,7 @@ class ParquetTTLStorage(ParquetStorage):
     )
 
     def __dask_tokenize__(self):
-        from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
             normalize_seq_with_caller,
         )
 
@@ -151,7 +151,7 @@ class SourceStorage(CacheStorage):
     )
 
     def __dask_tokenize__(self):
-        from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
             normalize_seq_with_caller,
         )
 
@@ -170,13 +170,13 @@ class SourceStorage(CacheStorage):
             return name in ("postgres", "snowflake")
 
         def is_single_backend(storage, value):
-            from xorq.common.utils.graph_utils import find_all_sources
+            from xorq.common.utils.graph_utils import find_all_sources  # noqa: PLC0415
 
             return (storage.source,) == find_all_sources(value.to_expr())
 
         if is_remote(value):
             if is_single_backend(self, value):
-                from xorq.expr.api import _transform_expr
+                from xorq.expr.api import _transform_expr  # noqa: PLC0415
 
                 # must transform for Read ops: create_table expects a vanilla ibis expr
                 (transformed, _) = _transform_expr(value.to_expr())

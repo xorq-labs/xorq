@@ -9,7 +9,7 @@ from xorq.catalog.tar_utils import (
 
 @contextmanager
 def build_expr_context(expr):
-    from xorq.ibis_yaml.compiler import build_expr
+    from xorq.ibis_yaml.compiler import build_expr  # noqa: PLC0415
 
     with tempfile.TemporaryDirectory() as td:
         build_dir = build_expr(expr, builds_dir=td)
@@ -24,7 +24,7 @@ def build_expr_context_tgz(expr):
 
 
 def load_expr_from_tgz(tgz_path):
-    from xorq.ibis_yaml.compiler import load_expr
+    from xorq.ibis_yaml.compiler import load_expr  # noqa: PLC0415
 
     with extract_build_tgz_context(tgz_path) as build_dir:
         expr = load_expr(build_dir)

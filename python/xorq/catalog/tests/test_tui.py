@@ -12,7 +12,7 @@ import asyncio
 from unittest.mock import MagicMock
 
 import pytest
-from textual.widgets import DataTable, Static, TabbedContent
+from textual.widgets import DataTable, Static, TabbedContent, TabPane
 
 from xorq.catalog.tui import (
     ALIAS_COLUMNS,
@@ -557,8 +557,6 @@ class TestExploreScreenRender:
                 )
                 screen._render_explore(data)
                 await pilot.pause()
-
-                from textual.widgets import TabPane
 
                 pane = screen.query_one("#pane-data", TabPane)
                 assert not pane.disabled

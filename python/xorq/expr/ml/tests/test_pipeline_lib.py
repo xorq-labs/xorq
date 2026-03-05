@@ -1,16 +1,45 @@
 import operator
 from numbers import Real
 
+import numpy as np
+import pandas as pd
 import pytest
 
 import xorq.api as xo
+import xorq.expr.datatypes as dt
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.ml.enums import ResponseMethod
+from xorq.expr.ml.pipeline_lib import Pipeline, Step, make_estimator_typ
 from xorq.expr.relations import Tag
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
+from xorq.vendor.ibis.expr.types import Expr
 
 
 sklearn = pytest.importorskip("sklearn")
+
+# sklearn submodule imports
+KMeans = sklearn.cluster.KMeans
+MiniBatchKMeans = sklearn.cluster.MiniBatchKMeans
+RandomForestClassifier = sklearn.ensemble.RandomForestClassifier
+SimpleImputer = sklearn.impute.SimpleImputer
+LinearRegression = sklearn.linear_model.LinearRegression
+LogisticRegression = sklearn.linear_model.LogisticRegression
+accuracy_score = sklearn.metrics.accuracy_score
+adjusted_rand_score = sklearn.metrics.adjusted_rand_score
+f1_score = sklearn.metrics.f1_score
+get_scorer = sklearn.metrics.get_scorer
+get_scorer_names = sklearn.metrics.get_scorer_names
+make_scorer = sklearn.metrics.make_scorer
+r2_score = sklearn.metrics.r2_score
+SklearnPipeline = sklearn.pipeline.Pipeline
+ColumnTransformer = sklearn.compose.ColumnTransformer
+SelectKBest = sklearn.feature_selection.SelectKBest
+f_classif = sklearn.feature_selection.f_classif
+FeatureUnion = sklearn.pipeline.FeatureUnion
+OneHotEncoder = sklearn.preprocessing.OneHotEncoder
+StandardScaler = sklearn.preprocessing.StandardScaler
+BaseEstimator = sklearn.base.BaseEstimator
+cluster = sklearn.cluster
 
 
 TARGET = "target"
@@ -116,7 +145,6 @@ class TestFittedStepTransform:
 
     def test_fitted_step_transform_known_schema_unpacks(self):
         """Test FittedStep.transform unpacks struct columns for known schema."""
-        from sklearn.preprocessing import StandardScaler
 
         t = xo.memtable({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
         step = xo.Step.from_instance_name(StandardScaler(), name="scaler")
@@ -132,7 +160,6 @@ class TestFittedStepTransform:
 
     def test_fitted_step_transform_kv_encoded_no_unpack(self):
         """Test FittedStep.transform keeps KV-encoded column without unpacking."""
-        from sklearn.preprocessing import OneHotEncoder
 
         t = xo.memtable({"cat": ["x", "y", "x", "z"]})
         step = xo.Step.from_instance_name(OneHotEncoder(), name="ohe")
@@ -150,7 +177,6 @@ class TestFittedStepTransform:
 
     def test_fitted_step_transform_retain_others_true(self):
         """Test FittedStep.transform retains other columns by default."""
-        from sklearn.preprocessing import StandardScaler
 
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0], "other": ["x", "y"]})
         step = xo.Step.from_instance_name(StandardScaler(), name="scaler")
@@ -165,7 +191,6 @@ class TestFittedStepTransform:
 
     def test_fitted_step_transform_retain_others_false(self):
         """Test FittedStep.transform drops other columns when retain_others=False."""
-        from sklearn.preprocessing import StandardScaler
 
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0], "other": ["x", "y"]})
         step = xo.Step.from_instance_name(StandardScaler(), name="scaler")
@@ -183,8 +208,6 @@ class TestPipelineGetOutputColumns:
 
     def test_pipeline_known_schema_features_propagate(self):
         """Test Pipeline correctly propagates features for known schema transformers."""
-        from sklearn.linear_model import LinearRegression
-        from sklearn.preprocessing import StandardScaler
 
         t = xo.memtable(
             {"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0], "y": [0.0, 1.0, 0.0]}
@@ -200,8 +223,6 @@ class TestPipelineGetOutputColumns:
 
     def test_pipeline_kv_encoded_features_use_dest_col(self):
         """Test Pipeline correctly uses dest_col for KV-encoded transformers."""
-        from sklearn.linear_model import LinearRegression
-        from sklearn.preprocessing import OneHotEncoder
 
         t = xo.memtable({"cat": ["a", "b", "a"], "y": [0.0, 1.0, 0.0]})
         pipeline = xo.Pipeline.from_instance(
@@ -217,9 +238,6 @@ class TestPipelineGetOutputColumns:
 
     def test_pipeline_mixed_transform_steps(self):
         """Test Pipeline with multiple transform steps propagates features correctly."""
-        from sklearn.impute import SimpleImputer
-        from sklearn.linear_model import LinearRegression
-        from sklearn.preprocessing import StandardScaler
 
         t = xo.memtable(
             {"a": [1.0, None, 3.0], "b": [4.0, 5.0, 6.0], "y": [0.0, 1.0, 0.0]}
@@ -259,17 +277,6 @@ class TestDeeplyNestedPipelines:
         - SelectKBest
         - RandomForestClassifier
         """
-        import numpy as np
-        import pandas as pd
-        from sklearn.compose import ColumnTransformer
-        from sklearn.ensemble import RandomForestClassifier
-        from sklearn.feature_selection import SelectKBest, f_classif
-        from sklearn.impute import SimpleImputer
-        from sklearn.pipeline import FeatureUnion
-        from sklearn.pipeline import Pipeline as SklearnPipeline
-        from sklearn.preprocessing import OneHotEncoder, StandardScaler
-
-        from xorq.expr.ml.pipeline_lib import Pipeline
 
         # Create sample data
         np.random.seed(42)
@@ -375,15 +382,6 @@ class TestDeeplyNestedPipelines:
           - Pipeline (SimpleImputer -> StandardScaler)
         - RandomForestClassifier
         """
-        import numpy as np
-        import pandas as pd
-        from sklearn.compose import ColumnTransformer
-        from sklearn.ensemble import RandomForestClassifier
-        from sklearn.impute import SimpleImputer
-        from sklearn.pipeline import Pipeline as SklearnPipeline
-        from sklearn.preprocessing import StandardScaler
-
-        from xorq.expr.ml.pipeline_lib import Pipeline
 
         # Create sample data
         np.random.seed(42)
@@ -465,7 +463,6 @@ class TestDeeplyNestedPipelines:
 
 def _scorer_info():
     """Return [(name, module, response_method), ...] for every registered scorer."""
-    from sklearn.metrics import get_scorer, get_scorer_names
 
     return [
         (
@@ -528,7 +525,6 @@ class TestPipelineScoringMatchSklearn:
     @pytest.fixture
     def scoring_data(self):
         """Generate dataset suitable for classification, regression, and clustering."""
-        import numpy as np
 
         np.random.seed(42)
         n = 100
@@ -544,11 +540,6 @@ class TestPipelineScoringMatchSklearn:
     @pytest.mark.parametrize("scorer_name", SCORERS_BY_TYPE["classification"])
     def test_classifier_scorer(self, scoring_data, scorer_name):
         """Test classification scorers match sklearn."""
-        import numpy as np
-        from sklearn.linear_model import LogisticRegression
-        from sklearn.metrics import get_scorer
-        from sklearn.pipeline import Pipeline as SklearnPipeline
-        from sklearn.preprocessing import StandardScaler
 
         X = np.array([scoring_data["x1"], scoring_data["x2"]]).T
         y = np.array(scoring_data["y_class"])
@@ -574,11 +565,6 @@ class TestPipelineScoringMatchSklearn:
     @pytest.mark.parametrize("scorer_name", SCORERS_BY_TYPE["regression"])
     def test_regressor_scorer(self, scoring_data, scorer_name):
         """Test regression scorers match sklearn."""
-        import numpy as np
-        from sklearn.linear_model import LinearRegression
-        from sklearn.metrics import get_scorer
-        from sklearn.pipeline import Pipeline as SklearnPipeline
-        from sklearn.preprocessing import StandardScaler
 
         X = np.array([scoring_data["x1"], scoring_data["x2"]]).T
         y = np.array(scoring_data["y_reg"])
@@ -601,11 +587,6 @@ class TestPipelineScoringMatchSklearn:
     @pytest.mark.parametrize("scorer_name", SCORERS_BY_TYPE["cluster"])
     def test_cluster_scorer(self, scoring_data, scorer_name):
         """Test clustering scorers match sklearn."""
-        import numpy as np
-        from sklearn.cluster import KMeans
-        from sklearn.metrics import get_scorer
-        from sklearn.pipeline import Pipeline as SklearnPipeline
-        from sklearn.preprocessing import StandardScaler
 
         X = np.array([scoring_data["x1"], scoring_data["x2"]]).T
         y = np.array(scoring_data["y_class"])
@@ -635,10 +616,6 @@ class TestScoreExpr:
     @pytest.fixture
     def fitted_classifier(self):
         """Fitted classifier pipeline."""
-        import numpy as np
-        from sklearn.linear_model import LogisticRegression
-        from sklearn.pipeline import Pipeline as SklearnPipeline
-        from sklearn.preprocessing import StandardScaler
 
         np.random.seed(42)
         data = {"x1": [0.0, 1.0], "x2": [0.0, 1.0], "y": [0, 1]}
@@ -659,10 +636,6 @@ class TestScoreExpr:
     @pytest.fixture
     def fitted_regressor(self):
         """Fitted regressor pipeline."""
-        import numpy as np
-        from sklearn.linear_model import LinearRegression
-        from sklearn.pipeline import Pipeline as SklearnPipeline
-        from sklearn.preprocessing import StandardScaler
 
         np.random.seed(42)
         data = {"x1": [0.0, 1.0], "x2": [0.0, 1.0], "y": [0.0, 1.0]}
@@ -682,7 +655,6 @@ class TestScoreExpr:
 
     def test_default_scorer_classifier_is_accuracy(self, fitted_classifier):
         """Test default scorer for classifier is accuracy_score."""
-        from sklearn.metrics import accuracy_score
 
         fitted, *_ = fitted_classifier
         scorer = fitted._get_default_scorer()
@@ -690,7 +662,6 @@ class TestScoreExpr:
 
     def test_default_scorer_regressor_is_r2(self, fitted_regressor):
         """Test default scorer for regressor is r2_score."""
-        from sklearn.metrics import r2_score
 
         fitted, *_ = fitted_regressor
         scorer = fitted._get_default_scorer()
@@ -698,8 +669,6 @@ class TestScoreExpr:
 
     def test_default_scorer_cluster_is_adjusted_rand(self):
         """Test default scorer for clustering is adjusted_rand_score."""
-        from sklearn.cluster import KMeans
-        from sklearn.metrics import adjusted_rand_score
 
         t = xo.memtable({"x": [0.0, 1.0], "y": [0, 1]})
         fitted = xo.Pipeline.from_instance(
@@ -710,8 +679,6 @@ class TestScoreExpr:
 
     def test_string_scorer(self, fitted_classifier):
         """Test passing a scorer name string."""
-        import numpy as np
-        from sklearn.metrics import get_scorer
 
         fitted, sklearn_pipe, X, y, _ = fitted_classifier
 
@@ -721,8 +688,6 @@ class TestScoreExpr:
 
     def test_callable_scorer(self, fitted_classifier):
         """Test passing a raw callable metric function."""
-        import numpy as np
-        from sklearn.metrics import f1_score
 
         fitted, sklearn_pipe, X, y, _ = fitted_classifier
 
@@ -732,8 +697,6 @@ class TestScoreExpr:
 
     def test_make_scorer_object(self, fitted_classifier):
         """Test passing a make_scorer object directly."""
-        import numpy as np
-        from sklearn.metrics import f1_score, make_scorer
 
         fitted, sklearn_pipe, X, y, _ = fitted_classifier
 
@@ -744,7 +707,6 @@ class TestScoreExpr:
 
     def test_score_expr_returns_expression(self, fitted_classifier):
         """Test score_expr returns an ibis expression."""
-        from xorq.vendor.ibis.expr.types import Expr
 
         fitted, _, _, _, t = fitted_classifier
         expr = fitted.score_expr(t, scorer="accuracy")
@@ -754,9 +716,6 @@ class TestScoreExpr:
 
     def test_default_scorer_raises_for_unknown_model(self):
         """Test _get_default_scorer raises ValueError for unknown model type."""
-        from sklearn.base import BaseEstimator
-
-        import xorq.expr.datatypes as dt
 
         # Custom estimator that isn't a Classifier/Regressor/Cluster
         class CustomEstimator(BaseEstimator):
@@ -786,10 +745,6 @@ class TestStepFromFitFunctions:
 
     def test_from_fit_transform_creates_transform_type(self):
         """Step.from_fit_transform creates a type with transform (not predict)."""
-        import numpy as np
-
-        import xorq.expr.datatypes as dt
-        from xorq.expr.ml.pipeline_lib import Step
 
         def my_fit(X, y=None):
             return np.mean(X, axis=0)
@@ -812,10 +767,6 @@ class TestStepFromFitFunctions:
 
     def test_from_fit_predict_creates_predict_type(self):
         """Step.from_fit_predict creates a type with predict (not transform)."""
-        import numpy as np
-
-        import xorq.expr.datatypes as dt
-        from xorq.expr.ml.pipeline_lib import Step
 
         def my_fit(X, y=None):
             return int(np.median(y))
@@ -837,8 +788,6 @@ class TestStepFromFitFunctions:
 
     def test_make_estimator_typ_both_raises(self):
         """Passing both transform and predict raises ValueError."""
-        import xorq.expr.datatypes as dt
-        from xorq.expr.ml.pipeline_lib import make_estimator_typ
 
         with pytest.raises(ValueError):
             make_estimator_typ(
@@ -850,8 +799,6 @@ class TestStepFromFitFunctions:
 
     def test_make_estimator_typ_neither_raises(self):
         """Passing neither transform nor predict raises ValueError."""
-        import xorq.expr.datatypes as dt
-        from xorq.expr.ml.pipeline_lib import make_estimator_typ
 
         with pytest.raises(ValueError):
             make_estimator_typ(
@@ -861,10 +808,6 @@ class TestStepFromFitFunctions:
 
     def test_from_fit_predict_end_to_end(self):
         """Step.from_fit_predict works end-to-end with dest_col."""
-        import numpy as np
-
-        import xorq.expr.datatypes as dt
-        from xorq.expr.ml.pipeline_lib import Step
 
         def my_fit(X, y=None):
             return int(np.median(y))
@@ -892,8 +835,6 @@ class TestFeatureImportances:
 
     def test_fitted_step_feature_importances(self):
         """FittedStep.feature_importances returns importances for tree models."""
-        import numpy as np
-        from sklearn.ensemble import RandomForestClassifier
 
         t = xo.memtable(
             {
@@ -919,12 +860,6 @@ class TestFeatureImportances:
 
     def test_fitted_pipeline_feature_importances(self):
         """FittedPipeline.feature_importances returns importances through pipeline."""
-        import numpy as np
-        from sklearn.ensemble import RandomForestClassifier
-        from sklearn.pipeline import Pipeline as SklearnPipeline
-        from sklearn.preprocessing import StandardScaler
-
-        from xorq.expr.ml.pipeline_lib import Pipeline
 
         t = xo.memtable(
             {
@@ -959,7 +894,6 @@ class TestClusteringPredict:
     @pytest.fixture
     def cluster_data(self):
         """Generate data with clear cluster structure."""
-        import numpy as np
 
         np.random.seed(42)
         # Two well-separated clusters
@@ -1007,8 +941,6 @@ class TestClusteringPredict:
         self, cluster_data, clusterer_cls, clusterer_kwargs
     ):
         """Test that inductive clustering algorithms support predict."""
-        import numpy as np
-        from sklearn import cluster
 
         t = xo.memtable(cluster_data)
         features = ("num1", "num2")
@@ -1065,7 +997,6 @@ class TestClusteringPredict:
         self, cluster_data, clusterer_cls, clusterer_kwargs
     ):
         """Test that transductive clustering algorithms are rejected at fit time."""
-        from sklearn import cluster
 
         t = xo.memtable(cluster_data)
         features = ("num1", "num2")
@@ -1080,12 +1011,6 @@ class TestClusteringPredict:
 
     def test_pipeline_fit_without_target_for_clustering(self, cluster_data):
         """Test Pipeline.fit allows ClusterMixin predict steps without a target."""
-        import numpy as np
-        from sklearn.cluster import MiniBatchKMeans
-        from sklearn.pipeline import Pipeline as SklearnPipeline
-        from sklearn.preprocessing import StandardScaler
-
-        from xorq.expr.ml.pipeline_lib import Pipeline
 
         t = xo.memtable(cluster_data)
         features = ("num1", "num2")

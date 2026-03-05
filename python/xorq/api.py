@@ -57,7 +57,7 @@ from xorq import flight  # noqa: E402
 
 
 def __getattr__(name):
-    from xorq.vendor import ibis
+    from xorq.vendor import ibis  # noqa: PLC0415
 
     backend = load_backend(name) or ibis.load_backend(name)
 

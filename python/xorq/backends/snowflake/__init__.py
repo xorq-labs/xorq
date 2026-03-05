@@ -45,8 +45,12 @@ class SnowflakeAuthenticator(StrEnum):
 
 @functools.wraps(IbisSnowflakeBackend.do_connect)
 def wrapped_do_connect(self, create_object_udfs: bool = None, **kwargs: Any):
-    from xorq.common.utils.snowflake_keypair_utils import maybe_decrypt_private_key
-    from xorq.common.utils.snowflake_utils import default_create_object_udfs
+    from xorq.common.utils.snowflake_keypair_utils import (  # noqa: PLC0415
+        maybe_decrypt_private_key,
+    )
+    from xorq.common.utils.snowflake_utils import (  # noqa: PLC0415
+        default_create_object_udfs,
+    )
 
     if create_object_udfs is None:
         create_object_udfs = default_create_object_udfs
@@ -72,7 +76,7 @@ class Backend(IbisSnowflakeBackend):
         authenticator=None,
         **kwargs,
     ):
-        from xorq.common.utils.snowflake_utils import make_connection
+        from xorq.common.utils.snowflake_utils import make_connection  # noqa: PLC0415
 
         return make_connection(
             authenticator=authenticator,
@@ -276,7 +280,7 @@ class Backend(IbisSnowflakeBackend):
 
     @property
     def adbc(self):
-        from xorq.common.utils.snowflake_utils import SnowflakeADBC
+        from xorq.common.utils.snowflake_utils import SnowflakeADBC  # noqa: PLC0415
 
         adbc = SnowflakeADBC(self)
         return adbc

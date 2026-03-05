@@ -19,7 +19,7 @@ from xorq.vendor.ibis.util import gen_name
 
 
 def parse_url(url: str) -> Dict[str, Any]:
-    from urllib.parse import parse_qs, urlparse
+    from urllib.parse import parse_qs, urlparse  # noqa: PLC0415
 
     parsed = urlparse(url)
     warehouse_path = (
@@ -57,7 +57,7 @@ class Backend(SQLBackend):
 
     @property
     def version(self):
-        import importlib.metadata
+        import importlib.metadata  # noqa: PLC0415
 
         return importlib.metadata.version("pyiceberg")
 
@@ -76,7 +76,7 @@ class Backend(SQLBackend):
 
     @classmethod
     def connect_env(cls, **kwargs):
-        from xorq.common.utils.pyiceberg_utils import make_connection
+        from xorq.common.utils.pyiceberg_utils import make_connection  # noqa: PLC0415
 
         return make_connection(**kwargs)
 
@@ -255,7 +255,7 @@ class Backend(SQLBackend):
         table_names = [t[1] for t in self.catalog.list_tables(database)]
 
         if like is not None:
-            import fnmatch
+            import fnmatch  # noqa: PLC0415
 
             return [t for t in table_names if fnmatch.fnmatch(t, like)]
 

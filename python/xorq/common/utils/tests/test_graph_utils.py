@@ -1,15 +1,23 @@
 import operator
 
+import pytest
 import toolz
 
 import xorq.api as xo
+import xorq.expr.datatypes as dt
 import xorq.expr.relations as rel
+import xorq.expr.selectors as s
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import SourceCache
 from xorq.common.utils.graph_utils import (
     find_all_sources,
     walk_nodes,
 )
+from xorq.expr.relations import Tag
+from xorq.ml import deferred_fit_predict_sklearn
+
+
+LinearRegression = pytest.importorskip("sklearn").linear_model.LinearRegression
 
 
 node_types = (
@@ -84,20 +92,6 @@ def test_find_all_sources():
 
 
 def test_replace_computed_kwargs_expr(parquet_dir):
-    from sklearn.linear_model import LinearRegression
-
-    import xorq.expr.datatypes as dt
-    import xorq.expr.selectors as s
-    from xorq.common.utils.graph_utils import (
-        walk_nodes,
-    )
-    from xorq.expr.relations import (
-        Tag,
-    )
-    from xorq.ml import (
-        deferred_fit_predict_sklearn,
-    )
-
     deferred_linear_regression = deferred_fit_predict_sklearn(
         cls=LinearRegression, return_type=dt.float64
     )

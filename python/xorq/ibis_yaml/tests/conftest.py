@@ -9,6 +9,8 @@ from xorq.ibis_yaml.common import (
     RegistryEnum,
 )
 from xorq.ibis_yaml.compiler import YamlExpressionTranslator
+from xorq.vendor.ibis import _
+from xorq.vendor.ibis.expr.operations import ExistsSubquery
 
 
 # Fixtures from: https://github.com/ibis-project/ibis-substrait/blob/main/ibis_substrait/tests/compiler/test_tpch.py
@@ -292,9 +294,6 @@ def tpc_h03(customer, orders, lineitem):
 
 @pytest.fixture
 def tpc_h04(orders, lineitem):
-    from xorq.vendor.ibis import _
-    from xorq.vendor.ibis.expr.operations import ExistsSubquery
-
     lineitem_filtered = lineitem.filter(
         [
             lineitem.l_orderkey == orders.o_orderkey,

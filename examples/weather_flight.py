@@ -246,9 +246,9 @@ def demo_infer():
 
 
 def run_clean():
-    import functools
-    import operator
-    import shutil
+    import functools  # noqa: PLC0415
+    import operator  # noqa: PLC0415
+    import shutil  # noqa: PLC0415
 
     fs_paths = (
         (

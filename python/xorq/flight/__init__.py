@@ -157,8 +157,8 @@ class FlightServer:
 
     @classmethod
     def from_udxf(cls, expr, host=None, port=None, make_connection=None, **kwargs):
-        from xorq.common.utils.graph_utils import walk_nodes
-        from xorq.expr.relations import FlightUDXF
+        from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+        from xorq.expr.relations import FlightUDXF  # noqa: PLC0415
 
         # Find all FlightUDXF nodes in the expression
         exchangers = tuple({node.udxf for node in walk_nodes((FlightUDXF,), expr)})

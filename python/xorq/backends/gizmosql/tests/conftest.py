@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import contextlib
+import socket
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+
+import xorq.api as xo
+from xorq.vendor.ibis import util
 
 
 if TYPE_CHECKING:
@@ -32,8 +36,6 @@ PARQUET_TABLES = (
 
 # ── Docker container management ──────────────────────────────────────────────
 def _port_is_listening(port: int, host: str = "localhost") -> bool:
-    import socket
-
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(1)
         return s.connect_ex((host, port)) == 0
@@ -106,8 +108,6 @@ def gizmosql_server():
 @pytest.fixture(scope="session")
 def con(gizmosql_server):
     """GizmoSQL connection with test data loaded."""
-    import xorq.api as xo
-
     conn = xo.gizmosql.connect(
         host="localhost",
         user=GIZMOSQL_USERNAME,
@@ -149,8 +149,6 @@ def batting(con):
 
 @pytest.fixture
 def temp_table(con):
-    from xorq.vendor.ibis import util
-
     name = util.gen_name("temp_table")
     yield name
     with contextlib.suppress(Exception):

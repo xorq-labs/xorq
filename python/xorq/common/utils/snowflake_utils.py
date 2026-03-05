@@ -193,7 +193,9 @@ class SnowflakeADBC:
 
     @property
     def db_kwargs(self, N=20):
-        from xorq.common.utils.snowflake_keypair_utils import SnowflakeKeypair
+        from xorq.common.utils.snowflake_keypair_utils import (  # noqa: PLC0415
+            SnowflakeKeypair,
+        )
 
         if self.is_keypair_auth:
             keypair = SnowflakeKeypair.from_bytes_der(self.con.con._private_key)
@@ -246,8 +248,8 @@ class SnowflakeADBC:
         **kwargs,
     ):
         def make_use_stmt(con, catalog, db):
-            import sqlglot as sg
-            import sqlglot.expressions as sge
+            import sqlglot as sg  # noqa: PLC0415
+            import sqlglot.expressions as sge  # noqa: PLC0415
 
             use_stmt = sge.Use(
                 kind="SCHEMA",

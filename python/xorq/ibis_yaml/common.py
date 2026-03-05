@@ -97,7 +97,7 @@ class Registry:
         node_ref = f"@{op_name}_{node_hash[: config.hash_length]}"
         node_dict_with_hash = freeze(node_dict | {"snapshot_hash": node_hash})
         if node.__class__.__name__ == "Read" and "memtables" in dict(node.read_kwargs):
-            from xorq.common.utils.node_utils import update_read_kwargs
+            from xorq.common.utils.node_utils import update_read_kwargs  # noqa: PLC0415
 
             old_read_kwargs = node_dict_with_hash["read_kwargs"]
             new_path = Path("memtables", dict(old_read_kwargs)["path"].name)

@@ -207,6 +207,7 @@ extend-select = [
     "B",      # flake8-bugbear: mutable default args, exception chaining, etc.
     "C4",     # flake8-comprehensions: unnecessary list/dict/set comprehensions
     "FURB",   # refurb: modernize Python code
+    "PLC0415",  # import-outside-toplevel: imports must be at module level
 ]
 ignore = [
     "B018",  # useless-expression: side-effect property access is intentional
@@ -217,7 +218,9 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "python/xorq/__init__.py" = ["I001"]
 "python/xorq/api.py" = ["I001"]
-"python/xorq/vendor/**" = ["B"]
+"python/xorq/vendor/**" = ["B", "PLC0415"]
+"python/xorq/cli.py" = ["PLC0415"]
+"python/xorq/catalog/cli.py" = ["PLC0415"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["xorq"]

@@ -21,7 +21,7 @@ ibis = pytest.importorskip("ibis")
 
 
 def connect_postgres():
-    from xorq.common.utils.postgres_utils import (
+    from xorq.common.utils.postgres_utils import (  # noqa: PLC0415
         make_connection_defaults,
         make_credential_defaults,
     )
@@ -35,8 +35,10 @@ def connect_postgres():
 
 
 def connect_snowflake():
-    from xorq.common.utils.snowflake_keypair_utils import maybe_decrypt_private_key
-    from xorq.common.utils.snowflake_utils import (
+    from xorq.common.utils.snowflake_keypair_utils import (  # noqa: PLC0415
+        maybe_decrypt_private_key,
+    )
+    from xorq.common.utils.snowflake_utils import (  # noqa: PLC0415
         make_connection_defaults,
         make_credential_defaults,
     )

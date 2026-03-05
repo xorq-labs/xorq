@@ -6,6 +6,7 @@ import toolz
 
 import xorq.api as xo
 from xorq.caching import ParquetCache
+from xorq.common.utils.graph_utils import find_all_sources
 from xorq.expr.udf import make_pandas_udf
 from xorq.ibis_yaml.compiler import YamlExpressionTranslator
 from xorq.tests.util import assert_frame_equal
@@ -124,8 +125,6 @@ def test_flight_udxf(con, diamonds, baseline):
 
 
 def test_flight_udxf_cached(con, diamonds, baseline):
-    from xorq.common.utils.graph_utils import find_all_sources
-
     input_expr = diamonds.pipe(do_agg)
     process_df = operator.methodcaller("assign", **{field_name: my_udf.fn})
     maybe_schema_in = input_expr.schema()

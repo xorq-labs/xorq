@@ -13,7 +13,7 @@ def load_backend(name):
     if entry_point := next(
         (ep for ep in _load_entry_points() if ep.name == name), None
     ):
-        import types
+        import types  # noqa: PLC0415
 
         module = entry_point.load()
         backend = module.Backend()

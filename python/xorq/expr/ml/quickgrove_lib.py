@@ -66,7 +66,7 @@ def _calculate_bounds(
         raise ValueError("test size should be a float between 0 and 1.")
 
     try:
-        import pandas as pd
+        import pandas as pd  # noqa: PLC0415
 
         pd._testing.assert_almost_equal(sum(test_sizes), 1)
     except AssertionError as err:
@@ -128,7 +128,7 @@ def _load_quickgrove_model(
 ) -> Tuple["PyGradientBoostedDecisionTrees", Union[str, Path, None]]:
     """Load the model if a path is provided; otherwise, pass through the model."""
 
-    import quickgrove
+    import quickgrove  # noqa: PLC0415
 
     if isinstance(model_or_path, (str, Path)):
         model = quickgrove.json_load(model_or_path)
@@ -319,7 +319,7 @@ def make_pruned_udf(
     `original_udf` must have a `.model` attribute.
     """
 
-    from quickgrove import Feature
+    from quickgrove import Feature  # noqa: PLC0415
 
     model = original_udf.model
     pred_feature_names = {pred["column"] for pred in predicates}

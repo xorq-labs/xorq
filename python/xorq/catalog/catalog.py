@@ -105,7 +105,7 @@ class Catalog:
             return self._add_build_dir(path, sync=sync, aliases=aliases)
 
     def add(self, obj, sync=True, aliases=()):
-        from xorq.api import Expr
+        from xorq.api import Expr  # noqa: PLC0415
 
         match obj:
             case Path() if obj.is_dir():
@@ -349,7 +349,9 @@ class BuildTgz:
 
     @property
     def md5sum(self):
-        from xorq.common.utils.dask_normalize.dask_normalize_utils import file_digest
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
+            file_digest,
+        )
 
         return file_digest(self.path, hashlib.md5)
 

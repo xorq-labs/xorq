@@ -2,6 +2,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+from attr import evolve
 
 import xorq.api as xo
 from xorq.catalog.catalog import (
@@ -53,8 +54,6 @@ def test_catalog_addition_from_expr(catalog):
 
 
 def test_catalog_addition_with_aliases(catalog):
-    from attr import evolve
-
     expr = xo.memtable({"with-aliases": ["with-aliases"]})
     catalog_addition = CatalogAddition.from_expr(expr, catalog)
     aliases = ("alias-x", "alias-y")

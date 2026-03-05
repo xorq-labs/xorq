@@ -54,7 +54,7 @@ def _calculate_bounds(
         raise ValueError("test size should be a float between 0 and 1.")
 
     try:
-        import pandas as pd
+        import pandas as pd  # noqa: PLC0415
 
         pd._testing.assert_almost_equal(sum(test_sizes), 1)
     except AssertionError as err:

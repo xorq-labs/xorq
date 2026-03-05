@@ -261,7 +261,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         )
 
     def _register_builtin_udfs(self):
-        from xorq.backends.xorq.datafusion import udfs
+        from xorq.backends.xorq.datafusion import udfs  # noqa: PLC0415
 
         for name, func in inspect.getmembers(
             udfs,
@@ -312,7 +312,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
     def _compile_pyarrow_expr_udf(self, udf_node):
         def extract_computed_arg(expr):
             # user can do Scalar.to_table() if they want to cache it
-            import pandas as pd
+            import pandas as pd  # noqa: PLC0415
 
             value = expr.execute()
             if isinstance(value, pd.DataFrame):
@@ -480,8 +480,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             Datafusion-specific keyword arguments
 
         """
-        import pandas as pd
-        import pyarrow.dataset as ds
+        import pandas as pd  # noqa: PLC0415
+        import pyarrow.dataset as ds  # noqa: PLC0415
 
         table_name = table_name or gen_name("register")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
@@ -563,7 +563,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         return self.table(table_name)
 
     def _register_failure(self):
-        import inspect
+        import inspect  # noqa: PLC0415
 
         msg = ", ".join(
             m[0] for m in inspect.getmembers(self) if m[0].startswith("read_")
@@ -581,7 +581,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         if batches := op.data.to_pyarrow(schema).to_batches():
             self.con.register_record_batches(name, [batches])
         else:
-            import pyarrow.dataset as ds
+            import pyarrow.dataset as ds  # noqa: PLC0415
 
             empty_dataset = ds.dataset([], schema=schema.to_pyarrow())
             self.con.register_dataset(name=name, dataset=empty_dataset)
@@ -691,7 +691,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         self.con.deregister_table(table_name)
 
         try:
-            from deltalake import DeltaTable
+            from deltalake import DeltaTable  # noqa: PLC0415
         except ImportError as err:
             raise ImportError(
                 "The deltalake extra is required to use the "
@@ -904,7 +904,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         **kwargs: Any,
     ) -> None:
         self._import_pyarrow()
-        import pyarrow.parquet as pq
+        import pyarrow.parquet as pq  # noqa: PLC0415
 
         with expr.to_pyarrow_batches(params=params) as batch_reader:
             with pq.ParquetWriter(path, batch_reader.schema, **kwargs) as writer:

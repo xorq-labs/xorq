@@ -26,7 +26,7 @@ class Backend(IbisPostgresBackend):
 
     @classmethod
     def connect_env(cls, **kwargs):
-        from xorq.common.utils.postgres_utils import make_connection
+        from xorq.common.utils.postgres_utils import make_connection  # noqa: PLC0415
 
         return make_connection(**kwargs)
 
@@ -98,7 +98,7 @@ class Backend(IbisPostgresBackend):
         mode: str = "create",
         **kwargs: Any,
     ) -> ir.Table:
-        from xorq.common.utils.postgres_utils import (
+        from xorq.common.utils.postgres_utils import (  # noqa: PLC0415
             PgADBC,
             make_table_temporary,
         )
@@ -180,7 +180,9 @@ class Backend(IbisPostgresBackend):
 
     def clone(self, password=None, **kwargs):
         """necessary because "UnsupportedOperationError: postgres does not support creating a database in a different catalog" """
-        from xorq.common.utils.postgres_utils import make_credential_defaults
+        from xorq.common.utils.postgres_utils import (  # noqa: PLC0415
+            make_credential_defaults,  # noqa: PLC0415
+        )
 
         password = password or make_credential_defaults()["password"]
         if password is None:

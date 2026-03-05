@@ -66,7 +66,7 @@ def get_root_dir(tgz_path):
 
 def calc_tgz_content_hexdigest(path, member_filter=uv_sdist_member_filter):
     # ignore metadata like permissions and modification time
-    from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+    from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
         file_digest,
     )
 

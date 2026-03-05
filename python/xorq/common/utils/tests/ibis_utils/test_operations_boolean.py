@@ -1,3 +1,5 @@
+from math import isnan
+
 import ibis
 
 from xorq.common.utils.ibis_utils import from_ibis
@@ -75,8 +77,6 @@ def test_is_inf():
 
 
 def test_is_nan():
-    from math import isnan
-
     a = ibis.literal(float("nan"))
     expr = a.isnan()
 

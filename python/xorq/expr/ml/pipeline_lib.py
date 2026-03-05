@@ -57,7 +57,7 @@ def do_into_backend(expr, con=None):
 
 
 def make_estimator_typ(fit, return_type, name=None, *, transform=None, predict=None):
-    from sklearn.base import BaseEstimator
+    from sklearn.base import BaseEstimator  # noqa: PLC0415
 
     def arbitrate_transform_predict(transform, predict):
         match (transform, predict):
@@ -168,7 +168,7 @@ class Step:
     )
 
     def __attrs_post_init__(self):
-        from sklearn.base import BaseEstimator
+        from sklearn.base import BaseEstimator  # noqa: PLC0415
 
         assert BaseEstimator in self.typ.mro()
         if self.name is None:
@@ -383,7 +383,7 @@ class FittedStep:
             raise ValueError("Step must have transform or predict method")
         # if we are predict-only, we must have target (except for clustering)
         if self.target is None and self.is_predict and not self.is_transform:
-            from sklearn.base import ClusterMixin
+            from sklearn.base import ClusterMixin  # noqa: PLC0415
 
             if not isinstance(self.instance, ClusterMixin):
                 raise ValueError(
@@ -494,7 +494,7 @@ class FittedStep:
     @property
     @functools.cache
     def model(self):
-        import pandas as pd
+        import pandas as pd  # noqa: PLC0415
 
         match obj := self.deferred_model.execute():
             case pd.DataFrame():
@@ -615,7 +615,7 @@ class FittedStep:
     feature_importances_raw = invoke_method_raw(methodname="feature_importances")
 
     def feature_importances(self, expr=None, name=None):
-        import xorq.api as xo
+        import xorq.api as xo  # noqa: PLC0415
 
         schema = self.expr.select(self.features).schema()
         empty_table = xo.memtable([dict.fromkeys(schema.names)], schema=schema)
@@ -700,7 +700,7 @@ class Pipeline:
             A scikit-learn pipeline with the same steps and parameters.
         """
 
-        import sklearn
+        import sklearn  # noqa: PLC0415
 
         return sklearn.pipeline.Pipeline(
             tuple((step.name, step.instance) for step in self.steps)
@@ -776,7 +776,7 @@ class Pipeline:
         """
 
         if not target and self.predict_step:
-            from sklearn.base import ClusterMixin
+            from sklearn.base import ClusterMixin  # noqa: PLC0415
 
             if not isinstance(self.predict_step.instance, ClusterMixin):
                 raise ValueError("Can't infer target for a prediction step")
@@ -963,7 +963,7 @@ class FittedPipeline:
         ValueError
             If model type is not recognized.
         """
-        from xorq.expr.ml.metrics import _default_scorer_for_model
+        from xorq.expr.ml.metrics import _default_scorer_for_model  # noqa: PLC0415
 
         return _default_scorer_for_model(self.predict_step.instance)
 
@@ -986,7 +986,10 @@ class FittedPipeline:
         ibis.Expr
             Deferred metric expression
         """
-        from xorq.expr.ml.metrics import Scorer, deferred_sklearn_metric
+        from xorq.expr.ml.metrics import (  # noqa: PLC0415
+            Scorer,
+            deferred_sklearn_metric,
+        )
 
         if scorer is None:
             s = Scorer.from_model(self.predict_step.instance)
@@ -1026,10 +1029,10 @@ class FittedPipeline:
         float
             The computed score
         """
-        import numpy as np
-        import pandas as pd
+        import numpy as np  # noqa: PLC0415
+        import pandas as pd  # noqa: PLC0415
 
-        from xorq.expr import api
+        from xorq.expr import api  # noqa: PLC0415
 
         if not self.is_predict:
             raise ValueError("Pipeline does not have a predict step")
@@ -1071,20 +1074,20 @@ def raise_on_unregistered(instance, step, expr, features, target):
 
 @registry.register_lazy("sklearn")
 def lazy_register_sklearn():
-    from sklearn.base import (
+    from sklearn.base import (  # noqa: PLC0415
         ClassifierMixin,
         ClusterMixin,
         RegressorMixin,
     )
-    from sklearn.ensemble import (
+    from sklearn.ensemble import (  # noqa: PLC0415
         RandomForestClassifier,
         RandomForestRegressor,
     )
-    from sklearn.linear_model import (
+    from sklearn.linear_model import (  # noqa: PLC0415
         LinearRegression,
         LogisticRegression,
     )
-    from sklearn.neighbors import (
+    from sklearn.neighbors import (  # noqa: PLC0415
         KNeighborsClassifier,
     )
 

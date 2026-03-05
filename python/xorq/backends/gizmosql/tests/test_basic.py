@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from operator import methodcaller
+from pathlib import Path
 
 import pandas as pd
 import pyarrow as pa
@@ -10,6 +11,7 @@ import pytest
 
 import xorq.api as xo
 from xorq.caching import ParquetCache, SourceCache
+from xorq.vendor.ibis import _
 
 
 pytestmark = pytest.mark.gizmosql
@@ -106,8 +108,6 @@ def test_create_and_drop_table(con, temp_table):
 
 def test_read_parquet(con):
     """Verify read_parquet via _read_local_and_ingest."""
-    from pathlib import Path
-
     root = Path(__file__).resolve().parents[5]
     parquet_path = root / "ci" / "ibis-testing-data" / "parquet" / "diamonds.parquet"
     if not parquet_path.exists():
@@ -194,8 +194,6 @@ def test_into_backend_join_on_duckdb(con, batting, awards_players):
 
 def test_into_backend_double_hop(con, batting):
     """GizmoSQL → DuckDB → DataFusion (two hops)."""
-    from xorq.vendor.ibis import _
-
     ddb_con = xo.duckdb.connect()
     xorq_con = xo.connect()
 

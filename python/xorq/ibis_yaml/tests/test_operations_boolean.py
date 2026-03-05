@@ -1,3 +1,5 @@
+from math import isnan
+
 import xorq.vendor.ibis as ibis
 from xorq.ibis_yaml.tests.conftest import get_dtype_yaml
 
@@ -118,8 +120,6 @@ def test_is_inf(compiler):
 
 
 def test_is_nan(compiler):
-    from math import isnan
-
     a = ibis.literal(float("nan"))
     expr = a.isnan()
     yaml_dict = compiler.to_yaml(expr)

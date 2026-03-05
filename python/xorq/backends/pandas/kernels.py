@@ -424,9 +424,9 @@ rowwise = {
 
 
 def custom_hash(arg):
-    import pyarrow as pa
+    import pyarrow as pa  # noqa: PLC0415
 
-    from xorq.internal import SessionContext
+    from xorq.internal import SessionContext  # noqa: PLC0415
 
     name = "custom_hash"
     table_name = f"table_{name}"
