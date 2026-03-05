@@ -162,3 +162,9 @@ def find_all_sources(expr):
     nodes = walk_nodes(node_types, expr)
     sources = get_ordered_unique_sources(nodes)
     return sources
+
+
+def has_unbound_table(expr) -> bool:
+    from xorq.vendor.ibis.expr.operations import UnboundTable  # noqa: PLC0415
+
+    return bool(walk_nodes(UnboundTable, expr))
