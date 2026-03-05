@@ -1,3 +1,4 @@
+import json
 import re
 import tarfile
 from datetime import datetime
@@ -210,6 +211,15 @@ def _entry_info(entry) -> tuple[int, bool, str, object]:
     return column_count, cached, root_tag or "", expr
 
 
+def _extract_kind(entry) -> str:
+    with tarfile.open(entry.catalog_path, "r:gz") as tf:
+        f = tf.extractfile(f"{entry.name}/metadata.json")
+        if f is None:
+            return "expr"
+        data = json.loads(f.read())
+    return data.get("kind", "expr")
+
+
 def _extract_backends(entry) -> tuple[str, ...]:
     with tarfile.open(entry.catalog_path, "r:gz") as tf:
         f = tf.extractfile(f"{entry.name}/profiles.yaml")
@@ -230,7 +240,7 @@ def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
         # expr deserialization can fail (e.g. missing module for pickled callable)
         column_count, cached, root_tag, expr = None, None, "", None
     return CatalogRowData(
-        kind="expr",
+        kind=_extract_kind(entry),
         aliases=aliases,
         hash=entry.name,
         backends=_extract_backends(entry),
