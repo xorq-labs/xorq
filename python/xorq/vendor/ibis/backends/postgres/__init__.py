@@ -12,7 +12,6 @@ import psycopg
 import sqlglot as sg
 import sqlglot.expressions as sge
 
-import xorq.common.exceptions as com
 import xorq.common.exceptions as exc
 import xorq.vendor.ibis.backends.sql.compilers as sc
 import xorq.vendor.ibis.expr.datatypes as dt
@@ -515,7 +514,7 @@ ORDER BY a.attnum ASC"""
             rows = cursor.execute(type_info, params, prepare=True).fetchall()
 
         if not rows:
-            raise com.TableNotFound(name)
+            raise exc.TableNotFound(name)
 
         return sch.Schema(
             {
