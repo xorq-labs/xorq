@@ -95,7 +95,7 @@ REQUIRED_TGZ_NAMES = (DumpFiles.expr, DumpFiles.metadata, DumpFiles.profiles)
 
 class ExprKind(StrEnum):
     Expr = "expr"
-    PartialExpr = "partial_expr"
+    UnboundExpr = "unbound_expr"
 
 
 class MemtableTypes(StrEnum):
@@ -449,7 +449,7 @@ class ExprDumper:
             if lu._git_is_present()
             else None,
             "sys-version_info": tuple(sys.version_info),
-            "kind": ExprKind.PartialExpr
+            "kind": ExprKind.UnboundExpr
             if has_unbound_table(self.expr)
             else ExprKind.Expr,
         }
