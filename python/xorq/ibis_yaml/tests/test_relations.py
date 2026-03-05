@@ -42,7 +42,6 @@ def test_projection(compiler, t):
 def test_aggregation(compiler, t):
     expr = t.group_by("a").aggregate(avg_c=t.c.mean())
     yaml_dict = compiler.to_yaml(expr)
-    expression = yaml_dict["expression"]
 
     node_ref = yaml_dict["expression"][RefEnum.node_ref]
     expression = yaml_dict["definitions"][RegistryEnum.nodes][node_ref]
