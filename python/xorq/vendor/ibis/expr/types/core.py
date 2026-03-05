@@ -336,6 +336,16 @@ class Expr(Immutable, Coercible):
         -------
         list[BaseBackend]
             A list of the backends found.
+
+        Notes
+        -----
+        This method uses ibis's native graph traversal which stops at the
+        outermost opaque node boundaries (CachedNode, RemoteTable, etc.),
+        returning only the immediate executors. This is intentionally different
+        from find_all_sources() in graph_utils, which traverses *through* those
+        boundaries to find every backend at every depth. The distinction matters
+        for _find_backend(): you want the single outermost executor, not the
+        full recursive set.
         """
 
         import xorq.expr.relations as rel

@@ -24,8 +24,9 @@ from xorq.vendor.ibis.expr.operations.udf import (
 
 
 def expr_is_bound(expr):
-    backends, _ = expr._find_backends()
-    return bool(backends)
+    from xorq.common.utils.graph_utils import find_all_sources  # noqa: PLC0415
+
+    return bool(find_all_sources(expr))
 
 
 def unbound_expr_to_default_sql(expr, compiler=None):
