@@ -24,7 +24,6 @@ from xorq.catalog.tar_utils import (
 from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
 )
-from xorq.catalog.tui import _extract_kind
 from xorq.ibis_yaml.compiler import REQUIRED_TGZ_NAMES, ExprKind, build_expr
 
 
@@ -358,11 +357,11 @@ def test_build_expr_kind_partial(tmp_path):
 def test_extract_kind_bound(catalog):
     expr = xo.memtable({"a": [1, 2, 3]})
     entry = catalog.add(expr)
-    assert _extract_kind(entry) == ExprKind.Expr
+    assert entry.kind == ExprKind.Expr
 
 
 def test_extract_kind_partial(catalog):
     t = xo.table(schema={"a": "int64"})
     expr = t.filter(t.a > 0)
     entry = catalog.add(expr)
-    assert _extract_kind(entry) == ExprKind.PartialExpr
+    assert entry.kind == ExprKind.PartialExpr
