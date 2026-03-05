@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 import hashlib
+import json
 import shutil
+import tarfile
 import tempfile
 from contextlib import (
     contextmanager,
     nullcontext,
 )
-from functools import partial
+from functools import cached_property, partial
 from pathlib import Path
 from subprocess import Popen
 from urllib.parse import urlparse
@@ -460,17 +462,29 @@ class CatalogEntry:
 
         return load_expr_from_tgz(self.catalog_path)
 
-    @property
+    @cached_property
     def kind(self) -> str:
-        import json  # noqa: PLC0415
-        import tarfile  # noqa: PLC0415
-
         with tarfile.open(self.catalog_path, "r:gz") as tf:
             f = tf.extractfile(f"{self.name}/metadata.json")
             if f is None:
                 return "expr"
             data = json.loads(f.read())
         return data.get("kind", "expr")
+
+    @cached_property
+    def backends(self) -> tuple:
+        with tarfile.open(self.catalog_path, "r:gz") as tf:
+            f = tf.extractfile(f"{self.name}/profiles.yaml")
+            if f is None:
+                return ()
+            data = yaml.safe_load(f.read())
+        if not isinstance(data, dict):
+            return ()
+        return tuple(
+            pdata.get("con_name", "?")
+            for pdata in data.values()
+            if isinstance(pdata, dict)
+        )
 
     @property
     def aliases(self):

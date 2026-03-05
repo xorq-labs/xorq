@@ -211,19 +211,6 @@ def _entry_info(entry) -> tuple[int, bool, str, object]:
     return column_count, cached, root_tag or "", expr
 
 
-def _extract_backends(entry) -> tuple[str, ...]:
-    with tarfile.open(entry.catalog_path, "r:gz") as tf:
-        f = tf.extractfile(f"{entry.name}/profiles.yaml")
-        if f is None:
-            return ()
-        data = yaml.safe_load(f.read())
-    if not isinstance(data, dict):
-        return ()
-    return tuple(
-        pdata.get("con_name", "?") for pdata in data.values() if isinstance(pdata, dict)
-    )
-
-
 def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
     try:
         column_count, cached, root_tag, expr = _entry_info(entry)
@@ -234,7 +221,7 @@ def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
         kind=entry.kind,
         aliases=aliases,
         hash=entry.name,
-        backends=_extract_backends(entry),
+        backends=entry.backends,
         column_count=column_count,
         cached=cached,
         root_tag=root_tag,
