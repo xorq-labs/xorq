@@ -146,7 +146,7 @@ class HashingTag(Tag):
     """
 
     def __dask_tokenize__(self):
-        from xorq.common.utils.dask_normalize.dask_normalize_expr import (
+        from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
             normalize_seq_with_caller,
         )
 
