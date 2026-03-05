@@ -3421,11 +3421,10 @@ class Table(Expr, _FixedTextJupyterMixin):
         )
         return op.to_expr()
 
-    def tag(self, tag, **kwargs):
-        from xorq.expr.relations import Tag
+    def _make_tag(self, cls, tag, **kwargs):
         from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
-        op = Tag(
+        op = cls(
             schema=self.schema(),
             parent=self.op(),
             metadata=FrozenOrderedDict(
@@ -3436,22 +3435,16 @@ class Table(Expr, _FixedTextJupyterMixin):
             ),
         )
         return op.to_expr()
+
+    def tag(self, tag, **kwargs):
+        from xorq.expr.relations import Tag
+
+        return self._make_tag(Tag, tag, **kwargs)
 
     def hashing_tag(self, tag, **kwargs):
         from xorq.expr.relations import HashingTag
-        from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
-        op = HashingTag(
-            schema=self.schema(),
-            parent=self.op(),
-            metadata=FrozenOrderedDict(
-                {
-                    "tag": tag,
-                    **kwargs,
-                }
-            ),
-        )
-        return op.to_expr()
+        return self._make_tag(HashingTag, tag, **kwargs)
 
     def pivot_longer(
         self,

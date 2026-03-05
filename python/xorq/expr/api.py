@@ -389,18 +389,19 @@ def _remove_non_hashing_tag_nodes(expr):
     from xorq.common.utils.graph_utils import replace_nodes
 
     def replacer(node, kwargs):
-        if isinstance(node, HashingTag):
-            if kwargs:
-                node = node.__recreate__(kwargs)
-            return node
-        elif isinstance(node, Tag):
-            while isinstance(node, Tag) and not isinstance(node, HashingTag):
-                node = node.parent
-            node = replace_nodes(replacer, node)
-            return node
-        elif kwargs:
-            node = node.__recreate__(kwargs)
-        return node
+        match node:
+            case HashingTag():
+                if kwargs:
+                    node = node.__recreate__(kwargs)
+                return node
+            case Tag():
+                while isinstance(node, Tag) and not isinstance(node, HashingTag):
+                    node = node.parent
+                return replace_nodes(replacer, node)
+            case _:
+                if kwargs:
+                    node = node.__recreate__(kwargs)
+                return node
 
     return replace_nodes(replacer, expr).to_expr()
 
