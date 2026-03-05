@@ -461,6 +461,18 @@ class CatalogEntry:
         return load_expr_from_tgz(self.catalog_path)
 
     @property
+    def kind(self) -> str:
+        import json  # noqa: PLC0415
+        import tarfile  # noqa: PLC0415
+
+        with tarfile.open(self.catalog_path, "r:gz") as tf:
+            f = tf.extractfile(f"{self.name}/metadata.json")
+            if f is None:
+                return "expr"
+            data = json.loads(f.read())
+        return data.get("kind", "expr")
+
+    @property
     def aliases(self):
         return tuple(
             catalog_alias
