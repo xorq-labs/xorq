@@ -40,7 +40,7 @@ from xorq.catalog.git_utils import (
     add_as_submodule,
     commit_context,
 )
-from xorq.ibis_yaml.compiler import ExprKind
+from xorq.ibis_yaml.compiler import DumpFiles, ExprKind
 
 
 abspath = toolz.compose(Path.absolute, Path)
@@ -465,22 +465,14 @@ class CatalogEntry:
     @cached_property
     def kind(self) -> str:
         default_value = str(ExprKind.Expr)
-        with tarfile.open(self.catalog_path, "r:gz") as tf:
-            f = tf.extractfile(f"{self.name}/expr.yaml")
-            if f is None:
-                return default_value
-            data = yaml.safe_load(f.read())
+        data = self._read_tgz_yaml(DumpFiles.expr)
         if not isinstance(data, dict):
             return default_value
         return data.get("kind", default_value)
 
     @cached_property
     def backends(self) -> tuple:
-        with tarfile.open(self.catalog_path, "r:gz") as tf:
-            f = tf.extractfile(f"{self.name}/profiles.yaml")
-            if f is None:
-                return ()
-            data = yaml.safe_load(f.read())
+        data = self._read_tgz_yaml(DumpFiles.profiles)
         if not isinstance(data, dict):
             return ()
         return tuple(
@@ -520,6 +512,13 @@ class CatalogEntry:
 
     def exists(self):
         return all(self._exists_components.values())
+
+    def _read_tgz_yaml(self, filename):
+        with tarfile.open(self.catalog_path, "r:gz") as tf:
+            f = tf.extractfile(f"{self.name}/{filename}")
+            if f is None:
+                return None
+            return yaml.safe_load(f.read())
 
 
 @frozen
