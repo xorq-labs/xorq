@@ -176,13 +176,8 @@ def _interval_unit_from_yaml(yaml_dict: dict, context: TranslationContext) -> an
 
 
 @translate_to_yaml.register(bool)
-def _bool_to_yaml(value: bool, context: TranslationContext) -> dict:
-    return freeze(
-        {
-            "op": "bool",
-            "value": value,
-        }
-    )
+def _bool_to_yaml(value: bool, context: TranslationContext) -> bool:
+    return value
 
 
 @register_from_yaml_handler("bool")
@@ -191,8 +186,8 @@ def _bool_from_yaml(yaml_dict: dict, context: TranslationContext) -> bool:
 
 
 @translate_to_yaml.register(int)
-def _int_to_yaml(val: int, context: TranslationContext) -> dict:
-    return freeze({"op": "int", "value": val})
+def _int_to_yaml(val: int, context: TranslationContext) -> int:
+    return val
 
 
 @register_from_yaml_handler("int")
@@ -646,10 +641,7 @@ def _read_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
 
 @translate_to_yaml.register(str)
 def _str_to_yaml(string: str, context: TranslationContext) -> str:
-    return {
-        "op": "str",
-        "value": string,
-    }
+    return string
 
 
 @register_from_yaml_handler("str")
@@ -855,6 +847,7 @@ def _project_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
 
 
 @translate_to_yaml.register(ops.Aggregate)
+@convert_to_node_ref
 def _aggregate_to_yaml(op: ops.Aggregate, context: TranslationContext) -> dict:
     return freeze(
         {
@@ -925,6 +918,18 @@ def _join_to_yaml(op: ops.JoinChain, context: TranslationContext) -> dict:
         },
     }
     return freeze(node_dict)
+
+
+@translate_to_yaml.register(ops.DropColumns)
+@convert_to_node_ref
+def _drop_columns_to_yaml(op: ops.DropColumns, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "DropColumns",
+            "parent": context.translate_to_yaml(op.parent),
+            "columns_to_drop": context.translate_to_yaml(op.columns_to_drop),
+        }
+    )
 
 
 @register_from_yaml_handler("JoinChain")
@@ -1053,6 +1058,18 @@ def _self_reference_from_yaml(yaml_dict: dict, context: TranslationContext) -> i
     ref = ops.SelfReference(underlying, identifier=identifier)
 
     return ref.to_expr()
+
+
+@translate_to_yaml.register(ops.JoinReference)
+@convert_to_node_ref
+def _joinreference_to_yaml(op: ops.JoinReference, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "JoinReference",
+            "parent": context.translate_to_yaml(op.parent),
+            "identifier": op.identifier,
+        }
+    )
 
 
 @register_from_yaml_handler("JoinReference")

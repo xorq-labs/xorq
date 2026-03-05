@@ -13,7 +13,9 @@ def test_scalar_subquery(compiler, t):
     expression = yaml_dict["expression"]
 
     assert expression["op"] == "ScalarSubquery"
-    assert expression["args"][0]["op"] == "Aggregate"
+    node_ref = expression["args"][0][RefEnum.node_ref]
+    agg_expression = yaml_dict["definitions"][RegistryEnum.nodes][node_ref]
+    assert agg_expression["op"] == "Aggregate"
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)

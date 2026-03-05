@@ -89,6 +89,11 @@ class Registry:
             case Schema():
                 untagged_repr = ("Schema", tuple(node.items()))
                 node_hash = tokenize(node)
+            case ops.JoinReference():
+                parent_expr = node.to_expr()
+                with SnapshotStrategy().normalization_context(parent_expr):
+                    parent_hash = tokenize(parent_expr.ls.untagged)
+                node_hash = tokenize((parent_hash, node.identifier))
             case _:
                 untagged_repr = node.to_expr().ls.untagged
                 with SnapshotStrategy().normalization_context(node.to_expr()):
@@ -220,6 +225,8 @@ def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     match yaml_dict:
         case None:
             return None
+        case bool() | int() | float() | str():
+            return yaml_dict
         case {RefEnum.dtype_ref: dtype_ref, **rest}:
             if rest:
                 raise ValueError(

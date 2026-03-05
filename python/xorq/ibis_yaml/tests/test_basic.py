@@ -34,7 +34,7 @@ def test_field(t, compiler):
     assert get_dtype_yaml(yaml_dict, expression) == {
         "op": "DataType",
         "type": "Int64",
-        "nullable": {"op": "bool", "value": True},
+        "nullable": True,
     }
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
@@ -55,7 +55,7 @@ def test_literal(compiler):
     assert dtype_yaml == {
         "op": "DataType",
         "type": "Int8",
-        "nullable": {"op": "bool", "value": True},
+        "nullable": True,
     }
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
