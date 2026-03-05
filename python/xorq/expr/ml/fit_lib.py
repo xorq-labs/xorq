@@ -6,8 +6,9 @@ import numpy as np
 import pyarrow as pa
 import toolz
 from attr import (
+    define,
     field,
-    frozen,
+    setters,
 )
 from attr.validators import (
     deep_iterable,
@@ -107,7 +108,7 @@ def kv_encode_output(model, df):
     return KVEncoder.encode(model, df)
 
 
-@frozen
+@define(on_setattr=setters.frozen, slots=False, hash=True)
 class DeferredFitOther:
     expr = field(validator=instance_of(ibis.Expr))
     target = field(validator=optional(instance_of(str)))
@@ -175,7 +176,7 @@ class DeferredFitOther:
             deferred_model = deferred_model.as_table().cache(cache=self.cache)
         return deferred_model
 
-    @functools.cache
+    @functools.cache  # noqa: B019
     # if we don't cache this, we get extra tags
     def make_deferred_other(self, fn, return_type, name_infix):
         wrapped_fn = self._inner_other(

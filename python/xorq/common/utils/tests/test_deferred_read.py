@@ -6,8 +6,9 @@ import dask
 import pandas as pd
 import pytest
 from attr import (
+    define,
     field,
-    frozen,
+    setters,
 )
 from attr.validators import (
     in_,
@@ -32,7 +33,7 @@ duckdb = pytest.importorskip("duckdb")
 ProgrammingError = pytest.importorskip("adbc_driver_manager").ProgrammingError
 
 
-@frozen
+@define(on_setattr=setters.frozen, slots=False, hash=True)
 class PinsResource:
     name = field()
     suffix = field(validator=optional(in_((".csv", ".parquet"))), default=None)
@@ -51,8 +52,7 @@ class PinsResource:
     def table_name(self):
         return f"test-{self.name}"
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def path(self):
         return pathlib.Path(xo.options.pins.get_path(self.name))
 
@@ -79,8 +79,7 @@ class PinsResource:
             case _:
                 raise ValueError(f"unsupported suffix {self.suffix!r}")
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def df(self):
         return self.immediate_reader(self.path)
 

@@ -195,8 +195,7 @@ class FlightServer:
             }
         return kwargs
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def con(self) -> Backend:
         kwargs = {
             "host": self.flight_url.host,

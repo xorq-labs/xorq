@@ -1,11 +1,11 @@
 import re
 import tarfile
 from datetime import datetime
-from functools import cache
+from functools import cached_property
 from pathlib import Path
 
 import yaml
-from attr import field, frozen
+from attr import define, field, frozen, setters
 from attr.validators import instance_of, optional
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -77,7 +77,7 @@ def _format_column_count(n: int | None) -> str:
             return "?"
 
 
-@frozen
+@define(on_setattr=setters.frozen, slots=False, hash=True)
 class CatalogRowData:
     kind: str = field(default="expr", validator=instance_of(str))
     aliases: tuple[str, ...] = field(factory=tuple, validator=instance_of(tuple))
@@ -88,28 +88,23 @@ class CatalogRowData:
     root_tag: str = field(default="", validator=instance_of(str))
     cached_expr: object = field(default=None, eq=False, hash=False, repr=False)
 
-    @property
-    @cache
+    @cached_property
     def aliases_display(self) -> str:
         return ", ".join(self.aliases) if self.aliases else ""
 
-    @property
-    @cache
+    @cached_property
     def backends_display(self) -> str:
         return ", ".join(sorted(set(self.backends))) if self.backends else ""
 
-    @property
-    @cache
+    @cached_property
     def output_display(self) -> str:
         return _format_column_count(self.column_count)
 
-    @property
-    @cache
+    @cached_property
     def cached_display(self) -> str:
         return _format_cached(self.cached)
 
-    @property
-    @cache
+    @cached_property
     def root_tag_display(self) -> str:
         return self.root_tag
 
@@ -161,7 +156,7 @@ class ExploreData:
     has_alias: bool = field(default=False, validator=instance_of(bool))
 
 
-@frozen
+@define(on_setattr=setters.frozen, slots=False, hash=True)
 class RevisionRowData:
     hash: str = field(default="", validator=instance_of(str))
     column_count: int | None = field(default=None, validator=optional(instance_of(int)))
@@ -169,18 +164,15 @@ class RevisionRowData:
     commit_date: str = field(default="", validator=instance_of(str))
     is_current: bool = field(default=False, validator=instance_of(bool))
 
-    @property
-    @cache
+    @cached_property
     def cached_display(self) -> str:
         return _format_cached(self.cached)
 
-    @property
-    @cache
+    @cached_property
     def status_display(self) -> str:
         return "CURRENT →" if self.is_current else ""
 
-    @property
-    @cache
+    @cached_property
     def columns_display(self) -> str:
         return _format_column_count(self.column_count)
 

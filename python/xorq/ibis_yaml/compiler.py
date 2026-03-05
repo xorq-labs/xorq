@@ -11,9 +11,11 @@ import dask
 import toolz
 import yaml
 from attr import (
+    define,
     evolve,
     field,
     frozen,
+    setters,
 )
 from attr.validators import (
     instance_of,
@@ -279,7 +281,7 @@ def make_read_op(parquet_path, read_kwargs, con=_backend_init()):  # noqa: B008
     return op
 
 
-@frozen
+@define(on_setattr=setters.frozen, slots=False, hash=True)
 class ExprDumper:
     """
     expr: the expr to be built
@@ -312,13 +314,11 @@ class ExprDumper:
             case _:
                 object.__setattr__(self, attrname, Path(value))
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def artifact_store(self):
         return ArtifactStore.from_path_and_expr(self.builds_dir, self.expr)
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def expr_path(self):
         return self.artifact_store.root_path
 
@@ -537,7 +537,7 @@ class ExprDumper:
         return self.expr_path
 
 
-@frozen
+@define(on_setattr=setters.frozen, slots=False, hash=True)
 class ExprLoader:
     expr_path = field(validator=instance_of(Path), converter=Path)
     cache_dir = field(
@@ -548,8 +548,7 @@ class ExprLoader:
     def expr_hash(self):
         return self.expr_path.name
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def artifact_store(self):
         return ArtifactStore(self.expr_path)
 
