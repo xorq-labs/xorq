@@ -351,7 +351,7 @@ def test_build_expr_kind_partial(tmp_path):
     expr = t.filter(t.a > 0)
     build_dir = build_expr(expr, builds_dir=tmp_path)
     meta = json.loads((build_dir / "metadata.json").read_text())
-    assert meta["kind"] == ExprKind.PartialExpr
+    assert meta["kind"] == ExprKind.UnboundExpr
 
 
 def test_extract_kind_bound(catalog):
@@ -364,4 +364,4 @@ def test_extract_kind_partial(catalog):
     t = xo.table(schema={"a": "int64"})
     expr = t.filter(t.a > 0)
     entry = catalog.add(expr)
-    assert entry.kind == ExprKind.PartialExpr
+    assert entry.kind == ExprKind.UnboundExpr
