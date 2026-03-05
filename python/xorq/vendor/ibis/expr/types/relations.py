@@ -3437,6 +3437,22 @@ class Table(Expr, _FixedTextJupyterMixin):
         )
         return op.to_expr()
 
+    def hashing_tag(self, tag, **kwargs):
+        from xorq.expr.relations import HashingTag
+        from xorq.vendor.ibis.common.collections import FrozenOrderedDict
+
+        op = HashingTag(
+            schema=self.schema(),
+            parent=self.op(),
+            metadata=FrozenOrderedDict(
+                {
+                    "tag": tag,
+                    **kwargs,
+                }
+            ),
+        )
+        return op.to_expr()
+
     def pivot_longer(
         self,
         col: str | s.Selector,

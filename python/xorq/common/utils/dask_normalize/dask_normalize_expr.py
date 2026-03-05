@@ -524,6 +524,11 @@ def opaque_node_replacer(node, kwargs):
         #         node.schema,
         #         name=dask.base.tokenize(node),
         #     ).op()
+        case rel.HashingTag():
+            new_node = api.table(
+                node.schema,
+                name=dask.base.tokenize(node.parent.to_expr(), node.metadata),
+            ).op()
         case _:
             if isinstance(node, opaque_ops):
                 raise ValueError(f"unhandled opaque node type: {type(node)}")

@@ -137,6 +137,27 @@ class Tag(ops.Relation):
         )
 
 
+class HashingTag(Tag):
+    """A Tag subclass whose metadata contributes to the content hash.
+
+    Unlike Tag (which is stripped before hashing), HashingTag is preserved
+    during hash computation so expressions with different HashingTag metadata
+    produce distinct hashes.
+    """
+
+    def __dask_tokenize__(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_expr import (
+            normalize_seq_with_caller,
+        )
+
+        return normalize_seq_with_caller(
+            self.schema,
+            self.parent,
+            self.metadata,
+            caller="normalize_hashing_tag",
+        )
+
+
 class DatabaseTableView(ops.DatabaseTable):
     pass
 
