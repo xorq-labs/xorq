@@ -40,6 +40,10 @@ download-data owner="ibis-project" repo="testing-data" rev="master":
 up *backends:
     docker compose up --build --wait {{ backends }}
 
+# start backends in CI: no rebuild, pull only missing images
+up-ci *backends:
+    docker compose up --wait --pull missing {{ backends }}
+
 # generate API documentation
 docs-apigen *args:
     cd docs && uv run --no-sync quartodoc interlinks

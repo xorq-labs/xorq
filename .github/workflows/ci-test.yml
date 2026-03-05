@@ -50,7 +50,7 @@ jobs:
             extras:
               - --extra pyiceberg
           - name: postgres
-            services: true
+            services: postgres
             extras:
               - --extra postgres
               - --extra examples
@@ -60,7 +60,7 @@ jobs:
             services: false
             extras: []
           - name: core
-            services: true
+            services: postgres
             parallel: true
             extras:
               - --extra examples
@@ -74,12 +74,12 @@ jobs:
               - --extra sqlite
               - --extra duckdb
           - name: gizmosql
-            services: true
+            services: gizmosql
             extras:
               - --extra gizmosql
               - --extra duckdb
           - name: trino
-            services: true
+            services: trino
             extras:
               - --extra trino
               - --extra duckdb
@@ -113,9 +113,24 @@ jobs:
         run: uv sync --locked ${{ join(matrix.backend.extras, ' ') }} --group dev --group test
         working-directory: ${{ github.workspace }}
 
+      - name: Set up Docker Buildx
+        if: ${{ matrix.backend.services }}
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build postgres image with GHA layer cache
+        if: ${{ contains(matrix.backend.services, 'postgres') }}
+        uses: docker/bake-action@v6
+        with:
+          files: compose.yaml
+          targets: postgres
+          load: true
+          set: |
+            postgres.cache-from=type=gha,scope=docker-postgres
+            postgres.cache-to=type=gha,scope=docker-postgres,mode=max
+
       - name: start services
         if: ${{ matrix.backend.services }}
-        run: docker compose up --build --wait
+        run: just up-ci ${{ matrix.backend.services }}
 
       - name: pytest
         run: uv run --no-sync pytest --import-mode=importlib --cov --cov-report=xml -m ${{ matrix.backend.name }} -k 'not script_execution and not slow'${{ matrix.backend.parallel && ' -n auto --dist=loadfile' || '' }}
