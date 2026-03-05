@@ -4,6 +4,7 @@ import xorq.expr.relations as rel
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.vendor.ibis import Expr
+from xorq.vendor.ibis.expr.operations import UnboundTable
 from xorq.vendor.ibis.expr.operations.core import Node
 
 
@@ -165,6 +166,4 @@ def find_all_sources(expr):
 
 
 def has_unbound_table(expr) -> bool:
-    from xorq.vendor.ibis.expr.operations import UnboundTable  # noqa: PLC0415
-
     return bool(walk_nodes(UnboundTable, expr))

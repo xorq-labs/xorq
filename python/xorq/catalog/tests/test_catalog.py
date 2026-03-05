@@ -25,8 +25,7 @@ from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
 )
 from xorq.catalog.tui import _extract_kind
-from xorq.ibis_yaml.compiler import ExprKind, build_expr
-from xorq.ibis_yaml.compiler import REQUIRED_TGZ_NAMES
+from xorq.ibis_yaml.compiler import REQUIRED_TGZ_NAMES, ExprKind, build_expr
 
 
 def test_catalog_add(catalog, data_dict):
