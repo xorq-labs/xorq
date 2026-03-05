@@ -40,6 +40,7 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 from xorq.common.utils.defer_utils import normalize_read_path_stat
 from xorq.common.utils.graph_utils import (
     find_all_sources,
+    has_unbound_table,
     opaque_ops,
     replace_nodes,
     walk_nodes,
@@ -434,7 +435,6 @@ class ExprDumper:
         return path_to_writer
 
     def _make_metadata(self) -> str:
-        from xorq.common.utils.graph_utils import has_unbound_table  # noqa: PLC0415
 
         metadata = {
             "current_library_version": xorq.__version__,
