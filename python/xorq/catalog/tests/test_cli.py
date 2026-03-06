@@ -458,6 +458,18 @@ def test_list_populated(runner, catalog_path, data_dict):
         assert name in result.output
 
 
+def test_list_with_kind(runner, catalog_path, data_dict):
+    paths = [str(p) for p in data_dict.values()]
+    runner.invoke(cli, ["--path", catalog_path, "add", *paths])
+    result = runner.invoke(cli, ["--path", catalog_path, "list", "--kind"])
+    assert result.exit_code == 0, result.output
+    assert "No entries." not in result.output
+    for p in data_dict.values():
+        name = Path(p).name.removesuffix("".join(Path(p).suffixes))
+        assert name in result.output
+    assert "\tunbound_expr" in result.output or "\texpr" in result.output
+
+
 # --- list-aliases command ---
 
 
