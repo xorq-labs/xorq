@@ -9,8 +9,9 @@ from tempfile import TemporaryDirectory
 
 import toolz
 from attr import (
+    define,
     field,
-    frozen,
+    setters,
 )
 from attr.validators import (
     instance_of,
@@ -89,7 +90,7 @@ def calc_tgz_content_hexdigest(path, member_filter=uv_sdist_member_filter):
         return md5.hexdigest()
 
 
-@frozen
+@define(on_setattr=setters.frozen, slots=False, hash=True)
 class TGZProxy:
     tgz_path = field(validator=instance_of(Path), converter=Path)
 
@@ -99,8 +100,7 @@ class TGZProxy:
         full_suffix = "".join(self.tgz_path.suffixes)
         assert any(full_suffix.endswith(suffix) for suffix in self.valid_full_suffixes)
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def root_dir(self):
         return get_root_dir(self.tgz_path)
 
@@ -158,7 +158,7 @@ class TGZProxy:
         return dest
 
 
-@frozen
+@define(on_setattr=setters.frozen, slots=False, hash=True)
 class TGZAppender:
     tgz_path = field(validator=instance_of(Path), converter=Path)
     append_path = field(validator=instance_of(Path), converter=Path)
@@ -168,13 +168,11 @@ class TGZAppender:
     def kwargs(self):
         return dict(self.kwargs_tuple)
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def root_dir(self):
         return get_root_dir(self.tgz_path)
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def _tmpdir(self):
         return TemporaryDirectory()
 
@@ -182,23 +180,20 @@ class TGZAppender:
     def tmpdir(self):
         return Path(self._tmpdir.name)
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def gunzipped_path(self):
         gunzipped_path = self.tmpdir.joinpath("gunzipped.tar")
         gunzip_path(self.tgz_path, gunzipped_path)
         return gunzipped_path
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def appended_path(self):
         appended_path = self.tmpdir.joinpath("appended.tar")
         copy_path(self.gunzipped_path, appended_path)
         tar_append(appended_path, self.append_path, **self.kwargs)
         return appended_path
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def appended_tgz_path(self):
         appended_tgz_path = self.tmpdir.joinpath(self.tgz_path.name)
         gzip_path(self.appended_path, appended_tgz_path)

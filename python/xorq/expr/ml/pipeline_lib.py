@@ -3,8 +3,10 @@ import pickle
 
 import toolz
 from attr import (
+    define,
     field,
     frozen,
+    setters,
 )
 from attr.validators import (
     deep_iterable,
@@ -353,7 +355,7 @@ class Step:
     __dask_tokenize__ = normalize_attrs
 
 
-@frozen
+@define(on_setattr=setters.frozen, slots=False, hash=True)
 class FittedStep:
     step = field(validator=instance_of(Step))
     expr = field(validator=instance_of(Expr))
@@ -413,20 +415,17 @@ class FittedStep:
     def predict_return_type(self):
         return get_predict_return_type(self)
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def _deferred_fit_transform(self):
         assert self.is_transform
         return DeferredFitOther.from_fitted_step(self, mode="transform")
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def _deferred_fit_predict(self):
         assert self.is_predict
         return DeferredFitOther.from_fitted_step(self, mode="predict")
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def _deferred_fit_other(self):
         # Backward compat: prefer transform, fall back to predict
         return (
@@ -492,8 +491,7 @@ class FittedStep:
             else None
         )
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def model(self):
         import pandas as pd  # noqa: PLC0415
 
@@ -506,8 +504,7 @@ class FittedStep:
                 raise ValueError(f"unexpected deferred model result type {type(obj)}")
         return pickle.loads(obj)
 
-    @property
-    @functools.cache
+    @functools.cached_property
     @cexcepts(ValueError)
     def structer(self):
         return Structer.from_instance_expr(

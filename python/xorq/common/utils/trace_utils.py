@@ -16,8 +16,10 @@ from threading import (
 
 import toolz
 from attr import (
+    define,
     field,
     frozen,
+    setters,
 )
 from attr.validators import (
     deep_iterable,
@@ -305,7 +307,7 @@ class Span:
         return tuple(Span.from_dict(dct) for spans in spanss for dct in spans)
 
 
-@frozen
+@define(on_setattr=setters.frozen, slots=False, hash=True)
 class Trace:
     spans = field(validator=deep_iterable(instance_of(Span), instance_of(tuple)))
 
@@ -334,8 +336,7 @@ class Trace:
             toolz.excepts(Exception, operator.attrgetter("trace_metrics"))(self)
         )
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def trace_id(self):
         dct = toolz.groupby(
             compose(bool, operator.attrgetter("links")),
@@ -361,8 +362,7 @@ class Trace:
         else:
             raise ValueError("trace has no spans with or without links")
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def parent_span(self):
         (parent_span, *rest) = (
             span for span in self.spans if not span.parent_span_id and not span.links
@@ -388,7 +388,7 @@ class Trace:
         return lineage
 
     def get_depth(self, depth):
-        return self.get_depths().get(depth, ())
+        return self.get_depths.get(depth, ())
 
     def get_duration_delta(self, parent_span_id, lossless_leafs=True):
         parent_span = next(
@@ -410,7 +410,7 @@ class Trace:
         else:
             return 0
 
-    @functools.cache
+    @functools.cached_property
     def get_depths(self):
         spans = tuple(span for span in self.spans if span != self.parent_span)
         depths = {
@@ -547,7 +547,7 @@ sum_buffer_size_metric = TraceMetric.from_name_key_operator(
 cache_hit_metric = TraceMetric("trace_metrics", get_cache_metric)
 
 
-@frozen
+@define(on_setattr=setters.frozen, slots=False, hash=True)
 class TraceMetrics:
     trace = field(validator=instance_of(Trace))
     trace_metrics = field(
@@ -579,8 +579,7 @@ class TraceMetrics:
         )
         assert oir_ids == mr_ids
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def default_metrics(self):
         return {
             "trace_id": self.trace.trace_id,
@@ -588,8 +587,7 @@ class TraceMetrics:
             "start_datetime": self.trace.start_datetime,
         }
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def metrics(self):
         dct = {
             metric.name: metric.calc_metric(self.trace) for metric in self.trace_metrics
