@@ -563,18 +563,25 @@ class CatalogEntry:
         if not isinstance(data, dict):
             return None
         definitions = data.get("definitions", {})
-        nodes = definitions.get("nodes", {})
         schemas = definitions.get("schemas", {})
-        for node_def in nodes.values():
-            if isinstance(node_def, dict) and node_def.get("op") == "UnboundTable":
-                schema_ref = CatalogEntry._resolve_schema_ref(
-                    node_def.get("schema_ref")
-                )
-                if schema_ref:
-                    schema_dict = schemas.get(schema_ref)
-                    if isinstance(schema_dict, dict):
-                        return CatalogEntry._schema_dict_to_str_dict(schema_dict)
-        return None
+        # At most one UnboundTable is allowed (enforced by has_unbound_table strict mode)
+        node_def = next(
+            (
+                n
+                for n in definitions.get("nodes", {}).values()
+                if isinstance(n, dict) and n.get("op") == "UnboundTable"
+            ),
+            None,
+        )
+        if node_def is None:
+            return None
+        schema_ref = CatalogEntry._resolve_schema_ref(node_def.get("schema_ref"))
+        if not schema_ref:
+            return None
+        schema_dict = schemas.get(schema_ref)
+        if not isinstance(schema_dict, dict):
+            return None
+        return CatalogEntry._schema_dict_to_str_dict(schema_dict)
 
     @cached_property
     def backends(self) -> tuple:
