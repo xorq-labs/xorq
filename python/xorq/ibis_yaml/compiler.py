@@ -567,9 +567,14 @@ class ExprLoader:
     def artifact_store(self):
         return ArtifactStore(self.expr_path)
 
-    def load_expr(self):
+    def load_expr(self, raise_on_unbound: bool = False):
         profiles = hydrate_cons(self.artifact_store.load_yaml(DumpFiles.profiles))
         yaml_dict = self.artifact_store.load_yaml(DumpFiles.expr)
+        if raise_on_unbound and yaml_dict.get("kind") == ExprKind.UnboundExpr:
+            raise ValueError(
+                "Cannot run unbound expression"
+                " - compose it with a source first using xorq catalog compose-add"
+            )
         expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
         expr = self.deferred_reads_to_memtables(expr, self.expr_path)
         if self.cache_dir:
@@ -624,7 +629,8 @@ class ExprLoader:
 @functools.wraps(ExprLoader)
 def load_expr(expr_path, **kwargs):
     expr_loader = ExprLoader(expr_path, **kwargs)
-    expr = expr_loader.load_expr()
+    raise_on_unbound = kwargs.pop("raise_on_unbound", False)
+    expr = expr_loader.load_expr(raise_on_unbound=raise_on_unbound)
     return expr
 
 
