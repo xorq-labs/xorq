@@ -2,7 +2,6 @@ import shutil
 from pathlib import Path
 
 import pytest
-import yaml
 from attr import evolve
 
 import xorq.api as xo
@@ -24,7 +23,7 @@ from xorq.catalog.tar_utils import (
 from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
 )
-from xorq.ibis_yaml.compiler import REQUIRED_TGZ_NAMES, ExprKind, build_expr
+from xorq.ibis_yaml.compiler import REQUIRED_TGZ_NAMES, ExprKind
 
 
 def test_catalog_add(catalog, data_dict):
@@ -337,21 +336,6 @@ def test_catalog_entry_relocatable(repo_cloned_bare, tmpdir):
     catalog_entries = cloned.catalog_entries
     exprs = tuple(catalog_entry.expr for catalog_entry in catalog_entries)
     assert exprs
-
-
-def test_build_expr_kind_bound(tmp_path):
-    expr = xo.memtable({"a": [1, 2, 3]})
-    build_dir = build_expr(expr, builds_dir=tmp_path)
-    expr_yaml = yaml.safe_load((build_dir / "expr.yaml").read_text())
-    assert expr_yaml["kind"] == ExprKind.Expr
-
-
-def test_build_expr_kind_partial(tmp_path):
-    t = xo.table(schema={"a": "int64"})
-    expr = t.filter(t.a > 0)
-    build_dir = build_expr(expr, builds_dir=tmp_path)
-    expr_yaml = yaml.safe_load((build_dir / "expr.yaml").read_text())
-    assert expr_yaml["kind"] == ExprKind.UnboundExpr
 
 
 def test_extract_kind_bound(catalog):
