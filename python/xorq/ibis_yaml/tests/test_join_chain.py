@@ -1,71 +1,72 @@
 import pytest
 
-import xorq.vendor.ibis as ibis
+import xorq.api as xo
 
 
-@pytest.fixture
-def orders():
-    return ibis.table(
-        {
+@pytest.fixture(scope="session")
+def con():
+    return xo.duckdb.connect()
+
+
+@pytest.fixture(scope="session")
+def orders(con):
+    return con.create_table(
+        "orders",
+        schema={
             "o_orderkey": "int32",
             "o_orderpriority": "string",
             "o_custkey": "int32",
             "o_orderdate": "date",
         },
-        name="orders",
+        overwrite=True,
     )
 
 
-@pytest.fixture
-def supplier():
-    return ibis.table(
-        {
-            "s_suppkey": "int32",
-            "s_nationkey": "int32",
-        },
-        name="supplier",
+@pytest.fixture(scope="session")
+def supplier(con):
+    return con.create_table(
+        "supplier",
+        schema={"s_suppkey": "int32", "s_nationkey": "int32"},
+        overwrite=True,
     )
 
 
-@pytest.fixture
-def lineitem():
-    return ibis.table(
-        {
+@pytest.fixture(scope="session")
+def lineitem(con):
+    return con.create_table(
+        "lineitem",
+        schema={
             "l_orderkey": "int64",
             "l_suppkey": "int32",
             "l_shipdate": "date",
             "l_extendedprice": "decimal(15,2)",
             "l_discount": "decimal(15,2)",
         },
-        name="lineitem",
+        overwrite=True,
     )
 
 
-@pytest.fixture
-def customer():
-    return ibis.table(
-        {
-            "c_custkey": "int32",
-            "c_nationkey": "int32",
-        },
-        name="customer",
+@pytest.fixture(scope="session")
+def customer(con):
+    return con.create_table(
+        "customer",
+        schema={"c_custkey": "int32", "c_nationkey": "int32"},
+        overwrite=True,
     )
 
 
-@pytest.fixture
-def nation():
-    return ibis.table(
-        {
-            "n_nationkey": "int32",
-            "n_name": "string",
-        },
-        name="nation",
+@pytest.fixture(scope="session")
+def nation(con):
+    return con.create_table(
+        "nation",
+        schema={"n_nationkey": "int32", "n_name": "string"},
+        overwrite=True,
     )
 
 
 # Minimal test mimicking h07 join chain with self-reference in projection
 def test_minimal_joinchain_self_reference(
-    compiler, orders, supplier, lineitem, customer, nation
+    compiler, con, orders, supplier, lineitem, customer, nation
 ):
     q = supplier.join(lineitem, supplier.s_suppkey == lineitem.l_suppkey)
     q = q.join(orders, orders.o_orderkey == lineitem.l_orderkey)
@@ -91,7 +92,8 @@ def test_minimal_joinchain_self_reference(
     )
 
     yaml_dict = compiler.to_yaml(q)
-    q_roundtrip = compiler.from_yaml(yaml_dict)
+    profiles = {con._profile.hash_name: con}
+    q_roundtrip = compiler.from_yaml(yaml_dict, profiles)
 
     try:
         _ = q_roundtrip["cust_nation"]
