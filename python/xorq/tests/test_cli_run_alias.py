@@ -11,7 +11,8 @@ from click.testing import CliRunner
 import xorq.api as xo
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.expr_utils import build_expr_context_tgz
-from xorq.cli import _resolve_alias, cli
+from xorq.cli import _resolve_alias, cli, run_command
+from xorq.ibis_yaml.compiler import build_expr
 
 
 # --- fixtures ---
@@ -117,6 +118,14 @@ def test_run_alias_with_name_passes_name(runner, catalog_with_alias):
     assert result.exit_code == 0, result.output
     mock_catalog.assert_called_once_with(name="my-ns", init=False)
     mock_run.assert_called_once()
+
+
+def test_run_command_raises_on_unbound_expr(tmp_path):
+    t = xo.table(schema={"a": "int64"})
+    expr = t.filter(t.a > 0)
+    build_dir = build_expr(expr, builds_dir=tmp_path)
+    with pytest.raises(ValueError, match="Cannot run unbound expression"):
+        run_command(build_dir)
 
 
 def test_run_alias_forwards_options(runner, catalog_with_alias):
