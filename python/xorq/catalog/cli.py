@@ -239,9 +239,11 @@ def list_entries(ctx):
     """List all entries."""
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
-        names = catalog.list() or ("No entries.",)
-        for name in names:
-            click.echo(name)
+        entries = ((entry.name, entry.kind) for entry in catalog.catalog_entries) or (
+            ("No entries.", ""),
+        )
+        for name, kind in entries:
+            click.echo(f"{name}\t{kind}".strip())
 
 
 @cli.command("list-aliases")
