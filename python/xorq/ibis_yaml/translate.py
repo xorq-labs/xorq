@@ -22,6 +22,7 @@ from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.common.utils.node_utils import update_read_kwargs
 from xorq.expr.relations import (
     CachedNode,
+    HashingTag,
     Read,
     RemoteTable,
     Tag,
@@ -1145,6 +1146,32 @@ def _tag_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
     parent_expr = context.translate_from_yaml(yaml_dict["parent"])
     metadata = context.translate_from_yaml(yaml_dict["metadata"])
     op = Tag(
+        schema=schema,
+        parent=parent_expr.op(),
+        metadata=metadata,
+    )
+    return op.to_expr()
+
+
+@translate_to_yaml.register(HashingTag)
+@convert_to_node_ref
+def _hashing_tag_to_yaml(op: HashingTag, context: Any) -> dict:
+    return freeze(
+        {
+            "op": "HashingTag",
+            "parent": context.translate_to_yaml(op.parent),
+            "metadata": context.translate_to_yaml(op.metadata),
+        }
+        | context.registry.register_schema(op.schema)
+    )
+
+
+@register_from_yaml_handler("HashingTag")
+def _hashing_tag_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
+    schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
+    parent_expr = context.translate_from_yaml(yaml_dict["parent"])
+    metadata = context.translate_from_yaml(yaml_dict["metadata"])
+    op = HashingTag(
         schema=schema,
         parent=parent_expr.op(),
         metadata=metadata,

@@ -20,6 +20,7 @@ replace_typs = (
     rel.Read,
     # can't use Tag for anything involving hashes: hash value is the same as parent
     # rel.Tag,
+    rel.HashingTag,
 )
 
 
