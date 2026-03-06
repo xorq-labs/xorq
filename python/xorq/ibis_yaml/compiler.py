@@ -628,8 +628,8 @@ class ExprLoader:
 
 @functools.wraps(ExprLoader)
 def load_expr(expr_path, **kwargs):
-    expr_loader = ExprLoader(expr_path, **kwargs)
     raise_on_unbound = kwargs.pop("raise_on_unbound", False)
+    expr_loader = ExprLoader(expr_path, **kwargs)
     expr = expr_loader.load_expr(raise_on_unbound=raise_on_unbound)
     return expr
 
