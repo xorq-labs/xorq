@@ -1,4 +1,5 @@
 # https://docs.pytest.org/en/7.1.x/example/parametrize.html#parametrizing-conditional-raising
+import json
 import shutil
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
@@ -763,3 +764,32 @@ def test_tui_missing_catalog_with_name(runner, tmpdir):
     result = runner.invoke(cli, ["--name", "no-such-catalog-xyz", "tui"])
     assert result.exit_code != 0
     assert "init" in result.output
+
+
+# --- schema command ---
+
+
+def test_schema_command(runner, catalog_path, tmpdir):
+    tgz = make_build_tgz(tmpdir, "schema-entry")
+    runner.invoke(cli, ["--path", catalog_path, "add", str(tgz)])
+    result = runner.invoke(cli, ["--path", catalog_path, "schema", tgz.stem])
+    assert result.exit_code == 0, result.output
+    assert "Source (bound)" in result.output
+    assert "Schema Out:" in result.output
+
+
+def test_schema_json(runner, catalog_path, tmpdir):
+    tgz = make_build_tgz(tmpdir, "schema-json")
+    runner.invoke(cli, ["--path", catalog_path, "add", str(tgz)])
+    result = runner.invoke(cli, ["--path", catalog_path, "schema", tgz.stem, "--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["kind"] == "expr"
+    assert "schema_out" in data
+
+
+def test_schema_nonexistent(runner, catalog_path):
+    result = runner.invoke(cli, ["--path", catalog_path, "schema", "no-such-entry"])
+    assert result.exit_code != 0
+    assert "not found" in result.output
+    assert "list-aliases" in result.output

@@ -158,7 +158,11 @@ class Catalog:
         catalog_entry = CatalogEntry(name, self, require_exists=False)
         return catalog_entry.exists()
 
-    def get_catalog_entry(self, name):
+    def get_catalog_entry(self, name, maybe_alias: bool = False):
+        if maybe_alias:
+            if name in self.list_aliases():
+                return CatalogAlias.from_name(name, self).catalog_entry
+
         assert name in self.list(), f"Entry '{name}' not found in catalog"
         catalog_entry = CatalogEntry(name, self)
         return catalog_entry
@@ -470,13 +474,18 @@ class CatalogEntry:
         return load_expr_from_zip(self.catalog_path)
 
     @cached_property
-    def kind(self) -> ExprKind:
-        data = self._read_zip_member(DumpFiles.expr_metadata, json.loads)
+
+    def metadata(self) -> dict:
+        data = self._read_tgz_member(DumpFiles.expr_metadata, json.loads)
         if not isinstance(data, dict):
             raise ValueError(
                 f"Expected {DumpFiles.expr_metadata!r} to contain a JSON object in {self.catalog_path}"
             )
-        return ExprKind(data["kind"])
+        return data
+
+    @property
+    def kind(self) -> ExprKind:
+        return ExprKind(self.metadata["kind"])
 
     @cached_property
     def backends(self) -> tuple[str, ...]:
