@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from functools import lru_cache, singledispatch
+from functools import singledispatch
 from itertools import count
 from typing import Any, Callable, Tuple
 
@@ -72,37 +72,46 @@ class GenericNode:
         return evolve(self, **changes)
 
 
-def _build_column_tree(node: Node) -> GenericNode:
+def _build_column_tree(
+    node: Node, _results: dict[Node, GenericNode] | None = None
+) -> GenericNode:
+    if _results is None:
+        _results = {}
+    if node in _results:
+        return _results[node]
+
     graph, _ = bfs(node).toposort()
-    results: dict[Node, GenericNode] = {}
 
     for n in graph:
+        if n in _results:
+            continue
         match n:
             case ops.Field(rel=ops.Project(values=values)) as field_node:
                 # include the field and follow it into its mapped expression
-                child = results[to_node(values[field_node.name])]
-                results[n] = GenericNode(op=field_node, children=(child,))
+                child = _results[to_node(values[field_node.name])]
+                _results[n] = GenericNode(op=field_node, children=(child,))
 
             case ops.Field() as field_node:
-                children = tuple(results[c] for c in gen_children_of(field_node))
-                results[n] = GenericNode(op=field_node, children=children)
+                children = tuple(_results[c] for c in gen_children_of(field_node))
+                _results[n] = GenericNode(op=field_node, children=children)
 
             case ops.Project() as proj:
                 # Project is transparent: resolve to its parent's GenericNode
-                results[n] = results[to_node(proj.parent)]
+                _results[n] = _results[to_node(proj.parent)]
 
             case _:
-                children = tuple(results[c] for c in gen_children_of(n))
-                results[n] = GenericNode(op=n, children=children)
+                children = tuple(_results[c] for c in gen_children_of(n))
+                _results[n] = GenericNode(op=n, children=children)
 
-    return results[node]
+    return _results[node]
 
 
 def build_column_trees(expr: Any) -> dict[str, GenericNode]:
     """Builds a lineage tree for each column in the expression."""
     op = to_node(expr)
     cols = getattr(op, "values", None) or getattr(op, "fields", {})
-    return {k: _build_column_tree(to_node(v)) for k, v in cols.items()}
+    shared: dict[Node, GenericNode] = {}
+    return {k: _build_column_tree(to_node(v), shared) for k, v in cols.items()}
 
 
 @singledispatch
@@ -159,20 +168,6 @@ def _(node: ops.Literal) -> str:
     return f"Literal: {node.value}"
 
 
-@lru_cache
-def _token_node(g: GenericNode) -> str:
-    """unique token for the node based on its operation and children (useful in
-    deduplication)"""
-    op = g.op
-    return dask.base.tokenize(
-        (
-            getattr(op, "name", None),  # is name always set?
-            getattr(op, "schema", None),
-            tuple(_token_node(c) for c in g.children),
-        )
-    )
-
-
 def build_tree(
     node: GenericNode,
     *,
@@ -181,12 +176,28 @@ def build_tree(
 ) -> TextTree:
     seen: dict[str, int] = {}
     seq = count(1)
+    token_memo: dict[int, str] = {}
+
+    def _token(g: GenericNode) -> str:
+        gid = id(g)
+        if gid in token_memo:
+            return token_memo[gid]
+        op = g.op
+        tok = dask.base.tokenize(
+            (
+                getattr(op, "name", None),
+                getattr(op, "schema", None),
+                tuple(_token(c) for c in g.children),
+            )
+        )
+        token_memo[gid] = tok
+        return tok
 
     def _to_tree(g: GenericNode, depth: int) -> TextTree:
         if max_depth is not None and depth > max_depth:
             return TextTree("…")
 
-        digest = _token_node(g) if dedup else None
+        digest = _token(g) if dedup else None
         if digest is not None and digest in seen:
             ref = seen[digest]
             return TextTree(f"↻ see #{ref}")
