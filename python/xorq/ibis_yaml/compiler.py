@@ -446,12 +446,15 @@ class ExprDumper:
             "schema_out": {name: str(dtype) for name, dtype in expr.schema().items()}
             if hasattr(expr, "schema")
             else None,
-            "schema_in": {
-                name: str(dtype) for name, dtype in unbound_node.schema.items()
+        } | (
+            {
+                "schema_in": {
+                    name: str(dtype) for name, dtype in unbound_node.schema.items()
+                }
             }
             if unbound_node
-            else {},
-        }
+            else {}
+        )
 
     def _prepare_entry_file(self, expr):
         path = self.artifact_store.get_path(DumpFiles.entry)
