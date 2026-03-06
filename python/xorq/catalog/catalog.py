@@ -155,18 +155,15 @@ class Catalog:
         catalog_entry = CatalogEntry(name, self, require_exists=False)
         return catalog_entry.exists()
 
-    def get_catalog_entry(self, name):
+    def get_catalog_entry(self, name, maybe_alias: bool = False):
+
+        if maybe_alias:
+            if name in self.list_aliases():
+                return CatalogAlias.from_name(name, self).catalog_entry
+
         assert name in self.list(), f"Entry '{name}' not found in catalog"
         catalog_entry = CatalogEntry(name, self)
         return catalog_entry
-
-    def get_entry(self, name_or_alias):
-        """Resolve an entry name or alias to a CatalogEntry."""
-        if name_or_alias in self.list():
-            return CatalogEntry(name_or_alias, self)
-        if name_or_alias in self.list_aliases():
-            return CatalogAlias.from_name(name_or_alias, self).catalog_entry
-        raise KeyError(f"No entry or alias named {name_or_alias!r}")
 
     def get_tgz(self, name, dir_path=None):
         catalog_entry = self.get_catalog_entry(name)

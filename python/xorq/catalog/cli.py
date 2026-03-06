@@ -375,7 +375,7 @@ def schema(ctx, name, as_json):
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         try:
-            entry = catalog.get_entry(name)
+            entry = catalog.get_catalog_entry(name, maybe_alias=True)
         except KeyError as e:
             raise click.ClickException(str(e)) from e
 

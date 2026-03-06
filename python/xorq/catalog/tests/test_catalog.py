@@ -381,20 +381,13 @@ def test_schema_in_unbound(catalog):
     assert entry.schema_in == {"amount": "float64", "currency": "string"}
 
 
-def test_get_entry_by_name(catalog):
-    expr = xo.memtable({"x": [1]})
-    entry = catalog.add(expr)
-    resolved = catalog.get_entry(entry.name)
-    assert resolved.name == entry.name
-
-
 def test_get_entry_by_alias(catalog):
     expr = xo.memtable({"x": [1]})
     entry = catalog.add(expr, aliases=("my-alias",))
-    resolved = catalog.get_entry("my-alias")
+    resolved = catalog.get_catalog_entry("my-alias", maybe_alias=True)
     assert resolved.name == entry.name
 
 
 def test_get_entry_unknown_raises(catalog):
-    with pytest.raises(KeyError, match="no-such"):
-        catalog.get_entry("no-such")
+    with pytest.raises(AssertionError, match="no-such"):
+        catalog.get_catalog_entry("no-such")
