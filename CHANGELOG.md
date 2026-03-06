@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.13] - 2026-03-06
+### Details
+#### Changed
+- Persist structured run logs by @mesejo in [#1631](https://github.com/xorq-labs/xorq/pull/1631)
+- Update deps, simplify DDL/DML execution, and enable OAuth/SSO by @prmoore77 in [#1659](https://github.com/xorq-labs/xorq/pull/1659)
+- Enable PLC0415 to enforce module-level imports in tests by @dlovell in [#1677](https://github.com/xorq-labs/xorq/pull/1677)
+- Update templates by @mesejo in [#1680](https://github.com/xorq-labs/xorq/pull/1680)
+- Start only required docker services per backend job by @mesejo in [#1679](https://github.com/xorq-labs/xorq/pull/1679)
+- Switch codspeed mode from instrumentation to simulation by @mesejo in [#1687](https://github.com/xorq-labs/xorq/pull/1687)
+
+#### Fixed
+- Handle `string(N)` length qualifier from Postgres `VARCHAR` columns by @gmurro in [#1668](https://github.com/xorq-labs/xorq/pull/1668)
+- Correct do_into_backend conditions for struct and nested types by @dlovell in [#1675](https://github.com/xorq-labs/xorq/pull/1675)
+- Allow Pipeline.fit without target for ClusterMixin predict step by @ghoersti in [#1676](https://github.com/xorq-labs/xorq/pull/1676)
+- Deduplicate YAML output and simplify serialization by @mesejo in [#1671](https://github.com/xorq-labs/xorq/pull/1671)
+- Benchmark catalog cli by @dlovell in [#1678](https://github.com/xorq-labs/xorq/pull/1678)
+- Select fusion by @dlovell in [#1670](https://github.com/xorq-labs/xorq/pull/1670)
+- Fix quadratic hashing regression in build_column_trees by @paddymul in [#1685](https://github.com/xorq-labs/xorq/pull/1685)
+
+#### Removed
+- Remove redundant import by @dlovell in [#1654](https://github.com/xorq-labs/xorq/pull/1654)
+
+## New Contributors
+* @gmurro made their first contribution in [#1668](https://github.com/xorq-labs/xorq/pull/1668)
 ## [0.3.12] - 2026-03-04
 ### Details
 #### Added
