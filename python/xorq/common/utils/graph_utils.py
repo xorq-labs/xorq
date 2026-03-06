@@ -165,5 +165,10 @@ def find_all_sources(expr):
     return sources
 
 
-def has_unbound_table(expr) -> bool:
-    return bool(walk_nodes(UnboundTable, expr))
+def has_unbound_table(expr, strict=True) -> bool:
+    nodes = walk_nodes(UnboundTable, expr)
+    if strict and len(nodes) > 1:
+        raise ValueError(
+            f"Expected at most one UnboundTable, found {len(nodes)}: {nodes}"
+        )
+    return bool(nodes)
