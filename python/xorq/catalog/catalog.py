@@ -160,6 +160,14 @@ class Catalog:
         catalog_entry = CatalogEntry(name, self)
         return catalog_entry
 
+    def get_entry(self, name_or_alias):
+        """Resolve an entry name or alias to a CatalogEntry."""
+        if name_or_alias in self.list():
+            return CatalogEntry(name_or_alias, self)
+        if name_or_alias in self.list_aliases():
+            return CatalogAlias.from_name(name_or_alias, self).catalog_entry
+        raise KeyError(f"No entry or alias named {name_or_alias!r}")
+
     def get_tgz(self, name, dir_path=None):
         catalog_entry = self.get_catalog_entry(name)
         return catalog_entry.get(dir_path)
@@ -469,6 +477,104 @@ class CatalogEntry:
         if not isinstance(data, dict):
             return default_value
         return data.get("kind", default_value)
+
+    @cached_property
+    def schema_out(self) -> dict | None:
+        """Output schema as {column_name: dtype_str}, read directly from expr.yaml."""
+        data = self._read_tgz_yaml(DumpFiles.expr)
+        return CatalogEntry._parse_schema_out(data)
+
+    @cached_property
+    def schema_in(self) -> dict | None:
+        """For unbound expressions, the expected input schema as {column_name: dtype_str}."""
+        if self.kind != str(ExprKind.UnboundExpr):
+            return None
+        data = self._read_tgz_yaml(DumpFiles.expr)
+        return CatalogEntry._parse_schema_in(data)
+
+    @staticmethod
+    def _resolve_schema_ref(ref_val) -> str | None:
+        """Extract the schema key string from a schema_ref value.
+
+        In expr.yaml, schema_ref is stored as {'schema_ref': 'schema_<hash>'}.
+        """
+        if isinstance(ref_val, dict):
+            return ref_val.get("schema_ref")
+        if isinstance(ref_val, str):
+            return ref_val
+        return None
+
+    @staticmethod
+    def _dtype_dict_to_str(d) -> str:
+        """Convert a serialized DataType dict from expr.yaml to a human-readable string."""
+        import xorq.vendor.ibis.expr.datatypes as dt  # noqa: PLC0415
+
+        if not isinstance(d, dict) or d.get("op") != "DataType":
+            return str(d)
+        typ_cls = getattr(dt, d["type"], None)
+        if typ_cls is None:
+            return d["type"].lower()
+        kwargs = {
+            k: CatalogEntry._dtype_dict_to_str(v) if isinstance(v, dict) else v
+            for k, v in d.items()
+            if k not in ("op", "type")
+        }
+
+        # Re-parse nested dtype strings back to dt objects for the constructor
+        def _parse_val(k, v):
+            try:
+                arg_annotation = typ_cls.__dataclass_fields__.get(k)
+                if arg_annotation and isinstance(v, str):
+                    return dt.dtype(v)
+            except Exception:
+                pass
+            return v
+
+        kwargs = {k: _parse_val(k, v) for k, v in kwargs.items()}
+        try:
+            return str(typ_cls(**kwargs))
+        except Exception:
+            return d["type"].lower()
+
+    @staticmethod
+    def _schema_dict_to_str_dict(schema_dict) -> dict[str, str]:
+        return {
+            col: CatalogEntry._dtype_dict_to_str(dtype_val)
+            for col, dtype_val in schema_dict.items()
+        }
+
+    @staticmethod
+    def _parse_schema_out(data) -> dict | None:
+        if not isinstance(data, dict):
+            return None
+        schemas = data.get("definitions", {}).get("schemas", {})
+        schema_ref = CatalogEntry._resolve_schema_ref(
+            data.get("expression", {}).get("schema_ref")
+        )
+        if not schema_ref:
+            return None
+        schema_dict = schemas.get(schema_ref)
+        if not isinstance(schema_dict, dict):
+            return None
+        return CatalogEntry._schema_dict_to_str_dict(schema_dict)
+
+    @staticmethod
+    def _parse_schema_in(data) -> dict | None:
+        if not isinstance(data, dict):
+            return None
+        definitions = data.get("definitions", {})
+        nodes = definitions.get("nodes", {})
+        schemas = definitions.get("schemas", {})
+        for node_def in nodes.values():
+            if isinstance(node_def, dict) and node_def.get("op") == "UnboundTable":
+                schema_ref = CatalogEntry._resolve_schema_ref(
+                    node_def.get("schema_ref")
+                )
+                if schema_ref:
+                    schema_dict = schemas.get(schema_ref)
+                    if isinstance(schema_dict, dict):
+                        return CatalogEntry._schema_dict_to_str_dict(schema_dict)
+        return None
 
     @cached_property
     def backends(self) -> tuple:

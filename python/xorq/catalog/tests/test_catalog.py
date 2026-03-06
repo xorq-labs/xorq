@@ -349,3 +349,52 @@ def test_extract_kind_partial(catalog):
     expr = t.filter(t.a > 0)
     entry = catalog.add(expr)
     assert entry.kind == ExprKind.UnboundExpr
+
+
+def test_schema_out_bound(catalog):
+    expr = xo.memtable({"col_a": [1, 2], "col_b": ["x", "y"]})
+    entry = catalog.add(expr)
+    assert entry.schema_out == {"col_a": "int64", "col_b": "string"}
+
+
+def test_schema_in_none_for_bound(catalog):
+    expr = xo.memtable({"a": [1, 2, 3]})
+    entry = catalog.add(expr)
+    assert entry.schema_in is None
+
+
+def test_schema_out_unbound(catalog):
+    t = xo.table(schema={"amount": "float64", "currency": "string"})
+    expr = t.mutate(amount_usd=t.amount * 1.2)
+    entry = catalog.add(expr)
+    assert entry.schema_out == {
+        "amount": "float64",
+        "currency": "string",
+        "amount_usd": "float64",
+    }
+
+
+def test_schema_in_unbound(catalog):
+    t = xo.table(schema={"amount": "float64", "currency": "string"})
+    expr = t.filter(t.amount > 0)
+    entry = catalog.add(expr)
+    assert entry.schema_in == {"amount": "float64", "currency": "string"}
+
+
+def test_get_entry_by_name(catalog):
+    expr = xo.memtable({"x": [1]})
+    entry = catalog.add(expr)
+    resolved = catalog.get_entry(entry.name)
+    assert resolved.name == entry.name
+
+
+def test_get_entry_by_alias(catalog):
+    expr = xo.memtable({"x": [1]})
+    entry = catalog.add(expr, aliases=("my-alias",))
+    resolved = catalog.get_entry("my-alias")
+    assert resolved.name == entry.name
+
+
+def test_get_entry_unknown_raises(catalog):
+    with pytest.raises(KeyError, match="no-such"):
+        catalog.get_entry("no-such")
