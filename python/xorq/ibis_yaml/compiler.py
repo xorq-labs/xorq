@@ -39,7 +39,6 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 from xorq.common.utils.defer_utils import normalize_read_path_stat
 from xorq.common.utils.graph_utils import (
     find_all_sources,
-    has_unbound_table,
     opaque_ops,
     replace_nodes,
     walk_nodes,
@@ -69,7 +68,7 @@ from xorq.ibis_yaml.sql import generate_sql_plans
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
-from xorq.vendor.ibis.expr.operations import DatabaseTable, InMemoryTable
+from xorq.vendor.ibis.expr.operations import DatabaseTable, InMemoryTable, UnboundTable
 
 
 @functools.cache
@@ -172,6 +171,9 @@ class ArtifactStore:
     def exists(self, *path_parts) -> bool:
         return self.get_path(*path_parts).exists()
 
+    def write_json(self, data: Dict[str, Any], *path_parts) -> pathlib.Path:
+        return self.write_text(json.dumps(data, indent=2), *path_parts)
+
     def save_yaml(self, yaml_dict: Dict[str, Any], filename) -> pathlib.Path:
         return self.write_yaml(yaml_dict, filename)
 
@@ -211,11 +213,6 @@ class YamlExpressionTranslator:
                 {
                     "definitions": context.definitions,
                     "expression": expr_dict,
-                    "kind": str(
-                        ExprKind.UnboundExpr
-                        if has_unbound_table(expr)
-                        else ExprKind.Expr
-                    ),
                 }
             )
 
@@ -441,6 +438,30 @@ class ExprDumper:
         )
         return path, writer
 
+    def _make_entry(self, expr) -> Dict[str, Any]:
+        unbound_nodes = walk_nodes(UnboundTable, expr)
+        (unbound_node,) = unbound_nodes or (None,)
+        return {
+            "kind": str(ExprKind.UnboundExpr if unbound_node else ExprKind.Expr),
+            "schema_out": {name: str(dtype) for name, dtype in expr.schema().items()}
+            if hasattr(expr, "schema")
+            else None,
+            "schema_in": {
+                name: str(dtype) for name, dtype in unbound_node.schema.items()
+            }
+            if unbound_node
+            else {},
+        }
+
+    def _prepare_entry_file(self, expr):
+        path = self.artifact_store.get_path(DumpFiles.entry)
+        writer = functools.partial(
+            self.artifact_store.write_json,
+            self._make_entry(expr),
+            DumpFiles.entry,
+        )
+        return path, writer
+
     def _prepare_profiles_file(self, profiles):
         path = self.artifact_store.get_path(DumpFiles.profiles)
         writer = functools.partial(
@@ -514,6 +535,7 @@ class ExprDumper:
         profiles = dehydrate_cons(find_all_sources(expr))
         path_to_writer2 = dict(
             (
+                self._prepare_entry_file(expr),
                 self._prepare_metadata_file(),
                 self._prepare_profiles_file(profiles),
             )
@@ -550,7 +572,8 @@ class ExprLoader:
     def load_expr(self, raise_on_unbound: bool = False):
         profiles = hydrate_cons(self.artifact_store.load_yaml(DumpFiles.profiles))
         yaml_dict = self.artifact_store.load_yaml(DumpFiles.expr)
-        if raise_on_unbound and yaml_dict.get("kind") == ExprKind.UnboundExpr:
+        entry = self.artifact_store.read_json(DumpFiles.entry)
+        if raise_on_unbound and entry.get("kind") == ExprKind.UnboundExpr:
             raise ValueError(
                 "Cannot run unbound expression"
                 " - compose it with a source first using xorq catalog compose-add"

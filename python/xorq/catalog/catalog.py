@@ -465,7 +465,7 @@ class CatalogEntry:
     @cached_property
     def kind(self) -> str:
         default_value = str(ExprKind.Expr)
-        data = self._read_tgz_yaml(DumpFiles.expr)
+        data = self._read_tgz_json(DumpFiles.entry)
         if not isinstance(data, dict):
             return default_value
         return data.get("kind", default_value)
@@ -519,6 +519,15 @@ class CatalogEntry:
             if f is None:
                 return None
             return yaml.safe_load(f.read())
+
+    def _read_tgz_json(self, filename):
+        import json  # noqa: PLC0415
+
+        with tarfile.open(self.catalog_path, "r:gz") as tf:
+            f = tf.extractfile(f"{self.name}/{filename}")
+            if f is None:
+                return None
+            return json.loads(f.read())
 
 
 @frozen
