@@ -2,10 +2,6 @@ import os
 import sys
 
 from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
-    OTLPSpanExporter as OTLPSpanExporterGRPC,
-)
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import (
@@ -54,8 +50,16 @@ def get_otlp_exporter():
     protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
 
     if protocol == "grpc":
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # noqa: PLC0415
+            OTLPSpanExporter as OTLPSpanExporterGRPC,
+        )
+
         return OTLPSpanExporterGRPC()
     else:
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # noqa: PLC0415
+            OTLPSpanExporter,
+        )
+
         return OTLPSpanExporter()
 
 
