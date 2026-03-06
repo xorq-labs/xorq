@@ -184,14 +184,22 @@ def run_command(
     -------
 
     """
-    from opentelemetry import trace
-    from opentelemetry.trace import StatusCode
+    import yaml  # noqa: PLC0415
+    from opentelemetry import trace  # noqa: PLC0415
+    from opentelemetry.trace import StatusCode  # noqa: PLC0415
 
-    from xorq.common.utils.logging_utils import RunLogger
-    from xorq.common.utils.profile_utils import timed
-    from xorq.ibis_yaml.compiler import load_expr
+    from xorq.common.utils.logging_utils import RunLogger  # noqa: PLC0415
+    from xorq.common.utils.profile_utils import timed  # noqa: PLC0415
+    from xorq.ibis_yaml.compiler import DumpFiles, ExprKind, load_expr  # noqa: PLC0415
 
     cache_dir = _get_cache_dir(cache_dir)
+
+    expr_yaml = yaml.safe_load(Path(expr_path).joinpath(DumpFiles.expr).read_text())
+    if expr_yaml.get("kind") == ExprKind.UnboundExpr:
+        raise ValueError(
+            "Cannot run unbound expression"
+            " - compose it with a source first using xorq catalog compose-add"
+        )
 
     span = trace.get_current_span()
 
