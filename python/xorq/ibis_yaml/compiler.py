@@ -24,7 +24,6 @@ from attr.validators import (
 
 import xorq
 import xorq.common.utils.logging_utils as lu
-import xorq.ibis_yaml.translate  #  noqa: F401
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.types as ir
 from xorq.caching import (
@@ -75,6 +74,11 @@ try:
     from enum import StrEnum
 except ImportError:
     from strenum import StrEnum
+
+
+@functools.cache
+def _ensure_translate_registered():
+    import xorq.ibis_yaml.translate  # noqa: PLC0415, F401
 
 
 class DumpFiles(StrEnum):
@@ -208,6 +212,7 @@ class ArtifactStore:
 class YamlExpressionTranslator:
     @staticmethod
     def to_yaml(expr: ir.Expr, profiles=(), cache_dir=None) -> Dict[str, Any]:
+        _ensure_translate_registered()
         context = TranslationContext(
             profiles=freeze(dict(profiles)),
             cache_dir=cache_dir,
@@ -234,6 +239,7 @@ class YamlExpressionTranslator:
         yaml_dict: Dict[str, Any],
         profiles=(),
     ) -> ir.Expr:
+        _ensure_translate_registered()
         context = TranslationContext(
             registry=Registry(**yaml_dict.get("definitions", {})),
             profiles=freeze(dict(profiles)),
