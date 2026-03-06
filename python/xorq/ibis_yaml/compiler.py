@@ -64,6 +64,7 @@ from xorq.ibis_yaml.common import (
     translate_to_yaml,
 )
 from xorq.ibis_yaml.config import config
+from xorq.ibis_yaml.enums import DumpFiles, ExprKind, MemtableTypes
 from xorq.ibis_yaml.sql import generate_sql_plans
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.backends.profiles import Profile
@@ -71,36 +72,9 @@ from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.operations import DatabaseTable, InMemoryTable
 
 
-try:
-    from enum import StrEnum
-except ImportError:
-    from strenum import StrEnum
-
-
 @functools.cache
 def _ensure_translate_registered():
     import xorq.ibis_yaml.translate  # noqa: PLC0415, F401
-
-
-class DumpFiles(StrEnum):
-    deferred_reads = "deferred_reads.yaml"
-    expr = "expr.yaml"
-    metadata = "metadata.json"
-    profiles = "profiles.yaml"
-    sql = "sql.yaml"
-
-
-REQUIRED_TGZ_NAMES = (DumpFiles.expr, DumpFiles.metadata, DumpFiles.profiles)
-
-
-class ExprKind(StrEnum):
-    Expr = "expr"
-    UnboundExpr = "unbound_expr"
-
-
-class MemtableTypes(StrEnum):
-    inmemory = "memtables"
-    database_table = "database_tables"
 
 
 memory_backends = ("pandas", "duckdb", "datafusion", "xorq")

@@ -40,7 +40,7 @@ from xorq.catalog.git_utils import (
     add_as_submodule,
     commit_context,
 )
-from xorq.ibis_yaml.compiler import DumpFiles, ExprKind
+from xorq.ibis_yaml.enums import DumpFiles, ExprKind
 
 
 abspath = toolz.compose(Path.absolute, Path)
