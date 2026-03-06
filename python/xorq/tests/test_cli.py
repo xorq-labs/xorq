@@ -149,6 +149,14 @@ def test_build_command_with_cache_dir(tmp_path, fixture_dir):
     assert builds_dir.exists()
 
 
+def test_run_command_raises_on_unbound_expr(tmp_path):
+    t = xo.table(schema={"a": "int64"})
+    expr = t.filter(t.a > 0)
+    build_dir = build_expr(expr, builds_dir=tmp_path)
+    with pytest.raises(ValueError, match="Cannot run unbound expression"):
+        run_command(build_dir)
+
+
 @pytest.mark.slow(level=1)
 def test_run_command_default(tmp_path, fixture_dir):
     target_dir = tmp_path / "build"
