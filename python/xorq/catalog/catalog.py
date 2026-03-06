@@ -463,23 +463,26 @@ class CatalogEntry:
         return load_expr_from_tgz(self.catalog_path)
 
     @cached_property
-    def kind(self) -> str:
-        default_value = str(ExprKind.Expr)
+    def kind(self) -> ExprKind:
         data = self._read_tgz_json(DumpFiles.entry)
         if not isinstance(data, dict):
-            return default_value
-        return data.get("kind", default_value)
+            raise ValueError(
+                f"Expected {DumpFiles.entry!r} to contain a JSON object in {self.catalog_path}"
+            )
+        return ExprKind(data["kind"])
 
     @cached_property
-    def backends(self) -> tuple:
+    def backends(self) -> tuple[str]:
         data = self._read_tgz_yaml(DumpFiles.profiles)
         if not isinstance(data, dict):
-            return ()
-        return tuple(
-            pdata.get("con_name", "?")
-            for pdata in data.values()
-            if isinstance(pdata, dict)
-        )
+            raise ValueError(
+                f"Expected {DumpFiles.profiles!r} to contain a YAML mapping in {self.catalog_path}"
+            )
+        if non_dicts := tuple(v for v in data.values() if not isinstance(v, dict)):
+            raise ValueError(
+                f"Expected all profile entries to be mappings in {self.catalog_path}, got: {non_dicts!r}"
+            )
+        return tuple(value["con_name"] for value in data.values())
 
     @property
     def aliases(self):
