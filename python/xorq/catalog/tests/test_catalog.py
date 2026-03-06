@@ -23,7 +23,7 @@ from xorq.catalog.tar_utils import (
 from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
 )
-from xorq.ibis_yaml.compiler import REQUIRED_TGZ_NAMES, ExprKind
+from xorq.ibis_yaml.enums import REQUIRED_TGZ_NAMES, ExprKind
 
 
 def test_catalog_add(catalog, data_dict):
