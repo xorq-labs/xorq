@@ -23,7 +23,7 @@ from xorq.catalog.tar_utils import (
 from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
 )
-from xorq.ibis_yaml.compiler import REQUIRED_TGZ_NAMES
+from xorq.ibis_yaml.compiler import REQUIRED_TGZ_NAMES, ExprKind
 
 
 def test_catalog_add(catalog, data_dict):
@@ -336,3 +336,58 @@ def test_catalog_entry_relocatable(repo_cloned_bare, tmpdir):
     catalog_entries = cloned.catalog_entries
     exprs = tuple(catalog_entry.expr for catalog_entry in catalog_entries)
     assert exprs
+
+
+def test_extract_kind_bound(catalog):
+    expr = xo.memtable({"a": [1, 2, 3]})
+    entry = catalog.add(expr)
+    assert entry.kind == ExprKind.Expr
+
+
+def test_extract_kind_partial(catalog):
+    t = xo.table(schema={"a": "int64"})
+    expr = t.filter(t.a > 0)
+    entry = catalog.add(expr)
+    assert entry.kind == ExprKind.UnboundExpr
+
+
+def test_schema_out_bound(catalog):
+    expr = xo.memtable({"col_a": [1, 2], "col_b": ["x", "y"]})
+    entry = catalog.add(expr)
+    assert entry.schema_out == {"col_a": "int64", "col_b": "string"}
+
+
+def test_schema_in_none_for_bound(catalog):
+    expr = xo.memtable({"a": [1, 2, 3]})
+    entry = catalog.add(expr)
+    assert entry.schema_in is None
+
+
+def test_schema_out_unbound(catalog):
+    t = xo.table(schema={"amount": "float64", "currency": "string"})
+    expr = t.mutate(amount_usd=t.amount * 1.2)
+    entry = catalog.add(expr)
+    assert entry.schema_out == {
+        "amount": "float64",
+        "currency": "string",
+        "amount_usd": "float64",
+    }
+
+
+def test_schema_in_unbound(catalog):
+    t = xo.table(schema={"amount": "float64", "currency": "string"})
+    expr = t.filter(t.amount > 0)
+    entry = catalog.add(expr)
+    assert entry.schema_in == {"amount": "float64", "currency": "string"}
+
+
+def test_get_entry_by_alias(catalog):
+    expr = xo.memtable({"x": [1]})
+    entry = catalog.add(expr, aliases=("my-alias",))
+    resolved = catalog.get_catalog_entry("my-alias", maybe_alias=True)
+    assert resolved.name == entry.name
+
+
+def test_get_entry_unknown_raises(catalog):
+    with pytest.raises(AssertionError, match="no-such"):
+        catalog.get_catalog_entry("no-such")

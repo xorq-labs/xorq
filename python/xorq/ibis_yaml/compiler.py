@@ -40,6 +40,7 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 from xorq.common.utils.defer_utils import normalize_read_path_stat
 from xorq.common.utils.graph_utils import (
     find_all_sources,
+    has_unbound_table,
     opaque_ops,
     replace_nodes,
     walk_nodes,
@@ -86,6 +87,11 @@ class DumpFiles(StrEnum):
 
 
 REQUIRED_TGZ_NAMES = (DumpFiles.expr, DumpFiles.metadata, DumpFiles.profiles)
+
+
+class ExprKind(StrEnum):
+    Expr = "expr"
+    UnboundExpr = "unbound_expr"
 
 
 class MemtableTypes(StrEnum):
@@ -226,6 +232,11 @@ class YamlExpressionTranslator:
                 {
                     "definitions": context.definitions,
                     "expression": expr_dict,
+                    "kind": str(
+                        ExprKind.UnboundExpr
+                        if has_unbound_table(expr)
+                        else ExprKind.Expr
+                    ),
                 }
             )
 
@@ -556,9 +567,14 @@ class ExprLoader:
     def artifact_store(self):
         return ArtifactStore(self.expr_path)
 
-    def load_expr(self):
+    def load_expr(self, raise_on_unbound: bool = False):
         profiles = hydrate_cons(self.artifact_store.load_yaml(DumpFiles.profiles))
         yaml_dict = self.artifact_store.load_yaml(DumpFiles.expr)
+        if raise_on_unbound and yaml_dict.get("kind") == ExprKind.UnboundExpr:
+            raise ValueError(
+                "Cannot run unbound expression"
+                " - compose it with a source first using xorq catalog compose-add"
+            )
         expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
         expr = self.deferred_reads_to_memtables(expr, self.expr_path)
         if self.cache_dir:
@@ -612,8 +628,9 @@ class ExprLoader:
 
 @functools.wraps(ExprLoader)
 def load_expr(expr_path, **kwargs):
+    raise_on_unbound = kwargs.pop("raise_on_unbound", False)
     expr_loader = ExprLoader(expr_path, **kwargs)
-    expr = expr_loader.load_expr()
+    expr = expr_loader.load_expr(raise_on_unbound=raise_on_unbound)
     return expr
 
 

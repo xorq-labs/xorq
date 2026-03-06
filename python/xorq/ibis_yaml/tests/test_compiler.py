@@ -31,6 +31,7 @@ from xorq.conftest import array_types_df
 from xorq.ibis_yaml.compiler import (
     ArtifactStore,
     DumpFiles,
+    ExprKind,
     RefEnum,
     build_expr,
     load_expr,
@@ -778,3 +779,18 @@ def test_multi_join_expr_yaml_line_count(tmp_path, builds_dir):
     expr_yaml_path = build_path / DumpFiles.expr
     line_count = len(expr_yaml_path.read_text().splitlines())
     assert line_count < 1300, f"expr.yaml has {line_count} lines (expected < 1300)"
+
+
+def test_build_expr_kind_bound(tmp_path):
+    expr = xo.memtable({"a": [1, 2, 3]})
+    build_dir = build_expr(expr, builds_dir=tmp_path)
+    expr_yaml = yaml.safe_load((build_dir / "expr.yaml").read_text())
+    assert expr_yaml["kind"] == ExprKind.Expr
+
+
+def test_build_expr_kind_partial(tmp_path):
+    t = xo.table(schema={"a": "int64"})
+    expr = t.filter(t.a > 0)
+    build_dir = build_expr(expr, builds_dir=tmp_path)
+    expr_yaml = yaml.safe_load((build_dir / "expr.yaml").read_text())
+    assert expr_yaml["kind"] == ExprKind.UnboundExpr

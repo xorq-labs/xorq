@@ -2,6 +2,7 @@ from datetime import date
 
 import pytest
 
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis as ibis
 from xorq.ibis_yaml.common import (
@@ -67,9 +68,14 @@ def alltypes():
     )
 
 
-@pytest.fixture
-def lineitem():
-    return ibis.table(
+@pytest.fixture(scope="session")
+def con():
+    return xo.duckdb.connect()
+
+
+@pytest.fixture(scope="session")
+def lineitem(con):
+    schema = ibis.schema(
         [
             ("l_orderkey", dt.int64),
             ("l_partkey", dt.int64),
@@ -87,14 +93,14 @@ def lineitem():
             ("l_shipinstruct", dt.string),
             ("l_shipmode", dt.string),
             ("l_comment", dt.string),
-        ],
-        name="lineitem",
+        ]
     )
+    return con.create_table("lineitem", schema=schema, overwrite=True)
 
 
-@pytest.fixture
-def orders():
-    return ibis.table(
+@pytest.fixture(scope="session")
+def orders(con):
+    schema = ibis.schema(
         [
             ("o_orderkey", dt.int32(nullable=False)),
             ("o_custkey", dt.int32(nullable=False)),
@@ -106,28 +112,28 @@ def orders():
             ("o_shippriority", dt.int32(nullable=False)),
             ("o_comment", dt.string(nullable=False)),
             ("o_year", dt.date),
-        ],
-        name="orders",
+        ]
     )
+    return con.create_table("orders", schema=schema, overwrite=True)
 
 
-@pytest.fixture
-def partsupp():
-    return ibis.table(
+@pytest.fixture(scope="session")
+def partsupp(con):
+    schema = ibis.schema(
         [
             ("ps_partkey", dt.int32(nullable=False)),
             ("ps_suppkey", dt.int32(nullable=False)),
             ("ps_availqty", dt.int32(nullable=False)),
             ("ps_supplycost", dt.Decimal(precision=15, scale=2, nullable=False)),
             ("ps_comment", dt.string(nullable=False)),
-        ],
-        name="partsupp",
+        ]
     )
+    return con.create_table("partsupp", schema=schema, overwrite=True)
 
 
-@pytest.fixture
-def part():
-    return ibis.table(
+@pytest.fixture(scope="session")
+def part(con):
+    schema = ibis.schema(
         [
             ("p_partkey", dt.int32(nullable=False)),
             ("p_name", dt.string(nullable=False)),
@@ -138,14 +144,14 @@ def part():
             ("p_container", dt.string(nullable=False)),
             ("p_retailprice", dt.Decimal(precision=15, scale=2, nullable=False)),
             ("p_comment", dt.string(nullable=False)),
-        ],
-        name="part",
+        ]
     )
+    return con.create_table("part", schema=schema, overwrite=True)
 
 
-@pytest.fixture
-def customer():
-    return ibis.table(
+@pytest.fixture(scope="session")
+def customer(con):
+    schema = ibis.schema(
         [
             ("c_custkey", dt.int32(nullable=False)),
             ("c_name", dt.string(nullable=False)),
@@ -155,14 +161,14 @@ def customer():
             ("c_acctbal", dt.Decimal(precision=15, scale=2, nullable=False)),
             ("c_mktsegment", dt.string(nullable=False)),
             ("c_comment", dt.string(nullable=False)),
-        ],
-        name="customer",
+        ]
     )
+    return con.create_table("customer", schema=schema, overwrite=True)
 
 
-@pytest.fixture
-def supplier():
-    return ibis.table(
+@pytest.fixture(scope="session")
+def supplier(con):
+    schema = ibis.schema(
         [
             ("s_suppkey", dt.int32(nullable=False)),
             ("s_name", dt.string(nullable=False)),
@@ -171,35 +177,35 @@ def supplier():
             ("s_phone", dt.string(nullable=False)),
             ("s_acctbal", dt.Decimal(precision=15, scale=2, nullable=False)),
             ("s_comment", dt.string(nullable=False)),
-        ],
-        name="supplier",
+        ]
     )
+    return con.create_table("supplier", schema=schema, overwrite=True)
 
 
-@pytest.fixture
-def nation():
-    return ibis.table(
+@pytest.fixture(scope="session")
+def nation(con):
+    schema = ibis.schema(
         [
             ("n_nationkey", dt.int32(nullable=False)),
             ("n_name", dt.string(nullable=False)),
             ("n_regionkey", dt.int32(nullable=False)),
             ("n_comment", dt.string(nullable=False)),
             ("n_suppkey", dt.int32(nullable=False)),
-        ],
-        name="nation",
+        ]
     )
+    return con.create_table("nation", schema=schema, overwrite=True)
 
 
-@pytest.fixture
-def region():
-    return ibis.table(
+@pytest.fixture(scope="session")
+def region(con):
+    schema = ibis.schema(
         [
             ("r_regionkey", dt.int32(nullable=False)),
             ("r_name", dt.string(nullable=False)),
             ("r_comment", dt.string(nullable=False)),
-        ],
-        name="region",
+        ]
     )
+    return con.create_table("region", schema=schema, overwrite=True)
 
 
 @pytest.fixture

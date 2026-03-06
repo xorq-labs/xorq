@@ -239,9 +239,12 @@ def list_entries(ctx):
     """List all entries."""
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
-        names = catalog.list() or ("No entries.",)
-        for name in names:
-            click.echo(name)
+        entries = catalog.catalog_entries
+        if not entries:
+            click.echo("No entries.")
+            return
+        for entry in entries:
+            click.echo(f"{entry.name}\t{entry.kind}")
 
 
 @cli.command("list-aliases")
@@ -346,6 +349,63 @@ def clone(url, dest_name, dest_path):
                 raise click.UsageError("--name and --path are mutually exclusive.")
         catalog = Catalog.clone_from(url, repo_path)
         click.echo(f"Cloned to {catalog.repo_path}")
+
+
+def _complete_entry_or_alias_names(ctx, param, incomplete):
+    from click.shell_completion import CompletionItem
+
+    try:
+        catalog = _make_catalog_for_completion(ctx)
+        names = set(catalog.list()) | set(catalog.list_aliases())
+        return [CompletionItem(n) for n in sorted(names) if n.startswith(incomplete)]
+    except Exception:
+        return []
+
+
+@cli.command()
+@click.argument("name", shell_complete=_complete_entry_or_alias_names)
+@click.option("--json", "as_json", is_flag=True, default=False, help="Output as JSON.")
+@click.pass_context
+def schema(ctx, name, as_json):
+    """Show schema of a catalog entry (name or alias)."""
+    import json as json_mod
+
+    from xorq.ibis_yaml.compiler import ExprKind
+
+    with click_context_catalog(ctx):
+        catalog = ctx.obj.make_catalog(init=False)
+        try:
+            entry = catalog.get_catalog_entry(name, maybe_alias=True)
+        except KeyError as e:
+            raise click.ClickException(str(e)) from e
+
+        kind = entry.kind
+        schema_out = entry.schema_out
+        schema_in = entry.schema_in
+
+        if as_json:
+            result = {"name": entry.name, "kind": kind, "schema_out": schema_out}
+            if schema_in is not None:
+                result["schema_in"] = schema_in
+            click.echo(json_mod.dumps(result, indent=2))
+            return
+
+        is_unbound = kind == str(ExprKind.UnboundExpr)
+        type_label = "Partial (unbound)" if is_unbound else "Source (bound)"
+        click.echo(f"Type: {type_label}\n")
+
+        if schema_in:
+            click.echo("Schema In:")
+            for col, dtype in schema_in.items():
+                click.echo(f"  {col:<24} {dtype}")
+            click.echo()
+
+        if schema_out:
+            click.echo("Schema Out:")
+            for col, dtype in schema_out.items():
+                click.echo(f"  {col:<24} {dtype}")
+        else:
+            click.echo("Schema Out: (unavailable)")
 
 
 @cli.command()

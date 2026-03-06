@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 import hashlib
 import shutil
+import tarfile
 import tempfile
 from contextlib import (
     contextmanager,
     nullcontext,
 )
-from functools import partial
+from functools import cached_property, partial
 from pathlib import Path
 from subprocess import Popen
 from urllib.parse import urlparse
@@ -39,6 +40,7 @@ from xorq.catalog.git_utils import (
     add_as_submodule,
     commit_context,
 )
+from xorq.ibis_yaml.compiler import DumpFiles, ExprKind
 
 
 abspath = toolz.compose(Path.absolute, Path)
@@ -153,7 +155,12 @@ class Catalog:
         catalog_entry = CatalogEntry(name, self, require_exists=False)
         return catalog_entry.exists()
 
-    def get_catalog_entry(self, name):
+    def get_catalog_entry(self, name, maybe_alias: bool = False):
+
+        if maybe_alias:
+            if name in self.list_aliases():
+                return CatalogAlias.from_name(name, self).catalog_entry
+
         assert name in self.list(), f"Entry '{name}' not found in catalog"
         catalog_entry = CatalogEntry(name, self)
         return catalog_entry
@@ -460,6 +467,130 @@ class CatalogEntry:
 
         return load_expr_from_tgz(self.catalog_path)
 
+    @cached_property
+    def kind(self) -> str:
+        default_value = str(ExprKind.Expr)
+        data = self._read_tgz_yaml(DumpFiles.expr)
+        if not isinstance(data, dict):
+            return default_value
+        return data.get("kind", default_value)
+
+    @cached_property
+    def schema_out(self) -> dict | None:
+        """Output schema as {column_name: dtype_str}, read directly from expr.yaml."""
+        data = self._read_tgz_yaml(DumpFiles.expr)
+        return CatalogEntry._parse_schema_out(data)
+
+    @cached_property
+    def schema_in(self) -> dict | None:
+        """For unbound expressions, the expected input schema as {column_name: dtype_str}."""
+        if self.kind != str(ExprKind.UnboundExpr):
+            return None
+        data = self._read_tgz_yaml(DumpFiles.expr)
+        return CatalogEntry._parse_schema_in(data)
+
+    @staticmethod
+    def _resolve_schema_ref(ref_val) -> str | None:
+        """Extract the schema key string from a schema_ref value.
+
+        In expr.yaml, schema_ref is stored as {'schema_ref': 'schema_<hash>'}.
+        """
+        if isinstance(ref_val, dict):
+            return ref_val.get("schema_ref")
+        if isinstance(ref_val, str):
+            return ref_val
+        return None
+
+    @staticmethod
+    def _dtype_dict_to_str(d) -> str:
+        """Convert a serialized DataType dict from expr.yaml to a human-readable string."""
+        import xorq.vendor.ibis.expr.datatypes as dt  # noqa: PLC0415
+
+        if not isinstance(d, dict) or d.get("op") != "DataType":
+            return str(d)
+        typ_cls = getattr(dt, d["type"], None)
+        if typ_cls is None:
+            return d["type"].lower()
+        kwargs = {
+            k: CatalogEntry._dtype_dict_to_str(v) if isinstance(v, dict) else v
+            for k, v in d.items()
+            if k not in ("op", "type")
+        }
+
+        # Re-parse nested dtype strings back to dt objects for the constructor
+        def _parse_val(k, v):
+            try:
+                arg_annotation = typ_cls.__dataclass_fields__.get(k)
+                if arg_annotation and isinstance(v, str):
+                    return dt.dtype(v)
+            except Exception:
+                pass
+            return v
+
+        kwargs = {k: _parse_val(k, v) for k, v in kwargs.items()}
+        try:
+            return str(typ_cls(**kwargs))
+        except Exception:
+            return d["type"].lower()
+
+    @staticmethod
+    def _schema_dict_to_str_dict(schema_dict) -> dict[str, str]:
+        return {
+            col: CatalogEntry._dtype_dict_to_str(dtype_val)
+            for col, dtype_val in schema_dict.items()
+        }
+
+    @staticmethod
+    def _parse_schema_out(data) -> dict | None:
+        if not isinstance(data, dict):
+            return None
+        schemas = data.get("definitions", {}).get("schemas", {})
+        schema_ref = CatalogEntry._resolve_schema_ref(
+            data.get("expression", {}).get("schema_ref")
+        )
+        if not schema_ref:
+            return None
+        schema_dict = schemas.get(schema_ref)
+        if not isinstance(schema_dict, dict):
+            return None
+        return CatalogEntry._schema_dict_to_str_dict(schema_dict)
+
+    @staticmethod
+    def _parse_schema_in(data) -> dict | None:
+        if not isinstance(data, dict):
+            return None
+        definitions = data.get("definitions", {})
+        schemas = definitions.get("schemas", {})
+        # At most one UnboundTable is allowed (enforced by has_unbound_table strict mode)
+        node_def = next(
+            (
+                n
+                for n in definitions.get("nodes", {}).values()
+                if isinstance(n, dict) and n.get("op") == "UnboundTable"
+            ),
+            None,
+        )
+        if node_def is None:
+            return None
+        schema_ref = CatalogEntry._resolve_schema_ref(node_def.get("schema_ref"))
+        if not schema_ref:
+            return None
+        schema_dict = schemas.get(schema_ref)
+        if not isinstance(schema_dict, dict):
+            return None
+        return CatalogEntry._schema_dict_to_str_dict(schema_dict)
+
+    @cached_property
+    def backends(self) -> tuple:
+        data = self._read_tgz_yaml(DumpFiles.profiles)
+        if not isinstance(data, dict):
+            return ()
+        return tuple(
+            pdata.get("con_name", "?")
+            for pdata in data.values()
+            if isinstance(pdata, dict)
+        )
+
     @property
     def aliases(self):
         return tuple(
@@ -491,6 +622,13 @@ class CatalogEntry:
 
     def exists(self):
         return all(self._exists_components.values())
+
+    def _read_tgz_yaml(self, filename):
+        with tarfile.open(self.catalog_path, "r:gz") as tf:
+            f = tf.extractfile(f"{self.name}/{filename}")
+            if f is None:
+                return None
+            return yaml.safe_load(f.read())
 
 
 @frozen

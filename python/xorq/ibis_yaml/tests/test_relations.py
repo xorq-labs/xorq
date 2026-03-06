@@ -1,4 +1,3 @@
-import xorq.vendor.ibis as ibis
 from xorq.ibis_yaml.common import (
     RefEnum,
     RegistryEnum,
@@ -55,9 +54,9 @@ def test_aggregation(compiler, t):
     assert roundtrip_expr.equals(expr)
 
 
-def test_join(compiler):
-    t1 = ibis.table({"a": "int", "b": "string"}, name="t1")
-    t2 = ibis.table({"b": "string", "c": "float"}, name="t2")
+def test_join(compiler, con):
+    t1 = con.create_table("t1", schema={"a": "int32", "b": "string"}, overwrite=True)
+    t2 = con.create_table("t2", schema={"b": "string", "c": "float32"}, overwrite=True)
     expr = t1.join(t2, t1.b == t2.b)
     yaml_dict = compiler.to_yaml(expr)
     node_ref = yaml_dict["expression"][RefEnum.node_ref]
@@ -67,7 +66,8 @@ def test_join(compiler):
     assert expression["rest"][0]["predicates"][0]["op"] == "Equals"
     assert expression["rest"][0]["how"] == "inner"
 
-    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    profiles = {con._profile.hash_name: con}
+    roundtrip_expr = compiler.from_yaml(yaml_dict, profiles)
     assert roundtrip_expr.equals(expr)
 
 
