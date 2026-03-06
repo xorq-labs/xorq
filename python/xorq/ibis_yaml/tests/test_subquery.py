@@ -1,4 +1,3 @@
-import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.ibis_yaml.common import (
     RefEnum,
@@ -21,9 +20,9 @@ def test_scalar_subquery(compiler, t):
     assert roundtrip_expr.equals(expr)
 
 
-def test_exists_subquery(compiler):
-    t1 = ibis.table({"a": "int", "b": "string"}, name="t1")
-    t2 = ibis.table({"a": "int", "c": "float"}, name="t2")
+def test_exists_subquery(compiler, con):
+    t1 = con.create_table("t1", schema={"a": "int32", "b": "string"}, overwrite=True)
+    t2 = con.create_table("t2", schema={"a": "int32", "c": "float32"}, overwrite=True)
 
     filtered = t2.filter(t2.a == t1.a)
     expr = ops.ExistsSubquery(filtered).to_expr()
@@ -35,13 +34,14 @@ def test_exists_subquery(compiler):
     node_ref = expression["rel"][RefEnum.node_ref]
     assert yaml_dict["definitions"][RegistryEnum.nodes][node_ref]["op"] == "Filter"
 
-    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    profiles = {con._profile.hash_name: con}
+    roundtrip_expr = compiler.from_yaml(yaml_dict, profiles)
     assert roundtrip_expr.equals(expr)
 
 
-def test_in_subquery(compiler):
-    t1 = ibis.table({"a": "int", "b": "string"}, name="t1")
-    t2 = ibis.table({"a": "int", "c": "float"}, name="t2")
+def test_in_subquery(compiler, con):
+    t1 = con.create_table("t1", schema={"a": "int32", "b": "string"}, overwrite=True)
+    t2 = con.create_table("t2", schema={"a": "int32", "c": "float32"}, overwrite=True)
 
     expr = ops.InSubquery(t1.select("a"), t2.a).to_expr()
     yaml_dict = compiler.to_yaml(expr)
@@ -51,5 +51,6 @@ def test_in_subquery(compiler):
     assert expression["op"] == "InSubquery"
     assert dtype_yaml["type"] == "Boolean"
 
-    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    profiles = {con._profile.hash_name: con}
+    roundtrip_expr = compiler.from_yaml(yaml_dict, profiles)
     assert roundtrip_expr.equals(expr)
