@@ -572,7 +572,7 @@ class FittedStep:
                 if self.is_transform
                 else FittedStepTagKey.PREDICT
             )
-        if which not in FittedStepTagKey:
+        if which not in tuple(FittedStepTagKey):
             raise ValueError(f"unknown FittedStepTagKey: {which}")
         return {
             "tag": which,
@@ -953,7 +953,7 @@ class FittedPipeline:
             case FittedPipelineTagKey.ALL_STEPS:
                 fitted_steps = self.fitted_steps
             case _:
-                if which in FittedPipelineTagKey:
+                if which in tuple(FittedPipelineTagKey):
                     raise ValueError(f"unhandled FittedPipelineTagKey: {which}")
                 else:
                     raise ValueError(f"don't know how to deal with value: {which}")
@@ -1188,7 +1188,7 @@ def get_sklearn_pipeline_tags(expr):
     pipeline_tags = tuple(
         node
         for node in walk_nodes((Tag,), expr)
-        if node.metadata.get("tag") in FittedPipelineTagKey
+        if node.metadata.get("tag") in tuple(FittedPipelineTagKey)
         and FittedPipelineTagKey.ALL_STEPS in node.metadata
     )
     return pipeline_tags
