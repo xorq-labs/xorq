@@ -125,7 +125,8 @@ def test_tagging_pipeline(pairs, t, fitted_xorq_pipeline):
     expected = sort_and_tuplify(
         dct
         for dct in (
-            fitted_step.tag_kwargs for fitted_step in fitted_xorq_pipeline.fitted_steps
+            fitted_step.get_tag_kwargs()
+            for fitted_step in fitted_xorq_pipeline.fitted_steps
         )
         if contains_any_pairs(dct)
     )
