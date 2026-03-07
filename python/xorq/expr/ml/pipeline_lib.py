@@ -575,7 +575,7 @@ class FittedStep:
         if which not in tuple(FittedStepTagKey):
             raise ValueError(f"unknown FittedStepTagKey: {which}")
         return {
-            "tag": which,
+            "tag": str(which),
             **self.step.tag_kwargs,
             "features": self.features,
         }
@@ -958,7 +958,7 @@ class FittedPipeline:
                 else:
                     raise ValueError(f"don't know how to deal with value: {which}")
         return {
-            which: tuple(
+            str(which): tuple(
                 tuple(fitted_step.get_tag_kwargs().items())
                 for fitted_step in fitted_steps
             ),
@@ -972,7 +972,7 @@ class FittedPipeline:
                 transformed = transformed.pipe(do_into_backend)
         if tag:
             transformed = transformed.tag(
-                FittedPipelineTagKey.TRANSFORM,
+                str(FittedPipelineTagKey.TRANSFORM),
                 **self.get_tag_kwargs(FittedPipelineTagKey.TRANSFORM)
                 | self.get_tag_kwargs(FittedPipelineTagKey.ALL_STEPS),
             )
@@ -981,7 +981,7 @@ class FittedPipeline:
     def predict(self, expr, name=None):
         transformed = self.transform(expr, tag=False)
         return self.predict_step.predict(transformed, name=name).tag(
-            FittedPipelineTagKey.PREDICT,
+            str(FittedPipelineTagKey.PREDICT),
             **self.get_tag_kwargs(FittedPipelineTagKey.PREDICT)
             | self.get_tag_kwargs(FittedPipelineTagKey.ALL_STEPS),
         )
@@ -997,7 +997,7 @@ class FittedPipeline:
         if any(dtype.is_nested() for dtype in predicted.schema().values()):
             predicted = predicted.pipe(do_into_backend)
         return predicted.tag(
-            tag_name,
+            str(tag_name),
             **self.get_tag_kwargs(tag_name)
             | self.get_tag_kwargs(FittedPipelineTagKey.ALL_STEPS),
         )
