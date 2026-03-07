@@ -4,6 +4,7 @@ import xorq.expr.relations as rel
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.vendor.ibis import Expr
+from xorq.vendor.ibis.expr.operations import UnboundTable
 from xorq.vendor.ibis.expr.operations.core import Node
 
 
@@ -162,3 +163,12 @@ def find_all_sources(expr):
     nodes = walk_nodes(node_types, expr)
     sources = get_ordered_unique_sources(nodes)
     return sources
+
+
+def has_unbound_table(expr, strict=True) -> bool:
+    nodes = walk_nodes(UnboundTable, expr)
+    if strict and len(nodes) > 1:
+        raise ValueError(
+            f"Expected at most one UnboundTable, found {len(nodes)}: {nodes}"
+        )
+    return bool(nodes)

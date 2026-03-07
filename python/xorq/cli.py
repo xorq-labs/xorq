@@ -211,7 +211,7 @@ def run_command(
             rl.log_event("run.start", dict(run_params))
 
             with timed() as get_elapsed:
-                expr = load_expr(expr_path, cache_dir=cache_dir)
+                expr = load_expr(expr_path, cache_dir=cache_dir, raise_on_unbound=True)
                 load_metrics = {"elapsed_s": round(get_elapsed(), 3)}
                 span.add_event("run.expr_loaded", load_metrics)
                 rl.log_event("run.expr_loaded", load_metrics)

@@ -11,6 +11,7 @@ import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import SourceCache
 from xorq.common.utils.graph_utils import (
     find_all_sources,
+    has_unbound_table,
     walk_nodes,
 )
 from xorq.expr.relations import Tag
@@ -116,3 +117,29 @@ def test_replace_computed_kwargs_expr(parquet_dir):
     removed = xo.expr.api._remove_tag_nodes(predicted)
     assert not walk_nodes(Tag, removed)
     assert not walk_nodes(Tag, predicted.ls.untagged)
+
+
+def test_has_unbound_table_false():
+    expr = xo.memtable({"a": [1, 2, 3]})
+    assert not has_unbound_table(expr)
+
+
+def test_has_unbound_table_true():
+    t = xo.table(schema={"a": "int64"})
+    expr = t.filter(t.a > 0)
+    assert has_unbound_table(expr)
+
+
+def test_has_unbound_table_strict_raises_on_multiple():
+    t1 = xo.table(schema={"a": "int64"}, name="t1")
+    t2 = xo.table(schema={"b": "string"}, name="t2")
+    expr = t1.cross_join(t2)
+    with pytest.raises(ValueError, match="Expected at most one UnboundTable"):
+        has_unbound_table(expr, strict=True)
+
+
+def test_has_unbound_table_strict_false_allows_multiple():
+    t1 = xo.table(schema={"a": "int64"}, name="t1")
+    t2 = xo.table(schema={"b": "string"}, name="t2")
+    expr = t1.cross_join(t2)
+    assert has_unbound_table(expr, strict=False)

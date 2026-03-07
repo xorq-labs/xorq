@@ -63,38 +63,17 @@ from xorq.ibis_yaml.common import (
     translate_to_yaml,
 )
 from xorq.ibis_yaml.config import config
+from xorq.ibis_yaml.enums import DumpFiles, ExprKind, MemtableTypes
 from xorq.ibis_yaml.sql import generate_sql_plans
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
-from xorq.vendor.ibis.expr.operations import DatabaseTable, InMemoryTable
-
-
-try:
-    from enum import StrEnum
-except ImportError:
-    from strenum import StrEnum
+from xorq.vendor.ibis.expr.operations import DatabaseTable, InMemoryTable, UnboundTable
 
 
 @functools.cache
 def _ensure_translate_registered():
     import xorq.ibis_yaml.translate  # noqa: PLC0415, F401
-
-
-class DumpFiles(StrEnum):
-    deferred_reads = "deferred_reads.yaml"
-    expr = "expr.yaml"
-    metadata = "metadata.json"
-    profiles = "profiles.yaml"
-    sql = "sql.yaml"
-
-
-REQUIRED_TGZ_NAMES = (DumpFiles.expr, DumpFiles.metadata, DumpFiles.profiles)
-
-
-class MemtableTypes(StrEnum):
-    inmemory = "memtables"
-    database_table = "database_tables"
 
 
 memory_backends = ("pandas", "duckdb", "datafusion", "xorq")
@@ -191,6 +170,9 @@ class ArtifactStore:
 
     def exists(self, *path_parts) -> bool:
         return self.get_path(*path_parts).exists()
+
+    def write_json(self, data: Dict[str, Any], *path_parts) -> pathlib.Path:
+        return self.write_text(json.dumps(data, indent=2), *path_parts)
 
     def save_yaml(self, yaml_dict: Dict[str, Any], filename) -> pathlib.Path:
         return self.write_yaml(yaml_dict, filename)
@@ -456,6 +438,33 @@ class ExprDumper:
         )
         return path, writer
 
+    def _make_entry(self, expr) -> Dict[str, Any]:
+        unbound_nodes = walk_nodes(UnboundTable, expr)
+        (unbound_node,) = unbound_nodes or (None,)
+        return {
+            "kind": str(ExprKind.UnboundExpr if unbound_node else ExprKind.Expr),
+            "schema_out": {name: str(dtype) for name, dtype in expr.schema().items()}
+            if hasattr(expr, "schema")
+            else None,
+        } | (
+            {
+                "schema_in": {
+                    name: str(dtype) for name, dtype in unbound_node.schema.items()
+                }
+            }
+            if unbound_node
+            else {}
+        )
+
+    def _prepare_entry_file(self, expr):
+        path = self.artifact_store.get_path(DumpFiles.entry)
+        writer = functools.partial(
+            self.artifact_store.write_json,
+            self._make_entry(expr),
+            DumpFiles.entry,
+        )
+        return path, writer
+
     def _prepare_profiles_file(self, profiles):
         path = self.artifact_store.get_path(DumpFiles.profiles)
         writer = functools.partial(
@@ -529,6 +538,7 @@ class ExprDumper:
         profiles = dehydrate_cons(find_all_sources(expr))
         path_to_writer2 = dict(
             (
+                self._prepare_entry_file(expr),
                 self._prepare_metadata_file(),
                 self._prepare_profiles_file(profiles),
             )
@@ -562,9 +572,15 @@ class ExprLoader:
     def artifact_store(self):
         return ArtifactStore(self.expr_path)
 
-    def load_expr(self):
+    def load_expr(self, raise_on_unbound: bool = False):
         profiles = hydrate_cons(self.artifact_store.load_yaml(DumpFiles.profiles))
         yaml_dict = self.artifact_store.load_yaml(DumpFiles.expr)
+        entry = self.artifact_store.read_json(DumpFiles.entry)
+        if raise_on_unbound and entry.get("kind") == ExprKind.UnboundExpr:
+            raise ValueError(
+                "Cannot run unbound expression"
+                " - compose it with a source first using xorq catalog compose-add"
+            )
         expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
         expr = self.deferred_reads_to_memtables(expr, self.expr_path)
         if self.cache_dir:
@@ -618,8 +634,9 @@ class ExprLoader:
 
 @functools.wraps(ExprLoader)
 def load_expr(expr_path, **kwargs):
+    raise_on_unbound = kwargs.pop("raise_on_unbound", False)
     expr_loader = ExprLoader(expr_path, **kwargs)
-    expr = expr_loader.load_expr()
+    expr = expr_loader.load_expr(raise_on_unbound=raise_on_unbound)
     return expr
 
 

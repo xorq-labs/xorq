@@ -234,14 +234,23 @@ def remove_alias(ctx, aliases, sync):
 
 
 @cli.command("list")
+@click.option("--kind/--no-kind", default=False, help="Show the kind column.")
 @click.pass_context
-def list_entries(ctx):
+def list_entries(ctx, kind):
     """List all entries."""
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
-        names = catalog.list() or ("No entries.",)
-        for name in names:
-            click.echo(name)
+        if kind:
+            entries = catalog.catalog_entries
+            if not entries:
+                click.echo("No entries.")
+                return
+            for entry in entries:
+                click.echo(f"{entry.name}\t{entry.kind}")
+        else:
+            names = catalog.list() or ("No entries.",)
+            for name in names:
+                click.echo(name)
 
 
 @cli.command("list-aliases")

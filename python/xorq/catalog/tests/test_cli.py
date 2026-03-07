@@ -20,7 +20,7 @@ from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
     make_build_tgz,
 )
-from xorq.ibis_yaml.compiler import REQUIRED_TGZ_NAMES
+from xorq.ibis_yaml.enums import REQUIRED_TGZ_NAMES
 
 
 @pytest.fixture
@@ -456,6 +456,18 @@ def test_list_populated(runner, catalog_path, data_dict):
     for p in data_dict.values():
         name = Path(p).name.removesuffix("".join(Path(p).suffixes))
         assert name in result.output
+
+
+def test_list_with_kind(runner, catalog_path, data_dict):
+    paths = [str(p) for p in data_dict.values()]
+    runner.invoke(cli, ["--path", catalog_path, "add", *paths])
+    result = runner.invoke(cli, ["--path", catalog_path, "list", "--kind"])
+    assert result.exit_code == 0, result.output
+    assert "No entries." not in result.output
+    for p in data_dict.values():
+        name = Path(p).name.removesuffix("".join(Path(p).suffixes))
+        assert name in result.output
+    assert "\tunbound_expr" in result.output or "\texpr" in result.output
 
 
 # --- list-aliases command ---

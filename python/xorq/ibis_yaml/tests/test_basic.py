@@ -180,11 +180,12 @@ def test_window_function_roundtrip(t, compiler):
     assert roundtrip_expr.equals(expr)
 
 
-def test_join_roundtrip(t, compiler):
-    t2 = ibis.table({"b": "int64"}, name="test_table_2")
+def test_join_roundtrip(t, compiler, con):
+    t2 = con.create_table("test_table_2", schema={"b": "int64"}, overwrite=True)
     expr = t.join(t2, t.a == t2.b)
     yaml_dict = compiler.to_yaml(expr)
-    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    profiles = {con._profile.hash_name: con}
+    roundtrip_expr = compiler.from_yaml(yaml_dict, profiles)
     assert roundtrip_expr.schema() == expr.schema()
 
 

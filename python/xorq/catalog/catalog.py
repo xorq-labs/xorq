@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 import hashlib
 import shutil
+import tarfile
 import tempfile
 from contextlib import (
     contextmanager,
     nullcontext,
 )
-from functools import partial
+from functools import cached_property, partial
 from pathlib import Path
 from subprocess import Popen
 from urllib.parse import urlparse
@@ -39,6 +40,7 @@ from xorq.catalog.git_utils import (
     add_as_submodule,
     commit_context,
 )
+from xorq.ibis_yaml.enums import DumpFiles, ExprKind
 
 
 abspath = toolz.compose(Path.absolute, Path)
@@ -460,6 +462,28 @@ class CatalogEntry:
 
         return load_expr_from_tgz(self.catalog_path)
 
+    @cached_property
+    def kind(self) -> ExprKind:
+        data = self._read_tgz_json(DumpFiles.entry)
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"Expected {DumpFiles.entry!r} to contain a JSON object in {self.catalog_path}"
+            )
+        return ExprKind(data["kind"])
+
+    @cached_property
+    def backends(self) -> tuple[str]:
+        data = self._read_tgz_yaml(DumpFiles.profiles)
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"Expected {DumpFiles.profiles!r} to contain a YAML mapping in {self.catalog_path}"
+            )
+        if non_dicts := tuple(v for v in data.values() if not isinstance(v, dict)):
+            raise ValueError(
+                f"Expected all profile entries to be mappings in {self.catalog_path}, got: {non_dicts!r}"
+            )
+        return tuple(value["con_name"] for value in data.values())
+
     @property
     def aliases(self):
         return tuple(
@@ -491,6 +515,22 @@ class CatalogEntry:
 
     def exists(self):
         return all(self._exists_components.values())
+
+    def _read_tgz_yaml(self, filename):
+        with tarfile.open(self.catalog_path, "r:gz") as tf:
+            f = tf.extractfile(f"{self.name}/{filename}")
+            if f is None:
+                return None
+            return yaml.safe_load(f.read())
+
+    def _read_tgz_json(self, filename):
+        import json  # noqa: PLC0415
+
+        with tarfile.open(self.catalog_path, "r:gz") as tf:
+            f = tf.extractfile(f"{self.name}/{filename}")
+            if f is None:
+                return None
+            return json.loads(f.read())
 
 
 @frozen

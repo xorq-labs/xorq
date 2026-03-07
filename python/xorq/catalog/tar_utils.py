@@ -6,10 +6,10 @@ from pathlib import Path
 from xorq.catalog.constants import (
     PREFERRED_SUFFIX,
 )
+from xorq.ibis_yaml.enums import REQUIRED_TGZ_NAMES
 
 
 def test_tgz(tgz_path):
-    from xorq.ibis_yaml.compiler import REQUIRED_TGZ_NAMES  # noqa: PLC0415
 
     with tarfile.TarFile.gzopen(tgz_path) as tfh:
         # https://docs.python.org/3/library/tarfile.html#cmdoption-tarfile-t

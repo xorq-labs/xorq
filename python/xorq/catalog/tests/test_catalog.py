@@ -23,7 +23,7 @@ from xorq.catalog.tar_utils import (
 from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
 )
-from xorq.ibis_yaml.compiler import REQUIRED_TGZ_NAMES
+from xorq.ibis_yaml.enums import REQUIRED_TGZ_NAMES, ExprKind
 
 
 def test_catalog_add(catalog, data_dict):
@@ -336,3 +336,16 @@ def test_catalog_entry_relocatable(repo_cloned_bare, tmpdir):
     catalog_entries = cloned.catalog_entries
     exprs = tuple(catalog_entry.expr for catalog_entry in catalog_entries)
     assert exprs
+
+
+def test_extract_kind_bound(catalog):
+    expr = xo.memtable({"a": [1, 2, 3]})
+    entry = catalog.add(expr)
+    assert entry.kind == ExprKind.Expr
+
+
+def test_extract_kind_partial(catalog):
+    t = xo.table(schema={"a": "int64"})
+    expr = t.filter(t.a > 0)
+    entry = catalog.add(expr)
+    assert entry.kind == ExprKind.UnboundExpr
