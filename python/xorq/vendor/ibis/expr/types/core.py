@@ -850,6 +850,25 @@ class LETSQLAccessor:
         else:
             return None
 
+    @property
+    def pipelines(self):
+        from xorq.expr.ml.pipeline_lib import (
+            Pipeline,
+            get_sklearn_pipeline_tags,
+            pipeline_tag_to_pipeline,
+        )
+
+        return tuple(
+            Pipeline.from_instance(pipeline_tag_to_pipeline(pipeline_tag))
+            for pipeline_tag in get_sklearn_pipeline_tags(self.expr)
+        )
+
+    @property
+    def pipeline(self):
+        from xorq.expr.ml.pipeline_lib import Pipeline, get_outermost_pipeline
+
+        return Pipeline.from_instance(get_outermost_pipeline(self.expr))
+
 
 def _binop(op_class: type[ops.Binary], left: ir.Value, right: ir.Value) -> ir.Value:
     """Try to construct a binary operation.

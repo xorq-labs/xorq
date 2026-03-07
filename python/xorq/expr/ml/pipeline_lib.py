@@ -36,10 +36,11 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 from xorq.common.utils.func_utils import (
     return_constant,
 )
+from xorq.common.utils.graph_utils import walk_nodes
 from xorq.common.utils.name_utils import (
     make_name,
 )
-from xorq.expr.ml.enums import ResponseMethod
+from xorq.expr.ml.enums import FittedPipelineTagKey, FittedStepTagKey, ResponseMethod
 from xorq.expr.ml.fit_lib import (
     DeferredFitOther,
     decision_function_sklearn,
@@ -49,6 +50,7 @@ from xorq.expr.ml.fit_lib import (
 from xorq.expr.ml.structer import (
     Structer,
 )
+from xorq.expr.relations import Tag
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.expr.types.core import Expr
 
@@ -563,12 +565,17 @@ class FittedStep:
         )
         return transformed
 
-    @property
-    def tag_kwargs(self):
+    def get_tag_kwargs(self, which=None):
+        if which is None:
+            which = (
+                FittedStepTagKey.TRANSFORM
+                if self.is_transform
+                else FittedStepTagKey.PREDICT
+            )
+        if which not in tuple(FittedStepTagKey):
+            raise ValueError(f"unknown FittedStepTagKey: {which}")
         return {
-            "tag": "FittedStep-transform"
-            if self.is_transform
-            else "FittedStep-predict",
+            "tag": str(which),
             **self.step.tag_kwargs,
             "features": self.features,
         }
@@ -600,7 +607,7 @@ class FittedStep:
             }
             keep = others | keep
 
-        return ibis_ops.Project(parent, keep).to_expr().tag(**self.tag_kwargs)
+        return ibis_ops.Project(parent, keep).to_expr().tag(**self.get_tag_kwargs())
 
     @property
     def transformed(self):
@@ -619,7 +626,7 @@ class FittedStep:
         else:
             expr = col.as_table()
         return expr.tag(
-            **self.tag_kwargs,
+            **self.get_tag_kwargs(),
         )
 
     def mutate(self, expr, name=None):
@@ -651,7 +658,7 @@ class FittedStep:
             expr = self._with_col_drop_features(expr, col)
         else:
             expr = col.as_table()
-        return expr.tag(**self.tag_kwargs)
+        return expr.tag(**self.get_tag_kwargs(f"FittedStep-{methodname}"))
 
     predict_proba_raw = invoke_method_raw(methodname=ResponseMethod.PREDICT_PROBA)
 
@@ -663,7 +670,9 @@ class FittedStep:
 
     decision_function = invoke_method(methodname=ResponseMethod.DECISION_FUNCTION)
 
-    feature_importances_raw = invoke_method_raw(methodname="feature_importances")
+    feature_importances_raw = invoke_method_raw(
+        methodname=ResponseMethod.FEATURE_IMPORTANCES
+    )
 
     def feature_importances(self, expr=None, name=None):
         import xorq.api as xo  # noqa: PLC0415
@@ -671,7 +680,7 @@ class FittedStep:
         schema = self.expr.select(self.features).schema()
         empty_table = xo.memtable([dict.fromkeys(schema.names)], schema=schema)
         col = self.feature_importances_raw(empty_table, name)
-        return col.as_table().tag(**self.tag_kwargs)
+        return col.as_table().tag(**self.get_tag_kwargs())
 
 
 @frozen
@@ -930,12 +939,28 @@ class FittedPipeline:
     def predict_step(self):
         return self.fitted_steps[-1] if self.is_predict else None
 
-    @property
-    def tag_kwargs(self):
+    def get_tag_kwargs(self, which):
+        match which:
+            case (
+                FittedPipelineTagKey.PREDICT
+                | FittedPipelineTagKey.PREDICT_PROBA
+                | FittedPipelineTagKey.DECISION_FUNCTION
+                | FittedPipelineTagKey.FEATURE_IMPORTANCES
+            ):
+                fitted_steps = (self.predict_step,)
+            case FittedPipelineTagKey.TRANSFORM:
+                fitted_steps = self.transform_steps
+            case FittedPipelineTagKey.ALL_STEPS:
+                fitted_steps = self.fitted_steps
+            case _:
+                if which in tuple(FittedPipelineTagKey):
+                    raise ValueError(f"unhandled FittedPipelineTagKey: {which}")
+                else:
+                    raise ValueError(f"don't know how to deal with value: {which}")
         return {
-            "transforms_tags": tuple(
-                tuple(fitted_step.tag_kwargs.items())
-                for fitted_step in self.transform_steps
+            str(which): tuple(
+                tuple(fitted_step.get_tag_kwargs().items())
+                for fitted_step in fitted_steps
             ),
         }
 
@@ -947,20 +972,22 @@ class FittedPipeline:
                 transformed = transformed.pipe(do_into_backend)
         if tag:
             transformed = transformed.tag(
-                "FittedPipeline-transform",
-                **self.tag_kwargs,
+                str(FittedPipelineTagKey.TRANSFORM),
+                **self.get_tag_kwargs(FittedPipelineTagKey.TRANSFORM)
+                | self.get_tag_kwargs(FittedPipelineTagKey.ALL_STEPS),
             )
         return transformed
 
     def predict(self, expr, name=None):
         transformed = self.transform(expr, tag=False)
         return self.predict_step.predict(transformed, name=name).tag(
-            "FittedPipeline-predict",
-            predict_tags=tuple(self.predict_step.tag_kwargs.items()),
+            str(FittedPipelineTagKey.PREDICT),
+            **self.get_tag_kwargs(FittedPipelineTagKey.PREDICT)
+            | self.get_tag_kwargs(FittedPipelineTagKey.ALL_STEPS),
         )
 
     @toolz.curry
-    def invoke_predict_method(self, expr, tag_name, tag_key, *, methodname, name=None):
+    def invoke_predict_method(self, expr, tag_name, *, methodname, name=None):
         if not self.is_predict:
             raise ValueError("Pipeline does not have a predict step")
         if not (method := getattr(self.predict_step, methodname, None)):
@@ -970,15 +997,15 @@ class FittedPipeline:
         if any(dtype.is_nested() for dtype in predicted.schema().values()):
             predicted = predicted.pipe(do_into_backend)
         return predicted.tag(
-            tag_name,
-            **{tag_key: tuple(self.predict_step.tag_kwargs.items())},
+            str(tag_name),
+            **self.get_tag_kwargs(tag_name)
+            | self.get_tag_kwargs(FittedPipelineTagKey.ALL_STEPS),
         )
 
     def predict_proba(self, expr, name=None):
         return self.invoke_predict_method(
             expr,
-            tag_name="FittedPipeline-predict_proba",
-            tag_key="predict_proba_tags",
+            tag_name=FittedPipelineTagKey.PREDICT_PROBA,
             methodname=ResponseMethod.PREDICT_PROBA,
             name=name,
         )
@@ -986,8 +1013,7 @@ class FittedPipeline:
     def decision_function(self, expr, name=None):
         return self.invoke_predict_method(
             expr,
-            tag_name="FittedPipeline-decision_function",
-            tag_key="decision_function_tags",
+            tag_name=FittedPipelineTagKey.DECISION_FUNCTION,
             methodname=ResponseMethod.DECISION_FUNCTION,
             name=name,
         )
@@ -995,9 +1021,8 @@ class FittedPipeline:
     def feature_importances(self, expr, name=None):
         return self.invoke_predict_method(
             expr,
-            tag_name="FittedPipeline-feature_importances",
-            tag_key="feature_importances_tags",
-            methodname="feature_importances",
+            tag_name=FittedPipelineTagKey.FEATURE_IMPORTANCES,
+            methodname=ResponseMethod.FEATURE_IMPORTANCES,
             name=name,
         )
 
@@ -1157,3 +1182,40 @@ def lazy_register_sklearn():
 
 
 get_predict_return_type.register = registry.register
+
+
+def get_sklearn_pipeline_tags(expr):
+    pipeline_tags = tuple(
+        node
+        for node in walk_nodes((Tag,), expr)
+        if node.metadata.get("tag") in tuple(FittedPipelineTagKey)
+        and FittedPipelineTagKey.ALL_STEPS in node.metadata
+    )
+    return pipeline_tags
+
+
+def pipeline_tag_to_pipeline(pipeline_tag):
+    """Reconstruct the unfitted sklearn Pipeline from a FittedPipeline predict/transform expr.
+
+    Finds the outermost FittedPipeline tag on the expr and reconstructs the
+    original sklearn Pipeline from the stored step metadata. Safe when multiple
+    pipelines are composed because all step info is in a single tag.
+    """
+    from sklearn.pipeline import Pipeline as SKPipeline  # noqa: PLC0415
+
+    steps = tuple(
+        (d["name"], d["typ"](**dict(d["params_tuple"])))
+        for step_items in pipeline_tag.metadata[FittedPipelineTagKey.ALL_STEPS]
+        for d in [dict(step_items)]
+    )
+    return SKPipeline(steps)
+
+
+def get_outermost_pipeline(expr):
+    pipeline_tags = get_sklearn_pipeline_tags(expr)
+    if not pipeline_tags:
+        raise ValueError("No FittedPipeline tag found on expr")
+    # walk_nodes is innermost-first; use the first (outermost call's) tag
+    tag = pipeline_tags[0]
+    pipeline = pipeline_tag_to_pipeline(tag)
+    return pipeline
