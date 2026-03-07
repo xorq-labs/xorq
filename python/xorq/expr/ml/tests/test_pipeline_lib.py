@@ -41,10 +41,8 @@ StandardScaler = sklearn.preprocessing.StandardScaler
 BaseEstimator = sklearn.base.BaseEstimator
 cluster = sklearn.cluster
 
-
 TARGET = "target"
 features = (feature0, feature1) = ("feature_0", "feature_1")
-
 
 get_metadata = operator.attrgetter("metadata")
 
@@ -140,325 +138,306 @@ def test_score_expr_returns_metric(t, fitted_xorq_pipeline):
     assert isinstance(result, Real)
 
 
-class TestFittedStepTransform:
-    """Tests for FittedStep.transform simplified logic."""
+def test_fitted_step_transform_known_schema_unpacks():
+    """Test FittedStep.transform unpacks struct columns for known schema."""
 
-    def test_fitted_step_transform_known_schema_unpacks(self):
-        """Test FittedStep.transform unpacks struct columns for known schema."""
+    t = xo.memtable({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
+    step = xo.Step.from_instance_name(StandardScaler(), name="scaler")
+    fitted = step.fit(t, features=("a", "b"))
 
-        t = xo.memtable({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
-        step = xo.Step.from_instance_name(StandardScaler(), name="scaler")
-        fitted = step.fit(t, features=("a", "b"))
+    result = fitted.transform(t)
+    df = result.execute()
 
-        result = fitted.transform(t)
-        df = result.execute()
-
-        # Should have unpacked columns a and b, not a struct column
-        assert "a" in df.columns
-        assert "b" in df.columns
-        assert "transformed" not in df.columns
-
-    def test_fitted_step_transform_kv_encoded_no_unpack(self):
-        """Test FittedStep.transform keeps KV-encoded column without unpacking."""
-
-        t = xo.memtable({"cat": ["x", "y", "x", "z"]})
-        step = xo.Step.from_instance_name(OneHotEncoder(), name="ohe")
-        fitted = step.fit(t, features=("cat",))
-
-        result = fitted.transform(t)
-        df = result.execute()
-
-        # Should have KV-encoded column named "transformed"
-        assert "transformed" in df.columns
-        # Should not have unpacked category columns
-        assert "cat_x" not in df.columns
-        assert "cat_y" not in df.columns
-        assert "cat_z" not in df.columns
-
-    def test_fitted_step_transform_retain_others_true(self):
-        """Test FittedStep.transform retains other columns by default."""
-
-        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0], "other": ["x", "y"]})
-        step = xo.Step.from_instance_name(StandardScaler(), name="scaler")
-        fitted = step.fit(t, features=("a", "b"))
-
-        result = fitted.transform(t, retain_others=True)
-        df = result.execute()
-
-        # Should retain the "other" column
-        assert "other" in df.columns
-        assert df["other"].tolist() == ["x", "y"]
-
-    def test_fitted_step_transform_retain_others_false(self):
-        """Test FittedStep.transform drops other columns when retain_others=False."""
-
-        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0], "other": ["x", "y"]})
-        step = xo.Step.from_instance_name(StandardScaler(), name="scaler")
-        fitted = step.fit(t, features=("a", "b"))
-
-        result = fitted.transform(t, retain_others=False)
-        df = result.execute()
-
-        # Should not retain the "other" column
-        assert "other" not in df.columns
+    # Should have unpacked columns a and b, not a struct column
+    assert "a" in df.columns
+    assert "b" in df.columns
+    assert "transformed" not in df.columns
 
 
-class TestPipelineGetOutputColumns:
-    """Tests for Pipeline using Structer.get_output_columns."""
+def test_fitted_step_transform_kv_encoded_no_unpack():
+    """Test FittedStep.transform keeps KV-encoded column without unpacking."""
 
-    def test_pipeline_known_schema_features_propagate(self):
-        """Test Pipeline correctly propagates features for known schema transformers."""
+    t = xo.memtable({"cat": ["x", "y", "x", "z"]})
+    step = xo.Step.from_instance_name(OneHotEncoder(), name="ohe")
+    fitted = step.fit(t, features=("cat",))
 
-        t = xo.memtable(
-            {"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0], "y": [0.0, 1.0, 0.0]}
+    result = fitted.transform(t)
+    df = result.execute()
+
+    # Should have KV-encoded column named "transformed"
+    assert "transformed" in df.columns
+    # Should not have unpacked category columns
+    assert "cat_x" not in df.columns
+    assert "cat_y" not in df.columns
+    assert "cat_z" not in df.columns
+
+
+def test_fitted_step_transform_retain_others_true():
+    """Test FittedStep.transform retains other columns by default."""
+
+    t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0], "other": ["x", "y"]})
+    step = xo.Step.from_instance_name(StandardScaler(), name="scaler")
+    fitted = step.fit(t, features=("a", "b"))
+
+    result = fitted.transform(t, retain_others=True)
+    df = result.execute()
+
+    # Should retain the "other" column
+    assert "other" in df.columns
+    assert df["other"].tolist() == ["x", "y"]
+
+
+def test_fitted_step_transform_retain_others_false():
+    """Test FittedStep.transform drops other columns when retain_others=False."""
+
+    t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0], "other": ["x", "y"]})
+    step = xo.Step.from_instance_name(StandardScaler(), name="scaler")
+    fitted = step.fit(t, features=("a", "b"))
+
+    result = fitted.transform(t, retain_others=False)
+    df = result.execute()
+
+    # Should not retain the "other" column
+    assert "other" not in df.columns
+
+
+def test_pipeline_get_output_columns_known_schema_features_propagate():
+    """Test Pipeline correctly propagates features for known schema transformers."""
+
+    t = xo.memtable({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0], "y": [0.0, 1.0, 0.0]})
+    pipeline = xo.Pipeline.from_instance(
+        sklearn.pipeline.make_pipeline(StandardScaler(), LinearRegression())
+    )
+    fitted = pipeline.fit(t, target="y")
+
+    # The transform step should have features = ("a", "b") from the known schema
+    transform_step = fitted.transform_steps[0]
+    assert transform_step.structer.get_output_columns() == ("a", "b")
+
+
+def test_pipeline_get_output_columns_kv_encoded_features_use_dest_col():
+    """Test Pipeline correctly uses dest_col for KV-encoded transformers."""
+
+    t = xo.memtable({"cat": ["a", "b", "a"], "y": [0.0, 1.0, 0.0]})
+    pipeline = xo.Pipeline.from_instance(
+        sklearn.pipeline.make_pipeline(OneHotEncoder(), LinearRegression())
+    )
+    fitted = pipeline.fit(t, target="y")
+
+    # The transform step should have features = ("transformed",) for KV-encoded
+    transform_step = fitted.transform_steps[0]
+    assert transform_step.structer.get_output_columns("transformed") == ("transformed",)
+
+
+def test_pipeline_get_output_columns_mixed_transform_steps():
+    """Test Pipeline with multiple transform steps propagates features correctly."""
+
+    t = xo.memtable({"a": [1.0, None, 3.0], "b": [4.0, 5.0, 6.0], "y": [0.0, 1.0, 0.0]})
+    pipeline = xo.Pipeline.from_instance(
+        sklearn.pipeline.make_pipeline(
+            SimpleImputer(), StandardScaler(), LinearRegression()
         )
-        pipeline = xo.Pipeline.from_instance(
-            sklearn.pipeline.make_pipeline(StandardScaler(), LinearRegression())
-        )
-        fitted = pipeline.fit(t, target="y")
+    )
+    fitted = pipeline.fit(t, target="y")
 
-        # The transform step should have features = ("a", "b") from the known schema
-        transform_step = fitted.transform_steps[0]
-        assert transform_step.structer.get_output_columns() == ("a", "b")
+    # Both transform steps should have known schema
+    for transform_step in fitted.transform_steps:
+        assert not transform_step.structer.is_kv_encoded
 
-    def test_pipeline_kv_encoded_features_use_dest_col(self):
-        """Test Pipeline correctly uses dest_col for KV-encoded transformers."""
-
-        t = xo.memtable({"cat": ["a", "b", "a"], "y": [0.0, 1.0, 0.0]})
-        pipeline = xo.Pipeline.from_instance(
-            sklearn.pipeline.make_pipeline(OneHotEncoder(), LinearRegression())
-        )
-        fitted = pipeline.fit(t, target="y")
-
-        # The transform step should have features = ("transformed",) for KV-encoded
-        transform_step = fitted.transform_steps[0]
-        assert transform_step.structer.get_output_columns("transformed") == (
-            "transformed",
-        )
-
-    def test_pipeline_mixed_transform_steps(self):
-        """Test Pipeline with multiple transform steps propagates features correctly."""
-
-        t = xo.memtable(
-            {"a": [1.0, None, 3.0], "b": [4.0, 5.0, 6.0], "y": [0.0, 1.0, 0.0]}
-        )
-        pipeline = xo.Pipeline.from_instance(
-            sklearn.pipeline.make_pipeline(
-                SimpleImputer(), StandardScaler(), LinearRegression()
-            )
-        )
-        fitted = pipeline.fit(t, target="y")
-
-        # Both transform steps should have known schema
-        for transform_step in fitted.transform_steps:
-            assert not transform_step.structer.is_kv_encoded
-
-        # Prediction should work
-        result = fitted.predict(t)
-        assert result.execute() is not None
+    # Prediction should work
+    result = fitted.predict(t)
+    assert result.execute() is not None
 
 
-class TestDeeplyNestedPipelines:
-    """Tests for deeply nested sklearn pipelines with xorq.
+def test_deeply_nested_kv_encoded_pipeline():
+    """Test depth-4 nested pipeline with KV-encoded ColumnTransformer.
 
-    These tests verify that xorq produces identical predictions to sklearn
-    for complex nested pipeline structures.
+    Pipeline structure:
+    - ColumnTransformer (KV-encoded due to OneHotEncoder)
+      - FeatureUnion
+        - Pipeline (SimpleImputer -> StandardScaler)
+        - Pipeline (SimpleImputer -> StandardScaler)
+      - Pipeline (SimpleImputer -> OneHotEncoder)
+    - SelectKBest
+    - RandomForestClassifier
     """
 
-    def test_kv_encoded_deeply_nested_pipeline(self):
-        """Test depth-4 nested pipeline with KV-encoded ColumnTransformer.
+    # Create sample data
+    np.random.seed(42)
+    n_samples = 100
 
-        Pipeline structure:
-        - ColumnTransformer (KV-encoded due to OneHotEncoder)
-          - FeatureUnion
-            - Pipeline (SimpleImputer -> StandardScaler)
-            - Pipeline (SimpleImputer -> StandardScaler)
-          - Pipeline (SimpleImputer -> OneHotEncoder)
-        - SelectKBest
-        - RandomForestClassifier
-        """
+    data = pd.DataFrame(
+        {
+            "age": np.random.randint(18, 80, n_samples).astype(float),
+            "income": np.random.randint(20000, 150000, n_samples).astype(float),
+            "credit_score": np.random.randint(300, 850, n_samples).astype(float),
+            "years_employed": np.random.randint(0, 40, n_samples).astype(float),
+            "education": np.random.choice(
+                ["high_school", "bachelor", "master", "phd"], n_samples
+            ),
+            "employment_type": np.random.choice(
+                ["full_time", "part_time", "contract", "self_employed"], n_samples
+            ),
+            "region": np.random.choice(["north", "south", "east", "west"], n_samples),
+            "approved": np.random.randint(0, 2, n_samples),
+        }
+    )
 
-        # Create sample data
-        np.random.seed(42)
-        n_samples = 100
+    numeric_features = ["age", "income", "credit_score", "years_employed"]
+    categorical_features = ["education", "employment_type", "region"]
+    all_features = tuple(numeric_features + categorical_features)
 
-        data = pd.DataFrame(
-            {
-                "age": np.random.randint(18, 80, n_samples).astype(float),
-                "income": np.random.randint(20000, 150000, n_samples).astype(float),
-                "credit_score": np.random.randint(300, 850, n_samples).astype(float),
-                "years_employed": np.random.randint(0, 40, n_samples).astype(float),
-                "education": np.random.choice(
-                    ["high_school", "bachelor", "master", "phd"], n_samples
-                ),
-                "employment_type": np.random.choice(
-                    ["full_time", "part_time", "contract", "self_employed"], n_samples
-                ),
-                "region": np.random.choice(
-                    ["north", "south", "east", "west"], n_samples
-                ),
-                "approved": np.random.randint(0, 2, n_samples),
-            }
-        )
+    # Build nested sklearn pipeline
+    scaled_pipeline = SklearnPipeline(
+        [
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler()),
+        ]
+    )
 
-        numeric_features = ["age", "income", "credit_score", "years_employed"]
-        categorical_features = ["education", "employment_type", "region"]
-        all_features = tuple(numeric_features + categorical_features)
+    imputed_pipeline = SklearnPipeline(
+        [
+            ("imputer", SimpleImputer(strategy="mean")),
+            ("scaler", StandardScaler()),
+        ]
+    )
 
-        # Build nested sklearn pipeline
-        scaled_pipeline = SklearnPipeline(
-            [
-                ("imputer", SimpleImputer(strategy="median")),
-                ("scaler", StandardScaler()),
-            ]
-        )
+    numeric_union = FeatureUnion(
+        [
+            ("scaled", scaled_pipeline),
+            ("imputed", imputed_pipeline),
+        ]
+    )
 
-        imputed_pipeline = SklearnPipeline(
-            [
-                ("imputer", SimpleImputer(strategy="mean")),
-                ("scaler", StandardScaler()),
-            ]
-        )
+    categorical_pipeline = SklearnPipeline(
+        [
+            ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
+            (
+                "encoder",
+                OneHotEncoder(handle_unknown="ignore", sparse_output=False),
+            ),
+        ]
+    )
 
-        numeric_union = FeatureUnion(
-            [
-                ("scaled", scaled_pipeline),
-                ("imputed", imputed_pipeline),
-            ]
-        )
+    preprocessor = ColumnTransformer(
+        [
+            ("numeric", numeric_union, numeric_features),
+            ("categorical", categorical_pipeline, categorical_features),
+        ]
+    )
 
-        categorical_pipeline = SklearnPipeline(
-            [
-                ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
-                (
-                    "encoder",
-                    OneHotEncoder(handle_unknown="ignore", sparse_output=False),
-                ),
-            ]
-        )
+    sklearn_pipe = SklearnPipeline(
+        [
+            ("preprocessor", preprocessor),
+            ("selector", SelectKBest(f_classif, k=10)),
+            (
+                "classifier",
+                RandomForestClassifier(n_estimators=50, random_state=42),
+            ),
+        ]
+    )
 
-        preprocessor = ColumnTransformer(
-            [
-                ("numeric", numeric_union, numeric_features),
-                ("categorical", categorical_pipeline, categorical_features),
-            ]
-        )
+    # Fit and predict with xorq
+    expr = xo.memtable(data)
+    xorq_pipeline = Pipeline.from_instance(sklearn_pipe)
+    fitted_pipeline = xorq_pipeline.fit(expr, features=all_features, target="approved")
+    predictions = fitted_pipeline.predict(expr).execute()
 
-        sklearn_pipe = SklearnPipeline(
-            [
-                ("preprocessor", preprocessor),
-                ("selector", SelectKBest(f_classif, k=10)),
-                (
-                    "classifier",
-                    RandomForestClassifier(n_estimators=50, random_state=42),
-                ),
-            ]
-        )
+    # Fit and predict with sklearn
+    X = data[list(all_features)]
+    y = data["approved"]
+    sklearn_pipe.fit(X, y)
+    sklearn_preds = sklearn_pipe.predict(X)
 
-        # Fit and predict with xorq
-        expr = xo.memtable(data)
-        xorq_pipeline = Pipeline.from_instance(sklearn_pipe)
-        fitted_pipeline = xorq_pipeline.fit(
-            expr, features=all_features, target="approved"
-        )
-        predictions = fitted_pipeline.predict(expr).execute()
+    # Assert predictions match
+    assert np.array_equal(predictions[ResponseMethod.PREDICT].values, sklearn_preds)
 
-        # Fit and predict with sklearn
-        X = data[list(all_features)]
-        y = data["approved"]
-        sklearn_pipe.fit(X, y)
-        sklearn_preds = sklearn_pipe.predict(X)
 
-        # Assert predictions match
-        assert np.array_equal(predictions[ResponseMethod.PREDICT].values, sklearn_preds)
+def test_deeply_nested_non_kv_pipeline():
+    """Test depth-4 nested pipeline with all known-schema transformers.
 
-    def test_non_kv_deeply_nested_pipeline(self):
-        """Test depth-4 nested pipeline with all known-schema transformers.
+    Pipeline structure:
+    - ColumnTransformer (known schema - no KV-encoded children)
+      - Pipeline (SimpleImputer -> StandardScaler -> Pipeline)
+        - Pipeline (SimpleImputer -> StandardScaler)
+      - Pipeline (SimpleImputer -> StandardScaler)
+    - RandomForestClassifier
+    """
 
-        Pipeline structure:
-        - ColumnTransformer (known schema - no KV-encoded children)
-          - Pipeline (SimpleImputer -> StandardScaler -> Pipeline)
-            - Pipeline (SimpleImputer -> StandardScaler)
-          - Pipeline (SimpleImputer -> StandardScaler)
-        - RandomForestClassifier
-        """
+    # Create sample data
+    np.random.seed(42)
+    n_samples = 100
 
-        # Create sample data
-        np.random.seed(42)
-        n_samples = 100
+    data = pd.DataFrame(
+        {
+            "age": np.random.randint(18, 80, n_samples).astype(float),
+            "income": np.random.randint(20000, 150000, n_samples).astype(float),
+            "credit_score": np.random.randint(300, 850, n_samples).astype(float),
+            "years_employed": np.random.randint(0, 40, n_samples).astype(float),
+            "debt_ratio": np.random.uniform(0, 1, n_samples),
+            "savings": np.random.randint(0, 100000, n_samples).astype(float),
+            "approved": np.random.randint(0, 2, n_samples),
+        }
+    )
 
-        data = pd.DataFrame(
-            {
-                "age": np.random.randint(18, 80, n_samples).astype(float),
-                "income": np.random.randint(20000, 150000, n_samples).astype(float),
-                "credit_score": np.random.randint(300, 850, n_samples).astype(float),
-                "years_employed": np.random.randint(0, 40, n_samples).astype(float),
-                "debt_ratio": np.random.uniform(0, 1, n_samples),
-                "savings": np.random.randint(0, 100000, n_samples).astype(float),
-                "approved": np.random.randint(0, 2, n_samples),
-            }
-        )
+    numeric_features_a = ["age", "income", "credit_score"]
+    numeric_features_b = ["years_employed", "debt_ratio", "savings"]
+    all_features = tuple(numeric_features_a + numeric_features_b)
 
-        numeric_features_a = ["age", "income", "credit_score"]
-        numeric_features_b = ["years_employed", "debt_ratio", "savings"]
-        all_features = tuple(numeric_features_a + numeric_features_b)
+    # Build nested sklearn pipeline (depth 4)
+    inner_pipeline = SklearnPipeline(
+        [
+            ("imputer2", SimpleImputer(strategy="mean")),
+            ("scaler2", StandardScaler()),
+        ]
+    )
 
-        # Build nested sklearn pipeline (depth 4)
-        inner_pipeline = SklearnPipeline(
-            [
-                ("imputer2", SimpleImputer(strategy="mean")),
-                ("scaler2", StandardScaler()),
-            ]
-        )
+    numeric_a_pipeline = SklearnPipeline(
+        [
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler()),
+            ("inner", inner_pipeline),
+        ]
+    )
 
-        numeric_a_pipeline = SklearnPipeline(
-            [
-                ("imputer", SimpleImputer(strategy="median")),
-                ("scaler", StandardScaler()),
-                ("inner", inner_pipeline),
-            ]
-        )
+    numeric_b_pipeline = SklearnPipeline(
+        [
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler()),
+        ]
+    )
 
-        numeric_b_pipeline = SklearnPipeline(
-            [
-                ("imputer", SimpleImputer(strategy="median")),
-                ("scaler", StandardScaler()),
-            ]
-        )
+    preprocessor = ColumnTransformer(
+        [
+            ("numeric_a", numeric_a_pipeline, numeric_features_a),
+            ("numeric_b", numeric_b_pipeline, numeric_features_b),
+        ]
+    )
 
-        preprocessor = ColumnTransformer(
-            [
-                ("numeric_a", numeric_a_pipeline, numeric_features_a),
-                ("numeric_b", numeric_b_pipeline, numeric_features_b),
-            ]
-        )
+    sklearn_pipe = SklearnPipeline(
+        [
+            ("preprocessor", preprocessor),
+            (
+                "classifier",
+                RandomForestClassifier(n_estimators=50, random_state=42),
+            ),
+        ]
+    )
 
-        sklearn_pipe = SklearnPipeline(
-            [
-                ("preprocessor", preprocessor),
-                (
-                    "classifier",
-                    RandomForestClassifier(n_estimators=50, random_state=42),
-                ),
-            ]
-        )
+    # Fit and predict with xorq
+    expr = xo.memtable(data)
+    xorq_pipeline = Pipeline.from_instance(sklearn_pipe)
+    fitted_pipeline = xorq_pipeline.fit(expr, features=all_features, target="approved")
+    predictions = fitted_pipeline.predict(expr).execute()
 
-        # Fit and predict with xorq
-        expr = xo.memtable(data)
-        xorq_pipeline = Pipeline.from_instance(sklearn_pipe)
-        fitted_pipeline = xorq_pipeline.fit(
-            expr, features=all_features, target="approved"
-        )
-        predictions = fitted_pipeline.predict(expr).execute()
+    # Fit and predict with sklearn
+    X = data[list(all_features)]
+    y = data["approved"]
+    sklearn_pipe.fit(X, y)
+    sklearn_preds = sklearn_pipe.predict(X)
 
-        # Fit and predict with sklearn
-        X = data[list(all_features)]
-        y = data["approved"]
-        sklearn_pipe.fit(X, y)
-        sklearn_preds = sklearn_pipe.predict(X)
-
-        # Assert predictions match
-        assert np.array_equal(predictions[ResponseMethod.PREDICT].values, sklearn_preds)
+    # Assert predictions match
+    assert np.array_equal(predictions[ResponseMethod.PREDICT].values, sklearn_preds)
 
 
 def _scorer_info():
@@ -519,522 +498,490 @@ def get_scorers_by_type():
 SCORERS_BY_TYPE = get_scorers_by_type()
 
 
-class TestPipelineScoringMatchSklearn:
-    """Tests for pipeline scoring with all compatible scorers."""
+@pytest.fixture
+def scoring_data():
+    """Generate dataset suitable for classification, regression, and clustering."""
 
-    @pytest.fixture
-    def scoring_data(self):
-        """Generate dataset suitable for classification, regression, and clustering."""
+    np.random.seed(42)
+    n = 100
+    return {
+        "x1": np.random.randn(n).tolist(),
+        "x2": np.random.randn(n).tolist(),
+        "y_class": (np.random.randn(n) > 0).astype(int).tolist(),
+        "y_reg": (
+            np.abs(np.random.randn(n)) + 0.1
+        ).tolist(),  # positive for log/deviance scorers
+    }
 
-        np.random.seed(42)
-        n = 100
-        return {
-            "x1": np.random.randn(n).tolist(),
-            "x2": np.random.randn(n).tolist(),
-            "y_class": (np.random.randn(n) > 0).astype(int).tolist(),
-            "y_reg": (
-                np.abs(np.random.randn(n)) + 0.1
-            ).tolist(),  # positive for log/deviance scorers
+
+@pytest.mark.parametrize("scorer_name", SCORERS_BY_TYPE["classification"])
+def test_pipeline_scoring_match_sklearn_classifier_scorer(scoring_data, scorer_name):
+    """Test classification scorers match sklearn."""
+
+    X = np.array([scoring_data["x1"], scoring_data["x2"]]).T
+    y = np.array(scoring_data["y_class"])
+
+    sklearn_pipe = SklearnPipeline(
+        [
+            ("scaler", StandardScaler()),
+            ("model", LogisticRegression(random_state=42, max_iter=1000)),
+        ]
+    )
+    sklearn_pipe.fit(X, y)
+
+    t = xo.memtable(scoring_data)
+    xorq_pipeline = xo.Pipeline.from_instance(sklearn_pipe)
+    fitted_xorq = xorq_pipeline.fit(t, features=("x1", "x2"), target="y_class")
+
+    scorer = get_scorer(scorer_name)
+    sklearn_score = scorer(sklearn_pipe, X, y)
+    xorq_score = fitted_xorq.score(X, y, scorer=scorer_name)
+
+    np.testing.assert_allclose(xorq_score, sklearn_score, rtol=1e-9, atol=1e-12)
+
+
+@pytest.mark.parametrize("scorer_name", SCORERS_BY_TYPE["regression"])
+def test_pipeline_scoring_match_sklearn_regressor_scorer(scoring_data, scorer_name):
+    """Test regression scorers match sklearn."""
+
+    X = np.array([scoring_data["x1"], scoring_data["x2"]]).T
+    y = np.array(scoring_data["y_reg"])
+
+    sklearn_pipe = SklearnPipeline(
+        [("scaler", StandardScaler()), ("model", LinearRegression())]
+    )
+    sklearn_pipe.fit(X, y)
+
+    t = xo.memtable(scoring_data)
+    xorq_pipeline = xo.Pipeline.from_instance(sklearn_pipe)
+    fitted_xorq = xorq_pipeline.fit(t, features=("x1", "x2"), target="y_reg")
+
+    scorer = get_scorer(scorer_name)
+    sklearn_score = scorer(sklearn_pipe, X, y)
+    xorq_score = fitted_xorq.score(X, y, scorer=scorer_name)
+
+    np.testing.assert_allclose(xorq_score, sklearn_score, rtol=1e-9, atol=1e-12)
+
+
+@pytest.mark.parametrize("scorer_name", SCORERS_BY_TYPE["cluster"])
+def test_pipeline_scoring_match_sklearn_cluster_scorer(scoring_data, scorer_name):
+    """Test clustering scorers match sklearn."""
+
+    X = np.array([scoring_data["x1"], scoring_data["x2"]]).T
+    y = np.array(scoring_data["y_class"])
+
+    sklearn_pipe = SklearnPipeline(
+        [
+            ("scaler", StandardScaler()),
+            ("clusterer", KMeans(n_clusters=2, random_state=42, n_init=10)),
+        ]
+    )
+    sklearn_pipe.fit(X, y)
+
+    t = xo.memtable(scoring_data)
+    xorq_pipeline = xo.Pipeline.from_instance(sklearn_pipe)
+    fitted_xorq = xorq_pipeline.fit(t, features=("x1", "x2"), target="y_class")
+
+    scorer = get_scorer(scorer_name)
+    sklearn_score = scorer(sklearn_pipe, X, y)
+    xorq_score = fitted_xorq.score(X, y, scorer=scorer_name)
+
+    np.testing.assert_allclose(xorq_score, sklearn_score, rtol=1e-9, atol=1e-12)
+
+
+@pytest.fixture
+def fitted_classifier():
+    """Fitted classifier pipeline."""
+
+    np.random.seed(42)
+    data = {"x1": [0.0, 1.0], "x2": [0.0, 1.0], "y": [0, 1]}
+    X = np.array([data["x1"], data["x2"]]).T
+    y = np.array(data["y"])
+
+    sklearn_pipe = SklearnPipeline(
+        [("scaler", StandardScaler()), ("model", LogisticRegression())]
+    )
+    sklearn_pipe.fit(X, y)
+
+    t = xo.memtable(data)
+    fitted = xo.Pipeline.from_instance(sklearn_pipe).fit(
+        t, features=("x1", "x2"), target="y"
+    )
+    return fitted, sklearn_pipe, X, y, t
+
+
+@pytest.fixture
+def fitted_regressor():
+    """Fitted regressor pipeline."""
+
+    np.random.seed(42)
+    data = {"x1": [0.0, 1.0], "x2": [0.0, 1.0], "y": [0.0, 1.0]}
+    X = np.array([data["x1"], data["x2"]]).T
+    y = np.array(data["y"])
+
+    sklearn_pipe = SklearnPipeline(
+        [("scaler", StandardScaler()), ("model", LinearRegression())]
+    )
+    sklearn_pipe.fit(X, y)
+
+    t = xo.memtable(data)
+    fitted = xo.Pipeline.from_instance(sklearn_pipe).fit(
+        t, features=("x1", "x2"), target="y"
+    )
+    return fitted, sklearn_pipe, X, y, t
+
+
+def test_score_expr_default_scorer_classifier_is_accuracy(fitted_classifier):
+    """Test default scorer for classifier is accuracy_score."""
+
+    fitted, *_ = fitted_classifier
+    scorer = fitted._get_default_scorer()
+    assert scorer._score_func is accuracy_score
+
+
+def test_score_expr_default_scorer_regressor_is_r2(fitted_regressor):
+    """Test default scorer for regressor is r2_score."""
+
+    fitted, *_ = fitted_regressor
+    scorer = fitted._get_default_scorer()
+    assert scorer._score_func is r2_score
+
+
+def test_score_expr_default_scorer_cluster_is_adjusted_rand():
+    """Test default scorer for clustering is adjusted_rand_score."""
+
+    t = xo.memtable({"x": [0.0, 1.0], "y": [0, 1]})
+    fitted = xo.Pipeline.from_instance(
+        sklearn.pipeline.make_pipeline(KMeans(n_clusters=2, n_init=1))
+    ).fit(t, features=("x",), target="y")
+
+    assert fitted._get_default_scorer()._score_func is adjusted_rand_score
+
+
+def test_score_expr_string_scorer(fitted_classifier):
+    """Test passing a scorer name string."""
+
+    fitted, sklearn_pipe, X, y, _ = fitted_classifier
+
+    xorq_score = fitted.score(X, y, scorer="f1")
+    sklearn_score = get_scorer("f1")(sklearn_pipe, X, y)
+    np.testing.assert_allclose(xorq_score, sklearn_score, rtol=1e-9)
+
+
+def test_score_expr_callable_scorer(fitted_classifier):
+    """Test passing a raw callable metric function."""
+
+    fitted, sklearn_pipe, X, y, _ = fitted_classifier
+
+    xorq_score = fitted.score(X, y, scorer=f1_score)
+    sklearn_score = f1_score(y, sklearn_pipe.predict(X))
+    np.testing.assert_allclose(xorq_score, sklearn_score, rtol=1e-9)
+
+
+def test_score_expr_make_scorer_object(fitted_classifier):
+    """Test passing a make_scorer object directly."""
+
+    fitted, sklearn_pipe, X, y, _ = fitted_classifier
+
+    scorer = make_scorer(f1_score)
+    xorq_score = fitted.score(X, y, scorer=scorer)
+    sklearn_score = scorer(sklearn_pipe, X, y)
+    np.testing.assert_allclose(xorq_score, sklearn_score, rtol=1e-9)
+
+
+def test_score_expr_returns_expression(fitted_classifier):
+    """Test score_expr returns an ibis expression."""
+
+    fitted, _, _, _, t = fitted_classifier
+    expr = fitted.score_expr(t, scorer="accuracy")
+
+    assert isinstance(expr, Expr)
+    assert isinstance(expr.execute(), (int, float))
+
+
+def test_score_expr_default_scorer_raises_for_unknown_model():
+    """Test _get_default_scorer raises ValueError for unknown model type."""
+
+    # Custom estimator that isn't a Classifier/Regressor/Cluster
+    class CustomEstimator(BaseEstimator):
+        return_type = dt.int64  # needed for xorq to handle predict
+
+        def fit(self, X, y=None):
+            return self
+
+        def predict(self, X):
+            return [0] * len(X)
+
+    t = xo.memtable({"x": [0.0, 1.0], "y": [0, 1]})
+    fitted = xo.Pipeline.from_instance(
+        sklearn.pipeline.make_pipeline(CustomEstimator())
+    ).fit(t, features=("x",), target="y")
+
+    with pytest.raises(ValueError, match="Cannot determine default scorer"):
+        fitted._get_default_scorer()
+
+
+def test_step_from_fit_transform_creates_transform_type():
+    """Step.from_fit_transform creates a type with transform (not predict)."""
+
+    def my_fit(X, y=None):
+        return np.mean(X, axis=0)
+
+    def my_transform(model, X, y=None):
+        return X - model
+
+    step = Step.from_fit_transform(
+        fit=my_fit,
+        transform=my_transform,
+        return_type=dt.Array(dt.float64),
+        name="custom_transform",
+    )
+
+    # Verify the dynamically created type has correct attributes
+    assert hasattr(step.instance, "transform")
+    assert hasattr(step.instance, "fit")
+    assert not hasattr(step.instance, "predict")
+    assert step.instance.return_type == dt.Array(dt.float64)
+
+
+def test_step_from_fit_predict_creates_predict_type():
+    """Step.from_fit_predict creates a type with predict (not transform)."""
+
+    def my_fit(X, y=None):
+        return int(np.median(y))
+
+    def my_predict(model, X, y=None):
+        return np.full(len(X), model)
+
+    step = Step.from_fit_predict(
+        fit=my_fit,
+        predict=my_predict,
+        return_type=dt.int64,
+        name="custom_predict",
+    )
+
+    assert hasattr(step.instance, "predict")
+    assert hasattr(step.instance, "fit")
+    assert not hasattr(step.instance, "transform")
+    assert step.instance.return_type == dt.int64
+
+
+def test_step_from_fit_make_estimator_typ_both_raises():
+    """Passing both transform and predict raises ValueError."""
+
+    with pytest.raises(ValueError):
+        make_estimator_typ(
+            fit=lambda X, y=None: None,
+            return_type=dt.float64,
+            transform=lambda m, X: X,
+            predict=lambda m, X: X,
+        )
+
+
+def test_step_from_fit_make_estimator_typ_neither_raises():
+    """Passing neither transform nor predict raises ValueError."""
+
+    with pytest.raises(ValueError):
+        make_estimator_typ(
+            fit=lambda X, y=None: None,
+            return_type=dt.float64,
+        )
+
+
+def test_step_from_fit_predict_end_to_end():
+    """Step.from_fit_predict works end-to-end with dest_col."""
+
+    def my_fit(X, y=None):
+        return int(np.median(y))
+
+    def my_predict(model, X, y=None):
+        return np.full(len(X), model)
+
+    step = Step.from_fit_predict(
+        fit=my_fit,
+        predict=my_predict,
+        return_type=dt.int64,
+        name="custom_predict",
+    )
+
+    t = xo.memtable({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0], "y": [0, 1, 1]})
+    fitted = step.fit(t, features=("a", "b"), target="y", dest_col="pred")
+    result = fitted.predict(t)
+    df = result.execute()
+    assert df is not None
+    assert len(df) == 3
+
+
+def test_feature_importances_fitted_step():
+    """FittedStep.feature_importances returns importances for tree models."""
+
+    t = xo.memtable(
+        {
+            "a": np.random.randn(50).tolist(),
+            "b": np.random.randn(50).tolist(),
+            "y": (np.random.randn(50) > 0).astype(int).tolist(),
         }
-
-    @pytest.mark.parametrize("scorer_name", SCORERS_BY_TYPE["classification"])
-    def test_classifier_scorer(self, scoring_data, scorer_name):
-        """Test classification scorers match sklearn."""
-
-        X = np.array([scoring_data["x1"], scoring_data["x2"]]).T
-        y = np.array(scoring_data["y_class"])
-
-        sklearn_pipe = SklearnPipeline(
-            [
-                ("scaler", StandardScaler()),
-                ("model", LogisticRegression(random_state=42, max_iter=1000)),
-            ]
-        )
-        sklearn_pipe.fit(X, y)
-
-        t = xo.memtable(scoring_data)
-        xorq_pipeline = xo.Pipeline.from_instance(sklearn_pipe)
-        fitted_xorq = xorq_pipeline.fit(t, features=("x1", "x2"), target="y_class")
-
-        scorer = get_scorer(scorer_name)
-        sklearn_score = scorer(sklearn_pipe, X, y)
-        xorq_score = fitted_xorq.score(X, y, scorer=scorer_name)
-
-        np.testing.assert_allclose(xorq_score, sklearn_score, rtol=1e-9, atol=1e-12)
-
-    @pytest.mark.parametrize("scorer_name", SCORERS_BY_TYPE["regression"])
-    def test_regressor_scorer(self, scoring_data, scorer_name):
-        """Test regression scorers match sklearn."""
-
-        X = np.array([scoring_data["x1"], scoring_data["x2"]]).T
-        y = np.array(scoring_data["y_reg"])
-
-        sklearn_pipe = SklearnPipeline(
-            [("scaler", StandardScaler()), ("model", LinearRegression())]
-        )
-        sklearn_pipe.fit(X, y)
-
-        t = xo.memtable(scoring_data)
-        xorq_pipeline = xo.Pipeline.from_instance(sklearn_pipe)
-        fitted_xorq = xorq_pipeline.fit(t, features=("x1", "x2"), target="y_reg")
-
-        scorer = get_scorer(scorer_name)
-        sklearn_score = scorer(sklearn_pipe, X, y)
-        xorq_score = fitted_xorq.score(X, y, scorer=scorer_name)
-
-        np.testing.assert_allclose(xorq_score, sklearn_score, rtol=1e-9, atol=1e-12)
-
-    @pytest.mark.parametrize("scorer_name", SCORERS_BY_TYPE["cluster"])
-    def test_cluster_scorer(self, scoring_data, scorer_name):
-        """Test clustering scorers match sklearn."""
-
-        X = np.array([scoring_data["x1"], scoring_data["x2"]]).T
-        y = np.array(scoring_data["y_class"])
-
-        sklearn_pipe = SklearnPipeline(
-            [
-                ("scaler", StandardScaler()),
-                ("clusterer", KMeans(n_clusters=2, random_state=42, n_init=10)),
-            ]
-        )
-        sklearn_pipe.fit(X, y)
-
-        t = xo.memtable(scoring_data)
-        xorq_pipeline = xo.Pipeline.from_instance(sklearn_pipe)
-        fitted_xorq = xorq_pipeline.fit(t, features=("x1", "x2"), target="y_class")
-
-        scorer = get_scorer(scorer_name)
-        sklearn_score = scorer(sklearn_pipe, X, y)
-        xorq_score = fitted_xorq.score(X, y, scorer=scorer_name)
-
-        np.testing.assert_allclose(xorq_score, sklearn_score, rtol=1e-9, atol=1e-12)
-
-
-class TestScoreExpr:
-    """Tests for FittedPipeline.score_expr and .score edge cases."""
-
-    @pytest.fixture
-    def fitted_classifier(self):
-        """Fitted classifier pipeline."""
-
-        np.random.seed(42)
-        data = {"x1": [0.0, 1.0], "x2": [0.0, 1.0], "y": [0, 1]}
-        X = np.array([data["x1"], data["x2"]]).T
-        y = np.array(data["y"])
-
-        sklearn_pipe = SklearnPipeline(
-            [("scaler", StandardScaler()), ("model", LogisticRegression())]
-        )
-        sklearn_pipe.fit(X, y)
-
-        t = xo.memtable(data)
-        fitted = xo.Pipeline.from_instance(sklearn_pipe).fit(
-            t, features=("x1", "x2"), target="y"
-        )
-        return fitted, sklearn_pipe, X, y, t
-
-    @pytest.fixture
-    def fitted_regressor(self):
-        """Fitted regressor pipeline."""
-
-        np.random.seed(42)
-        data = {"x1": [0.0, 1.0], "x2": [0.0, 1.0], "y": [0.0, 1.0]}
-        X = np.array([data["x1"], data["x2"]]).T
-        y = np.array(data["y"])
-
-        sklearn_pipe = SklearnPipeline(
-            [("scaler", StandardScaler()), ("model", LinearRegression())]
-        )
-        sklearn_pipe.fit(X, y)
-
-        t = xo.memtable(data)
-        fitted = xo.Pipeline.from_instance(sklearn_pipe).fit(
-            t, features=("x1", "x2"), target="y"
-        )
-        return fitted, sklearn_pipe, X, y, t
-
-    def test_default_scorer_classifier_is_accuracy(self, fitted_classifier):
-        """Test default scorer for classifier is accuracy_score."""
-
-        fitted, *_ = fitted_classifier
-        scorer = fitted._get_default_scorer()
-        assert scorer._score_func is accuracy_score
-
-    def test_default_scorer_regressor_is_r2(self, fitted_regressor):
-        """Test default scorer for regressor is r2_score."""
-
-        fitted, *_ = fitted_regressor
-        scorer = fitted._get_default_scorer()
-        assert scorer._score_func is r2_score
-
-    def test_default_scorer_cluster_is_adjusted_rand(self):
-        """Test default scorer for clustering is adjusted_rand_score."""
-
-        t = xo.memtable({"x": [0.0, 1.0], "y": [0, 1]})
-        fitted = xo.Pipeline.from_instance(
-            sklearn.pipeline.make_pipeline(KMeans(n_clusters=2, n_init=1))
-        ).fit(t, features=("x",), target="y")
-
-        assert fitted._get_default_scorer()._score_func is adjusted_rand_score
-
-    def test_string_scorer(self, fitted_classifier):
-        """Test passing a scorer name string."""
-
-        fitted, sklearn_pipe, X, y, _ = fitted_classifier
-
-        xorq_score = fitted.score(X, y, scorer="f1")
-        sklearn_score = get_scorer("f1")(sklearn_pipe, X, y)
-        np.testing.assert_allclose(xorq_score, sklearn_score, rtol=1e-9)
-
-    def test_callable_scorer(self, fitted_classifier):
-        """Test passing a raw callable metric function."""
-
-        fitted, sklearn_pipe, X, y, _ = fitted_classifier
-
-        xorq_score = fitted.score(X, y, scorer=f1_score)
-        sklearn_score = f1_score(y, sklearn_pipe.predict(X))
-        np.testing.assert_allclose(xorq_score, sklearn_score, rtol=1e-9)
-
-    def test_make_scorer_object(self, fitted_classifier):
-        """Test passing a make_scorer object directly."""
-
-        fitted, sklearn_pipe, X, y, _ = fitted_classifier
-
-        scorer = make_scorer(f1_score)
-        xorq_score = fitted.score(X, y, scorer=scorer)
-        sklearn_score = scorer(sklearn_pipe, X, y)
-        np.testing.assert_allclose(xorq_score, sklearn_score, rtol=1e-9)
-
-    def test_score_expr_returns_expression(self, fitted_classifier):
-        """Test score_expr returns an ibis expression."""
-
-        fitted, _, _, _, t = fitted_classifier
-        expr = fitted.score_expr(t, scorer="accuracy")
-
-        assert isinstance(expr, Expr)
-        assert isinstance(expr.execute(), (int, float))
-
-    def test_default_scorer_raises_for_unknown_model(self):
-        """Test _get_default_scorer raises ValueError for unknown model type."""
-
-        # Custom estimator that isn't a Classifier/Regressor/Cluster
-        class CustomEstimator(BaseEstimator):
-            return_type = dt.int64  # needed for xorq to handle predict
-
-            def fit(self, X, y=None):
-                return self
-
-            def predict(self, X):
-                return [0] * len(X)
-
-        t = xo.memtable({"x": [0.0, 1.0], "y": [0, 1]})
-        fitted = xo.Pipeline.from_instance(
-            sklearn.pipeline.make_pipeline(CustomEstimator())
-        ).fit(t, features=("x",), target="y")
-
-        with pytest.raises(ValueError, match="Cannot determine default scorer"):
-            fitted._get_default_scorer()
-
-
-class TestStepFromFitFunctions:
-    """Tests for Step.from_fit_transform and Step.from_fit_predict.
-
-    These exercise make_estimator_typ which dynamically creates BaseEstimator
-    subclasses from raw fit/transform or fit/predict callables.
-    """
-
-    def test_from_fit_transform_creates_transform_type(self):
-        """Step.from_fit_transform creates a type with transform (not predict)."""
-
-        def my_fit(X, y=None):
-            return np.mean(X, axis=0)
-
-        def my_transform(model, X, y=None):
-            return X - model
-
-        step = Step.from_fit_transform(
-            fit=my_fit,
-            transform=my_transform,
-            return_type=dt.Array(dt.float64),
-            name="custom_transform",
-        )
-
-        # Verify the dynamically created type has correct attributes
-        assert hasattr(step.instance, "transform")
-        assert hasattr(step.instance, "fit")
-        assert not hasattr(step.instance, "predict")
-        assert step.instance.return_type == dt.Array(dt.float64)
-
-    def test_from_fit_predict_creates_predict_type(self):
-        """Step.from_fit_predict creates a type with predict (not transform)."""
-
-        def my_fit(X, y=None):
-            return int(np.median(y))
-
-        def my_predict(model, X, y=None):
-            return np.full(len(X), model)
-
-        step = Step.from_fit_predict(
-            fit=my_fit,
-            predict=my_predict,
-            return_type=dt.int64,
-            name="custom_predict",
-        )
-
-        assert hasattr(step.instance, "predict")
-        assert hasattr(step.instance, "fit")
-        assert not hasattr(step.instance, "transform")
-        assert step.instance.return_type == dt.int64
-
-    def test_make_estimator_typ_both_raises(self):
-        """Passing both transform and predict raises ValueError."""
-
-        with pytest.raises(ValueError):
-            make_estimator_typ(
-                fit=lambda X, y=None: None,
-                return_type=dt.float64,
-                transform=lambda m, X: X,
-                predict=lambda m, X: X,
-            )
-
-    def test_make_estimator_typ_neither_raises(self):
-        """Passing neither transform nor predict raises ValueError."""
-
-        with pytest.raises(ValueError):
-            make_estimator_typ(
-                fit=lambda X, y=None: None,
-                return_type=dt.float64,
-            )
-
-    def test_from_fit_predict_end_to_end(self):
-        """Step.from_fit_predict works end-to-end with dest_col."""
-
-        def my_fit(X, y=None):
-            return int(np.median(y))
-
-        def my_predict(model, X, y=None):
-            return np.full(len(X), model)
-
-        step = Step.from_fit_predict(
-            fit=my_fit,
-            predict=my_predict,
-            return_type=dt.int64,
-            name="custom_predict",
-        )
-
-        t = xo.memtable({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0], "y": [0, 1, 1]})
-        fitted = step.fit(t, features=("a", "b"), target="y", dest_col="pred")
-        result = fitted.predict(t)
-        df = result.execute()
-        assert df is not None
-        assert len(df) == 3
-
-
-class TestFeatureImportances:
-    """Tests for FittedStep.feature_importances and FittedPipeline.feature_importances."""
-
-    def test_fitted_step_feature_importances(self):
-        """FittedStep.feature_importances returns importances for tree models."""
-
-        t = xo.memtable(
-            {
-                "a": np.random.randn(50).tolist(),
-                "b": np.random.randn(50).tolist(),
-                "y": (np.random.randn(50) > 0).astype(int).tolist(),
-            }
-        )
-
-        step = xo.Step.from_instance_name(
-            RandomForestClassifier(n_estimators=5, random_state=42),
-            name="rf",
-        )
-        fitted = step.fit(t, features=("a", "b"), target="y")
-        result = fitted.feature_importances(t)
-        df = result.execute()
-
-        assert df is not None
-        assert "feature_importances" in df.columns
-        importances = df["feature_importances"].iloc[0]
-        assert len(importances) == 2  # two features
-        assert all(isinstance(v, float) for v in importances)
-
-    def test_fitted_pipeline_feature_importances(self):
-        """FittedPipeline.feature_importances returns importances through pipeline."""
-
-        t = xo.memtable(
-            {
-                "a": np.random.randn(50).tolist(),
-                "b": np.random.randn(50).tolist(),
-                "y": (np.random.randn(50) > 0).astype(int).tolist(),
-            }
-        )
-
-        sklearn_pipe = SklearnPipeline(
-            [
-                ("scaler", StandardScaler()),
-                ("rf", RandomForestClassifier(n_estimators=5, random_state=42)),
-            ]
-        )
-        fitted = Pipeline.from_instance(sklearn_pipe).fit(
-            t, features=("a", "b"), target="y"
-        )
-
-        result = fitted.feature_importances(t)
-        df = result.execute()
-
-        assert df is not None
-        assert "feature_importances" in df.columns
-        importances = df["feature_importances"].iloc[0]
-        assert len(importances) == 2
-
-
-class TestClusteringPredict:
-    """Tests for clustering algorithm predict support."""
-
-    @pytest.fixture
-    def cluster_data(self):
-        """Generate data with clear cluster structure."""
-
-        np.random.seed(42)
-        # Two well-separated clusters
-        cluster1 = np.random.randn(10, 2) + [0, 0]
-        cluster2 = np.random.randn(10, 2) + [10, 10]
-        data = np.vstack([cluster1, cluster2])
-        return {"num1": data[:, 0].tolist(), "num2": data[:, 1].tolist()}
-
-    @pytest.mark.parametrize(
-        "clusterer_cls,clusterer_kwargs",
-        [
-            pytest.param(
-                "KMeans",
-                {"n_clusters": 2, "random_state": 42, "n_init": 10},
-                id="KMeans",
-            ),
-            pytest.param(
-                "MiniBatchKMeans",
-                {"n_clusters": 2, "random_state": 42, "n_init": 10},
-                id="MiniBatchKMeans",
-            ),
-            pytest.param(
-                "BisectingKMeans",
-                {"n_clusters": 2, "random_state": 42},
-                id="BisectingKMeans",
-            ),
-            pytest.param(
-                "Birch",
-                {"n_clusters": 2},
-                id="Birch",
-            ),
-            pytest.param(
-                "MeanShift",
-                {},
-                id="MeanShift",
-            ),
-            pytest.param(
-                "AffinityPropagation",
-                {"random_state": 42},
-                id="AffinityPropagation",
-            ),
-        ],
     )
-    def test_inductive_clustering_predict(
-        self, cluster_data, clusterer_cls, clusterer_kwargs
-    ):
-        """Test that inductive clustering algorithms support predict."""
 
-        t = xo.memtable(cluster_data)
-        features = ("num1", "num2")
-
-        ClustererClass = getattr(cluster, clusterer_cls)
-        clusterer = ClustererClass(**clusterer_kwargs)
-
-        # xorq predict
-        step = xo.Step.from_instance_name(clusterer, name="clusterer")
-        fitted = step.fit(t, features=features)
-        result = fitted.predict(t)
-        xorq_labels = result.execute()[ResponseMethod.PREDICT].values
-
-        # sklearn predict
-        X = np.array([cluster_data["num1"], cluster_data["num2"]]).T
-        sklearn_clusterer = ClustererClass(**clusterer_kwargs)
-        sklearn_clusterer.fit(X)
-        sklearn_labels = sklearn_clusterer.predict(X)
-
-        # Labels should match
-        np.testing.assert_array_equal(xorq_labels, sklearn_labels)
-
-    @pytest.mark.parametrize(
-        "clusterer_cls,clusterer_kwargs",
-        [
-            pytest.param(
-                "DBSCAN",
-                {"eps": 3, "min_samples": 2},
-                id="DBSCAN",
-            ),
-            pytest.param(
-                "HDBSCAN",
-                {"min_samples": 2},
-                id="HDBSCAN",
-            ),
-            pytest.param(
-                "AgglomerativeClustering",
-                {"n_clusters": 2},
-                id="AgglomerativeClustering",
-            ),
-            pytest.param(
-                "SpectralClustering",
-                {"n_clusters": 2, "random_state": 42},
-                id="SpectralClustering",
-            ),
-            pytest.param(
-                "OPTICS",
-                {"min_samples": 2},
-                id="OPTICS",
-            ),
-        ],
+    step = xo.Step.from_instance_name(
+        RandomForestClassifier(n_estimators=5, random_state=42),
+        name="rf",
     )
-    def test_transductive_clustering_rejected_at_fit(
-        self, cluster_data, clusterer_cls, clusterer_kwargs
-    ):
-        """Test that transductive clustering algorithms are rejected at fit time."""
+    fitted = step.fit(t, features=("a", "b"), target="y")
+    result = fitted.feature_importances(t)
+    df = result.execute()
 
-        t = xo.memtable(cluster_data)
-        features = ("num1", "num2")
+    assert df is not None
+    assert "feature_importances" in df.columns
+    importances = df["feature_importances"].iloc[0]
+    assert len(importances) == 2  # two features
+    assert all(isinstance(v, float) for v in importances)
 
-        ClustererClass = getattr(cluster, clusterer_cls)
-        clusterer = ClustererClass(**clusterer_kwargs)
 
-        step = xo.Step.from_instance_name(clusterer, name="clusterer")
+def test_feature_importances_fitted_pipeline():
+    """FittedPipeline.feature_importances returns importances through pipeline."""
 
-        with pytest.raises(ValueError, match="must have transform or predict method"):
-            step.fit(t, features=features)
+    t = xo.memtable(
+        {
+            "a": np.random.randn(50).tolist(),
+            "b": np.random.randn(50).tolist(),
+            "y": (np.random.randn(50) > 0).astype(int).tolist(),
+        }
+    )
 
-    def test_pipeline_fit_without_target_for_clustering(self, cluster_data):
-        """Test Pipeline.fit allows ClusterMixin predict steps without a target."""
+    sklearn_pipe = SklearnPipeline(
+        [
+            ("scaler", StandardScaler()),
+            ("rf", RandomForestClassifier(n_estimators=5, random_state=42)),
+        ]
+    )
+    fitted = Pipeline.from_instance(sklearn_pipe).fit(
+        t, features=("a", "b"), target="y"
+    )
 
-        t = xo.memtable(cluster_data)
-        features = ("num1", "num2")
+    result = fitted.feature_importances(t)
+    df = result.execute()
 
-        sklearn_pipe = SklearnPipeline(
-            [
-                ("scaler", StandardScaler()),
-                (
-                    "clusterer",
-                    MiniBatchKMeans(n_clusters=2, random_state=42, n_init=10),
-                ),
-            ]
-        )
+    assert df is not None
+    assert "feature_importances" in df.columns
+    importances = df["feature_importances"].iloc[0]
+    assert len(importances) == 2
 
-        xorq_pipeline = Pipeline.from_instance(sklearn_pipe)
-        fitted = xorq_pipeline.fit(t, features=features)
 
-        # Should be able to predict without ever providing a target
-        result = fitted.predict(t)
-        xorq_labels = result.execute()[ResponseMethod.PREDICT].values
+@pytest.fixture
+def cluster_data():
+    """Generate data with clear cluster structure."""
 
-        # Verify against sklearn
-        X = np.array([cluster_data["num1"], cluster_data["num2"]]).T
-        sklearn_pipe.fit(X)
-        sklearn_labels = sklearn_pipe.predict(X)
+    np.random.seed(42)
+    # Two well-separated clusters
+    cluster1 = np.random.randn(10, 2) + [0, 0]
+    cluster2 = np.random.randn(10, 2) + [10, 10]
+    data = np.vstack([cluster1, cluster2])
+    return {"num1": data[:, 0].tolist(), "num2": data[:, 1].tolist()}
 
-        np.testing.assert_array_equal(xorq_labels, sklearn_labels)
+
+@pytest.mark.parametrize(
+    "clusterer_cls,clusterer_kwargs",
+    [
+        pytest.param(
+            "KMeans",
+            {"n_clusters": 2, "random_state": 42, "n_init": 10},
+            id="KMeans",
+        ),
+        pytest.param(
+            "MiniBatchKMeans",
+            {"n_clusters": 2, "random_state": 42, "n_init": 10},
+            id="MiniBatchKMeans",
+        ),
+        pytest.param(
+            "BisectingKMeans",
+            {"n_clusters": 2, "random_state": 42},
+            id="BisectingKMeans",
+        ),
+        pytest.param(
+            "Birch",
+            {"n_clusters": 2},
+            id="Birch",
+        ),
+        pytest.param(
+            "MeanShift",
+            {},
+            id="MeanShift",
+        ),
+        pytest.param(
+            "AffinityPropagation",
+            {"random_state": 42},
+            id="AffinityPropagation",
+        ),
+    ],
+)
+def test_clustering_predict_inductive(cluster_data, clusterer_cls, clusterer_kwargs):
+    """Test that inductive clustering algorithms support predict."""
+
+    t = xo.memtable(cluster_data)
+    features = ("num1", "num2")
+
+    ClustererClass = getattr(cluster, clusterer_cls)
+    clusterer = ClustererClass(**clusterer_kwargs)
+
+    # xorq predict
+    step = xo.Step.from_instance_name(clusterer, name="clusterer")
+    fitted = step.fit(t, features=features)
+    result = fitted.predict(t)
+    xorq_labels = result.execute()[ResponseMethod.PREDICT].values
+
+    # sklearn predict
+    X = np.array([cluster_data["num1"], cluster_data["num2"]]).T
+    sklearn_clusterer = ClustererClass(**clusterer_kwargs)
+    sklearn_clusterer.fit(X)
+    sklearn_labels = sklearn_clusterer.predict(X)
+
+    # Labels should match
+    np.testing.assert_array_equal(xorq_labels, sklearn_labels)
+
+
+@pytest.mark.parametrize(
+    "clusterer_cls,clusterer_kwargs",
+    [
+        pytest.param(
+            "DBSCAN",
+            {"eps": 3, "min_samples": 2},
+            id="DBSCAN",
+        ),
+        pytest.param(
+            "HDBSCAN",
+            {"min_samples": 2},
+            id="HDBSCAN",
+        ),
+        pytest.param(
+            "AgglomerativeClustering",
+            {"n_clusters": 2},
+            id="AgglomerativeClustering",
+        ),
+        pytest.param(
+            "SpectralClustering",
+            {"n_clusters": 2, "random_state": 42},
+            id="SpectralClustering",
+        ),
+        pytest.param(
+            "OPTICS",
+            {"min_samples": 2},
+            id="OPTICS",
+        ),
+    ],
+)
+def test_clustering_predict_transductive_rejected_at_fit(
+    cluster_data, clusterer_cls, clusterer_kwargs
+):
+    """Test that transductive clustering algorithms are rejected at fit time."""
+
+    t = xo.memtable(cluster_data)
+    features = ("num1", "num2")
+
+    ClustererClass = getattr(cluster, clusterer_cls)
+    clusterer = ClustererClass(**clusterer_kwargs)
+
+    step = xo.Step.from_instance_name(clusterer, name="clusterer")
+
+    with pytest.raises(ValueError, match="must have transform or predict method"):
+        step.fit(t, features=features)
