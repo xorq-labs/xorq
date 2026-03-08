@@ -167,7 +167,8 @@ class SdistBuilder:
         args = self.args or ("xorq", "build", str(self.script_path))
         popened = uv_tool_run(
             *args,
-            with_=str(self.untgzed_path),
+            with_=self.sdist_path,
+            with_requirements=self.requirements_path,
         )
         return popened
 
