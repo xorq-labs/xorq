@@ -71,8 +71,13 @@ def sklearn_pipeline():
 
 
 @pytest.fixture(scope="module")
-def fitted_xorq_pipeline(sklearn_pipeline, t):
+def xorq_pipeline(sklearn_pipeline):
     xorq_pipeline = xo.Pipeline.from_instance(sklearn_pipeline)
+    return xorq_pipeline
+
+
+@pytest.fixture(scope="module")
+def fitted_xorq_pipeline(xorq_pipeline, t):
     return xorq_pipeline.fit(t, target=TARGET)
 
 
@@ -87,6 +92,20 @@ def all_tags(t, fitted_xorq_pipeline):
     expr = fitted_xorq_pipeline.predict(t)
     all_tags = walk_nodes((Tag,), expr)
     return all_tags
+
+
+def test_recover_pipeline_from_transform_expr(t, xorq_pipeline, fitted_xorq_pipeline):
+    expr = fitted_xorq_pipeline.transform(t)
+    assert expr.ls.pipeline == xorq_pipeline
+
+
+def test_recover_pipeline_from_predict_expr(t, xorq_pipeline, fitted_xorq_pipeline):
+    expr = fitted_xorq_pipeline.predict(t)
+    assert expr.ls.pipeline == xorq_pipeline
+
+
+def test_fitted_pipeline_pipeline_property(xorq_pipeline, fitted_xorq_pipeline):
+    assert fitted_xorq_pipeline.pipeline == xorq_pipeline
 
 
 def test_all_tags(t, fitted_xorq_pipeline, all_tags):

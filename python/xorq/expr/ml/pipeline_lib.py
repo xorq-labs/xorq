@@ -927,6 +927,12 @@ class FittedPipeline:
         assert self.fitted_steps
 
     @property
+    def pipeline(self):
+        steps = tuple(fitted_step.step for fitted_step in self.fitted_steps)
+        pipeline = Pipeline(steps)
+        return pipeline
+
+    @property
     def is_predict(self):
         (*_, last_step) = self.fitted_steps
         return hasattr(last_step.step.instance, "predict")
