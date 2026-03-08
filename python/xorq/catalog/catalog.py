@@ -168,6 +168,13 @@ class Catalog:
     def catalog_entries(self):
         return tuple(CatalogEntry(name, self) for name in self.list())
 
+    def entries_as_tuples(self, kind=False):
+        return tuple(
+            ((entry.name, entry.kind) for entry in self.catalog_entries)
+            if kind
+            else ((name,) for name in self.list())
+        )
+
     @contextmanager
     def commit_context(self, message):
         with commit_context(self.repo, message) as index:
