@@ -787,18 +787,6 @@ def _set_op(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     return set_op(left, right, distinct=distinct).to_expr()
 
 
-@translate_to_yaml.register(ops.Binary)
-def _binary_op_to_yaml(op: ops.Binary, context: TranslationContext) -> dict:
-    return freeze(
-        {
-            "op": type(op).__name__,
-            "left": context.translate_to_yaml(op.left),
-            "right": context.translate_to_yaml(op.right),
-            "type": context.translate_to_yaml(op.dtype),
-        }
-    )
-
-
 @translate_to_yaml.register(ops.Filter)
 @convert_to_node_ref
 def _filter_to_yaml(op: ops.Filter, context: TranslationContext) -> dict:
