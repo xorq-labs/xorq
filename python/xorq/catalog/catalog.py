@@ -520,7 +520,8 @@ class CatalogEntry:
         with tarfile.open(self.catalog_path, "r:gz") as tf:
             f = tf.extractfile(f"{self.name}/{filename}")
             if f is None:
-                return None
+                # https://docs.python.org/3/library/tarfile.html#tarfile.TarFile.extractfile
+                raise ValueError(f"{filename} is not a regular file or a link")
             return yaml.safe_load(f.read())
 
     def _read_tgz_json(self, filename):
@@ -529,7 +530,8 @@ class CatalogEntry:
         with tarfile.open(self.catalog_path, "r:gz") as tf:
             f = tf.extractfile(f"{self.name}/{filename}")
             if f is None:
-                return None
+                # https://docs.python.org/3/library/tarfile.html#tarfile.TarFile.extractfile
+                raise ValueError(f"{filename} is not a regular file or a link")
             return json.loads(f.read())
 
 
