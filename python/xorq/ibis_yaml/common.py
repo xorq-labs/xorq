@@ -15,7 +15,7 @@ from dask.base import tokenize
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching.strategy import SnapshotStrategy
-from xorq.expr.relations import Tag
+from xorq.expr.relations import HashingTag, Tag
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
@@ -82,6 +82,10 @@ class Registry:
         """
 
         match node:
+            case HashingTag():
+                tagged_repr = node.to_expr().ls.untagged
+                with SnapshotStrategy().normalization_context(node.to_expr()):
+                    node_hash = tokenize(tagged_repr)
             case Tag():
                 untagged_repr = ("Tag", node.parent.to_expr(), node_dict["metadata"])
                 with SnapshotStrategy().normalization_context(node.to_expr()):

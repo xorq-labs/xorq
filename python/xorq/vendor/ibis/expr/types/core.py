@@ -763,10 +763,10 @@ class LETSQLAccessor:
     @functools.cache
     def untagged(self):
         from xorq.expr.api import (
-            _remove_tag_nodes,
+            _remove_non_hashing_tag_nodes,
         )
 
-        return _remove_tag_nodes(self.expr)
+        return _remove_non_hashing_tag_nodes(self.expr)
 
     @property
     def uncached(self):
