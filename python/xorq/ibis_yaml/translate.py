@@ -407,16 +407,6 @@ def _window_boundary_from_yaml(yaml_dict: dict, context: TranslationContext) -> 
     return ops.WindowBoundary(value, preceding=yaml_dict["preceding"])
 
 
-@translate_to_yaml.register(ops.StructField)
-def _struct_field_to_yaml(op: ops.StructField, context: TranslationContext) -> dict:
-    return freeze(
-        {
-            "op": type(op).__name__,
-            "args": [context.translate_to_yaml(arg) for arg in op.args],
-        }
-    )
-
-
 @translate_to_yaml.register(ops.UnboundTable)
 @convert_to_node_ref
 def _unbound_table_to_yaml(op: ops.UnboundTable, context: TranslationContext) -> dict:
@@ -663,43 +653,6 @@ def _bytes_from_yaml(yaml_dict: dict, context: TranslationContext) -> bytes:
     return base64.b64decode(yaml_dict["value"])
 
 
-@translate_to_yaml.register(ops.Alias)
-def _alias_to_yaml(op: ops.Alias, context: TranslationContext) -> dict:
-    return freeze(
-        {
-            "op": "Alias",
-            "type": context.translate_to_yaml(op.dtype),
-            "args": [context.translate_to_yaml(arg) for arg in op.args],
-        }
-    )
-
-
-@register_from_yaml_handler("Alias")
-def _alias_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    (arg, name) = (context.translate_from_yaml(arg) for arg in yaml_dict["args"])
-    return arg.name(name)
-
-
-@translate_to_yaml.register(ops.Round)
-def _round_to_yaml(op: ops.Round, context: TranslationContext) -> dict:
-    return freeze(
-        {
-            "op": op.__class__.__name__,
-            "type": context.translate_to_yaml(op.dtype),
-            "args": [context.translate_to_yaml(arg) for arg in op.args],
-        }
-    )
-
-
-@register_from_yaml_handler("Round")
-def _round_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    (arg, digits) = (
-        None if arg is None else context.translate_from_yaml(arg)
-        for arg in yaml_dict["args"]
-    )
-    return arg.round(digits)
-
-
 @translate_to_yaml.register(type(None))
 def _none_to_yaml(value: None, context: TranslationContext) -> None:
     return None
@@ -939,44 +892,6 @@ def _join_chain_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Ex
     return result
 
 
-@translate_to_yaml.register(ops.ScalarSubquery)
-def _scalar_subquery_to_yaml(
-    op: ops.ScalarSubquery, context: TranslationContext
-) -> dict:
-    return freeze(
-        {
-            "op": "ScalarSubquery",
-            "args": [context.translate_to_yaml(arg) for arg in op.args],
-            "type": context.translate_to_yaml(op.dtype),
-        }
-    )
-
-
-@register_from_yaml_handler("ScalarSubquery")
-def _scalar_subquery_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    subquery = context.translate_from_yaml(yaml_dict["args"][0])
-    return ops.ScalarSubquery(subquery).to_expr()
-
-
-@translate_to_yaml.register(ops.ExistsSubquery)
-def _exists_subquery_to_yaml(
-    op: ops.ExistsSubquery, context: TranslationContext
-) -> dict:
-    return freeze(
-        {
-            "op": "ExistsSubquery",
-            "rel": context.translate_to_yaml(op.rel),
-            "type": context.translate_to_yaml(op.dtype),
-        }
-    )
-
-
-@register_from_yaml_handler("ExistsSubquery")
-def _exists_subquery_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    rel = context.translate_from_yaml(yaml_dict["rel"])
-    return ops.ExistsSubquery(rel).to_expr()
-
-
 @translate_to_yaml.register(ops.InSubquery)
 def _in_subquery_to_yaml(op: ops.InSubquery, context: TranslationContext) -> dict:
     return freeze(
@@ -1065,12 +980,6 @@ def _joinreference_to_yaml(op: ops.JoinReference, context: TranslationContext) -
 def _join_reference_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     table_yaml = yaml_dict["parent"]
     return context.translate_from_yaml(table_yaml)
-
-
-@register_from_yaml_handler("StructField")
-def _structfield_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    args = tuple(context.translate_from_yaml(arg) for arg in yaml_dict["args"])
-    return ops.StructField(*args).to_expr()
 
 
 @translate_to_yaml.register(FrozenDict)

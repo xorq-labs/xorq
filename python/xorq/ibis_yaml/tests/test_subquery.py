@@ -13,7 +13,7 @@ def test_scalar_subquery(compiler, t):
     expression = yaml_dict["expression"]
 
     assert expression["op"] == "ScalarSubquery"
-    node_ref = expression["args"][0][RefEnum.node_ref]
+    node_ref = expression["rel"][RefEnum.node_ref]
     agg_expression = yaml_dict["definitions"][RegistryEnum.nodes][node_ref]
     assert agg_expression["op"] == "Aggregate"
 
