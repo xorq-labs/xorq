@@ -133,6 +133,8 @@ def cli(ctx, name, path, url, root_repo, init):
             init=init,
         )
     )
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 @cli.command()
