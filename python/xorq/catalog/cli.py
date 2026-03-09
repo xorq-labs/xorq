@@ -242,10 +242,12 @@ def list_entries(ctx, kind):
     """List all entries."""
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
-        entries = catalog.entries_as_tuples(kind=kind) or (("No entries.",),)
-
+        entries = catalog.catalog_entries
+        if not entries:
+            click.echo("No entries.")
+            return
         for entry in entries:
-            click.echo("\t".join(entry))
+            click.echo(f"{entry.name}\t{entry.kind}" if kind else entry.name)
 
 
 @cli.command("list-aliases")
