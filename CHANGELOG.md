@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.14] - 2026-03-09
+### Details
+#### Added
+- Add HashingTag node for hash-contributing metadata tags by @hussainsultan in [#1681](https://github.com/xorq-labs/xorq/pull/1681)
+- Add benchmark workflow with PR regression alerts by @mesejo in [#1694](https://github.com/xorq-labs/xorq/pull/1694)
+- Add actionlint to pre-commit config by @mesejo in [#1699](https://github.com/xorq-labs/xorq/pull/1699)
+- Add pipeline introspection via structured tag metadata by @dlovell in [#1691](https://github.com/xorq-labs/xorq/pull/1691)
+
+#### Changed
+- Defer OTLP exporter imports until first use by @dlovell in [#1690](https://github.com/xorq-labs/xorq/pull/1690)
+- Convert test classes to standalone functions by @ghoersti in [#1667](https://github.com/xorq-labs/xorq/pull/1667)
+- Update template commit hashes by @mesejo in [#1695](https://github.com/xorq-labs/xorq/pull/1695)
+
+#### Fixed
+- Defer import of xorq.ibis_yaml.translate by @dlovell in [#1689](https://github.com/xorq-labs/xorq/pull/1689)
+- Ensure python3.10 compat by @dlovell in [#1693](https://github.com/xorq-labs/xorq/pull/1693)
+- Cli no subcommand prints help by @dlovell in [#1696](https://github.com/xorq-labs/xorq/pull/1696)
+- Race condition on tui refresh by @dlovell in [#1697](https://github.com/xorq-labs/xorq/pull/1697)
+
+#### Removed
+- Remove redundant handlers by @dlovell in [#1692](https://github.com/xorq-labs/xorq/pull/1692)
+
 ## [0.3.13] - 2026-03-06
 ### Details
 #### Changed
