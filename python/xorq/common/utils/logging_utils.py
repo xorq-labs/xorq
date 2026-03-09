@@ -237,7 +237,6 @@ class RunLogger:
 
     @staticmethod
     def _get_otel_trace_id(span_ctx: SpanContext) -> str | None:
-
         otel_trace_id = (
             format(span_ctx.trace_id, "032x")
             if span_ctx and span_ctx.is_valid
