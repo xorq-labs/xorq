@@ -439,19 +439,14 @@ class ExprDumper:
         return path, writer
 
     def _make_expr_metadata(self, expr) -> Dict[str, Any]:
-        unbound_nodes = walk_nodes(UnboundTable, expr)
-        (unbound_node,) = unbound_nodes or (None,)
+        unbound_node, *rest = walk_nodes(UnboundTable, expr) or (None,)
+        if rest:
+            raise ValueError("Expected at most one UnboundTable")
         return {
             "kind": str(ExprKind.UnboundExpr if unbound_node else ExprKind.Expr),
-            "schema_out": {name: str(dtype) for name, dtype in expr.schema().items()}
-            if hasattr(expr, "schema")
-            else None,
+            "schema_out": toolz.valmap(str, expr.schema()),
         } | (
-            {
-                "schema_in": {
-                    name: str(dtype) for name, dtype in unbound_node.schema.items()
-                }
-            }
+            {"schema_in": toolz.valmap(str, unbound_node.schema)}
             if unbound_node
             else {}
         )
