@@ -1,0 +1,52 @@
+name: ci-benchmark
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install the project
+        run: uv sync --locked --group dev --group test
+        working-directory: ${{ github.workspace }}
+
+      - name: Run benchmarks
+        run: >
+          uv run --no-sync pytest
+          --import-mode=importlib
+          --benchmark-json=benchmark-results.json
+          -m benchmark
+          python/xorq/catalog/tests/test_benchmark_cli.py
+        working-directory: ${{ github.workspace }}
+
+      - name: Store / compare benchmark results
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: pytest
+          output-file-path: benchmark-results.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: ${{ github.event_name != 'pull_request' }}
+          alert-threshold: "130%"
+          comment-on-alert: true
+          fail-on-alert: true
