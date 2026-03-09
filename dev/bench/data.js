@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773083203049,
+  "lastUpdate": 1773087225710,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -330,6 +330,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.001855853799250273",
             "extra": "mean: 197.99570783333328 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f48805d5ac438890b5d4f055331cc7185d408433",
+          "message": "release: 0.3.14 (#1703)\n\n## Summary\n- Bump version to 0.3.14\n- Update CHANGELOG.md with git-cliff\n\n### Changes in this release\n#### Added\n- Add HashingTag node for hash-contributing metadata tags (#1681)\n- Add benchmark workflow with PR regression alerts (#1694)\n- Add actionlint to pre-commit config (#1699)\n- Add pipeline introspection via structured tag metadata (#1691)\n\n#### Changed\n- Defer OTLP exporter imports until first use (#1690)\n- Convert test classes to standalone functions (#1667)\n- Update template commit hashes (#1695)\n\n#### Fixed\n- Defer import of xorq.ibis_yaml.translate (#1689)\n- Ensure python3.10 compat (#1693)\n- CLI no subcommand prints help (#1696)\n- Race condition on tui refresh (#1697)\n\n#### Removed\n- Remove redundant handlers (#1692)",
+          "timestamp": "2026-03-09T16:12:49-04:00",
+          "tree_id": "49e90a742f8b551ba87ef415d91a02fcd91deebf",
+          "url": "https://github.com/xorq-labs/xorq/commit/f48805d5ac438890b5d4f055331cc7185d408433"
+        },
+        "date": 1773087222779,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 11.234451738217034,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0010760070988997373",
+            "extra": "mean: 89.01190937500125 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 5.135553503926689,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0022685889882564773",
+            "extra": "mean: 194.72097783333217 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.9413862022195837,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02185544098981812",
+            "extra": "mean: 1.062263285399996 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.274312992690945,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003418691122468083",
+            "extra": "mean: 189.59815266666644 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.395322985498326,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0012925505053056475",
+            "extra": "mean: 185.34571566666594 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.366024758816864,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00586020696298152",
+            "extra": "mean: 186.35769399999683 msec\nrounds: 6"
           }
         ]
       }
