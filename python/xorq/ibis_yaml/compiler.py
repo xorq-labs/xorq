@@ -438,7 +438,7 @@ class ExprDumper:
         )
         return path, writer
 
-    def _make_entry(self, expr) -> Dict[str, Any]:
+    def _make_expr_metadata(self, expr) -> Dict[str, Any]:
         unbound_nodes = walk_nodes(UnboundTable, expr)
         (unbound_node,) = unbound_nodes or (None,)
         return {
@@ -456,11 +456,11 @@ class ExprDumper:
             else {}
         )
 
-    def _prepare_entry_file(self, expr):
+    def _prepare_expr_metadata_file(self, expr):
         path = self.artifact_store.get_path(DumpFiles.expr_metadata)
         writer = functools.partial(
             self.artifact_store.write_json,
-            self._make_entry(expr),
+            self._make_expr_metadata(expr),
             DumpFiles.expr_metadata,
         )
         return path, writer
@@ -538,7 +538,7 @@ class ExprDumper:
         profiles = dehydrate_cons(find_all_sources(expr))
         path_to_writer2 = dict(
             (
-                self._prepare_entry_file(expr),
+                self._prepare_expr_metadata_file(expr),
                 self._prepare_metadata_file(),
                 self._prepare_profiles_file(profiles),
             )
@@ -572,7 +572,7 @@ class ExprLoader:
     def artifact_store(self):
         return ArtifactStore(self.expr_path)
 
-    def load_expr(self, raise_on_unbound: bool = False):
+    def load_expr(self, raise_on_unbound: bool = True):
         profiles = hydrate_cons(self.artifact_store.load_yaml(DumpFiles.profiles))
         yaml_dict = self.artifact_store.load_yaml(DumpFiles.expr)
         entry = self.artifact_store.read_json(DumpFiles.expr_metadata)

@@ -242,8 +242,8 @@ def list_entries(ctx, kind):
     """List all entries."""
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
-        entries = catalog.catalog_entries
-        if not entries:
+
+        if not (entries := catalog.catalog_entries):
             click.echo("No entries.")
             return
         for entry in entries:

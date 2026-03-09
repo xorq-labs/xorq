@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import hashlib
+import json
 import shutil
 import tarfile
 import tempfile
@@ -525,8 +526,6 @@ class CatalogEntry:
             return yaml.safe_load(f.read())
 
     def _read_tgz_json(self, filename):
-        import json  # noqa: PLC0415
-
         with tarfile.open(self.catalog_path, "r:gz") as tf:
             f = tf.extractfile(f"{self.name}/{filename}")
             if f is None:
