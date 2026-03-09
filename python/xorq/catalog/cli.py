@@ -238,10 +238,15 @@ def remove_alias(ctx, aliases, sync):
 @cli.command("list")
 @click.pass_context
 def list_entries(ctx):
+    import time
+
     """List all entries."""
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         names = catalog.list() or ("No entries.",)
+
+        time.sleep(0.3)
+
         for name in names:
             click.echo(name)
 
