@@ -444,7 +444,7 @@ class ExprDumper:
             raise ValueError("Expected at most one UnboundTable")
         return {
             "kind": str(ExprKind.UnboundExpr if unbound_node else ExprKind.Expr),
-            "schema_out": toolz.valmap(str, expr.schema()),
+            "schema_out": toolz.valmap(str, expr.as_table().schema()),
         } | (
             {"schema_in": toolz.valmap(str, unbound_node.schema)}
             if unbound_node
