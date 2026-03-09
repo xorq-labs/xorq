@@ -430,11 +430,11 @@ class ExprDumper:
         return metadata_json
 
     def _prepare_metadata_file(self):
-        path = self.artifact_store.get_path(DumpFiles.metadata)
+        path = self.artifact_store.get_path(DumpFiles.build_metadata)
         writer = functools.partial(
             self.artifact_store.write_text,
             self._make_metadata(),
-            DumpFiles.metadata,
+            DumpFiles.build_metadata,
         )
         return path, writer
 
@@ -457,11 +457,11 @@ class ExprDumper:
         )
 
     def _prepare_entry_file(self, expr):
-        path = self.artifact_store.get_path(DumpFiles.expr_signature)
+        path = self.artifact_store.get_path(DumpFiles.expr_metadata)
         writer = functools.partial(
             self.artifact_store.write_json,
             self._make_entry(expr),
-            DumpFiles.expr_signature,
+            DumpFiles.expr_metadata,
         )
         return path, writer
 
@@ -575,7 +575,7 @@ class ExprLoader:
     def load_expr(self, raise_on_unbound: bool = False):
         profiles = hydrate_cons(self.artifact_store.load_yaml(DumpFiles.profiles))
         yaml_dict = self.artifact_store.load_yaml(DumpFiles.expr)
-        entry = self.artifact_store.read_json(DumpFiles.expr_signature)
+        entry = self.artifact_store.read_json(DumpFiles.expr_metadata)
         if raise_on_unbound and entry.get("kind") == ExprKind.UnboundExpr:
             raise ValueError(
                 "Cannot run unbound expression"
