@@ -35,7 +35,7 @@ def make_tgz_context(build_dir):
 def extract_build_tgz_context(tgz_path):
     with tempfile.TemporaryDirectory() as td:
         with tarfile.TarFile.gzopen(tgz_path) as tfh:
-            tfh.extractall(td, filter="data")
+            tfh.extractall(td)
         (path, *rest) = Path(td).iterdir()
         assert not rest
         yield path
