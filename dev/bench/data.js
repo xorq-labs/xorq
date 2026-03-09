@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773082678972,
+  "lastUpdate": 1773083203049,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -264,6 +264,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0060969429243008435",
             "extra": "mean: 185.73054683333368 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dfb737dee9e83a84c50a3c6bd207b46a130e2d68",
+          "message": "feat(ml): add pipeline introspection via structured tag metadata (#1691)\n\nAdd FittedStepTagKey and FittedPipelineTagKey enums to consolidate all\ntag string constants. Refactor FittedStep.tag_kwargs into\nget_tag_kwargs() and FittedPipeline into get_tag_kwargs(which) so\ncallers can request step subsets by key. All FittedPipeline output exprs\nnow include ALL_STEPS tag metadata, enabling safe reconstruction of the\noriginal unfitted sklearn Pipeline even when pipelines are composed.\nExpose get_sklearn_pipeline_tags(), pipeline_tag_to_pipeline(), and\nget_outermost_pipeline() as composable building blocks.\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-09T15:05:49-04:00",
+          "tree_id": "d9ad2054a4afd4ae540c2f916faeec51c153be94",
+          "url": "https://github.com/xorq-labs/xorq/commit/dfb737dee9e83a84c50a3c6bd207b46a130e2d68"
+        },
+        "date": 1773083200684,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.235092066780835,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0011460885735442739",
+            "extra": "mean: 97.7030781428547 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.869941956778675,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004597931680766498",
+            "extra": "mean: 205.34125639999843 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.9273981273462477,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02197593862415748",
+            "extra": "mean: 1.0782855502000017 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.070248028700052,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0034689313055677354",
+            "extra": "mean: 197.22901016666583 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.051699888087178,
+            "unit": "iter/sec",
+            "range": "stddev: 0.001679943264604309",
+            "extra": "mean: 197.953168666686 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.0506145357543275,
+            "unit": "iter/sec",
+            "range": "stddev: 0.001855853799250273",
+            "extra": "mean: 197.99570783333328 msec\nrounds: 6"
           }
         ]
       }
