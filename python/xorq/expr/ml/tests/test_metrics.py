@@ -1245,7 +1245,6 @@ def test_metric_fn_y_score_d2_log_loss_score(classification_data):
 
 @pytest.fixture
 def metric_fn_clustering_expr():
-
     X, _ = make_blobs(n_samples=200, centers=3, n_features=4, random_state=42)
     feature_names = tuple(f"f{i}" for i in range(X.shape[1]))
     df = pd.DataFrame(X, columns=list(feature_names))
@@ -1340,7 +1339,6 @@ def test_metric_fn_sign_auto_detect_non_scorer_fn():
 
 @pytest.fixture
 def metric_fn_multilabel_expr():
-
     rng = np.random.RandomState(42)
     X = rng.randn(100, 5)
     Y = rng.randint(0, 2, size=(100, 3))
@@ -1699,7 +1697,6 @@ def deferred_auc_proba_expr(classification_data):
 
 
 def test_deferred_auc_from_curve_roc_auc(deferred_auc_proba_expr):
-
     expr_with_proba, y_true, y_proba = deferred_auc_proba_expr
     deferred_roc = deferred_sklearn_metric(
         expr=expr_with_proba,
@@ -1715,7 +1712,6 @@ def test_deferred_auc_from_curve_roc_auc(deferred_auc_proba_expr):
 
 
 def test_deferred_auc_from_curve_precision_recall_auc(deferred_auc_proba_expr):
-
     expr_with_proba, y_true, y_proba = deferred_auc_proba_expr
     deferred_pr = deferred_sklearn_metric(
         expr=expr_with_proba,
@@ -1731,7 +1727,6 @@ def test_deferred_auc_from_curve_precision_recall_auc(deferred_auc_proba_expr):
 
 
 def test_deferred_auc_from_curve_det_auc(deferred_auc_proba_expr):
-
     expr_with_proba, y_true, y_proba = deferred_auc_proba_expr
     deferred_det = deferred_sklearn_metric(
         expr=expr_with_proba,
