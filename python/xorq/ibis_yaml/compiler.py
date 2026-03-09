@@ -457,11 +457,11 @@ class ExprDumper:
         )
 
     def _prepare_entry_file(self, expr):
-        path = self.artifact_store.get_path(DumpFiles.entry)
+        path = self.artifact_store.get_path(DumpFiles.expr_signature)
         writer = functools.partial(
             self.artifact_store.write_json,
             self._make_entry(expr),
-            DumpFiles.entry,
+            DumpFiles.expr_signature,
         )
         return path, writer
 
@@ -575,7 +575,7 @@ class ExprLoader:
     def load_expr(self, raise_on_unbound: bool = False):
         profiles = hydrate_cons(self.artifact_store.load_yaml(DumpFiles.profiles))
         yaml_dict = self.artifact_store.load_yaml(DumpFiles.expr)
-        entry = self.artifact_store.read_json(DumpFiles.entry)
+        entry = self.artifact_store.read_json(DumpFiles.expr_signature)
         if raise_on_unbound and entry.get("kind") == ExprKind.UnboundExpr:
             raise ValueError(
                 "Cannot run unbound expression"

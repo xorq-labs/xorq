@@ -7,7 +7,7 @@ except ImportError:
 class DumpFiles(StrEnum):
     deferred_reads = "deferred_reads.yaml"
     expr = "expr.yaml"
-    entry = "entry.json"
+    expr_signature = "expr_signature.json"
     metadata = "metadata.json"
     profiles = "profiles.yaml"
     sql = "sql.yaml"
@@ -15,7 +15,7 @@ class DumpFiles(StrEnum):
 
 REQUIRED_TGZ_NAMES = (
     DumpFiles.expr,
-    DumpFiles.entry,
+    DumpFiles.expr_signature,
     DumpFiles.metadata,
     DumpFiles.profiles,
 )

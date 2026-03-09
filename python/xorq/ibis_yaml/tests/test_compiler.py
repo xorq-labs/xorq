@@ -784,7 +784,7 @@ def test_multi_join_expr_yaml_line_count(tmp_path, builds_dir):
 def test_build_expr_kind_bound(tmp_path):
     expr = xo.memtable({"a": [1, 2, 3]})
     build_dir = build_expr(expr, builds_dir=tmp_path)
-    entry = json.loads((build_dir / "entry.json").read_text())
+    entry = json.loads((build_dir / DumpFiles.expr_signature).read_text())
     assert entry["kind"] == ExprKind.Expr
     assert "schema_out" in entry
     assert "schema_in" not in entry
@@ -794,7 +794,7 @@ def test_build_expr_kind_partial(tmp_path):
     t = xo.table(schema={"a": "int64"})
     expr = t.filter(t.a > 0)
     build_dir = build_expr(expr, builds_dir=tmp_path)
-    entry = json.loads((build_dir / "entry.json").read_text())
+    entry = json.loads((build_dir / DumpFiles.expr_signature).read_text())
     assert entry["kind"] == ExprKind.UnboundExpr
     assert "schema_out" in entry
     assert "schema_in" in entry

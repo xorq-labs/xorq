@@ -464,10 +464,10 @@ class CatalogEntry:
 
     @cached_property
     def kind(self) -> ExprKind:
-        data = self._read_tgz_json(DumpFiles.entry)
+        data = self._read_tgz_json(DumpFiles.expr_signature)
         if not isinstance(data, dict):
             raise ValueError(
-                f"Expected {DumpFiles.entry!r} to contain a JSON object in {self.catalog_path}"
+                f"Expected {DumpFiles.expr_signature!r} to contain a JSON object in {self.catalog_path}"
             )
         return ExprKind(data["kind"])
 
