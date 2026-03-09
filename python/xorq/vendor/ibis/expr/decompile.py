@@ -92,8 +92,11 @@ def value(op, *args, **kwargs):
 
     if args:
         this, *args = args
-    else:
+    elif kwargs:
         (_, this), *kwargs = kwargs
+    else:
+        # Zero-arg analytic functions (row_number, rank, dense_rank, etc.)
+        return f"ibis.{method}()"
 
     # if there is a single keyword argument prefer to pass that as positional
     if not args and len(kwargs) == 1:
