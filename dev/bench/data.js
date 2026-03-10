@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773144933582,
+  "lastUpdate": 1773152640146,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -528,6 +528,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.001533732658594809",
             "extra": "mean: 192.0913046666707 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7b0c576660ef7b28c8a81ce50ef834cac6b0b05b",
+          "message": "chore(deps): bump virtualenv from 20.33.0 to 20.36.1 (#1707)\n\nBumps [virtualenv](https://github.com/pypa/virtualenv) from 20.33.0 to\n20.36.1.\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/pypa/virtualenv/releases\">virtualenv's\nreleases</a>.</em></p>\n<blockquote>\n<h2>20.36.0</h2>\n<!-- raw HTML omitted -->\n<h2>What's Changed</h2>\n<ul>\n<li>release 20.35.3 by <a\nhref=\"https://github.com/gaborbernat\"><code>@​gaborbernat</code></a> in\n<a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/2981\">pypa/virtualenv#2981</a></li>\n<li>fix: Prevent NameError when accessing _DISTUTILS_PATCH during file\nov… by <a href=\"https://github.com/gracetyy\"><code>@​gracetyy</code></a>\nin <a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/2982\">pypa/virtualenv#2982</a></li>\n<li>Upgrade pip and fix 3.15 picking old wheel by <a\nhref=\"https://github.com/gaborbernat\"><code>@​gaborbernat</code></a> in\n<a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/2989\">pypa/virtualenv#2989</a></li>\n<li>release 20.35.4 by <a\nhref=\"https://github.com/gaborbernat\"><code>@​gaborbernat</code></a> in\n<a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/2990\">pypa/virtualenv#2990</a></li>\n<li>fix: wrong path on migrated venv by <a\nhref=\"https://github.com/sk1234567891\"><code>@​sk1234567891</code></a>\nin <a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/2996\">pypa/virtualenv#2996</a></li>\n<li>test_too_many_open_files: assert on <code>errno.EMFILE</code>\ninstead of <code>strerror</code> by <a\nhref=\"https://github.com/pltrz\"><code>@​pltrz</code></a> in <a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/3001\">pypa/virtualenv#3001</a></li>\n<li>fix: update filelock dependency version to 3.20.1 to fix CVE\nCVE-2025-68146 by <a\nhref=\"https://github.com/pythonhubdev\"><code>@​pythonhubdev</code></a>\nin <a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/3002\">pypa/virtualenv#3002</a></li>\n<li>fix: resolve EncodingWarning in tox upgrade environment by <a\nhref=\"https://github.com/gaborbernat\"><code>@​gaborbernat</code></a> in\n<a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/3007\">pypa/virtualenv#3007</a></li>\n<li>Fix Interpreter discovery bug wrt. Microsoft Store shortcut using\nLatin-1 by <a\nhref=\"https://github.com/rahuldevikar\"><code>@​rahuldevikar</code></a>\nin <a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/3006\">pypa/virtualenv#3006</a></li>\n<li>Add support for PEP 440 version specifiers in the\n<code>--python</code> flag. by <a\nhref=\"https://github.com/rahuldevikar\"><code>@​rahuldevikar</code></a>\nin <a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/3008\">pypa/virtualenv#3008</a></li>\n</ul>\n<h2>New Contributors</h2>\n<ul>\n<li><a href=\"https://github.com/gracetyy\"><code>@​gracetyy</code></a>\nmade their first contribution in <a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/2982\">pypa/virtualenv#2982</a></li>\n<li><a\nhref=\"https://github.com/sk1234567891\"><code>@​sk1234567891</code></a>\nmade their first contribution in <a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/2996\">pypa/virtualenv#2996</a></li>\n<li><a href=\"https://github.com/pltrz\"><code>@​pltrz</code></a> made\ntheir first contribution in <a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/3001\">pypa/virtualenv#3001</a></li>\n<li><a\nhref=\"https://github.com/pythonhubdev\"><code>@​pythonhubdev</code></a>\nmade their first contribution in <a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/3002\">pypa/virtualenv#3002</a></li>\n<li><a\nhref=\"https://github.com/rahuldevikar\"><code>@​rahuldevikar</code></a>\nmade their first contribution in <a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/3006\">pypa/virtualenv#3006</a></li>\n</ul>\n<p><strong>Full Changelog</strong>: <a\nhref=\"https://github.com/pypa/virtualenv/compare/20.35.3...20.36.0\">https://github.com/pypa/virtualenv/compare/20.35.3...20.36.0</a></p>\n<h2>20.35.4</h2>\n<!-- raw HTML omitted -->\n<h2>What's Changed</h2>\n<ul>\n<li>release 20.35.3 by <a\nhref=\"https://github.com/gaborbernat\"><code>@​gaborbernat</code></a> in\n<a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/2981\">pypa/virtualenv#2981</a></li>\n<li>fix: Prevent NameError when accessing _DISTUTILS_PATCH during file\nov… by <a href=\"https://github.com/gracetyy\"><code>@​gracetyy</code></a>\nin <a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/2982\">pypa/virtualenv#2982</a></li>\n<li>Upgrade pip and fix 3.15 picking old wheel by <a\nhref=\"https://github.com/gaborbernat\"><code>@​gaborbernat</code></a> in\n<a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/2989\">pypa/virtualenv#2989</a></li>\n</ul>\n<h2>New Contributors</h2>\n<ul>\n<li><a href=\"https://github.com/gracetyy\"><code>@​gracetyy</code></a>\nmade their first contribution in <a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/2982\">pypa/virtualenv#2982</a></li>\n</ul>\n<p><strong>Full Changelog</strong>: <a\nhref=\"https://github.com/pypa/virtualenv/compare/20.35.3...20.35.4\">https://github.com/pypa/virtualenv/compare/20.35.3...20.35.4</a></p>\n<h2>20.35.3</h2>\n<!-- raw HTML omitted -->\n<h2>What's Changed</h2>\n<ul>\n<li>release 20.35.1 by <a\nhref=\"https://github.com/gaborbernat\"><code>@​gaborbernat</code></a> in\n<a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/2976\">pypa/virtualenv#2976</a></li>\n<li>Revert out effort to extract discovery by <a\nhref=\"https://github.com/gaborbernat\"><code>@​gaborbernat</code></a> in\n<a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/2978\">pypa/virtualenv#2978</a></li>\n<li>release 20.35.2 by <a\nhref=\"https://github.com/gaborbernat\"><code>@​gaborbernat</code></a> in\n<a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/2980\">pypa/virtualenv#2980</a></li>\n<li>test_too_many_open_files fails by <a\nhref=\"https://github.com/gaborbernat\"><code>@​gaborbernat</code></a> in\n<a\nhref=\"https://redirect.github.com/pypa/virtualenv/pull/2979\">pypa/virtualenv#2979</a></li>\n</ul>\n<p><strong>Full Changelog</strong>: <a\nhref=\"https://github.com/pypa/virtualenv/compare/20.35.1...20.35.3\">https://github.com/pypa/virtualenv/compare/20.35.1...20.35.3</a></p>\n<h2>20.35.2</h2>\n<!-- raw HTML omitted -->\n</blockquote>\n<p>... (truncated)</p>\n</details>\n<details>\n<summary>Changelog</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/pypa/virtualenv/blob/main/docs/changelog.rst\">virtualenv's\nchangelog</a>.</em></p>\n<blockquote>\n<h1>Bugfixes - 20.36.1</h1>\n<ul>\n<li>Fix TOCTOU vulnerabilities in app_data and lock directory creation\nthat could be exploited via symlink attacks -\nreported by :user:<code>tsigouris007</code>, fixed by\n:user:<code>gaborbernat</code>. (:issue:<code>3013</code>)</li>\n</ul>\n<hr />\n<p>v20.36.0 (2026-01-07)</p>\n<hr />\n<h1>Features - 20.36.0</h1>\n<ul>\n<li>Add support for PEP 440 version specifiers in the\n<code>--python</code> flag. Users can now specify Python versions using\noperators like <code>&gt;=</code>, <code>&lt;=</code>, <code>~=</code>,\netc. For example: <code>virtualenv --python=&quot;&gt;=3.12&quot;\nmyenv</code> <code>. (:issue:</code>2994`)</li>\n</ul>\n<hr />\n<p>v20.35.4 (2025-10-28)</p>\n<hr />\n<h1>Bugfixes - 20.35.4</h1>\n<ul>\n<li>\n<p>Fix race condition in <code>_virtualenv.py</code> when file is\noverwritten during import, preventing <code>NameError</code> when\n<code>_DISTUTILS_PATCH</code> is accessed - by\n:user:<code>gracetyy</code>. (:issue:<code>2969</code>)</p>\n</li>\n<li>\n<p>Upgrade embedded wheels:</p>\n<ul>\n<li>pip to <code>25.3</code> from <code>25.2</code>\n(:issue:<code>2989</code>)</li>\n</ul>\n</li>\n</ul>\n<hr />\n<p>v20.35.3 (2025-10-10)</p>\n<hr />\n<h1>Bugfixes - 20.35.3</h1>\n<ul>\n<li>Accept RuntimeError in <code>test_too_many_open_files</code>, by\n:user:<code>esafak</code> (:issue:<code>2935</code>)</li>\n</ul>\n<hr />\n<p>v20.35.2 (2025-10-10)</p>\n<hr />\n<h1>Bugfixes - 20.35.2</h1>\n<ul>\n<li>Revert out changes related to the extraction of the discovery module\n- by :user:<code>gaborbernat</code>. (:issue:<code>2978</code>)</li>\n</ul>\n<hr />\n<p>v20.35.1 (2025-10-09)</p>\n<hr />\n<!-- raw HTML omitted -->\n</blockquote>\n<p>... (truncated)</p>\n</details>\n<details>\n<summary>Commits</summary>\n<ul>\n<li><a\nhref=\"https://github.com/pypa/virtualenv/commit/d0ad11d1146e81ea74d2461be9653f1da9cf3fd1\"><code>d0ad11d</code></a>\nrelease 20.36.1</li>\n<li><a\nhref=\"https://github.com/pypa/virtualenv/commit/dec4cec5d16edaf83a00a658f32d1e032661cebc\"><code>dec4cec</code></a>\nMerge pull request <a\nhref=\"https://redirect.github.com/pypa/virtualenv/issues/3013\">#3013</a>\nfrom gaborbernat/fix-sec</li>\n<li><a\nhref=\"https://github.com/pypa/virtualenv/commit/5fe5d38beb1273b489591a7b444f1018af2edf0a\"><code>5fe5d38</code></a>\nrelease 20.36.0 (<a\nhref=\"https://redirect.github.com/pypa/virtualenv/issues/3011\">#3011</a>)</li>\n<li><a\nhref=\"https://github.com/pypa/virtualenv/commit/9719376addaa710b61d9ed013774fa26f6224b4e\"><code>9719376</code></a>\nrelease 20.36.0</li>\n<li><a\nhref=\"https://github.com/pypa/virtualenv/commit/0276db6fcf8849c519d75465f659b12aefb2acd8\"><code>0276db6</code></a>\nAdd support for PEP 440 version specifiers in the <code>--python</code>\nflag. (<a\nhref=\"https://redirect.github.com/pypa/virtualenv/issues/3008\">#3008</a>)</li>\n<li><a\nhref=\"https://github.com/pypa/virtualenv/commit/4f900c29044e17812981b5b98ddce45604858b7f\"><code>4f900c2</code></a>\nFix Interpreter discovery bug wrt. Microsoft Store shortcut using\nLatin-1 (<a\nhref=\"https://redirect.github.com/pypa/virtualenv/issues/3\">#3</a>...</li>\n<li><a\nhref=\"https://github.com/pypa/virtualenv/commit/13afcc62a3444d0386c8031d0a62277a8274ab07\"><code>13afcc6</code></a>\nfix: resolve EncodingWarning in tox upgrade environment (<a\nhref=\"https://redirect.github.com/pypa/virtualenv/issues/3007\">#3007</a>)</li>\n<li><a\nhref=\"https://github.com/pypa/virtualenv/commit/31b5d31581df3e3a7bbc55e52568b26dd01b0d57\"><code>31b5d31</code></a>\n[pre-commit.ci] pre-commit autoupdate (<a\nhref=\"https://redirect.github.com/pypa/virtualenv/issues/2997\">#2997</a>)</li>\n<li><a\nhref=\"https://github.com/pypa/virtualenv/commit/7c284221b4751388801355fc6ebaa2abe60427bd\"><code>7c28422</code></a>\nfix: update filelock dependency version to 3.20.1 to fix CVE\nCVE-2025-68146 (...</li>\n<li><a\nhref=\"https://github.com/pypa/virtualenv/commit/365628c544cd5498fbf0a3b6c6a8c1f41d25a749\"><code>365628c</code></a>\ntest_too_many_open_files: assert on <code>errno.EMFILE</code> instead of\n<code>strerror</code> (<a\nhref=\"https://redirect.github.com/pypa/virtualenv/issues/3001\">#3001</a>)</li>\n<li>Additional commits viewable in <a\nhref=\"https://github.com/pypa/virtualenv/compare/20.33.0...20.36.1\">compare\nview</a></li>\n</ul>\n</details>\n<br />\n\n\n[![Dependabot compatibility\nscore](https://dependabot-badges.githubapp.com/badges/compatibility_score?dependency-name=virtualenv&package-manager=uv&previous-version=20.33.0&new-version=20.36.1)](https://docs.github.com/en/github/managing-security-vulnerabilities/about-dependabot-security-updates#about-compatibility-scores)\n\nDependabot will resolve any conflicts with this PR as long as you don't\nalter it yourself. You can also trigger a rebase manually by commenting\n`@dependabot rebase`.\n\n[//]: # (dependabot-automerge-start)\n[//]: # (dependabot-automerge-end)\n\n---\n\n<details>\n<summary>Dependabot commands and options</summary>\n<br />\n\nYou can trigger Dependabot actions by commenting on this PR:\n- `@dependabot rebase` will rebase this PR\n- `@dependabot recreate` will recreate this PR, overwriting any edits\nthat have been made to it\n- `@dependabot show <dependency name> ignore conditions` will show all\nof the ignore conditions of the specified dependency\n- `@dependabot ignore this major version` will close this PR and stop\nDependabot creating any more for this major version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this minor version` will close this PR and stop\nDependabot creating any more for this minor version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this dependency` will close this PR and stop\nDependabot creating any more for this dependency (unless you reopen the\nPR or upgrade to it yourself)\nYou can disable automated security fix PRs for this repo from the\n[Security Alerts\npage](https://github.com/xorq-labs/xorq/network/alerts).\n\n</details>\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-03-10T15:23:07+01:00",
+          "tree_id": "f4a071ebbad5bf6d9150b9d3965ad1984bc5500c",
+          "url": "https://github.com/xorq-labs/xorq/commit/7b0c576660ef7b28c8a81ce50ef834cac6b0b05b"
+        },
+        "date": 1773152637998,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 11.341095437059902,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0010277970902031232",
+            "extra": "mean: 88.17490387500371 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 5.125441568963989,
+            "unit": "iter/sec",
+            "range": "stddev: 0.002214868230439224",
+            "extra": "mean: 195.10514100000384 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.9344814034196498,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01568783349528367",
+            "extra": "mean: 1.0701122529999965 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.391380448020654,
+            "unit": "iter/sec",
+            "range": "stddev: 0.001102785932819251",
+            "extra": "mean: 185.4812528333317 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.3116793494138,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0027539521965397385",
+            "extra": "mean: 188.2643763333268 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.294092568630761,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0018792674055029893",
+            "extra": "mean: 188.88978366667195 msec\nrounds: 6"
           }
         ]
       }
