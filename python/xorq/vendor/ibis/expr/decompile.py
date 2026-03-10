@@ -127,40 +127,53 @@ def table(op, schema, name, **kwargs):
     return f"ibis.table(name={name!r}, schema={fields})"
 
 
-def _extract_udxf_comment(udxf_cls):
-    """Extract a descriptive comment block from a UDXF class.
+def _extract_udxf_user_fn(udxf_cls):
+    """Extract the user function from a UDXF class's exchange_f chain.
 
-    Tries to find the user function's source file, signature, and if the
-    source file still exists, includes the function body.
+    Returns the function object or None.
     """
-    if udxf_cls is None:
-        return ""
-    lines = []
     try:
         ef = udxf_cls.exchange_f
         inner_partial = ef.func
         process_batch_partial = inner_partial.args[0]
-        user_fn = process_batch_partial.args[0]
-        code = user_fn.__code__
+        return process_batch_partial.args[0]
+    except (AttributeError, IndexError, TypeError):
+        return None
 
-        arg_names = code.co_varnames[: code.co_argcount]
-        sig = f"def {user_fn.__qualname__}({', '.join(arg_names)}):"
-        lines.append(f"# {sig}")
-        lines.append(f"#   Source: {code.co_filename}:{code.co_firstlineno}")
 
-        # Try to read the actual source from disk
-        import os
+def _extract_udxf_comment(udxf_cls):
+    """Extract a descriptive comment block from a UDXF class.
 
-        src_file = code.co_filename
-        if os.path.isfile(src_file):
+    Tries to include the full source if the file still exists on disk.
+    Otherwise, reconstructs a summary from the code object's metadata:
+    local variable names, imported modules, called methods, and string
+    constants — enough to understand what the function does.
+    """
+    if udxf_cls is None:
+        return ""
+
+    user_fn = _extract_udxf_user_fn(udxf_cls)
+    if user_fn is None:
+        return ""
+
+    code = user_fn.__code__
+    arg_names = code.co_varnames[: code.co_argcount]
+    sig = f"def {user_fn.__qualname__}({', '.join(arg_names)}):"
+    lines = [f"# {sig}"]
+    lines.append(f"#   Source: {code.co_filename}:{code.co_firstlineno}")
+
+    # Try to read the actual source from disk
+    import os
+
+    src_file = code.co_filename
+    if os.path.isfile(src_file):
+        try:
             with open(src_file) as f:
                 src_lines = f.readlines()
             start = code.co_firstlineno - 1
-            # Find the function body (indented lines after the def)
             body_lines = []
             for line in src_lines[start:]:
                 body_lines.append(line.rstrip())
-                # Stop at next top-level def/class or empty + non-indented
                 if len(body_lines) > 1 and line.strip() and not line[0].isspace():
                     body_lines.pop()
                     break
@@ -168,11 +181,49 @@ def _extract_udxf_comment(udxf_cls):
                 lines.append("#")
                 for bl in body_lines:
                     lines.append(f"#   {bl}")
-    except (AttributeError, IndexError, TypeError, OSError):
-        pass
-    if lines:
-        return "\n".join(lines)
-    return ""
+                return "\n".join(lines)
+        except OSError:
+            pass
+
+    # Source file gone — reconstruct from the code object
+    lines.append("#   (source file not found — reconstructed from bytecode)")
+    lines.append("#")
+
+    # Local variables (skip the arg names)
+    locals_ = list(code.co_varnames[code.co_argcount :])
+    if locals_:
+        lines.append(f"#   Local variables: {', '.join(locals_)}")
+
+    # Imports and method calls
+    names = list(code.co_names)
+    imports = [n for n in names if n == n.lower() and n.isidentifier() and len(n) > 2]
+    methods = [n for n in names if n not in imports]
+    if imports:
+        lines.append(f"#   Uses: {', '.join(imports)}")
+    if methods:
+        lines.append(f"#   Calls: {', '.join(methods)}")
+
+    # String constants (skip short/internal ones)
+    str_consts = [
+        c
+        for c in code.co_consts
+        if isinstance(c, str) and len(c) > 3 and not c.startswith("/")
+    ]
+    if str_consts:
+        lines.append("#")
+        lines.append("#   Key string literals (hints at logic):")
+        for s in str_consts[:15]:
+            lines.append(f"#     {s!r}")
+
+    # Nested functions
+    nested = [c for c in code.co_consts if hasattr(c, "co_name")]
+    if nested:
+        lines.append("#")
+        for nc in nested:
+            nc_args = nc.co_varnames[: nc.co_argcount]
+            lines.append(f"#   Inner function: {nc.co_name}({', '.join(nc_args)})")
+
+    return "\n".join(lines)
 
 
 def _register_xorq_relation_handlers():
