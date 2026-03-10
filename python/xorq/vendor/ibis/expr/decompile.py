@@ -185,8 +185,10 @@ def _extract_udxf_comment(udxf_cls):
         except OSError:
             pass
 
-    # Source file gone — reconstruct from the code object
-    lines.append("#   (source file not found — reconstructed from bytecode)")
+    # Source file gone — flag as error and reconstruct from bytecode
+    lines.append(f"#   ERROR: source file not found: {src_file}")
+    lines.append("#   The original Python file has been deleted or moved.")
+    lines.append("#   Below is a reconstruction from bytecode metadata.")
     lines.append("#")
 
     # Local variables (skip the arg names)
