@@ -4,7 +4,11 @@ import pytest
 
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.vendor.ibis.expr.decompile import decompile, translate
+from xorq.vendor.ibis.expr.decompile import (
+    _register_xorq_relation_handlers,
+    decompile,
+    translate,
+)
 
 pytestmark = pytest.mark.xorq
 
@@ -69,6 +73,10 @@ class TestDecompileCustomXorqRelations:
     CachedNode, RemoteTable, FlightUDXF, and Read should not fall back to
     the generic DatabaseTable handler, which discards their extra fields.
     """
+
+    def setup_method(self):
+        # Trigger lazy registration so dispatch checks work
+        _register_xorq_relation_handlers()
 
     def test_cached_node_has_translate_handler(self):
         from xorq.expr.relations import CachedNode

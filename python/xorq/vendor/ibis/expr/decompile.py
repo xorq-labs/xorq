@@ -90,10 +90,18 @@ def value(op, *args, **kwargs):
     method = _get_method_name(op)
     kwargs = [(k, v) for k, v in kwargs.items() if v is not None]
 
-    if args:
+    if args and kwargs:
+        raise NotImplementedError(
+            f"decompile does not support ops with both positional and keyword "
+            f"arguments: {type(op).__name__} args={args} kwargs={kwargs}"
+        )
+    elif args:
         this, *args = args
-    else:
+    elif kwargs:
         (_, this), *kwargs = kwargs
+    else:
+        # Zero-argument analytics (row_number, rank, etc.)
+        return f"ibis.{method}()"
 
     # if there is a single keyword argument prefer to pass that as positional
     if not args and len(kwargs) == 1:
@@ -117,6 +125,63 @@ def scalar_parameter(op, dtype, counter):
 def table(op, schema, name, **kwargs):
     fields = dict(zip(schema.names, map(str, schema.types)))
     return f"ibis.table(name={name!r}, schema={fields})"
+
+
+def _register_xorq_relation_handlers():
+    """Register translate handlers for custom xorq relation types.
+
+    These types inherit from DatabaseTable but carry extra fields (parent,
+    remote_expr, input_expr, read_kwargs) that the generic handler discards.
+
+    Called lazily from decompile() to avoid circular import issues —
+    xorq.expr.relations is not importable when decompile.py first loads.
+    """
+    if _register_xorq_relation_handlers._done:
+        return
+    _register_xorq_relation_handlers._done = True
+    try:
+        from xorq.expr.relations import CachedNode, FlightUDXF, Read, RemoteTable
+    except ImportError:
+        return
+
+    @translate.register(CachedNode)
+    def cached_node(op, schema, name, parent=None, cache=None, **kwargs):
+        fields = dict(zip(schema.names, map(str, schema.types)))
+        if parent is not None:
+            return f"{parent}.cache(name={name!r})  # schema={fields}"
+        return f"ibis.table(name={name!r}, schema={fields})  # cached"
+
+    @translate.register(RemoteTable)
+    def remote_table(op, schema, name, remote_expr=None, **kwargs):
+        fields = dict(zip(schema.names, map(str, schema.types)))
+        if remote_expr is not None:
+            return f"{remote_expr}.into_backend(name={name!r})  # remote, schema={fields}"
+        return f"ibis.table(name={name!r}, schema={fields})  # remote"
+
+    @translate.register(Read)
+    def read(op, schema, name, method_name=None, read_kwargs=None, **kwargs):
+        fields = dict(zip(schema.names, map(str, schema.types)))
+        if method_name and read_kwargs:
+            kw_parts = []
+            for k, v in read_kwargs:
+                kw_parts.append(f"{k}={v!r}")
+            kw_str = ", ".join(kw_parts)
+            return f"con.{method_name}({kw_str})  # name={name!r}, schema={fields}"
+        return f"ibis.table(name={name!r}, schema={fields})  # read"
+
+    @translate.register(FlightUDXF)
+    def flight_udxf(op, schema, name, input_expr=None, udxf=None, **kwargs):
+        fields = dict(zip(schema.names, map(str, schema.types)))
+        udxf_name = getattr(udxf, "__name__", str(udxf)) if udxf else "unknown"
+        if input_expr is not None:
+            return (
+                f"{input_expr}.pipe(flight_udxf({udxf_name!r}))  "
+                f"# name={name!r}, schema={fields}"
+            )
+        return f"ibis.table(name={name!r}, schema={fields})  # flight_udxf({udxf_name!r})"
+
+
+_register_xorq_relation_handlers._done = False
 
 
 def _try_unwrap(stmt):
@@ -445,6 +510,8 @@ def decompile(
     """
     if not isinstance(expr, ir.Expr):
         raise TypeError(f"Expected ibis expression, got {type(expr).__name__}")
+
+    _register_xorq_relation_handlers()
 
     node = expr.op()
     node = simplify(node)
