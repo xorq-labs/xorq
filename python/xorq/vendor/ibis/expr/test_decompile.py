@@ -6,6 +6,8 @@ import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.vendor.ibis.expr.decompile import decompile, translate
 
+pytestmark = pytest.mark.xorq
+
 
 class TestDecompileZeroArgAnalytics:
     """decompile() should handle zero-argument window/analytic functions.
