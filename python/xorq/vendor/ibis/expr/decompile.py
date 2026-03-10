@@ -141,13 +141,12 @@ def _extract_udxf_user_fn(udxf_cls):
         return None
 
 
-def _extract_udxf_comment(udxf_cls):
-    """Extract a descriptive comment block from a UDXF class.
+def _extract_udxf_source(udxf_cls):
+    """Extract the UDXF user function as real Python code.
 
-    Tries to include the full source if the file still exists on disk.
-    Otherwise, reconstructs a summary from the code object's metadata:
-    local variable names, imported modules, called methods, and string
-    constants — enough to understand what the function does.
+    If the source file still exists on disk, returns the actual function source.
+    Otherwise, reconstructs a stub with the bytecode metadata as the body,
+    so Pygments can syntax-highlight the def/signature/variables.
     """
     if udxf_cls is None:
         return ""
@@ -158,14 +157,12 @@ def _extract_udxf_comment(udxf_cls):
 
     code = user_fn.__code__
     arg_names = code.co_varnames[: code.co_argcount]
-    sig = f"def {user_fn.__qualname__}({', '.join(arg_names)}):"
-    lines = [f"# {sig}"]
-    lines.append(f"#   Source: {code.co_filename}:{code.co_firstlineno}")
+    fn_name = user_fn.__qualname__
+    src_file = code.co_filename
 
     # Try to read the actual source from disk
     import os
 
-    src_file = code.co_filename
     if os.path.isfile(src_file):
         try:
             with open(src_file) as f:
@@ -178,52 +175,57 @@ def _extract_udxf_comment(udxf_cls):
                     body_lines.pop()
                     break
             if body_lines:
-                lines.append("#")
-                for bl in body_lines:
-                    lines.append(f"#   {bl}")
-                return "\n".join(lines)
+                return "\n".join(body_lines)
         except OSError:
             pass
 
-    # Source file gone — flag as error and reconstruct from bytecode
-    lines.append(f"#   ERROR: source file not found: {src_file}")
-    lines.append("#   The original Python file has been deleted or moved.")
-    lines.append("#   Below is a reconstruction from bytecode metadata.")
-    lines.append("#")
+    # Source file gone — build a stub function with bytecode metadata
+    lines = []
+    lines.append(f"def {fn_name}({', '.join(arg_names)}):")
+    lines.append(f'    """UDXF function — source file missing.')
+    lines.append(f"    Original: {src_file}:{code.co_firstlineno}")
+    lines.append(f'    Reconstructed from bytecode metadata."""')
 
-    # Local variables (skip the arg names)
+    # Local variables
     locals_ = list(code.co_varnames[code.co_argcount :])
-    if locals_:
-        lines.append(f"#   Local variables: {', '.join(locals_)}")
 
     # Imports and method calls
     names = list(code.co_names)
     imports = [n for n in names if n == n.lower() and n.isidentifier() and len(n) > 2]
     methods = [n for n in names if n not in imports]
-    if imports:
-        lines.append(f"#   Uses: {', '.join(imports)}")
-    if methods:
-        lines.append(f"#   Calls: {', '.join(methods)}")
 
-    # String constants (skip short/internal ones)
+    # Extract actual module imports from bytecode IMPORT_NAME instructions
+    import dis
+
+    import_modules = set()
+    try:
+        for instr in dis.get_instructions(code):
+            if instr.opname == "IMPORT_NAME":
+                import_modules.add(instr.argval)
+    except Exception:
+        pass
+    if import_modules:
+        lines.append(f"    import {', '.join(sorted(import_modules))}")
+        lines.append("")
+
+    # Show variable declarations as ... assignments to hint at structure
+    if locals_:
+        for var in locals_:
+            lines.append(f"    {var} = ...")
+
+    lines.append(f"    return {locals_[-1] if locals_ else 'result'}")
+    lines.append("")
+
+    # String constants as a comment block after the function
     str_consts = [
         c
         for c in code.co_consts
         if isinstance(c, str) and len(c) > 3 and not c.startswith("/")
     ]
     if str_consts:
-        lines.append("#")
-        lines.append("#   Key string literals (hints at logic):")
+        lines.append("# Key string literals found in bytecode:")
         for s in str_consts[:15]:
-            lines.append(f"#     {s!r}")
-
-    # Nested functions
-    nested = [c for c in code.co_consts if hasattr(c, "co_name")]
-    if nested:
-        lines.append("#")
-        for nc in nested:
-            nc_args = nc.co_varnames[: nc.co_argcount]
-            lines.append(f"#   Inner function: {nc.co_name}({', '.join(nc_args)})")
+            lines.append(f"#   {s!r}")
 
     return "\n".join(lines)
 
@@ -284,10 +286,12 @@ def _register_xorq_relation_handlers():
             getattr(udxf_cls, "__name__", "unknown") if udxf_cls else "unknown"
         )
 
-        fn_comment = _extract_udxf_comment(udxf_cls)
+        fn_source = _extract_udxf_source(udxf_cls)
         lines = []
-        if fn_comment:
-            lines.append(fn_comment)
+        if fn_source:
+            lines.append(fn_source)
+            lines.append("")
+            lines.append("")
 
         if input_expr is not None:
             # input_expr is an ibis Table — recursively decompile it
@@ -297,9 +301,8 @@ def _register_xorq_relation_handlers():
             lines.append(inner)
             lines.append("")
             lines.append(
-                f"# UDXF: {udxf_name} — takes a DataFrame, returns a DataFrame"
+                f"# The UDXF runs {udxf_name}() on each batch of input_data"
             )
-            lines.append(f"# Output: {fields}")
             lines.append(f"input_data.pipe({udxf_name})")
         else:
             lines.append(
