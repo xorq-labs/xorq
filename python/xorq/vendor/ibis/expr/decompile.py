@@ -127,6 +127,54 @@ def table(op, schema, name, **kwargs):
     return f"ibis.table(name={name!r}, schema={fields})"
 
 
+def _extract_udxf_comment(udxf_cls):
+    """Extract a descriptive comment block from a UDXF class.
+
+    Tries to find the user function's source file, signature, and if the
+    source file still exists, includes the function body.
+    """
+    if udxf_cls is None:
+        return ""
+    lines = []
+    try:
+        ef = udxf_cls.exchange_f
+        inner_partial = ef.func
+        process_batch_partial = inner_partial.args[0]
+        user_fn = process_batch_partial.args[0]
+        code = user_fn.__code__
+
+        arg_names = code.co_varnames[: code.co_argcount]
+        sig = f"def {user_fn.__qualname__}({', '.join(arg_names)}):"
+        lines.append(f"# {sig}")
+        lines.append(f"#   Source: {code.co_filename}:{code.co_firstlineno}")
+
+        # Try to read the actual source from disk
+        import os
+
+        src_file = code.co_filename
+        if os.path.isfile(src_file):
+            with open(src_file) as f:
+                src_lines = f.readlines()
+            start = code.co_firstlineno - 1
+            # Find the function body (indented lines after the def)
+            body_lines = []
+            for line in src_lines[start:]:
+                body_lines.append(line.rstrip())
+                # Stop at next top-level def/class or empty + non-indented
+                if len(body_lines) > 1 and line.strip() and not line[0].isspace():
+                    body_lines.pop()
+                    break
+            if body_lines:
+                lines.append("#")
+                for bl in body_lines:
+                    lines.append(f"#   {bl}")
+    except (AttributeError, IndexError, TypeError, OSError):
+        pass
+    if lines:
+        return "\n".join(lines)
+    return ""
+
+
 def _register_xorq_relation_handlers():
     """Register translate handlers for custom xorq relation types.
 
@@ -153,9 +201,15 @@ def _register_xorq_relation_handlers():
 
     @translate.register(RemoteTable)
     def remote_table(op, schema, name, remote_expr=None, **kwargs):
-        fields = dict(zip(schema.names, map(str, schema.types)))
         if remote_expr is not None:
-            return f"{remote_expr}.into_backend(name={name!r})  # remote, schema={fields}"
+            # remote_expr is an ibis Table — recursively decompile to
+            # valid Python, assigning intermediate results
+            inner = decompile(
+                remote_expr, render_import=False, assign_result_to="remote_expr"
+            ).strip()
+            # Return multi-line: the inner code block + final expression
+            return f"{inner}\nremote_expr"
+        fields = dict(zip(schema.names, map(str, schema.types)))
         return f"ibis.table(name={name!r}, schema={fields})  # remote"
 
     @translate.register(Read)
@@ -166,19 +220,40 @@ def _register_xorq_relation_handlers():
             for k, v in read_kwargs:
                 kw_parts.append(f"{k}={v!r}")
             kw_str = ", ".join(kw_parts)
-            return f"con.{method_name}({kw_str})  # name={name!r}, schema={fields}"
+            return f"con.{method_name}({kw_str})  # {name!r}"
         return f"ibis.table(name={name!r}, schema={fields})  # read"
 
     @translate.register(FlightUDXF)
     def flight_udxf(op, schema, name, input_expr=None, udxf=None, **kwargs):
         fields = dict(zip(schema.names, map(str, schema.types)))
-        udxf_name = getattr(udxf, "__name__", str(udxf)) if udxf else "unknown"
+        udxf_cls = op.udxf  # raw class, not translated
+        udxf_name = (
+            getattr(udxf_cls, "__name__", "unknown") if udxf_cls else "unknown"
+        )
+
+        fn_comment = _extract_udxf_comment(udxf_cls)
+        lines = []
+        if fn_comment:
+            lines.append(fn_comment)
+
         if input_expr is not None:
-            return (
-                f"{input_expr}.pipe(flight_udxf({udxf_name!r}))  "
-                f"# name={name!r}, schema={fields}"
+            # input_expr is an ibis Table — recursively decompile it
+            inner = decompile(
+                input_expr, render_import=False, assign_result_to="input_data"
+            ).strip()
+            lines.append(inner)
+            lines.append("")
+            lines.append(
+                f"# UDXF: {udxf_name} — takes a DataFrame, returns a DataFrame"
             )
-        return f"ibis.table(name={name!r}, schema={fields})  # flight_udxf({udxf_name!r})"
+            lines.append(f"# Output: {fields}")
+            lines.append(f"input_data.pipe({udxf_name})")
+        else:
+            lines.append(
+                f"ibis.table(name={name!r}, schema={fields})"
+                f"  # flight_udxf({udxf_name!r})"
+            )
+        return "\n".join(lines)
 
 
 _register_xorq_relation_handlers._done = False
@@ -458,6 +533,29 @@ class CodeContext:
         nth = next(self._shorthand_counters[name]) or ""
         return f"{name}{nth}"
 
+    def _split_block(self, code):
+        """Split multi-line code into (preamble, final_expr).
+
+        If code contains newlines, the last non-empty line is the
+        expression; preceding lines are a preamble block (comments,
+        intermediate assignments) that must be emitted before the
+        assignment.
+        """
+        code_str = str(code)
+        lines = code_str.split("\n")
+        if len(lines) <= 1:
+            return ("", code_str)
+        # Find the last non-empty line as the expression
+        while lines and not lines[-1].strip():
+            lines.pop()
+        if not lines:
+            return ("", code_str)
+        final_expr = lines.pop()
+        preamble = "\n".join(lines)
+        if preamble:
+            preamble += "\n"
+        return (preamble, final_expr)
+
     def render(self, node, code, n_dependents):
         isroot = n_dependents == 0
         ignore = isinstance(node, self.always_ignore)
@@ -467,16 +565,18 @@ class CodeContext:
         if not code:
             return (None, None)
         elif isroot:
+            preamble, final_expr = self._split_block(code)
             if self.assign_result_to:
-                out = f"\n{self.assign_result_to} = {code}\n"
+                out = f"{preamble}\n{self.assign_result_to} = {final_expr}\n"
             else:
-                out = str(code)
-            return (out, code)
+                out = f"{preamble}{final_expr}"
+            return (out, final_expr)
         elif ignore:
             return (None, code)
         elif assign:
             var = self.variable_for(node)
-            out = f"{var} = {code}\n"
+            preamble, final_expr = self._split_block(code)
+            out = f"{preamble}{var} = {final_expr}\n"
             return (out, var)
         else:
             return (None, code)
