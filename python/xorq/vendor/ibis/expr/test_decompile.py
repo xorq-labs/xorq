@@ -5,6 +5,7 @@ import pytest
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.vendor.ibis.expr.decompile import (
+    CodeContext,
     _register_xorq_relation_handlers,
     decompile,
     translate,
@@ -187,3 +188,74 @@ class TestDecompileCustomXorqRelations:
         assert "udxf" in code.lower() or "flight" in code.lower(), (
             f"Decompiled FlightUDXF should reference UDXF, got:\n{code}"
         )
+
+
+class TestDecompileProducesValidPython:
+    """decompile() output must be valid Python syntax.
+
+    RemoteTable and FlightUDXF stringify inner ibis Table expressions,
+    which produces multi-line schema dumps that are not valid Python.
+    """
+
+    def setup_method(self):
+        _register_xorq_relation_handlers()
+
+    def test_flight_udxf_produces_valid_python(self):
+        """FlightUDXF decompile output must compile without SyntaxError."""
+        from xorq.expr.relations import FlightUDXF
+
+        t = ibis.table(name="src", schema={"x": "int64", "y": "string"})
+        node = FlightUDXF(
+            name="my_udxf",
+            schema=t.schema(),
+            source=None,
+            input_expr=t.op(),
+            udxf=type,
+            make_server=lambda: None,
+            make_connection=lambda: None,
+        )
+        code = decompile(node.to_expr())
+        try:
+            compile(code, "<test>", "exec")
+        except SyntaxError as exc:
+            pytest.fail(
+                f"FlightUDXF decompile produced invalid Python:\n{code}\n\n{exc}"
+            )
+
+    def test_remote_table_produces_valid_python(self):
+        """RemoteTable decompile output must compile without SyntaxError."""
+        from xorq.expr.relations import RemoteTable
+
+        t = ibis.table(name="src", schema={"x": "int64", "y": "string"})
+        node = RemoteTable(
+            name="remote_dest",
+            schema=t.schema(),
+            source=None,
+            remote_expr=t.op(),
+        )
+        code = decompile(node.to_expr())
+        try:
+            compile(code, "<test>", "exec")
+        except SyntaxError as exc:
+            pytest.fail(
+                f"RemoteTable decompile produced invalid Python:\n{code}\n\n{exc}"
+            )
+
+    def test_render_multiline_code_block(self):
+        """CodeContext.render() must handle multi-line code with comments."""
+        ctx = CodeContext(assign_result_to="result")
+
+        # Simulate a handler returning preamble + final expression
+        multiline = "# a comment\nx = 1\nx + y"
+
+        class _FakeNode:
+            pass
+
+        out, _ = ctx.render(_FakeNode(), multiline, 0)
+        try:
+            compile(out, "<test>", "exec")
+        except SyntaxError as exc:
+            pytest.fail(
+                f"render() produced invalid Python for multi-line block:"
+                f"\n{out}\n\n{exc}"
+            )
