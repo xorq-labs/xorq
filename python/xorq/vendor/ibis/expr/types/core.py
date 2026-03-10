@@ -4,6 +4,7 @@ import contextlib
 import functools
 import os
 import webbrowser
+from functools import cached_property
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from attr import (
@@ -18,6 +19,7 @@ from public import public
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.common.exceptions import TranslationError, XorqError
 from xorq.common.utils.func_utils import return_constant
+from xorq.ibis_yaml.enums import ExprKind
 from xorq.vendor import ibis
 from xorq.vendor.ibis.common.annotations import ValidationError
 from xorq.vendor.ibis.common.grounds import Immutable
@@ -675,6 +677,47 @@ class Expr(Immutable, Coercible):
 
 
 @frozen
+class ExprMetadata:
+    expr = field(validator=instance_of(Expr))
+
+    @cached_property
+    def _unbound_node(self):
+        from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+
+        unbound_node, *rest = walk_nodes(ops.UnboundTable, self.expr) or (None,)
+        if rest:
+            raise ValueError("Expected at most one UnboundTable")
+        return unbound_node
+
+    @cached_property
+    def kind(self) -> ExprKind:
+        return ExprKind.UnboundExpr if self._unbound_node else ExprKind.Expr
+
+    @cached_property
+    def schema_in(self):
+        return (
+            {k: str(v) for k, v in node.schema.items()}
+            if (node := self._unbound_node)
+            else None
+        )
+
+    @cached_property
+    def schema_out(self):
+        return {k: str(v) for k, v in self.expr.as_table().schema().items()}
+
+    def to_dict(self):
+        return {
+            key: value
+            for key, value in (
+                ("kind", str(self.kind)),
+                ("schema_in", self.schema_in),
+                ("schema_out", self.schema_out),
+            )
+            if value is not None
+        }
+
+
+@frozen
 class LETSQLAccessor:
     op = field(validator=instance_of(ops.Node))
     node_types = (ops.DatabaseTable, ops.SQLQueryResult)
@@ -682,6 +725,10 @@ class LETSQLAccessor:
     @property
     def expr(self):
         return self.op.to_expr()
+
+    @cached_property
+    def info(self):
+        return ExprMetadata(self.expr)
 
     @property
     def cached_nodes(self):

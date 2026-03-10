@@ -69,7 +69,8 @@ from xorq.ibis_yaml.sql import generate_sql_plans
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
-from xorq.vendor.ibis.expr.operations import DatabaseTable, InMemoryTable, UnboundTable
+from xorq.vendor.ibis.expr.operations import DatabaseTable, InMemoryTable
+from xorq.vendor.ibis.expr.types.core import ExprMetadata
 
 
 @functools.cache
@@ -440,17 +441,7 @@ class ExprDumper:
         return path, writer
 
     def _make_expr_metadata(self, expr) -> Dict[str, Any]:
-        unbound_node, *rest = walk_nodes(UnboundTable, expr) or (None,)
-        if rest:
-            raise ValueError("Expected at most one UnboundTable")
-        return {
-            "kind": str(ExprKind.UnboundExpr if unbound_node else ExprKind.Expr),
-            "schema_out": toolz.valmap(str, expr.as_table().schema()),
-        } | (
-            {"schema_in": toolz.valmap(str, unbound_node.schema)}
-            if unbound_node
-            else {}
-        )
+        return ExprMetadata(expr).to_dict()
 
     def _prepare_expr_metadata_file(self, expr):
         path = self.artifact_store.get_path(DumpFiles.expr_metadata)
