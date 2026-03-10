@@ -344,9 +344,15 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             catalog = self.con.catalog()
 
         if database is not None:
-            database = catalog.database(database)
+            try:
+                database = catalog.schema(database)
+            except AttributeError:
+                database = catalog.database(database)
         else:
-            database = catalog.database()
+            try:
+                database = catalog.schema()
+            except AttributeError:
+                database = catalog.database()
 
         table = database.table(table_name)
         return sch.schema(table.schema)
@@ -414,7 +420,11 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         )
 
     def _in_memory_table_exists(self, name: str) -> bool:
-        db = self.con.catalog().database()
+        try:
+            db = self.con.catalog().schema()
+        except AttributeError:
+            db = self.con.catalog().database()
+
         try:
             db.table(name)
         except Exception:  # noqa: BLE001 because DataFusion has nothing better
@@ -426,7 +436,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         # self.con.register_table is broken, so we do this roundabout thing
         # of constructing a datafusion DataFrame, which has a side effect
         # of registering the table
-        self.con.from_arrow_table(op.data.to_pyarrow(op.schema), op.name)
+        self.con.from_arrow(op.data.to_pyarrow(op.schema), op.name)
 
     def read_csv(
         self, path: str | Path, table_name: str | None = None, **kwargs: Any

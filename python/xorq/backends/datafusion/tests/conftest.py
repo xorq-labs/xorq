@@ -25,7 +25,7 @@ def quotes_df():
 def trades_df():
     # Create sample trading data
     np.random.seed(42)
-    dates = pd.date_range(start="2024-01-01", end="2024-01-31", freq="H")
+    dates = pd.date_range(start="2024-01-01", end="2024-01-31", freq="h")
 
     # Trades data
     trades = pd.DataFrame(
