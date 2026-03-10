@@ -32,6 +32,7 @@ from xorq.caching import (
     ParquetTTLSnapshotCache,
     SnapshotStrategy,
 )
+from xorq.common.exceptions import UnboundExpressionError
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_read_path_md5sum,
@@ -572,9 +573,8 @@ class ExprLoader:
         yaml_dict = self.artifact_store.load_yaml(DumpFiles.expr)
         entry = self.artifact_store.read_json(DumpFiles.expr_metadata)
         if raise_on_unbound and entry.get("kind") == ExprKind.UnboundExpr:
-            raise ValueError(
-                "Cannot run unbound expression"
-                " - compose it with a source first using xorq catalog compose-add"
+            raise UnboundExpressionError(
+                "expression is unbound; pass raise_on_unbound=False to load anyway"
             )
         expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
         expr = self.deferred_reads_to_memtables(expr, self.expr_path)
