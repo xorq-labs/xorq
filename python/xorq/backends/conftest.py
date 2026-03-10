@@ -78,7 +78,6 @@ def pytest_collection_modifyitems(session, config, items):
         backend = _get_backend_from_parts(parts)
         if backend is not None and backend in all_backends:
             item.add_marker(getattr(pytest.mark, backend))
-            item.add_marker(pytest.mark.backend)
         elif "backends" not in parts and not tuple(
             itertools.chain(
                 *(item.iter_markers(name=name) for name in all_backends),
