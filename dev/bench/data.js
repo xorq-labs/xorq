@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773094761440,
+  "lastUpdate": 1773144933582,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -462,6 +462,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.001574840107293647",
             "extra": "mean: 170.7643956666658 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d128a35e263ae71d72ee18f9f48b007bc7f29051",
+          "message": "fix: resolve DeprecationWarning and FutureWarning in tests (#1706)\n\n- Fix Python 3.13+ DeprecationWarning in bigquery udf/core.py: create\nast.Attribute pattern via __new__ to avoid required `value` argument\n- Fix pandas FutureWarning: use lowercase 'h' instead of deprecated 'H'\nfreq alias in date_range\n- Fix datafusion backend: use catalog().schema() with fallback to\ncatalog().database() for newer datafusion API\n- Remove redundant pytest.mark.backend marker in backends/conftest.py\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-10T13:14:36+01:00",
+          "tree_id": "7679f1dd4fb75b9b7beff8c5bebda05ef2cdb29a",
+          "url": "https://github.com/xorq-labs/xorq/commit/d128a35e263ae71d72ee18f9f48b007bc7f29051"
+        },
+        "date": 1773144930765,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 11.019470049757214,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00020172129886346832",
+            "extra": "mean: 90.74846571428655 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 5.02730993536094,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0015713802093259377",
+            "extra": "mean: 198.91353683333315 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.9106737043637411,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014042057469572941",
+            "extra": "mean: 1.0980881463999979 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.320094592416967,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0011710859319187107",
+            "extra": "mean: 187.966582666661 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.267074505199654,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0029904122135194612",
+            "extra": "mean: 189.8587154999992 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.2058577130040575,
+            "unit": "iter/sec",
+            "range": "stddev: 0.001533732658594809",
+            "extra": "mean: 192.0913046666707 msec\nrounds: 6"
           }
         ]
       }
