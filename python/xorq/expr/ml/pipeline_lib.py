@@ -914,6 +914,36 @@ class Pipeline:
     def set_params(self, **kwargs):
         return self.__class__.from_instance(self.instance.set_params(**kwargs))
 
+    def remap_columns(self, column_map, *, strict=False, **kwargs):
+        """Return a new Pipeline with ColumnTransformer column references remapped.
+
+        column_map: dict of {slash-qualified-path: new_col_list},
+            e.g. {"preprocessor/num": ["distance", "flight_time"]}.
+        strict: if True, raise if any pipeline slot path is absent from column_map.
+        **kwargs: passed to ColumnRemapper (e.g. extra_registry).
+        """
+        from xorq.expr.ml.sklearn_utils import ColumnRemapper  # noqa: PLC0415
+
+        remapped = ColumnRemapper.from_dict(column_map, **kwargs).remap(
+            self.instance, strict=strict
+        )
+        return self.__class__.from_instance(remapped)
+
+    def remap_params(self, param_map, *, strict=False):
+        """Return a new Pipeline with arbitrary sklearn params remapped.
+
+        param_map: dict of {sklearn-double-underscore-path: value},
+            e.g. {"classifier__C": 0.01} or {"classifier": Ridge()}.
+        strict: if True, raise if any param_map key is absent from
+            pipeline.get_params(deep=True).
+        """
+        from xorq.expr.ml.sklearn_utils import ParamRemapper  # noqa: PLC0415
+
+        remapped = ParamRemapper.from_dict(param_map).remap(
+            self.instance, strict=strict
+        )
+        return self.__class__.from_instance(remapped)
+
 
 @frozen
 class FittedPipeline:
