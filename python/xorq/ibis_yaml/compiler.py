@@ -419,7 +419,7 @@ class ExprDumper:
         return path_to_writer
 
     @staticmethod
-    def _make_metadata() -> str:
+    def _make_build_metadata() -> str:
         metadata = {
             "current_library_version": xorq.__version__,
             "metadata_version": "0.0.0",  # TODO: make it a real thing
@@ -431,11 +431,11 @@ class ExprDumper:
         metadata_json = json.dumps(metadata, indent=2)
         return metadata_json
 
-    def _prepare_metadata_file(self):
+    def _prepare_build_metadata_file(self):
         path = self.artifact_store.get_path(DumpFiles.build_metadata)
         writer = functools.partial(
             self.artifact_store.write_text,
-            self._make_metadata(),
+            self._make_build_metadata(),
             DumpFiles.build_metadata,
         )
         return path, writer
@@ -526,7 +526,7 @@ class ExprDumper:
         path_to_writer2 = dict(
             (
                 self._prepare_expr_metadata_file(expr),
-                self._prepare_metadata_file(),
+                self._prepare_build_metadata_file(),
                 self._prepare_profiles_file(profiles),
             )
         )
