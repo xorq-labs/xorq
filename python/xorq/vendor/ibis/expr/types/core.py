@@ -7,6 +7,7 @@ import webbrowser
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, NoReturn
 
+import toolz
 from attr import (
     field,
     frozen,
@@ -695,15 +696,11 @@ class ExprMetadata:
 
     @cached_property
     def schema_in(self):
-        return (
-            {k: str(v) for k, v in node.schema.items()}
-            if (node := self._unbound_node)
-            else None
-        )
+        return toolz.valmap(str, node.schema) if (node := self._unbound_node) else None
 
     @cached_property
     def schema_out(self):
-        return {k: str(v) for k, v in self.expr.as_table().schema().items()}
+        return toolz.valmap(str, self.expr.as_table().schema())
 
     def to_dict(self):
         return {
@@ -727,7 +724,7 @@ class LETSQLAccessor:
         return self.op.to_expr()
 
     @cached_property
-    def info(self):
+    def metadata(self):
         return ExprMetadata(self.expr)
 
     @property
