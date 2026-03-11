@@ -10,13 +10,15 @@ import xorq.expr.datatypes as dt
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.ml.pipeline_lib import Pipeline, Step, make_estimator_typ
-from xorq.expr.ml.sklearn_utils import ColumnRemapper
 from xorq.expr.relations import Tag
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.types import Expr
 
 
 sklearn = pytest.importorskip("sklearn")
+
+from xorq.expr.ml.sklearn_utils import ColumnRemapper  # noqa: E402
+
 
 # sklearn submodule imports
 KMeans = sklearn.cluster.KMeans
