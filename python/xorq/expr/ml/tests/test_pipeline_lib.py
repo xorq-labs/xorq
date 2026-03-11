@@ -17,6 +17,9 @@ from xorq.vendor.ibis.expr.types import Expr
 
 sklearn = pytest.importorskip("sklearn")
 
+from xorq.expr.ml.sklearn_utils import ColumnRemapper  # noqa: E402
+
+
 # sklearn submodule imports
 KMeans = sklearn.cluster.KMeans
 MiniBatchKMeans = sklearn.cluster.MiniBatchKMeans
@@ -1005,3 +1008,129 @@ def test_clustering_predict_transductive_rejected_at_fit(
 
     with pytest.raises(ValueError, match="must have transform or predict method"):
         step.fit(t, features=features)
+
+
+# ---------------------------------------------------------------------------
+# remap_columns / remap_params
+# ---------------------------------------------------------------------------
+
+Ridge = sklearn.linear_model.Ridge
+SimpleImputer = sklearn.impute.SimpleImputer
+
+
+@pytest.fixture
+def ct_pipeline():
+    """Pipeline with a ColumnTransformer having num and cat slots."""
+    numeric_transformer = SklearnPipeline(
+        [
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler()),
+        ]
+    )
+    preprocessor = ColumnTransformer(
+        [
+            ("num", numeric_transformer, ["age", "fare"]),
+            (
+                "cat",
+                OneHotEncoder(handle_unknown="ignore", sparse_output=False),
+                ["embarked", "sex"],
+            ),
+        ]
+    )
+    sk = SklearnPipeline(
+        [
+            ("preprocessor", preprocessor),
+            ("classifier", LogisticRegression(max_iter=1000, C=1.0)),
+        ]
+    )
+    return Pipeline.from_instance(sk)
+
+
+def test_remap_columns_basic(ct_pipeline):
+    remapped = ct_pipeline.remap_columns(
+        {
+            "preprocessor/num": ["distance", "flight_time"],
+            "preprocessor/cat": ["carrier", "origin"],
+        }
+    )
+    refs = ColumnRemapper.list_column_refs(remapped.instance)
+    assert refs["preprocessor/num"] == ["distance", "flight_time"]
+    assert refs["preprocessor/cat"] == ["carrier", "origin"]
+
+
+def test_remap_columns_original_unchanged(ct_pipeline):
+    ct_pipeline.remap_columns(
+        {"preprocessor/num": ["x", "y"], "preprocessor/cat": ["z", "w"]}
+    )
+    refs = ColumnRemapper.list_column_refs(ct_pipeline.instance)
+    assert refs["preprocessor/num"] == ["age", "fare"]
+    assert refs["preprocessor/cat"] == ["embarked", "sex"]
+
+
+def test_remap_columns_returns_pipeline(ct_pipeline):
+    remapped = ct_pipeline.remap_columns(
+        {"preprocessor/num": ["a", "b"], "preprocessor/cat": ["c"]}
+    )
+    assert isinstance(remapped, Pipeline)
+
+
+def test_remap_columns_unknown_key_raises(ct_pipeline):
+    with pytest.raises(ValueError, match="column_map keys not found"):
+        ct_pipeline.remap_columns({"preprocessor/typo": ["a", "b"]})
+
+
+def test_remap_columns_strict_raises_on_unmapped(ct_pipeline):
+    with pytest.raises(ValueError, match="pipeline paths not covered"):
+        ct_pipeline.remap_columns(
+            {"preprocessor/num": ["a", "b"]},
+            strict=True,
+        )
+
+
+def test_remap_columns_strict_passes_when_all_mapped(ct_pipeline):
+    remapped = ct_pipeline.remap_columns(
+        {"preprocessor/num": ["a", "b"], "preprocessor/cat": ["c", "d"]},
+        strict=True,
+    )
+    assert isinstance(remapped, Pipeline)
+
+
+def test_remap_columns_nested_slot(ct_pipeline):
+    refs = ColumnRemapper.list_column_refs(ct_pipeline.instance)
+    assert "preprocessor/num/imputer" not in refs  # imputer has no cols list
+    assert "preprocessor/num" in refs
+
+
+def test_remap_params_leaf_param(ct_pipeline):
+    remapped = ct_pipeline.remap_params({"classifier__C": 0.01})
+    assert remapped.instance.get_params()["classifier__C"] == 0.01
+
+
+def test_remap_params_nested_param(ct_pipeline):
+    remapped = ct_pipeline.remap_params(
+        {"preprocessor__num__imputer__strategy": "mean"}
+    )
+    assert (
+        remapped.instance.get_params()["preprocessor__num__imputer__strategy"] == "mean"
+    )
+
+
+def test_remap_params_whole_step_replacement(ct_pipeline):
+    remapped = ct_pipeline.remap_params({"classifier": Ridge(alpha=0.5)})
+    assert type(remapped.instance.named_steps["classifier"]) is Ridge
+    assert remapped.instance.named_steps["classifier"].alpha == 0.5
+
+
+def test_remap_params_original_unchanged(ct_pipeline):
+    ct_pipeline.remap_params({"classifier__C": 0.001})
+    assert ct_pipeline.instance.get_params()["classifier__C"] == 1.0
+
+
+def test_remap_params_returns_pipeline(ct_pipeline):
+    remapped = ct_pipeline.remap_params({"classifier__C": 0.5})
+    assert isinstance(remapped, Pipeline)
+
+
+def test_remap_params_unknown_key_raises(ct_pipeline):
+    with pytest.raises(ValueError, match="param_map keys not found"):
+        ct_pipeline.remap_params({"classifier__typo": 99})
