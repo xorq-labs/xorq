@@ -5,7 +5,7 @@ import functools
 import os
 import webbrowser
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn, Optional
 
 import toolz
 from attr import (
@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from rich.console import Console, RenderableType
 
     import xorq.vendor.ibis.expr.types as ir
+    from xorq.vendor.ibis import Schema
     from xorq.vendor.ibis.backends import BaseBackend
     from xorq.vendor.ibis.expr.visualize import (
         EdgeAttributeGetter,
@@ -695,20 +696,23 @@ class ExprMetadata:
         return ExprKind.UnboundExpr if self._unbound_node else ExprKind.Expr
 
     @cached_property
-    def schema_in(self):
-        return toolz.valmap(str, node.schema) if (node := self._unbound_node) else None
+    def schema_in(self) -> Optional[Schema]:
+        return node.schema if (node := self._unbound_node) else None
 
     @cached_property
     def schema_out(self):
-        return toolz.valmap(str, self.expr.as_table().schema())
+        return self.expr.as_table().schema()
 
     def to_dict(self):
         return {
             key: value
             for key, value in (
                 ("kind", str(self.kind)),
-                ("schema_in", self.schema_in),
-                ("schema_out", self.schema_out),
+                (
+                    "schema_in",
+                    toolz.valmap(str, self.schema_in) if self.schema_in else None,
+                ),
+                ("schema_out", toolz.valmap(str, self.schema_out)),
             )
             if value is not None
         }
