@@ -204,7 +204,9 @@ def run_command(
         ("limit", limit),
     )
 
-    span.add_event("run.params", dict(run_params))
+    span.add_event(
+        "run.params", {k: v for k, v in run_params if run_params is not None}
+    )
 
     try:
         with RunLogger.from_expr_hash(expr_hash, params_tuple=run_params) as rl:
