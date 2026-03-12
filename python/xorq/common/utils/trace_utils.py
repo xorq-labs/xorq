@@ -386,7 +386,7 @@ class Trace:
         return lineage
 
     def get_depth(self, depth):
-        return self.get_depths.get(depth, ())
+        return self.depths.get(depth, ())
 
     def get_duration_delta(self, parent_span_id, lossless_leafs=True):
         parent_span = next(
@@ -409,7 +409,7 @@ class Trace:
             return 0
 
     @functools.cached_property
-    def get_depths(self):
+    def depths(self):
         spans = tuple(span for span in self.spans if span != self.parent_span)
         depths = {
             0: (self.parent_span,),
