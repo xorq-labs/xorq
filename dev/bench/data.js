@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773258045598,
+  "lastUpdate": 1773322443990,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -660,6 +660,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.002244664114592134",
             "extra": "mean: 189.62225916666853 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "160b6352b6299f41cfc59699162633425fb68f9f",
+          "message": "fix(lint): remove functools.cache from methods (#1684)\n\n- Replace `@property @functools.cache` combos with\n`@functools.cached_property` to fix B019 violations and eliminate memory\nleaks from instance-keyed caches\n- Convert standalone `@functools.cache` methods (`copy_sdist`) to\n`@functools.cached_property` and update call sites accordingly\n- Replace class-level `cached_property` aliases (`popened =\n_uv_build_popened`) with explicit `@property` delegates (Python 3.13\ndisallows reusing the same `cached_property` object under two names)\n- Add `# noqa: B019` for `make_deferred_other`, which takes extra\narguments and cannot be converted to a `cached_property`\n\nFix a latent bug in `SdistBuilder.maybe_packager`: the field had\n`converter=toolz.curried.excepts(Exception, Path)`, which silently\nconverted a `Sdister` object to `None` because `Path(sdister_instance)`\nraises `TypeError`. This caused the `Sdister` to be garbage-collected\nimmediately after `SdistBuilder.from_script_path` returned, cleaning up\nits\n`TemporaryDirectory` and deleting the sdist file that\n`SdistBuilder.sdist_path` pointed to. Subsequent access to `sdist_path`\nin `_uv_tool_run_xorq_build` then failed with `FileNotFoundError`. The\nfix removes the broken converter, so `maybe_packager` holds the\n`Sdister` directly, keeping it alive for the lifetime of the\n`SdistBuilder`.\n\nProof that `@frozen` (attrs) works with `@cached_property`:\n\n```python\nfrom attrs import frozen\nfrom functools import cached_property\n\n@Frozen\nclass Circle:\n    radius: float\n\n    @cached_property\n    def area(self):\n        print(\"computing...\")\n        return 3.14159 * self.radius ** 2\n\nc = Circle(radius=5.0)\nprint(c.area)  # computing... → 78.53975\nprint(c.area)  # cached → 78.53975\n```\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-12T09:33:08-04:00",
+          "tree_id": "9f16309636f152c11177bc35eb7f0d60ff524f67",
+          "url": "https://github.com/xorq-labs/xorq/commit/160b6352b6299f41cfc59699162633425fb68f9f"
+        },
+        "date": 1773322441282,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 11.430416477411928,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000606884442068613",
+            "extra": "mean: 87.48587612499836 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 5.2352900371491495,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000914879760482777",
+            "extra": "mean: 191.01138483333102 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.9549165875041928,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02093594820573095",
+            "extra": "mean: 1.0472118854 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.423609138712642,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0017229220402804424",
+            "extra": "mean: 184.37906833333528 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.438948513175606,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0018699741460870027",
+            "extra": "mean: 183.85906716666747 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.295482084087549,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0017261875847178452",
+            "extra": "mean: 188.84021966666845 msec\nrounds: 6"
           }
         ]
       }
