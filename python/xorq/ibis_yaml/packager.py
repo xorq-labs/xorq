@@ -51,8 +51,7 @@ class Sdister:
     def pyproject_path(self):
         return self.project_path.joinpath(PYPROJECT_NAME)
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def _tmpdir(self):
         return TemporaryDirectory()
 
@@ -60,8 +59,7 @@ class Sdister:
     def tmpdir(self):
         return Path(self._tmpdir.name)
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def _uv_build_popened(self):
         args = (
             "uv",
@@ -74,7 +72,9 @@ class Sdister:
         popened = Popened(args)
         return popened
 
-    popened = _uv_build_popened
+    @property
+    def popened(self):
+        return self._uv_build_popened
 
     @property
     def _sdist_path(self):
@@ -93,8 +93,7 @@ class Sdister:
             requirements_path.write_text(requirements_text)
             TGZAppender.append_toplevel(sdist_path, requirements_path)
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def sdist_path(self):
         self.ensure_requirements_member()
         return self._sdist_path
@@ -117,8 +116,7 @@ class SdistBuilder:
         validator=deep_iterable(instance_of(str), instance_of(tuple)), default=()
     )
     maybe_packager = field(
-        validator=optional(instance_of(Path)),
-        converter=toolz.curried.excepts(Exception, Path),
+        validator=optional(instance_of(Sdister)),
         default=None,
     )
     require_requirements = field(validator=instance_of(bool), default=True)
@@ -129,8 +127,7 @@ class SdistBuilder:
         self.ensure_requirements_path()
         assert self.requirements_path.exists()
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def _tmpdir(self):
         return TemporaryDirectory()
 
@@ -142,8 +139,7 @@ class SdistBuilder:
     def requirements_path(self):
         return self.tmpdir.joinpath(REQUIREMENTS_NAME)
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def untgzed_path(self):
         tp = TGZProxy(self.sdist_path)
         untgzed_path = tp.extract_toplevel(self.tmpdir)
@@ -161,8 +157,7 @@ class SdistBuilder:
                 )
                 self.requirements_path.write_text(requirements_text)
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def _uv_tool_run_xorq_build(self):
         args = self.args or ("xorq", "build", str(self.script_path))
         popened = uv_tool_run(
@@ -172,13 +167,15 @@ class SdistBuilder:
         )
         return popened
 
-    popened = _uv_tool_run_xorq_build
+    @property
+    def popened(self):
+        return self._uv_tool_run_xorq_build
 
     def get_build_path(self):
         # FIXME: don't capture stdout so user can still use --pdb
         return Path(self._uv_tool_run_xorq_build.stdout.strip())
 
-    @functools.cache
+    @functools.cached_property
     def copy_sdist(self):
         target = self.get_build_path().joinpath(BUILD_SDIST_NAME)
         copy_path(self.sdist_path, target)
@@ -186,7 +183,7 @@ class SdistBuilder:
 
     @property
     def build_path(self):
-        self.copy_sdist()
+        self.copy_sdist
         return self.get_build_path()
 
     @classmethod
@@ -221,8 +218,7 @@ class SdistRunner:
     def sdist_path(self):
         return self.build_path.joinpath(BUILD_SDIST_NAME)
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def _tmpdir(self):
         return TemporaryDirectory()
 
@@ -246,8 +242,7 @@ class SdistRunner:
                 )
                 self.requirements_path.write_text(requirements_text)
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def _uv_tool_run_xorq_run(self):
         self.ensure_requirements_path()
         args = self.args or ("xorq", "run", str(self.build_path))
@@ -260,7 +255,9 @@ class SdistRunner:
         )
         return popened
 
-    popened = _uv_tool_run_xorq_run
+    @property
+    def popened(self):
+        return self._uv_tool_run_xorq_run
 
 
 def find_file_upwards(start, name):

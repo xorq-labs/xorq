@@ -51,8 +51,7 @@ class PinsResource:
     def table_name(self):
         return f"test-{self.name}"
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def path(self):
         return pathlib.Path(xo.options.pins.get_path(self.name))
 
@@ -79,8 +78,7 @@ class PinsResource:
             case _:
                 raise ValueError(f"unsupported suffix {self.suffix!r}")
 
-    @property
-    @functools.cache
+    @functools.cached_property
     def df(self):
         return self.immediate_reader(self.path)
 

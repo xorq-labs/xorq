@@ -212,7 +212,6 @@ extend-select = [
 ]
 ignore = [
     "B018",  # useless-expression: side-effect property access is intentional
-    "B019",  # cached-instance-method: @cache on methods is intentional
     "B905",  # zip-without-explicit-strict: not enforced project-wide
 ]
 
