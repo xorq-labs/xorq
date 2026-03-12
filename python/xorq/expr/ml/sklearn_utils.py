@@ -18,7 +18,7 @@ Example: Pipeline([("prep", ColumnTransformer([("num", ..., cols), ...]))])
 
 from __future__ import annotations
 
-from functools import cache
+from functools import cached_property
 
 from attr import field, frozen
 from sklearn.base import clone
@@ -60,13 +60,11 @@ class ColumnRemapper:
     column_map_tuple: tuple[tuple[str, tuple[str, ...]], ...] = field(factory=tuple)
     extra_registry: tuple[tuple[type, str], ...] = field(factory=tuple)
 
-    @property
-    @cache
+    @cached_property
     def column_map(self) -> dict[str, list[str]]:
         return {k: list(v) for k, v in self.column_map_tuple}
 
-    @property
-    @cache
+    @cached_property
     def _all_params(self) -> tuple[tuple[type, str], ...]:
         return _COLUMN_PARAMS + self.extra_registry
 
@@ -216,8 +214,7 @@ class ParamRemapper:
 
     param_map_tuple: tuple[tuple[str, object], ...] = field(factory=tuple)
 
-    @property
-    @cache
+    @cached_property
     def param_map(self) -> dict[str, object]:
         return dict(self.param_map_tuple)
 
