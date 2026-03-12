@@ -28,11 +28,12 @@ TPC_H = [
 
 
 @pytest.mark.parametrize("fixture_name", TPC_H)
-def test_yaml_roundtrip(fixture_name, compiler, request):
+def test_yaml_roundtrip(fixture_name, compiler, con, request):
     query = request.getfixturevalue(fixture_name)
 
     yaml_dict = compiler.to_yaml(query)
-    roundtrip_query = compiler.from_yaml(yaml_dict)
+    profiles = {con._profile.hash_name: con}
+    roundtrip_query = compiler.from_yaml(yaml_dict, profiles)
 
     assert roundtrip_query.equals(query), (
         f"Roundtrip expression for {fixture_name} does not match the original."

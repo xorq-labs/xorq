@@ -4,8 +4,10 @@ import contextlib
 import functools
 import os
 import webbrowser
-from typing import TYPE_CHECKING, Any, NoReturn
+from functools import cached_property
+from typing import TYPE_CHECKING, Any, NoReturn, Optional
 
+import toolz
 from attr import (
     field,
     frozen,
@@ -18,6 +20,7 @@ from public import public
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.common.exceptions import TranslationError, XorqError
 from xorq.common.utils.func_utils import return_constant
+from xorq.ibis_yaml.enums import ExprKind
 from xorq.vendor import ibis
 from xorq.vendor.ibis.common.annotations import ValidationError
 from xorq.vendor.ibis.common.grounds import Immutable
@@ -35,6 +38,7 @@ if TYPE_CHECKING:
     from rich.console import Console, RenderableType
 
     import xorq.vendor.ibis.expr.types as ir
+    from xorq.vendor.ibis import Schema
     from xorq.vendor.ibis.backends import BaseBackend
     from xorq.vendor.ibis.expr.visualize import (
         EdgeAttributeGetter,
@@ -675,6 +679,46 @@ class Expr(Immutable, Coercible):
 
 
 @frozen
+class ExprMetadata:
+    expr = field(validator=instance_of(Expr))
+
+    @cached_property
+    def _unbound_node(self):
+        from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+
+        unbound_node, *rest = walk_nodes(ops.UnboundTable, self.expr) or (None,)
+        if rest:
+            raise ValueError("Expected at most one UnboundTable")
+        return unbound_node
+
+    @cached_property
+    def kind(self) -> ExprKind:
+        return ExprKind.UnboundExpr if self._unbound_node else ExprKind.Expr
+
+    @cached_property
+    def schema_in(self) -> Optional[Schema]:
+        return node.schema if (node := self._unbound_node) else None
+
+    @cached_property
+    def schema_out(self):
+        return self.expr.as_table().schema()
+
+    def to_dict(self):
+        return {
+            key: value
+            for key, value in (
+                ("kind", str(self.kind)),
+                (
+                    "schema_in",
+                    toolz.valmap(str, self.schema_in) if self.schema_in else None,
+                ),
+                ("schema_out", toolz.valmap(str, self.schema_out)),
+            )
+            if value is not None
+        }
+
+
+@frozen
 class LETSQLAccessor:
     op = field(validator=instance_of(ops.Node))
     node_types = (ops.DatabaseTable, ops.SQLQueryResult)
@@ -682,6 +726,10 @@ class LETSQLAccessor:
     @property
     def expr(self):
         return self.op.to_expr()
+
+    @cached_property
+    def metadata(self):
+        return ExprMetadata(self.expr)
 
     @property
     def cached_nodes(self):

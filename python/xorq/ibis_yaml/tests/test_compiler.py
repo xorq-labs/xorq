@@ -31,6 +31,7 @@ from xorq.conftest import array_types_df
 from xorq.ibis_yaml.compiler import (
     ArtifactStore,
     DumpFiles,
+    ExprKind,
     RefEnum,
     build_expr,
     load_expr,
@@ -140,8 +141,8 @@ def test_compiler_sql(builds_dir, parquet_dir):
     expted_sql_hash = dask.base.tokenize(str(ibis.to_sql(expr)))[: config.hash_length]
 
     assert build_path.joinpath(DumpFiles.sql).exists()
-    assert build_path.joinpath(DumpFiles.metadata).exists()
-    metadata = json.loads(build_path.joinpath(DumpFiles.metadata).read_text())
+    assert build_path.joinpath(DumpFiles.build_metadata).exists()
+    metadata = json.loads(build_path.joinpath(DumpFiles.build_metadata).read_text())
 
     assert "current_library_version" in metadata
     sql_text = build_path.joinpath(DumpFiles.sql).read_text()
@@ -417,7 +418,7 @@ def test_build_file_stability_https(builds_dir, snapshot):
         {
             p.name: hashlib.md5(p.read_bytes()).hexdigest()
             for p in build_path.iterdir()
-            if p.name != DumpFiles.metadata
+            if p.name != DumpFiles.build_metadata
         },
         indent=2,
         sort_keys=True,
@@ -477,7 +478,7 @@ def test_build_file_stability_local(
         {
             p.name: hashlib.md5(p.read_bytes()).hexdigest()
             for p in build_path.iterdir()
-            if p.name != DumpFiles.metadata
+            if p.name != DumpFiles.build_metadata
         },
         indent=2,
         sort_keys=True,
@@ -515,7 +516,7 @@ def test_build_file_stability_and_relocatability(
         {
             p.name: hashlib.md5(p.read_bytes()).hexdigest()
             for p in build_dir.iterdir()
-            if p.name != DumpFiles.metadata and p.is_file()
+            if p.name != DumpFiles.build_metadata and p.is_file()
         }
         | {
             "build_dir_name": build_dir.name,
@@ -778,3 +779,23 @@ def test_multi_join_expr_yaml_line_count(tmp_path, builds_dir):
     expr_yaml_path = build_path / DumpFiles.expr
     line_count = len(expr_yaml_path.read_text().splitlines())
     assert line_count < 1300, f"expr.yaml has {line_count} lines (expected < 1300)"
+
+
+def test_build_expr_kind_bound(tmp_path):
+    expr = xo.memtable({"a": [1, 2, 3]})
+    build_dir = build_expr(expr, builds_dir=tmp_path)
+    entry = json.loads((build_dir / DumpFiles.expr_metadata).read_text())
+    assert entry["kind"] == ExprKind.Expr
+    assert "schema_out" in entry
+    assert "schema_in" not in entry
+
+
+def test_build_expr_kind_partial(tmp_path):
+    t = xo.table(schema={"a": "int64"})
+    expr = t.filter(t.a > 0)
+    build_dir = build_expr(expr, builds_dir=tmp_path)
+    entry = json.loads((build_dir / DumpFiles.expr_metadata).read_text())
+    assert entry["kind"] == ExprKind.UnboundExpr
+    assert "schema_out" in entry
+    assert "schema_in" in entry
+    assert entry["schema_in"] == {"a": "int64"}

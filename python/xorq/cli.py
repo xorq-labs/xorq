@@ -187,6 +187,7 @@ def run_command(
     from opentelemetry import trace
     from opentelemetry.trace import StatusCode
 
+    from xorq.common.exceptions import UnboundExpressionError
     from xorq.common.utils.logging_utils import RunLogger
     from xorq.common.utils.profile_utils import timed
     from xorq.ibis_yaml.compiler import load_expr
@@ -213,7 +214,16 @@ def run_command(
             rl.log_event("run.start", dict(run_params))
 
             with timed() as get_elapsed:
-                expr = load_expr(expr_path, cache_dir=cache_dir)
+                try:
+                    expr = load_expr(
+                        expr_path, cache_dir=cache_dir, raise_on_unbound=True
+                    )
+                except UnboundExpressionError as err:
+                    raise UnboundExpressionError(
+                        "Cannot run unbound expression"
+                        " - compose it with a source first using xorq catalog compose-add"
+                    ) from err
+
                 load_metrics = {"elapsed_s": round(get_elapsed(), 3)}
                 span.add_event("run.expr_loaded", load_metrics)
                 rl.log_event("run.expr_loaded", load_metrics)
