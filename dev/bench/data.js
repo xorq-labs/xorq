@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773404915276,
+  "lastUpdate": 1773420376795,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -924,6 +924,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.002366339189442688",
             "extra": "mean: 197.66476183333262 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "248b6181c4bdeeee399381e859f87931eaaf6067",
+          "message": "feat(catalog): allow opting out of assert_consistency on Catalog init (#1714)\n\nAdd check_consistency param (default True) to Catalog, from_repo_path,\nfrom_name, and from_default. Skipping the consistency check avoids an\nO(n_blobs) git tree traversal on construction, which is expensive for\nlarge catalogs used in read-only workflows.\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-13T17:45:29+01:00",
+          "tree_id": "0e9dc4e3fb519d2a5085d456276bf0a7f0d9ccb1",
+          "url": "https://github.com/xorq-labs/xorq/commit/248b6181c4bdeeee399381e859f87931eaaf6067"
+        },
+        "date": 1773420374637,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 12.259835793475935,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0005768222852652237",
+            "extra": "mean: 81.56716099999883 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 5.6248212185730715,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00073224751619707",
+            "extra": "mean: 177.78342833333363 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 1.0017630231804617,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013532341335624583",
+            "extra": "mean: 998.2400795999993 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.816668672108592,
+            "unit": "iter/sec",
+            "range": "stddev: 0.001479045895687515",
+            "extra": "mean: 171.9197115000005 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.738935601412301,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0008805985251049652",
+            "extra": "mean: 174.24833966666378 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.705776320541913,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0008516912606694631",
+            "extra": "mean: 175.26098883333438 msec\nrounds: 6"
           }
         ]
       }
