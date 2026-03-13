@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773323232830,
+  "lastUpdate": 1773404915276,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -858,6 +858,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0022785319010165594",
             "extra": "mean: 194.0497869999973 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9fac011ab3a8ba5a6aa5a71d4f1cc9b241fc02bd",
+          "message": "chore(deps): update dependency black to v26 [security] (#1711)\n\nThis PR contains the following updates:\n\n| Package | Change |\n[Age](https://docs.renovatebot.com/merge-confidence/) |\n[Confidence](https://docs.renovatebot.com/merge-confidence/) |\n|---|---|---|---|\n| [black](https://redirect.github.com/psf/black)\n([changelog](https://redirect.github.com/psf/black/blob/main/CHANGES.md))\n| `==25.12.0` → `==26.3.1` |\n![age](https://developer.mend.io/api/mc/badges/age/pypi/black/26.3.1?slim=true)\n|\n![confidence](https://developer.mend.io/api/mc/badges/confidence/pypi/black/25.12.0/26.3.1?slim=true)\n|\n\n### GitHub Vulnerability Alerts\n\n####\n[CVE-2026-32274](https://redirect.github.com/psf/black/security/advisories/GHSA-3936-cmfr-pm3m)\n\n### Impact\n\nBlack writes a cache file, the name of which is computed from various\nformatting options. The value of the `--python-cell-magics` option was\nplaced in the filename without sanitization, which allowed an attacker\nwho controls the value of this argument to write cache files to\narbitrary file system locations.\n\n### Patches\n\nFixed in Black 26.3.1.\n\n### Workarounds\n\nDo not allow untrusted user input into the value of the\n`--python-cell-magics` option.\n\n---\n\n- [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check\nthis box\n\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0My41OS4wIiwidXBkYXRlZEluVmVyIjoiNDMuNTkuMCIsInRhcmdldEJyYW5jaCI6Im1haW4iLCJsYWJlbHMiOltdfQ==-->\n\nCo-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
+          "timestamp": "2026-03-13T13:27:40+01:00",
+          "tree_id": "ad67dc1f548b9c66b354388528719053df9286db",
+          "url": "https://github.com/xorq-labs/xorq/commit/9fac011ab3a8ba5a6aa5a71d4f1cc9b241fc02bd"
+        },
+        "date": 1773404912487,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.797663742197642,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0013677503832469182",
+            "extra": "mean: 92.61262657142818 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 5.043441638320141,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0017388544986011705",
+            "extra": "mean: 198.2773018333326 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.8619262235500489,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02077035062948573",
+            "extra": "mean: 1.1601921053999973 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.113853330486362,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0027209765952489647",
+            "extra": "mean: 195.54725866666445 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.113068836236691,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0016809892553823133",
+            "extra": "mean: 195.5772613333361 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.059070674636393,
+            "unit": "iter/sec",
+            "range": "stddev: 0.002366339189442688",
+            "extra": "mean: 197.66476183333262 msec\nrounds: 6"
           }
         ]
       }
