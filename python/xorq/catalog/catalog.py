@@ -57,13 +57,15 @@ def with_pure_suffix(path, suffix=""):
 @frozen
 class Catalog:
     repo = field(validator=instance_of(Repo))
+    check_consistency: bool = field(default=True, repr=False)
 
     by_name_base_path = Path("~/.local/share/xorq/git-catalogs").expanduser()
     submodule_rel_path = Path(".xorq/git-catalogs")
 
     def __attrs_post_init__(self):
         self._ensure_catalog_yaml()
-        self.assert_consistency()
+        if self.check_consistency:
+            self.assert_consistency()
 
     def _ensure_catalog_yaml(self):
         assert not self.repo.bare
@@ -251,19 +253,23 @@ class Catalog:
         return cls(repo=repo)
 
     @classmethod
-    def from_repo_path(cls, repo_path, init=None):
+    def from_repo_path(cls, repo_path, init=None, check_consistency=True):
         init = not Path(repo_path).exists() if init is None else init
         repo = cls.init_repo_path(repo_path) if init else Repo(repo_path)
-        return cls(repo=repo)
+        return cls(repo=repo, check_consistency=check_consistency)
 
     @classmethod
-    def from_name(cls, name, init=None):
+    def from_name(cls, name, init=None, check_consistency=True):
         repo_path = cls.name_to_repo_path(name)
-        return cls.from_repo_path(repo_path, init=init)
+        return cls.from_repo_path(
+            repo_path, init=init, check_consistency=check_consistency
+        )
 
     @classmethod
-    def from_default(cls, init=None):
-        return cls.from_name(name="default", init=init)
+    def from_default(cls, init=None, check_consistency=True):
+        return cls.from_name(
+            name="default", init=init, check_consistency=check_consistency
+        )
 
     @classmethod
     def clone_from_as_submodule(cls, root_repo, url):
