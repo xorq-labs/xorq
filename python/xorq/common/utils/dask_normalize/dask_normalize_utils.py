@@ -98,9 +98,10 @@ def manual_file_digest(path, digest=hashlib.md5, size=2**20):
 
 def file_digest(path, digest=hashlib.md5, size=2**20):
     from tarfile import ExFileObject  # noqa: PLC0415
+    from zipfile import ZipExtFile  # noqa: PLC0415
 
     if hasattr(hashlib, "file_digest"):
-        if isinstance(path, ExFileObject):
+        if isinstance(path, (ExFileObject, ZipExtFile)):
             return hashlib.file_digest(path, digest).hexdigest()
         elif isinstance(path, (str, pathlib.Path)):
             with pathlib.Path(path).open("rb") as fh:
