@@ -11,5 +11,5 @@ class CatalogInfix(StrEnum):
 
 
 METADATA_APPEND = ".metadata.yaml"
-VALID_SUFFIXES = (".tar.gz", (PREFERRED_SUFFIX := ".tgz"))
+VALID_SUFFIXES = ((PREFERRED_SUFFIX := ".zip"),)
 CATALOG_YAML_NAME = "catalog.yaml"

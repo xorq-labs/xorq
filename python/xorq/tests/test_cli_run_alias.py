@@ -10,7 +10,7 @@ from click.testing import CliRunner
 
 import xorq.api as xo
 from xorq.catalog.catalog import Catalog
-from xorq.catalog.expr_utils import build_expr_context_tgz
+from xorq.catalog.expr_utils import build_expr_context_zip
 from xorq.cli import _resolve_alias, cli
 
 
@@ -31,9 +31,9 @@ def catalog(tmp_path):
 @pytest.fixture
 def catalog_with_alias(catalog, tmp_path):
     expr = xo.memtable({"col": [1, 2, 3]})
-    with build_expr_context_tgz(expr) as tgz_path:
-        target = tmp_path / tgz_path.name
-        shutil.copy(tgz_path, target)
+    with build_expr_context_zip(expr) as zip_path:
+        target = tmp_path / zip_path.name
+        shutil.copy(zip_path, target)
         entry = catalog.add(target, aliases=("my-alias",))
     return catalog, entry
 

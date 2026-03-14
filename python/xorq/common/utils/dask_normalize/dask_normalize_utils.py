@@ -84,9 +84,8 @@ def gen_batches(path, size=2**20):
 
 def manual_file_digest(path, digest=hashlib.md5, size=2**20):
     from contextlib import closing  # noqa: PLC0415
-    from tarfile import ExFileObject  # noqa: PLC0415
 
-    fh = path if isinstance(path, ExFileObject) else pathlib.Path(path).open("rb")
+    fh = path if hasattr(path, "read") else pathlib.Path(path).open("rb")
     with closing(fh):
         obj = digest()
         for chunk in itertools.takewhile(
@@ -97,11 +96,10 @@ def manual_file_digest(path, digest=hashlib.md5, size=2**20):
 
 
 def file_digest(path, digest=hashlib.md5, size=2**20):
-    from tarfile import ExFileObject  # noqa: PLC0415
     from zipfile import ZipExtFile  # noqa: PLC0415
 
     if hasattr(hashlib, "file_digest"):
-        if isinstance(path, (ExFileObject, ZipExtFile)):
+        if isinstance(path, ZipExtFile):
             return hashlib.file_digest(path, digest).hexdigest()
         elif isinstance(path, (str, pathlib.Path)):
             with pathlib.Path(path).open("rb") as fh:

@@ -13,7 +13,7 @@ class DumpFiles(StrEnum):
     sql = "sql.yaml"
 
 
-REQUIRED_TGZ_NAMES = (
+REQUIRED_ARCHIVE_NAMES = (
     DumpFiles.expr,
     DumpFiles.expr_metadata,
     DumpFiles.build_metadata,

@@ -11,7 +11,7 @@ import sys
 import pytest
 
 from xorq.catalog.catalog import Catalog
-from xorq.catalog.tests.conftest import make_build_tgz
+from xorq.catalog.tests.conftest import make_build_zip
 
 
 CATALOG_CMD = [sys.executable, "-m", "xorq.cli", "catalog"]
@@ -38,9 +38,9 @@ def catalog_path(tmp_path):
 
 @pytest.fixture
 def catalog_path_with_entry(catalog_path, tmp_path):
-    tgz = make_build_tgz(tmp_path, "bench-entry")
-    run(["add", str(tgz)], catalog_path=catalog_path)
-    return catalog_path, tgz.stem
+    archive = make_build_zip(tmp_path, "bench-entry")
+    run(["add", str(archive)], catalog_path=catalog_path)
+    return catalog_path, archive.stem
 
 
 # ---------------------------------------------------------------------------
@@ -66,10 +66,10 @@ def test_benchmark_catalog_init(benchmark, tmp_path):
 
 @pytest.mark.benchmark
 def test_benchmark_catalog_add(benchmark, catalog_path, tmp_path):
-    tgzs = iter(make_build_tgz(tmp_path, f"e{i}") for i in range(10_000))
+    archives = iter(make_build_zip(tmp_path, f"e{i}") for i in range(10_000))
 
     def add():
-        run(["add", str(next(tgzs))], catalog_path=catalog_path)
+        run(["add", str(next(archives))], catalog_path=catalog_path)
 
     benchmark(add)
 

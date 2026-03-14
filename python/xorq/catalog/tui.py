@@ -1,6 +1,6 @@
 import re
-import tarfile
 import threading
+import zipfile
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
@@ -665,11 +665,11 @@ class ExploreScreen(Screen):
             )
 
         try:
-            with tarfile.open(self._entry.catalog_path, "r:gz") as tf:
-                f = tf.extractfile(f"{self._entry.name}/profiles.yaml")
-                if f is None:
+            with zipfile.ZipFile(self._entry.catalog_path, "r") as zf:
+                member_path = f"{self._entry.name}/profiles.yaml"
+                if member_path not in zf.namelist():
                     return
-                data = yaml.safe_load(f.read())
+                data = yaml.safe_load(zf.read(member_path))
             if not isinstance(data, dict):
                 return
             rows = tuple(

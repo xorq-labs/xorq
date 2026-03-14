@@ -1,28 +1,31 @@
+import zipfile
 from pathlib import Path
 from shutil import move
-from tarfile import TarFile
 from tempfile import TemporaryDirectory
 from urllib.request import urlretrieve
 
 from xorq.init_templates import InitTemplates
 
 
-def download_github_archive(org, repo, branch, suffix=".tar.gz", target=None):
+def download_github_archive(org, repo, branch, suffix=".zip", target=None):
     target = Path(target or f"{branch}{suffix}")
     assert not target.exists()
-    archive_url = f"https://github.com/{org}/{repo}/archive/{branch}.tar.gz"
+    archive_url = f"https://github.com/{org}/{repo}/archive/{branch}.zip"
     _, _ = urlretrieve(archive_url, target)
     return target
 
 
-def extract_tar(source, target):
+def extract_zip(source, target):
     (source, target) = map(Path, (source, target))
     assert not target.exists()
-    with TarFile.open(source, mode="r:*") as tf:
-        (first, *rest) = (member.name for member in tf.members)
+    with zipfile.ZipFile(source, "r") as zf:
+        names = zf.namelist()
+        (first, *rest) = names
+        # strip trailing slash from directory entry
+        first = first.rstrip("/")
         assert all(member.startswith(first) for member in rest)
         with TemporaryDirectory() as td:
-            tf.extractall(td)
+            zf.extractall(td)
             move(Path(td).joinpath(first), target)
     assert target.exists()
     return target
@@ -45,11 +48,11 @@ def download_unpacked_xorq_template(target, template, branch=None):
             f"download_unpacked_xorq_template: target `{target}` already exists"
         )
     with TemporaryDirectory() as td:
-        archive_target = Path(td).joinpath("repo.tar.gz")
+        archive_target = Path(td).joinpath("repo.zip")
         download_xorq_template(
             template=template,
             branch=branch,
             target=archive_target,
         )
-        extract_tar(archive_target, target)
+        extract_zip(archive_target, target)
         return target
