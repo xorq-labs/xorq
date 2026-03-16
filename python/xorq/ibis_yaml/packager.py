@@ -26,17 +26,18 @@ from xorq.common.utils.process_utils import (
     Popened,
     in_nix_shell,
 )
-from xorq.common.utils.tar_utils import (
-    TGZAppender,
-    TGZProxy,
-    calc_tgz_content_hexdigest,
+from xorq.common.utils.zip_utils import (
+    ZipAppender,
+    ZipProxy,
+    calc_zip_content_hexdigest,
     copy_path,
+    tgz_to_zip,
 )
 
 
 REQUIREMENTS_NAME = "requirements.txt"
 PYPROJECT_NAME = "pyproject.toml"
-BUILD_SDIST_NAME = "sdist.tar.gz"
+BUILD_SDIST_NAME = "sdist.zip"
 
 
 @frozen
@@ -76,22 +77,28 @@ class Sdister:
     def popened(self):
         return self._uv_build_popened
 
-    @property
-    def _sdist_path(self):
+    @functools.cached_property
+    def _tgz_sdist_path(self):
         prefix = "Successfully built "
         (_, line) = self._uv_build_popened.stderr.strip().rsplit("\n", 1)
         (first, rest) = (line[: len(prefix)], line[len(prefix) :])
         assert first == prefix
-        sdist_path = Path(rest)
-        return sdist_path
+        return Path(rest)
+
+    @functools.cached_property
+    def _sdist_path(self):
+        tgz_path = self._tgz_sdist_path
+        zip_path = tgz_to_zip(tgz_path)
+        tgz_path.unlink()
+        return zip_path
 
     def ensure_requirements_member(self):
         sdist_path = self._sdist_path
-        if not TGZProxy(sdist_path).toplevel_name_exists(REQUIREMENTS_NAME):
+        if not ZipProxy(sdist_path).toplevel_name_exists(REQUIREMENTS_NAME):
             requirements_path = self.tmpdir.joinpath(REQUIREMENTS_NAME)
             requirements_text = uv_tool_run_uv_pip_freeze_package_path(sdist_path)
             requirements_path.write_text(requirements_text)
-            TGZAppender.append_toplevel(sdist_path, requirements_path)
+            ZipAppender.append_toplevel(sdist_path, requirements_path)
 
     @functools.cached_property
     def sdist_path(self):
@@ -100,7 +107,7 @@ class Sdister:
 
     @property
     def sdist_path_hexdigest(self):
-        return calc_tgz_content_hexdigest(self.sdist_path)
+        return calc_zip_content_hexdigest(self.sdist_path)
 
     @classmethod
     def from_script_path(cls, script_path):
@@ -123,7 +130,7 @@ class SdistBuilder:
 
     def __attrs_post_init__(self):
         if self.require_requirements:
-            assert TGZProxy(self.sdist_path).toplevel_name_exists(REQUIREMENTS_NAME)
+            assert ZipProxy(self.sdist_path).toplevel_name_exists(REQUIREMENTS_NAME)
         self.ensure_requirements_path()
         assert self.requirements_path.exists()
 
@@ -140,15 +147,15 @@ class SdistBuilder:
         return self.tmpdir.joinpath(REQUIREMENTS_NAME)
 
     @functools.cached_property
-    def untgzed_path(self):
-        tp = TGZProxy(self.sdist_path)
-        untgzed_path = tp.extract_toplevel(self.tmpdir)
-        return untgzed_path
+    def unzipped_path(self):
+        zp = ZipProxy(self.sdist_path)
+        unzipped_path = zp.extract_toplevel(self.tmpdir)
+        return unzipped_path
 
     def ensure_requirements_path(self):
         if not self.requirements_path.exists():
-            if TGZProxy(self.sdist_path).toplevel_name_exists(REQUIREMENTS_NAME):
-                TGZProxy(self.sdist_path).extract_toplevel_name(
+            if ZipProxy(self.sdist_path).toplevel_name_exists(REQUIREMENTS_NAME):
+                ZipProxy(self.sdist_path).extract_toplevel_name(
                     REQUIREMENTS_NAME, self.requirements_path
                 )
             else:
@@ -212,7 +219,7 @@ class SdistRunner:
         assert self.build_path.exists()
         assert self.sdist_path.exists()
         # we ALWAYS require requirements.txt to run
-        assert TGZProxy(self.sdist_path).toplevel_name_exists(REQUIREMENTS_NAME)
+        assert ZipProxy(self.sdist_path).toplevel_name_exists(REQUIREMENTS_NAME)
 
     @property
     def sdist_path(self):
@@ -232,8 +239,8 @@ class SdistRunner:
 
     def ensure_requirements_path(self):
         if not self.requirements_path.exists():
-            if TGZProxy(self.sdist_path).toplevel_name_exists(REQUIREMENTS_NAME):
-                TGZProxy(self.sdist_path).extract_toplevel_name(
+            if ZipProxy(self.sdist_path).toplevel_name_exists(REQUIREMENTS_NAME):
+                ZipProxy(self.sdist_path).extract_toplevel_name(
                     REQUIREMENTS_NAME, self.requirements_path
                 )
             else:
@@ -319,7 +326,7 @@ def uv_tool_run(
 def get_uv_python_version(directory):
     if not Path(directory).is_dir():
         td = TemporaryDirectory()
-        TGZProxy(directory).extract_toplevel(td.name)
+        ZipProxy(directory).extract_toplevel(td.name)
         directory = str(td.name)
     cmd = "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
     args = f'uv run --directory {str(directory)} python -c "{cmd}"'
@@ -335,14 +342,14 @@ def get_acceptable_python_versions(
         pass
     elif path.is_dir() and path.joinpath(PYPROJECT_NAME).exists():
         path = path.joinpath(PYPROJECT_NAME)
-    elif path.suffixes[-2:] == [".tar", ".gz"]:
+    elif path.suffix == ".zip":
         td = TemporaryDirectory()
-        path = TGZProxy(path).extract_toplevel_name(
+        path = ZipProxy(path).extract_toplevel_name(
             PYPROJECT_NAME, Path(td.name, PYPROJECT_NAME)
         )
     else:
         raise ValueError(
-            f"can only handle {PYPROJECT_NAME} or {PYPROJECT_NAME} containing dir / .tar.gz"
+            f"can only handle {PYPROJECT_NAME} or {PYPROJECT_NAME} containing dir / .zip"
         )
     data = tomllib.loads(Path(path).read_text())
     requires_python = toolz.get_in(("project", "requires-python"), data)
