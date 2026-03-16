@@ -13,15 +13,11 @@ from xorq.catalog.catalog import (
     CATALOG_YAML_NAME,
     METADATA_APPEND,
     PREFERRED_SUFFIX,
-    VALID_SUFFIXES,
     Catalog,
     with_pure_suffix,
 )
 from xorq.catalog.constants import CatalogInfix
 from xorq.catalog.expr_utils import build_expr_context_zip
-
-
-(VALID_SUFFIX0,) = VALID_SUFFIXES
 
 
 def get_split_tree(repo):
