@@ -54,9 +54,8 @@ def calc_zip_content_hexdigest(path, member_filter=uv_sdist_member_filter):
             for name in zf.namelist()
             if not name.endswith("/") and member_filter(name)
         }
-        print(tuple(sorted(dct.items())))
         md5 = hashlib.md5()
-        for _key, value in sorted(dct.items()):
+        for _, value in sorted(dct.items()):
             md5.update(value.encode("ascii"))
         return md5.hexdigest()
 
