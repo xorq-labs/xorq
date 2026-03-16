@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773668713082,
+  "lastUpdate": 1773676007859,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -1056,6 +1056,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0011868471690017024",
             "extra": "mean: 188.1843001666681 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2868d9713a32e26df3c0c8336dcac5a746e05664",
+          "message": "perf(packager): switch sdist format from tgz to zip (#1716)\n\nZip archives support random access and in-place append, eliminating the\ngunzip→tar_append→gzip pipeline that TGZAppender required. This\nsimplifies the code and improves sdist build/read performance.\n\n- Add zip_utils.py with ZipProxy, ZipAppender,\ncalc_zip_content_hexdigest, and tgz_to_zip converter (since uv build\nonly outputs .tar.gz)\n- Remove tar_utils.py (no remaining importers in common/utils)\n- Update packager.py to use zip utilities throughout Sdister,\nSdistBuilder, SdistRunner, and helper functions\n- Add ZipExtFile support to file_digest in dask_normalize_utils\n- Update tests to work with zip-based sdists\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-16T16:45:45+01:00",
+          "tree_id": "00b66482272e292148c4c4e44f8e02ce50eb8f59",
+          "url": "https://github.com/xorq-labs/xorq/commit/2868d9713a32e26df3c0c8336dcac5a746e05664"
+        },
+        "date": 1773676003683,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 11.45766691335469,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0006450040797777024",
+            "extra": "mean: 87.2778033749988 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 5.064579683707648,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004078350723613398",
+            "extra": "mean: 197.44975149999533 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.9484000153162796,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012040761504586012",
+            "extra": "mean: 1.0544074060000015 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.349916605366231,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0005932564088109913",
+            "extra": "mean: 186.91880149999918 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.142351323550072,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007607740166010183",
+            "extra": "mean: 194.46357066666545 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.311377129506878,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0014013758784788054",
+            "extra": "mean: 188.2750886666642 msec\nrounds: 6"
           }
         ]
       }
