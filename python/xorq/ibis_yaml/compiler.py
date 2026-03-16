@@ -12,6 +12,7 @@ import dask
 import pyarrow.parquet as pq
 import toolz
 import yaml
+import yaml12
 from attr import (
     evolve,
     field,
@@ -142,7 +143,7 @@ class ArtifactStore:
             return read_f(f)
 
     def read_yaml(self, *path_parts) -> Dict[str, Any]:
-        return self._read(yaml.safe_load, *path_parts)
+        return yaml12.read_yaml(self.get_path(*path_parts))
 
     def read_json(self, *path_parts) -> Dict[str, Any]:
         return self._read(json.load, *path_parts)
