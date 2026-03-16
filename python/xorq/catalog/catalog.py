@@ -469,14 +469,45 @@ class CatalogEntry:
 
         return load_expr_from_zip(self.catalog_path)
 
+    @property
+    def lazy_expr(self):
+        from xorq.catalog.expr_utils import load_expr_from_zip  # noqa: PLC0415
+
+        return load_expr_from_zip(self.catalog_path, lazy=True)
+
+    @property
+    def parquet_cache_paths(self) -> list[str]:
+        from xorq.caching import ParquetSnapshotCache  # noqa: PLC0415
+        from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+        from xorq.expr.relations import CachedNode  # noqa: PLC0415
+
+        cached_nodes = walk_nodes((CachedNode,), self.lazy_expr)
+        return [
+            str(cn.cache.storage.get_path(cn.cache.calc_key(cn.parent)))
+            for cn in cached_nodes
+            if isinstance(cn.cache, ParquetSnapshotCache)
+        ]
+
     @cached_property
-    def kind(self) -> ExprKind:
+    def expr_metadata(self) -> dict:
         data = self._read_zip_member(DumpFiles.expr_metadata, json.loads)
         if not isinstance(data, dict):
             raise ValueError(
                 f"Expected {DumpFiles.expr_metadata!r} to contain a JSON object in {self.catalog_path}"
             )
-        return ExprKind(data["kind"])
+        return data
+
+    @property
+    def kind(self) -> ExprKind:
+        return ExprKind(self.expr_metadata["kind"])
+
+    @property
+    def columns(self) -> tuple[str]:
+        return tuple(self.expr_metadata["schema_out"])
+
+    @property
+    def root_tag(self) -> str:
+        return self.expr_metadata.get("root_tag", "")
 
     @cached_property
     def backends(self) -> tuple[str, ...]:
