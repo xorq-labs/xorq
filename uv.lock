@@ -3916,6 +3916,31 @@ wheels = [
 ]
 
 [[package]]
+name = "py-yaml12"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d4/eb/a0b260f7b8625d21c7a900311c863e899d2e258ebdc9a056a0cd17031f80/py_yaml12-0.1.0.tar.gz", hash = "sha256:e7b6140fad56d5528e6d51c7b8ff79bdb27631b73a9a7c1bc4b55fda1bddbaef", size = 117187, upload-time = "2025-12-16T18:06:44.01Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/be/d9/5f4ccd96d7c776e822e63d2b79e3594653bcf55720dbad1cdcbc18a170ad/py_yaml12-0.1.0-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:f6dcce183b6744c0909a8440d1f7a00836023826e463601d03b879c0e84c8a19", size = 468720, upload-time = "2025-12-16T18:06:35.053Z" },
+    { url = "https://files.pythonhosted.org/packages/4c/ab/c08a62f92f69d45fc479b1e893968c9d9b2dc87809e538cea0409cdca25e/py_yaml12-0.1.0-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:69b9c8e54afc415d4eb038a024bc9e28fed95b8c447708bf1a24da0291bbfdd8", size = 501529, upload-time = "2025-12-16T18:06:20.79Z" },
+    { url = "https://files.pythonhosted.org/packages/b6/05/a8408ca1f4de61f8ef626391908006fa1c5e54eaf0f3288d78bc663d65aa/py_yaml12-0.1.0-cp310-abi3-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:0e637189cb07e180bdc9db847ca5711b54df2233b55604bf3609cfa0f0228f7c", size = 519733, upload-time = "2025-12-16T18:06:22.646Z" },
+    { url = "https://files.pythonhosted.org/packages/2b/73/4e1f7cdc26b1deb60ea42ca4b3717fab279a42df10f9b16b869550e92825/py_yaml12-0.1.0-cp310-abi3-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:003a9526a4731010f4e37eced9f33fd070ff563fe3bc2fe2416ab7598982b285", size = 640522, upload-time = "2025-12-16T18:06:25.551Z" },
+    { url = "https://files.pythonhosted.org/packages/a1/a9/7be4ced3e490fd2a5e92cc8e8fe5b6143036a480ba004235e0a78ccbc6f9/py_yaml12-0.1.0-cp310-abi3-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:6845871e3a0233d71f75e56caca5c350f48cb5d9c50e6bb37874243be1ca5f2b", size = 530277, upload-time = "2025-12-16T18:06:27.115Z" },
+    { url = "https://files.pythonhosted.org/packages/8e/0c/1e1b171246a44753bf04c6399179da1ccf99cfb9de1e086afd7326765b34/py_yaml12-0.1.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:fbc5d54ec0471c0f64b931ea0907f655c728597b98a9e7f4a98f4c76cc3614ba", size = 516865, upload-time = "2025-12-16T18:06:31.845Z" },
+    { url = "https://files.pythonhosted.org/packages/e3/00/b4d1db376b35f0021c7e45b6351536c217426b32f71ad8b89782a3a6b562/py_yaml12-0.1.0-cp310-abi3-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:3d9f1ad2e166eb113fd4e44263baad929e268dc15abc7eb87736aa7148d07534", size = 557448, upload-time = "2025-12-16T18:06:28.78Z" },
+    { url = "https://files.pythonhosted.org/packages/7a/41/828743df93b97ca987a808895f5171f2430ee61f18f25fe3d9033075879d/py_yaml12-0.1.0-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:4c9fabfe8fdf53eb661eaaace95961dae742abe0679a9a989936e8b2cf893dbe", size = 683748, upload-time = "2025-12-16T18:06:37.961Z" },
+    { url = "https://files.pythonhosted.org/packages/74/b4/f293b9fa7ad26b86278840f3c571a211111091fd03ba553fa45e4bcaf780/py_yaml12-0.1.0-cp310-abi3-musllinux_1_2_armv7l.whl", hash = "sha256:0226a5aeba67b97ed8e2947da332e5c3b5ef004c0058d2cff2413c99fc4b9ff4", size = 789703, upload-time = "2025-12-16T18:06:39.272Z" },
+    { url = "https://files.pythonhosted.org/packages/a9/18/703812d770166e292e13388bf899f2540c83a8c9d6505862fe756b2818d1/py_yaml12-0.1.0-cp310-abi3-musllinux_1_2_i686.whl", hash = "sha256:a29558b3ba9138eac75996dd0a92fda7993c085aa10c1c93b641239389b731be", size = 764707, upload-time = "2025-12-16T18:06:40.943Z" },
+    { url = "https://files.pythonhosted.org/packages/81/f5/936eb310b0c84d044d92ccd90b99b53fb8326dc6084ce59fe47a6b78eb93/py_yaml12-0.1.0-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:fcd21f854faf23bd1fff4822e7cf29a6e8b69dc43f69f6f2f34a698dcde4548b", size = 719443, upload-time = "2025-12-16T18:06:42.464Z" },
+    { url = "https://files.pythonhosted.org/packages/37/5b/eaa16c85074b44b1b6843d52fb3b75da26410dcea1e98cf6b6c4f46f27af/py_yaml12-0.1.0-cp310-abi3-win32.whl", hash = "sha256:2552c7957819f53b7d667baab38e59db066f067aafa6695849ae94c0f01bf999", size = 349644, upload-time = "2025-12-16T18:06:48.417Z" },
+    { url = "https://files.pythonhosted.org/packages/48/60/d50a1e5e44333aa6533080df9c587b6b25e0205071078c63619202592bb3/py_yaml12-0.1.0-cp310-abi3-win_amd64.whl", hash = "sha256:228ce36885a16dcaf20007bf7b74ae1b36ccd20a46149f369e4b8164e7542023", size = 362326, upload-time = "2025-12-16T18:06:45.271Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/9c/a2cc38da0d06fcf7c13c12e14208f933636a2d51c3e9867e120cfe4352d1/py_yaml12-0.1.0-pp311-pypy311_pp73-macosx_11_0_arm64.whl", hash = "sha256:f874ca279b1c58ec6a4853876a0e51b51e3a6d3474168a15529fd68fbf268ca7", size = 466296, upload-time = "2025-12-16T18:06:36.532Z" },
+    { url = "https://files.pythonhosted.org/packages/2b/0e/ec5ae405508f2cb6628ad74b6af8bbd1b87ffac432db1b70ffc621e96003/py_yaml12-0.1.0-pp311-pypy311_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0720e3bd829d9887a7ce28e74e727af4e2c17c896b294d65c131361ba0767768", size = 513876, upload-time = "2025-12-16T18:06:33.303Z" },
+    { url = "https://files.pythonhosted.org/packages/a4/26/9ccd16342fa44e55d6351da32d3718daada5aed6037469f4c3b9c7f79363/py_yaml12-0.1.0-pp311-pypy311_pp73-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:90baa98b34c82660f5d856c54ee6c8505ab2428e72998f487972fd5ad0c40701", size = 553830, upload-time = "2025-12-16T18:06:30.127Z" },
+    { url = "https://files.pythonhosted.org/packages/36/3f/6f09b4f5384b9b0a1d42a0945641a89439b1fe5becc27de064ae56c8059c/py_yaml12-0.1.0-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:9a8fedadf47b35da5224e26936ddc26ed379fa0a184aaff709cbb75a2cf0df21", size = 359955, upload-time = "2025-12-16T18:06:47.199Z" },
+]
+
+[[package]]
 name = "pyarrow"
 version = "21.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5776,6 +5801,7 @@ dependencies = [
     { name = "pandas" },
     { name = "parsy" },
     { name = "prometheus-client" },
+    { name = "py-yaml12" },
     { name = "pyarrow" },
     { name = "pyarrow-hotfix" },
     { name = "pytest-mock" },
@@ -5922,6 +5948,7 @@ requires-dist = [
     { name = "pins", extras = ["gcs"], marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=0.8.3,<1" },
     { name = "prometheus-client", specifier = ">=0.22.1" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'postgres'", specifier = ">=3.2.0" },
+    { name = "py-yaml12" },
     { name = "pyarrow", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=13.0.0,<22" },
     { name = "pyarrow-hotfix", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.4,<1" },
     { name = "pyiceberg", extras = ["sql-sqlite", "sql-postgres"], marker = "extra == 'examples'", specifier = ">=0.9.0" },
