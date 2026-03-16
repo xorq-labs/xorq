@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773676007859,
+  "lastUpdate": 1773683233389,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -1122,6 +1122,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0014013758784788054",
             "extra": "mean: 188.2750886666642 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "610ee4232bca02ea166dfa02aa7f53a627228566",
+          "message": "perf(catalog): switch catalog and download_utils from tgz to zip (#1717)\n\n## Summary\n- Extends the tgz-to-zip conversion from #1716 to cover the catalog\nsubsystem and GitHub template downloads\n- Replaces `catalog/tar_utils.py` with `catalog/zip_utils.py` (zip has\nO(1) append, random-access reads, simpler stdlib API)\n- Switches GitHub archive downloads from `.tar.gz` to `.zip`\n- Renames `REQUIRED_TGZ_NAMES` → `REQUIRED_ARCHIVE_NAMES`,\n`VALID_SUFFIXES`/`PREFERRED_SUFFIX` to `.zip` only\n\n> **Depends on #1716** (`perf/sdister/use-zip`) — the first commit in\nthis branch is from that PR.\n\n## Test plan\n- [x] `python -m pytest python/xorq/catalog/tests/ -x -q -m \"not slow\"`\n— 28 passed\n- [x] `python -m pytest python/xorq/catalog/tests/test_cli.py -x -q -m\n\"not slow\"` — 63 passed\n- [x] `python -m pytest python/xorq/tests/test_cli_run_alias.py -x -q -m\n\"not slow\"` — 10 passed\n- [x] `python -m pytest python/xorq/common/utils/tests/test_io_utils.py\n-x -q` — 19 passed\n- [ ] `python -m pytest python/xorq/ibis_yaml/tests/test_packager.py -x\n-q --snapshot-update` (slow, needs network)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-16T13:46:16-04:00",
+          "tree_id": "a94bee72c97ac41b9fc078fbdac29c444ff86df6",
+          "url": "https://github.com/xorq-labs/xorq/commit/610ee4232bca02ea166dfa02aa7f53a627228566"
+        },
+        "date": 1773683231227,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 11.020845685778632,
+            "unit": "iter/sec",
+            "range": "stddev: 0.001066703918671644",
+            "extra": "mean: 90.73713837499841 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.956120213233308,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0041002249162676845",
+            "extra": "mean: 201.77073133333323 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.9368522657888888,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0069439639367685985",
+            "extra": "mean: 1.0674041537999983 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.324226128590607,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0029522513326335565",
+            "extra": "mean: 187.82072283333187 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.232942795818036,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004200584981809395",
+            "extra": "mean: 191.0970631666681 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.174428764732359,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004104804794951837",
+            "extra": "mean: 193.25804749999756 msec\nrounds: 6"
           }
         ]
       }
