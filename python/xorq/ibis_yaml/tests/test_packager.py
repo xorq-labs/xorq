@@ -2,6 +2,7 @@ import functools
 import shutil
 import sys
 import tempfile
+import zipfile
 from pathlib import (
     Path,
 )
@@ -10,12 +11,6 @@ import pytest
 
 from xorq.common.utils.download_utils import (
     download_xorq_template,
-)
-from xorq.common.utils.process_utils import (
-    Popened,
-)
-from xorq.common.utils.zip_utils import (
-    tgz_to_zip,
 )
 from xorq.ibis_yaml.packager import (
     SdistBuilder,
@@ -37,11 +32,14 @@ def get_template_bytes(template=InitTemplates.default):
 
 def prep_template_tmpdir(template, tmpdir):
     tmpdir = Path(tmpdir)
-    tgz_path = tmpdir.joinpath("template.tar.gz")
-    tgz_path.write_bytes(get_template_bytes(template))
-    Popened.check_output(f"tar xzvf {tgz_path} --directory {tmpdir}")
-    (project_path,) = (el for el in tmpdir.iterdir() if el.name != tgz_path.name)
-    zip_path = tgz_to_zip(tgz_path)
+    zip_path = tmpdir.joinpath("template.zip")
+    zip_path.write_bytes(get_template_bytes(template))
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        names = zf.namelist()
+        (first, *_) = names
+        root_dir = first.rstrip("/").split("/")[0]
+        zf.extractall(tmpdir)
+    project_path = tmpdir.joinpath(root_dir)
     return (zip_path, project_path)
 
 

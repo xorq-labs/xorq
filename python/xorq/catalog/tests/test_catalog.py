@@ -6,7 +6,7 @@ from attr import evolve
 
 import xorq.api as xo
 from xorq.catalog.catalog import (
-    BuildTgz,
+    BuildZip,
     Catalog,
     CatalogAddition,
     CatalogAlias,
@@ -15,15 +15,15 @@ from xorq.catalog.catalog import (
 )
 from xorq.catalog.constants import CatalogInfix
 from xorq.catalog.expr_utils import (
-    build_expr_context_tgz,
-)
-from xorq.catalog.tar_utils import (
-    write_tgz,
+    build_expr_context_zip,
 )
 from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
 )
-from xorq.ibis_yaml.enums import REQUIRED_TGZ_NAMES, ExprKind
+from xorq.catalog.zip_utils import (
+    write_zip,
+)
+from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES, ExprKind
 
 
 def test_catalog_add(catalog, data_dict):
@@ -45,7 +45,7 @@ def test_catalog_add(catalog, data_dict):
 def test_catalog_addition_from_expr(catalog):
     expr = xo.memtable({"from-expr": ["from-expr"]})
     catalog_addition = CatalogAddition.from_expr(expr, catalog)
-    assert catalog_addition.build_tgz.path.exists()
+    assert catalog_addition.build_zip.path.exists()
     assert catalog_addition._maybe_tmpfile is not None
     catalog_entry = catalog_addition.add()
     assert catalog_entry.exists()
@@ -71,10 +71,10 @@ def test_catalog_addition_with_aliases(catalog):
 def test_catalog_addition_from_expr_tmpfile_lifecycle(catalog):
     expr = xo.memtable({"lifecycle": ["lifecycle"]})
     catalog_addition = CatalogAddition.from_expr(expr, catalog)
-    tgz_path = catalog_addition.build_tgz.path
-    assert tgz_path.exists()
+    zip_path = catalog_addition.build_zip.path
+    assert zip_path.exists()
     del catalog_addition
-    assert not tgz_path.exists()
+    assert not zip_path.exists()
 
 
 def test_catalog_rm(catalog, data_dict):
@@ -125,8 +125,8 @@ def test_catalog_clone_from_push(repo_cloned_bare, tmpdir):
     before = cloned.list()
     compare_repo_and_catalog(repo_cloned_bare, cloned)
 
-    with build_expr_context_tgz(xo.memtable({"to-push": ["to-push"]})) as tgz_path:
-        cloned.add(tgz_path)
+    with build_expr_context_zip(xo.memtable({"to-push": ["to-push"]})) as zip_path:
+        cloned.add(zip_path)
         cloned.push()
 
     after = cloned.list()
@@ -135,27 +135,27 @@ def test_catalog_clone_from_push(repo_cloned_bare, tmpdir):
     assert before != after
 
 
-@pytest.mark.parametrize("elide", REQUIRED_TGZ_NAMES)
-def test_test_tgz(elide, catalog, tmpdir):
-    tgz_path = write_tgz(
-        Path(tmpdir).joinpath("build.tgz"),
-        {name: b"" for name in REQUIRED_TGZ_NAMES if name != elide},
+@pytest.mark.parametrize("elide", REQUIRED_ARCHIVE_NAMES)
+def test_test_zip(elide, catalog, tmpdir):
+    zip_path = write_zip(
+        Path(tmpdir).joinpath("build.zip"),
+        {name: b"" for name in REQUIRED_ARCHIVE_NAMES if name != elide},
     )
     with pytest.raises(AssertionError, match=elide):
-        BuildTgz(tgz_path)
+        BuildZip(zip_path)
 
 
 def test_assert_consistency(catalog, tmpdir):
-    tgz_path = write_tgz(
-        Path(tmpdir).joinpath("build.tgz"),
-        dict.fromkeys(REQUIRED_TGZ_NAMES, b""),
+    zip_path = write_zip(
+        Path(tmpdir).joinpath("build.zip"),
+        dict.fromkeys(REQUIRED_ARCHIVE_NAMES, b""),
     )
-    catalog_addition = CatalogAddition(BuildTgz(tgz_path), catalog)
+    catalog_addition = CatalogAddition(BuildZip(zip_path), catalog)
     catalog_addition.ensure_dirs()
     catalog_path = catalog_addition.catalog_entry.catalog_path
     with catalog.commit_context("bad commit"):
         shutil.copy(
-            tgz_path,
+            zip_path,
             catalog_path,
         )
         catalog.repo.index.add((catalog_path,))
@@ -174,7 +174,7 @@ def test_add_alias(catalog_populated):
     assert catalog_alias.alias_path.is_symlink()
     assert catalog_alias.alias_path.exists()
     assert catalog_alias.alias_path.parent.name == CatalogInfix.ALIAS
-    assert catalog_alias.target == Path("..") / CatalogInfix.ENTRY / (name + ".tgz")
+    assert catalog_alias.target == Path("..") / CatalogInfix.ENTRY / (name + ".zip")
     catalog_populated.assert_consistency()
 
 
@@ -196,7 +196,7 @@ def test_add_alias_overwrite(catalog_populated):
     assert (
         catalog_alias.alias_path.resolve()
         == (
-            catalog_populated.repo_path / CatalogInfix.ENTRY / (name_b + ".tgz")
+            catalog_populated.repo_path / CatalogInfix.ENTRY / (name_b + ".zip")
         ).resolve()
     )
     catalog_populated.assert_consistency()

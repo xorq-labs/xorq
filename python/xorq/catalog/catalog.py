@@ -2,8 +2,8 @@
 import hashlib
 import json
 import shutil
-import tarfile
 import tempfile
+import zipfile
 from contextlib import (
     contextmanager,
     nullcontext,
@@ -84,19 +84,19 @@ class Catalog:
     def catalog_yaml(self):
         return CatalogYAML(self.repo_path)
 
-    def _add_tgz(self, path, sync=True, aliases=()):
+    def _add_zip(self, path, sync=True, aliases=()):
         # should we enable not syncing?
         with self.maybe_synchronizing(sync):
-            catalog_addition = CatalogAddition(BuildTgz(path), self, aliases=aliases)
+            catalog_addition = CatalogAddition(BuildZip(path), self, aliases=aliases)
             catalog_entry = catalog_addition.add()
             self.assert_consistency()
             return catalog_entry
 
     def _add_build_dir(self, build_dir, sync=True, aliases=()):
-        from xorq.catalog.tar_utils import make_tgz_context  # noqa: PLC0415
+        from xorq.catalog.zip_utils import make_zip_context  # noqa: PLC0415
 
-        with make_tgz_context(build_dir) as tgz_path:
-            return self._add_tgz(tgz_path, sync=sync, aliases=aliases)
+        with make_zip_context(build_dir) as zip_path:
+            return self._add_zip(zip_path, sync=sync, aliases=aliases)
 
     def _add_expr(self, expr, sync=True, aliases=()):
         from xorq.catalog.expr_utils import build_expr_context  # noqa: PLC0415
@@ -111,7 +111,7 @@ class Catalog:
             case Path() if obj.is_dir():
                 f = self._add_build_dir
             case Path() if obj.is_file():
-                f = self._add_tgz
+                f = self._add_zip
             case Expr():
                 f = self._add_expr
             case _:
@@ -163,7 +163,7 @@ class Catalog:
         catalog_entry = CatalogEntry(name, self)
         return catalog_entry
 
-    def get_tgz(self, name, dir_path=None):
+    def get_zip(self, name, dir_path=None):
         catalog_entry = self.get_catalog_entry(name)
         return catalog_entry.get(dir_path)
 
@@ -337,17 +337,17 @@ class Catalog:
 
 
 @frozen
-class BuildTgz:
+class BuildZip:
     path = field(validator=instance_of(Path), converter=Path)
 
     def __attrs_post_init__(self):
-        from xorq.catalog.tar_utils import test_tgz  # noqa: PLC0415
+        from xorq.catalog.zip_utils import test_zip  # noqa: PLC0415
 
         assert "".join(self.path.suffixes) in VALID_SUFFIXES, (
             f"Invalid archive suffix '{self.path.suffixes}', expected one of {VALID_SUFFIXES}"
         )
         assert self.path.exists(), f"Build archive not found at {self.path}"
-        test_tgz(self.path)
+        test_zip(self.path)
 
     @property
     def name(self):
@@ -364,7 +364,7 @@ class BuildTgz:
 
 @frozen
 class CatalogAddition:
-    build_tgz = field(validator=instance_of(BuildTgz))
+    build_zip = field(validator=instance_of(BuildZip))
     catalog = field(validator=instance_of(Catalog))
     aliases = field(validator=deep_iterable(instance_of(str)), default=())
     _maybe_tmpfile = field(
@@ -374,11 +374,11 @@ class CatalogAddition:
 
     @property
     def name(self):
-        return self.build_tgz.name
+        return self.build_zip.name
 
     @property
     def metadata(self):
-        return {"md5sum": self.build_tgz.md5sum}
+        return {"md5sum": self.build_zip.md5sum}
 
     @property
     def catalog_entry(self):
@@ -405,7 +405,7 @@ class CatalogAddition:
         self.ensure_dirs()
         catalog_entry = self.catalog_entry
         catalog_entry.metadata_path.write_text(yaml.safe_dump(self.metadata))
-        shutil.copy(self.build_tgz.path, catalog_entry.catalog_path)
+        shutil.copy(self.build_zip.path, catalog_entry.catalog_path)
         index = self.catalog.repo.index
         #
         self.catalog.catalog_yaml.add(self.name)
@@ -426,12 +426,12 @@ class CatalogAddition:
 
     @classmethod
     def from_expr(cls, expr, catalog):
-        from xorq.catalog.expr_utils import build_expr_context_tgz  # noqa: PLC0415
+        from xorq.catalog.expr_utils import build_expr_context_zip  # noqa: PLC0415
 
         ntfh = tempfile.NamedTemporaryFile(suffix=PREFERRED_SUFFIX)
-        with build_expr_context_tgz(expr) as tgz_path:
-            shutil.copy(tgz_path, ntfh.name)
-        return cls(BuildTgz(ntfh.name), catalog, maybe_tmpfile=ntfh)
+        with build_expr_context_zip(expr) as zip_path:
+            shutil.copy(zip_path, ntfh.name)
+        return cls(BuildZip(ntfh.name), catalog, maybe_tmpfile=ntfh)
 
 
 @frozen
@@ -465,13 +465,13 @@ class CatalogEntry:
 
     @property
     def expr(self):
-        from xorq.catalog.expr_utils import load_expr_from_tgz  # noqa: PLC0415
+        from xorq.catalog.expr_utils import load_expr_from_zip  # noqa: PLC0415
 
-        return load_expr_from_tgz(self.catalog_path)
+        return load_expr_from_zip(self.catalog_path)
 
     @cached_property
     def kind(self) -> ExprKind:
-        data = self._read_tgz_member(DumpFiles.expr_metadata, json.loads)
+        data = self._read_zip_member(DumpFiles.expr_metadata, json.loads)
         if not isinstance(data, dict):
             raise ValueError(
                 f"Expected {DumpFiles.expr_metadata!r} to contain a JSON object in {self.catalog_path}"
@@ -480,7 +480,7 @@ class CatalogEntry:
 
     @cached_property
     def backends(self) -> tuple[str, ...]:
-        data = self._read_tgz_member(DumpFiles.profiles, yaml.safe_load)
+        data = self._read_zip_member(DumpFiles.profiles, yaml.safe_load)
         if not isinstance(data, dict):
             raise ValueError(
                 f"Expected {DumpFiles.profiles!r} to contain a YAML mapping in {self.catalog_path}"
@@ -523,13 +523,12 @@ class CatalogEntry:
     def exists(self):
         return all(self._exists_components.values())
 
-    def _read_tgz_member(self, filename, read_f):
-        with tarfile.open(self.catalog_path, "r:gz") as tf:
-            f = tf.extractfile(f"{self.name}/{filename}")
-            if f is None:
-                # https://docs.python.org/3/library/tarfile.html#tarfile.TarFile.extractfile
-                raise ValueError(f"{filename} is not a regular file or a link")
-            return read_f(f.read())
+    def _read_zip_member(self, filename, read_f):
+        with zipfile.ZipFile(self.catalog_path, "r") as zf:
+            member_path = f"{self.name}/{filename}"
+            if member_path not in zf.namelist():
+                raise ValueError(f"{filename} not found in archive")
+            return read_f(zf.read(member_path))
 
 
 @frozen

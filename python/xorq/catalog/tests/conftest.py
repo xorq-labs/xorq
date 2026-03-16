@@ -13,15 +13,11 @@ from xorq.catalog.catalog import (
     CATALOG_YAML_NAME,
     METADATA_APPEND,
     PREFERRED_SUFFIX,
-    VALID_SUFFIXES,
     Catalog,
     with_pure_suffix,
 )
 from xorq.catalog.constants import CatalogInfix
-from xorq.catalog.expr_utils import build_expr_context_tgz
-
-
-VALID_SUFFIX0, VALID_SUFFIX1, *_ = VALID_SUFFIXES
+from xorq.catalog.expr_utils import build_expr_context_zip
 
 
 def get_split_tree(repo):
@@ -91,11 +87,11 @@ def catalog_path(catalog):
     yield str(catalog.repo_path)
 
 
-def make_build_tgz(tmpdir, name):
+def make_build_zip(tmpdir, name):
     expr = xo.memtable({name: [name]})
-    with build_expr_context_tgz(expr) as tgz_path:
-        target = Path(tmpdir).joinpath(tgz_path.name)
-        shutil.copy(tgz_path, target)
+    with build_expr_context_zip(expr) as zip_path:
+        target = Path(tmpdir).joinpath(zip_path.name)
+        shutil.copy(zip_path, target)
         return target
 
 
@@ -109,7 +105,7 @@ def data_dict(tmpdir):
             *range(ord("A"), ord("C")),
         ),
     ):
-        target = make_build_tgz(tmpdir, name)
+        target = make_build_zip(tmpdir, name)
         data_dict[target.name] = target
     yield data_dict
 

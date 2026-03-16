@@ -1,9 +1,9 @@
 import tempfile
 from contextlib import contextmanager
 
-from xorq.catalog.tar_utils import (
-    extract_build_tgz_context,
-    make_tgz_context,
+from xorq.catalog.zip_utils import (
+    extract_build_zip_context,
+    make_zip_context,
 )
 
 
@@ -17,15 +17,15 @@ def build_expr_context(expr):
 
 
 @contextmanager
-def build_expr_context_tgz(expr):
+def build_expr_context_zip(expr):
     with build_expr_context(expr) as build_dir:
-        with make_tgz_context(build_dir) as tgz_path:
-            yield tgz_path
+        with make_zip_context(build_dir) as zip_path:
+            yield zip_path
 
 
-def load_expr_from_tgz(tgz_path):
+def load_expr_from_zip(zip_path):
     from xorq.ibis_yaml.compiler import load_expr  # noqa: PLC0415
 
-    with extract_build_tgz_context(tgz_path) as build_dir:
+    with extract_build_zip_context(zip_path) as build_dir:
         expr = load_expr(build_dir)
         return expr

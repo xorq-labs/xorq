@@ -772,10 +772,10 @@ def run(build_path, alias, name, cache_dir, output_path, output_format, limit):
         case (str(), str()):
             raise click.UsageError("BUILD_PATH and --alias are mutually exclusive.")
         case (None, str()):
-            from xorq.catalog.tar_utils import extract_build_tgz_context
+            from xorq.catalog.zip_utils import extract_build_zip_context
 
             entry = _resolve_alias(alias, name=name)
-            with extract_build_tgz_context(entry.catalog_path) as build_dir:
+            with extract_build_zip_context(entry.catalog_path) as build_dir:
                 run_command(build_dir, output_path, output_format, cache_dir, limit)
         case (str(), None):
             if name is not None:

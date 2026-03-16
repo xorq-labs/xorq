@@ -46,7 +46,7 @@ def _run(coro):
 def _make_mock_entry(name="abc123", has_metadata=False):
     entry = MagicMock()
     entry.name = name
-    entry.catalog_path = f"/tmp/fake/{name}.tgz"
+    entry.catalog_path = f"/tmp/fake/{name}.zip"
     entry.metadata_path = MagicMock()
     entry.metadata_path.exists.return_value = has_metadata
     entry.expr = None

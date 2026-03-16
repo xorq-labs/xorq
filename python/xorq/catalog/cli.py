@@ -180,7 +180,7 @@ def init(ctx):
 )
 @click.pass_context
 def add(ctx, paths, sync, aliases):
-    """Add entries from tgz files or build directories."""
+    """Add entries from archive files or build directories."""
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         with catalog.maybe_synchronizing(sync):
@@ -286,10 +286,10 @@ def info(ctx):
 )
 @click.pass_context
 def get(ctx, name, output):
-    """Export an entry's tgz to a directory."""
+    """Export an entry's archive to a directory."""
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
-        result = catalog.get_tgz(name, dir_path=output)
+        result = catalog.get_zip(name, dir_path=output)
         click.echo(f"Exported to {result}")
 
 

@@ -6,8 +6,8 @@ from xorq.catalog.catalog import (
 )
 from xorq.catalog.expr_utils import (
     build_expr_context,
-    build_expr_context_tgz,
-    load_expr_from_tgz,
+    build_expr_context_zip,
+    load_expr_from_zip,
 )
 
 
@@ -17,6 +17,6 @@ __all__ = [  # noqa: PLE0604
     "CatalogEntry",
     "CatalogRemoval",
     "build_expr_context",
-    "build_expr_context_tgz",
-    "load_expr_from_tgz",
+    "build_expr_context_zip",
+    "load_expr_from_zip",
 ]
