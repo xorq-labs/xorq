@@ -31,7 +31,7 @@ def try_path_relative_to(from_, to_):
 
 
 def uv_sdist_member_filter(name):
-    return not any(name.endswith(suffix) for suffix in uv_sdist_omit_suffixes)
+    return not name.endswith(uv_sdist_omit_suffixes)
 
 
 def get_root_dir(zip_path):
@@ -49,14 +49,14 @@ def calc_zip_content_hexdigest(path, member_filter=uv_sdist_member_filter):
     )
 
     with zipfile.ZipFile(path, "r") as zf:
-        dct = {
-            name: file_digest(zf.open(name), hashlib.md5)
+        names = sorted(
+            name
             for name in zf.namelist()
             if not name.endswith("/") and member_filter(name)
-        }
+        )
         md5 = hashlib.md5()
-        for _, value in sorted(dct.items()):
-            md5.update(value.encode("ascii"))
+        for name in names:
+            md5.update(file_digest(zf.open(name), hashlib.md5).encode("ascii"))
         return md5.hexdigest()
 
 
