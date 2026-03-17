@@ -87,10 +87,7 @@ class Annex:
     @property
     def remote_name(self):
         """Return the name of the single configured special remote, or None."""
-        try:
-            remote_log = self.remote_log
-        except Exception:
-            return None
+        remote_log = self.remote_log
         if not remote_log:
             return None
         gen = filter(None, (dct.get("name") for dct in remote_log.values()))
@@ -122,10 +119,10 @@ class Annex:
     def get(self, path="."):
         self._do("get", str(path))
 
-    def copy(self, to=None, frm=None, path="."):
-        if (to is None) == (frm is None):
-            raise ValueError("specify exactly one of to/frm")
-        direction = f"--to={to}" if to else f"--from={frm}"
+    def copy(self, to=None, from_=None, path="."):
+        if (to is None) == (from_ is None):
+            raise ValueError("specify exactly one of to/from_")
+        direction = f"--to={to}" if to else f"--from={from_}"
         self._do("copy", direction, str(path))
 
     def drop(self, path="."):
@@ -148,8 +145,12 @@ class Annex:
     @property
     def remote_log(self):
         """Parse the git-annex branch's remote.log into {uuid: {key: value}}."""
-        repo = Repo(self.repo_path)
-        blob = repo.commit("git-annex").tree / "remote.log"
+        branch = Repo(self.repo_path).commit("git-annex")
+        try:
+            blob = branch.tree / "remote.log"
+        except KeyError:
+            # no git-annex in the repo
+            return {}
         result = {}
         for line in blob.data_stream[3].read().decode().strip().splitlines():
             parts = line.split()
@@ -175,22 +176,15 @@ class Annex:
         cls = _REMOTE_CONFIG_CLASSES.get(remote_type)
         if cls is None:
             raise ValueError(f"unknown remote type: {remote_type!r}")
-        # fill in fields missing from remote.log using env vars
-        env_fallback = {}
-        if self.env:
-            secret_fields = getattr(cls, "_SECRET_FIELDS", ())
-            env_fallback = {
-                field: self.env[field.upper()]
-                for field in secret_fields
-                if field.upper() in self.env
-            }
-        else:
-            env_config = cls.EnvConfig.from_env()
-            env_fallback = {
-                a.name: getattr(env_config, a.name)
-                for a in env_config.__attrs_attrs__
-                if a.name != "env_file" and getattr(env_config, a.name)
-            }
+        # fill in fields missing from remote.log (e.g. secrets) from env vars
+        env_config = cls.EnvConfig.from_env()
+        env_fallback = {
+            a.name: getattr(env_config, a.name)
+            for a in env_config.__attrs_attrs__
+            if a.name != "env_file"
+            and getattr(env_config, a.name)
+            and a.name not in config
+        }
         return cls.from_dict(config, **env_fallback)
 
     def findkeys(self):
@@ -203,26 +197,29 @@ class Annex:
     def uninit(self):
         self._do("uninit")
 
-    def teardown(self):
-        keys = self.findkeys()
-        for key in keys:
-            self.dropkey(key)
-        deadline = time.monotonic() + POLL_TIMEOUT_SECONDS
-        while self.annex_objects_path.exists() and tuple(
-            self.annex_objects_path.iterdir()
-        ):
-            if time.monotonic() > deadline:
-                raise TimeoutError(
-                    f"annex objects not cleaned up within {POLL_TIMEOUT_SECONDS}s"
-                )
-            time.sleep(self.poll_interval_seconds)
-        self.uninit()
-
     @staticmethod
     def init_repo_path(repo_path, remote_config=None):
         _do_inside(repo_path, "init")
         if remote_config:
             remote_config.initremote(repo_path)
+
+
+def teardown_local(git_annex):
+    annex = git_annex.annex
+    keys = annex.findkeys()
+    for key in keys:
+        annex.dropkey(key)
+    deadline = time.monotonic() + POLL_TIMEOUT_SECONDS
+    while annex.annex_objects_path.exists() and tuple(
+        annex.annex_objects_path.iterdir()
+    ):
+        if time.monotonic() > deadline:
+            raise TimeoutError(
+                f"annex objects not cleaned up within {POLL_TIMEOUT_SECONDS}s"
+            )
+        time.sleep(annex.poll_interval_seconds)
+    annex.uninit()
+    shutil.rmtree(git_annex.repo_path)
 
 
 def teardown_remote(git_annex, remote_config=None):
@@ -243,9 +240,16 @@ def teardown_remote(git_annex, remote_config=None):
     )
 
 
+def teardown(git_annex, remote_config=None):
+    teardown_remote(git_annex, remote_config=remote_config)
+    teardown_local(git_annex)
+
+
 class RemoteConfig(abc.ABC):
     @abc.abstractmethod
     def initremote(self, repo_path): ...
+
+    def enableremote(self, repo_path): ...  # noqa: B027
 
     @abc.abstractmethod
     def validate_config(self, repo_path): ...
@@ -588,27 +592,6 @@ class GitAnnex:
     def commit_context(self, message):
         yield self.repo.index
         self.repo.index.commit(message)
-
-    def teardown(self, remove=False):
-        self.annex.teardown()
-        if remove:
-            shutil.rmtree(self.repo_path)
-
-    @classmethod
-    def from_repo_path(cls, repo_path, remote_config=None, exist_ok=False):
-        repo_path = Path(repo_path).absolute()
-        match (repo_path.exists(), exist_ok):
-            case (True, True):
-                pass
-            case (True, False):
-                raise ValueError(f"{repo_path} exists and exist_ok is {exist_ok}")
-            case (False, _):
-                cls.init_repo_path(repo_path, remote_config=remote_config)
-        env = getattr(remote_config, "env", None)
-        return cls(
-            repo=Repo(repo_path),
-            annex=Annex(repo_path=repo_path, env=env),
-        )
 
     @staticmethod
     def init_repo_path(repo_path, remote_config=None):

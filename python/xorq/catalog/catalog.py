@@ -298,7 +298,16 @@ class Catalog:
         # apply local git config before annex init (e.g. allowed-ip-addresses)
         if git_config:
             for key, value in git_config.items():
-                subprocess.run(["git", "config", key, value], cwd=repo_path, check=True)
+                result = subprocess.run(
+                    ["git", "config", key, value],
+                    cwd=repo_path,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    raise ValueError(
+                        f"git config {key}={value} failed: {result.stderr}"
+                    )
         Annex.init_repo_path(repo_path)
 
         # read remote config from catalog.yaml (written by set_remote_config)
@@ -325,11 +334,18 @@ class Catalog:
         else:
             repo = Repo(repo_path)
         if not init:
+            # temporary Annex without env to read remote.log and resolve
+            # remote_config before we know what env should be
             annex = Annex(repo_path=Path(repo.working_dir))
             disk_config = annex.remote_config
             if remote_config is None:
                 remote_config = disk_config
-            elif disk_config is not None:
+            elif disk_config is None:
+                raise ValueError(
+                    f"remote_config was passed but no remote is registered in git-annex remote.log at {repo_path}; "
+                    f"pass init=True to create a new catalog"
+                )
+            else:
                 passed = remote_config.to_dict()
                 stored = disk_config.to_dict()
                 # only compare fields explicitly set in the passed config;
