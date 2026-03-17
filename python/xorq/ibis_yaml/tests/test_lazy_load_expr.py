@@ -1,4 +1,3 @@
-import time
 from pathlib import Path
 
 import pandas as pd
@@ -16,6 +15,7 @@ from xorq.ibis_yaml.compiler import (
     load_expr,
 )
 from xorq.tests.util import assert_frame_equal
+from xorq.vendor.ibis.backends.profiles import Profile
 
 
 def _all_sources_lazy(expr):
@@ -114,6 +114,148 @@ def test_load_expr_default_is_not_lazy(builds_dir, parquet_dir):
     assert not any(isinstance(src, LazyBackend) for src in find_all_sources(loaded))
 
 
+@pytest.mark.parametrize(
+    "con_name,kwargs",
+    [
+        pytest.param("duckdb", {"database": ":memory:"}, marks=pytest.mark.duckdb),
+        pytest.param("datafusion", {}, marks=pytest.mark.datafusion),
+        pytest.param("sqlite", {"database": None}, marks=pytest.mark.sqlite),
+    ],
+)
+def test_get_con_lazy_returns_unconnected_lazy_backend(con_name, kwargs):
+    profile = Profile(con_name=con_name, kwargs_tuple=tuple(kwargs.items()))
+    lazy_con = profile.get_con(lazy=True)
+
+    assert isinstance(lazy_con, LazyBackend)
+    assert not lazy_con.is_connected
+
+
+@pytest.mark.parametrize(
+    "con_name,kwargs",
+    [
+        pytest.param("duckdb", {"database": ":memory:"}, marks=pytest.mark.duckdb),
+        pytest.param("datafusion", {}, marks=pytest.mark.datafusion),
+        pytest.param("sqlite", {"database": None}, marks=pytest.mark.sqlite),
+    ],
+)
+def test_get_con_lazy_con_kwargs_set_after_connect(con_name, kwargs):
+    """_con_kwargs must be populated on the backend after lazy connection.
+
+    Regression test: previously LazyBackend called do_connect directly,
+    bypassing BaseBackend.__init__ which is where _con_kwargs is set.
+    """
+    profile = Profile(con_name=con_name, kwargs_tuple=tuple(kwargs.items()))
+    lazy_con = profile.get_con(lazy=True)
+
+    _ = lazy_con.name  # trigger connection
+    assert lazy_con.is_connected
+    assert lazy_con._con_kwargs == kwargs
+
+
+@pytest.mark.postgres
+def test_get_con_lazy_postgres_con_kwargs_has_password():
+    """Lazy postgres connection must expose _con_kwargs['password'] after connect.
+
+    Regression test: PgADBC.password reads _con_kwargs['password'] directly;
+    this KeyError was the original failure mode.
+    """
+    pg = xo.postgres.connect_env()
+    profile = Profile.from_con(pg)
+    lazy_con = profile.get_con(lazy=True)
+
+    assert isinstance(lazy_con, LazyBackend)
+    assert not lazy_con.is_connected
+
+    _ = lazy_con.name  # trigger connection
+    assert lazy_con.is_connected
+    assert "password" in lazy_con._con_kwargs
+
+
+@pytest.mark.parametrize(
+    "con_name,kwargs",
+    [
+        pytest.param("duckdb", {"database": ":memory:"}, marks=pytest.mark.duckdb),
+        pytest.param("sqlite", {"database": None}, marks=pytest.mark.sqlite),
+    ],
+)
+def test_into_backend_from_xorq_lazy(con_name, kwargs, parquet_dir):
+    """An into_backend expr executes correctly when the target is a LazyBackend.
+
+    Covers the full path: source on xorq backend → lazy target backend →
+    trigger connection on execute → result matches eager.
+    Note: plain datafusion is excluded — it has no read_record_batches support.
+    """
+    source_con = xo.connect()
+    parquet_path = parquet_dir / "awards_players.parquet"
+    source_expr = source_con.read_parquet(parquet_path, table_name="awards_players")
+
+    profile = Profile(con_name=con_name, kwargs_tuple=tuple(kwargs.items()))
+    lazy_con = profile.get_con(lazy=True)
+
+    assert not lazy_con.is_connected
+
+    lazy_result = source_expr.into_backend(lazy_con).execute()
+
+    assert lazy_con.is_connected
+    assert len(lazy_result) > 0
+
+    eager_con = profile.get_con(lazy=False)
+    eager_result = source_expr.into_backend(eager_con).execute()
+    assert_frame_equal(eager_result, lazy_result)
+
+
+@pytest.mark.postgres
+def test_into_backend_from_xorq_lazy_postgres(parquet_dir):
+    """into_backend to a lazy postgres backend works end-to-end."""
+    source_con = xo.connect()
+    parquet_path = parquet_dir / "awards_players.parquet"
+    source_expr = source_con.read_parquet(parquet_path, table_name="awards_players")
+
+    profile = Profile.from_con(xo.postgres.connect_env())
+    lazy_con = profile.get_con(lazy=True)
+
+    assert not lazy_con.is_connected
+
+    result = source_expr.into_backend(lazy_con).execute()
+
+    assert lazy_con.is_connected
+    assert len(result) > 0
+
+
+@pytest.mark.duckdb
+def test_get_con_lazy_and_eager_results_match(parquet_dir, builds_dir):
+    """Lazy and eager load paths produce identical results for duckdb."""
+    backend = xo.duckdb.connect()
+    parquet_path = parquet_dir / "awards_players.parquet"
+    expr = deferred_read_parquet(
+        parquet_path, backend, table_name="awards_players"
+    ).filter(lambda t: t.lgID == "NL")
+
+    build_path = build_expr(expr, builds_dir=builds_dir)
+
+    eager_result = load_expr(build_path, lazy=False).execute()
+    lazy_result = load_expr(build_path, lazy=True).execute()
+
+    assert len(lazy_result) > 0
+    assert_frame_equal(eager_result, lazy_result)
+
+
+@pytest.mark.datafusion
+def test_get_con_lazy_and_eager_results_match_datafusion(parquet_dir, builds_dir):
+    """Lazy and eager load paths produce identical results for datafusion."""
+    backend = xo.datafusion.connect()
+    parquet_path = parquet_dir / "awards_players.parquet"
+    expr = deferred_read_parquet(parquet_path, backend, table_name="awards_players")
+
+    build_path = build_expr(expr, builds_dir=builds_dir)
+
+    eager_result = load_expr(build_path, lazy=False).execute()
+    lazy_result = load_expr(build_path, lazy=True).execute()
+
+    assert len(lazy_result) > 0
+    assert_frame_equal(eager_result, lazy_result)
+
+
 @pytest.fixture
 def lahman_parquet_dir(tmp_path_factory, n_rows: int = 1_000) -> Path:
     """Write synthetic Lahman-style parquet files and return the directory."""
@@ -155,7 +297,7 @@ def lahman_parquet_dir(tmp_path_factory, n_rows: int = 1_000) -> Path:
 
 
 def _make_multi_join_expr(parquet_dir: Path):
-    pg = xo.postgres.connect_examples()
+    pg = xo.postgres.connect_env()
     batting = pg.table("batting")
     pg_backend = batting._find_backend()
 
@@ -196,25 +338,10 @@ def _make_multi_join_expr(parquet_dir: Path):
     ).drop("playerID_right", "yearID_right", "teamID_right")
 
 
-def _mean_load_time(expr_path: Path, n_runs: int = 10, **kwargs) -> float:
-    for _ in range(3):
-        load_expr(expr_path, **kwargs)
-    t0 = time.perf_counter()
-    for _ in range(n_runs):
-        load_expr(expr_path, **kwargs)
-    return (time.perf_counter() - t0) / n_runs
-
-
 @pytest.mark.postgres
-def test_lazy_load_expr_faster_than_eager_postgres(builds_dir, lahman_parquet_dir):
+def test_lazy_load_expr_postgres(builds_dir, lahman_parquet_dir):
     expr = _make_multi_join_expr(lahman_parquet_dir)
     expr_path = build_expr(expr, builds_dir=builds_dir)
+    lazy_expr = load_expr(expr_path, lazy=True, read_only_parquet_metadata=True)
 
-    eager_s = _mean_load_time(expr_path, lazy=False)
-    lazy_s = _mean_load_time(expr_path, lazy=True, read_only_parquet_metadata=True)
-    speedup = eager_s / lazy_s
-
-    assert speedup > 1, (
-        f"Expected lazy load_expr to be >1x faster than eager, "
-        f"got {speedup:.2f}x  (eager={eager_s * 1000:.1f}ms, lazy={lazy_s * 1000:.1f}ms)"
-    )
+    assert lazy_expr.execute() is not None

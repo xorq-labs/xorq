@@ -15,11 +15,11 @@ from xorq.vendor.ibis.backends import BaseBackend
 
 
 def make_duckdb_lazy(**kwargs):
-    return LazyBackend(duckdb.Backend(), database=":memory:", **kwargs)
+    return LazyBackend(duckdb.Backend().connect, database=":memory:", **kwargs)
 
 
 def make_sqlite_lazy(**kwargs):
-    return LazyBackend(sqlite.Backend(), **kwargs)
+    return LazyBackend(sqlite.Backend().connect, **kwargs)
 
 
 @pytest.mark.duckdb
@@ -36,18 +36,19 @@ def test_first_attr_access_triggers_connect():
 
 
 @pytest.mark.duckdb
-def test_connect_called_only_once(monkeypatch):
+def test_connect_called_only_once():
     raw = duckdb.Backend()
     call_count = 0
-    original = raw.do_connect
+    original = raw.connect
 
-    def counting_do_connect(*args, **kwargs):
+    def counting_connect(*args, **kwargs):
         nonlocal call_count
         call_count += 1
         return original(*args, **kwargs)
 
-    lazy = LazyBackend(raw, database=":memory:")
-    monkeypatch.setattr(raw, "do_connect", counting_do_connect)
+    counting_connect.__self__ = raw
+
+    lazy = LazyBackend(counting_connect, database=":memory:")
     _ = lazy.name
     _ = lazy.dialect
     _ = lazy.compiler
@@ -74,7 +75,7 @@ def test_isinstance_base_backend():
 @pytest.mark.duckdb
 def test_isinstance_concrete_backend_class():
     raw = duckdb.Backend()
-    lazy = LazyBackend(raw, database=":memory:")
+    lazy = LazyBackend(raw.connect, database=":memory:")
     assert isinstance(lazy, type(raw))
 
 
@@ -92,27 +93,29 @@ def test_sqlite_name_attribute_delegated():
 
 @pytest.mark.duckdb
 def test_setattr_forwarded_to_backend():
-    raw = duckdb.Backend()
-    lazy = LazyBackend(raw, database=":memory:")
+    lazy = make_duckdb_lazy()
     _ = lazy.name
+    connected_backend = object.__getattribute__(lazy, "_backend")
     lazy._test_sentinel = "hello"
-    assert raw._test_sentinel == "hello"
+    assert connected_backend._test_sentinel == "hello"
 
 
 @pytest.mark.duckdb
-def test_thread_safety_connect_once(monkeypatch):
+def test_thread_safety_connect_once():
     raw = duckdb.Backend()
     call_count = 0
-    original = raw.do_connect
+    original = raw.connect
     lock = threading.Lock()
 
-    def counting_do_connect(*args, **kwargs):
+    def counting_connect(*args, **kwargs):
         nonlocal call_count
         with lock:
             call_count += 1
         return original(*args, **kwargs)
 
-    lazy = LazyBackend(raw, database=":memory:")
+    counting_connect.__self__ = raw
+
+    lazy = LazyBackend(counting_connect, database=":memory:")
     errors = []
 
     def access():
@@ -121,7 +124,6 @@ def test_thread_safety_connect_once(monkeypatch):
         except Exception as exc:
             errors.append(exc)
 
-    monkeypatch.setattr(raw, "do_connect", counting_do_connect)
     threads = [threading.Thread(target=access) for _ in range(20)]
     for t in threads:
         t.start()
@@ -145,7 +147,7 @@ def test_lazy_duckdb_full_roundtrip(tmp_path):
     seed.disconnect()
 
     raw = duckdb.Backend()
-    lazy = LazyBackend(raw, database=str(db_file))
+    lazy = LazyBackend(raw.connect, database=str(db_file))
     assert lazy.is_connected is False
 
     tbl = lazy.table("cities")

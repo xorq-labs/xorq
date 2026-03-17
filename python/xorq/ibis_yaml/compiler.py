@@ -255,7 +255,7 @@ def hydrate_cons(hash_to_profile_kwargs, lazy=False):
             case _:
                 dct["kwargs_tuple"] = tuple(map(tuple, dct["kwargs_tuple"]))
         profile = Profile(**dct)
-        con = profile.get_lazy_con() if lazy else profile.get_con()
+        con = profile.get_con(lazy=lazy)
         return con
 
     profiles = toolz.valmap(
