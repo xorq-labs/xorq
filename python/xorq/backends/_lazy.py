@@ -46,6 +46,10 @@ class LazyBackend:
         object.__setattr__(self, "_lock", threading.Lock())
 
     @property
+    def is_connected(self) -> bool:
+        return object.__getattribute__(self, "_connected")
+
+    @property
     def __class__(self):
         backend = object.__getattribute__(self, "_backend")
         if backend is not None:
@@ -67,10 +71,6 @@ class LazyBackend:
         connected = object.__getattribute__(self, "_connected")
         status = "connected" if connected else "not connected"
         return f"LazyBackend({backend_cls.__name__}, {status})"
-
-    @property
-    def is_connected(self) -> bool:
-        return object.__getattribute__(self, "_connected")
 
     def _ensure_connected(self) -> None:
         if not object.__getattribute__(self, "_connected"):
