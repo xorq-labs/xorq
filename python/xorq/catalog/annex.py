@@ -1,3 +1,4 @@
+import abc
 import json
 import os
 import shutil
@@ -17,6 +18,8 @@ from attr.validators import (
     optional,
 )
 from git import Repo
+
+from xorq.common.utils.env_utils import EnvConfigable, env_templates_dir
 
 
 abspath = toolz.compose(Path.absolute, Path)
@@ -135,6 +138,32 @@ class Annex:
             external_remote_config.initremote(repo_path)
 
 
+class RemoteConfig(abc.ABC):
+    @abc.abstractmethod
+    def initremote(self, repo_path): ...
+
+    @abc.abstractmethod
+    def validate_config(self, repo_path): ...
+
+    @abc.abstractmethod
+    def to_dict(self): ...
+
+    @classmethod
+    def from_dict(cls, d, **kwargs):
+        d = {k: v for k, v in d.items() if k != "type" and not k.startswith("_")}
+        return cls(**{**d, **kwargs})
+
+    @classmethod
+    def from_env(cls, **kwargs):
+        env_config = cls.EnvConfig.from_env()
+        env = {
+            a.name: getattr(env_config, a.name)
+            for a in env_config.__attrs_attrs__
+            if a.name != "env_file" and getattr(env_config, a.name)
+        }
+        return cls(**{**env, **kwargs})
+
+
 @frozen
 class ExternalRemoteConfig:
     name = field(validator=instance_of(str))
@@ -199,10 +228,15 @@ class ExternalRemoteConfig:
 
 
 @frozen
-class DirectoryRemoteConfig:
+class DirectoryRemoteConfig(RemoteConfig):
     name = field(validator=instance_of(str))
     directory = field(validator=instance_of(str))
     encryption = field(validator=instance_of(str), default="none")
+
+    EnvConfig = EnvConfigable.subclass_from_env_file(
+        env_templates_dir.joinpath(".env.catalog.directory.template"),
+        prefix="XORQ_CATALOG_DIRECTORY_",
+    )
 
     def initremote(self, repo_path):
         _check_output_do_inside(
@@ -225,14 +259,9 @@ class DirectoryRemoteConfig:
     def to_dict(self):
         return {"type": "directory", **attr.asdict(self)}
 
-    @classmethod
-    def from_dict(cls, d, **kwargs):
-        d = {k: v for k, v in d.items() if k != "type"}
-        return cls(**{**d, **kwargs})
-
 
 @frozen
-class S3RemoteConfig:
+class S3RemoteConfig(RemoteConfig):
     name = field(validator=instance_of(str))
     bucket = field(validator=instance_of(str))
     aws_access_key_id = field(validator=instance_of(str))
@@ -254,6 +283,11 @@ class S3RemoteConfig:
     partsize = field(validator=optional(instance_of(str)), default=None)
     embedcreds = field(validator=optional(instance_of(str)), default=None)
 
+    EnvConfig = EnvConfigable.subclass_from_env_file(
+        env_templates_dir.joinpath(".env.catalog.s3.template"),
+        prefix="XORQ_CATALOG_S3_",
+    )
+
     _OPTIONAL_PARAMS = (
         "datacenter",
         "region",
@@ -272,6 +306,8 @@ class S3RemoteConfig:
         "embedcreds",
     )
 
+    _SECRET_FIELDS = ("aws_access_key_id", "aws_secret_access_key")
+
     @property
     def env(self):
         return {
@@ -285,17 +321,52 @@ class S3RemoteConfig:
         }
 
     @property
+    def endpoint_url(self):
+        if self.host is None:
+            return None
+        protocol = self.protocol or "https"
+        port_suffix = f":{self.port}" if self.port else ""
+        return f"{protocol}://{self.host}{port_suffix}"
+
+    def check_bucket(self):
+        """Verify that credentials can reach the bucket.
+
+        Returns a dict with connection details on success, raises on failure.
+        Requires boto3.
+        """
+        import boto3  # noqa: PLC0415
+
+        client = boto3.client(
+            "s3",
+            aws_access_key_id=self.aws_access_key_id,
+            aws_secret_access_key=self.aws_secret_access_key,
+            endpoint_url=self.endpoint_url,
+            region_name=self.region,
+        )
+        # head_bucket verifies both auth and bucket existence
+        client.head_bucket(Bucket=self.bucket)
+        # list a single key to confirm read access
+        listing = client.list_objects_v2(Bucket=self.bucket, MaxKeys=1)
+        return {
+            "bucket": self.bucket,
+            "endpoint_url": self.endpoint_url or "(AWS default)",
+            "key_count": listing.get("KeyCount", 0),
+        }
+
+    @property
     def initremote_params(self):
         params = [
             self.name,
             "type=S3",
             f"bucket={self.bucket}",
             f"encryption={self.encryption}",
+        ] + [
+            f"{key}={value}"
+            for (key, value) in (
+                (key, getattr(self, key)) for key in self._OPTIONAL_PARAMS
+            )
+            if value is not None
         ]
-        for key in self._OPTIONAL_PARAMS:
-            value = getattr(self, key)
-            if value is not None:
-                params.append(f"{key}={value}")
         return params
 
     def initremote(self, repo_path):
@@ -324,22 +395,14 @@ class S3RemoteConfig:
         assert info["type"] == "S3"
         assert info["bucket"] == self.bucket
 
-    _SECRET_FIELDS = ("aws_access_key_id", "aws_secret_access_key")
-
     def to_dict(self):
-        d = {"type": "S3"}
-        for a in attr.fields(type(self)):
-            if a.name.startswith("_") or a.name in self._SECRET_FIELDS:
-                continue
-            value = getattr(self, a.name)
-            if value is not None:
-                d[a.name] = value
+        d = {"type": "S3"} | {
+            a.name: getattr(self, a.name)
+            for a in attr.fields(type(self))
+            if not (a.name.startswith("_") or a.name in self._SECRET_FIELDS)
+            and getattr(self, a.name) is not None
+        }
         return d
-
-    @classmethod
-    def from_dict(cls, d, **kwargs):
-        d = {k: v for k, v in d.items() if k != "type" and not k.startswith("_")}
-        return cls(**{**d, **kwargs})
 
     @classmethod
     def make_s3_remote(
@@ -376,6 +439,42 @@ class S3RemoteConfig:
             signature="v2",
             **kwargs,
         )
+
+    _GCS_DEFAULTS = {
+        "host": "storage.googleapis.com",
+        "protocol": "https",
+        "requeststyle": "path",
+        "signature": "v4",
+        "region": "auto",
+    }
+
+    @classmethod
+    def make_gcs_remote(
+        cls,
+        name,
+        bucket,
+        aws_access_key_id,
+        aws_secret_access_key,
+        **kwargs,
+    ):
+        """Create an S3-compatible remote pointing at Google Cloud Storage.
+
+        GCS exposes an S3-compatible API (interoperability mode).  The
+        *aws_access_key_id* / *aws_secret_access_key* values should be
+        HMAC keys generated from the GCS console (Settings > Interoperability).
+        """
+        return cls(
+            name=name,
+            bucket=bucket,
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            **{**cls._GCS_DEFAULTS, **kwargs},
+        )
+
+    @classmethod
+    def make_gcs_remote_from_env(cls, **kwargs):
+        """Like ``from_env``, but with GCS defaults for host/protocol/requeststyle."""
+        return cls.from_env(**{**cls._GCS_DEFAULTS, **kwargs})
 
 
 _REMOTE_CONFIG_CLASSES = {

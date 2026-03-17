@@ -10,12 +10,10 @@ from git import Repo as GitRepo
 import xorq.api as xo
 from xorq.catalog.annex import Annex, DirectoryRemoteConfig, GitAnnex, S3RemoteConfig
 from xorq.catalog.catalog import (
-    BuildZip,
     Catalog,
     CatalogAddition,
     CatalogAlias,
     CatalogEntry,
-    with_pure_suffix,
 )
 from xorq.catalog.constants import CatalogInfix
 from xorq.catalog.expr_utils import (
@@ -25,6 +23,8 @@ from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
 )
 from xorq.catalog.zip_utils import (
+    BuildZip,
+    with_pure_suffix,
     write_zip,
 )
 from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES, ExprKind
@@ -387,27 +387,31 @@ def test_directory_remote(tmpdir):
     assert entry.catalog_path.exists()
 
 
+@pytest.mark.s3
 def test_s3_remote_minio(tmpdir):
     """Add entries, copy to S3 (minio), drop local, get back."""
+    remote_config = S3RemoteConfig.from_env(
+        name="mys3",
+        bucket=f"test-annex-{uuid.uuid4().hex[:12]}",
+        host="minio",
+        port="9000",
+        aws_access_key_id="accesskey",
+        aws_secret_access_key="secretkey",
+        protocol="http",
+        requeststyle="path",
+        signature="v2",
+    )
     # check minio is reachable
-    minio_host = "172.19.0.2"
-    minio_port = "9000"
     result = subprocess.run(
-        ["curl", "-sf", f"http://{minio_host}:{minio_port}/minio/health/live"],
+        [
+            "curl",
+            "-sf",
+            f"http://{remote_config.host}:{remote_config.port}/minio/health/live",
+        ],
         capture_output=True,
     )
     if result.returncode != 0:
         pytest.skip("minio not reachable")
-
-    bucket = f"test-annex-{uuid.uuid4().hex[:12]}"
-    remote_config = S3RemoteConfig.make_minio_remote(
-        name="mys3",
-        bucket=bucket,
-        host=minio_host,
-        aws_access_key_id="accesskey",
-        aws_secret_access_key="secretkey",
-        port=minio_port,
-    )
     repo_path = Path(tmpdir).joinpath("repo")
     repo_path.mkdir(parents=True)
     repo = GitRepo.init(repo_path)

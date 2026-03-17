@@ -7,7 +7,6 @@ import pytest
 from click.testing import CliRunner
 
 from xorq.catalog.catalog import (
-    BuildZip,
     Catalog,
     CatalogAddition,
 )
@@ -17,6 +16,7 @@ from xorq.catalog.tests.conftest import (
     make_build_zip,
 )
 from xorq.catalog.zip_utils import (
+    BuildZip,
     extract_build_zip_context,
     write_zip,
 )

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-import hashlib
 import json
 import shutil
 import subprocess
@@ -37,24 +36,23 @@ from xorq.catalog.constants import (
     CATALOG_YAML_NAME,
     METADATA_APPEND,
     PREFERRED_SUFFIX,
-    VALID_SUFFIXES,
     CatalogInfix,
+)
+from xorq.catalog.expr_utils import (
+    build_expr_context,
+    build_expr_context_zip,
+    load_expr_from_zip,
 )
 from xorq.catalog.git_utils import (
     add_as_submodule,
     commit_context,
 )
+from xorq.catalog.zip_utils import BuildZip, make_zip_context, with_pure_suffix
 from xorq.ibis_yaml.enums import DumpFiles, ExprKind
 
 
 abspath = toolz.compose(Path.absolute, Path)
 popen_shell = partial(Popen, shell=True)
-
-
-def with_pure_suffix(path, suffix=""):
-    return path.with_name(path.name.removesuffix("".join(path.suffixes))).with_suffix(
-        suffix
-    )
 
 
 @frozen
@@ -116,14 +114,10 @@ class Catalog:
             return catalog_entry
 
     def _add_build_dir(self, build_dir, sync=True, aliases=()):
-        from xorq.catalog.zip_utils import make_zip_context  # noqa: PLC0415
-
         with make_zip_context(build_dir) as zip_path:
             return self._add_zip(zip_path, sync=sync, aliases=aliases)
 
     def _add_expr(self, expr, sync=True, aliases=()):
-        from xorq.catalog.expr_utils import build_expr_context  # noqa: PLC0415
-
         with build_expr_context(expr) as path:
             return self._add_build_dir(path, sync=sync, aliases=aliases)
 
@@ -322,26 +316,39 @@ class Catalog:
         return cls(git_annex=git_annex)
 
     @classmethod
-    def from_repo_path(cls, repo_path, init=None, check_consistency=True):
+    def from_repo_path(
+        cls, repo_path, init=None, check_consistency=True, remote_config=None
+    ):
         init = not Path(repo_path).exists() if init is None else init
         if init:
-            repo = cls.init_repo_path(repo_path)
+            repo = cls.init_repo_path(repo_path, remote_config=remote_config)
         else:
             repo = Repo(repo_path)
-        git_annex = GitAnnex(repo=repo, annex=Annex(repo_path=Path(repo.working_dir)))
-        return cls(git_annex=git_annex, check_consistency=check_consistency)
+        env = getattr(remote_config, "env", None)
+        annex = Annex(repo_path=Path(repo.working_dir), env=env)
+        git_annex = GitAnnex(repo=repo, annex=annex)
+        catalog = cls(git_annex=git_annex, check_consistency=check_consistency)
+        if init and remote_config is not None:
+            catalog.set_remote_config(remote_config)
+        return catalog
 
     @classmethod
-    def from_name(cls, name, init=None, check_consistency=True):
+    def from_name(cls, name, init=None, check_consistency=True, remote_config=None):
         repo_path = cls.name_to_repo_path(name)
         return cls.from_repo_path(
-            repo_path, init=init, check_consistency=check_consistency
+            repo_path,
+            init=init,
+            check_consistency=check_consistency,
+            remote_config=remote_config,
         )
 
     @classmethod
-    def from_default(cls, init=None, check_consistency=True):
+    def from_default(cls, init=None, check_consistency=True, remote_config=None):
         return cls.from_name(
-            name="default", init=init, check_consistency=check_consistency
+            name="default",
+            init=init,
+            check_consistency=check_consistency,
+            remote_config=remote_config,
         )
 
     @classmethod
@@ -400,40 +407,14 @@ class Catalog:
         return repo_path
 
     @staticmethod
-    def init_repo_path(repo_path, bare=False):
+    def init_repo_path(repo_path, bare=False, remote_config=None):
         assert not (repo_path := Path(repo_path)).exists(), (
             f"Catalog repo already exists at {repo_path}"
         )
         repo = Repo.init(repo_path, mkdir=True, bare=bare)
         repo.index.commit("initial commit")
-        Annex.init_repo_path(repo_path)
+        Annex.init_repo_path(repo_path, external_remote_config=remote_config)
         return repo
-
-
-@frozen
-class BuildZip:
-    path = field(validator=instance_of(Path), converter=Path)
-
-    def __attrs_post_init__(self):
-        from xorq.catalog.zip_utils import test_zip  # noqa: PLC0415
-
-        assert "".join(self.path.suffixes) in VALID_SUFFIXES, (
-            f"Invalid archive suffix '{self.path.suffixes}', expected one of {VALID_SUFFIXES}"
-        )
-        assert self.path.exists(), f"Build archive not found at {self.path}"
-        test_zip(self.path)
-
-    @property
-    def name(self):
-        return with_pure_suffix(self.path, "").name
-
-    @property
-    def md5sum(self):
-        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
-            file_digest,
-        )
-
-        return file_digest(self.path, hashlib.md5)
 
 
 @frozen
@@ -496,8 +477,6 @@ class CatalogAddition:
 
     @classmethod
     def from_expr(cls, expr, catalog):
-        from xorq.catalog.expr_utils import build_expr_context_zip  # noqa: PLC0415
-
         ntfh = tempfile.NamedTemporaryFile(suffix=PREFERRED_SUFFIX)
         with build_expr_context_zip(expr) as zip_path:
             shutil.copy(zip_path, ntfh.name)
@@ -535,8 +514,6 @@ class CatalogEntry:
 
     @property
     def expr(self):
-        from xorq.catalog.expr_utils import load_expr_from_zip  # noqa: PLC0415
-
         return load_expr_from_zip(self.catalog_path)
 
     @cached_property
