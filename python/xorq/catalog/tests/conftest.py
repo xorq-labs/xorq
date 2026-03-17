@@ -9,6 +9,7 @@ from git import (
 )
 
 import xorq.api as xo
+from xorq.catalog.annex import Annex, GitAnnex, _do_inside
 from xorq.catalog.catalog import (
     CATALOG_YAML_NAME,
     METADATA_APPEND,
@@ -79,7 +80,9 @@ def repo(tmpdir):
 
 @pytest.fixture
 def catalog(repo):
-    yield Catalog(repo=repo)
+    repo_path = Path(repo.working_dir)
+    git_annex = GitAnnex(repo=repo, annex=Annex(repo_path=repo_path))
+    yield Catalog(git_annex=git_annex)
 
 
 @pytest.fixture
@@ -129,9 +132,14 @@ def root_repo(tmpdir):
 
 @pytest.fixture
 def repo_cloned_bare(catalog_populated, tmpdir):
+    bare_path = Path(tmpdir).joinpath("catalog-populated-bare")
     repo_cloned_bare = Repo.clone_from(
         catalog_populated.repo_path,
-        Path(tmpdir).joinpath("catalog-populated-bare"),
+        bare_path,
         bare=True,
     )
+    # init annex in bare repo so it can serve content to clones
+    _do_inside(bare_path, "init")
+    # sync content from origin (the populated catalog)
+    _do_inside(bare_path, "sync", "--content")
     yield repo_cloned_bare

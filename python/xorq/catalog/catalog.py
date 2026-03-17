@@ -2,6 +2,7 @@
 import hashlib
 import json
 import shutil
+import subprocess
 import tempfile
 import zipfile
 from contextlib import (
@@ -30,7 +31,9 @@ from git import (
     Repo,
 )
 
+from xorq.catalog.annex import Annex, GitAnnex, remote_config_from_dict
 from xorq.catalog.constants import (
+    CATALOG_REMOTE_KEY,
     CATALOG_YAML_NAME,
     METADATA_APPEND,
     PREFERRED_SUFFIX,
@@ -56,11 +59,15 @@ def with_pure_suffix(path, suffix=""):
 
 @frozen
 class Catalog:
-    repo = field(validator=instance_of(Repo))
+    git_annex = field(validator=instance_of(GitAnnex))
     check_consistency: bool = field(default=True, repr=False)
 
-    by_name_base_path = Path("~/.local/share/xorq/git-catalogs").expanduser()
-    submodule_rel_path = Path(".xorq/git-catalogs")
+    by_name_base_path = Path("~/.local/share/xorq/annex-catalogs").expanduser()
+    submodule_rel_path = Path(".xorq/annex-catalogs")
+
+    @property
+    def repo(self):
+        return self.git_annex.repo
 
     def __attrs_post_init__(self):
         self._ensure_catalog_yaml()
@@ -73,8 +80,8 @@ class Catalog:
             self.catalog_yaml.yaml_relpath.name == blob.name
             for blob in self.repo.head.commit.tree.list_traverse()
         ):
-            with self.commit_context(f"add {CATALOG_YAML_NAME}") as index:
-                index.add(self.catalog_yaml.yaml_path)
+            with self.commit_context(f"add {CATALOG_YAML_NAME}"):
+                self.git_annex.stage(self.catalog_yaml.yaml_path)
 
     @property
     def repo_path(self):
@@ -83,6 +90,22 @@ class Catalog:
     @property
     def catalog_yaml(self):
         return CatalogYAML(self.repo_path)
+
+    def set_remote_config(self, external_remote_config):
+        """Persist a remote config dict to catalog.yaml and commit."""
+        self.catalog_yaml.set_remote(external_remote_config.to_dict())
+        with self.commit_context(f"set remote: {external_remote_config.name}"):
+            self.git_annex.stage(self.catalog_yaml.yaml_path)
+
+    def get_remote_config(self, **kwargs):
+        """Load the remote config from catalog.yaml, if any.
+
+        Secrets (e.g. aws_secret_access_key) must be passed as kwargs.
+        """
+        remote_dict = self.catalog_yaml.remote_config
+        if remote_dict is None:
+            return None
+        return remote_config_from_dict(remote_dict, **kwargs)
 
     def _add_zip(self, path, sync=True, aliases=()):
         # should we enable not syncing?
@@ -128,15 +151,28 @@ class Catalog:
     def list(self):
         return self.catalog_yaml.contents[CatalogInfix.ENTRY]
 
+    @property
+    def _git_remotes(self):
+        """Remotes that are real git remotes (have a fetch refspec), excluding annex special remotes."""
+
+        def _has_fetch_refspec(remote):
+            try:
+                remote.config_reader.get("fetch")
+                return True
+            except (KeyError, Exception):
+                return False
+
+        return tuple(r for r in self.repo.remotes if _has_fetch_refspec(r))
+
     def fetch(self):
-        return tuple(map(Remote.fetch, self.repo.remotes))
+        return tuple(map(Remote.fetch, self._git_remotes))
 
     def push(self):
         self.assert_consistency()
-        return tuple(map(Remote.push, self.repo.remotes))
+        return tuple(map(Remote.push, self._git_remotes))
 
     def pull(self):
-        return tuple(map(Remote.pull, self.repo.remotes))
+        return tuple(map(Remote.pull, self._git_remotes))
 
     @contextmanager
     def synchronizing(self):
@@ -173,7 +209,7 @@ class Catalog:
 
     @contextmanager
     def commit_context(self, message):
-        with commit_context(self.repo, message) as index:
+        with self.git_annex.commit_context(message) as index:
             yield index
 
     def add_alias(self, name, alias, sync=True):
@@ -195,7 +231,7 @@ class Catalog:
                     self.repo_path.joinpath(
                         CatalogInfix.ALIAS, alias + PREFERRED_SUFFIX
                     )
-                    .resolve()
+                    .readlink()
                     .with_suffix("")
                     .name,
                     self,
@@ -245,18 +281,55 @@ class Catalog:
             add_as_submodule(root_repo, self.repo)
 
     @classmethod
-    def clone_from(cls, url, repo_path=None):
+    def clone_from(cls, url, repo_path=None, git_config=None, **remote_kwargs):
+        """Clone a catalog repo, init git-annex, and fetch content.
+
+        If catalog.yaml contains a ``remote`` key, the remote is enabled
+        automatically.  For S3 remotes the caller must supply credentials::
+
+            Catalog.clone_from(
+                url,
+                aws_access_key_id="...",
+                aws_secret_access_key="...",
+            )
+
+        Use *git_config* to set repo-local git config before annex init
+        (e.g. ``{"annex.security.allowed-ip-addresses": "all"}``).
+        """
         if repo_path is None:
             name = Path(urlparse(url).path).stem
             repo_path = cls.name_to_repo_path(name)
         repo = Repo.clone_from(url, repo_path)
-        return cls(repo=repo)
+
+        # apply local git config before annex init (e.g. allowed-ip-addresses)
+        if git_config:
+            for key, value in git_config.items():
+                subprocess.run(["git", "config", key, value], cwd=repo_path, check=True)
+        Annex.init_repo_path(repo_path)
+
+        # read remote config from catalog.yaml (written by set_remote_config)
+        catalog_yaml = CatalogYAML(repo_path)
+        remote_dict = catalog_yaml.remote_config
+        remote_config = None
+        if remote_dict is not None:
+            remote_config = remote_config_from_dict(remote_dict, **remote_kwargs)
+            remote_config.enableremote(repo_path)
+
+        env = getattr(remote_config, "env", None)
+        annex = Annex(repo_path=Path(repo.working_dir), env=env)
+        annex.get()
+        git_annex = GitAnnex(repo=repo, annex=annex)
+        return cls(git_annex=git_annex)
 
     @classmethod
     def from_repo_path(cls, repo_path, init=None, check_consistency=True):
         init = not Path(repo_path).exists() if init is None else init
-        repo = cls.init_repo_path(repo_path) if init else Repo(repo_path)
-        return cls(repo=repo, check_consistency=check_consistency)
+        if init:
+            repo = cls.init_repo_path(repo_path)
+        else:
+            repo = Repo(repo_path)
+        git_annex = GitAnnex(repo=repo, annex=Annex(repo_path=Path(repo.working_dir)))
+        return cls(git_annex=git_annex, check_consistency=check_consistency)
 
     @classmethod
     def from_name(cls, name, init=None, check_consistency=True):
@@ -333,6 +406,7 @@ class Catalog:
         )
         repo = Repo.init(repo_path, mkdir=True, bare=bare)
         repo.index.commit("initial commit")
+        Annex.init_repo_path(repo_path)
         return repo
 
 
@@ -406,16 +480,12 @@ class CatalogAddition:
         catalog_entry = self.catalog_entry
         catalog_entry.metadata_path.write_text(yaml.safe_dump(self.metadata))
         shutil.copy(self.build_zip.path, catalog_entry.catalog_path)
-        index = self.catalog.repo.index
+        ga = self.catalog.git_annex
         #
         self.catalog.catalog_yaml.add(self.name)
-        index.add(
-            (
-                catalog_entry.catalog_path,
-                catalog_entry.metadata_path,
-                self.catalog.catalog_yaml.yaml_path,
-            )
-        )
+        ga.stage_annex(catalog_entry.catalog_path)
+        ga.stage(catalog_entry.metadata_path)
+        ga.stage(self.catalog.catalog_yaml.yaml_path)
         for catalog_alias in self.catalog_aliases:
             catalog_alias._add()
         return CatalogEntry(self.name, self.catalog, require_exists=True)
@@ -501,9 +571,12 @@ class CatalogEntry:
 
     @property
     def _exists_components(self):
+        # catalog_path may be an annex symlink pointing to content not yet
+        # available locally; lexists / is_symlink handles that case.
+        catalog_path = self.catalog_path
         return {
             "metadata_path": self.metadata_path.exists(),
-            "catalog_path": self.catalog_path.exists(),
+            "catalog_path": catalog_path.exists() or catalog_path.is_symlink(),
             "catalog_yaml_contents": self.catalog.catalog_yaml.contains(self.name),
         }
 
@@ -560,10 +633,13 @@ class CatalogAlias:
         else:
             self.ensure_dirs()
         alias_path.symlink_to(self.target)
-        catalog_yaml = self.catalog_entry.catalog.catalog_yaml
+        catalog = self.catalog_entry.catalog
+        catalog_yaml = catalog.catalog_yaml
+        ga = catalog.git_annex
         #
         catalog_yaml.add_alias(self.alias)
-        self.catalog_entry.catalog.repo.index.add([alias_path, catalog_yaml.yaml_path])
+        ga.stage(alias_path)
+        ga.stage(catalog_yaml.yaml_path)
         return self
 
     def add(self):
@@ -602,13 +678,13 @@ class CatalogAlias:
     def _remove(self):
         alias_path = self.alias_path
         assert alias_path.is_symlink(), f"no alias symlink at {alias_path}"
-        catalog_yaml = self.catalog_entry.catalog.catalog_yaml
-        index = self.catalog_entry.catalog.repo.index
+        catalog = self.catalog_entry.catalog
+        catalog_yaml = catalog.catalog_yaml
+        ga = catalog.git_annex
         #
         catalog_yaml.remove_alias(self.alias)
-        index.add([catalog_yaml.yaml_path])
-        index.remove([alias_path])
-        alias_path.unlink()
+        ga.stage(catalog_yaml.yaml_path)
+        ga.stage_unlink(alias_path)
         return self
 
     def remove(self):
@@ -626,7 +702,7 @@ class CatalogAlias:
         if alias_path.exists():
             catalog_alias = CatalogAlias(
                 name,
-                CatalogEntry(alias_path.resolve().with_suffix("").name, catalog),
+                CatalogEntry(alias_path.readlink().with_suffix("").name, catalog),
             )
             return catalog_alias
         else:
@@ -655,19 +731,14 @@ class CatalogRemoval:
         assert catalog_entry.exists(), (
             f"Cannot remove entry '{catalog_entry.name}': not found in catalog"
         )
-        index = catalog.repo.index
+        ga = catalog.git_annex
         #
         for catalog_alias in self.catalog_entry.aliases:
             catalog_alias._remove()
         catalog.catalog_yaml.remove(catalog_entry.name)
-        index.add((catalog.catalog_yaml.yaml_path,))
-        paths = (
-            catalog_entry.metadata_path,
-            catalog_entry.catalog_path,
-        )
-        index.remove(paths)
-        for path in paths:
-            path.unlink()
+        ga.stage(catalog.catalog_yaml.yaml_path)
+        for path in (catalog_entry.metadata_path, catalog_entry.catalog_path):
+            ga.stage_unlink(path)
         return catalog_entry
 
     def remove(self):
@@ -742,4 +813,13 @@ class CatalogYAML:
         contents[CatalogInfix.ALIAS] = [
             el for el in contents[CatalogInfix.ALIAS] if el != alias
         ]
+        return self.set_contents(contents)
+
+    @property
+    def remote_config(self):
+        return self.contents.get(CATALOG_REMOTE_KEY)
+
+    def set_remote(self, remote_dict):
+        contents = self.contents
+        contents[CATALOG_REMOTE_KEY] = remote_dict
         return self.set_contents(contents)
