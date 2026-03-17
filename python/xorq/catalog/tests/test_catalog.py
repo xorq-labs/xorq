@@ -361,7 +361,7 @@ def test_directory_remote(tmpdir):
     remote_dir.mkdir()
     remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
     repo_path = Path(tmpdir).joinpath("repo")
-    GitAnnex.init_repo_path(repo_path, external_remote_config=remote_config)
+    GitAnnex.init_repo_path(repo_path, remote_config=remote_config)
     annex = Annex(repo_path=repo_path)
     git_annex = GitAnnex(repo=GitRepo(repo_path), annex=annex)
     catalog = Catalog(git_annex=git_annex)
@@ -422,7 +422,7 @@ def test_s3_remote_minio(tmpdir):
         cwd=repo_path,
         check=True,
     )
-    Annex.init_repo_path(repo_path, external_remote_config=remote_config)
+    Annex.init_repo_path(repo_path, remote_config=remote_config)
 
     annex = Annex(repo_path=repo_path, env=remote_config.env)
     git_annex = GitAnnex(repo=repo, annex=annex)

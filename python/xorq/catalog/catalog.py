@@ -89,10 +89,10 @@ class Catalog:
     def catalog_yaml(self):
         return CatalogYAML(self.repo_path)
 
-    def set_remote_config(self, external_remote_config):
+    def set_remote_config(self, remote_config):
         """Persist a remote config dict to catalog.yaml and commit."""
-        self.catalog_yaml.set_remote(external_remote_config.to_dict())
-        with self.commit_context(f"set remote: {external_remote_config.name}"):
+        self.catalog_yaml.set_remote(remote_config.to_dict())
+        with self.commit_context(f"set remote: {remote_config.name}"):
             self.git_annex.stage(self.catalog_yaml.yaml_path)
 
     def get_remote_config(self, **kwargs):
@@ -324,6 +324,25 @@ class Catalog:
             repo = cls.init_repo_path(repo_path, remote_config=remote_config)
         else:
             repo = Repo(repo_path)
+        if not init:
+            annex = Annex(repo_path=Path(repo.working_dir))
+            disk_config = annex.remote_config
+            if remote_config is None:
+                remote_config = disk_config
+            elif disk_config is not None:
+                passed = remote_config.to_dict()
+                stored = disk_config.to_dict()
+                # only compare fields explicitly set in the passed config;
+                # git-annex may store extra defaults (storageclass, datacenter, etc.)
+                diffs = {
+                    k: (passed[k], stored.get(k))
+                    for k in passed
+                    if passed[k] != stored.get(k)
+                }
+                if diffs:
+                    raise ValueError(
+                        f"remote_config disagrees with git-annex remote.log: {diffs}"
+                    )
         env = getattr(remote_config, "env", None)
         annex = Annex(repo_path=Path(repo.working_dir), env=env)
         git_annex = GitAnnex(repo=repo, annex=annex)
@@ -413,7 +432,7 @@ class Catalog:
         )
         repo = Repo.init(repo_path, mkdir=True, bare=bare)
         repo.index.commit("initial commit")
-        Annex.init_repo_path(repo_path, external_remote_config=remote_config)
+        Annex.init_repo_path(repo_path, remote_config=remote_config)
         return repo
 
 

@@ -26,15 +26,20 @@ abspath = toolz.compose(Path.absolute, Path)
 
 GIT_ANNEX_COMMAND = "git-annex"
 
+POLL_TIMEOUT_SECONDS = 30.0
+
+
+class AnnexError(RuntimeError):
+    """Raised when a git-annex command fails."""
+
 
 def _do_inside(repo_path, *args, env=None):
-    cmd = " ".join((GIT_ANNEX_COMMAND, *args))
+    cmd = [GIT_ANNEX_COMMAND, *args]
     run_env = None
     if env:
         run_env = {**os.environ, **env}
     result = subprocess.run(
         cmd,
-        shell=True,
         cwd=repo_path,
         capture_output=True,
         text=True,
@@ -45,9 +50,10 @@ def _do_inside(repo_path, *args, env=None):
 
 def _check_output_do_inside(repo_path, *args, check_stderr=True, env=None):
     returncode, stdout, stderr = _do_inside(repo_path, *args, env=env)
-    assert returncode == 0, f"git-annex {args} failed: {stderr}"
-    if check_stderr:
-        assert not stderr, f"git-annex {args} stderr: {stderr}"
+    if returncode != 0:
+        raise AnnexError(f"git-annex {args} failed: {stderr}")
+    if check_stderr and stderr:
+        raise AnnexError(f"git-annex {args} stderr: {stderr}")
     return stdout
 
 
@@ -58,10 +64,8 @@ class Annex:
     poll_interval_seconds = field(validator=instance_of(float), default=0.001)
 
     def __attrs_post_init__(self):
-        assert self.repo_path == abspath(self.repo_path)
-        assert self.annex_path.exists(), (
-            f"git-annex not initialized at {self.repo_path}"
-        )
+        if not self.annex_path.exists():
+            raise ValueError(f"git-annex not initialized at {self.repo_path}")
 
     @property
     def annex_path(self):
@@ -72,16 +76,45 @@ class Annex:
         return self.annex_path.joinpath("objects")
 
     def _do(self, *args):
-        return _do_inside(self.repo_path, *args, env=self.env)
+        returncode, stdout, stderr = _do_inside(self.repo_path, *args, env=self.env)
+        if returncode != 0:
+            raise AnnexError(f"git-annex {args} failed (rc={returncode}): {stderr}")
+        return stdout, stderr
 
     def _check_output_do(self, *args, **kwargs):
         return _check_output_do_inside(self.repo_path, *args, env=self.env, **kwargs)
 
-    def add(self, relpath):
-        assert (path := self.repo_path.joinpath(relpath)).exists()
+    @property
+    def remote_name(self):
+        """Return the name of the single configured special remote, or None."""
+        try:
+            remote_log = self.remote_log
+        except Exception:
+            return None
+        if not remote_log:
+            return None
+        gen = filter(None, (dct.get("name") for dct in remote_log.values()))
+        name, rest = next(gen, None), tuple(gen)
+        if rest:
+            return None
+        else:
+            return name
+
+    def add(self, relpath, copy_to_remote=True):
+        path = self.repo_path.joinpath(relpath)
+        if not path.exists():
+            raise FileNotFoundError(f"{path} does not exist")
         self._do("add", str(relpath))
+        deadline = time.monotonic() + POLL_TIMEOUT_SECONDS
         while not path.is_symlink():
+            if time.monotonic() > deadline:
+                raise TimeoutError(
+                    f"git-annex add did not create symlink for {relpath} "
+                    f"within {POLL_TIMEOUT_SECONDS}s"
+                )
             time.sleep(self.poll_interval_seconds)
+        if copy_to_remote and (name := self.remote_name) is not None:
+            self.copy(to=name, path=str(relpath))
 
     def init(self):
         self._do("init")
@@ -90,7 +123,8 @@ class Annex:
         self._do("get", str(path))
 
     def copy(self, to=None, frm=None, path="."):
-        assert (to is None) != (frm is None), "specify exactly one of to/frm"
+        if (to is None) == (frm is None):
+            raise ValueError("specify exactly one of to/frm")
         direction = f"--to={to}" if to else f"--from={frm}"
         self._do("copy", direction, str(path))
 
@@ -111,6 +145,54 @@ class Annex:
         out = self._check_output_do(*args, check_stderr=False)
         return json.loads(out)
 
+    @property
+    def remote_log(self):
+        """Parse the git-annex branch's remote.log into {uuid: {key: value}}."""
+        repo = Repo(self.repo_path)
+        blob = repo.commit("git-annex").tree / "remote.log"
+        result = {}
+        for line in blob.data_stream[3].read().decode().strip().splitlines():
+            parts = line.split()
+            uuid = parts[0]
+            config = dict(part.split("=", 1) for part in parts[1:] if "=" in part)
+            result[uuid] = config
+        return result
+
+    @property
+    def remote_config(self):
+        """Recover the RemoteConfig from the git-annex branch and env vars.
+
+        Fields stored in remote.log take precedence; any missing required
+        fields (secrets, paths not stored by git-annex) are filled from
+        self.env or the RemoteConfig class's EnvConfig (XORQ_CATALOG_* env vars).
+        """
+        if not (remote_log := self.remote_log):
+            return None
+        config, *rest = remote_log.values()
+        if rest:
+            raise ValueError("can only handle one remote")
+        remote_type = config.get("type")
+        cls = _REMOTE_CONFIG_CLASSES.get(remote_type)
+        if cls is None:
+            raise ValueError(f"unknown remote type: {remote_type!r}")
+        # fill in fields missing from remote.log using env vars
+        env_fallback = {}
+        if self.env:
+            secret_fields = getattr(cls, "_SECRET_FIELDS", ())
+            env_fallback = {
+                field: self.env[field.upper()]
+                for field in secret_fields
+                if field.upper() in self.env
+            }
+        else:
+            env_config = cls.EnvConfig.from_env()
+            env_fallback = {
+                a.name: getattr(env_config, a.name)
+                for a in env_config.__attrs_attrs__
+                if a.name != "env_file" and getattr(env_config, a.name)
+            }
+        return cls.from_dict(config, **env_fallback)
+
     def findkeys(self):
         out = self._check_output_do("findkeys", check_stderr=False)
         return out.split()
@@ -125,17 +207,40 @@ class Annex:
         keys = self.findkeys()
         for key in keys:
             self.dropkey(key)
+        deadline = time.monotonic() + POLL_TIMEOUT_SECONDS
         while self.annex_objects_path.exists() and tuple(
             self.annex_objects_path.iterdir()
         ):
+            if time.monotonic() > deadline:
+                raise TimeoutError(
+                    f"annex objects not cleaned up within {POLL_TIMEOUT_SECONDS}s"
+                )
             time.sleep(self.poll_interval_seconds)
         self.uninit()
 
     @staticmethod
-    def init_repo_path(repo_path, external_remote_config=None):
+    def init_repo_path(repo_path, remote_config=None):
         _do_inside(repo_path, "init")
-        if external_remote_config:
-            external_remote_config.initremote(repo_path)
+        if remote_config:
+            remote_config.initremote(repo_path)
+
+
+def teardown_remote(git_annex, remote_config=None):
+    """Remove all content from a remote and purge it from the git-annex branch."""
+    if remote_config is None:
+        remote_config = git_annex.annex.remote_config
+    if remote_config is None:
+        raise ValueError("no remote found and no remote_config provided")
+    repo_path = git_annex.repo_path
+    env = getattr(remote_config, "env", None)
+    name = remote_config.name
+    _check_output_do_inside(
+        repo_path, "drop", "--force", f"--from={name}", ".", check_stderr=False, env=env
+    )
+    _check_output_do_inside(repo_path, "dead", name, check_stderr=False, env=env)
+    _check_output_do_inside(
+        repo_path, "forget", "--drop-dead", "--force", check_stderr=False, env=env
+    )
 
 
 class RemoteConfig(abc.ABC):
@@ -150,7 +255,8 @@ class RemoteConfig(abc.ABC):
 
     @classmethod
     def from_dict(cls, d, **kwargs):
-        d = {k: v for k, v in d.items() if k != "type" and not k.startswith("_")}
+        valid_keys = {a.name for a in attr.fields(cls)}
+        d = {k: v for k, v in d.items() if k in valid_keys}
         return cls(**{**d, **kwargs})
 
     @classmethod
@@ -165,69 +271,6 @@ class RemoteConfig(abc.ABC):
 
 
 @frozen
-class ExternalRemoteConfig:
-    name = field(validator=instance_of(str))
-    externaltype = field(validator=instance_of(str))
-    params_tuple = field(validator=instance_of(tuple))
-    encryption = field(validator=instance_of(str), default="none")
-
-    @property
-    def params(self):
-        return dict(self.params_tuple)
-
-    @property
-    def initremote_args(self):
-        return " ".join(
-            (
-                self.name,
-                "type=external",
-                f"externaltype={self.externaltype}",
-                f"encryption={self.encryption}",
-                " ".join(map("=".join, self.params_tuple)),
-            )
-        )
-
-    def initremote(self, repo_path):
-        _do_inside(repo_path, "initremote", self.initremote_args)
-        _do_inside(repo_path, "sync")
-
-    def validate_config(self, repo_path):
-        out = _check_output_do_inside(repo_path, "info", self.name, "--json")
-        info = json.loads(out)
-        expected = {
-            name: getattr(self, name) for name in ("externaltype", "encryption")
-        } | self.params
-        actual = {name: info[name] for name in expected}
-        diffs = {
-            name: (a, e)
-            for (name, a, e) in (
-                (name, a, expected[name]) for name, a in actual.items()
-            )
-            if a != e
-        }
-        if diffs:
-            raise ValueError(diffs)
-
-    @classmethod
-    def make_directory_remote(cls, name, directory, **kwargs):
-        return cls(
-            name=name,
-            externaltype="directory",
-            params_tuple=(("directory", directory),),
-            **kwargs,
-        )
-
-    @classmethod
-    def make_requests_remote(cls, name, url, **kwargs):
-        return cls(
-            name=name,
-            externaltype="requests",
-            params_tuple=(("url", url),),
-            **kwargs,
-        )
-
-
-@frozen
 class DirectoryRemoteConfig(RemoteConfig):
     name = field(validator=instance_of(str))
     directory = field(validator=instance_of(str))
@@ -239,6 +282,7 @@ class DirectoryRemoteConfig(RemoteConfig):
     )
 
     def initremote(self, repo_path):
+        Path(self.directory).mkdir(exist_ok=True, parents=True)
         _check_output_do_inside(
             repo_path,
             "initremote",
@@ -254,10 +298,16 @@ class DirectoryRemoteConfig(RemoteConfig):
             repo_path, "info", self.name, "--json", check_stderr=False
         )
         info = json.loads(out)
-        assert info["type"] == "directory"
+        if info["type"] != "directory":
+            raise ValueError(f"expected remote type 'directory', got {info['type']!r}")
 
     def to_dict(self):
         return {"type": "directory", **attr.asdict(self)}
+
+
+_REQUIRED_S3_FIELDS = frozenset(
+    {"name", "bucket", "aws_access_key_id", "aws_secret_access_key", "encryption"}
+)
 
 
 @frozen
@@ -288,25 +338,16 @@ class S3RemoteConfig(RemoteConfig):
         prefix="XORQ_CATALOG_S3_",
     )
 
-    _OPTIONAL_PARAMS = (
-        "datacenter",
-        "region",
-        "host",
-        "port",
-        "protocol",
-        "requeststyle",
-        "signature",
-        "fileprefix",
-        "storageclass",
-        "chunk",
-        "public",
-        "publicurl",
-        "versioning",
-        "partsize",
-        "embedcreds",
-    )
-
     _SECRET_FIELDS = ("aws_access_key_id", "aws_secret_access_key")
+
+    @property
+    def _optional_params(self):
+        """Derive optional params from attrs fields (all fields not in the required set)."""
+        return tuple(
+            a.name
+            for a in attr.fields(type(self))
+            if a.name not in _REQUIRED_S3_FIELDS and not a.name.startswith("_")
+        )
 
     @property
     def env(self):
@@ -320,13 +361,23 @@ class S3RemoteConfig(RemoteConfig):
             "AWS_CREDENTIAL_EXPIRATION": "",
         }
 
+    _DEFAULT_PORTS = {"http": "80", "https": "443"}
+
     @property
     def endpoint_url(self):
         if self.host is None:
             return None
         protocol = self.protocol or "https"
-        port_suffix = f":{self.port}" if self.port else ""
+        default_port = self._DEFAULT_PORTS.get(protocol)
+        port_suffix = f":{self.port}" if self.port and self.port != default_port else ""
         return f"{protocol}://{self.host}{port_suffix}"
+
+    @property
+    def boto3_endpoint_url(self):
+        """Endpoint URL suitable for boto3 (always HTTPS for public hosts)."""
+        if self.host is None:
+            return None
+        return f"https://{self.host}"
 
     def check_bucket(self):
         """Verify that credentials can reach the bucket.
@@ -340,7 +391,7 @@ class S3RemoteConfig(RemoteConfig):
             "s3",
             aws_access_key_id=self.aws_access_key_id,
             aws_secret_access_key=self.aws_secret_access_key,
-            endpoint_url=self.endpoint_url,
+            endpoint_url=self.boto3_endpoint_url,
             region_name=self.region,
         )
         # head_bucket verifies both auth and bucket existence
@@ -349,7 +400,7 @@ class S3RemoteConfig(RemoteConfig):
         listing = client.list_objects_v2(Bucket=self.bucket, MaxKeys=1)
         return {
             "bucket": self.bucket,
-            "endpoint_url": self.endpoint_url or "(AWS default)",
+            "endpoint_url": self.boto3_endpoint_url or "(AWS default)",
             "key_count": listing.get("KeyCount", 0),
         }
 
@@ -363,7 +414,7 @@ class S3RemoteConfig(RemoteConfig):
         ] + [
             f"{key}={value}"
             for (key, value) in (
-                (key, getattr(self, key)) for key in self._OPTIONAL_PARAMS
+                (key, getattr(self, key)) for key in self._optional_params
             )
             if value is not None
         ]
@@ -392,8 +443,10 @@ class S3RemoteConfig(RemoteConfig):
             repo_path, "info", self.name, "--json", check_stderr=False
         )
         info = json.loads(out)
-        assert info["type"] == "S3"
-        assert info["bucket"] == self.bucket
+        if info["type"] != "S3":
+            raise ValueError(f"expected remote type 'S3', got {info['type']!r}")
+        if info["bucket"] != self.bucket:
+            raise ValueError(f"expected bucket {self.bucket!r}, got {info['bucket']!r}")
 
     def to_dict(self):
         d = {"type": "S3"} | {
@@ -502,7 +555,11 @@ class GitAnnex:
     annex = field(validator=instance_of(Annex))
 
     def __attrs_post_init__(self):
-        assert Path(self.repo.working_dir).absolute() == self.annex.repo_path
+        if Path(self.repo.working_dir).absolute() != self.annex.repo_path:
+            raise ValueError(
+                f"repo working_dir {self.repo.working_dir} does not match "
+                f"annex repo_path {self.annex.repo_path}"
+            )
 
     @property
     def repo_path(self):
@@ -538,7 +595,7 @@ class GitAnnex:
             shutil.rmtree(self.repo_path)
 
     @classmethod
-    def from_repo_path(cls, repo_path, external_remote_config=None, exist_ok=False):
+    def from_repo_path(cls, repo_path, remote_config=None, exist_ok=False):
         repo_path = Path(repo_path).absolute()
         match (repo_path.exists(), exist_ok):
             case (True, True):
@@ -546,21 +603,20 @@ class GitAnnex:
             case (True, False):
                 raise ValueError(f"{repo_path} exists and exist_ok is {exist_ok}")
             case (False, _):
-                cls.init_repo_path(
-                    repo_path, external_remote_config=external_remote_config
-                )
-        env = getattr(external_remote_config, "env", None)
+                cls.init_repo_path(repo_path, remote_config=remote_config)
+        env = getattr(remote_config, "env", None)
         return cls(
             repo=Repo(repo_path),
             annex=Annex(repo_path=repo_path, env=env),
         )
 
     @staticmethod
-    def init_repo_path(repo_path, external_remote_config=None):
+    def init_repo_path(repo_path, remote_config=None):
         repo_path = Path(repo_path)
-        assert not repo_path.exists(), f"repo already exists at {repo_path}"
+        if repo_path.exists():
+            raise FileExistsError(f"repo already exists at {repo_path}")
         repo_path.mkdir(parents=True)
         repo = Repo.init(repo_path)
         repo.index.commit("initial commit")
-        Annex.init_repo_path(repo_path, external_remote_config=external_remote_config)
+        Annex.init_repo_path(repo_path, remote_config=remote_config)
         return repo
