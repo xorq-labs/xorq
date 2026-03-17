@@ -107,12 +107,18 @@ def test_load_expr_lazy_sources_unconnected_before_execute(
 @pytest.mark.parametrize(
     "backend_factory",
     [
-        pytest.param(xo.duckdb.connect, id="duckdb", marks=pytest.mark.duckdb),
         pytest.param(
-            xo.datafusion.connect, id="datafusion", marks=pytest.mark.datafusion
+            lambda: xo.duckdb.connect(), id="duckdb", marks=pytest.mark.duckdb
         ),
-        pytest.param(xo.sqlite.connect, id="sqlite", marks=pytest.mark.sqlite),
-        pytest.param(xo.connect, id="xorq"),
+        pytest.param(
+            lambda: xo.datafusion.connect(),
+            id="datafusion",
+            marks=pytest.mark.datafusion,
+        ),
+        pytest.param(
+            lambda: xo.sqlite.connect(), id="sqlite", marks=pytest.mark.sqlite
+        ),
+        pytest.param(lambda: xo.connect(), id="xorq"),
     ],
 )
 def test_load_expr_lazy_connects_and_matches_eager(
