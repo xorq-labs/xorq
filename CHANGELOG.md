@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.15] - 2026-03-17
+### Details
+#### Added
+- Add Expr kind (XOR-244) by @mesejo in [#1682](https://github.com/xorq-labs/xorq/pull/1682)
+
+#### Changed
+- Format with ruff by @mesejo in [#1704](https://github.com/xorq-labs/xorq/pull/1704)
+- Bump virtualenv from 20.33.0 to 20.36.1 by @dependabot[bot] in [#1707](https://github.com/xorq-labs/xorq/pull/1707)
+- Remappers by @dlovell in [#1708](https://github.com/xorq-labs/xorq/pull/1708)
+- Update dependency black to v26 [security] by @renovate[bot] in [#1711](https://github.com/xorq-labs/xorq/pull/1711)
+- Allow opting out of assert_consistency on Catalog init by @dlovell in [#1714](https://github.com/xorq-labs/xorq/pull/1714)
+- Switch sdist format from tgz to zip by @dlovell in [#1716](https://github.com/xorq-labs/xorq/pull/1716)
+- Switch catalog and download_utils from tgz to zip by @dlovell in [#1717](https://github.com/xorq-labs/xorq/pull/1717)
+
+#### Fixed
+- Resolve DeprecationWarning and FutureWarning in tests by @mesejo in [#1706](https://github.com/xorq-labs/xorq/pull/1706)
+- Do not pass None values to span.add_event by @mesejo in [#1709](https://github.com/xorq-labs/xorq/pull/1709)
+
+#### Removed
+- Remove functools.cache from methods by @mesejo in [#1684](https://github.com/xorq-labs/xorq/pull/1684)
+- Remove __main__ by @mesejo in [#1719](https://github.com/xorq-labs/xorq/pull/1719)
+
 ## [0.3.14] - 2026-03-09
 ### Details
 #### Added
