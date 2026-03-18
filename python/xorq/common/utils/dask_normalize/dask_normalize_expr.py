@@ -434,6 +434,8 @@ def normalize_backend(con):
         )
     elif name == "sqlite":
         return id(con.con) if con.is_in_memory() else con.uri
+    elif name == "databricks":
+        con_details = (con._server_hostname, con._http_path)
     else:
         raise ValueError(f"no normalization rule for backend {name!r}")
     return normalize_seq_with_caller(

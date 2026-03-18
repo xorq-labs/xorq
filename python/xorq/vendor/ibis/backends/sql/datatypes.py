@@ -1163,6 +1163,20 @@ class FlinkType(SqlglotType):
         )
 
 
+class DatabricksType(SqlglotType):
+    dialect = "databricks"
+
+    @classmethod
+    def _from_ibis_JSON(cls, dtype: dt.JSON) -> sge.DataType:
+        return sge.DataType(this=typecode.VARIANT)
+
+    @classmethod
+    def _from_sqlglot_VARIANT(cls) -> dt.DataType:
+        return dt.JSON()
+
+    _from_sqlglot_JSON = _from_sqlglot_VARIANT
+
+
 TYPE_MAPPERS = {
     mapper.dialect: mapper
     for mapper in set(get_subclasses(SqlglotType)) - {SqlglotType, BigQueryUDFType}
