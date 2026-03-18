@@ -199,7 +199,7 @@ class Annex:
 
     @staticmethod
     def init_repo_path(repo_path, remote_config=None):
-        _do_inside(repo_path, "init")
+        _check_output_do_inside(repo_path, "init", check_stderr=False)
         if remote_config:
             remote_config.initremote(repo_path)
 
