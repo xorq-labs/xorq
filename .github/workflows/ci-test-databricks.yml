@@ -29,8 +29,14 @@ jobs:
           enable-cache: true
 
       - name: Install the project
-        run: uv sync --extra databricks --extra ibis --group dev --group test
+        run: uv sync --extra databricks --extra ibis --extra postgres --group dev --group test
         working-directory: ${{ github.workspace }}
+
+      - name: Install DBC and Databricks ADBC driver
+        run: |
+          curl -LsSf https://dbc.columnar.tech/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          dbc install databricks
 
       - name: pytest
         run: uv run --no-sync pytest --import-mode=importlib -m databricks -v --cov --cov-report=xml -s -vv
