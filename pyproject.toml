@@ -145,6 +145,10 @@ trino = [
 bsl = [
     "boring-semantic-layer>=0.1.0",
 ]
+databricks = [
+    "databricks-sql-connector>=3.0.0",
+    "adbc-driver-manager>=1.0.0",
+]
 
 [dependency-groups]
 dev = [
@@ -196,6 +200,7 @@ trino = "xorq.backends.trino"
 pyiceberg = "xorq.backends.pyiceberg"
 sqlite = "xorq.backends.sqlite"
 gizmosql = "xorq.backends.gizmosql"
+databricks = "xorq.backends.databricks"
 
 [project.scripts]
 xorq = "xorq.cli:main"
@@ -276,7 +281,8 @@ markers = [
     "pyiceberg",
     "core",
     "sqlite",
-    "gizmosql: GizmoSQL (DuckDB over Arrow Flight SQL) tests"
+    "gizmosql: GizmoSQL (DuckDB over Arrow Flight SQL) tests",
+    "databricks: Databricks tests",
 ]
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"

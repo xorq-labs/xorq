@@ -9,6 +9,7 @@ import sqlglot.generator as sgn
 from sqlglot import transforms
 from sqlglot.dialects import (
     TSQL,
+    Databricks,
     Hive,
     MySQL,
     Oracle,
@@ -18,6 +19,9 @@ from sqlglot.dialects import (
     SQLite,
     Trino,
 )
+
+
+__all__ = ["Databricks"]
 from sqlglot.dialects import ClickHouse as _ClickHouse
 from sqlglot.dialects.dialect import rename_func
 from sqlglot.helper import find_new_name, seq_get
@@ -471,4 +475,14 @@ Trino.Generator.TRANSFORMS |= {
     sge.BitwiseRightShift: rename_func("bitwise_right_shift"),
     sge.FirstValue: rename_func("first_value"),
     sge.LastValue: rename_func("last_value"),
+}
+
+Databricks.Generator.TRANSFORMS |= {
+    # required because of https://github.com/tobymao/sqlglot/pull/4142
+    sge.Create: transforms.preprocess(
+        [
+            transforms.remove_unique_constraints,
+            transforms.move_partitioned_by_to_schema_columns,
+        ]
+    )
 }
