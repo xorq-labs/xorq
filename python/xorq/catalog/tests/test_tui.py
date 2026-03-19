@@ -27,6 +27,7 @@ from xorq.catalog.tui import (
     GitLogRowData,
     RevisionRowData,
     _build_git_log_rows,
+    _entry_info,
     _format_cached,
     _format_column_count,
     maybe,
@@ -1014,3 +1015,13 @@ class TestGitLogPanel:
                 assert git_table.get_cell_at((0, 0)) == "aabbccddee11"
 
         _run(_test())
+
+
+def test_entry_info_scalar_expression_returns_zero_column_count():
+    """Scalar expressions have no .columns; _entry_info should return 0, not crash."""
+    entry = MagicMock()
+    del entry.expr.columns  # make .columns raise AttributeError
+    entry.expr.ls.has_cached = False
+    entry.expr.ls.tags = []
+    column_count, cached, root_tag, expr = _entry_info(entry)
+    assert column_count == 0
