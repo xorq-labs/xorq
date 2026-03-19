@@ -2,21 +2,311 @@
 title: 'Manage the compute catalog'
 ---
 
-## Coming soon
-
-This guide will show you how to use the catalog system to manage builds, aliases, and metadata.
-
-You will learn catalog operations for production deployment workflows.
-
-**What you'll accomplish:**
-- Add builds to the catalog
-- Create and manage aliases
-- Query catalog metadata
-- Compare builds with diff-builds
+This guide walks through common catalog workflows using both the CLI and the Python API.
 
 **Prerequisites:**
-- Completed "Your first build" tutorial
-- Understanding of build system
 
-Check back soon for the complete guide.
+- `git-annex` installed (`apt install git-annex` / `brew install git-annex`)
+- Familiarity with xorq expressions
 
+## Initialize a catalog
+
+::: {.panel-tabset}
+
+### CLI
+
+```bash
+# Named catalog (stored in ~/.local/share/xorq/annex-catalogs/my-catalog)
+xorq catalog --name my-catalog init
+
+# Catalog at a specific path
+xorq catalog --path /data/catalogs/project init
+```
+
+### Python
+
+```python
+from xorq.catalog import Catalog
+
+# By name
+catalog = Catalog.from_name("my-catalog", init=True)
+
+# By path
+catalog = Catalog.from_repo_path("/data/catalogs/project", init=True)
+
+# Default catalog
+catalog = Catalog.from_default(init=True)
+```
+
+:::
+
+## Add builds
+
+Builds can be added from zip archives, build directories, or xorq expressions.
+
+::: {.panel-tabset}
+
+### CLI
+
+```bash
+# Add from a build archive
+xorq catalog --name my-catalog add /path/to/build.zip
+
+# Add with aliases
+xorq catalog --name my-catalog add /path/to/build.zip --alias latest --alias v1
+```
+
+### Python
+
+```python
+from pathlib import Path
+import xorq.api as xo
+from xorq.catalog import Catalog
+
+catalog = Catalog.from_name("my-catalog")
+
+# From a zip archive
+entry = catalog.add(Path("/path/to/build.zip"))
+
+# From a build directory
+entry = catalog.add(Path("/path/to/build-dir/"))
+
+# From an expression directly
+expr = xo.memtable({"x": [1, 2, 3]})
+entry = catalog.add(expr, aliases=("latest", "v1"))
+
+print(entry.name)    # content-derived hash name
+print(entry.kind)    # ExprKind.Expr or ExprKind.UnboundExpr
+```
+
+:::
+
+## List entries and aliases
+
+::: {.panel-tabset}
+
+### CLI
+
+```bash
+# List entries
+xorq catalog --name my-catalog list
+
+# List entries with expression kind
+xorq catalog --name my-catalog list --kind
+
+# List aliases
+xorq catalog --name my-catalog list-aliases
+
+# Show catalog metadata
+xorq catalog --name my-catalog info
+```
+
+### Python
+
+```python
+catalog = Catalog.from_name("my-catalog")
+
+# Entry names
+catalog.list()                 # ['hash-abc123', 'hash-def456']
+
+# Full entry objects
+for entry in catalog.catalog_entries:
+    print(entry.name, entry.kind, entry.backends)
+
+# Aliases
+catalog.list_aliases()         # ['latest', 'v1']
+
+# Alias objects with targets
+for alias in catalog.catalog_aliases:
+    print(f"{alias.alias} -> {alias.catalog_entry.name}")
+```
+
+:::
+
+## Manage aliases
+
+Aliases are stable names that point to entries. They can be created, reassigned, and removed.
+
+::: {.panel-tabset}
+
+### CLI
+
+```bash
+# Create an alias
+xorq catalog --name my-catalog add-alias <entry-name> production
+
+# Remove an alias
+xorq catalog --name my-catalog remove-alias production
+```
+
+### Python
+
+```python
+catalog = Catalog.from_name("my-catalog")
+
+# Create
+catalog.add_alias("hash-abc123", "production")
+
+# Reassign (overwrites the existing symlink)
+catalog.add_alias("hash-def456", "production")
+
+# View revision history for an alias
+alias = catalog.catalog_aliases[0]
+for entry, commit in alias.list_revisions():
+    print(f"  {commit.authored_datetime}: {entry.name} ({'exists' if entry.exists() else 'removed'})")
+```
+
+:::
+
+## Remove entries
+
+Removing an entry also removes any aliases pointing to it.
+
+::: {.panel-tabset}
+
+### CLI
+
+```bash
+xorq catalog --name my-catalog remove <entry-name>
+```
+
+### Python
+
+```python
+catalog = Catalog.from_name("my-catalog")
+catalog.remove("hash-abc123")
+```
+
+:::
+
+## Retrieve entries
+
+Export an entry's archive to a directory, or load the expression directly.
+
+::: {.panel-tabset}
+
+### CLI
+
+```bash
+# Export archive to current directory
+xorq catalog --name my-catalog get <entry-name>
+
+# Export to a specific directory
+xorq catalog --name my-catalog get <entry-name> --output /tmp/exports
+```
+
+### Python
+
+```python
+catalog = Catalog.from_name("my-catalog")
+
+# Get the zip archive
+zip_path = catalog.get_zip("hash-abc123", dir_path="/tmp/exports")
+
+# Load the expression directly from an entry
+entry = catalog.get_catalog_entry("hash-abc123")
+expr = entry.expr  # deserialized xorq Expr
+```
+
+:::
+
+## Remote storage
+
+Catalogs can push artifact content to remote storage (S3, GCS, local directory) via git-annex special remotes.
+
+### Initialize with a directory remote
+
+```python
+from xorq.catalog import Catalog
+from xorq.catalog.annex import DirectoryRemoteConfig
+
+remote_config = DirectoryRemoteConfig(
+    name="myremote",
+    directory="/data/annex-store",
+)
+catalog = Catalog.from_repo_path(
+    "/path/to/catalog",
+    init=True,
+    remote_config=remote_config,
+)
+```
+
+### Initialize with an S3 remote
+
+```python
+from xorq.catalog.annex import S3RemoteConfig
+
+remote_config = S3RemoteConfig.make_s3_remote(
+    name="s3remote",
+    bucket="my-catalog-bucket",
+    aws_access_key_id="...",
+    aws_secret_access_key="...",
+)
+
+# Or for GCS (S3-compatible interoperability mode):
+remote_config = S3RemoteConfig.make_gcs_remote(
+    name="gcs",
+    bucket="my-gcs-bucket",
+    aws_access_key_id="...",   # GCS HMAC key
+    aws_secret_access_key="...",
+)
+
+catalog = Catalog.from_repo_path("/path/to/catalog", init=True, remote_config=remote_config)
+```
+
+### Clone a remote catalog
+
+```bash
+xorq catalog clone https://github.com/org/my-catalog.git
+```
+
+```python
+# For S3-backed catalogs, pass credentials at clone time:
+catalog = Catalog.clone_from(
+    "https://github.com/org/my-catalog.git",
+    aws_access_key_id="...",
+    aws_secret_access_key="...",
+)
+```
+
+### Sync with remotes
+
+::: {.panel-tabset}
+
+### CLI
+
+```bash
+xorq catalog --name my-catalog push
+xorq catalog --name my-catalog pull
+xorq catalog --name my-catalog sync   # pull then push
+```
+
+### Python
+
+```python
+catalog.push()
+catalog.pull()
+catalog.sync()   # pull then push
+```
+
+:::
+
+## Validate consistency
+
+```bash
+xorq catalog --name my-catalog check
+```
+
+```python
+catalog.assert_consistency()  # raises AssertionError on inconsistency
+```
+
+This verifies that `catalog.yaml`, the filesystem entries, metadata files, and alias symlinks are all in agreement.
+
+## Interactive explorer
+
+The catalog includes a terminal UI for browsing entries and aliases:
+
+```bash
+xorq catalog --name my-catalog tui
+```

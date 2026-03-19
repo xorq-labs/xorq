@@ -9,6 +9,7 @@ from xorq.catalog.zip_utils import (
 
 @contextmanager
 def build_expr_context(expr):
+    """Context manager that serializes *expr* into a temporary build directory."""
     from xorq.ibis_yaml.compiler import build_expr  # noqa: PLC0415
 
     with tempfile.TemporaryDirectory() as td:
@@ -18,12 +19,14 @@ def build_expr_context(expr):
 
 @contextmanager
 def build_expr_context_zip(expr):
+    """Context manager that serializes *expr* into a temporary zip archive."""
     with build_expr_context(expr) as build_dir:
         with make_zip_context(build_dir) as zip_path:
             yield zip_path
 
 
 def load_expr_from_zip(zip_path):
+    """Deserialize an xorq ``Expr`` from a build archive."""
     from xorq.ibis_yaml.compiler import load_expr  # noqa: PLC0415
 
     with extract_build_zip_context(zip_path) as build_dir:

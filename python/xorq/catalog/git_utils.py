@@ -7,11 +7,13 @@ from toolz import curry
 @contextmanager
 @curry
 def commit_context(repo, message):
+    """Context manager that yields the repo index and commits on exit."""
     yield repo.index
     repo.index.commit(message)
 
 
 def add_as_submodule(repo, subrepo, remote="origin"):
+    """Register *subrepo* as a git submodule of *repo*."""
     strpath = "./" + str(Path(subrepo.working_dir).relative_to(repo.working_dir))
     match subrepo.remotes:
         case ():

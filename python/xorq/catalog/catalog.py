@@ -57,6 +57,17 @@ popen_shell = partial(Popen, shell=True)
 
 @frozen
 class Catalog:
+    """A git-annex-backed registry for versioned build artifacts.
+
+    A catalog is a git repository containing serialized xorq expressions
+    as content-addressed zip archives.  Archives are tracked by git-annex
+    so that cloning downloads only metadata; artifact content is fetched
+    on demand.
+
+    Construct via the classmethods ``from_name``, ``from_repo_path``,
+    ``from_default``, ``clone_from``, or the dispatch helper ``from_kwargs``.
+    """
+
     git_annex = field(validator=instance_of(GitAnnex))
     check_consistency: bool = field(default=True, repr=False)
 
@@ -122,6 +133,11 @@ class Catalog:
             return self._add_build_dir(path, sync=sync, aliases=aliases)
 
     def add(self, obj, sync=True, aliases=()):
+        """Add a build to the catalog.
+
+        *obj* may be a ``Path`` to a zip archive, a ``Path`` to a build
+        directory, or an xorq ``Expr``.  Returns the created ``CatalogEntry``.
+        """
         from xorq.api import Expr  # noqa: PLC0415
 
         match obj:
@@ -136,6 +152,7 @@ class Catalog:
         return f(obj, sync=sync, aliases=aliases)
 
     def remove(self, name, sync=True):
+        """Remove an entry (and its aliases) from the catalog by name."""
         with self.maybe_synchronizing(sync):
             catalog_removal = CatalogRemoval.from_name_catalog(name, self)
             catalog_entry = catalog_removal.remove()
@@ -143,6 +160,7 @@ class Catalog:
             return catalog_entry
 
     def list(self):
+        """Return the list of entry names in the catalog."""
         return self.catalog_yaml.contents[CatalogInfix.ENTRY]
 
     @property
@@ -159,13 +177,16 @@ class Catalog:
         return tuple(r for r in self.repo.remotes if _has_fetch_refspec(r))
 
     def fetch(self):
+        """Fetch from all git remotes (excludes annex-only special remotes)."""
         return tuple(map(Remote.fetch, self._git_remotes))
 
     def push(self):
+        """Push to all git remotes after verifying consistency."""
         self.assert_consistency()
         return tuple(map(Remote.push, self._git_remotes))
 
     def pull(self):
+        """Pull from all git remotes."""
         return tuple(map(Remote.pull, self._git_remotes))
 
     @contextmanager
@@ -181,19 +202,23 @@ class Catalog:
             yield
 
     def sync(self):
+        """Pull then push — shorthand for a full round-trip synchronization."""
         with self.synchronizing():
             pass
 
     def contains(self, name):
+        """Return True if an entry with *name* exists in the catalog."""
         catalog_entry = CatalogEntry(name, self, require_exists=False)
         return catalog_entry.exists()
 
     def get_catalog_entry(self, name):
+        """Look up a ``CatalogEntry`` by name.  Raises if not found."""
         assert name in self.list(), f"Entry '{name}' not found in catalog"
         catalog_entry = CatalogEntry(name, self)
         return catalog_entry
 
     def get_zip(self, name, dir_path=None):
+        """Export an entry's archive to *dir_path* (default: cwd).  Returns the output path."""
         catalog_entry = self.get_catalog_entry(name)
         return catalog_entry.get(dir_path)
 
@@ -207,6 +232,7 @@ class Catalog:
             yield index
 
     def add_alias(self, name, alias, sync=True):
+        """Create an alias pointing at entry *name*.  Overwrites if the alias already exists."""
         with self.maybe_synchronizing(sync):
             catalog_entry = CatalogEntry(name, self)
             catalog_alias = CatalogAlias(alias=alias, catalog_entry=catalog_entry)
@@ -214,6 +240,7 @@ class Catalog:
             return catalog_alias
 
     def list_aliases(self):
+        """Return the list of alias names in the catalog."""
         return self.catalog_yaml.contents[CatalogInfix.ALIAS]
 
     @property
@@ -235,6 +262,7 @@ class Catalog:
         )
 
     def assert_consistency(self):
+        """Verify that catalog.yaml, entries, metadata, and aliases are all in agreement."""
         # catalog_yaml is in repo
         catalog_yaml_relpath_string = str(self.catalog_yaml.yaml_relpath)
         path_strings = tuple(
@@ -454,6 +482,12 @@ class Catalog:
 
 @frozen
 class CatalogAddition:
+    """Encapsulates the operation of adding a build archive to a catalog.
+
+    Normally created internally by ``Catalog.add``; use ``from_expr`` to
+    build directly from an xorq expression.
+    """
+
     build_zip = field(validator=instance_of(BuildZip))
     catalog = field(validator=instance_of(Catalog))
     aliases = field(validator=deep_iterable(instance_of(str)), default=())
@@ -520,6 +554,12 @@ class CatalogAddition:
 
 @frozen
 class CatalogEntry:
+    """A single versioned entry in a catalog, identified by its content-derived name.
+
+    Provides access to the entry's archive, metadata, deserialized expression,
+    kind, backends, and any aliases pointing to it.
+    """
+
     name = field(validator=instance_of(str))
     catalog = field(validator=instance_of(Catalog))
     require_exists = field(validator=instance_of(bool), default=True)
@@ -618,6 +658,12 @@ class CatalogEntry:
 
 @frozen
 class CatalogAlias:
+    """A human-readable symlink pointing at a ``CatalogEntry``.
+
+    Aliases live in the ``aliases/`` directory and can be reassigned over
+    time.  Use ``list_revisions`` to view the git history of an alias.
+    """
+
     alias = field(validator=instance_of(str))
     catalog_entry = field(validator=instance_of(CatalogEntry))
 
@@ -723,6 +769,8 @@ class CatalogAlias:
 
 @frozen
 class CatalogRemoval:
+    """Encapsulates the operation of removing an entry (and its aliases) from a catalog."""
+
     catalog_entry = field(validator=instance_of(CatalogEntry))
 
     @property

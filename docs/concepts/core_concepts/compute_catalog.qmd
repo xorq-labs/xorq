@@ -2,17 +2,79 @@
 title: 'Compute catalog'
 ---
 
-## Coming soon
+The compute catalog is a git-backed registry for versioned build artifacts. It stores serialized xorq expressions as content-addressed zip archives, tracked by [git-annex](https://git-annex.branchable.com/) so that cloning a catalog downloads only metadata — artifact content is fetched on demand.
 
-This page will explain how the compute catalog manages builds, aliases, and metadata.
+## What the catalog stores
 
-You will understand how to use the catalog for deployment and version management.
+A catalog is a git repository with this structure:
 
-**What you'll learn:**
-- What the catalog stores
-- How builds are registered
-- Alias management
-- Catalog query operations
+```
+catalog-repo/
+├── catalog.yaml          # index of entries and aliases
+├── entries/
+│   ├── <hash-a>.zip      # build archive (git-annex symlink)
+│   └── <hash-b>.zip
+├── metadata/
+│   ├── <hash-a>.zip.metadata.yaml
+│   └── <hash-b>.zip.metadata.yaml
+└── aliases/
+    └── my-model.zip -> ../entries/<hash-b>.zip
+```
 
-Check back soon for the complete concept guide.
+- **`catalog.yaml`** — the source of truth listing all entry names and alias names.
+- **`entries/`** — zip archives containing serialized expressions, profiles, and metadata. These are managed by git-annex: on disk they appear as symlinks to `.git/annex/` content, and are only materialized when explicitly fetched.
+- **`metadata/`** — lightweight YAML sidecar files (e.g. md5 checksums) tracked by regular git, always available after clone.
+- **`aliases/`** — human-readable symlinks pointing into `entries/`. Aliases can be reassigned to different entries over time, and the revision history is preserved in git.
 
+Each build archive (`.zip`) contains the files produced by `xorq.ibis_yaml.compiler.build_expr`: an expression definition, connection profiles, and expression metadata (kind, backends).
+
+## Entries
+
+An entry is identified by its content-derived name (the archive filename without `.zip`). Entries are immutable — once added, the archive content does not change. To update a computation, add a new entry and point an alias at it.
+
+Each `CatalogEntry` exposes:
+
+- **`name`** — the content-derived identifier
+- **`kind`** — `ExprKind.Expr` (fully bound) or `ExprKind.UnboundExpr` (partial/unbound)
+- **`backends`** — the backend connection names used by the expression
+- **`expr`** — the deserialized xorq `Expr`, reconstructed from the archive
+- **`aliases`** — any aliases currently pointing at this entry
+
+## Aliases
+
+Aliases provide stable, human-readable names for entries. An alias is a symlink in `aliases/` pointing at an entry in `entries/`. Reassigning an alias creates a new git commit, so the full history of what an alias pointed to is recoverable via `list_revisions()`.
+
+Common patterns:
+
+- **Promotion workflow**: point `production` at the entry that passed validation, then later reassign it to a newer entry.
+- **Multiple aliases**: one entry can have many aliases (e.g. `latest`, `v2.1`, `staging`).
+- **Overwrite semantics**: assigning an alias that already exists updates the symlink target.
+
+## Remote storage
+
+Catalogs use git-annex special remotes to store artifact content externally. Two backends are supported:
+
+- **`DirectoryRemoteConfig`** — a local filesystem directory (useful for development and CI)
+- **`S3RemoteConfig`** — S3-compatible object storage (AWS S3, GCS via interoperability mode, MinIO)
+
+Remote configuration is persisted in `catalog.yaml` under the `remote` key. When a catalog is cloned, the remote is automatically enabled and content is fetched. Secrets (AWS credentials) are never stored in `catalog.yaml` — they must be provided via environment variables (`XORQ_CATALOG_S3_*`) or passed explicitly.
+
+See [ADR-0001](../../adr/0001-git-annex-over-git-lfs.md) for the rationale behind choosing git-annex over git-lfs.
+
+## Consistency model
+
+The catalog enforces a strict consistency invariant after every mutation: every entry listed in `catalog.yaml` must have both a metadata file and a catalog archive on disk (or as an annex symlink), and vice versa. Alias symlinks must match the alias list in `catalog.yaml`. This is checked by `Catalog.assert_consistency()`, which runs automatically after `add` and `remove` operations.
+
+## Construction patterns
+
+The `Catalog` class supports several construction patterns depending on context:
+
+| Method | Use case |
+|--------|----------|
+| `Catalog.from_name("my-catalog", init=True)` | Create or open a named catalog in `~/.local/share/xorq/annex-catalogs/` |
+| `Catalog.from_repo_path("/path/to/repo")` | Open an existing catalog at a specific path |
+| `Catalog.from_default()` | Open or create the `default` named catalog |
+| `Catalog.clone_from(url)` | Clone a remote catalog, init annex, fetch content |
+| `Catalog.from_kwargs(...)` | Dispatch to the right constructor based on which arguments are provided |
+
+All of these are also available through the CLI via `xorq catalog --name` / `--path` / `--url` flags.

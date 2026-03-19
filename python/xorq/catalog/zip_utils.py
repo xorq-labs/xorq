@@ -59,6 +59,8 @@ def write_zip(path, relpath_to_bytes):
 
 @frozen
 class BuildZip:
+    """A validated build archive.  Checks suffix and required archive members on init."""
+
     path = field(validator=instance_of(Path), converter=Path)
 
     def __attrs_post_init__(self):

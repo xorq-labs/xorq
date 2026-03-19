@@ -2,11 +2,40 @@
 title: 'catalog info'
 ---
 
-## Coming soon
+## Synopsis
 
-Documentation for the `xorq catalog info` CLI command.
+```bash
+xorq catalog [OPTIONS] info
+```
 
-This command displays detailed information about a specific build or alias in the catalog.
+## Description
 
-Check back soon for complete documentation.
+Display summary metadata about the catalog: repository path, current commit, configured git remotes, and counts of entries and aliases.
 
+## Output
+
+```
+path:    /home/user/.local/share/xorq/annex-catalogs/my-catalog
+commit:  a1b2c3d4e5f6
+remotes: origin
+entries: 5
+aliases: 2
+```
+
+## Examples
+
+```bash
+xorq catalog --name my-catalog info
+xorq catalog --path /data/catalogs/project info
+```
+
+## Related commands
+
+- [catalog list](ls.qmd) — list entry names
+- [catalog check](#) — validate catalog consistency
+
+```bash
+xorq catalog [OPTIONS] check
+```
+
+Validates that `catalog.yaml`, filesystem entries, metadata files, and alias symlinks are all consistent. Prints `OK` on success, raises an error on inconsistency.
