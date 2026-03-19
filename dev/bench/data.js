@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773911013507,
+  "lastUpdate": 1773961429604,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -1386,6 +1386,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0014475291009965854",
             "extra": "mean: 186.66476633333198 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "45543592+ghoersti@users.noreply.github.com",
+            "name": "ghoersti",
+            "username": "ghoersti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7f9dc3b2a71286e9dd813acec0d73bcfa2d2cbf2",
+          "message": "fix(tui): handle scalar expressions in _entry_info (#1726)\n\n## Summary\n- `_entry_info` crashed with `AttributeError` when called with scalar\nexpressions (e.g. `StringScalar`, `FloatingScalar`) because `.columns`\nonly exists on ibis `Table` expressions\n- Wrap `len(expr.columns)` in `try/except AttributeError`, defaulting\n`column_count` to `0` for non-table expressions\n- Add unit test covering the scalar case\n\n## Test plan\n- [ ] `pytest\npython/xorq/catalog/tests/test_tui.py::test_entry_info_scalar_expression_returns_zero_column_count`\n- [ ] `xorq catalog --path .experiments/<uuid>/submissions tui` with a\ncatalog containing scalar expressions\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: ghoersti <ghoersti@users.noreply.github.com>\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-19T19:02:57-04:00",
+          "tree_id": "d081c0b62f8724d49f5ca8de389349d933e7c6f3",
+          "url": "https://github.com/xorq-labs/xorq/commit/7f9dc3b2a71286e9dd813acec0d73bcfa2d2cbf2"
+        },
+        "date": 1773961427683,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.933772915985399,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0015840175475932336",
+            "extra": "mean: 91.4597374286034 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 5.02205721847781,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0033898310883763256",
+            "extra": "mean: 199.12158633331956 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.8683672493463633,
+            "unit": "iter/sec",
+            "range": "stddev: 0.025382354142616553",
+            "extra": "mean: 1.151586498399979 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.214143228635208,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0024173126032440437",
+            "extra": "mean: 191.7860626666652 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.192326769116107,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0012697308494931596",
+            "extra": "mean: 192.59188499999405 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.161871653676483,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003411850202097734",
+            "extra": "mean: 193.7281798333288 msec\nrounds: 6"
           }
         ]
       }
