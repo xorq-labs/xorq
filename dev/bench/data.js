@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773755061031,
+  "lastUpdate": 1773911013507,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -1320,6 +1320,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.008386935951889808",
             "extra": "mean: 186.4106386666672 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6713581c9115591c7fdc19e7f3a2ef6de7ee7033",
+          "message": "fix(ibis_yaml): use typed cache to prevent int/bool collision in translate_from_yaml (#1725)\n\n## Summary\n- `functools.cache` on `translate_from_yaml` treats `1` and `True` as\nthe same cache key (since `1 == True` in Python), causing `Limit(n=1)`\nto roundtrip as `Limit(n=True)` when a boolean value is cached first\n- DataFusion then rejects the query with: `Expected LIMIT to be an\ninteger or null, but got Boolean`\n- Fix: switch to `lru_cache(maxsize=None, typed=True)` to distinguish\n`int` from `bool`, matching the existing `translate_to_yaml`\nimplementation\n\n## Test plan\n- [x] Added `test_limit_not_coerced_to_bool` that filters on a boolean\ncolumn then applies `.limit(1)`, verifying the roundtripped limit is\n`int(1)` not `True`\n- [x] All existing `test_relations.py` tests pass\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-19T05:02:42-04:00",
+          "tree_id": "28a1692e463f0839413ff39486ae07a5fc4fac10",
+          "url": "https://github.com/xorq-labs/xorq/commit/6713581c9115591c7fdc19e7f3a2ef6de7ee7033"
+        },
+        "date": 1773911011618,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 11.41443616586924,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0010603786016070108",
+            "extra": "mean: 87.60835712500104 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 5.180635917843729,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0016910444505210604",
+            "extra": "mean: 193.02649633333382 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.9352795106508198,
+            "unit": "iter/sec",
+            "range": "stddev: 0.029879044336202542",
+            "extra": "mean: 1.0691990882000013 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.439883988018622,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0011202446246968624",
+            "extra": "mean: 183.82744966666684 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.394058497965787,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0023071135249005115",
+            "extra": "mean: 185.38916483332932 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.357197395325665,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0014475291009965854",
+            "extra": "mean: 186.66476633333198 msec\nrounds: 6"
           }
         ]
       }
