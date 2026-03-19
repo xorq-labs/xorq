@@ -92,3 +92,20 @@ def test_limit(compiler, t):
     assert expression["n"] == 10
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
+
+
+def test_limit_not_coerced_to_bool(compiler, alltypes):
+    """Limit n=1 must stay int, not become True via cache collision.
+
+    functools.cache treats 1 and True as the same key because 1 == True
+    in Python. When a boolean field is cached before the limit value,
+    the limit roundtrips as True instead of 1, causing DataFusion to
+    reject it with: "Expected LIMIT to be an integer or null, but got Boolean".
+    """
+    expr = alltypes.filter(alltypes.bool_col).limit(1)
+    yaml_dict = compiler.to_yaml(expr)
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
+
+    assert roundtrip_expr.op().n == 1
+    assert type(roundtrip_expr.op().n) is int
+    assert roundtrip_expr.equals(expr)

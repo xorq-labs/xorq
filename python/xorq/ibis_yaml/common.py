@@ -223,7 +223,7 @@ def default_handler(yaml_dict: dict, context: TranslationContext):
     ).to_expr()
 
 
-@functools.cache
+@functools.lru_cache(maxsize=None, typed=True)
 @functools.singledispatch
 def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     match yaml_dict:
