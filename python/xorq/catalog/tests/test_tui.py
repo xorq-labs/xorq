@@ -32,6 +32,7 @@ from xorq.catalog.tui import (
     _format_column_count,
     maybe,
 )
+from xorq.vendor.ibis.expr.types import Scalar
 
 
 # ---------------------------------------------------------------------------
@@ -1017,11 +1018,12 @@ class TestGitLogPanel:
         _run(_test())
 
 
-def test_entry_info_scalar_expression_returns_zero_column_count():
-    """Scalar expressions have no .columns; _entry_info should return 0, not crash."""
+def test_entry_info_scalar_expression_wraps_as_table():
+    """Scalar expressions are wrapped with as_table(); column count comes from the resulting table."""
     entry = MagicMock()
-    del entry.expr.columns  # make .columns raise AttributeError
+    entry.expr = MagicMock(spec=Scalar)
+    entry.expr.as_table.return_value.columns = ["value"]
     entry.expr.ls.has_cached = False
     entry.expr.ls.tags = []
     column_count, cached, root_tag, expr = _entry_info(entry)
-    assert column_count == 0
+    assert column_count == 1

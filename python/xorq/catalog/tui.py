@@ -24,6 +24,7 @@ from textual.widgets import (
 from toolz.curried import excepts as cexcepts
 
 from xorq.common.utils.func_utils import return_constant
+from xorq.vendor.ibis.expr.types import Scalar
 
 
 DEFAULT_REFRESH_INTERVAL = 10
@@ -204,10 +205,8 @@ def _check_cached(expr) -> bool:
 
 def _entry_info(entry) -> tuple[int, bool, str, object]:
     expr = entry.expr
-    try:
-        column_count = len(expr.columns)
-    except AttributeError:
-        column_count = 0
+    table_expr = expr.as_table() if isinstance(expr, Scalar) else expr
+    column_count = len(table_expr.columns)
     cached = _check_cached(expr)
     tags = expr.ls.tags
     root_tag = tags[0].tag if tags else ""
