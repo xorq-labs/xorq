@@ -27,10 +27,12 @@ from xorq.catalog.tui import (
     GitLogRowData,
     RevisionRowData,
     _build_git_log_rows,
+    _entry_info,
     _format_cached,
     _format_column_count,
     maybe,
 )
+from xorq.vendor.ibis.expr.types import Scalar
 
 
 # ---------------------------------------------------------------------------
@@ -1014,3 +1016,14 @@ class TestGitLogPanel:
                 assert git_table.get_cell_at((0, 0)) == "aabbccddee11"
 
         _run(_test())
+
+
+def test_entry_info_scalar_expression_wraps_as_table():
+    """Scalar expressions are wrapped with as_table(); column count comes from the resulting table."""
+    entry = MagicMock()
+    entry.expr = MagicMock(spec=Scalar)
+    entry.expr.as_table.return_value.columns = ["value"]
+    entry.expr.ls.has_cached = False
+    entry.expr.ls.tags = []
+    column_count, cached, root_tag, expr = _entry_info(entry)
+    assert column_count == 1
