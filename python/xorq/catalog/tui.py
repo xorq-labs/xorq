@@ -204,7 +204,10 @@ def _check_cached(expr) -> bool:
 
 def _entry_info(entry) -> tuple[int, bool, str, object]:
     expr = entry.expr
-    column_count = len(expr.columns)
+    try:
+        column_count = len(expr.columns)
+    except AttributeError:
+        column_count = 0
     cached = _check_cached(expr)
     tags = expr.ls.tags
     root_tag = tags[0].tag if tags else ""
