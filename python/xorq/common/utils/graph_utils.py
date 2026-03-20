@@ -199,10 +199,12 @@ def replace_sources(source_mapping, expr):
 
 
 def get_ordered_unique_sources(nodes):
+    # Use id() for deduplication because backend __hash__ collides for
+    # same-class instances and __eq__ only differs by session-local idx.
     sources, seen = (), set()
     for source in (node.source for node in nodes):
-        if source not in seen:
-            seen.add(source)
+        if id(source) not in seen:
+            seen.add(id(source))
             sources += (source,)
     return sources
 
