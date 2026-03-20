@@ -2,11 +2,12 @@
 title: 'catalog diff-builds'
 ---
 
-## Coming soon
+::: {.callout-warning}
+This command is planned but not yet implemented.
+:::
 
-Documentation for the `xorq catalog diff-builds` CLI command.
+## Description
 
-This command compares two builds and shows differences between them.
+Compare two build entries and show differences between their serialized expressions, profiles, and metadata.
 
-Check back soon for complete documentation.
-
+This page will be updated when the command is available.

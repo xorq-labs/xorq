@@ -1,12 +1,45 @@
 ---
-title: 'catalog ls'
+title: 'catalog list'
 ---
 
-## Coming soon
+## Synopsis
 
-Documentation for the `xorq catalog ls` CLI command.
+```bash
+xorq catalog [OPTIONS] list [--kind/--no-kind]
+```
 
-This command lists all builds and aliases in the compute catalog.
+## Description
 
-Check back soon for complete documentation.
+List all entries in the catalog. Each line prints an entry's content-derived name.
 
+## Options
+
+`--kind / --no-kind`
+: Show the expression kind (`Expr` or `UnboundExpr`) next to each entry name. Default: `--no-kind`.
+
+## Related commands
+
+`list-aliases`
+: List all aliases in the catalog.
+
+```bash
+xorq catalog [OPTIONS] list-aliases
+```
+
+## Examples
+
+```bash
+# List entry names
+xorq catalog --name my-catalog list
+
+# List entries with kind
+xorq catalog --name my-catalog list --kind
+
+# List aliases
+xorq catalog --name my-catalog list-aliases
+```
+
+## See also
+
+- [catalog info](info.qmd)
+- [catalog add](add.qmd)

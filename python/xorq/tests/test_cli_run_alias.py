@@ -9,6 +9,7 @@ import pytest
 from click.testing import CliRunner
 
 import xorq.api as xo
+from xorq.catalog.annex import Annex, GitAnnex
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.expr_utils import build_expr_context_zip
 from xorq.cli import _resolve_alias, cli
@@ -25,7 +26,9 @@ def runner():
 @pytest.fixture
 def catalog(tmp_path):
     repo = Catalog.init_repo_path(tmp_path / "catalog")
-    return Catalog(repo=repo)
+    repo_path = Path(repo.working_dir)
+    git_annex = GitAnnex(repo=repo, annex=Annex(repo_path=repo_path))
+    return Catalog(git_annex=git_annex)
 
 
 @pytest.fixture

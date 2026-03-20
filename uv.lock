@@ -1444,6 +1444,18 @@ wheels = [
 ]
 
 [[package]]
+name = "git-annex"
+version = "10.20260213"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/02/9d/f1a3c089b494e70baec6fd455adccd517edb9fdc93847e7a4b42ce9dd1ea/git_annex-10.20260213-py3-none-macosx_14_0_arm64.whl", hash = "sha256:9de2a7b8303328077c12be80dd80d6fc53a227666f30729c6bc4f12b4ef6eb9a", size = 36267927, upload-time = "2026-02-16T10:58:54.765Z" },
+    { url = "https://files.pythonhosted.org/packages/bf/b2/572335cbcdeaa6d426ee53e2cbd4ad60e75130650ed556652c79ba4ad077/git_annex-10.20260213-py3-none-macosx_15_0_x86_64.whl", hash = "sha256:3a441f585c9739d0e4353a0f4271fbaa02d855e7286954a51d725fd72b028515", size = 14211466, upload-time = "2026-02-16T11:08:33.517Z" },
+    { url = "https://files.pythonhosted.org/packages/43/37/a63098b1536e10da70cc35fcbfe3c7ffd46e0e48bdd3f67567861aee7ab0/git_annex-10.20260213-py3-none-manylinux_2_34_aarch64.whl", hash = "sha256:d76ac3131d221a3bdcd036d48c120abcc08ca14010419bc43bd7377bd55f9704", size = 26246537, upload-time = "2026-02-26T18:46:03.969Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/4e/f4129ecb084904f2a9969a0777454b3d47ea211a78f0a92c7fd21f575fcc/git_annex-10.20260213-py3-none-manylinux_2_34_x86_64.whl", hash = "sha256:a77c1a4d62d3c3589c90ce1f7e695cebc1b20ad24fb04391449eda6d99b035a1", size = 21890761, upload-time = "2026-02-16T10:52:29.971Z" },
+    { url = "https://files.pythonhosted.org/packages/db/02/88e6e445d520fde5dcc49ff5189df5ac2eac0edc9e228354a8e3792ab7e8/git_annex-10.20260213-py3-none-win_amd64.whl", hash = "sha256:dec163bc304b3f105dcec8bb04edfee86fe3a2a67ceecf425da6a1230383fa25", size = 27050795, upload-time = "2026-02-16T10:57:39.897Z" },
+]
+
+[[package]]
 name = "git-cliff"
 version = "2.10.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5768,6 +5780,7 @@ dependencies = [
     { name = "envyaml" },
     { name = "filelock" },
     { name = "geoarrow-types" },
+    { name = "git-annex" },
     { name = "gitpython" },
     { name = "opentelemetry-exporter-otlp" },
     { name = "opentelemetry-exporter-otlp-proto-grpc" },
@@ -5908,6 +5921,7 @@ requires-dist = [
     { name = "filelock", specifier = ">=3.13" },
     { name = "fsspec", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=2024.6.1,<2025.12.1" },
     { name = "geoarrow-types", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.2,<1" },
+    { name = "git-annex", specifier = ">=10.20250220" },
     { name = "gitpython", specifier = ">=3.1.46" },
     { name = "ibis-framework", marker = "extra == 'ibis'", specifier = ">=10.5.0" },
     { name = "matplotlib", marker = "extra == 'examples'", specifier = ">=3.8.0" },

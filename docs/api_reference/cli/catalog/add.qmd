@@ -2,11 +2,50 @@
 title: 'catalog add'
 ---
 
-## Coming soon
+## Synopsis
 
-Documentation for the `xorq catalog add` CLI command.
+```bash
+xorq catalog [OPTIONS] add [--sync/--no-sync] [-a ALIAS]... PATHS...
+```
 
-This command adds a build to the compute catalog with an optional alias.
+## Description
 
-Check back soon for complete documentation.
+Add one or more build entries to the catalog from archive files (`.zip`) or build directories.
 
+Each path is inspected and handled accordingly:
+
+- **File** (`.zip`) — added directly as a catalog entry
+- **Directory** — zipped and then added
+
+The entry name is derived from the archive content. If an entry with the same name already exists, the command fails.
+
+When `--sync` is enabled (the default), the catalog pulls from remotes before adding and pushes after, keeping the catalog synchronized.
+
+## Options
+
+`--sync / --no-sync`
+: Synchronize with remotes before and after adding. Default: `--sync`.
+
+`-a, --alias ALIAS`
+: Create an alias for the added entry. Can be repeated to create multiple aliases.
+
+## Examples
+
+```bash
+# Add a single archive
+xorq catalog --name my-catalog add build.zip
+
+# Add with aliases
+xorq catalog --name my-catalog add build.zip -a latest -a v2.1
+
+# Add a build directory
+xorq catalog --name my-catalog add /tmp/my-build/
+
+# Add multiple archives without syncing
+xorq catalog --name my-catalog add --no-sync a.zip b.zip
+```
+
+## See also
+
+- [catalog list](ls.qmd)
+- [catalog rm](rm.qmd)

@@ -1,17 +1,19 @@
 import shutil
+import subprocess
+import uuid
 from pathlib import Path
 
 import pytest
 from attr import evolve
+from git import Repo as GitRepo
 
 import xorq.api as xo
+from xorq.catalog.annex import Annex, DirectoryRemoteConfig, GitAnnex, S3RemoteConfig
 from xorq.catalog.catalog import (
-    BuildZip,
     Catalog,
     CatalogAddition,
     CatalogAlias,
     CatalogEntry,
-    with_pure_suffix,
 )
 from xorq.catalog.constants import CatalogInfix
 from xorq.catalog.expr_utils import (
@@ -21,6 +23,8 @@ from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
 )
 from xorq.catalog.zip_utils import (
+    BuildZip,
+    with_pure_suffix,
     write_zip,
 )
 from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES, ExprKind
@@ -349,3 +353,95 @@ def test_extract_kind_partial(catalog):
     expr = t.filter(t.a > 0)
     entry = catalog.add(expr)
     assert entry.kind == ExprKind.UnboundExpr
+
+
+def test_directory_remote(tmpdir):
+    """Add entries, copy to a directory remote, drop local, get back."""
+    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir.mkdir()
+    remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
+    repo_path = Path(tmpdir).joinpath("repo")
+    GitAnnex.init_repo_path(repo_path, remote_config=remote_config)
+    annex = Annex(repo_path=repo_path)
+    git_annex = GitAnnex(repo=GitRepo(repo_path), annex=annex)
+    catalog = Catalog(git_annex=git_annex)
+
+    # add two entries
+    with build_expr_context_zip(xo.memtable({"x": [1]})) as zp:
+        entry = catalog.add(zp, sync=False)
+    catalog.assert_consistency()
+    assert entry.catalog_path.is_symlink()
+
+    # copy content to directory remote
+    annex.copy(to="mydir")
+    # content is in the remote directory
+    assert any(remote_dir.rglob("*"))
+
+    # drop local content — symlink stays, but target is gone
+    annex.drop()
+    assert entry.catalog_path.is_symlink()
+    assert not entry.catalog_path.exists()
+
+    # get content back from directory remote
+    annex.get()
+    assert entry.catalog_path.exists()
+
+
+@pytest.mark.s3
+def test_s3_remote_minio(tmpdir):
+    """Add entries, copy to S3 (minio), drop local, get back."""
+    remote_config = S3RemoteConfig.from_env(
+        name="mys3",
+        bucket=f"test-annex-{uuid.uuid4().hex[:12]}",
+        host="minio",
+        port="9000",
+        aws_access_key_id="accesskey",
+        aws_secret_access_key="secretkey",
+        protocol="http",
+        requeststyle="path",
+        signature="v2",
+    )
+    # check minio is reachable
+    result = subprocess.run(
+        [
+            "curl",
+            "-sf",
+            f"http://{remote_config.host}:{remote_config.port}/minio/health/live",
+        ],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        pytest.skip("minio not reachable")
+    repo_path = Path(tmpdir).joinpath("repo")
+    repo_path.mkdir(parents=True)
+    repo = GitRepo.init(repo_path)
+    repo.index.commit("initial commit")
+    # allow private IPs for minio
+    subprocess.run(
+        ["git", "config", "annex.security.allowed-ip-addresses", "all"],
+        cwd=repo_path,
+        check=True,
+    )
+    Annex.init_repo_path(repo_path, remote_config=remote_config)
+
+    annex = Annex(repo_path=repo_path, env=remote_config.env)
+    git_annex = GitAnnex(repo=repo, annex=annex)
+    catalog = Catalog(git_annex=git_annex)
+
+    # add an entry
+    with build_expr_context_zip(xo.memtable({"s3col": [42]})) as zp:
+        entry = catalog.add(zp, sync=False)
+    catalog.assert_consistency()
+    assert entry.catalog_path.is_symlink()
+
+    # copy to S3
+    annex.copy(to="mys3")
+
+    # drop local content
+    annex.drop()
+    assert entry.catalog_path.is_symlink()
+    assert not entry.catalog_path.exists()
+
+    # get content back from S3
+    annex.get()
+    assert entry.catalog_path.exists()

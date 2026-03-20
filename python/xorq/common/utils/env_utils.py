@@ -84,10 +84,11 @@ class EnvConfigable:
 
     @classmethod
     def get_env_overrides(cls, mapper=str.upper):
+        prefix = getattr(cls, "_env_prefix", "")
         dct = {
             name: value
             for (name, value) in (
-                (attr.name, os.environ.get(mapper(attr.name)))
+                (attr.name, os.environ.get(prefix + mapper(attr.name)))
                 for attr in cls.__attrs_attrs__
             )
             if value is not None
@@ -104,7 +105,10 @@ class EnvConfigable:
         return cls(**(kwargs | cls.get_env_overrides()))
 
     @classmethod
-    def subclass_from_kwargs(cls, *args, **kwargs):
+    def subclass_from_kwargs(cls, *args, prefix="", name_mapper=None, **kwargs):
+        if name_mapper is not None:
+            args = tuple(name_mapper(name) for name in args)
+            kwargs = {name_mapper(name): value for name, value in kwargs.items()}
         fields = {
             name: field(
                 default=os.environ.get(name, ""), validator=optional(instance_of(str))
@@ -117,24 +121,30 @@ class EnvConfigable:
             )
             for name, value in kwargs.items()
         }
-        return frozen(
+        klass = frozen(
             type(
                 "EnvConfig",
                 (cls,),
                 fields,
             )
         )
+        klass._env_prefix = prefix
+        return klass
 
     @classmethod
-    def subclass_from_env_file(cls, env_file):
+    def subclass_from_env_file(cls, env_file, prefix="", name_mapper=None):
+        if prefix and name_mapper is None:
+            name_mapper = lambda name: name.removeprefix(prefix).lower()  # noqa: E731
         env_file = Path(env_file).resolve()
         return cls.subclass_from_kwargs(
+            prefix=prefix,
+            name_mapper=name_mapper,
             **(
                 parse_env_file(env_file)
                 | {
                     "env_file": env_file,
                 }
-            )
+            ),
         )
 
 
