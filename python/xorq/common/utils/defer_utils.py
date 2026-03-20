@@ -32,10 +32,19 @@ if TYPE_CHECKING:
 DEFAULT_CHUNKSIZE = 10_000
 
 
+# Backend-specific parameter names for the file path argument.
+_PATH_PARAM_NAMES = frozenset(("path", "paths", "source", "source_list"))
+
+
 def make_read_kwargs(f, *args, **kwargs):
     # FIXME: if any kwarg is a dictionary, we'll fail Concrete's hashable requirement, so just pickle
     read_kwargs = get_arguments(f, *args, **kwargs)
     kwargs = read_kwargs.pop("kwargs", {})
+    # Normalize backend-specific path parameter names to "path" so that
+    # Read nodes are portable across backends.
+    read_kwargs = {
+        ("path" if k in _PATH_PARAM_NAMES else k): v for k, v in read_kwargs.items()
+    }
     tpl = tuple(read_kwargs.items()) + tuple(kwargs.items())
     return tpl
 

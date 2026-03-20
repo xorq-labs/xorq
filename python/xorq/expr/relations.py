@@ -591,8 +591,8 @@ class Read(ops.DatabaseTable):
 
     def make_dt(self):
         method = getattr(self.source, self.method_name)
-        args = tuple(v for k, v in self.read_kwargs if k in ("path", "paths"))
-        kwargs = {k: v for k, v in self.read_kwargs if k not in ("path", "paths")}
+        args = tuple(v for k, v in self.read_kwargs if k == "path")
+        kwargs = {k: v for k, v in self.read_kwargs if k != "path"}
         dt = method(*args, **kwargs).op()
         return dt
 
