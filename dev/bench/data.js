@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774037239820,
+  "lastUpdate": 1774039041891,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -1518,6 +1518,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.008164072038310181",
             "extra": "mean: 202.14094519999435 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7c433b9124e006d7e9bc317403a1b946728c35b4",
+          "message": "feat(expr): add ExprKind.Source to distinguish source from transformed expressions (#1727)\n\n## Summary\n- Adds `ExprKind.Source` enum variant to distinguish bare source tables\n(e.g. `DatabaseTable`, `InMemoryTable`, `Read`, `CachedNode`) from\ntransformed expressions\n- Adds `.ls.kind` and `.ls.unwrapped` accessors on `LETSQLAccessor` for\nconvenient source detection and Tag/HashingTag unwrapping\n- Updates `ExprMetadata.kind` to return `Source` when the expression\nroot is a source node\n\n## Test plan\n- [x] Unit tests for `ExprMetadata.kind` across source, expr, and\nunbound cases\n- [x] Tests for `.ls.kind` and `.ls.unwrapped` accessors\n- [x] Updated catalog and compiler tests to verify `ExprKind.Source`\nclassification\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-20T16:33:45-04:00",
+          "tree_id": "731069740dc1e9bbf8ae7798f06d2f88cca3759e",
+          "url": "https://github.com/xorq-labs/xorq/commit/7c433b9124e006d7e9bc317403a1b946728c35b4"
+        },
+        "date": 1774039039169,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.0971651626408185,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015260012839226768",
+            "extra": "mean: 140.9013284999986 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.391054024489112,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012131681004755437",
+            "extra": "mean: 227.7357542000061 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6690270012417427,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1547173019259884",
+            "extra": "mean: 1.4947079836000001 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.740907586165936,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0317993450408753",
+            "extra": "mean: 267.3148098333276 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.894147767567985,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05255438446432482",
+            "extra": "mean: 256.79559679999784 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.53863550966736,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012780991822457467",
+            "extra": "mean: 220.33053719999884 msec\nrounds: 5"
           }
         ]
       }
