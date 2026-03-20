@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773961429604,
+  "lastUpdate": 1774037239820,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -1452,6 +1452,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.003411850202097734",
             "extra": "mean: 193.7281798333288 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9d4679187ccb3e794897fc2686eff52985e6786e",
+          "message": "chore: expand ci-benchmark to cover all benchmark tests, drop codspeed (#1724)\n\n- Run `-m benchmark python/` instead of a single file so all\nbenchmark-marked tests are covered (ibis_yaml, test_into_backend,\nlineage_utils, gen_downstream_performance, test_api)\n- Add setup-just + download-data, full docker compose startup, and\npostgres env vars to match what codspeed was doing\n- Switch to --all-extras --all-groups to ensure all deps are available\n- Delete ci-codspeed.yaml (no longer needed)\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-20T16:03:51-04:00",
+          "tree_id": "9d5a52167f6ee1d89cf75c20799cc0afb57194b5",
+          "url": "https://github.com/xorq-labs/xorq/commit/9d4679187ccb3e794897fc2686eff52985e6786e"
+        },
+        "date": 1774037237543,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.288273000019468,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012670895415574052",
+            "extra": "mean: 137.20671549999963 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.088775911467427,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06200302704856895",
+            "extra": "mean: 244.57197499999666 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7077462630749197,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2036590965395006",
+            "extra": "mean: 1.4129357542000094 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.811332196155377,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02430469775349245",
+            "extra": "mean: 207.84264300001496 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.075149948752028,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013052697628246585",
+            "extra": "mean: 197.0385131666698 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.947043257419319,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008164072038310181",
+            "extra": "mean: 202.14094519999435 msec\nrounds: 5"
           }
         ]
       }
