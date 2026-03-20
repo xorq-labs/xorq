@@ -116,7 +116,7 @@ def make_native_op(node):
 
 class Tag(ops.Relation):
     schema: Schema
-    parent: Any
+    parent: ops.Relation
     metadata: FrozenOrderedDict = FrozenOrderedDict()
     values = FrozenDict()
 

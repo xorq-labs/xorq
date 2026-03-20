@@ -832,8 +832,7 @@ class LETSQLAccessor:
 
         root = self.op
         while isinstance(root, (Tag, HashingTag)):
-            parent = root.parent
-            root = parent.op() if isinstance(parent, Expr) else parent
+            root = root.parent
         return root
 
     @property
