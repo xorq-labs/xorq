@@ -703,6 +703,11 @@ class ExprMetadata:
     def schema_out(self):
         return self.expr.as_table().schema()
 
+    @cached_property
+    def root_tag(self) -> Optional[str]:
+        tags = self.expr.ls.tags
+        return tags[0].tag if tags else None
+
     def to_dict(self):
         return {
             key: value
@@ -713,6 +718,7 @@ class ExprMetadata:
                     toolz.valmap(str, self.schema_in) if self.schema_in else None,
                 ),
                 ("schema_out", toolz.valmap(str, self.schema_out)),
+                ("root_tag", self.root_tag),
             )
             if value is not None
         }
