@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774039041891,
+  "lastUpdate": 1774040847133,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -1584,6 +1584,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.012780991822457467",
             "extra": "mean: 220.33053719999884 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c64271b522a78b6f2d328a9b5bb6472ecc5d97ac",
+          "message": "perf(build): normalize sequential IDs for deterministic build hashes (#1728)\n\nProfile.idx and UDF class names carry session-global counters that leak\ninto build hashes and YAML, making builds non-reproducible when\nconnections or UDFs are created in different order.\n\nAdd replace_sources() as a general-purpose graph rewrite for swapping\nbackends in an expression tree (handles node.source, nested\ncache.storage.source, and opaque sub-expressions). Build\nnormalize_profiles() on top of it: sorts backends by content hash,\nassigns canonical idx=0,1,2,..., shallow-copies backends with shared\n.con so registered tables remain accessible. For UDFs, emit\n__func_name__ instead of __class__.__name__ to strip the counter suffix.\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-20T17:03:48-04:00",
+          "tree_id": "04a47622d5e1eeedfdae37459190a2802604c84e",
+          "url": "https://github.com/xorq-labs/xorq/commit/c64271b522a78b6f2d328a9b5bb6472ecc5d97ac"
+        },
+        "date": 1774040844033,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.530530557025831,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018472935989538773",
+            "extra": "mean: 132.7927683750012 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.4606790203155535,
+            "unit": "iter/sec",
+            "range": "stddev: 0.025570312880925487",
+            "extra": "mean: 224.18111580000186 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6698653493599862,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17179448048890866",
+            "extra": "mean: 1.4928373306000027 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.9652485647507936,
+            "unit": "iter/sec",
+            "range": "stddev: 0.035385432869114004",
+            "extra": "mean: 252.19099979999555 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.628535161062855,
+            "unit": "iter/sec",
+            "range": "stddev: 0.024663106045480252",
+            "extra": "mean: 216.05107559998942 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.648907711518556,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020607883002899927",
+            "extra": "mean: 215.10429160000513 msec\nrounds: 5"
           }
         ]
       }
