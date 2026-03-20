@@ -3416,7 +3416,7 @@ class Table(Expr, _FixedTextJupyterMixin):
             name=CACHED_NODE_NAME_PLACEHOLDER,
             schema=expr.schema(),
             parent=expr,
-            source=current_backend,
+            source=cache.storage.source,
             cache=cache,
         )
         return op.to_expr()
