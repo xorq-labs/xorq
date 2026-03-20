@@ -22,6 +22,7 @@ REQUIRED_ARCHIVE_NAMES = (
 
 
 class ExprKind(StrEnum):
+    Source = "source"
     Expr = "expr"
     UnboundExpr = "unbound_expr"
 

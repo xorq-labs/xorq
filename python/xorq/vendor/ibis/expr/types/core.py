@@ -692,8 +692,22 @@ class ExprMetadata:
         return unbound_node
 
     @cached_property
+    def _is_source(self):
+        from xorq.expr.relations import CachedNode, Read
+
+        source_nodes = (ops.DatabaseTable, Read, ops.InMemoryTable, CachedNode)
+        root = self.expr.ls.unwrapped
+        return isinstance(root, source_nodes)
+
+    @cached_property
     def kind(self) -> ExprKind:
-        return ExprKind.UnboundExpr if self._unbound_node else ExprKind.Expr
+        match (self._unbound_node, self._is_source):
+            case (node, _) if node is not None:
+                return ExprKind.UnboundExpr
+            case (_, True):
+                return ExprKind.Source
+            case _:
+                return ExprKind.Expr
 
     @cached_property
     def schema_in(self) -> Optional[Schema]:
@@ -730,6 +744,10 @@ class LETSQLAccessor:
     @cached_property
     def metadata(self):
         return ExprMetadata(self.expr)
+
+    @property
+    def kind(self) -> ExprKind:
+        return self.metadata.kind
 
     @property
     def cached_nodes(self):
@@ -806,6 +824,16 @@ class LETSQLAccessor:
     @property
     def has_cached(self):
         return bool(self.cached_nodes)
+
+    @cached_property
+    def unwrapped(self):
+        """Unwrap Tag and HashingTag layers to get the underlying op."""
+        from xorq.expr.relations import HashingTag, Tag
+
+        root = self.op
+        while isinstance(root, (Tag, HashingTag)):
+            root = root.parent
+        return root
 
     @property
     @functools.cache

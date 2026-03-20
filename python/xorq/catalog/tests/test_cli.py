@@ -467,7 +467,11 @@ def test_list_with_kind(runner, catalog_path, data_dict):
     for p in data_dict.values():
         name = Path(p).name.removesuffix("".join(Path(p).suffixes))
         assert name in result.output
-    assert "\tunbound_expr" in result.output or "\texpr" in result.output
+    assert (
+        "\tunbound_expr" in result.output
+        or "\tsource" in result.output
+        or "\texpr" in result.output
+    )
 
 
 # --- list-aliases command ---
