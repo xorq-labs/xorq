@@ -136,7 +136,7 @@ def replace_nodes(replacer, expr):
     return op
 
 
-def replace_sources(source_mapping, expr):
+def replace_sources(source_mapping, expr, *, transfer_tables=False):
     """Rewrite an expression graph, replacing backend sources.
 
     Every node that carries a ``source`` attribute (DatabaseTable, Read,
@@ -154,11 +154,23 @@ def replace_sources(source_mapping, expr):
         ``{id(old_backend): new_backend, ...}``
     expr : Expr | Node
         The expression to rewrite.
+    transfer_tables : bool, default False
+        If True, materialize and register ``DatabaseTable`` data on the new
+        backend so the rewritten expression is immediately executable.
+        If False (the default) and the rewrite would produce
+        ``DatabaseTable`` nodes whose data only exists on the old backend,
+        raise ``ValueError``.
 
     Returns
     -------
     Expr
         A new expression with sources replaced.
+
+    Raises
+    ------
+    ValueError
+        When *transfer_tables* is False and the expression contains
+        ``DatabaseTable`` nodes that require data transfer.
     """
 
     def _maybe_replace_cache(cache):
@@ -174,12 +186,21 @@ def replace_sources(source_mapping, expr):
         new_storage = evolve(storage, source=source_mapping[id(source)])
         return evolve(cache, storage=new_storage)
 
+    # Track DatabaseTable nodes that need data transferred: (old_backend, new_backend, table_name)
+    tables_to_transfer = []
+
     def replacer(node, kwargs):
         overrides = {}
 
         source = getattr(node, "source", None)
         if source is not None and id(source) in source_mapping:
-            overrides["source"] = source_mapping[id(source)]
+            new_source = source_mapping[id(source)]
+            overrides["source"] = new_source
+
+            # DatabaseTable (but not its subclasses like CachedNode, RemoteTable,
+            # Read) needs its data transferred to the new backend.
+            if type(node) is ops.DatabaseTable:
+                tables_to_transfer.append((source, new_source, node.name))
 
         cache = getattr(node, "cache", None)
         if cache is not None:
@@ -195,7 +216,50 @@ def replace_sources(source_mapping, expr):
             return node.__recreate__(merged)
         return node
 
-    return replace_nodes(replacer, expr).to_expr()
+    result = replace_nodes(replacer, expr).to_expr()
+
+    if tables_to_transfer:
+        # Filter out tables that already exist on the target backend
+        # (e.g. cloned backends that share the same underlying connection).
+        missing = _find_missing_tables(tables_to_transfer)
+        if missing:
+            if not transfer_tables:
+                names = sorted({name for _, _, name in missing})
+                raise ValueError(
+                    f"Expression contains DatabaseTable nodes {names} whose "
+                    f"data would need to be materialized and transferred to "
+                    f"the new backend. Use deferred reads (e.g. "
+                    f"deferred_read_parquet) to avoid this, or pass "
+                    f"transfer_tables=True to materialize."
+                )
+            _transfer_tables(missing)
+
+    return result
+
+
+def _find_missing_tables(tables_to_transfer):
+    """Return the subset of tables that don't exist on the target backend."""
+    missing = []
+    seen = set()
+    for old_backend, new_backend, table_name in tables_to_transfer:
+        key = (id(new_backend), table_name)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if table_name in new_backend.list_tables():
+                continue
+        except Exception:
+            pass
+        missing.append((old_backend, new_backend, table_name))
+    return missing
+
+
+def _transfer_tables(tables_to_transfer):
+    """Materialize and register table data on new backends."""
+    for old_backend, new_backend, table_name in tables_to_transfer:
+        table = old_backend.table(table_name).to_pyarrow()
+        new_backend.create_table(table_name, table)
 
 
 def get_ordered_unique_sources(nodes):
