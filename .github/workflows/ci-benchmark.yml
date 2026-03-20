@@ -18,6 +18,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: extractions/setup-just@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: download test data
+        run: just download-data
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -28,8 +35,11 @@ jobs:
           enable-cache: true
 
       - name: Install the project
-        run: uv sync --locked --group dev --group test
+        run: uv sync --locked --all-extras --all-groups
         working-directory: ${{ github.workspace }}
+
+      - name: start services
+        run: docker compose up --build --wait
 
       - name: Run benchmarks
         run: >
@@ -37,8 +47,14 @@ jobs:
           --import-mode=importlib
           --benchmark-json=benchmark-results.json
           -m benchmark
-          python/xorq/catalog/tests/test_benchmark_cli.py
+          python/
         working-directory: ${{ github.workspace }}
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DATABASE: ibis_testing
 
       - name: Store / compare benchmark results
         uses: benchmark-action/github-action-benchmark@v1
