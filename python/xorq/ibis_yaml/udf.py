@@ -45,7 +45,9 @@ def _scalar_udf_to_yaml(op: ops.ScalarUDF, compiler: Any) -> dict:
             "type": translate_to_yaml(op.dtype, None),
             "pickle": serialize_callable(op.__func__),
             "module": op.__module__,
-            "class_name": op.__class__.__name__,
+            # use __func_name__ (user-given name) rather than __class__.__name__
+            # which includes a session-global counter suffix (e.g. "my_udf_0")
+            "class_name": op.__func_name__,
             "arg_names": arg_names,
         }
     )
@@ -201,7 +203,8 @@ def _aggudf_to_yaml(op: ops.udf.AggUDF, compiler: Any) -> dict:
     return freeze(
         {
             "op": "AggUDF",
-            "class_name": op.__class__.__name__,
+            # use __func_name__ to avoid session-global counter suffix
+            "class_name": op.__func_name__,
             "kwargs": compiler.translate_to_yaml(freeze(kwargs)),
             "meta": compiler.translate_to_yaml(freeze(meta)),
         }
@@ -258,7 +261,8 @@ def _exprscalarudf_to_yaml(op: udf.ExprScalarUDF, compiler: Any) -> dict:
     return freeze(
         {
             "op": udf.ExprScalarUDF.__name__,
-            "class_name": op.__class__.__name__,
+            # use __func_name__ to avoid session-global counter suffix
+            "class_name": op.__func_name__,
             "kwargs": compiler.translate_to_yaml(freeze(kwargs)),
             "meta": compiler.translate_to_yaml(freeze(meta)),
         }

@@ -136,11 +136,139 @@ def replace_nodes(replacer, expr):
     return op
 
 
+def replace_sources(source_mapping, expr, *, transfer_tables=False):
+    """Rewrite an expression graph, replacing backend sources.
+
+    Every node that carries a ``source`` attribute (DatabaseTable, Read,
+    RemoteTable, CachedNode, FlightExpr, FlightUDXF, SQLQueryResult, …) is
+    recreated with the mapped replacement when its current source is found
+    in *source_mapping*.  The mapping is keyed by backend identity (``id``).
+
+    Sub-expressions reachable only through opaque fields (``remote_expr``,
+    ``parent``, ``input_expr``, ``computed_kwargs_expr``) are rewritten
+    recursively via the existing ``replace_nodes`` infrastructure.
+
+    Parameters
+    ----------
+    source_mapping : dict[int, Any]
+        ``{id(old_backend): new_backend, ...}``
+    expr : Expr | Node
+        The expression to rewrite.
+    transfer_tables : bool, default False
+        If True, materialize and register ``DatabaseTable`` data on the new
+        backend so the rewritten expression is immediately executable.
+        If False (the default) and the rewrite would produce
+        ``DatabaseTable`` nodes whose data only exists on the old backend,
+        raise ``ValueError``.
+
+    Returns
+    -------
+    Expr
+        A new expression with sources replaced.
+
+    Raises
+    ------
+    ValueError
+        When *transfer_tables* is False and the expression contains
+        ``DatabaseTable`` nodes that require data transfer.
+    """
+
+    def _maybe_replace_cache(cache):
+        """Rebuild a Cache object if its storage.source is in the mapping."""
+        from attr import evolve  # noqa: PLC0415
+
+        storage = getattr(cache, "storage", None)
+        if storage is None:
+            return cache
+        source = getattr(storage, "source", None)
+        if source is None or id(source) not in source_mapping:
+            return cache
+        new_storage = evolve(storage, source=source_mapping[id(source)])
+        return evolve(cache, storage=new_storage)
+
+    # Track DatabaseTable nodes that need data transferred: (old_backend, new_backend, table_name)
+    tables_to_transfer = []
+
+    def replacer(node, kwargs):
+        overrides = {}
+
+        source = getattr(node, "source", None)
+        if source is not None and id(source) in source_mapping:
+            new_source = source_mapping[id(source)]
+            overrides["source"] = new_source
+
+            # DatabaseTable (but not its subclasses like CachedNode, RemoteTable,
+            # Read) needs its data transferred to the new backend.
+            if type(node) is ops.DatabaseTable:
+                tables_to_transfer.append((source, new_source, node.name))
+
+        cache = getattr(node, "cache", None)
+        if cache is not None:
+            new_cache = _maybe_replace_cache(cache)
+            if new_cache is not cache:
+                overrides["cache"] = new_cache
+
+        if overrides or kwargs:
+            merged = dict(zip(node.__argnames__, node.__args__))
+            if kwargs:
+                merged |= kwargs
+            merged |= overrides
+            return node.__recreate__(merged)
+        return node
+
+    result = replace_nodes(replacer, expr).to_expr()
+
+    if tables_to_transfer:
+        # Filter out tables that already exist on the target backend
+        # (e.g. cloned backends that share the same underlying connection).
+        missing = _find_missing_tables(tables_to_transfer)
+        if missing:
+            if not transfer_tables:
+                names = sorted({name for _, _, name in missing})
+                raise ValueError(
+                    f"Expression contains DatabaseTable nodes {names} whose "
+                    f"data would need to be materialized and transferred to "
+                    f"the new backend. Use deferred reads (e.g. "
+                    f"deferred_read_parquet) to avoid this, or pass "
+                    f"transfer_tables=True to materialize."
+                )
+            _transfer_tables(missing)
+
+    return result
+
+
+def _find_missing_tables(tables_to_transfer):
+    """Return the subset of tables that don't exist on the target backend."""
+    missing = []
+    seen = set()
+    for old_backend, new_backend, table_name in tables_to_transfer:
+        key = (id(new_backend), table_name)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if table_name in new_backend.list_tables():
+                continue
+        except Exception:
+            pass
+        missing.append((old_backend, new_backend, table_name))
+    return missing
+
+
+def _transfer_tables(tables_to_transfer):
+    """Materialize and register table data on new backends."""
+    for old_backend, new_backend, table_name in tables_to_transfer:
+        table = old_backend.table(table_name).to_pyarrow()
+        new_backend.create_table(table_name, table)
+
+
 def get_ordered_unique_sources(nodes):
+    # Use id() for deduplication because backend __hash__ collides for
+    # same-class instances and __eq__ only differs by session-local idx.
     sources, seen = (), set()
     for source in (node.source for node in nodes):
-        if source not in seen:
-            seen.add(source)
+        if id(source) not in seen:
+            seen.add(id(source))
             sources += (source,)
     return sources
 

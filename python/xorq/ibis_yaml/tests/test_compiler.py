@@ -146,11 +146,15 @@ def test_compiler_sql(builds_dir, parquet_dir):
 
     assert "current_library_version" in metadata
     sql_text = build_path.joinpath(DumpFiles.sql).read_text()
+    # build_expr normalizes profile idx, so read the canonical name from the
+    # built profiles.yaml rather than from the original (un-rewritten) backend
+    built_profiles = yaml.safe_load(build_path.joinpath(DumpFiles.profiles).read_text())
+    (profile_name,) = built_profiles.keys()
     expected_result = (
         "queries:\n"
         "  main:\n"
         "    engine: datafusion\n"
-        f"    profile_name: {expr._find_backend()._profile.hash_name}\n"
+        f"    profile_name: {profile_name}\n"
         "    relations:\n"
         f"    - {expected_relation}\n"
         "    options: {}\n"
@@ -171,9 +175,11 @@ def test_deferred_reads_yaml(builds_dir, parquet_dir):
     expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
 
     expected_relation = find_relations(awards_players)[0]
-    expected_profile = backend._profile.hash_name
 
     build_path = build_expr(expr, builds_dir=builds_dir, debug=True)
+    # read canonical profile name from the built profiles.yaml
+    built_profiles = yaml.safe_load(build_path.joinpath(DumpFiles.profiles).read_text())
+    (expected_profile,) = built_profiles.keys()
     yaml_path = build_path.joinpath(DumpFiles.deferred_reads)
     assert yaml_path.exists()
     sql_text = yaml_path.read_text()

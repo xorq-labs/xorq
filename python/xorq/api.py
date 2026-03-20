@@ -25,6 +25,10 @@ from xorq.ibis_yaml.compiler import (
     build_expr,
     load_expr,
 )
+from xorq.common.utils.graph_utils import (
+    replace_sources,
+)
+
 
 __all__ = [  # noqa: PLE0604
     "api",
@@ -39,6 +43,7 @@ __all__ = [  # noqa: PLE0604
     "udf",
     "build_expr",
     "load_expr",
+    "replace_sources",
     *api.__all__,
     *caching.__all__,
     *ml.__all__,
