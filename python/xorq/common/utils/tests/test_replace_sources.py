@@ -85,8 +85,6 @@ def test_replace_registered_table_raises_without_transfer(parquet_path):
 def test_replace_deferred_read(parquet_path, from_to):
     """Replace source on a deferred_read_parquet expression."""
     from_name, to_name = from_to
-    if from_name == "pandas":
-        pytest.skip("depends on #1730")
     from_con = make_con(from_name)
     to_con = make_con(to_name)
 
