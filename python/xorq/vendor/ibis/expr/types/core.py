@@ -831,7 +831,7 @@ class LETSQLAccessor:
         from xorq.expr.relations import HashingTag, Tag
 
         root = self.op
-        while hasattr(root, "parent") and isinstance(root, (Tag, HashingTag)):
+        while isinstance(root, (Tag, HashingTag)):
             parent = root.parent
             root = parent.op() if isinstance(parent, Expr) else parent
         return root
