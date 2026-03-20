@@ -338,8 +338,14 @@ def test_catalog_entry_relocatable(repo_cloned_bare, tmpdir):
     assert exprs
 
 
-def test_extract_kind_bound(catalog):
+def test_extract_kind_source(catalog):
     expr = xo.memtable({"a": [1, 2, 3]})
+    entry = catalog.add(expr)
+    assert entry.kind == ExprKind.Source
+
+
+def test_extract_kind_bound(catalog):
+    expr = xo.memtable({"a": [1, 2, 3]}).filter(xo._.a > 1)
     entry = catalog.add(expr)
     assert entry.kind == ExprKind.Expr
 

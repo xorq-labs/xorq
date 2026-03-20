@@ -781,8 +781,17 @@ def test_multi_join_expr_yaml_line_count(tmp_path, builds_dir):
     assert line_count < 1300, f"expr.yaml has {line_count} lines (expected < 1300)"
 
 
-def test_build_expr_kind_bound(tmp_path):
+def test_build_expr_kind_source(tmp_path):
     expr = xo.memtable({"a": [1, 2, 3]})
+    build_dir = build_expr(expr, builds_dir=tmp_path)
+    entry = json.loads((build_dir / DumpFiles.expr_metadata).read_text())
+    assert entry["kind"] == ExprKind.Source
+    assert "schema_out" in entry
+    assert "schema_in" not in entry
+
+
+def test_build_expr_kind_bound(tmp_path):
+    expr = xo.memtable({"a": [1, 2, 3]}).filter(xo._.a > 1)
     build_dir = build_expr(expr, builds_dir=tmp_path)
     entry = json.loads((build_dir / DumpFiles.expr_metadata).read_text())
     assert entry["kind"] == ExprKind.Expr
