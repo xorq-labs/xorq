@@ -136,6 +136,68 @@ def replace_nodes(replacer, expr):
     return op
 
 
+def replace_sources(source_mapping, expr):
+    """Rewrite an expression graph, replacing backend sources.
+
+    Every node that carries a ``source`` attribute (DatabaseTable, Read,
+    RemoteTable, CachedNode, FlightExpr, FlightUDXF, SQLQueryResult, …) is
+    recreated with the mapped replacement when its current source is found
+    in *source_mapping*.  The mapping is keyed by backend identity (``id``).
+
+    Sub-expressions reachable only through opaque fields (``remote_expr``,
+    ``parent``, ``input_expr``, ``computed_kwargs_expr``) are rewritten
+    recursively via the existing ``replace_nodes`` infrastructure.
+
+    Parameters
+    ----------
+    source_mapping : dict[int, Any]
+        ``{id(old_backend): new_backend, ...}``
+    expr : Expr | Node
+        The expression to rewrite.
+
+    Returns
+    -------
+    Expr
+        A new expression with sources replaced.
+    """
+
+    def _maybe_replace_cache(cache):
+        """Rebuild a Cache object if its storage.source is in the mapping."""
+        from attr import evolve  # noqa: PLC0415
+
+        storage = getattr(cache, "storage", None)
+        if storage is None:
+            return cache
+        source = getattr(storage, "source", None)
+        if source is None or id(source) not in source_mapping:
+            return cache
+        new_storage = evolve(storage, source=source_mapping[id(source)])
+        return evolve(cache, storage=new_storage)
+
+    def replacer(node, kwargs):
+        overrides = {}
+
+        source = getattr(node, "source", None)
+        if source is not None and id(source) in source_mapping:
+            overrides["source"] = source_mapping[id(source)]
+
+        cache = getattr(node, "cache", None)
+        if cache is not None:
+            new_cache = _maybe_replace_cache(cache)
+            if new_cache is not cache:
+                overrides["cache"] = new_cache
+
+        if overrides or kwargs:
+            merged = dict(zip(node.__argnames__, node.__args__))
+            if kwargs:
+                merged |= kwargs
+            merged |= overrides
+            return node.__recreate__(merged)
+        return node
+
+    return replace_nodes(replacer, expr).to_expr()
+
+
 def get_ordered_unique_sources(nodes):
     sources, seen = (), set()
     for source in (node.source for node in nodes):

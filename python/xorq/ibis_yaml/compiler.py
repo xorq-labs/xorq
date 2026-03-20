@@ -43,6 +43,7 @@ from xorq.common.utils.graph_utils import (
     find_all_sources,
     opaque_ops,
     replace_nodes,
+    replace_sources,
     walk_nodes,
 )
 from xorq.common.utils.name_utils import get_uid_prefix
@@ -231,6 +232,63 @@ class YamlExpressionTranslator:
         return translate_from_yaml(expr_dict, context)
 
 
+def _clone_backend_with_profile(backend, profile):
+    """Shallow-copy a backend and assign a new profile.
+
+    Some backends (xorq, duckdb) have a ``.con`` that holds the
+    underlying connection engine with registered tables and UDFs.
+    ``copy()`` may not share this by reference (e.g. ``do_connect`` is
+    re-invoked), so we explicitly assign it to ensure the clone sees
+    the same session state as the original.
+    """
+    from copy import copy  # noqa: PLC0415
+
+    cloned = copy(backend)
+    cloned._profile = profile
+    if hasattr(backend, "con"):
+        cloned.con = backend.con
+    return cloned
+
+
+def normalize_profiles(expr):
+    """Rewrite the expression graph so Profile.idx values are canonical.
+
+    Session-global sequential IDs (Profile.idx) leak into hash_name, YAML,
+    and the build hash.  This function sorts profiles by their content-only
+    hash (idx excluded) and assigns idx = 0, 1, 2, … in that order.
+
+    Returns a **new** expression with cloned backends whose ``con`` is
+    shared with the originals — the original expression and its backends
+    are not mutated.
+    """
+    backends = find_all_sources(expr)
+    if not backends:
+        return expr
+
+    def content_key(backend):
+        p = backend._profile
+        return dask.base.tokenize(toolz.dissoc(p.as_dict(), "idx"))
+
+    # sort by content hash → deterministic canonical order
+    # Python sort is stable so backends with the same content hash
+    # preserve their discovery order from find_all_sources
+    sorted_backends = sorted(backends, key=content_key)
+
+    # build id(old_backend) → cloned_backend mapping
+    source_mapping = {}
+    for canonical_idx, backend in enumerate(sorted_backends):
+        if backend._profile.idx != canonical_idx:
+            canonical_profile = backend._profile.clone(idx=canonical_idx)
+            source_mapping[id(backend)] = _clone_backend_with_profile(
+                backend, canonical_profile
+            )
+
+    if not source_mapping:
+        return expr
+
+    return replace_sources(source_mapping, expr)
+
+
 def dehydrate_cons(cons):
     dehydrated = dict(
         sorted(
@@ -289,11 +347,10 @@ class ExprDumper:
 
     def __attrs_post_init__(self):
         # use normalize_read_path_md5sum for content addressable / mtime-agnostic hash
-        object.__setattr__(
-            self,
-            "expr",
-            self._sanitize_generated_names(self.expr, self.read_normalize_method),
-        )
+        expr = self._sanitize_generated_names(self.expr, self.read_normalize_method)
+        # canonical profile IDs so hash + YAML are order-independent
+        expr = normalize_profiles(expr)
+        object.__setattr__(self, "expr", expr)
         attrname = "cache_dir"
         match value := getattr(self, attrname):
             case None:
