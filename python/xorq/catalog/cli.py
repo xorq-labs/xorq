@@ -481,6 +481,8 @@ def _compose_expr(catalog, entries, code):
     from xorq.catalog.bind import bind  # noqa: PLC0415
 
     match (entries, code):
+        case ((), None):
+            raise click.UsageError("At least one entry is required.")
         case ((), str()):
             raise click.UsageError("--code requires at least one entry as source.")
         case (_, str()):
@@ -491,11 +493,8 @@ def _compose_expr(catalog, entries, code):
                 else catalog.source(entries[0])
             )
             return _eval_code(code, source)
-        case _ if len(entries) < 2:
-            raise click.UsageError(
-                "At least two entries required: SOURCE TRANSFORM [TRANSFORM ...]\n"
-                "Or one entry with --code."
-            )
+        case (_, None) if len(entries) == 1:
+            return catalog.source(entries[0])
         case _:
             resolved = _resolve_entries(catalog, entries)
             return bind(resolved[0], *resolved[1:])
@@ -513,10 +512,11 @@ def _compose_expr(catalog, entries, code):
     "-a", "--alias", default=None, help="Catalog the result under this alias."
 )
 @click.option(
-    "--catalog/--no-catalog",
-    "do_catalog",
-    default=True,
-    help="Catalog the result (default: yes).",
+    "-x",
+    "--execute-only",
+    is_flag=True,
+    default=False,
+    help="Execute and print without cataloging the result.",
 )
 @click.option(
     "-o",
@@ -536,11 +536,11 @@ def _compose_expr(catalog, entries, code):
 )
 @click.option("--limit", type=int, default=None, help="Limit rows.")
 @click.pass_context
-def run(ctx, entries, code, alias, do_catalog, output_path, output_format, limit):
+def run(ctx, entries, code, alias, execute_only, output_path, output_format, limit):
     """Run catalog entries through each other and print results.
 
     By default the result is added to the catalog (with --alias, or hash-only).
-    Use --no-catalog to skip.
+    Use -x / --execute-only to skip cataloging.
     """
     import sys
 
@@ -552,7 +552,7 @@ def run(ctx, entries, code, alias, do_catalog, output_path, output_format, limit
             catalog = ctx.obj.make_catalog(init=False)
             expr = _compose_expr(catalog, entries, code)
 
-            if do_catalog:
+            if not execute_only:
                 from xorq.ibis_yaml.compiler import build_expr
 
                 build_path = build_expr(expr)

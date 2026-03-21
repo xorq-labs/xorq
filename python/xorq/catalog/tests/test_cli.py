@@ -827,7 +827,7 @@ class TestRunCommand:
         catalog_path, source_name, transform_name = catalog_with_source_and_transform
         result = runner.invoke(
             cli,
-            ["--path", catalog_path, "run", "src", "trn", "--no-catalog"],
+            ["--path", catalog_path, "run", "src", "trn", "--execute-only"],
         )
         assert result.exit_code == 0, result.output
         assert "user_id" in result.output
@@ -843,11 +843,20 @@ class TestRunCommand:
         assert result.exit_code == 0, result.output
         assert "Cataloged as" in result.output
 
-    def test_run_too_few_entries(self, runner, catalog_with_source_and_transform):
+    def test_run_single_entry(self, runner, catalog_with_source_and_transform):
         catalog_path, _, _ = catalog_with_source_and_transform
         result = runner.invoke(
             cli,
-            ["--path", catalog_path, "run", "src", "--no-catalog"],
+            ["--path", catalog_path, "run", "src", "--execute-only"],
+        )
+        assert result.exit_code == 0, result.output
+        assert "user_id" in result.output
+
+    def test_run_no_entries(self, runner, catalog_with_source_and_transform):
+        catalog_path, _, _ = catalog_with_source_and_transform
+        result = runner.invoke(
+            cli,
+            ["--path", catalog_path, "run", "--execute-only"],
         )
         assert result.exit_code != 0
 
@@ -862,7 +871,7 @@ class TestRunCommand:
                 "src",
                 "-c",
                 "source.filter(source.amount > 15)",
-                "--no-catalog",
+                "--execute-only",
             ],
         )
         assert result.exit_code == 0, result.output
@@ -872,7 +881,7 @@ class TestRunCommand:
         catalog_path, _, _ = catalog_with_source_and_transform
         result = runner.invoke(
             cli,
-            ["--path", catalog_path, "run", "-c", "source.limit(1)", "--no-catalog"],
+            ["--path", catalog_path, "run", "-c", "source.limit(1)", "--execute-only"],
         )
         assert result.exit_code != 0
 
@@ -886,7 +895,7 @@ class TestRunCommand:
                 "run",
                 "src",
                 "trn",
-                "--no-catalog",
+                "--execute-only",
                 "-f",
                 "json",
             ],
@@ -907,7 +916,7 @@ class TestRunCommand:
                 "run",
                 "src",
                 "trn",
-                "--no-catalog",
+                "--execute-only",
                 "-f",
                 "parquet",
                 "-o",
@@ -940,11 +949,23 @@ class TestBuildCommand:
         assert result.exit_code == 0, result.output
         assert Path(result.output.strip()).exists()
 
-    def test_build_too_few_entries(self, runner, catalog_with_source_and_transform):
+    def test_build_single_entry(
+        self, runner, catalog_with_source_and_transform, tmpdir
+    ):
+        catalog_path, _, _ = catalog_with_source_and_transform
+        builds_dir = str(Path(tmpdir).joinpath("builds"))
+        result = runner.invoke(
+            cli,
+            ["--path", catalog_path, "build", "src", "--builds-dir", builds_dir],
+        )
+        assert result.exit_code == 0, result.output
+        assert Path(result.output.strip()).exists()
+
+    def test_build_no_entries(self, runner, catalog_with_source_and_transform):
         catalog_path, _, _ = catalog_with_source_and_transform
         result = runner.invoke(
             cli,
-            ["--path", catalog_path, "build", "src"],
+            ["--path", catalog_path, "build"],
         )
         assert result.exit_code != 0
 
