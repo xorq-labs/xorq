@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774095638214,
+  "lastUpdate": 1774132656560,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -1716,6 +1716,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.004860125901771431",
             "extra": "mean: 185.95744380000951 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a8cf1b748a0fcad1fcc8d1082a0c2cff65dab0be",
+          "message": "fix(defer_utils): normalize path kwarg in Read nodes for cross-backen… (#1730)\n\n…d portability\n\nmake_read_kwargs now normalizes backend-specific path parameter names\n(paths, source, source_list) to \"path\" so Read nodes created on one\nbackend can be replayed on another. Previously, a deferred_read_parquet\ncreated with pandas (which uses \"source\") would fail when\nreplace_sources swapped it to xorq or duckdb.\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-21T18:34:00-04:00",
+          "tree_id": "4691f1828a4504ec6c4933f4d7a500f146a3abac",
+          "url": "https://github.com/xorq-labs/xorq/commit/a8cf1b748a0fcad1fcc8d1082a0c2cff65dab0be"
+        },
+        "date": 1774132653486,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.271762752726459,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014476104349900158",
+            "extra": "mean: 137.51823787499973 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.6702742698423485,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004718521826116202",
+            "extra": "mean: 214.12018700001454 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6722260329640458,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2042989776845188",
+            "extra": "mean: 1.4875948728000026 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.7666355994309866,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014397552024903018",
+            "extra": "mean: 265.4889154000102 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.076011788440166,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03928674979170537",
+            "extra": "mean: 245.33785766666938 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.7098597086713285,
+            "unit": "iter/sec",
+            "range": "stddev: 0.021293608297005374",
+            "extra": "mean: 212.32054919998973 msec\nrounds: 5"
           }
         ]
       }
