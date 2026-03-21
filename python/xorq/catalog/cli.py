@@ -279,11 +279,7 @@ def list_entries(ctx, kind, filter_kind):
                 return
 
         for entry in entries:
-            if kind:
-                parts = [entry.name, str(entry.kind)]
-                click.echo("\t".join(parts))
-            else:
-                click.echo(entry.name)
+            click.echo("\t".join((entry.name, str(entry.kind))) if kind else entry.name)
 
 
 @cli.command("list-aliases")

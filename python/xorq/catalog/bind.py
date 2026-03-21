@@ -5,31 +5,28 @@ from xorq.expr.relations import CatalogSource, RemoteTable, gen_name
 from xorq.vendor.ibis.expr.types.core import ExprMetadata
 
 
+def _schema_errors(source_schema, transform_schema):
+    """Return error strings for columns that are missing or type-mismatched."""
+    return tuple(
+        f"  missing: {col}"
+        if col not in source_schema
+        else f"  type mismatch: {col} (source: {source_schema[col]}, transform: {typ})"
+        for col, typ in transform_schema.items()
+        if col not in source_schema or source_schema[col] != typ
+    )
+
+
 def _validate_schema(source_schema, transform_schema, source_name, transform_name):
     """Validate that source schema is a superset of transform's input schema."""
-    missing = tuple(
-        (col, typ) for col, typ in transform_schema.items() if col not in source_schema
-    )
-    type_mismatches = tuple(
-        (col, source_schema[col], typ)
-        for col, typ in transform_schema.items()
-        if col in source_schema and source_schema[col] != typ
-    )
-    if not missing and not type_mismatches:
-        return
-    lines = (
-        f"Schema mismatch between source {source_name!r} and transform {transform_name!r}:",
-        *(
-            (f"  missing columns: {', '.join(col for col, _ in missing)}",)
-            if missing
-            else ()
-        ),
-        *(
-            f"  type mismatch: {col} (source: {src_t}, transform expects: {trn_t})"
-            for col, src_t, trn_t in type_mismatches
-        ),
-    )
-    raise ValueError("\n".join(lines))
+    if errors := _schema_errors(source_schema, transform_schema):
+        raise ValueError(
+            "\n".join(
+                (
+                    f"Schema mismatch between source {source_name!r} and transform {transform_name!r}:",
+                    *errors,
+                )
+            )
+        )
 
 
 def _resolve_alias(alias, entry):
@@ -43,28 +40,33 @@ def _resolve_alias(alias, entry):
             return None
 
 
+def _resolve_con(source, con):
+    """Return *con* when given, otherwise discover it from *source*."""
+    return con if con is not None else source._find_backend()
+
+
+def _ensure_remote(node, con, expr):
+    """Return *node* as-is if already a RemoteTable, otherwise wrap *expr*."""
+    return node if isinstance(node, RemoteTable) else RemoteTable.from_expr(con, expr)
+
+
 def _resolve_source(source, con, alias):
-    """Resolve source to (node, con)."""
+    """Resolve *source* to a ``(node, backend)`` pair."""
     from xorq.catalog.catalog import CatalogEntry  # noqa: PLC0415
     from xorq.vendor.ibis.expr.types.core import Expr  # noqa: PLC0415
 
     match source:
         case CatalogEntry():
-            resolved_con = con if con is not None else source.expr._find_backend()
-            return (
-                CatalogSource.from_entry(
-                    source,
-                    resolved_con,
-                    alias=_resolve_alias(alias, source),
-                ),
+            resolved_con = _resolve_con(source.expr, con)
+            node = CatalogSource.from_entry(
+                source,
                 resolved_con,
+                alias=_resolve_alias(alias, source),
             )
-        case Expr() if isinstance(source.op(), RemoteTable):
-            resolved_con = con if con is not None else source._find_backend()
-            return source.op(), resolved_con
+            return node, resolved_con
         case Expr():
-            resolved_con = con if con is not None else source._find_backend()
-            return RemoteTable.from_expr(resolved_con, source), resolved_con
+            resolved_con = _resolve_con(source, con)
+            return _ensure_remote(source.op(), resolved_con, source), resolved_con
         case _:
             raise TypeError(
                 f"source must be a CatalogEntry or Expr, got {type(source)}"
@@ -72,7 +74,7 @@ def _resolve_source(source, con, alias):
 
 
 def _bind_one(transform_entry, current_expr, con):
-    """Bind a single transform entry onto current_expr."""
+    """Bind a single transform entry onto *current_expr*."""
     transform_expr = transform_entry.expr
     transform_meta = ExprMetadata(transform_expr)
 
@@ -89,13 +91,7 @@ def _bind_one(transform_entry, current_expr, con):
         transform_entry.name,
     )
 
-    # CatalogSource is a RemoteTable subclass, so this arm catches both.
-    source_node = (
-        current_expr.op()
-        if isinstance(current_expr.op(), RemoteTable)
-        else RemoteTable.from_expr(con, current_expr)
-    )
-
+    source_node = _ensure_remote(current_expr.op(), con, current_expr)
     composed_expr = replace_unbound(transform_expr, source_node)
 
     return CatalogSource(

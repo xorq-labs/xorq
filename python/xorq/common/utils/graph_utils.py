@@ -34,10 +34,7 @@ def gen_children_of(node: Node) -> Tuple[Node, ...]:
             rel_node = node.rel
             gen = () if rel_node is None else (to_node(rel_node),)
 
-        case rel.CatalogSource():
-            gen = (to_node(node.remote_expr),)
-
-        case rel.RemoteTable():
+        case rel.CatalogSource() | rel.RemoteTable():
             gen = (to_node(node.remote_expr),)
 
         case rel.CachedNode():
@@ -115,10 +112,7 @@ def replace_nodes(replacer, expr):
     def process_node(op, _kwargs):
         op = replacer(op, _kwargs)
         match op:
-            case rel.CatalogSource():
-                remote_expr = _replace_sub(op.remote_expr.op())
-                return do_recreate(op, _kwargs, remote_expr=remote_expr)
-            case rel.RemoteTable():
+            case rel.CatalogSource() | rel.RemoteTable():
                 remote_expr = _replace_sub(op.remote_expr.op())
                 return do_recreate(op, _kwargs, remote_expr=remote_expr)
             case rel.CachedNode():

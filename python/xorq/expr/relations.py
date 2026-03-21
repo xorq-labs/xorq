@@ -745,13 +745,12 @@ def _fmt_cache_node(op, schema, parent, source, cache, **kwargs):
 @fmt.register(CatalogSource)
 def _fmt_catalog_source(op, **kwargs):
     label = op.alias or op.entry_name or op.name
-    parts = [f"entry={label}"]
-    if op.kind:
-        parts.append(f"kind={op.kind}")
-    if op.catalog_name:
-        parts.append(f"catalog={op.catalog_name}")
-    header = f"CatalogSource[{', '.join(parts)}]\n"
-    return header + render_schema(op.schema, 1)
+    parts = tuple(
+        f"{k}={v}"
+        for k, v in (("entry", label), ("kind", op.kind), ("catalog", op.catalog_name))
+        if v
+    )
+    return f"CatalogSource[{', '.join(parts)}]\n" + render_schema(op.schema, 1)
 
 
 @fmt.register(RemoteTable)
