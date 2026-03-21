@@ -770,21 +770,23 @@ def test_tui_missing_catalog_with_name(runner, tmpdir):
 
 
 def test_schema_command(runner, catalog_path, tmpdir):
-    tgz = make_build_tgz(tmpdir, "schema-entry")
-    runner.invoke(cli, ["--path", catalog_path, "add", str(tgz)])
-    result = runner.invoke(cli, ["--path", catalog_path, "schema", tgz.stem])
+    archive = make_build_zip(tmpdir, "schema-entry")
+    runner.invoke(cli, ["--path", catalog_path, "add", str(archive)])
+    result = runner.invoke(cli, ["--path", catalog_path, "schema", archive.stem])
     assert result.exit_code == 0, result.output
     assert "Source (bound)" in result.output
     assert "Schema Out:" in result.output
 
 
 def test_schema_json(runner, catalog_path, tmpdir):
-    tgz = make_build_tgz(tmpdir, "schema-json")
-    runner.invoke(cli, ["--path", catalog_path, "add", str(tgz)])
-    result = runner.invoke(cli, ["--path", catalog_path, "schema", tgz.stem, "--json"])
+    archive = make_build_zip(tmpdir, "schema-json")
+    runner.invoke(cli, ["--path", catalog_path, "add", str(archive)])
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "schema", archive.stem, "--json"]
+    )
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
-    assert data["kind"] == "expr"
+    assert data["kind"] == "source"
     assert "schema_out" in data
 
 
