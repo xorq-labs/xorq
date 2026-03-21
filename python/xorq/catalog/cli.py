@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from functools import partial
+from functools import cache, partial
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -52,6 +52,7 @@ def click_context_catalog(ctx):
 click_context_default = partial(click_context, AssertionError, Exception)
 
 
+@cache
 def _make_catalog_for_completion(ctx):
     from xorq.catalog.catalog import Catalog
 
@@ -85,6 +86,16 @@ def _complete_alias_names(ctx, param, incomplete):
             for a in catalog.list_aliases()
             if a.startswith(incomplete)
         ]
+    except Exception:
+        return []
+
+
+def _complete_entry_or_alias_names(ctx, param, incomplete):
+    try:
+        return sorted(
+            _complete_entry_names(ctx, param, incomplete)
+            + _complete_alias_names(ctx, param, incomplete)
+        )
     except Exception:
         return []
 
@@ -352,6 +363,44 @@ def clone(url, dest_name, dest_path):
                 raise click.UsageError("--name and --path are mutually exclusive.")
         catalog = Catalog.clone_from(url, repo_path)
         click.echo(f"Cloned to {catalog.repo_path}")
+
+
+@cli.command()
+@click.argument("name", shell_complete=_complete_entry_or_alias_names)
+@click.option("--json", "as_json", is_flag=True, default=False, help="Output as JSON.")
+@click.pass_context
+def schema(ctx, name, as_json):
+    """Show schema of a catalog entry (name or alias)."""
+    import json as json_mod
+
+    from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
+
+    with click_context_catalog(ctx):
+        catalog = ctx.obj.make_catalog(init=False)
+        try:
+            entry = catalog.get_catalog_entry(name, maybe_alias=True)
+        except AssertionError as err:
+            raise click.ClickException(
+                f"Entry {name!r} not found — run 'xorq catalog list' or 'xorq catalog list-aliases' to see available entries and aliases."
+            ) from err
+
+        if as_json:
+            click.echo(json_mod.dumps(entry.metadata, indent=2))
+            return
+
+        type_label = (
+            "Partial (unbound)"
+            if entry.kind == ExprKind.UnboundExpr
+            else "Source (bound)"
+        )
+        click.echo(f"Type: {type_label}")
+
+        for label, key in (("Schema In", "schema_in"), ("Schema Out", "schema_out")):
+            if (sch := entry.metadata.get(key)) is not None:
+                click.echo()
+                click.echo(f"{label}:")
+                for col, dtype in sch.items():
+                    click.echo(f"  {col:<24} {dtype}")
 
 
 @cli.command()
