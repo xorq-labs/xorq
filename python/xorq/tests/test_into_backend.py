@@ -635,7 +635,6 @@ def test_execution_expr_multiple_tables(ls_con, tables, request, mocker):
     )[lambda t: t.yearID == 2014]
     right_backend = right_t._find_backend(use_default=False)
 
-    # FIXME there seems to be an issue when doing into_backend from duckdb into duckdb
     expr = left_t.join(
         right_t.into_backend(left_backend)
         if right_backend is not left_backend
@@ -740,6 +739,59 @@ def test_multi_engine_cache(pg, ls_con, ls_batting, tmp_path, backend_name):
     )
 
     assert expr.execute() is not None
+
+
+@pytest.fixture()
+def duckdb_tables():
+    """Two tables on the same DuckDB connection for into_backend tests."""
+    con = xo.duckdb.connect()
+    con.raw_sql(
+        "CREATE TABLE flights AS SELECT * FROM "
+        "(VALUES (1, 'ATL'), (2, 'LAX'), (3, 'ATL')) t(id, origin)"
+    )
+    con.raw_sql(
+        "CREATE TABLE airports AS SELECT * FROM "
+        "(VALUES ('ATL', 'Atlanta'), ('LAX', 'Los Angeles')) t(code, city)"
+    )
+    return con, con.table("flights"), con.table("airports")
+
+
+class TestDuckDBIntoBacked:
+    """Regression tests for DuckDB single-cursor invalidation in into_backend.
+
+    DuckDB only supports one active streaming result per connection handle.
+    When register_and_transform_remote_tables opened multiple cursors before
+    consuming any, the second cursor silently invalidated the first, producing
+    empty results or deadlocks.
+    """
+
+    def _assert_join(self, flights, airports, expected=3):
+        result = flights.inner_join(airports, flights.origin == airports.code).execute()
+        assert len(result) == expected, f"Expected {expected} rows, got {len(result)}"
+        return result
+
+    def test_duckdb_same_con(self, duckdb_tables):
+        """Bug 1: into_backend with the same DuckDB connection used to deadlock."""
+        con, flights, airports = duckdb_tables
+        f = flights.into_backend(con)
+        a = airports.into_backend(con)
+        self._assert_join(f, a)
+
+    def test_duckdb_different_cons(self, duckdb_tables):
+        """Bug 2: into_backend between two DuckDB connections returned empty."""
+        _, flights, airports = duckdb_tables
+        target = xo.duckdb.connect()
+        f = flights.into_backend(target)
+        a = airports.into_backend(target)
+        self._assert_join(f, a)
+
+    def test_duckdb_to_datafusion(self, duckdb_tables):
+        """Bug 3: into_backend from DuckDB to DataFusion returned empty."""
+        _, flights, airports = duckdb_tables
+        target = xo.connect()
+        f = flights.into_backend(target)
+        a = airports.into_backend(target)
+        self._assert_join(f, a)
 
 
 def test_multi_backend(parquet_dir):

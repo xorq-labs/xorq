@@ -32,8 +32,19 @@ class Backend(IbisDuckDBBackend):
         params: Mapping[ir.Scalar, Any] | None = None,
         limit: int | str | None = None,
         chunk_size: int = 10_000,
+        isolated: bool = False,
         **_: Any,
     ) -> pa.ipc.RecordBatchReader:
+        if isolated:
+            # Use a dedicated cursor so that multiple concurrent readers
+            # from the same connection don't invalidate each other.
+            # DuckDB only supports one active streaming result per
+            # connection handle; a second con.sql() silently exhausts
+            # the first.
+            self._run_pre_execute_hooks(expr)
+            sql = self.compile(expr.as_table(), limit=limit, params=params)
+            cursor = self.con.cursor()
+            return cursor.sql(sql).fetch_arrow_reader(chunk_size)
         return self._to_duckdb_relation(
             expr, params=params, limit=limit
         ).fetch_arrow_reader(chunk_size)

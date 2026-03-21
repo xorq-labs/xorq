@@ -629,7 +629,10 @@ def register_and_transform_remote_tables(expr, **kwargs):
     batches_table = {}
     for arg, count in counts.items():
         ex = arg.remote_expr
-        batches = ex.to_pyarrow_batches()
+        source_backend = ex._find_backend(use_default=False)
+        batches = source_backend.to_pyarrow_batches(
+            ex, **({"isolated": True} if source_backend.name == "duckdb" else {})
+        )
         schema = ex.as_table().schema().to_pyarrow()
         replicas = SafeTee.tee(batches, count)
         batches_table[arg] = (schema, list(replicas))
