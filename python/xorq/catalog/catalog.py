@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 
 import toolz
 import yaml
+import yaml12
 from attr import (
     field,
     frozen,
@@ -488,7 +489,7 @@ class CatalogEntry:
 
     @cached_property
     def backends(self) -> tuple[str, ...]:
-        data = self._read_zip_member(DumpFiles.profiles, yaml.safe_load)
+        data = self._read_zip_member(DumpFiles.profiles, yaml12.parse_yaml)
         if not isinstance(data, dict):
             raise ValueError(
                 f"Expected {DumpFiles.profiles!r} to contain a YAML mapping in {self.catalog_path}"
@@ -709,7 +710,7 @@ class CatalogYAML:
 
     @property
     def contents(self):
-        raw = yaml.safe_load(self.yaml_path.read_text())
+        raw = yaml12.read_yaml(self.yaml_path)
         if isinstance(raw, list):
             # legacy format: plain list of entry names, no aliases section
             return {str(CatalogInfix.ENTRY): raw, str(CatalogInfix.ALIAS): []}
