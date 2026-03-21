@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+import xorq.api as xo
 from xorq.catalog.catalog import (
     BuildZip,
     Catalog,
@@ -22,6 +23,7 @@ from xorq.catalog.zip_utils import (
     write_zip,
 )
 from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES
+from xorq.vendor.ibis.expr import operations as ops
 
 
 @pytest.fixture
@@ -714,6 +716,8 @@ def test_subcommand_help(runner):
         "sync",
         "clone",
         "check",
+        "run",
+        "build",
     ):
         result = runner.invoke(cli, [cmd, "--help"])
         assert result.exit_code == 0, f"{cmd} --help failed"
@@ -795,3 +799,170 @@ def test_schema_nonexistent(runner, catalog_path):
     assert result.exit_code != 0
     assert "not found" in result.output
     assert "list-aliases" in result.output
+
+
+# --- run command ---
+
+
+@pytest.fixture
+def catalog_with_source_and_transform(catalog_path):
+    """Populate a catalog with a source entry and an unbound transform entry."""
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+
+    source = xo.memtable(
+        {"user_id": [1, 2, 3], "amount": [10.0, 20.0, 30.0], "name": ["a", "b", "c"]}
+    )
+    source_entry = catalog.add(source, aliases=("src",))
+
+    schema = source.schema()
+    unbound = ops.UnboundTable(name="placeholder", schema=schema).to_expr()
+    transform = unbound.filter(unbound.amount > 0).select("user_id", "amount")
+    transform_entry = catalog.add(transform, aliases=("trn",))
+
+    return catalog_path, source_entry.name, transform_entry.name
+
+
+class TestRunCommand:
+    def test_run_two_entries(self, runner, catalog_with_source_and_transform):
+        catalog_path, source_name, transform_name = catalog_with_source_and_transform
+        result = runner.invoke(
+            cli,
+            ["--path", catalog_path, "run", "src", "trn", "--no-catalog"],
+        )
+        assert result.exit_code == 0, result.output
+        assert "user_id" in result.output
+
+    def test_run_with_alias_catalogs_result(
+        self, runner, catalog_with_source_and_transform
+    ):
+        catalog_path, _, _ = catalog_with_source_and_transform
+        result = runner.invoke(
+            cli,
+            ["--path", catalog_path, "run", "src", "trn", "-a", "composed-result"],
+        )
+        assert result.exit_code == 0, result.output
+        assert "Cataloged as" in result.output
+
+    def test_run_too_few_entries(self, runner, catalog_with_source_and_transform):
+        catalog_path, _, _ = catalog_with_source_and_transform
+        result = runner.invoke(
+            cli,
+            ["--path", catalog_path, "run", "src", "--no-catalog"],
+        )
+        assert result.exit_code != 0
+
+    def test_run_with_code(self, runner, catalog_with_source_and_transform):
+        catalog_path, _, _ = catalog_with_source_and_transform
+        result = runner.invoke(
+            cli,
+            [
+                "--path",
+                catalog_path,
+                "run",
+                "src",
+                "-c",
+                "source.filter(source.amount > 15)",
+                "--no-catalog",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "user_id" in result.output
+
+    def test_run_code_no_entry(self, runner, catalog_with_source_and_transform):
+        catalog_path, _, _ = catalog_with_source_and_transform
+        result = runner.invoke(
+            cli,
+            ["--path", catalog_path, "run", "-c", "source.limit(1)", "--no-catalog"],
+        )
+        assert result.exit_code != 0
+
+    def test_run_json_format(self, runner, catalog_with_source_and_transform):
+        catalog_path, _, _ = catalog_with_source_and_transform
+        result = runner.invoke(
+            cli,
+            [
+                "--path",
+                catalog_path,
+                "run",
+                "src",
+                "trn",
+                "--no-catalog",
+                "-f",
+                "json",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "user_id" in result.output
+
+    def test_run_parquet_output(
+        self, runner, catalog_with_source_and_transform, tmpdir
+    ):
+        catalog_path, _, _ = catalog_with_source_and_transform
+        out = str(Path(tmpdir).joinpath("out.parquet"))
+        result = runner.invoke(
+            cli,
+            [
+                "--path",
+                catalog_path,
+                "run",
+                "src",
+                "trn",
+                "--no-catalog",
+                "-f",
+                "parquet",
+                "-o",
+                out,
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert Path(out).exists()
+
+
+# --- build command ---
+
+
+class TestBuildCommand:
+    def test_build_two_entries(self, runner, catalog_with_source_and_transform, tmpdir):
+        catalog_path, _, _ = catalog_with_source_and_transform
+        builds_dir = str(Path(tmpdir).joinpath("builds"))
+        result = runner.invoke(
+            cli,
+            [
+                "--path",
+                catalog_path,
+                "build",
+                "src",
+                "trn",
+                "--builds-dir",
+                builds_dir,
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert Path(result.output.strip()).exists()
+
+    def test_build_too_few_entries(self, runner, catalog_with_source_and_transform):
+        catalog_path, _, _ = catalog_with_source_and_transform
+        result = runner.invoke(
+            cli,
+            ["--path", catalog_path, "build", "src"],
+        )
+        assert result.exit_code != 0
+
+    def test_build_with_code(self, runner, catalog_with_source_and_transform, tmpdir):
+        catalog_path, _, _ = catalog_with_source_and_transform
+        builds_dir = str(Path(tmpdir).joinpath("builds"))
+        result = runner.invoke(
+            cli,
+            [
+                "--path",
+                catalog_path,
+                "build",
+                "src",
+                "-c",
+                "source.filter(source.amount > 15)",
+                "--builds-dir",
+                builds_dir,
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert Path(result.output.strip()).exists()

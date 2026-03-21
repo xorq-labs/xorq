@@ -721,6 +721,8 @@ class ExprMetadata:
 
     @cached_property
     def kind(self) -> ExprKind:
+        # Priority: UnboundExpr (incomplete/has placeholder) > Composed (has
+        # CatalogSource nodes) > Source (plain table) > Expr (everything else).
         match (self._unbound_node, bool(self._catalog_source_nodes), self._is_source):
             case (node, _, _) if node is not None:
                 return ExprKind.UnboundExpr

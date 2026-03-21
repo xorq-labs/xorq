@@ -118,6 +118,13 @@ class TestSchemaValidation:
         with pytest.raises(ValueError, match="type mismatch"):
             _validate_schema(source, transform, "src", "trn")
 
+    def test_missing_and_type_mismatch(self):
+        source = Schema({"a": "int64", "b": "string"})
+        transform = Schema({"a": "float64", "c": "int64"})
+        with pytest.raises(ValueError, match="missing") as exc_info:
+            _validate_schema(source, transform, "src", "trn")
+        assert "type mismatch" in str(exc_info.value)
+
 
 # --- Bind tests ---
 
@@ -199,6 +206,20 @@ class TestBind:
         result = bound.execute()
         assert len(result) == 2
         assert set(result["user_id"]) == {2, 3}
+
+    def test_bind_no_transforms_raises(self, catalog_with_entries):
+        """bind() with zero transforms raises ValueError."""
+        _, source_entry, _ = catalog_with_entries
+        with pytest.raises(ValueError, match="At least one transform"):
+            bind(source_entry)
+
+    def test_bind_plain_expr_as_transform_raises(self, catalog_with_entries):
+        """Using a source (no UnboundTable) as transform raises ValueError."""
+        catalog, source_entry, _ = catalog_with_entries
+        another_source = xo.memtable({"user_id": [4], "amount": [40.0]})
+        another_entry = catalog.add(another_source, aliases=("another-source",))
+        with pytest.raises(ValueError, match="no UnboundTable"):
+            bind(source_entry, another_entry)
 
 
 # --- get_catalog_entry tests ---

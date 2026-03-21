@@ -201,7 +201,14 @@ class CatalogSource(RemoteTable):
 
     @classmethod
     def from_entry(cls, catalog_entry, con, alias=None):
+        from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
+
         source_expr = catalog_entry.expr
+        kind_str = str(catalog_entry.kind)
+        if kind_str not in ExprKind.__members__.values():
+            raise ValueError(
+                f"Unknown ExprKind {kind_str!r}; expected one of {tuple(ExprKind)}"
+            )
         return cls(
             name=gen_name(),
             schema=source_expr.schema(),
@@ -211,7 +218,7 @@ class CatalogSource(RemoteTable):
             catalog_path=str(catalog_entry.catalog.repo_path),
             entry_name=catalog_entry.name,
             alias=alias,
-            kind=str(catalog_entry.kind),
+            kind=kind_str,
         )
 
     def bind(self, *transforms):

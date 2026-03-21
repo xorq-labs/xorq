@@ -34,20 +34,6 @@ def _validate_schema(source_schema, transform_schema, source_name, transform_nam
             raise ValueError("\n".join(lines))
 
 
-def _format_schema_report(source_entry, transform_entry, source_meta, transform_meta):
-    """Format a human-readable schema compatibility report."""
-    src_alias = getattr(source_entry, "display_name", source_entry.name)
-    trn_alias = getattr(transform_entry, "display_name", transform_entry.name)
-    trn_in = len(transform_meta.schema_in) if transform_meta.schema_in else "?"
-    return "\n".join(
-        (
-            f"source:    {src_alias} (kind: {source_meta.kind}, {len(source_meta.schema_out)} columns)",
-            f"transform: {trn_alias} (kind: {transform_meta.kind}, in: {trn_in} cols -> out: {len(transform_meta.schema_out)} cols)",
-            "schema:    ok",
-        )
-    )
-
-
 def _resolve_alias(alias, entry):
     """Resolve the alias for a bound entry."""
     match alias:
