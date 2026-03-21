@@ -281,14 +281,6 @@ def list_entries(ctx, kind, filter_kind):
         for entry in entries:
             if kind:
                 parts = [entry.name, str(entry.kind)]
-                if entry.kind == ExprKind.Composed:
-                    source_names = ", ".join(
-                        s.get("alias") or s.get("entry_name", "?")
-                        for s in entry.sources
-                    )
-                    parts.append(source_names or "-")
-                else:
-                    parts.append("-")
                 click.echo("\t".join(parts))
             else:
                 click.echo(entry.name)
@@ -589,35 +581,3 @@ def run(ctx, entries, code, alias, execute_only, output_path, output_format, lim
                 case (str(), "json"):
                     result.to_json(output_path, orient="records", lines=True)
                     click.echo(f"Written to {output_path}")
-
-
-@cli.command("build")
-@click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias)
-@click.option(
-    "-c",
-    "--code",
-    default=None,
-    help="Inline Ibis code expression applied to `source`.",
-)
-@click.option(
-    "--builds-dir", default="builds", help="Directory for generated artifacts."
-)
-@click.option("--debug", is_flag=True, help="Output debug artifacts.")
-@click.pass_context
-def build(ctx, entries, code, builds_dir, debug):
-    """Build a composed artifact from catalog entries.
-
-    First entry is the source, remaining are transforms.
-    Use --code for an inline transform applied to `source`.
-    """
-    from xorq.common.utils.otel_utils import tracer
-    from xorq.ibis_yaml.compiler import build_expr
-
-    with tracer.start_as_current_span("catalog.build") as span:
-        span.set_attributes({"entries": entries, "has_code": code is not None})
-        with click_context_catalog(ctx):
-            catalog = ctx.obj.make_catalog(init=False)
-            expr = _compose_expr(catalog, entries, code)
-            build_path = build_expr(expr, builds_dir=builds_dir, debug=debug)
-            span.set_attribute("build_path", str(build_path))
-            click.echo(build_path)

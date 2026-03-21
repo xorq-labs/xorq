@@ -717,7 +717,6 @@ def test_subcommand_help(runner):
         "clone",
         "check",
         "run",
-        "build",
     ):
         result = runner.invoke(cli, [cmd, "--help"])
         assert result.exit_code == 0, f"{cmd} --help failed"
@@ -925,65 +924,3 @@ class TestRunCommand:
         )
         assert result.exit_code == 0, result.output
         assert Path(out).exists()
-
-
-# --- build command ---
-
-
-class TestBuildCommand:
-    def test_build_two_entries(self, runner, catalog_with_source_and_transform, tmpdir):
-        catalog_path, _, _ = catalog_with_source_and_transform
-        builds_dir = str(Path(tmpdir).joinpath("builds"))
-        result = runner.invoke(
-            cli,
-            [
-                "--path",
-                catalog_path,
-                "build",
-                "src",
-                "trn",
-                "--builds-dir",
-                builds_dir,
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        assert Path(result.output.strip()).exists()
-
-    def test_build_single_entry(
-        self, runner, catalog_with_source_and_transform, tmpdir
-    ):
-        catalog_path, _, _ = catalog_with_source_and_transform
-        builds_dir = str(Path(tmpdir).joinpath("builds"))
-        result = runner.invoke(
-            cli,
-            ["--path", catalog_path, "build", "src", "--builds-dir", builds_dir],
-        )
-        assert result.exit_code == 0, result.output
-        assert Path(result.output.strip()).exists()
-
-    def test_build_no_entries(self, runner, catalog_with_source_and_transform):
-        catalog_path, _, _ = catalog_with_source_and_transform
-        result = runner.invoke(
-            cli,
-            ["--path", catalog_path, "build"],
-        )
-        assert result.exit_code != 0
-
-    def test_build_with_code(self, runner, catalog_with_source_and_transform, tmpdir):
-        catalog_path, _, _ = catalog_with_source_and_transform
-        builds_dir = str(Path(tmpdir).joinpath("builds"))
-        result = runner.invoke(
-            cli,
-            [
-                "--path",
-                catalog_path,
-                "build",
-                "src",
-                "-c",
-                "source.filter(source.amount > 15)",
-                "--builds-dir",
-                builds_dir,
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        assert Path(result.output.strip()).exists()
