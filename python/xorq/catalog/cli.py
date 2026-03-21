@@ -248,35 +248,15 @@ def remove_alias(ctx, aliases, sync):
 
 @cli.command("list")
 @click.option("--kind/--no-kind", default=False, help="Show the kind column.")
-@click.option(
-    "--filter-kind",
-    default=None,
-    help="Show only entries of the given kind (source, expr, unbound_expr, composed).",
-)
 @click.pass_context
-def list_entries(ctx, kind, filter_kind):
+def list_entries(ctx, kind):
     """List all entries."""
-    from xorq.ibis_yaml.enums import ExprKind
-
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
 
         if not (entries := catalog.catalog_entries):
             click.echo("No entries.")
             return
-
-        if filter_kind:
-            try:
-                target_kind = ExprKind(filter_kind)
-            except ValueError:
-                raise click.UsageError(
-                    f"Unknown kind: {filter_kind!r}. "
-                    f"Valid kinds: {', '.join(k.value for k in ExprKind)}"
-                ) from None
-            entries = tuple(e for e in entries if e.kind == target_kind)
-            if not entries:
-                click.echo(f"No entries with kind={filter_kind}.")
-                return
 
         for entry in entries:
             click.echo("\t".join((entry.name, str(entry.kind))) if kind else entry.name)
