@@ -221,29 +221,6 @@ class CatalogSource(RemoteTable):
             kind=kind_str,
         )
 
-    def bind(self, *transforms):
-        """Bind this source through one or more unbound transform entries.
-
-        Parameters
-        ----------
-        *transforms : CatalogEntry
-            Catalog entries with UnboundTable, applied in order.
-
-        Returns
-        -------
-        Expr
-            The composed expression with provenance for each step.
-        """
-        from functools import reduce  # noqa: PLC0415
-
-        from xorq.catalog.bind import _bind_one  # noqa: PLC0415
-
-        return reduce(
-            lambda expr, t: _bind_one(t, expr, self.source),
-            transforms,
-            self.to_expr(),
-        )
-
 
 def into_backend(expr, con, name=None):
     return RemoteTable.from_expr(con=con, expr=expr, name=name).to_expr()

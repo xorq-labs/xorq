@@ -457,36 +457,47 @@ def _complete_entry_or_alias(ctx, param, incomplete):
         return []
 
 
+def _resolve_entries(catalog, entries):
+    """Resolve entry names/aliases to CatalogEntry objects."""
+    return tuple(catalog.get_catalog_entry(name, maybe_alias=True) for name in entries)
+
+
+def _eval_code(code, source):
+    """Evaluate an inline Ibis expression with a restricted namespace.
+
+    Only xorq, vendored ibis, and the bound ``source`` expression are
+    available — arbitrary builtins (open, exec, __import__, …) are removed.
+    """
+    import xorq.api as xo  # noqa: PLC0415
+    from xorq.vendor import ibis  # noqa: PLC0415
+
+    restricted_globals = {"__builtins__": {}, "xo": xo, "ibis": ibis, "source": source}
+    return eval(code, restricted_globals)  # noqa: S307
+
+
 def _compose_expr(catalog, entries, code):
     """Build a composed expression from catalog entries and/or inline code."""
 
-    from xorq.catalog.bind import bind
+    from xorq.catalog.bind import bind  # noqa: PLC0415
 
     match (entries, code):
         case ((), str()):
             raise click.UsageError("--code requires at least one entry as source.")
         case (_, str()):
-            transforms = tuple(
-                catalog.get_catalog_entry(name, maybe_alias=True)
-                for name in entries[1:]
-            )
+            transforms = _resolve_entries(catalog, entries[1:])
             source = (
                 bind(catalog.source(entries[0]), *transforms)
                 if transforms
                 else catalog.source(entries[0])
             )
-            ns = {"source": source}
-            exec(f"__result = {code}", ns)  # noqa: S102
-            return ns["__result"]
+            return _eval_code(code, source)
         case _ if len(entries) < 2:
             raise click.UsageError(
                 "At least two entries required: SOURCE TRANSFORM [TRANSFORM ...]\n"
                 "Or one entry with --code."
             )
         case _:
-            resolved = tuple(
-                catalog.get_catalog_entry(name, maybe_alias=True) for name in entries
-            )
+            resolved = _resolve_entries(catalog, entries)
             return bind(resolved[0], *resolved[1:])
 
 
@@ -547,12 +558,11 @@ def run(ctx, entries, code, alias, do_catalog, output_path, output_format, limit
                 build_path = build_expr(expr)
                 entry_name = build_path.name
                 aliases = (alias,) if alias else ()
-                match catalog.contains(entry_name):
-                    case True:
-                        if alias:
-                            catalog.add_alias(entry_name, alias)
-                    case False:
-                        catalog.add(build_path, aliases=aliases)
+                if catalog.contains(entry_name):
+                    if alias:
+                        catalog.add_alias(entry_name, alias)
+                else:
+                    catalog.add(build_path, aliases=aliases)
                 label = alias or entry_name
                 click.echo(f"Cataloged as {label!r}", err=True)
                 span.set_attribute("cataloged", label)
@@ -566,6 +576,10 @@ def run(ctx, entries, code, alias, do_catalog, output_path, output_format, limit
                     result.to_csv(sys.stdout, index=False)
                 case (None, "json"):
                     click.echo(result.to_json(orient="records", lines=True))
+                case (None, "parquet"):
+                    raise click.UsageError(
+                        "Parquet cannot be written to stdout — use -o to specify an output file."
+                    )
                 case (str(), "parquet"):
                     result.to_parquet(output_path)
                     click.echo(f"Written to {output_path}")

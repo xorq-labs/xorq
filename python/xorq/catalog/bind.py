@@ -15,23 +15,21 @@ def _validate_schema(source_schema, transform_schema, source_name, transform_nam
         for col, typ in transform_schema.items()
         if col in source_schema and source_schema[col] != typ
     )
-    match (missing, type_mismatches):
-        case ((), ()):
-            return
-        case _:
-            lines = (
-                f"Schema mismatch between source {source_name!r} and transform {transform_name!r}:",
-                *(
-                    (f"  missing columns: {', '.join(col for col, _ in missing)}",)
-                    if missing
-                    else ()
-                ),
-                *(
-                    f"  type mismatch: {col} (source: {src_t}, transform expects: {trn_t})"
-                    for col, src_t, trn_t in type_mismatches
-                ),
-            )
-            raise ValueError("\n".join(lines))
+    if not missing and not type_mismatches:
+        return
+    lines = (
+        f"Schema mismatch between source {source_name!r} and transform {transform_name!r}:",
+        *(
+            (f"  missing columns: {', '.join(col for col, _ in missing)}",)
+            if missing
+            else ()
+        ),
+        *(
+            f"  type mismatch: {col} (source: {src_t}, transform expects: {trn_t})"
+            for col, src_t, trn_t in type_mismatches
+        ),
+    )
+    raise ValueError("\n".join(lines))
 
 
 def _resolve_alias(alias, entry):
@@ -78,14 +76,11 @@ def _bind_one(transform_entry, current_expr, con):
     transform_expr = transform_entry.expr
     transform_meta = ExprMetadata(transform_expr)
 
-    match transform_meta._unbound_node:
-        case None:
-            raise ValueError(
-                f"{transform_entry.name!r} has no UnboundTable (kind: {transform_meta.kind}). "
-                f"Only unbound_expr entries can be used as transforms."
-            )
-        case _:
-            pass
+    if transform_meta._unbound_node is None:
+        raise ValueError(
+            f"{transform_entry.name!r} has no UnboundTable (kind: {transform_meta.kind}). "
+            f"Only unbound_expr entries can be used as transforms."
+        )
 
     _validate_schema(
         current_expr.as_table().schema(),
@@ -94,11 +89,12 @@ def _bind_one(transform_entry, current_expr, con):
         transform_entry.name,
     )
 
-    match current_expr.op():
-        case RemoteTable():
-            source_node = current_expr.op()
-        case _:
-            source_node = RemoteTable.from_expr(con, current_expr)
+    # CatalogSource is a RemoteTable subclass, so this arm catches both.
+    source_node = (
+        current_expr.op()
+        if isinstance(current_expr.op(), RemoteTable)
+        else RemoteTable.from_expr(con, current_expr)
+    )
 
     composed_expr = replace_unbound(transform_expr, source_node)
 
@@ -129,20 +125,13 @@ def bind(source, *transforms, con=None, alias=None):
     alias : str, optional
         Override the source alias.
     """
-    match transforms:
-        case ():
-            raise ValueError("At least one transform entry is required.")
-        case _:
-            pass
+    if not transforms:
+        raise ValueError("At least one transform entry is required.")
 
     source_node, resolved_con = _resolve_source(source, con, alias)
 
-    match source_node:
-        case CatalogSource():
-            return source_node.bind(*transforms)
-        case _:
-            return reduce(
-                lambda expr, t: _bind_one(t, expr, resolved_con),
-                transforms,
-                source_node.to_expr(),
-            )
+    return reduce(
+        lambda expr, t: _bind_one(t, expr, resolved_con),
+        transforms,
+        source_node.to_expr(),
+    )
