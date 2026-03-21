@@ -248,17 +248,50 @@ def remove_alias(ctx, aliases, sync):
 
 @cli.command("list")
 @click.option("--kind/--no-kind", default=False, help="Show the kind column.")
+@click.option(
+    "--filter-kind",
+    default=None,
+    help="Show only entries of the given kind (source, expr, unbound_expr, composed).",
+)
 @click.pass_context
-def list_entries(ctx, kind):
+def list_entries(ctx, kind, filter_kind):
     """List all entries."""
+    from xorq.ibis_yaml.enums import ExprKind
+
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
 
         if not (entries := catalog.catalog_entries):
             click.echo("No entries.")
             return
+
+        if filter_kind:
+            try:
+                target_kind = ExprKind(filter_kind)
+            except ValueError:
+                raise click.UsageError(
+                    f"Unknown kind: {filter_kind!r}. "
+                    f"Valid kinds: {', '.join(k.value for k in ExprKind)}"
+                ) from None
+            entries = tuple(e for e in entries if e.kind == target_kind)
+            if not entries:
+                click.echo(f"No entries with kind={filter_kind}.")
+                return
+
         for entry in entries:
-            click.echo(f"{entry.name}\t{entry.kind}" if kind else entry.name)
+            if kind:
+                parts = [entry.name, str(entry.kind)]
+                if entry.kind == ExprKind.Composed:
+                    source_names = ", ".join(
+                        s.get("alias") or s.get("entry_name", "?")
+                        for s in entry.sources
+                    )
+                    parts.append(source_names or "-")
+                else:
+                    parts.append("-")
+                click.echo("\t".join(parts))
+            else:
+                click.echo(entry.name)
 
 
 @cli.command("list-aliases")
@@ -411,3 +444,166 @@ def check(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog.assert_consistency()
         click.echo("OK")
+
+
+def _complete_entry_or_alias(ctx, param, incomplete):
+    from click.shell_completion import CompletionItem
+
+    try:
+        catalog = _make_catalog_for_completion(ctx)
+        names = set(catalog.list()) | set(catalog.list_aliases())
+        return [CompletionItem(n) for n in sorted(names) if n.startswith(incomplete)]
+    except Exception:
+        return []
+
+
+def _compose_expr(catalog, entries, code):
+    """Build a composed expression from catalog entries and/or inline code."""
+
+    from xorq.catalog.bind import bind
+
+    match (entries, code):
+        case ((), str()):
+            raise click.UsageError("--code requires at least one entry as source.")
+        case (_, str()):
+            transforms = tuple(
+                catalog.get_catalog_entry(name, maybe_alias=True)
+                for name in entries[1:]
+            )
+            source = (
+                bind(catalog.source(entries[0]), *transforms)
+                if transforms
+                else catalog.source(entries[0])
+            )
+            ns = {"source": source}
+            exec(f"__result = {code}", ns)  # noqa: S102
+            return ns["__result"]
+        case _ if len(entries) < 2:
+            raise click.UsageError(
+                "At least two entries required: SOURCE TRANSFORM [TRANSFORM ...]\n"
+                "Or one entry with --code."
+            )
+        case _:
+            resolved = tuple(
+                catalog.get_catalog_entry(name, maybe_alias=True) for name in entries
+            )
+            return bind(resolved[0], *resolved[1:])
+
+
+@cli.command("run")
+@click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias)
+@click.option(
+    "-c",
+    "--code",
+    default=None,
+    help="Inline Ibis code expression applied to `source`.",
+)
+@click.option(
+    "-a", "--alias", default=None, help="Catalog the result under this alias."
+)
+@click.option(
+    "--catalog/--no-catalog",
+    "do_catalog",
+    default=True,
+    help="Catalog the result (default: yes).",
+)
+@click.option(
+    "-o",
+    "--output",
+    "output_path",
+    default=None,
+    type=click.Path(),
+    help="Write output to file.",
+)
+@click.option(
+    "-f",
+    "--format",
+    "output_format",
+    default="csv",
+    type=click.Choice(["csv", "parquet", "json"]),
+    help="Output format.",
+)
+@click.option("--limit", type=int, default=None, help="Limit rows.")
+@click.pass_context
+def run(ctx, entries, code, alias, do_catalog, output_path, output_format, limit):
+    """Run catalog entries through each other and print results.
+
+    By default the result is added to the catalog (with --alias, or hash-only).
+    Use --no-catalog to skip.
+    """
+    import sys
+
+    from xorq.common.utils.otel_utils import tracer
+
+    with tracer.start_as_current_span("catalog.run") as span:
+        span.set_attributes({"entries": entries, "has_code": code is not None})
+        with click_context_catalog(ctx):
+            catalog = ctx.obj.make_catalog(init=False)
+            expr = _compose_expr(catalog, entries, code)
+
+            if do_catalog:
+                from xorq.ibis_yaml.compiler import build_expr
+
+                build_path = build_expr(expr)
+                entry_name = build_path.name
+                aliases = (alias,) if alias else ()
+                match catalog.contains(entry_name):
+                    case True:
+                        if alias:
+                            catalog.add_alias(entry_name, alias)
+                    case False:
+                        catalog.add(build_path, aliases=aliases)
+                label = alias or entry_name
+                click.echo(f"Cataloged as {label!r}", err=True)
+                span.set_attribute("cataloged", label)
+
+            if limit is not None:
+                expr = expr.limit(limit)
+            result = expr.execute()
+
+            match (output_path, output_format):
+                case (None, "csv"):
+                    result.to_csv(sys.stdout, index=False)
+                case (None, "json"):
+                    click.echo(result.to_json(orient="records", lines=True))
+                case (str(), "parquet"):
+                    result.to_parquet(output_path)
+                    click.echo(f"Written to {output_path}")
+                case (str(), "csv"):
+                    result.to_csv(output_path, index=False)
+                    click.echo(f"Written to {output_path}")
+                case (str(), "json"):
+                    result.to_json(output_path, orient="records", lines=True)
+                    click.echo(f"Written to {output_path}")
+
+
+@cli.command("build")
+@click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias)
+@click.option(
+    "-c",
+    "--code",
+    default=None,
+    help="Inline Ibis code expression applied to `source`.",
+)
+@click.option(
+    "--builds-dir", default="builds", help="Directory for generated artifacts."
+)
+@click.option("--debug", is_flag=True, help="Output debug artifacts.")
+@click.pass_context
+def build(ctx, entries, code, builds_dir, debug):
+    """Build a composed artifact from catalog entries.
+
+    First entry is the source, remaining are transforms.
+    Use --code for an inline transform applied to `source`.
+    """
+    from xorq.common.utils.otel_utils import tracer
+    from xorq.ibis_yaml.compiler import build_expr
+
+    with tracer.start_as_current_span("catalog.build") as span:
+        span.set_attributes({"entries": entries, "has_code": code is not None})
+        with click_context_catalog(ctx):
+            catalog = ctx.obj.make_catalog(init=False)
+            expr = _compose_expr(catalog, entries, code)
+            build_path = build_expr(expr, builds_dir=builds_dir, debug=debug)
+            span.set_attribute("build_path", str(build_path))
+            click.echo(build_path)
