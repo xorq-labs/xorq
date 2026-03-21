@@ -125,6 +125,13 @@ def _(node: ops.Field) -> str:
 
 
 @format_node.register
+def _(node: rel.CatalogSource) -> str:
+    label = node.alias or node.entry_name or node.name
+    kind_suffix = f"({node.kind})" if node.kind else ""
+    return f"CatalogSource:{label}{kind_suffix}"
+
+
+@format_node.register
 def _(node: rel.RemoteTable) -> str:
     return f"RemoteTable:{node.name}"
 

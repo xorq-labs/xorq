@@ -30,12 +30,13 @@ def replace_cache_table(node, kwargs):
     if kwargs:
         node = node.__recreate__(kwargs)
 
-    if isinstance(node, CachedNode):
-        return node.parent.op().replace(replace_cache_table)
-    elif isinstance(node, RemoteTable):
-        return node.remote_expr.op().replace(replace_cache_table)
-    else:
-        return node
+    match node:
+        case CachedNode():
+            return node.parent.op().replace(replace_cache_table)
+        case CatalogSource() | RemoteTable():
+            return node.remote_expr.op().replace(replace_cache_table)
+        case _:
+            return node
 
 
 # https://stackoverflow.com/questions/6703594/is-the-result-of-itertools-tee-thread-safe-python
@@ -186,6 +187,54 @@ class RemoteTable(DatabaseTableView):
             schema=expr.schema(),
             source=con,
             remote_expr=expr,
+        )
+
+
+class CatalogSource(RemoteTable):
+    """A RemoteTable backed by a catalog entry."""
+
+    catalog_name: str | None = None
+    catalog_path: str | None = None
+    entry_name: str | None = None
+    alias: str | None = None
+    kind: str | None = None
+
+    @classmethod
+    def from_entry(cls, catalog_entry, con, alias=None):
+        source_expr = catalog_entry.expr
+        return cls(
+            name=gen_name(),
+            schema=source_expr.schema(),
+            source=con,
+            remote_expr=source_expr,
+            catalog_name=getattr(catalog_entry.catalog, "name", None),
+            catalog_path=str(catalog_entry.catalog.repo_path),
+            entry_name=catalog_entry.name,
+            alias=alias,
+            kind=str(catalog_entry.kind),
+        )
+
+    def bind(self, *transforms):
+        """Bind this source through one or more unbound transform entries.
+
+        Parameters
+        ----------
+        *transforms : CatalogEntry
+            Catalog entries with UnboundTable, applied in order.
+
+        Returns
+        -------
+        Expr
+            The composed expression with provenance for each step.
+        """
+        from functools import reduce  # noqa: PLC0415
+
+        from xorq.catalog.bind import _bind_one  # noqa: PLC0415
+
+        return reduce(
+            lambda expr, t: _bind_one(t, expr, self.source),
+            transforms,
+            self.to_expr(),
         )
 
 
@@ -707,6 +756,18 @@ def _fmt_cache_node(op, schema, parent, source, cache, **kwargs):
     strategy, parquet, backend = get_cache_params(cache)
     name = f"{op.__class__.__name__}[{parent}, strategy={strategy}, parquet={parquet}, source={backend}]\n"
     return name + render_schema(schema, 1)
+
+
+@fmt.register(CatalogSource)
+def _fmt_catalog_source(op, **kwargs):
+    label = op.alias or op.entry_name or op.name
+    parts = [f"entry={label}"]
+    if op.kind:
+        parts.append(f"kind={op.kind}")
+    if op.catalog_name:
+        parts.append(f"catalog={op.catalog_name}")
+    header = f"CatalogSource[{', '.join(parts)}]\n"
+    return header + render_schema(op.schema, 1)
 
 
 @fmt.register(RemoteTable)

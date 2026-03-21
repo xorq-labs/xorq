@@ -22,10 +22,12 @@ from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.common.utils.node_utils import update_read_kwargs
 from xorq.expr.relations import (
     CachedNode,
+    CatalogSource,
     HashingTag,
     Read,
     RemoteTable,
     Tag,
+    gen_name,
     into_backend,
 )
 from xorq.ibis_yaml.common import (
@@ -523,6 +525,48 @@ def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
         cache=cache,
     )
     return op.to_expr()
+
+
+@translate_to_yaml.register(CatalogSource)
+@convert_to_node_ref
+def _catalogsource_to_yaml(op: CatalogSource, context: TranslationContext) -> dict:
+    deterministic_name = dask.base.tokenize(op)
+    profile_name = op.source._profile.hash_name
+    remote_expr_yaml = context.translate_to_yaml(op.remote_expr)
+    return freeze(
+        {
+            "op": "CatalogSource",
+            "table": deterministic_name,
+            "profile": profile_name,
+            "remote_expr": remote_expr_yaml,
+            "catalog_name": op.catalog_name,
+            "catalog_path": op.catalog_path,
+            "entry_name": op.entry_name,
+            "alias": op.alias,
+            "kind": op.kind,
+        }
+        | context.registry.register_schema(op.schema)
+    )
+
+
+@register_from_yaml_handler("CatalogSource")
+def _catalogsource_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    profile_name = yaml_dict.get("profile")
+    con = context.profiles[profile_name]
+    remote_expr = context.translate_from_yaml(yaml_dict["remote_expr"])
+    schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
+
+    return CatalogSource(
+        name=yaml_dict.get("table") or gen_name(),
+        schema=schema,
+        source=con,
+        remote_expr=remote_expr,
+        catalog_name=yaml_dict.get("catalog_name"),
+        catalog_path=yaml_dict.get("catalog_path"),
+        entry_name=yaml_dict["entry_name"],
+        alias=yaml_dict.get("alias"),
+        kind=yaml_dict.get("kind"),
+    ).to_expr()
 
 
 @translate_to_yaml.register(RemoteTable)

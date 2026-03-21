@@ -10,6 +10,7 @@ from xorq.vendor.ibis.expr.operations.core import Node
 opaque_ops = (
     rel.Read,
     rel.CachedNode,
+    rel.CatalogSource,
     rel.RemoteTable,
     rel.FlightUDXF,
     rel.FlightExpr,
@@ -32,6 +33,9 @@ def gen_children_of(node: Node) -> Tuple[Node, ...]:
         case ops.Field():
             rel_node = node.rel
             gen = () if rel_node is None else (to_node(rel_node),)
+
+        case rel.CatalogSource():
+            gen = (to_node(node.remote_expr),)
 
         case rel.RemoteTable():
             gen = (to_node(node.remote_expr),)
@@ -111,6 +115,9 @@ def replace_nodes(replacer, expr):
     def process_node(op, _kwargs):
         op = replacer(op, _kwargs)
         match op:
+            case rel.CatalogSource():
+                remote_expr = _replace_sub(op.remote_expr.op())
+                return do_recreate(op, _kwargs, remote_expr=remote_expr)
             case rel.RemoteTable():
                 remote_expr = _replace_sub(op.remote_expr.op())
                 return do_recreate(op, _kwargs, remote_expr=remote_expr)
@@ -262,6 +269,21 @@ def _transfer_tables(tables_to_transfer):
         new_backend.create_table(table_name, table)
 
 
+def replace_unbound(expr, replacement):
+    """Replace UnboundTable in expr with replacement node."""
+
+    def replacer(node, kwargs):
+        match node:
+            case ops.UnboundTable():
+                return replacement
+            case _ if kwargs:
+                return node.__recreate__(kwargs)
+            case _:
+                return node
+
+    return replace_nodes(replacer, expr).to_expr()
+
+
 def get_ordered_unique_sources(nodes):
     # Use id() for deduplication because backend __hash__ collides for
     # same-class instances and __eq__ only differs by session-local idx.
@@ -281,6 +303,7 @@ def find_all_sources(expr):
         ops.SQLQueryResult,
         rel.CachedNode,
         rel.Read,
+        rel.CatalogSource,
         rel.RemoteTable,
         rel.FlightUDXF,
         rel.FlightExpr,
