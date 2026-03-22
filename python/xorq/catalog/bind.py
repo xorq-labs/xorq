@@ -1,24 +1,42 @@
 from functools import reduce
 
+from toolz import curry
+
 from xorq.common.utils.graph_utils import replace_unbound
 from xorq.expr.relations import CatalogSource, RemoteTable, gen_name
 from xorq.vendor.ibis.expr.types.core import ExprMetadata
 
 
-def _schema_errors(source_schema, transform_schema):
-    """Return error strings for columns that are missing or type-mismatched."""
-    return tuple(
-        f"  missing: {col}"
-        if col not in source_schema
-        else f"  type mismatch: {col} (source: {source_schema[col]}, transform: {typ})"
-        for col, typ in transform_schema.items()
-        if col not in source_schema or source_schema[col] != typ
-    )
+def _get_transform_schema_issues(source_schema, transform_schema):
+    bads = {
+        col: (source_typ, transform_typ)
+        for col, transform_typ in transform_schema.items()
+        if (source_typ := source_schema.get(col)) != transform_typ
+    }
+    missing = {
+        col: transform_typ
+        for col, (source_typ, transform_typ) in bads.items()
+        if source_typ is None
+    }
+    mismatch = {
+        col: (source_typ, transform_typ)
+        for col, (source_typ, transform_typ) in bads.items()
+        if source_typ is not None
+    }
+    return missing, mismatch
 
 
 def _validate_schema(source_schema, transform_schema, source_name, transform_name):
     """Validate that source schema is a superset of transform's input schema."""
-    if errors := _schema_errors(source_schema, transform_schema):
+    missing, mismatch = _get_transform_schema_issues(source_schema, transform_schema)
+    if missing or mismatch:
+        errors = (
+            *(f"  missing: {col}" for col in missing),
+            *(
+                f"  type mismatch: {col} (source: {source_typ}, transform: {transform_typ})"
+                for (col, (source_typ, transform_typ)) in mismatch.items()
+            ),
+        )
         raise ValueError(
             "\n".join(
                 (
@@ -73,7 +91,8 @@ def _resolve_source(source, con, alias):
             )
 
 
-def _bind_one(transform_entry, current_expr, con):
+@curry
+def _bind_one(current_expr, transform_entry, con):
     """Bind a single transform entry onto *current_expr*."""
     transform_expr = transform_entry.expr
     transform_meta = ExprMetadata(transform_expr)
@@ -127,7 +146,7 @@ def bind(source, *transforms, con=None, alias=None):
     source_node, resolved_con = _resolve_source(source, con, alias)
 
     return reduce(
-        lambda expr, t: _bind_one(t, expr, resolved_con),
+        lambda expr, transform: _bind_one(expr, transform, resolved_con),
         transforms,
         source_node.to_expr(),
     )
