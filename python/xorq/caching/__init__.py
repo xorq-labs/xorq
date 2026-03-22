@@ -23,6 +23,7 @@ from xorq.caching.strategy import (
     ModificationTimeStrategy,
     SnapshotStrategy,
 )
+from xorq.common.exceptions import XorqError
 from xorq.common.utils.otel_utils import tracer
 from xorq.config import options
 from xorq.vendor.ibis.expr import types as ir
@@ -207,24 +208,14 @@ class GCSCache(Cache):
         return cls(strategy=strategy, storage=storage)
 
 
-def _backends_equivalent(a, b):
-    """True if a and b are the same backend or have the same connection profile."""
-    if a is b:
-        return True
-    if (
-        hasattr(a, "_profile")
-        and hasattr(b, "_profile")
-        and a._profile.almost_equals(b._profile)
-    ):
-        return True
-    return False
-
-
 def maybe_prevent_cross_source_caching(expr, storage):
     from xorq.expr.relations import (  # noqa: PLC0415
         into_backend,
     )
 
-    if not _backends_equivalent(storage.storage.source, expr._find_backend()):
-        expr = into_backend(expr, storage.storage.source)
+    try:
+        if storage.storage.source != expr._find_backend(use_default=False):
+            expr = into_backend(expr, storage.storage.source)
+    except XorqError:
+        pass
     return expr
