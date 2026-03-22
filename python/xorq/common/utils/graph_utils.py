@@ -273,6 +273,22 @@ def get_ordered_unique_sources(nodes):
     return sources
 
 
+def get_ordered_unique_storage_sources(nodes, already_seen=None):
+    sources, seen = (), set() if not already_seen else set(already_seen)
+    assert all(isinstance(node, rel.CachedNode) for node in nodes)
+    for source in (node.cache.storage.source for node in nodes):
+        if id(source) not in seen:
+            seen.add(id(source))
+            sources += (source,)
+    return sources
+
+
+def find_all_storage_sources(expr, already_seen=None):
+    return get_ordered_unique_storage_sources(
+        walk_nodes((rel.CachedNode,), expr), already_seen=already_seen
+    )
+
+
 def find_all_sources(expr):
     import xorq.vendor.ibis.expr.operations as ops  # noqa: PLC0415
 

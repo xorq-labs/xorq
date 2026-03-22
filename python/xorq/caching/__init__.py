@@ -23,6 +23,7 @@ from xorq.caching.strategy import (
     ModificationTimeStrategy,
     SnapshotStrategy,
 )
+from xorq.common.exceptions import XorqError
 from xorq.common.utils.otel_utils import tracer
 from xorq.config import options
 from xorq.vendor.ibis.expr import types as ir
@@ -212,6 +213,9 @@ def maybe_prevent_cross_source_caching(expr, storage):
         into_backend,
     )
 
-    if storage.storage.source != expr._find_backend():
-        expr = into_backend(expr, storage.storage.source)
+    try:
+        if storage.storage.source != expr._find_backend(use_default=False):
+            expr = into_backend(expr, storage.storage.source)
+    except XorqError:
+        pass
     return expr
