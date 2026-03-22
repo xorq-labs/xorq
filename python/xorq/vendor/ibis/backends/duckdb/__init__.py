@@ -1819,7 +1819,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
 
         def register_udf(con):
             return con.create_function(
-                name=type(udf_node).__name__,
+                name=udf_node.__func_name__,
                 function=udf_node.__func__,
                 parameters=input_types,
                 return_type=type_mapper.to_string(udf_node.dtype),

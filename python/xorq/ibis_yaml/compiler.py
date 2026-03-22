@@ -184,6 +184,7 @@ class ArtifactStore:
 
     @staticmethod
     def get_expr_hash(expr) -> str:
+        expr = canonicalize_expr(expr)
         with SnapshotStrategy().normalization_context(expr):
             expr_hash = dask.base.tokenize(expr)[: config.hash_length]
             return expr_hash
@@ -248,6 +249,44 @@ def _clone_backend_with_profile(backend, profile):
     if hasattr(backend, "con"):
         cloned.con = backend.con
     return cloned
+
+
+def _sanitize_generated_names(expr, normalize_method):
+    """Replace auto-generated InMemoryTable/Read names with content-based names."""
+    # InMemoryTable and Read are independent leaf nodes: renaming one cannot
+    # affect the other, so a single walk collecting both is equivalent to
+    # the previous two sequential walks.
+    replacements = {}
+    for node in walk_nodes((InMemoryTable, Read), expr):
+        if isinstance(node, InMemoryTable):
+            if prefix := get_uid_prefix(node.name):
+                name = f"{prefix}{dask.base.tokenize(recreate(node, name='name').to_expr())}"
+                replacements[node] = recreate(
+                    node, name=name, normalize_method=normalize_method
+                )
+        else:
+            if prefix := get_uid_prefix(node.name):
+                table_name = f"{prefix}{dask.base.tokenize(recreate(node, name='name', normalize_method=normalize_method).to_expr())}"
+                replacements[node] = recreate(
+                    change_read_table_name(node, table_name=table_name),
+                    normalize_method=normalize_method,
+                )
+    op = expr.op()
+    if replacements:
+        op = replace_nodes(replace_from_mapping(replacements), op)
+    return op.to_expr()
+
+
+def canonicalize_expr(expr, read_normalize_method=normalize_read_path_stat):
+    """Single normalization pass: deterministic names and canonical profile IDs.
+
+    Both the YAML serialization path (ExprDumper) and the hashing path
+    (dask.base.tokenize) should operate on a canonicalized expression so
+    that build hashes are stable across sessions.
+    """
+    expr = _sanitize_generated_names(expr, read_normalize_method)
+    expr = normalize_profiles(expr)
+    return expr
 
 
 def normalize_profiles(expr):
@@ -346,10 +385,7 @@ class ExprDumper:
     )
 
     def __attrs_post_init__(self):
-        # use normalize_read_path_md5sum for content addressable / mtime-agnostic hash
-        expr = self._sanitize_generated_names(self.expr, self.read_normalize_method)
-        # canonical profile IDs so hash + YAML are order-independent
-        expr = normalize_profiles(expr)
+        expr = canonicalize_expr(self.expr, self.read_normalize_method)
         object.__setattr__(self, "expr", expr)
         attrname = "cache_dir"
         match value := getattr(self, attrname):
@@ -371,31 +407,6 @@ class ExprDumper:
     @property
     def expr_hash(self):
         return self.expr_path.name
-
-    @staticmethod
-    def _sanitize_generated_names(expr, normalize_method):
-        # InMemoryTable and Read are independent leaf nodes: renaming one cannot
-        # affect the other, so a single walk collecting both is equivalent to
-        # the previous two sequential walks.
-        replacements = {}
-        for node in walk_nodes((InMemoryTable, Read), expr):
-            if isinstance(node, InMemoryTable):
-                if prefix := get_uid_prefix(node.name):
-                    name = f"{prefix}{dask.base.tokenize(recreate(node, name='name').to_expr())}"
-                    replacements[node] = recreate(
-                        node, name=name, normalize_method=normalize_method
-                    )
-            else:
-                if prefix := get_uid_prefix(node.name):
-                    table_name = f"{prefix}{dask.base.tokenize(recreate(node, name='name', normalize_method=normalize_method).to_expr())}"
-                    replacements[node] = recreate(
-                        change_read_table_name(node, table_name=table_name),
-                        normalize_method=normalize_method,
-                    )
-        op = expr.op()
-        if replacements:
-            op = replace_nodes(replace_from_mapping(replacements), op)
-        return op.to_expr()
 
     def _prepare_expr_file(self, expr, profiles):
         path = self.artifact_store.get_path(DumpFiles.expr)

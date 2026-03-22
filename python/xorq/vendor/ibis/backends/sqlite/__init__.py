@@ -388,7 +388,7 @@ class Backend(SQLBackend, UrlFromPath):
                 registration_func(con)
 
     def _register_python_udf(self, udf_node: ops.ScalarUDF) -> None:
-        name = type(udf_node).__name__
+        name = udf_node.__func_name__
         nargs = len(udf_node.__signature__.parameters)
         func = udf_node.__func__
 

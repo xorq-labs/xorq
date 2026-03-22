@@ -146,7 +146,7 @@ $$""",
     def _compile_udf(self, udf_node: ops.ScalarUDF):
         from xorq.vendor import ibis
 
-        name = type(udf_node).__name__
+        name = udf_node.__func_name__
         signature = ", ".join(
             f"{name} {self.type_mapper.to_string(arg.dtype)}"
             for name, arg in zip(udf_node.argnames, udf_node.args)
