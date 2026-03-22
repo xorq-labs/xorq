@@ -236,7 +236,7 @@ class DataFusionCompiler(SQLGlotCompiler):
     def visit_ElementWiseVectorizedUDF(
         self, op, *, func, func_args, input_type, return_type
     ):
-        return self.f[func.__name__](*func_args)
+        return self.f[op.__func_name__](*func_args)
 
     def visit_RegexExtract(self, op, *, arg, pattern, index):
         if not isinstance(op.index, ops.Literal):

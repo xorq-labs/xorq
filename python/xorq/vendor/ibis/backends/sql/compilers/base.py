@@ -30,7 +30,6 @@ from xorq.vendor.ibis.backends.sql.rewrites import (
     sqlize,
 )
 from xorq.vendor.ibis.config import options
-from xorq.vendor.ibis.expr.operations.udf import InputType
 from xorq.vendor.ibis.expr.rewrites import lower_stringslice
 from xorq.vendor.ibis.util import get_subclasses
 
@@ -1198,13 +1197,7 @@ class SQLGlotCompiler(abc.ABC):
 
     # TODO(kszucs): this should be renamed to something UDF related
     def __sql_name__(self, op: ops.ScalarUDF | ops.AggUDF) -> str:
-        # for builtin functions use the exact function name, otherwise use the
-        # generated name to handle the case of redefinition
-        funcname = (
-            op.__func_name__
-            if op.__input_type__ == InputType.BUILTIN
-            else type(op).__name__
-        )
+        funcname = op.__func_name__
 
         # not actually a table, but easier to quote individual namespace
         # components this way
