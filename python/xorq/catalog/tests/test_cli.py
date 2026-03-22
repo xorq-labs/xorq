@@ -4,6 +4,7 @@ import shutil
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
 
+import pyarrow as pa
 import pytest
 from click.testing import CliRunner
 
@@ -951,3 +952,138 @@ class TestRunCommand:
         )
         assert result.exit_code == 0, result.output
         assert Path(out).exists()
+
+    def test_run_csv_output_file(
+        self, runner, catalog_with_source_and_transform, tmpdir
+    ):
+        catalog_path, _, _ = catalog_with_source_and_transform
+        out = str(Path(tmpdir).joinpath("out.csv"))
+        result = runner.invoke(
+            cli,
+            [
+                "--path",
+                catalog_path,
+                "run",
+                "src",
+                "trn",
+                "--execute-only",
+                "-f",
+                "csv",
+                "-o",
+                out,
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert Path(out).exists()
+        contents = Path(out).read_text()
+        assert "user_id" in contents
+
+    def test_run_json_output_file(
+        self, runner, catalog_with_source_and_transform, tmpdir
+    ):
+        catalog_path, _, _ = catalog_with_source_and_transform
+        out = str(Path(tmpdir).joinpath("out.json"))
+        result = runner.invoke(
+            cli,
+            [
+                "--path",
+                catalog_path,
+                "run",
+                "src",
+                "trn",
+                "--execute-only",
+                "-f",
+                "json",
+                "-o",
+                out,
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert Path(out).exists()
+        contents = Path(out).read_text()
+        assert "user_id" in contents
+
+    def test_run_arrow_output_file(
+        self, runner, catalog_with_source_and_transform, tmpdir
+    ):
+        catalog_path, _, _ = catalog_with_source_and_transform
+        out = str(Path(tmpdir).joinpath("out.arrow"))
+        result = runner.invoke(
+            cli,
+            [
+                "--path",
+                catalog_path,
+                "run",
+                "src",
+                "trn",
+                "--execute-only",
+                "-f",
+                "arrow",
+                "-o",
+                out,
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert Path(out).exists()
+        with open(out, "rb") as f:
+            table = pa.ipc.open_stream(f).read_all()
+        assert len(table) > 0
+
+    def test_run_arrow_output_stdout(self, runner, catalog_with_source_and_transform):
+        catalog_path, _, _ = catalog_with_source_and_transform
+        result = runner.invoke(
+            cli,
+            [
+                "--path",
+                catalog_path,
+                "run",
+                "src",
+                "trn",
+                "--execute-only",
+                "-f",
+                "arrow",
+                "-o",
+                "-",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert len(result.output) > 0
+
+    def test_run_default_output(self, runner, catalog_with_source_and_transform):
+        """Default output (no -o) writes to /dev/null, exits 0."""
+        catalog_path, _, _ = catalog_with_source_and_transform
+        result = runner.invoke(
+            cli,
+            [
+                "--path",
+                catalog_path,
+                "run",
+                "src",
+                "trn",
+                "--execute-only",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+
+    def test_run_with_limit(self, runner, catalog_with_source_and_transform):
+        catalog_path, _, _ = catalog_with_source_and_transform
+        result = runner.invoke(
+            cli,
+            [
+                "--path",
+                catalog_path,
+                "run",
+                "src",
+                "trn",
+                "--execute-only",
+                "-o",
+                "-",
+                "-f",
+                "csv",
+                "--limit",
+                "1",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        lines = result.output.strip().splitlines()
+        assert len(lines) == 2  # header + 1 data row
