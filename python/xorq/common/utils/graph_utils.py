@@ -263,17 +263,34 @@ def _transfer_tables(tables_to_transfer):
         new_backend.create_table(table_name, table)
 
 
-def replace_unbound(expr, replacement):
-    """Replace UnboundTable in expr with replacement node."""
+def replace_unbound(expr, replacement, *, target=None):
+    """Replace a single UnboundTable in *expr* with *replacement*.
+
+    When *target* is ``None`` the expression is searched for UnboundTable
+    nodes; if exactly one is found it is used as the target, otherwise a
+    ``ValueError`` is raised.  Pass *target* explicitly to skip the
+    search and replace only that specific node.
+    """
+    replacement = to_node(replacement)
+
+    if target is None:
+        found = walk_nodes(ops.UnboundTable, expr)
+        if not found:
+            raise ValueError("no UnboundTable found in expression")
+        if len(found) > 1:
+            raise ValueError(
+                f"expression contains {len(found)} UnboundTable nodes; "
+                f"pass target explicitly"
+            )
+        target = found[0]
 
     def replacer(node, kwargs):
-        match node:
-            case ops.UnboundTable():
-                return replacement
-            case _ if kwargs:
-                return node.__recreate__(kwargs)
-            case _:
-                return node
+        if node is target:
+            return replacement
+        elif kwargs:
+            return node.__recreate__(kwargs)
+        else:
+            return node
 
     return replace_nodes(replacer, expr).to_expr()
 
