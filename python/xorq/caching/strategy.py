@@ -48,7 +48,6 @@ class ModificationTimeStrategy(CacheStrategy):
 @frozen
 class SnapshotStrategy(CacheStrategy):
     def calc_key(self, expr: ir.Expr):
-        # can we cache this?
         with self.normalization_context(expr):
             replaced = self.replace_remote_table(expr)
             tokenized = replaced.ls.tokenized
