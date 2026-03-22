@@ -53,7 +53,7 @@ def _validate_chain(source_schema, transforms):
     """
     from xorq.catalog.catalog import CatalogEntry  # noqa: PLC0415
 
-    metas = ()
+    metas = []
     for i, entry in enumerate(transforms):
         if not isinstance(entry, CatalogEntry):
             raise TypeError(
@@ -65,30 +65,14 @@ def _validate_chain(source_schema, transforms):
                 f"transforms[{i}] ({entry.name!r}) has no UnboundTable "
                 f"(kind: {meta.kind}). Only unbound_expr entries can be used as transforms."
             )
-        metas += ((entry.name, meta),)
+        metas.append((entry.name, meta))
 
     current_schema = source_schema
     for name, meta in metas:
         _validate_schema(current_schema, meta.schema_in, "(current)", name)
         current_schema = meta.schema_out
 
-    return metas
-
-
-def _resolve_alias(alias, entry):
-    """Resolve the alias for a bound entry."""
-    match alias:
-        case str():
-            return alias
-        case None if aliases := getattr(entry, "aliases", ()):
-            return aliases[0].alias
-        case _:
-            return None
-
-
-def _resolve_con(source, con):
-    """Return *con* when given, otherwise discover it from *source*."""
-    return con if con is not None else source._find_backend()
+    return tuple(metas)
 
 
 def _ensure_remote(node, con, expr):
@@ -103,15 +87,17 @@ def _resolve_source(source, con, alias):
 
     match source:
         case CatalogEntry():
-            resolved_con = _resolve_con(source.expr, con)
+            resolved_con = con if con is not None else source.expr._find_backend()
             node = CatalogSource.from_entry(
                 source,
                 resolved_con,
-                alias=_resolve_alias(alias, source),
+                alias=alias
+                if isinstance(alias, str)
+                else next((a.alias for a in getattr(source, "aliases", ())), None),
             )
             return node, resolved_con
         case Expr():
-            resolved_con = _resolve_con(source, con)
+            resolved_con = con if con is not None else source._find_backend()
             return _ensure_remote(source.op(), resolved_con, source), resolved_con
         case _:
             raise TypeError(
@@ -133,7 +119,7 @@ def _bind_one(current_expr, transform_entry, con):
         catalog_name=getattr(transform_entry.catalog, "name", None),
         catalog_path=str(transform_entry.catalog.repo_path),
         entry_name=transform_entry.name,
-        alias=_resolve_alias(None, transform_entry),
+        alias=next((a.alias for a in getattr(transform_entry, "aliases", ())), None),
         kind=str(transform_entry.kind),
     ).to_expr()
 
