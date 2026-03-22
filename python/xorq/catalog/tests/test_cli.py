@@ -826,7 +826,18 @@ class TestRunCommand:
         catalog_path, source_name, transform_name = catalog_with_source_and_transform
         result = runner.invoke(
             cli,
-            ["--path", catalog_path, "run", "src", "trn", "--execute-only"],
+            [
+                "--path",
+                catalog_path,
+                "run",
+                "src",
+                "trn",
+                "--execute-only",
+                "-o",
+                "-",
+                "-f",
+                "csv",
+            ],
         )
         assert result.exit_code == 0, result.output
         assert "user_id" in result.output
@@ -846,7 +857,17 @@ class TestRunCommand:
         catalog_path, _, _ = catalog_with_source_and_transform
         result = runner.invoke(
             cli,
-            ["--path", catalog_path, "run", "src", "--execute-only"],
+            [
+                "--path",
+                catalog_path,
+                "run",
+                "src",
+                "--execute-only",
+                "-o",
+                "-",
+                "-f",
+                "csv",
+            ],
         )
         assert result.exit_code == 0, result.output
         assert "user_id" in result.output
@@ -871,6 +892,10 @@ class TestRunCommand:
                 "-c",
                 "source.filter(source.amount > 15)",
                 "--execute-only",
+                "-o",
+                "-",
+                "-f",
+                "csv",
             ],
         )
         assert result.exit_code == 0, result.output
@@ -897,6 +922,8 @@ class TestRunCommand:
                 "--execute-only",
                 "-f",
                 "json",
+                "-o",
+                "-",
             ],
         )
         assert result.exit_code == 0, result.output

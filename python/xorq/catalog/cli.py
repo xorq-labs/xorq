@@ -468,6 +468,12 @@ def _compose_expr(catalog, entries, code):
             return bind(resolved[0], *resolved[1:])
 
 
+def _output_formats():
+    from xorq.cli import OutputFormats  # noqa: PLC0415
+
+    return OutputFormats
+
+
 @cli.command("run")
 @click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias)
 @click.option(
@@ -488,30 +494,38 @@ def _compose_expr(catalog, entries, code):
 )
 @click.option(
     "-o",
-    "--output",
-    "output_path",
+    "--output-path",
     default=None,
-    type=click.Path(),
-    help="Write output to file.",
+    help="Path to write output (default: /dev/null).",
 )
 @click.option(
     "-f",
     "--format",
     "output_format",
-    default="csv",
-    type=click.Choice(["csv", "parquet", "json"]),
-    help="Output format.",
+    type=click.Choice([f.value for f in _output_formats()]),
+    default=_output_formats().default,
+    help="Output format (default: parquet).",
 )
+@click.option("--cache-dir", default=None, help="Directory for parquet cache files.")
 @click.option("--limit", type=int, default=None, help="Limit rows.")
 @click.pass_context
-def run(ctx, entries, code, alias, execute_only, output_path, output_format, limit):
+def run(
+    ctx,
+    entries,
+    code,
+    alias,
+    execute_only,
+    output_path,
+    output_format,
+    cache_dir,
+    limit,
+):
     """Run catalog entries through each other and print results.
 
     By default the result is added to the catalog (with --alias, or hash-only).
     Use -x / --execute-only to skip cataloging.
     """
-    import sys
-
+    from xorq.cli import arbitrate_output_format
     from xorq.common.utils.otel_utils import tracer
 
     with tracer.start_as_current_span("catalog.run") as span:
@@ -520,10 +534,14 @@ def run(ctx, entries, code, alias, execute_only, output_path, output_format, lim
             catalog = ctx.obj.make_catalog(init=False)
             expr = _compose_expr(catalog, entries, code)
 
+            build_kwargs = {}
+            if cache_dir is not None:
+                build_kwargs["cache_dir"] = Path(cache_dir)
+
             if not execute_only:
                 from xorq.ibis_yaml.compiler import build_expr
 
-                build_path = build_expr(expr)
+                build_path = build_expr(expr, **build_kwargs)
                 entry_name = build_path.name
                 aliases = (alias,) if alias else ()
                 if catalog.contains(entry_name):
@@ -537,23 +555,4 @@ def run(ctx, entries, code, alias, execute_only, output_path, output_format, lim
 
             if limit is not None:
                 expr = expr.limit(limit)
-            result = expr.execute()
-
-            match (output_path, output_format):
-                case (None, "csv"):
-                    result.to_csv(sys.stdout, index=False)
-                case (None, "json"):
-                    click.echo(result.to_json(orient="records", lines=True))
-                case (None, "parquet"):
-                    raise click.UsageError(
-                        "Parquet cannot be written to stdout — use -o to specify an output file."
-                    )
-                case (str(), "parquet"):
-                    result.to_parquet(output_path)
-                    click.echo(f"Written to {output_path}")
-                case (str(), "csv"):
-                    result.to_csv(output_path, index=False)
-                    click.echo(f"Written to {output_path}")
-                case (str(), "json"):
-                    result.to_json(output_path, orient="records", lines=True)
-                    click.echo(f"Written to {output_path}")
+            arbitrate_output_format(expr, output_path, output_format)
