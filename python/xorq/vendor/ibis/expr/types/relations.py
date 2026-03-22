@@ -3402,7 +3402,6 @@ class Table(Expr, _FixedTextJupyterMixin):
             SourceCache,
             maybe_prevent_cross_source_caching,
         )
-        from xorq.common.utils.caching_utils import find_backend
         from xorq.expr.relations import CachedNode
 
         if cache:
@@ -3410,7 +3409,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         else:
             expr = self
 
-        current_backend, _ = find_backend(expr.op(), use_default=True)
+        current_backend = expr._find_backend(use_default=True)
         cache = cache or SourceCache.from_kwargs(source=current_backend)
         op = CachedNode(
             name=CACHED_NODE_NAME_PLACEHOLDER,
