@@ -1,7 +1,5 @@
 from functools import reduce
 
-from toolz import curry
-
 from xorq.common.utils.graph_utils import replace_unbound
 from xorq.expr.relations import CatalogSource, RemoteTable, gen_name
 from xorq.vendor.ibis.expr.types.core import ExprMetadata
@@ -45,6 +43,36 @@ def _validate_schema(source_schema, transform_schema, source_name, transform_nam
                 )
             )
         )
+
+
+def _validate_chain(source_schema, transforms):
+    """Pre-validate the full transform chain before building expressions.
+
+    Checks that every transform has an UnboundTable and that schemas are
+    compatible through the chain: source → transform[0] → transform[1] → …
+    """
+    from xorq.catalog.catalog import CatalogEntry  # noqa: PLC0415
+
+    metas = ()
+    for i, entry in enumerate(transforms):
+        if not isinstance(entry, CatalogEntry):
+            raise TypeError(
+                f"transforms[{i}] must be a CatalogEntry, got {type(entry)}"
+            )
+        meta = ExprMetadata(entry.expr)
+        if meta._unbound_node is None:
+            raise ValueError(
+                f"transforms[{i}] ({entry.name!r}) has no UnboundTable "
+                f"(kind: {meta.kind}). Only unbound_expr entries can be used as transforms."
+            )
+        metas += ((entry.name, meta),)
+
+    current_schema = source_schema
+    for name, meta in metas:
+        _validate_schema(current_schema, meta.schema_in, "(current)", name)
+        current_schema = meta.schema_out
+
+    return metas
 
 
 def _resolve_alias(alias, entry):
@@ -91,25 +119,9 @@ def _resolve_source(source, con, alias):
             )
 
 
-@curry
 def _bind_one(current_expr, transform_entry, con):
     """Bind a single transform entry onto *current_expr*."""
     transform_expr = transform_entry.expr
-    transform_meta = ExprMetadata(transform_expr)
-
-    if transform_meta._unbound_node is None:
-        raise ValueError(
-            f"{transform_entry.name!r} has no UnboundTable (kind: {transform_meta.kind}). "
-            f"Only unbound_expr entries can be used as transforms."
-        )
-
-    _validate_schema(
-        current_expr.as_table().schema(),
-        transform_meta.schema_in,
-        "(current)",
-        transform_entry.name,
-    )
-
     source_node = _ensure_remote(current_expr.op(), con, current_expr)
     composed_expr = replace_unbound(transform_expr, source_node)
 
@@ -144,6 +156,8 @@ def bind(source, *transforms, con=None, alias=None):
         raise ValueError("At least one transform entry is required.")
 
     source_node, resolved_con = _resolve_source(source, con, alias)
+    source_schema = source_node.to_expr().as_table().schema()
+    _validate_chain(source_schema, transforms)
 
     return reduce(
         lambda expr, transform: _bind_one(expr, transform, resolved_con),
