@@ -72,9 +72,8 @@ class TestExprKind:
         bound = bind(source_entry, transform_entry)
         meta = ExprMetadata(bound)
         assert meta.kind == ExprKind.Composed
-        assert len(meta.sources) == 2
-        kinds = {s["kind"] for s in meta.sources}
-        assert kinds == {"source", "unbound_expr"}
+        assert len(meta.sources) == 1
+        assert meta.sources[0]["kind"] == "source"
 
     def test_bound_to_dict_includes_sources(self, catalog_with_entries):
         catalog, source_entry, transform_entry = catalog_with_entries
@@ -83,14 +82,14 @@ class TestExprKind:
         d = meta.to_dict()
         assert d["kind"] == "composed"
         assert "sources" in d
-        assert len(d["sources"]) == 2
+        assert len(d["sources"]) == 1
 
     def test_chained_bind_kind(self, catalog_with_bound):
         catalog, bound_entry, transform2_entry = catalog_with_bound
         bound2 = bind(bound_entry, transform2_entry)
         meta = ExprMetadata(bound2)
         assert meta.kind == ExprKind.Composed
-        assert len(meta.sources) >= 3
+        assert len(meta.sources) >= 1
 
 
 # --- Schema validation tests ---
@@ -148,7 +147,7 @@ class TestBind:
         bound = bind(source_entry, transform_entry)
         bound_entry = catalog.add(bound, aliases=("bound-result",))
         assert bound_entry.kind == ExprKind.Composed
-        assert len(bound_entry.sources) == 2
+        assert len(bound_entry.sources) == 1
 
     def test_bind_with_alias(self, catalog_with_entries):
         catalog, source_entry, transform_entry = catalog_with_entries
@@ -179,7 +178,7 @@ class TestBind:
         bound2 = bind(bound_entry, transform2_entry)
         bound2_entry = catalog.add(bound2, aliases=("bound2",))
         assert bound2_entry.kind == ExprKind.Composed
-        assert len(bound2_entry.sources) >= 2
+        assert len(bound2_entry.sources) >= 1
 
     def test_bind_schema_mismatch(self, catalog):
         """Binding incompatible schemas raises ValueError."""
@@ -273,15 +272,13 @@ class TestCatalogSource:
 
 
 class TestCatalogBind:
-    def test_bind_produces_both_kinds(self, catalog_with_entries):
+    def test_bind_produces_composed(self, catalog_with_entries):
         catalog, source_entry, transform_entry = catalog_with_entries
         bound = catalog.bind(source_entry, transform_entry)
         meta = ExprMetadata(bound)
         assert meta.kind == ExprKind.Composed
-
-        kinds = {s["kind"] for s in meta.sources}
-        assert "source" in kinds
-        assert "unbound_expr" in kinds
+        assert len(meta.sources) == 1
+        assert meta.sources[0]["kind"] == "source"
 
     def test_bind_source_provenance(self, catalog_with_entries):
         catalog, source_entry, transform_entry = catalog_with_entries
@@ -292,14 +289,13 @@ class TestCatalogBind:
         assert len(source_entries) == 1
         assert source_entries[0]["entry_name"] == source_entry.name
 
-    def test_bind_transform_provenance(self, catalog_with_entries):
+    def test_bind_source_is_only_catalog_source(self, catalog_with_entries):
         catalog, source_entry, transform_entry = catalog_with_entries
         bound = catalog.bind(source_entry, transform_entry)
         meta = ExprMetadata(bound)
 
-        unbound_entries = tuple(s for s in meta.sources if s["kind"] == "unbound_expr")
-        assert len(unbound_entries) == 1
-        assert unbound_entries[0]["entry_name"] == transform_entry.name
+        assert len(meta.sources) == 1
+        assert meta.sources[0]["entry_name"] == source_entry.name
 
     def test_bind_executes(self, catalog_with_entries):
         catalog, source_entry, transform_entry = catalog_with_entries
@@ -319,11 +315,8 @@ class TestCatalogBind:
         bound = catalog.bind(source_entry, transform_entry)
         bound_entry = catalog.add(bound, aliases=("bound-result",))
         assert bound_entry.kind == ExprKind.Composed
-        assert len(bound_entry.sources) == 2
-
-        kinds = {s["kind"] for s in bound_entry.sources}
-        assert "source" in kinds
-        assert "unbound_expr" in kinds
+        assert len(bound_entry.sources) == 1
+        assert bound_entry.sources[0]["kind"] == "source"
 
     def test_bind_variadic(self, catalog_with_entries):
         """catalog.bind(source, t1, t2) chains transforms."""
@@ -375,8 +368,8 @@ class TestInlineChaining:
         assert list(result.columns) == ["user_id"]
         assert set(result["user_id"]) == {2, 3}
 
-    def test_chain_preserves_transform_provenance(self, catalog_with_entries):
-        """Each bind step adds an unbound_expr CatalogSource."""
+    def test_chain_has_single_catalog_source(self, catalog_with_entries):
+        """Chained bind has only the original source as a CatalogSource."""
         catalog, source_entry, transform_entry = catalog_with_entries
 
         schema2 = xo.Schema({"user_id": "int64", "amount": "float64"})
@@ -385,8 +378,8 @@ class TestInlineChaining:
 
         bound = bind(source_entry, transform_entry, t2_entry)
         meta = ExprMetadata(bound)
-        unbound_sources = tuple(s for s in meta.sources if s["kind"] == "unbound_expr")
-        assert len(unbound_sources) == 2
+        assert len(meta.sources) == 1
+        assert meta.sources[0]["kind"] == "source"
 
 
 # --- Kind YAML roundtrip test ---
@@ -403,6 +396,5 @@ class TestKindYAMLRoundtrip:
         loaded_expr = bound_entry.expr
         meta = ExprMetadata(loaded_expr)
 
-        kinds = {s["kind"] for s in meta.sources}
-        assert "source" in kinds
-        assert "unbound_expr" in kinds
+        assert len(meta.sources) == 1
+        assert meta.sources[0]["kind"] == "source"

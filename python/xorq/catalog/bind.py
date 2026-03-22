@@ -111,16 +111,11 @@ def _bind_one(current_expr, transform_entry, con):
     source_node = _ensure_remote(current_expr.op(), con, current_expr)
     composed_expr = replace_unbound(transform_expr, source_node)
 
-    return CatalogSource(
+    return RemoteTable(
         name=gen_name(),
         schema=composed_expr.as_table().schema(),
         source=con,
         remote_expr=composed_expr,
-        catalog_name=getattr(transform_entry.catalog, "name", None),
-        catalog_path=str(transform_entry.catalog.repo_path),
-        entry_name=transform_entry.name,
-        alias=next((a.alias for a in getattr(transform_entry, "aliases", ())), None),
-        kind=str(transform_entry.kind),
     ).to_expr()
 
 
