@@ -257,8 +257,9 @@ def list_entries(ctx, kind):
         if not (entries := catalog.catalog_entries):
             click.echo("No entries.")
             return
+
         for entry in entries:
-            click.echo(f"{entry.name}\t{entry.kind}" if kind else entry.name)
+            click.echo("\t".join((entry.name, str(entry.kind))) if kind else entry.name)
 
 
 @cli.command("list-aliases")
@@ -411,3 +412,147 @@ def check(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog.assert_consistency()
         click.echo("OK")
+
+
+def _complete_entry_or_alias(ctx, param, incomplete):
+    from click.shell_completion import CompletionItem
+
+    try:
+        catalog = _make_catalog_for_completion(ctx)
+        names = set(catalog.list()) | set(catalog.list_aliases())
+        return [CompletionItem(n) for n in sorted(names) if n.startswith(incomplete)]
+    except Exception:
+        return []
+
+
+def _resolve_entries(catalog, entries):
+    """Resolve entry names/aliases to CatalogEntry objects."""
+    return tuple(catalog.get_catalog_entry(name, maybe_alias=True) for name in entries)
+
+
+def _eval_code(code, source):
+    """Evaluate an inline Ibis expression with a restricted namespace.
+
+    Only xorq, vendored ibis, and the bound ``source`` expression are
+    available — arbitrary builtins (open, exec, __import__, …) are removed.
+    """
+    import xorq.api as xo  # noqa: PLC0415
+    from xorq.vendor import ibis  # noqa: PLC0415
+
+    restricted_globals = {"__builtins__": {}, "xo": xo, "ibis": ibis, "source": source}
+    return eval(code, restricted_globals)  # noqa: S307
+
+
+def _compose_expr(catalog, entries, code):
+    """Build a composed expression from catalog entries and/or inline code."""
+
+    from xorq.catalog.bind import bind  # noqa: PLC0415
+
+    match (entries, code):
+        case ((), None):
+            raise click.UsageError("At least one entry is required.")
+        case ((), str()):
+            raise click.UsageError("--code requires at least one entry as source.")
+        case (_, str()):
+            transforms = _resolve_entries(catalog, entries[1:])
+            source = (
+                bind(catalog.source(entries[0]), *transforms)
+                if transforms
+                else catalog.source(entries[0])
+            )
+            return _eval_code(code, source)
+        case (_, None) if len(entries) == 1:
+            return catalog.source(entries[0])
+        case _:
+            resolved = _resolve_entries(catalog, entries)
+            return bind(resolved[0], *resolved[1:])
+
+
+def _output_formats():
+    from xorq.cli import OutputFormats  # noqa: PLC0415
+
+    return OutputFormats
+
+
+@cli.command("run")
+@click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias)
+@click.option(
+    "-c",
+    "--code",
+    default=None,
+    help="Inline Ibis code expression applied to `source`.",
+)
+@click.option(
+    "-a", "--alias", default=None, help="Catalog the result under this alias."
+)
+@click.option(
+    "-x",
+    "--execute-only",
+    is_flag=True,
+    default=False,
+    help="Execute and print without cataloging the result.",
+)
+@click.option(
+    "-o",
+    "--output-path",
+    default=None,
+    help="Path to write output (default: /dev/null).",
+)
+@click.option(
+    "-f",
+    "--format",
+    "output_format",
+    type=click.Choice([f.value for f in _output_formats()]),
+    default=_output_formats().default,
+    help="Output format (default: parquet).",
+)
+@click.option("--cache-dir", default=None, help="Directory for parquet cache files.")
+@click.option("--limit", type=int, default=None, help="Limit rows.")
+@click.pass_context
+def run(
+    ctx,
+    entries,
+    code,
+    alias,
+    execute_only,
+    output_path,
+    output_format,
+    cache_dir,
+    limit,
+):
+    """Run catalog entries through each other and print results.
+
+    By default the result is added to the catalog (with --alias, or hash-only).
+    Use -x / --execute-only to skip cataloging.
+    """
+    from xorq.cli import arbitrate_output_format
+    from xorq.common.utils.otel_utils import tracer
+
+    with tracer.start_as_current_span("catalog.run") as span:
+        span.set_attributes({"entries": entries, "has_code": code is not None})
+        with click_context_catalog(ctx):
+            catalog = ctx.obj.make_catalog(init=False)
+            expr = _compose_expr(catalog, entries, code)
+
+            build_kwargs = {}
+            if cache_dir is not None:
+                build_kwargs["cache_dir"] = Path(cache_dir)
+
+            if not execute_only:
+                from xorq.ibis_yaml.compiler import build_expr
+
+                build_path = build_expr(expr, **build_kwargs)
+                entry_name = build_path.name
+                aliases = (alias,) if alias else ()
+                if catalog.contains(entry_name):
+                    if alias:
+                        catalog.add_alias(entry_name, alias)
+                else:
+                    catalog.add(build_path, aliases=aliases)
+                label = alias or entry_name
+                click.echo(f"Cataloged as {label!r}", err=True)
+                span.set_attribute("cataloged", label)
+
+            if limit is not None:
+                expr = expr.limit(limit)
+            arbitrate_output_format(expr, output_path, output_format)

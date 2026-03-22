@@ -167,6 +167,21 @@ class Catalog:
         catalog_entry = CatalogEntry(name, self)
         return catalog_entry
 
+    def source(self, name_or_alias, con=None):
+        """Return a CatalogSource-backed expression for a catalog entry (by hash or alias)."""
+        from xorq.expr.relations import CatalogSource  # noqa: PLC0415
+
+        entry = self.get_catalog_entry(name_or_alias, maybe_alias=True)
+        resolved_con = con if con is not None else entry.expr._find_backend()
+        alias = name_or_alias if name_or_alias in self.list_aliases() else None
+        return CatalogSource.from_entry(entry, resolved_con, alias=alias).to_expr()
+
+    def bind(self, source_entry, *transforms, con=None):
+        """Bind a source entry through one or more transform entries."""
+        from xorq.catalog.bind import bind  # noqa: PLC0415
+
+        return bind(source_entry, *transforms, con=con)
+
     def get_zip(self, name, dir_path=None):
         catalog_entry = self.get_catalog_entry(name)
         return catalog_entry.get(dir_path)
@@ -485,6 +500,12 @@ class CatalogEntry:
     @property
     def kind(self) -> ExprKind:
         return ExprKind(self.metadata["kind"])
+
+    @cached_property
+    def sources(self) -> tuple:
+        """Catalog source references for composed entries."""
+        data = self._read_zip_member(DumpFiles.expr_metadata, json.loads)
+        return tuple(data.get("sources", ()))
 
     @cached_property
     def backends(self) -> tuple[str, ...]:

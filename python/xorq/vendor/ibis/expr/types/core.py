@@ -700,11 +700,35 @@ class ExprMetadata:
         return isinstance(root, source_nodes)
 
     @cached_property
+    def _catalog_source_nodes(self):
+        from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+        from xorq.expr.relations import CatalogSource  # noqa: PLC0415
+
+        return tuple(walk_nodes(CatalogSource, self.expr) or ())
+
+    @cached_property
+    def sources(self):
+        """Catalog entry references found in the expression tree."""
+        return tuple(
+            {
+                "catalog_name": cs.catalog_name,
+                "entry_name": cs.entry_name,
+                "alias": cs.alias,
+                "kind": cs.kind,
+            }
+            for cs in self._catalog_source_nodes
+        )
+
+    @cached_property
     def kind(self) -> ExprKind:
-        match (self._unbound_node, self._is_source):
-            case (node, _) if node is not None:
+        # Priority: UnboundExpr (incomplete/has placeholder) > Composed (has
+        # CatalogSource nodes) > Source (plain table) > Expr (everything else).
+        match (self._unbound_node, bool(self._catalog_source_nodes), self._is_source):
+            case (node, _, _) if node is not None:
                 return ExprKind.UnboundExpr
-            case (_, True):
+            case (_, True, _):
+                return ExprKind.Composed
+            case (_, _, True):
                 return ExprKind.Source
             case _:
                 return ExprKind.Expr
@@ -727,6 +751,7 @@ class ExprMetadata:
                     toolz.valmap(str, self.schema_in) if self.schema_in else None,
                 ),
                 ("schema_out", toolz.valmap(str, self.schema_out)),
+                ("sources", list(self.sources) if self.sources else None),
             )
             if value is not None
         }
