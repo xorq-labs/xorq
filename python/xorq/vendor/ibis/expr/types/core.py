@@ -711,7 +711,6 @@ class ExprMetadata:
         """Catalog entry references found in the expression tree."""
         return tuple(
             {
-                "catalog_name": cs.catalog_name,
                 "entry_name": cs.entry_name,
                 "alias": cs.alias,
                 "kind": cs.kind,

@@ -221,6 +221,19 @@ class TestBind:
         with pytest.raises(ValueError, match="no UnboundTable"):
             bind(source_entry, another_entry)
 
+    def test_bind_cross_catalog_raises(self, catalog_with_entries, tmpdir):
+        """Binding entries from different catalogs raises ValueError."""
+        catalog, source_entry, _ = catalog_with_entries
+        other_repo = Catalog.init_repo_path(Path(tmpdir).joinpath("other-repo"))
+        other_catalog = Catalog(repo=other_repo)
+        other_transform = xo.memtable({"user_id": [1], "amount": [10.0]})
+        schema = other_transform.schema()
+        unbound = ops.UnboundTable(name="ph", schema=schema).to_expr()
+        transform = unbound.filter(unbound.amount > 0)
+        other_entry = other_catalog.add(transform)
+        with pytest.raises(ValueError, match="Cannot mix catalogs"):
+            bind(source_entry, other_entry)
+
 
 # --- get_catalog_entry tests ---
 

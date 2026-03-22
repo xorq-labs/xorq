@@ -193,8 +193,6 @@ class RemoteTable(DatabaseTableView):
 class CatalogSource(RemoteTable):
     """A RemoteTable backed by a catalog entry."""
 
-    catalog_name: str | None = None
-    catalog_path: str | None = None
     entry_name: str | None = None
     alias: str | None = None
     kind: str | None = None
@@ -214,8 +212,6 @@ class CatalogSource(RemoteTable):
             schema=source_expr.schema(),
             source=con,
             remote_expr=source_expr,
-            catalog_name=getattr(catalog_entry.catalog, "name", None),
-            catalog_path=str(catalog_entry.catalog.repo_path),
             entry_name=catalog_entry.name,
             alias=alias,
             kind=kind_str,
@@ -745,11 +741,7 @@ def _fmt_cache_node(op, schema, parent, source, cache, **kwargs):
 @fmt.register(CatalogSource)
 def _fmt_catalog_source(op, **kwargs):
     label = op.alias or op.entry_name or op.name
-    parts = tuple(
-        f"{k}={v}"
-        for k, v in (("entry", label), ("kind", op.kind), ("catalog", op.catalog_name))
-        if v
-    )
+    parts = tuple(f"{k}={v}" for k, v in (("entry", label), ("kind", op.kind)) if v)
     return f"CatalogSource[{', '.join(parts)}]\n" + render_schema(op.schema, 1)
 
 

@@ -380,7 +380,6 @@ def normalize_catalog_source(dt):
         ("schema", dt.schema),
         ("expr", dt.remote_expr),
         ("source", dt.source.name),
-        ("catalog_name", dt.catalog_name),
         ("entry_name", dt.entry_name),
         ("alias", dt.alias),
         ("kind", dt.kind),

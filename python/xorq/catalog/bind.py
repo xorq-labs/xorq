@@ -99,12 +99,28 @@ def _bind_one(transform_entry, current_expr, con):
         schema=composed_expr.as_table().schema(),
         source=con,
         remote_expr=composed_expr,
-        catalog_name=getattr(transform_entry.catalog, "name", None),
-        catalog_path=str(transform_entry.catalog.repo_path),
         entry_name=transform_entry.name,
         alias=_resolve_alias(None, transform_entry),
         kind=str(transform_entry.kind),
     ).to_expr()
+
+
+def _validate_same_catalog(source, transforms):
+    """Assert all CatalogEntry arguments belong to the same catalog."""
+    from xorq.catalog.catalog import CatalogEntry  # noqa: PLC0415
+
+    catalogs = tuple(
+        entry.catalog
+        for entry in (source, *transforms)
+        if isinstance(entry, CatalogEntry)
+    )
+    if len(catalogs) >= 2:
+        first = catalogs[0]
+        for cat in catalogs[1:]:
+            if cat.repo_path != first.repo_path:
+                raise ValueError(
+                    f"Cannot mix catalogs: got {first.repo_path} and {cat.repo_path}"
+                )
 
 
 def bind(source, *transforms, con=None, alias=None):
@@ -123,6 +139,8 @@ def bind(source, *transforms, con=None, alias=None):
     """
     if not transforms:
         raise ValueError("At least one transform entry is required.")
+
+    _validate_same_catalog(source, transforms)
 
     source_node, resolved_con = _resolve_source(source, con, alias)
 
