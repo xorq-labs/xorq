@@ -23,9 +23,13 @@ def build_expr_context_zip(expr):
             yield zip_path
 
 
-def load_expr_from_zip(zip_path):
+def load_expr_from_zip(zip_path, lazy=False, read_only_parquet_metadata=False):
     from xorq.ibis_yaml.compiler import load_expr  # noqa: PLC0415
 
     with extract_build_zip_context(zip_path) as build_dir:
-        expr = load_expr(build_dir)
+        expr = load_expr(
+            build_dir,
+            lazy=lazy,
+            read_only_parquet_metadata=read_only_parquet_metadata,
+        )
         return expr

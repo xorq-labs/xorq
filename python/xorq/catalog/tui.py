@@ -2,7 +2,7 @@ import re
 import threading
 import zipfile
 from datetime import datetime
-from functools import cached_property
+from functools import cache, cached_property
 from pathlib import Path
 
 import yaml
@@ -23,8 +23,8 @@ from textual.widgets import (
 )
 from toolz.curried import excepts as cexcepts
 
+from xorq.catalog.catalog import CatalogEntry
 from xorq.common.utils.func_utils import return_constant
-from xorq.vendor.ibis.expr.types import Scalar
 
 
 DEFAULT_REFRESH_INTERVAL = 10
@@ -81,14 +81,39 @@ def _format_column_count(n: int | None) -> str:
 
 @frozen
 class CatalogRowData:
-    kind: str = field(default="expr", validator=instance_of(str))
+    entry: CatalogEntry = field(repr=False)
     aliases: tuple[str, ...] = field(factory=tuple, validator=instance_of(tuple))
-    hash: str = field(default="", validator=instance_of(str))
-    backends: tuple[str, ...] = field(factory=tuple, validator=instance_of(tuple))
-    column_count: int | None = field(default=None, validator=optional(instance_of(int)))
-    cached: bool | None = field(default=None, validator=optional(instance_of(bool)))
-    root_tag: str = field(default="", validator=instance_of(str))
-    cached_expr: object = field(default=None, eq=False, hash=False, repr=False)
+
+    @property
+    def cached(self) -> bool | None:
+        parquet_cache_paths = self.entry.parquet_cache_paths
+        if parquet_cache_paths:
+            return all(Path(p).exists() for p in parquet_cache_paths)
+        return None
+
+    @property
+    def kind(self) -> str:
+        return str(self.entry.kind)
+
+    @property
+    def hash(self) -> str:
+        return self.entry.name
+
+    @property
+    def backends(self) -> tuple[str, ...]:
+        return self.entry.backends
+
+    @property
+    def root_tag(self) -> str:
+        return self.entry.root_tag
+
+    @property
+    def schema_out(self) -> tuple[tuple[str, str], ...]:
+        return tuple(self.entry.metadata.get("schema_out", {}).items())
+
+    @property
+    def column_count(self) -> int | None:
+        return len(self.schema_out) if self.schema_out else None
 
     @cached_property
     def aliases_display(self) -> str:
@@ -102,13 +127,9 @@ class CatalogRowData:
     def output_display(self) -> str:
         return _format_column_count(self.column_count)
 
-    @cached_property
+    @property
     def cached_display(self) -> str:
         return _format_cached(self.cached)
-
-    @cached_property
-    def root_tag_display(self) -> str:
-        return self.root_tag
 
     @property
     def sort_key(self) -> tuple[str, str]:
@@ -127,7 +148,7 @@ class CatalogRowData:
             self.backends_display,
             self.output_display,
             self.cached_display,
-            self.root_tag_display,
+            self.root_tag,
         )
 
 
@@ -155,7 +176,10 @@ class ExploreData:
     metadata: tuple[tuple[str, str], ...] = field(
         factory=tuple, validator=instance_of(tuple)
     )
-    has_alias: bool = field(default=False, validator=instance_of(bool))
+
+    @property
+    def has_alias(self) -> bool:
+        return bool(self.alias)
 
 
 @frozen
@@ -195,32 +219,18 @@ def _check_cached(expr) -> bool:
     return any(cn.to_expr().ls.exists() for cn in expr.ls.cached_nodes)
 
 
-def _entry_info(entry) -> tuple[int, bool, str, object]:
-    expr = entry.expr
-    table_expr = expr.as_table() if isinstance(expr, Scalar) else expr
-    column_count = len(table_expr.columns)
-    cached = _check_cached(expr)
-    tags = expr.ls.tags
-    root_tag = tags[0].tag if tags else ""
-    return column_count, cached, root_tag or "", expr
+def _entry_info(entry) -> tuple[int | None, bool | None, str, None]:
+    parquet_cache_paths = entry.parquet_cache_paths
+    cached = (
+        all(Path(p).exists() for p in parquet_cache_paths)
+        if parquet_cache_paths
+        else None
+    )
+    return len(entry.columns), cached, entry.root_tag, None
 
 
 def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
-    try:
-        column_count, cached, root_tag, expr = _entry_info(entry)
-    except Exception:
-        # expr deserialization can fail (e.g. missing module for pickled callable)
-        column_count, cached, root_tag, expr = None, None, "", None
-    return CatalogRowData(
-        kind=entry.kind,
-        aliases=aliases,
-        hash=entry.name,
-        backends=entry.backends,
-        column_count=column_count,
-        cached=cached,
-        root_tag=root_tag,
-        cached_expr=expr,
-    )
+    return CatalogRowData(entry=entry, aliases=aliases)
 
 
 def _build_lineage_chain(expr) -> tuple[str, ...]:
@@ -238,6 +248,31 @@ def _build_lineage_chain(expr) -> tuple[str, ...]:
     return tuple(reversed(tuple(_walk(to_node(expr)))))
 
 
+@cache
+def _catalog_list_cached(catalog, yaml_mtime: float) -> tuple:
+    """Compute catalog entry list; auto-invalidates when yaml mtime changes."""
+    return tuple(catalog.list())
+
+
+def _get_catalog_list(catalog) -> tuple:
+    """Return catalog entry list, recomputing only when the YAML file has changed."""
+    yaml_mtime = catalog.catalog_yaml.yaml_path.stat().st_mtime
+    return _catalog_list_cached(catalog, yaml_mtime)
+
+
+@cache
+def _catalog_aliases_cached(catalog, yaml_mtime: float) -> tuple:
+    """Compute catalog aliases; auto-invalidates when yaml mtime changes."""
+    return tuple(catalog.catalog_aliases)
+
+
+def _get_catalog_aliases(catalog) -> tuple:
+    """Return catalog aliases, recomputing only when the YAML file has changed."""
+    yaml_mtime = catalog.catalog_yaml.yaml_path.stat().st_mtime
+    return _catalog_aliases_cached(catalog, yaml_mtime)
+
+
+@cache
 def _build_alias_multimap(
     catalog_aliases,
 ) -> dict[str, tuple[str, ...]]:
@@ -267,7 +302,7 @@ def _build_git_log_rows(repo, max_count=100) -> tuple[GitLogRowData, ...]:
 
 @maybe(default=None)
 def maybe_expr(entry):
-    return entry.expr
+    return entry.lazy_expr
 
 
 @maybe(default=())
@@ -307,23 +342,6 @@ def maybe_metadata(entry) -> tuple[tuple[str, str], ...]:
             return tuple((str(k), str(v)) for k, v in meta.items())
         case _:
             return ()
-
-
-def _build_explore_data(
-    entry, alias, known_cached=None, cached_expr=None
-) -> ExploreData:
-    expr = cached_expr if cached_expr is not None else maybe_expr(entry)
-    computed_cached, cache_path = maybe_cache_info(expr)
-    return ExploreData(
-        hash=entry.name,
-        alias=alias,
-        schema_items=maybe_schema(expr),
-        lineage_text=maybe_lineage(expr),
-        is_cached=known_cached if known_cached is not None else computed_cached,
-        cache_path=cache_path,
-        metadata=maybe_metadata(entry),
-        has_alias=bool(alias),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -400,7 +418,7 @@ class CatalogScreen(Screen):
         row_data = self._row_cache.get(str(event.row_key.value))
         if row_data is None:
             return
-        for name, dtype in maybe_schema(row_data.cached_expr):
+        for name, dtype in row_data.schema_out:
             schema_table.add_row(name, dtype)
 
     @work(thread=True)
@@ -412,15 +430,20 @@ class CatalogScreen(Screen):
         finally:
             self._refresh_lock.release()
 
+    @property
+    def catalog_aliases(self) -> tuple:
+        catalog = self.app._catalog
+        if catalog is None:
+            return ()
+        return _get_catalog_aliases(catalog)
+
     def _do_refresh_locked(self) -> None:
         catalog = self.app._catalog
         if catalog is None:
             return
         repo_path = catalog.repo.working_dir
-        expected_keys = frozenset(catalog.list())
-
-        # build alias multimap: hash -> sorted tuple of aliases
-        alias_multimap = _build_alias_multimap(catalog.catalog_aliases)
+        expected_keys = frozenset(_get_catalog_list(catalog))
+        alias_multimap = _build_alias_multimap(self.catalog_aliases)
 
         # preserve insertion order from _row_cache (dict is ordered in Python 3.7+)
         cached_rows = tuple(
@@ -543,7 +566,7 @@ class CatalogScreen(Screen):
         match row_data:
             case CatalogRowData(aliases=(first_alias, *_)):
                 catalog_alias = next(
-                    (ca for ca in catalog.catalog_aliases if ca.alias == first_alias),
+                    (ca for ca in self.catalog_aliases if ca.alias == first_alias),
                     None,
                 )
             case _:
@@ -696,15 +719,27 @@ class ExploreScreen(Screen):
         for i, (name, backend, params, env_vars) in enumerate(rows):
             table.add_row(name, backend, params, env_vars, key=str(i))
 
+    @staticmethod
+    def _build_explore_data(entry, alias, known_cached=None) -> ExploreData:
+        expr = maybe_expr(entry)
+        computed_cached, cache_path = maybe_cache_info(expr)
+        return ExploreData(
+            hash=entry.name,
+            alias=alias,
+            schema_items=maybe_schema(expr),
+            lineage_text=maybe_lineage(expr),
+            is_cached=known_cached if known_cached is not None else computed_cached,
+            cache_path=cache_path,
+            metadata=maybe_metadata(entry),
+        )
+
     @work(thread=True)
     def _load_explore_data(self) -> None:
         known_cached = self._row_data.cached if self._row_data is not None else None
-        cached_expr = self._row_data.cached_expr if self._row_data is not None else None
-        data = _build_explore_data(
+        data = self._build_explore_data(
             self._entry,
             self._alias,
             known_cached=known_cached,
-            cached_expr=cached_expr,
         )
         self.app.call_from_thread(self._render_explore, data)
 
@@ -731,10 +766,13 @@ class ExploreScreen(Screen):
                 cache_text = "— unknown"
         self.query_one("#cache-content", Static).update(cache_text)
 
+        metadata_section = self.query_one("#metadata-section")
         if data.metadata:
-            self.query_one("#metadata-section").display = True
+            metadata_section.display = True
             metadata_text = "\n".join(f"{k}: {v}" for k, v in data.metadata)
             self.query_one("#metadata-content", Static).update(metadata_text)
+        else:
+            metadata_section.display = False
 
         aliases_table = self.query_one("#aliases-table", DataTable)
         aliases_table.clear()
@@ -786,11 +824,7 @@ class ExploreScreen(Screen):
     @work(thread=True)
     def _load_data_preview(self) -> None:
         try:
-            expr = (
-                self._row_data.cached_expr
-                if self._row_data is not None and self._row_data.cached_expr is not None
-                else self._entry.expr
-            )
+            expr = self._entry.expr
             df = self._execute_preview(expr)
             columns = tuple(str(c) for c in df.columns)
             rows = tuple(

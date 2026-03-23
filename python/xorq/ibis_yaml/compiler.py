@@ -592,7 +592,7 @@ class ExprDumper:
         profiles = dehydrate_cons(find_all_sources(expr))
         path_to_writer2 = dict(
             (
-                self._prepare_expr_metadata_file(expr),
+                self._prepare_expr_metadata_file(self.expr),
                 self._prepare_build_metadata_file(),
                 self._prepare_profiles_file(profiles),
             )

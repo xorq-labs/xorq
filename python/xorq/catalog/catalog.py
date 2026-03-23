@@ -473,6 +473,16 @@ class CatalogEntry:
 
         return load_expr_from_zip(self.catalog_path)
 
+    @property
+    def lazy_expr(self):
+        from xorq.catalog.expr_utils import load_expr_from_zip  # noqa: PLC0415
+
+        return load_expr_from_zip(self.catalog_path, lazy=True)
+
+    @property
+    def parquet_cache_paths(self) -> tuple[str]:
+        return tuple(self.metadata.get("parquet_cache_paths") or ())
+
     @cached_property
     def metadata(self):
         from xorq.vendor.ibis.expr.types.core import ExprMetadata  # noqa: PLC0415
@@ -487,6 +497,14 @@ class CatalogEntry:
     @property
     def kind(self) -> ExprKind:
         return self.metadata.kind
+
+    @property
+    def columns(self) -> tuple[str]:
+        return tuple(self.metadata["schema_out"])
+
+    @property
+    def root_tag(self) -> str:
+        return self.metadata.get("root_tag", "")
 
     @cached_property
     def backends(self) -> tuple[str, ...]:

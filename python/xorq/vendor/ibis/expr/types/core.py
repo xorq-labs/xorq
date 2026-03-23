@@ -740,7 +740,26 @@ class ExprMetadata:
             schema_out=expr.as_table().schema(),
         )
 
+    @cached_property
+    def root_tag(self) -> Optional[str]:
+        tags = self.expr.ls.tags
+        return tags[0].tag if tags else None
+
+    @cached_property
+    def parquet_cache_paths(self) -> list[str]:
+        from xorq.caching import ParquetSnapshotCache  # noqa: PLC0415
+        from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+        from xorq.expr.relations import CachedNode  # noqa: PLC0415
+
+        cached_nodes = walk_nodes((CachedNode,), self.expr)
+        return [
+            str(cn.cache.storage.get_path(cn.cache.calc_key(cn.parent)))
+            for cn in cached_nodes
+            if isinstance(cn.cache, ParquetSnapshotCache)
+        ]
+
     def to_dict(self):
+        paths = self.parquet_cache_paths
         return {
             key: value
             for key, value in (
@@ -750,6 +769,8 @@ class ExprMetadata:
                     toolz.valmap(str, self.schema_in) if self.schema_in else None,
                 ),
                 ("schema_out", toolz.valmap(str, self.schema_out)),
+                ("root_tag", self.root_tag),
+                ("parquet_cache_paths", paths or None),
             )
             if value is not None
         }
