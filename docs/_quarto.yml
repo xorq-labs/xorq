@@ -141,6 +141,7 @@ website:
             - concepts/understanding_xorq/overview.qmd
             - concepts/understanding_xorq/how_xorq_works.qmd
             - concepts/understanding_xorq/why_deferred_execution.qmd
+            - concepts/understanding_xorq/expression_types.qmd
             - concepts/understanding_xorq/expression_format.qmd
         - id: execution-backends-section
           section: "Execution and backends"
