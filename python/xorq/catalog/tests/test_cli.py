@@ -822,268 +822,270 @@ def catalog_with_source_and_transform(catalog_path):
     return catalog_path, source_entry.name, transform_entry.name
 
 
-class TestRunCommand:
-    def test_run_two_entries(self, runner, catalog_with_source_and_transform):
-        catalog_path, source_name, transform_name = catalog_with_source_and_transform
-        result = runner.invoke(
-            cli,
-            [
-                "--path",
-                catalog_path,
-                "run",
-                "src",
-                "trn",
-                "--execute-only",
-                "-o",
-                "-",
-                "-f",
-                "csv",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        assert "user_id" in result.output
+def test_run_two_entries(runner, catalog_with_source_and_transform):
+    catalog_path, source_name, transform_name = catalog_with_source_and_transform
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "src",
+            "trn",
+            "--execute-only",
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "user_id" in result.output
 
-    def test_run_with_alias_catalogs_result(
-        self, runner, catalog_with_source_and_transform
-    ):
-        catalog_path, _, _ = catalog_with_source_and_transform
-        result = runner.invoke(
-            cli,
-            ["--path", catalog_path, "run", "src", "trn", "-a", "composed-result"],
-        )
-        assert result.exit_code == 0, result.output
-        assert "Cataloged as" in result.output
 
-    def test_run_single_entry(self, runner, catalog_with_source_and_transform):
-        catalog_path, _, _ = catalog_with_source_and_transform
-        result = runner.invoke(
-            cli,
-            [
-                "--path",
-                catalog_path,
-                "run",
-                "src",
-                "--execute-only",
-                "-o",
-                "-",
-                "-f",
-                "csv",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        assert "user_id" in result.output
+def test_run_with_alias_catalogs_result(runner, catalog_with_source_and_transform):
+    catalog_path, _, _ = catalog_with_source_and_transform
+    result = runner.invoke(
+        cli,
+        ["--path", catalog_path, "run", "src", "trn", "-a", "composed-result"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Cataloged as" in result.output
 
-    def test_run_no_entries(self, runner, catalog_with_source_and_transform):
-        catalog_path, _, _ = catalog_with_source_and_transform
-        result = runner.invoke(
-            cli,
-            ["--path", catalog_path, "run", "--execute-only"],
-        )
-        assert result.exit_code != 0
 
-    def test_run_with_code(self, runner, catalog_with_source_and_transform):
-        catalog_path, _, _ = catalog_with_source_and_transform
-        result = runner.invoke(
-            cli,
-            [
-                "--path",
-                catalog_path,
-                "run",
-                "src",
-                "-c",
-                "source.filter(source.amount > 15)",
-                "--execute-only",
-                "-o",
-                "-",
-                "-f",
-                "csv",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        assert "user_id" in result.output
+def test_run_single_entry(runner, catalog_with_source_and_transform):
+    catalog_path, _, _ = catalog_with_source_and_transform
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "src",
+            "--execute-only",
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "user_id" in result.output
 
-    def test_run_code_no_entry(self, runner, catalog_with_source_and_transform):
-        catalog_path, _, _ = catalog_with_source_and_transform
-        result = runner.invoke(
-            cli,
-            ["--path", catalog_path, "run", "-c", "source.limit(1)", "--execute-only"],
-        )
-        assert result.exit_code != 0
 
-    def test_run_json_format(self, runner, catalog_with_source_and_transform):
-        catalog_path, _, _ = catalog_with_source_and_transform
-        result = runner.invoke(
-            cli,
-            [
-                "--path",
-                catalog_path,
-                "run",
-                "src",
-                "trn",
-                "--execute-only",
-                "-f",
-                "json",
-                "-o",
-                "-",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        assert "user_id" in result.output
+def test_run_no_entries(runner, catalog_with_source_and_transform):
+    catalog_path, _, _ = catalog_with_source_and_transform
+    result = runner.invoke(
+        cli,
+        ["--path", catalog_path, "run", "--execute-only"],
+    )
+    assert result.exit_code != 0
 
-    def test_run_parquet_output(
-        self, runner, catalog_with_source_and_transform, tmpdir
-    ):
-        catalog_path, _, _ = catalog_with_source_and_transform
-        out = str(Path(tmpdir).joinpath("out.parquet"))
-        result = runner.invoke(
-            cli,
-            [
-                "--path",
-                catalog_path,
-                "run",
-                "src",
-                "trn",
-                "--execute-only",
-                "-f",
-                "parquet",
-                "-o",
-                out,
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        assert Path(out).exists()
 
-    def test_run_csv_output_file(
-        self, runner, catalog_with_source_and_transform, tmpdir
-    ):
-        catalog_path, _, _ = catalog_with_source_and_transform
-        out = str(Path(tmpdir).joinpath("out.csv"))
-        result = runner.invoke(
-            cli,
-            [
-                "--path",
-                catalog_path,
-                "run",
-                "src",
-                "trn",
-                "--execute-only",
-                "-f",
-                "csv",
-                "-o",
-                out,
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        assert Path(out).exists()
-        contents = Path(out).read_text()
-        assert "user_id" in contents
+def test_run_with_code(runner, catalog_with_source_and_transform):
+    catalog_path, _, _ = catalog_with_source_and_transform
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "src",
+            "-c",
+            "source.filter(source.amount > 15)",
+            "--execute-only",
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "user_id" in result.output
 
-    def test_run_json_output_file(
-        self, runner, catalog_with_source_and_transform, tmpdir
-    ):
-        catalog_path, _, _ = catalog_with_source_and_transform
-        out = str(Path(tmpdir).joinpath("out.json"))
-        result = runner.invoke(
-            cli,
-            [
-                "--path",
-                catalog_path,
-                "run",
-                "src",
-                "trn",
-                "--execute-only",
-                "-f",
-                "json",
-                "-o",
-                out,
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        assert Path(out).exists()
-        contents = Path(out).read_text()
-        assert "user_id" in contents
 
-    def test_run_arrow_output_file(
-        self, runner, catalog_with_source_and_transform, tmpdir
-    ):
-        catalog_path, _, _ = catalog_with_source_and_transform
-        out = str(Path(tmpdir).joinpath("out.arrow"))
-        result = runner.invoke(
-            cli,
-            [
-                "--path",
-                catalog_path,
-                "run",
-                "src",
-                "trn",
-                "--execute-only",
-                "-f",
-                "arrow",
-                "-o",
-                out,
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        assert Path(out).exists()
-        with open(out, "rb") as f:
-            table = pa.ipc.open_stream(f).read_all()
-        assert len(table) > 0
+def test_run_code_no_entry(runner, catalog_with_source_and_transform):
+    catalog_path, _, _ = catalog_with_source_and_transform
+    result = runner.invoke(
+        cli,
+        ["--path", catalog_path, "run", "-c", "source.limit(1)", "--execute-only"],
+    )
+    assert result.exit_code != 0
 
-    def test_run_arrow_output_stdout(self, runner, catalog_with_source_and_transform):
-        catalog_path, _, _ = catalog_with_source_and_transform
-        result = runner.invoke(
-            cli,
-            [
-                "--path",
-                catalog_path,
-                "run",
-                "src",
-                "trn",
-                "--execute-only",
-                "-f",
-                "arrow",
-                "-o",
-                "-",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        assert len(result.output) > 0
 
-    def test_run_default_output(self, runner, catalog_with_source_and_transform):
-        """Default output (no -o) writes to /dev/null, exits 0."""
-        catalog_path, _, _ = catalog_with_source_and_transform
-        result = runner.invoke(
-            cli,
-            [
-                "--path",
-                catalog_path,
-                "run",
-                "src",
-                "trn",
-                "--execute-only",
-            ],
-        )
-        assert result.exit_code == 0, result.output
+def test_run_json_format(runner, catalog_with_source_and_transform):
+    catalog_path, _, _ = catalog_with_source_and_transform
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "src",
+            "trn",
+            "--execute-only",
+            "-f",
+            "json",
+            "-o",
+            "-",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "user_id" in result.output
 
-    def test_run_with_limit(self, runner, catalog_with_source_and_transform):
-        catalog_path, _, _ = catalog_with_source_and_transform
-        result = runner.invoke(
-            cli,
-            [
-                "--path",
-                catalog_path,
-                "run",
-                "src",
-                "trn",
-                "--execute-only",
-                "-o",
-                "-",
-                "-f",
-                "csv",
-                "--limit",
-                "1",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        lines = result.output.strip().splitlines()
-        assert len(lines) == 2  # header + 1 data row
+
+def test_run_parquet_output(runner, catalog_with_source_and_transform, tmpdir):
+    catalog_path, _, _ = catalog_with_source_and_transform
+    out = str(Path(tmpdir).joinpath("out.parquet"))
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "src",
+            "trn",
+            "--execute-only",
+            "-f",
+            "parquet",
+            "-o",
+            out,
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert Path(out).exists()
+
+
+def test_run_csv_output_file(runner, catalog_with_source_and_transform, tmpdir):
+    catalog_path, _, _ = catalog_with_source_and_transform
+    out = str(Path(tmpdir).joinpath("out.csv"))
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "src",
+            "trn",
+            "--execute-only",
+            "-f",
+            "csv",
+            "-o",
+            out,
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert Path(out).exists()
+    contents = Path(out).read_text()
+    assert "user_id" in contents
+
+
+def test_run_json_output_file(runner, catalog_with_source_and_transform, tmpdir):
+    catalog_path, _, _ = catalog_with_source_and_transform
+    out = str(Path(tmpdir).joinpath("out.json"))
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "src",
+            "trn",
+            "--execute-only",
+            "-f",
+            "json",
+            "-o",
+            out,
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert Path(out).exists()
+    contents = Path(out).read_text()
+    assert "user_id" in contents
+
+
+def test_run_arrow_output_file(runner, catalog_with_source_and_transform, tmpdir):
+    catalog_path, _, _ = catalog_with_source_and_transform
+    out = str(Path(tmpdir).joinpath("out.arrow"))
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "src",
+            "trn",
+            "--execute-only",
+            "-f",
+            "arrow",
+            "-o",
+            out,
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert Path(out).exists()
+    with open(out, "rb") as f:
+        table = pa.ipc.open_stream(f).read_all()
+    assert len(table) > 0
+
+
+def test_run_arrow_output_stdout(runner, catalog_with_source_and_transform):
+    catalog_path, _, _ = catalog_with_source_and_transform
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "src",
+            "trn",
+            "--execute-only",
+            "-f",
+            "arrow",
+            "-o",
+            "-",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert len(result.output) > 0
+
+
+def test_run_default_output(runner, catalog_with_source_and_transform):
+    """Default output (no -o) writes to /dev/null, exits 0."""
+    catalog_path, _, _ = catalog_with_source_and_transform
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "src",
+            "trn",
+            "--execute-only",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_run_with_limit(runner, catalog_with_source_and_transform):
+    catalog_path, _, _ = catalog_with_source_and_transform
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "src",
+            "trn",
+            "--execute-only",
+            "-o",
+            "-",
+            "-f",
+            "csv",
+            "--limit",
+            "1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    lines = result.output.strip().splitlines()
+    assert len(lines) == 2  # header + 1 data row
