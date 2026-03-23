@@ -41,7 +41,6 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 from xorq.common.utils.defer_utils import normalize_read_path_stat
 from xorq.common.utils.graph_utils import (
     find_all_sources,
-    find_all_storage_sources,
     opaque_ops,
     replace_nodes,
     replace_sources,
@@ -576,10 +575,7 @@ class ExprDumper:
         # write in-memory data to build dir (single walk + single replacement pass)
         expr, path_to_writer0 = self._replace_tables(expr)
 
-        sources = find_all_sources(expr)
-        profiles = dehydrate_cons(
-            sources + find_all_storage_sources(expr, already_seen=sources)
-        )
+        profiles = dehydrate_cons(find_all_sources(expr))
         path_to_writer2 = dict(
             (
                 self._prepare_expr_metadata_file(expr),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import functools
 
 from attr import (
@@ -209,13 +210,7 @@ class GCSCache(Cache):
 
 
 def maybe_prevent_cross_source_caching(expr, storage):
-    from xorq.expr.relations import (  # noqa: PLC0415
-        into_backend,
-    )
-
-    try:
+    with contextlib.suppress(XorqError):
         if storage.storage.source != expr._find_backend(use_default=False):
-            expr = into_backend(expr, storage.storage.source)
-    except XorqError:
-        pass
+            return expr.into_backend(storage.storage.source)
     return expr
