@@ -421,7 +421,7 @@ class CatalogScreen(Screen):
         for name, dtype in row_data.schema_out:
             schema_table.add_row(name, dtype)
 
-    @work(thread=True)
+    @work(thread=True, exit_on_error=False)
     def _do_refresh(self) -> None:
         if not self._refresh_lock.acquire(blocking=False):
             return
@@ -497,9 +497,10 @@ class CatalogScreen(Screen):
 
     def _render_catalog_row(self, row_data) -> None:
         with self.app.batch_update():
-            self.query_one("#catalog-table", DataTable).add_row(
-                *row_data.row, key=row_data.row_key
-            )
+            table = self.query_one("#catalog-table", DataTable)
+            if len(table.columns) < len(COLUMNS):
+                return
+            table.add_row(*row_data.row, key=row_data.row_key)
 
     def _render_status(self, stamp, repo_path) -> None:
         count = self.query_one("#catalog-table", DataTable).row_count
