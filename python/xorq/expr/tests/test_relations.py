@@ -39,14 +39,14 @@ def test_flight_udxf_validate_schema_fail(schema_val, pattern):
 
 def test_kind_memtable_is_source():
     expr = xo.memtable({"a": [1, 2, 3]})
-    assert ExprMetadata(expr).kind == ExprKind.Source
+    assert ExprMetadata.from_expr(expr).kind == ExprKind.Source
 
 
 def test_kind_database_table_is_source():
     con = xo.connect()
     con.raw_sql("CREATE TABLE _test_src (a INT, b VARCHAR)")
     expr = con.table("_test_src")
-    assert ExprMetadata(expr).kind == ExprKind.Source
+    assert ExprMetadata.from_expr(expr).kind == ExprKind.Source
 
 
 def test_kind_deferred_read_is_source():
@@ -54,7 +54,7 @@ def test_kind_deferred_read_is_source():
         "s3://bucket/data.parquet",
         schema={"a": "int64", "b": "string"},
     )
-    assert ExprMetadata(expr).kind == ExprKind.Source
+    assert ExprMetadata.from_expr(expr).kind == ExprKind.Source
 
 
 def test_kind_cached_node_is_source():
@@ -68,53 +68,53 @@ def test_kind_cached_node_is_source():
         source=dt.source,
         parent=table_expr,
     )
-    assert ExprMetadata(cached.to_expr()).kind == ExprKind.Source
+    assert ExprMetadata.from_expr(cached.to_expr()).kind == ExprKind.Source
 
 
 def test_kind_tagged_source_is_source():
     schema = ibis.schema({"a": "int64"})
     inner = xo.memtable({"a": [1, 2, 3]}).op()
     tagged = Tag(schema=schema, parent=inner)
-    assert ExprMetadata(tagged.to_expr()).kind == ExprKind.Source
+    assert ExprMetadata.from_expr(tagged.to_expr()).kind == ExprKind.Source
 
 
 def test_kind_hashing_tagged_source_is_source():
     schema = ibis.schema({"a": "int64"})
     inner = xo.memtable({"a": [1, 2, 3]}).op()
     tagged = HashingTag(schema=schema, parent=inner)
-    assert ExprMetadata(tagged.to_expr()).kind == ExprKind.Source
+    assert ExprMetadata.from_expr(tagged.to_expr()).kind == ExprKind.Source
 
 
 def test_kind_filtered_table_is_expr():
     expr = xo.memtable({"a": [1, 2, 3]}).filter(xo._.a > 1)
-    assert ExprMetadata(expr).kind == ExprKind.Expr
+    assert ExprMetadata.from_expr(expr).kind == ExprKind.Expr
 
 
 def test_kind_projected_table_is_expr():
     expr = xo.memtable({"a": [1, 2], "b": [3, 4]}).select("a")
-    assert ExprMetadata(expr).kind == ExprKind.Expr
+    assert ExprMetadata.from_expr(expr).kind == ExprKind.Expr
 
 
 def test_kind_aggregated_table_is_expr():
     t = xo.memtable({"a": [1, 2, 3]})
     expr = t.aggregate(total=t.a.sum())
-    assert ExprMetadata(expr).kind == ExprKind.Expr
+    assert ExprMetadata.from_expr(expr).kind == ExprKind.Expr
 
 
 def test_kind_unbound_table_is_unbound_expr():
     t = xo.table(schema={"a": "int64"})
-    assert ExprMetadata(t).kind == ExprKind.UnboundExpr
+    assert ExprMetadata.from_expr(t).kind == ExprKind.UnboundExpr
 
 
 def test_kind_filtered_unbound_is_unbound_expr():
     t = xo.table(schema={"a": "int64"})
     expr = t.filter(t.a > 0)
-    assert ExprMetadata(expr).kind == ExprKind.UnboundExpr
+    assert ExprMetadata.from_expr(expr).kind == ExprKind.UnboundExpr
 
 
 def test_kind_source_to_dict():
     expr = xo.memtable({"a": [1, 2, 3]})
-    d = ExprMetadata(expr).to_dict()
+    d = ExprMetadata.from_expr(expr).to_dict()
     assert d["kind"] == "source"
     assert "schema_out" in d
     assert "schema_in" not in d
@@ -145,7 +145,7 @@ def test_ls_kind_matches_metadata():
         xo.table(schema={"a": "int64"}),
     ]
     for expr in exprs:
-        assert expr.ls.kind == ExprMetadata(expr).kind
+        assert expr.ls.kind == ExprMetadata.from_expr(expr).kind
 
 
 # -- .ls.unwrapped accessor ---------------------------------------------------

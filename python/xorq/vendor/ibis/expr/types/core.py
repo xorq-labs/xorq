@@ -14,6 +14,7 @@ from attr import (
 )
 from attr.validators import (
     instance_of,
+    optional,
 )
 from public import public
 
@@ -678,44 +679,66 @@ class Expr(Immutable, Coercible):
         return LETSQLAccessor(self.op())
 
 
+def _extract_unbound_node(expr):
+    from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+
+    unbound_node, *rest = walk_nodes(ops.UnboundTable, expr) or (None,)
+    if rest:
+        raise ValueError("Expected at most one UnboundTable")
+    return unbound_node
+
+
+def _extract_is_source(expr):
+    from xorq.expr.relations import CachedNode, Read  # noqa: PLC0415
+
+    source_nodes = (ops.DatabaseTable, Read, ops.InMemoryTable, CachedNode)
+    root = expr.ls.unwrapped
+    return isinstance(root, source_nodes)
+
+
+def _extract_kind(unbound_node, is_source):
+    match (unbound_node, is_source):
+        case (node, _) if node is not None:
+            return ExprKind.UnboundExpr
+        case (_, True):
+            return ExprKind.Source
+        case _:
+            return ExprKind.Expr
+
+
 @frozen
 class ExprMetadata:
-    expr = field(validator=instance_of(Expr))
+    kind: ExprKind = field(validator=instance_of(ExprKind))
+    schema_out: Schema = field(validator=instance_of(ibis.expr.schema.Schema))
+    schema_in: Optional[Schema] = field(
+        default=None, validator=optional(instance_of(ibis.expr.schema.Schema))
+    )
 
-    @cached_property
-    def _unbound_node(self):
-        from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+    @classmethod
+    def from_dict(cls, data):
+        schema_in_raw = data.get("schema_in")
+        return cls(
+            kind=ExprKind(data["kind"]),
+            schema_out=ibis.Schema.from_tuples(
+                [(k, v) for k, v in data["schema_out"].items()]
+            ),
+            schema_in=(
+                ibis.Schema.from_tuples([(k, v) for k, v in schema_in_raw.items()])
+                if schema_in_raw
+                else None
+            ),
+        )
 
-        unbound_node, *rest = walk_nodes(ops.UnboundTable, self.expr) or (None,)
-        if rest:
-            raise ValueError("Expected at most one UnboundTable")
-        return unbound_node
+    @classmethod
+    def from_expr(cls, expr):
+        unbound_node = _extract_unbound_node(expr)
+        is_source = _extract_is_source(expr)
 
-    @cached_property
-    def _is_source(self):
-        from xorq.expr.relations import CachedNode, Read
-
-        source_nodes = (ops.DatabaseTable, Read, ops.InMemoryTable, CachedNode)
-        root = self.expr.ls.unwrapped
-        return isinstance(root, source_nodes)
-
-    @cached_property
-    def kind(self) -> ExprKind:
-        match (self._unbound_node, self._is_source):
-            case (node, _) if node is not None:
-                return ExprKind.UnboundExpr
-            case (_, True):
-                return ExprKind.Source
-            case _:
-                return ExprKind.Expr
-
-    @cached_property
-    def schema_in(self) -> Optional[Schema]:
-        return node.schema if (node := self._unbound_node) else None
-
-    @cached_property
-    def schema_out(self):
-        return self.expr.as_table().schema()
+        return cls(
+            kind=_extract_kind(unbound_node, is_source),
+            schema_in=unbound_node.schema if unbound_node else None,
+            schema_out=expr.as_table().schema(),
+        )
 
     def to_dict(self):
         return {
@@ -743,11 +766,19 @@ class LETSQLAccessor:
 
     @cached_property
     def metadata(self):
-        return ExprMetadata(self.expr)
+        return ExprMetadata.from_expr(self.expr)
 
     @property
     def kind(self) -> ExprKind:
         return self.metadata.kind
+
+    @property
+    def is_source(self):
+        return _extract_is_source(self.expr)
+
+    @property
+    def sources(self):
+        return self.metadata.sources
 
     @property
     def cached_nodes(self):

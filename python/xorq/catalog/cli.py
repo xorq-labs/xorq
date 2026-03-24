@@ -385,7 +385,7 @@ def schema(ctx, name, as_json):
             ) from err
 
         if as_json:
-            click.echo(json_mod.dumps(entry.metadata, indent=2))
+            click.echo(json_mod.dumps(entry.metadata.to_dict(), indent=2))
             return
 
         type_label = (
@@ -395,11 +395,15 @@ def schema(ctx, name, as_json):
         )
         click.echo(f"Type: {type_label}")
 
-        for label, key in (("Schema In", "schema_in"), ("Schema Out", "schema_out")):
-            if (sch := entry.metadata.get(key)) is not None:
+        meta = entry.metadata
+        for label, schema in (
+            ("Schema In", meta.schema_in),
+            ("Schema Out", meta.schema_out),
+        ):
+            if schema is not None:
                 click.echo()
                 click.echo(f"{label}:")
-                for col, dtype in sch.items():
+                for col, dtype in schema.items():
                     click.echo(f"  {col:<24} {dtype}")
 
 
