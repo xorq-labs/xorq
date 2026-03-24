@@ -4,7 +4,7 @@ from pathlib import Path
 
 import dask
 import toolz
-import yaml
+import yaml12
 from attr import evolve, field, frozen
 from attr.validators import (
     instance_of,
@@ -230,7 +230,7 @@ class Profile:
         return json.dumps(self.as_dict())
 
     def as_yaml(self):
-        return yaml.safe_dump(
+        return yaml12.format_yaml(
             {
                 "con_name": self.con_name,
                 "kwargs_dict": self.kwargs_dict,
@@ -387,7 +387,7 @@ class Profile:
         >>> profile = Profile.load('postgres_dev', profile_dir=custom_dir)
         """
         path = cls.get_path(name, profile_dir=profile_dir)
-        env = yaml.safe_load(path.read_text())
+        env = yaml12.parse_yaml(path.read_text())
         con_name = env.get("con_name")
         kwargs_dict = env.get("kwargs_dict")
         idx = env.get("idx")

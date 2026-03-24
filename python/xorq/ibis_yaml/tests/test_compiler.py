@@ -78,7 +78,7 @@ def test_build_manager_roundtrip(t, builds_dir):
     artifact_store.save_yaml(yaml_dict, DumpFiles.expr)
 
     out = artifact_store.root_path.joinpath(DumpFiles.expr).read_text()
-    assert out == "a: string\n"
+    assert out == "---\na: string\n...\n"
     result = artifact_store.load_yaml(DumpFiles.expr)
     assert result == yaml_dict
 
@@ -97,11 +97,13 @@ def test_clean_frozen_dict_yaml(builds_dir):
         {"string": "text", "integer": 42, "float": 3.14, "boolean": True, "none": None}
     )
 
-    expected_yaml = """string: text
+    expected_yaml = """---
+string: text
 integer: 42
 float: 3.14
 boolean: true
-none: null
+none: ~
+...
 """
     out_path = artifact_store.save_yaml(data, DumpFiles.expr)
     result = out_path.read_text()
@@ -173,14 +175,16 @@ def test_compiler_sql(builds_dir, parquet_dir):
     built_profiles = yaml.safe_load(build_path.joinpath(DumpFiles.profiles).read_text())
     (profile_name,) = built_profiles.keys()
     expected_result = (
+        "---\n"
         "queries:\n"
         "  main:\n"
         "    engine: datafusion\n"
         f"    profile_name: {profile_name}\n"
         "    relations:\n"
-        f"    - {expected_relation}\n"
+        f"      - {expected_relation}\n"
         "    options: {}\n"
         f"    sql_file: {expted_sql_hash}.sql\n"
+        "...\n"
     )
     assert sql_text == expected_result
 
@@ -212,19 +216,21 @@ def test_deferred_reads_yaml(builds_dir, parquet_dir):
     expected_read_path = str(config_path)
 
     expected_result = (
+        "---\n"
         "reads:\n"
         f"  {expected_relation}:\n"
         "    engine: datafusion\n"
         f"    profile_name: {expected_profile}\n"
         "    relations:\n"
-        f"    - {expected_relation}\n"
+        f"      - {expected_relation}\n"
         "    options:\n"
         "      method_name: read_parquet\n"
         "      name: awards_players\n"
         "      read_kwargs:\n"
-        f"      - path: {expected_read_path}\n"
-        "      - table_name: awards_players\n"
+        f"        - path: {expected_read_path}\n"
+        "        - table_name: awards_players\n"
         f"    sql_file: {expected_sql_file}\n"
+        "...\n"
     )
 
     assert sql_text == expected_result

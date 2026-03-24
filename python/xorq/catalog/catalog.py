@@ -14,7 +14,6 @@ from subprocess import Popen
 from urllib.parse import urlparse
 
 import toolz
-import yaml
 import yaml12
 from attr import (
     field,
@@ -425,7 +424,7 @@ class CatalogAddition:
         )
         self.ensure_dirs()
         catalog_entry = self.catalog_entry
-        catalog_entry.metadata_path.write_text(yaml.safe_dump(self.metadata))
+        catalog_entry.metadata_path.write_text(yaml12.format_yaml(self.metadata))
         shutil.copy(self.build_zip.path, catalog_entry.catalog_path)
         index = self.catalog.repo.index
         #
@@ -736,7 +735,7 @@ class CatalogYAML:
     def __attrs_post_init__(self):
         if not self.yaml_path.exists():
             self.yaml_path.write_text(
-                yaml.safe_dump(
+                yaml12.format_yaml(
                     {str(CatalogInfix.ENTRY): [], str(CatalogInfix.ALIAS): []}
                 )
             )
@@ -758,7 +757,7 @@ class CatalogYAML:
         return raw
 
     def set_contents(self, contents):
-        self.yaml_path.write_text(yaml.safe_dump(contents))
+        self.yaml_path.write_text(yaml12.format_yaml(contents))
         return self.yaml_path
 
     def contains(self, entry):
