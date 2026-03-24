@@ -8,7 +8,6 @@ import pytest
 from click.testing import CliRunner
 
 from xorq.catalog.catalog import (
-    BuildZip,
     Catalog,
     CatalogAddition,
 )
@@ -18,6 +17,7 @@ from xorq.catalog.tests.conftest import (
     make_build_zip,
 )
 from xorq.catalog.zip_utils import (
+    BuildZip,
     extract_build_zip_context,
     write_zip,
 )
@@ -120,7 +120,7 @@ def test_add_with_aliases(runner, catalog_path, data_dict):
         ],
     )
     assert result.exit_code == 0, result.output
-    catalog = Catalog(repo=Catalog.from_kwargs(path=catalog_path, init=False).repo)
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
     assert {ca.alias for ca in catalog.catalog_aliases} == {"alias-x", "alias-y"}
 
 

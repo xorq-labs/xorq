@@ -43,6 +43,7 @@ dependencies = [
     "uv>=0.7.20",
     "rich>=13.9.4",
     "click>=8.0",
+    "git-annex>=10.20250220",
     "gitpython>=3.1.46",
     "textual>=1.0.0",
     "filelock>=3.13",
