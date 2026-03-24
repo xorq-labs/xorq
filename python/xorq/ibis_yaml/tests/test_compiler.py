@@ -28,9 +28,11 @@ from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.conftest import array_types_df
+from xorq.expr.relations import CachedNode
 from xorq.ibis_yaml.compiler import (
     ArtifactStore,
     DumpFiles,
+    ExprDumper,
     ExprKind,
     RefEnum,
     build_expr,
@@ -688,6 +690,50 @@ def test_generated_name_sanitization_memtable(
     assert get_uid_prefix(expr_name)
     assert not get_uid_prefix(build_name)
     snapshot.assert_match(build_name, "memory-build-name.txt")
+
+
+def test_memtable_cache_key_stable_across_roundtrip(builds_dir, tmp_path):
+    cache = ParquetSnapshotCache.from_kwargs(relative_path=tmp_path / "cache")
+    expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
+
+    # ExprDumper sanitizes names before building; replicate that here
+    sanitized = ExprDumper._sanitize_generated_names(expr, normalize_method=None)
+    build_path = build_expr(expr, builds_dir=builds_dir)
+    loaded = load_expr(build_path)
+
+    def cache_key(e):
+        (cn,) = walk_nodes((CachedNode,), e)
+        return cn.cache.calc_key(cn.parent)
+
+    assert cache_key(sanitized) == cache_key(loaded)
+
+
+def test_memtable_creates_same_key(builds_dir, tmp_path):
+    # The cache file written by the sanitized original expr and the cache file
+    # written by the loaded expr must have the same filename — confirming the
+    # key is stable across the build/load roundtrip.
+    cache_path = tmp_path / "cache"
+    cache = ParquetSnapshotCache.from_kwargs(relative_path=cache_path)
+    expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
+
+    # Sanitize names the same way ExprDumper does before building
+    sanitized = ExprDumper._sanitize_generated_names(expr, normalize_method=None)
+    build_path = build_expr(expr, builds_dir=builds_dir)
+
+    # Execute the sanitized expr — writes the cache file
+    sanitized.execute()
+    original_files = set(cache_path.glob("*.parquet"))
+    assert original_files, "sanitized exec did not create a cache file"
+
+    # Load and execute — must hit the same cache file, not create a new one
+    loaded = load_expr(build_path)
+    loaded.execute()
+    loaded_files = set(cache_path.glob("*.parquet"))
+
+    assert original_files == loaded_files, (
+        f"key mismatch: sanitized created {[f.name for f in original_files]}, "
+        f"loaded added {[f.name for f in loaded_files - original_files]}"
+    )
 
 
 def test_pandas_memtable_comparison(builds_dir):

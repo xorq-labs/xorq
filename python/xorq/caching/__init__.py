@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import functools
 
 from attr import (
@@ -23,6 +24,7 @@ from xorq.caching.strategy import (
     ModificationTimeStrategy,
     SnapshotStrategy,
 )
+from xorq.common.exceptions import XorqError
 from xorq.common.utils.otel_utils import tracer
 from xorq.config import options
 from xorq.vendor.ibis.expr import types as ir
@@ -208,10 +210,7 @@ class GCSCache(Cache):
 
 
 def maybe_prevent_cross_source_caching(expr, storage):
-    from xorq.expr.relations import (  # noqa: PLC0415
-        into_backend,
-    )
-
-    if storage.storage.source != expr._find_backend():
-        expr = into_backend(expr, storage.storage.source)
+    with contextlib.suppress(XorqError):
+        if storage.storage.source != expr._find_backend(use_default=False):
+            return expr.into_backend(storage.storage.source)
     return expr
