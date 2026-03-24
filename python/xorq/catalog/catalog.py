@@ -474,17 +474,19 @@ class CatalogEntry:
         return load_expr_from_zip(self.catalog_path)
 
     @cached_property
-    def metadata(self) -> dict:
+    def metadata(self):
+        from xorq.vendor.ibis.expr.types.core import ExprMetadata  # noqa: PLC0415
+
         data = self._read_zip_member(DumpFiles.expr_metadata, json.loads)
         if not isinstance(data, dict):
             raise ValueError(
                 f"Expected {DumpFiles.expr_metadata!r} to contain a JSON object in {self.catalog_path}"
             )
-        return data
+        return ExprMetadata.from_dict(data)
 
     @property
     def kind(self) -> ExprKind:
-        return ExprKind(self.metadata["kind"])
+        return self.metadata.kind
 
     @cached_property
     def backends(self) -> tuple[str, ...]:

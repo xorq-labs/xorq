@@ -505,7 +505,7 @@ class ExprDumper:
         return path, writer
 
     def _make_expr_metadata(self, expr) -> Dict[str, Any]:
-        return ExprMetadata(expr).to_dict()
+        return ExprMetadata.from_expr(expr).to_dict()
 
     def _prepare_expr_metadata_file(self, expr):
         path = self.artifact_store.get_path(DumpFiles.expr_metadata)

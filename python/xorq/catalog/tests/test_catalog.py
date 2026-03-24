@@ -360,31 +360,35 @@ def test_extract_kind_partial(catalog):
 def test_schema_out_bound(catalog):
     expr = xo.memtable({"col_a": [1, 2], "col_b": ["x", "y"]})
     entry = catalog.add(expr)
-    assert entry.metadata["schema_out"] == {"col_a": "int64", "col_b": "string"}
+    assert entry.metadata.schema_out == xo.Schema({"col_a": "int64", "col_b": "string"})
 
 
 def test_schema_in_none_for_bound(catalog):
     expr = xo.memtable({"a": [1, 2, 3]})
     entry = catalog.add(expr)
-    assert "schema_in" not in entry.metadata
+    assert entry.metadata.schema_in is None
 
 
 def test_schema_out_unbound(catalog):
     t = xo.table(schema={"amount": "float64", "currency": "string"})
     expr = t.mutate(amount_usd=t.amount * 1.2)
     entry = catalog.add(expr)
-    assert entry.metadata["schema_out"] == {
-        "amount": "float64",
-        "currency": "string",
-        "amount_usd": "float64",
-    }
+    assert entry.metadata.schema_out == xo.Schema(
+        {
+            "amount": "float64",
+            "currency": "string",
+            "amount_usd": "float64",
+        }
+    )
 
 
 def test_schema_in_unbound(catalog):
     t = xo.table(schema={"amount": "float64", "currency": "string"})
     expr = t.filter(t.amount > 0)
     entry = catalog.add(expr)
-    assert entry.metadata["schema_in"] == {"amount": "float64", "currency": "string"}
+    assert entry.metadata.schema_in == xo.Schema(
+        {"amount": "float64", "currency": "string"}
+    )
 
 
 def test_get_entry_by_alias(catalog):
