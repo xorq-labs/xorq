@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774365099867,
+  "lastUpdate": 1774367141723,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -1980,6 +1980,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.006614746558310453",
             "extra": "mean: 209.87473119998867 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1fbb2442c46c0528fe758d41467932f71c20ee35",
+          "message": "ref(ExprMetadata): extract explicit fields, drop expr dependency (#1740)\n\nRefactor ExprMetadata from cached_property-on-expr to explicit attrs\nfields (kind, schema_out, schema_in) with from_expr and from_dict\nclassmethods. This makes ExprMetadata a standalone value object that can\nbe constructed from either a live expression or serialized dict, without\nholding a reference to the original expr.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-24T16:42:03+01:00",
+          "tree_id": "98d699c6f72e12add307de1b191c968ae3354587",
+          "url": "https://github.com/xorq-labs/xorq/commit/1fbb2442c46c0528fe758d41467932f71c20ee35"
+        },
+        "date": 1774367138961,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.040508558703897,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011050449878968202",
+            "extra": "mean: 142.03519414286347 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.593732603764169,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01154437775524795",
+            "extra": "mean: 217.687899200007 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6658334369331319,
+            "unit": "iter/sec",
+            "range": "stddev: 0.20522939557190045",
+            "extra": "mean: 1.5018771130000004 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.4921736407631645,
+            "unit": "iter/sec",
+            "range": "stddev: 0.034986682459745386",
+            "extra": "mean: 286.3546040000074 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.10669827317463,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03696854485953038",
+            "extra": "mean: 243.50461939999377 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.813226708489003,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007659360792823017",
+            "extra": "mean: 207.76083500000482 msec\nrounds: 5"
           }
         ]
       }
