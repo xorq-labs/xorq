@@ -285,7 +285,7 @@ class BigQueryCompiler(SQLGlotCompiler):
         return sources
 
     def _compile_python_udf(self, udf_node: ops.ScalarUDF) -> sge.Create:
-        name = type(udf_node).__name__
+        name = udf_node.__func_name__
         type_mapper = self.udf_type_mapper
 
         body = PythonToJavaScriptTranslator(udf_node.__func__).compile()

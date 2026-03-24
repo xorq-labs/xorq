@@ -116,7 +116,7 @@ def _compile_pyarrow_udwf(udwf_node):
 
 def _compile_pyarrow_udaf(udaf_node):
     func = udaf_node.__func__
-    name = type(udaf_node).__name__
+    name = udaf_node.__func_name__
     return_type = PyArrowType.from_ibis(udaf_node.dtype)
     parameters = (
         (name, PyArrowType.from_ibis(param.annotation.pattern.dtype))
@@ -350,7 +350,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             input_types=list(map(PyArrowType.from_ibis, udf_node.input_type)),
             return_type=PyArrowType.from_ibis(udf_node.return_type),
             volatility="volatile",
-            name=udf_node.func.__name__,
+            name=udf_node.__func_name__,
         )
 
     def raw_sql(self, query: str | sge.Expression) -> Any:
