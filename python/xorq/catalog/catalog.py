@@ -57,15 +57,12 @@ def with_pure_suffix(path, suffix=""):
 @frozen
 class Catalog:
     repo = field(validator=instance_of(Repo))
-    check_consistency: bool = field(default=True, repr=False)
 
     by_name_base_path = Path("~/.local/share/xorq/git-catalogs").expanduser()
     submodule_rel_path = Path(".xorq/git-catalogs")
 
     def __attrs_post_init__(self):
         self._ensure_catalog_yaml()
-        if self.check_consistency:
-            self.assert_consistency()
 
     def _ensure_catalog_yaml(self):
         assert not self.repo.bare
@@ -167,6 +164,20 @@ class Catalog:
         catalog_entry = CatalogEntry(name, self)
         return catalog_entry
 
+    def source(self, name_or_alias, con=None):
+        """Return a tagged RemoteTable expression for a catalog entry (by hash or alias)."""
+        from xorq.catalog.bind import _make_source_expr  # noqa: PLC0415
+
+        entry = self.get_catalog_entry(name_or_alias, maybe_alias=True)
+        alias = name_or_alias if name_or_alias in self.list_aliases() else None
+        return _make_source_expr(entry, con=con, alias=alias)
+
+    def bind(self, source_entry, *transforms, con=None):
+        """Bind a source entry through one or more transform entries."""
+        from xorq.catalog.bind import bind  # noqa: PLC0415
+
+        return bind(source_entry, *transforms, con=con)
+
     def get_zip(self, name, dir_path=None):
         catalog_entry = self.get_catalog_entry(name)
         return catalog_entry.get(dir_path)
@@ -254,13 +265,18 @@ class Catalog:
             name = Path(urlparse(url).path).stem
             repo_path = cls.name_to_repo_path(name)
         repo = Repo.clone_from(url, repo_path)
-        return cls(repo=repo)
+        self = cls(repo=repo)
+        self.assert_consistency()
+        return self
 
     @classmethod
     def from_repo_path(cls, repo_path, init=None, check_consistency=True):
         init = not Path(repo_path).exists() if init is None else init
         repo = cls.init_repo_path(repo_path) if init else Repo(repo_path)
-        return cls(repo=repo, check_consistency=check_consistency)
+        self = cls(repo=repo)
+        if check_consistency:
+            self.assert_consistency()
+        return self
 
     @classmethod
     def from_name(cls, name, init=None, check_consistency=True):
