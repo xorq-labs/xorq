@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774359761880,
+  "lastUpdate": 1774360151683,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -1848,6 +1848,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.008880181813002038",
             "extra": "mean: 197.7461815999959 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2f8525680f8fe29bf357149829fa376c173dccb4",
+          "message": "fix(ibis yaml): stabilize inmemory read yaml (#1739)\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-24T14:45:37+01:00",
+          "tree_id": "a8528c93c523ffbe2369c89614b28cdc1b94c5bf",
+          "url": "https://github.com/xorq-labs/xorq/commit/2f8525680f8fe29bf357149829fa376c173dccb4"
+        },
+        "date": 1774360149115,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.659368255076623,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01885134078539925",
+            "extra": "mean: 130.5590704999986 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.796912487616206,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008624240059223413",
+            "extra": "mean: 208.46742620000214 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7241310964654554,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17027949221878852",
+            "extra": "mean: 1.380965414800005 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.452619671845606,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030117449009850954",
+            "extra": "mean: 224.58688899999876 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.092781585088609,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006841190526112492",
+            "extra": "mean: 196.35634933332824 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.083475867359756,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007209221055844399",
+            "extra": "mean: 196.715795666672 msec\nrounds: 6"
           }
         ]
       }
