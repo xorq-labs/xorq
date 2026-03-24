@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774383423407,
+  "lastUpdate": 1774383438610,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -2310,6 +2310,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.009310413437196978",
             "extra": "mean: 199.20960999999218 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "97ea343ccab457c18284f98e9bb48f656cb10247",
+          "message": "fix(tui): make test_j_k_moves_cursor resilient to slow CI (#1746)\n\n## Summary\n- Replace fixed `3x pilot.pause()` with a poll loop (up to 20\niterations) in `test_j_k_moves_cursor`, so the test waits for the async\n`_do_refresh` to actually populate both rows before asserting\n\n## Test plan\n- [x] Fixes flaky CI failure in `test_tui.py::test_j_k_moves_cursor`\n- [ ] CI green\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-24T16:13:54-04:00",
+          "tree_id": "8504ec2e1152c0bd0fe9363e0b6eb0389586c796",
+          "url": "https://github.com/xorq-labs/xorq/commit/97ea343ccab457c18284f98e9bb48f656cb10247"
+        },
+        "date": 1774383435518,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.07136570477175,
+            "unit": "iter/sec",
+            "range": "stddev: 0.023024563811801572",
+            "extra": "mean: 123.8947703000008 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.794114196198805,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010301473366892761",
+            "extra": "mean: 208.5891072000095 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7389354170805974,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18481830579451103",
+            "extra": "mean: 1.353298240800018 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.066798209830199,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030292499236279715",
+            "extra": "mean: 245.8936855000123 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.476671936075309,
+            "unit": "iter/sec",
+            "range": "stddev: 0.040758362639146097",
+            "extra": "mean: 223.38022849999106 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.079770919196541,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008319157362658551",
+            "extra": "mean: 196.8592709999939 msec\nrounds: 5"
           }
         ]
       }
