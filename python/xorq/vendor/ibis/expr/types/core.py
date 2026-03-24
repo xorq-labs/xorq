@@ -13,6 +13,7 @@ from attr import (
     frozen,
 )
 from attr.validators import (
+    deep_iterable,
     instance_of,
     optional,
 )
@@ -696,11 +697,41 @@ def _extract_is_source(expr):
     return isinstance(root, source_nodes)
 
 
-def _extract_kind(unbound_node, is_source):
-    match (unbound_node, is_source):
-        case (node, _) if node is not None:
+def _extract_catalog_tag_nodes(expr):
+    from xorq.catalog.bind import CatalogTag  # noqa: PLC0415
+    from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+    from xorq.expr.relations import HashingTag  # noqa: PLC0415
+
+    return tuple(
+        ht
+        for ht in (walk_nodes(HashingTag, expr) or ())
+        if ht.metadata.get("tag") in frozenset(CatalogTag)
+    )
+
+
+def _extract_sources(catalog_tag_nodes):
+    from xorq.catalog.bind import CatalogTag  # noqa: PLC0415
+
+    return tuple(
+        {
+            "entry_name": ht.metadata.get("entry_name"),
+            "alias": ht.metadata.get("alias"),
+            "kind": ht.metadata.get("kind"),
+        }
+        for ht in catalog_tag_nodes
+        if ht.metadata.get("tag") in (CatalogTag.SOURCE, CatalogTag.TRANSFORM)
+    )
+
+
+def _extract_kind(unbound_node, catalog_tag_nodes, is_source):
+    # Priority: UnboundExpr (incomplete/has placeholder) > Composed (has
+    # catalog HashingTag nodes) > Source (plain table) > Expr (everything else).
+    match (unbound_node, bool(catalog_tag_nodes), is_source):
+        case (node, _, _) if node is not None:
             return ExprKind.UnboundExpr
-        case (_, True):
+        case (_, True, _):
+            return ExprKind.Composed
+        case (_, _, True):
             return ExprKind.Source
         case _:
             return ExprKind.Expr
@@ -715,6 +746,7 @@ class ExprMetadata:
     )
     root_tag: Optional[str] = field(default=None)
     parquet_cache_paths: tuple[str, ...] = field(factory=tuple)
+    sources: tuple = field(factory=tuple, validator=deep_iterable(instance_of(dict)))
 
     @classmethod
     def from_dict(cls, data):
@@ -731,6 +763,7 @@ class ExprMetadata:
             ),
             root_tag=data.get("root_tag"),
             parquet_cache_paths=tuple(data.get("parquet_cache_paths") or ()),
+            sources=tuple(data.get("sources", ())),
         )
 
     @classmethod
@@ -741,6 +774,7 @@ class ExprMetadata:
 
         unbound_node = _extract_unbound_node(expr)
         is_source = _extract_is_source(expr)
+        catalog_tag_nodes = _extract_catalog_tag_nodes(expr)
 
         tags = expr.ls.tags
         root_tag = tags[0].tag if tags else None
@@ -753,11 +787,12 @@ class ExprMetadata:
         )
 
         return cls(
-            kind=_extract_kind(unbound_node, is_source),
+            kind=_extract_kind(unbound_node, catalog_tag_nodes, is_source),
             schema_in=unbound_node.schema if unbound_node else None,
             schema_out=expr.as_table().schema(),
             root_tag=root_tag,
             parquet_cache_paths=parquet_cache_paths,
+            sources=_extract_sources(catalog_tag_nodes),
         )
 
     def to_dict(self):
@@ -772,6 +807,7 @@ class ExprMetadata:
                 ("schema_out", toolz.valmap(str, self.schema_out)),
                 ("root_tag", self.root_tag),
                 ("parquet_cache_paths", list(self.parquet_cache_paths) or None),
+                ("sources", list(self.sources) if self.sources else None),
             )
             if value is not None
         }
