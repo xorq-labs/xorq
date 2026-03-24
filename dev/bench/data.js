@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774132656560,
+  "lastUpdate": 1774359761880,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -1782,6 +1782,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.021293608297005374",
             "extra": "mean: 212.32054919998973 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9aeff8fd78e07a4370dafa7c0decf66e350dfded",
+          "message": "fix(hash): stabilize ScalarUDF normalization across processes (#1738)\n\nnormalize_scalar_udf was passing computed_kwargs_expr through\nnormalize_expr -> normalize_op -> unbound_expr_to_default_sql, which\nembeds session-dependent AggUDF class names (e.g. _inner_fit_0) whose\nnumeric suffix is a process-global counter. Under pytest-xdist or\nmulti-module import, the counter value is non-deterministic, producing\ndifferent tokens for functionally identical expressions.\n\nAdd _normalize_computed_kwargs_expr that decomposes the sub-expression\ninto content-stable components (InMemoryTable data, AggUDF/ScalarUDF via\ntheir registered normalizers, Read/CachedNode), bypassing SQL generation\nentirely.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-24T14:39:07+01:00",
+          "tree_id": "4b9aa817698124ce9ce7ec14e44bd47511fbc5e1",
+          "url": "https://github.com/xorq-labs/xorq/commit/9aeff8fd78e07a4370dafa7c0decf66e350dfded"
+        },
+        "date": 1774359758929,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.72789181376008,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017996127194494296",
+            "extra": "mean: 129.40139744443968 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.780616394208404,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0109189730174729",
+            "extra": "mean: 209.1780468333487 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7224314450471878,
+            "unit": "iter/sec",
+            "range": "stddev: 0.176256267546407",
+            "extra": "mean: 1.3842143871999952 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.9044615532510756,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0264228777815492",
+            "extra": "mean: 256.117261333344 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.408593202831662,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03764269981772311",
+            "extra": "mean: 226.82972866666282 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.056987659174202,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008880181813002038",
+            "extra": "mean: 197.7461815999959 msec\nrounds: 5"
           }
         ]
       }
