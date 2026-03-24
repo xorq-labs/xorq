@@ -17,7 +17,7 @@ from xorq.common.utils.func_utils import (
     return_constant,
 )
 from xorq.common.utils.graph_utils import (
-    replace_nodes,
+    replace_unbound,
     walk_nodes,
 )
 from xorq.common.utils.rbr_utils import (
@@ -36,29 +36,26 @@ def schemas_equal(s0, s1):
 
 
 def replace_one_unbound(unbound_expr, table):
-    # FIXME: consolidate UnboundExprExchanger.set_one_unbound_name and this logic
+    """Replace the single UnboundTable in *unbound_expr* with *table*.
+
+    Adds flight-specific guards on top of :func:`replace_unbound`:
+    *table* must be a ``DatabaseTable`` or ``Read``, and its schema must
+    exactly match the unbound table's schema.
+    """
+    dt = table.op()
+    if not isinstance(dt, (ops.DatabaseTable, rel.Read)):
+        raise ValueError(f"table must be a DatabaseTable or Read, got {type(dt)}")
+    # walk to get the unbound node for the schema check
     (unbound, *rest) = walk_nodes(ops.UnboundTable, unbound_expr)
     if rest:
         raise ValueError(
             "unbound_expr must contain exactly one UnboundTable, but found multiple"
         )
-    dt = table.op()
-    if not isinstance(dt, (ops.DatabaseTable, rel.Read)):
-        raise ValueError(f"table must be a DatabaseTable or Read, got {type(dt)}")
-    if not unbound.schema == dt.schema:
+    if unbound.schema != dt.schema:
         raise ValueError(
             f"unbound schema {unbound.schema} does not match table schema {dt.schema}"
         )
-
-    def _replace_unbound(node, kwargs):
-        if isinstance(node, ops.UnboundTable):
-            return dt
-        elif kwargs:
-            return node.__recreate__(kwargs)
-        else:
-            return node
-
-    return replace_nodes(_replace_unbound, unbound_expr.op()).to_expr()
+    return replace_unbound(unbound_expr, dt, target=unbound)
 
 
 @excepts_print_exc
@@ -279,8 +276,8 @@ class PandasUDFExchanger(AbstractExchanger):
 
 class UnboundExprExchanger(AbstractExchanger):
     def __init__(self, unbound_expr, make_connection=xo_connect):
-        self.get_one_unbound(unbound_expr)
-        self.unbound_expr = self.set_one_unbound_name(unbound_expr)
+        unbound = self.get_one_unbound(unbound_expr)
+        self.unbound_expr = self.set_one_unbound_name(unbound_expr, unbound)
         self.make_connection = make_connection
         self._schema_in_required = self.get_one_unbound(self.unbound_expr).schema
         self._schema_in_condition = toolz.curried.operator.eq(self._schema_in_required)
@@ -294,15 +291,8 @@ class UnboundExprExchanger(AbstractExchanger):
         return unbound
 
     @staticmethod
-    def set_one_unbound_name(expr, name="fixed-name"):
-        def set_name(op, kwargs):
-            if isinstance(op, ops.UnboundTable):
-                op = op.copy(name=name)
-            if kwargs:
-                op = op.__recreate__(kwargs)
-            return op
-
-        return replace_nodes(set_name, expr).to_expr()
+    def set_one_unbound_name(expr, unbound, name="fixed-name"):
+        return replace_unbound(expr, unbound.copy(name=name), target=unbound)
 
     @property
     def exchange_f(self):
