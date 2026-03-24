@@ -2,11 +2,46 @@
 title: 'catalog rm'
 ---
 
-## Coming soon
+## Synopsis
 
-Documentation for the `xorq catalog rm` CLI command.
+```bash
+xorq catalog [OPTIONS] remove [--sync/--no-sync] NAMES...
+```
 
-This command removes a build or alias from the compute catalog.
+## Description
 
-Check back soon for complete documentation.
+Remove one or more entries from the catalog by name. Removing an entry also removes all aliases that point to it.
 
+The removal is committed atomically — the entry archive, metadata file, associated alias symlinks, and `catalog.yaml` are all updated in a single git commit.
+
+## Options
+
+`--sync / --no-sync`
+: Synchronize with remotes before and after removal. Default: `--sync`.
+
+## Related commands
+
+`remove-alias`
+: Remove one or more aliases without removing the underlying entry.
+
+```bash
+xorq catalog [OPTIONS] remove-alias [--sync/--no-sync] ALIASES...
+```
+
+## Examples
+
+```bash
+# Remove an entry (and its aliases)
+xorq catalog --name my-catalog remove hash-abc123
+
+# Remove multiple entries without syncing
+xorq catalog --name my-catalog remove --no-sync hash-abc123 hash-def456
+
+# Remove just an alias
+xorq catalog --name my-catalog remove-alias my-alias
+```
+
+## See also
+
+- [catalog add](add.qmd)
+- [catalog list](ls.qmd)
