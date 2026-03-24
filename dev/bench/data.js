@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774367289404,
+  "lastUpdate": 1774370102189,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -2112,6 +2112,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.011774443362783379",
             "extra": "mean: 198.3262886000034 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "712f41a8535df7f66974920e0fa668e3de34bbb4",
+          "message": "fix(caching): avoid wrapping Expr without backend (#1731)\n\nWhen an expression containing a ParquetSnapshotCache is serialized and\ndeserialized, cache.storage.source is reconstructed from the YAML\nprofile as a fresh backend instance with a different Profile.idx. The\nidentity comparison in maybe_prevent_cross_source_caching treated this\nnew instance as a different backend and wrapped the parent expression\nwith into_backend, which changed the SQL and produced a different cache\nkey at execute time than at build time.\n\nFix by comparing backends via Profile.almost_equals(), which ignores the\nsession-scoped idx counter and compares only connection parameters. Add\n_backends_equivalent() as a named helper to make the intent explicit.\n\nAdd two regression tests in test_compiler.py:\n- test_memtable_cache_key_stable_across_roundtrip: asserts calc_key on\nthe sanitized expr equals calc_key on the loaded expr\n- test_memtable_creates_same_key: end-to-end check that\nsanitized.execute() and loaded.execute() write to the same cache file\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-24T12:31:35-04:00",
+          "tree_id": "ed6025cb30b365971c5c32bea25a296064c58a6f",
+          "url": "https://github.com/xorq-labs/xorq/commit/712f41a8535df7f66974920e0fa668e3de34bbb4"
+        },
+        "date": 1774370099931,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.919294831775625,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014632435591286817",
+            "extra": "mean: 100.81361799999979 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.749387740916942,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05500343880728346",
+            "extra": "mean: 266.71021219999034 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6959651067437568,
+            "unit": "iter/sec",
+            "range": "stddev: 0.27387412128822597",
+            "extra": "mean: 1.436853644399997 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.210184748965802,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008772473471635869",
+            "extra": "mean: 191.93177366666228 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.112321109813066,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007531770085546423",
+            "extra": "mean: 195.6058664000011 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.979067846201776,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04709618074481935",
+            "extra": "mean: 251.315141799995 msec\nrounds: 5"
           }
         ]
       }
