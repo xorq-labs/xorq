@@ -30,12 +30,13 @@ def replace_cache_table(node, kwargs):
     if kwargs:
         node = node.__recreate__(kwargs)
 
-    if isinstance(node, CachedNode):
-        return node.parent.op().replace(replace_cache_table)
-    elif isinstance(node, RemoteTable):
-        return node.remote_expr.op().replace(replace_cache_table)
-    else:
-        return node
+    match node:
+        case CachedNode():
+            return node.parent.op().replace(replace_cache_table)
+        case RemoteTable():
+            return node.remote_expr.op().replace(replace_cache_table)
+        case _:
+            return node
 
 
 # https://stackoverflow.com/questions/6703594/is-the-result-of-itertools-tee-thread-safe-python
