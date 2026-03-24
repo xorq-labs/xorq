@@ -713,6 +713,8 @@ class ExprMetadata:
     schema_in: Optional[Schema] = field(
         default=None, validator=optional(instance_of(ibis.expr.schema.Schema))
     )
+    root_tag: Optional[str] = field(default=None)
+    parquet_cache_paths: tuple[str, ...] = field(factory=tuple)
 
     @classmethod
     def from_dict(cls, data):
@@ -727,39 +729,38 @@ class ExprMetadata:
                 if schema_in_raw
                 else None
             ),
+            root_tag=data.get("root_tag"),
+            parquet_cache_paths=tuple(data.get("parquet_cache_paths") or ()),
         )
 
     @classmethod
     def from_expr(cls, expr):
+        from xorq.caching import ParquetSnapshotCache  # noqa: PLC0415
+        from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+        from xorq.expr.relations import CachedNode  # noqa: PLC0415
+
         unbound_node = _extract_unbound_node(expr)
         is_source = _extract_is_source(expr)
+
+        tags = expr.ls.tags
+        root_tag = tags[0].tag if tags else None
+
+        cached_nodes = walk_nodes((CachedNode,), expr)
+        parquet_cache_paths = tuple(
+            str(cn.cache.storage.get_path(cn.cache.calc_key(cn.parent)))
+            for cn in cached_nodes
+            if isinstance(cn.cache, ParquetSnapshotCache)
+        )
 
         return cls(
             kind=_extract_kind(unbound_node, is_source),
             schema_in=unbound_node.schema if unbound_node else None,
             schema_out=expr.as_table().schema(),
+            root_tag=root_tag,
+            parquet_cache_paths=parquet_cache_paths,
         )
 
-    @cached_property
-    def root_tag(self) -> Optional[str]:
-        tags = self.expr.ls.tags
-        return tags[0].tag if tags else None
-
-    @cached_property
-    def parquet_cache_paths(self) -> list[str]:
-        from xorq.caching import ParquetSnapshotCache  # noqa: PLC0415
-        from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
-        from xorq.expr.relations import CachedNode  # noqa: PLC0415
-
-        cached_nodes = walk_nodes((CachedNode,), self.expr)
-        return [
-            str(cn.cache.storage.get_path(cn.cache.calc_key(cn.parent)))
-            for cn in cached_nodes
-            if isinstance(cn.cache, ParquetSnapshotCache)
-        ]
-
     def to_dict(self):
-        paths = self.parquet_cache_paths
         return {
             key: value
             for key, value in (
@@ -770,7 +771,7 @@ class ExprMetadata:
                 ),
                 ("schema_out", toolz.valmap(str, self.schema_out)),
                 ("root_tag", self.root_tag),
-                ("parquet_cache_paths", paths or None),
+                ("parquet_cache_paths", list(self.parquet_cache_paths) or None),
             )
             if value is not None
         }

@@ -481,7 +481,7 @@ class CatalogEntry:
 
     @property
     def parquet_cache_paths(self) -> tuple[str]:
-        return tuple(self.metadata.get("parquet_cache_paths") or ())
+        return self.metadata.parquet_cache_paths
 
     @cached_property
     def metadata(self):
@@ -500,11 +500,11 @@ class CatalogEntry:
 
     @property
     def columns(self) -> tuple[str]:
-        return tuple(self.metadata["schema_out"])
+        return tuple(self.metadata.schema_out)
 
     @property
     def root_tag(self) -> str:
-        return self.metadata.get("root_tag", "")
+        return self.metadata.root_tag or ""
 
     @cached_property
     def backends(self) -> tuple[str, ...]:

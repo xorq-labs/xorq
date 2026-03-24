@@ -109,7 +109,7 @@ class CatalogRowData:
 
     @property
     def schema_out(self) -> tuple[tuple[str, str], ...]:
-        return tuple(self.entry.metadata.get("schema_out", {}).items())
+        return tuple(self.entry.metadata.schema_out.items())
 
     @property
     def column_count(self) -> int | None:
