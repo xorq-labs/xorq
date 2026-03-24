@@ -290,11 +290,12 @@ def test_j_k_moves_cursor(catalog, entry_a, entry_b):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            # Wait for _do_refresh to auto-populate the table with real entries
-            await pilot.pause()
-            await pilot.pause()
-            await pilot.pause()
+            # Poll until the async _do_refresh populates both rows (CI can be slow)
             table = app.screen.query_one("#catalog-table", DataTable)
+            for _ in range(20):
+                await pilot.pause()
+                if table.row_count >= 2:
+                    break
             assert table.row_count == 2
             assert table.cursor_row == 0
 
