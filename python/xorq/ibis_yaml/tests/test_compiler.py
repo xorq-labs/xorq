@@ -32,9 +32,9 @@ from xorq.expr.relations import CachedNode
 from xorq.ibis_yaml.compiler import (
     ArtifactStore,
     DumpFiles,
-    ExprDumper,
     ExprKind,
     RefEnum,
+    _sanitize_generated_names,
     build_expr,
     load_expr,
 )
@@ -697,7 +697,7 @@ def test_memtable_cache_key_stable_across_roundtrip(builds_dir, tmp_path):
     expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
 
     # ExprDumper sanitizes names before building; replicate that here
-    sanitized = ExprDumper._sanitize_generated_names(expr, normalize_method=None)
+    sanitized = _sanitize_generated_names(expr, normalize_method=None)
     build_path = build_expr(expr, builds_dir=builds_dir)
     loaded = load_expr(build_path)
 
@@ -717,7 +717,7 @@ def test_memtable_creates_same_key(builds_dir, tmp_path):
     expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
 
     # Sanitize names the same way ExprDumper does before building
-    sanitized = ExprDumper._sanitize_generated_names(expr, normalize_method=None)
+    sanitized = _sanitize_generated_names(expr, normalize_method=None)
     build_path = build_expr(expr, builds_dir=builds_dir)
 
     # Execute the sanitized expr — writes the cache file
