@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774360151683,
+  "lastUpdate": 1774365099867,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -1914,6 +1914,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.007209221055844399",
             "extra": "mean: 196.715795666672 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "28b009973aa2206a14a7d1d74a2070fd1b7c2e5c",
+          "message": "ref(hash): use __func_name__ for UDF SQL names and extract canonicalize_expr(#1735)\n\nUDF SQL names used a session-global counter suffix (e.g. add_one_0) via\ntype(op).__name__, making build hashes non-deterministic across\nsessions. Switch __sql_name__ and all backend UDF registration to use\n__func_name__ (the user-given name), which is stable. This aligns SQL\ngeneration with how DataFusion already registers UDFs.\n\nExtract canonicalize_expr as a shared primitive combining\n_sanitize_generated_names and normalize_profiles, so both the YAML\nserialization path (ExprDumper) and the hashing path (get_expr_hash)\noperate on the same canonical expression form.\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-24T16:07:57+01:00",
+          "tree_id": "981ef1690da90d538c07fcc0cbf6c1c02305116a",
+          "url": "https://github.com/xorq-labs/xorq/commit/28b009973aa2206a14a7d1d74a2070fd1b7c2e5c"
+        },
+        "date": 1774365096717,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.2937473220548865,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008323497933243076",
+            "extra": "mean: 137.10373500000372 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.469494083582187,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03963429477248663",
+            "extra": "mean: 223.73896939998303 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6861542114716288,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19092916778291233",
+            "extra": "mean: 1.457398327200019 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.10135931417374,
+            "unit": "iter/sec",
+            "range": "stddev: 0.039181950658823295",
+            "extra": "mean: 243.82160239999848 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.782849868153104,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016557549503346404",
+            "extra": "mean: 209.08036580001408 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.764747019721515,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006614746558310453",
+            "extra": "mean: 209.87473119998867 msec\nrounds: 5"
           }
         ]
       }
