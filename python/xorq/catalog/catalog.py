@@ -507,6 +507,11 @@ class CatalogEntry:
         return self.metadata.root_tag or ""
 
     @cached_property
+    def sources(self) -> tuple:
+        """Catalog source references for composed entries."""
+        return self.metadata.sources
+
+    @cached_property
     def backends(self) -> tuple[str, ...]:
         data = self._read_zip_member(DumpFiles.profiles, yaml.safe_load)
         if not isinstance(data, dict):

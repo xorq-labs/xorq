@@ -4,6 +4,7 @@ import json
 import operator
 import pathlib
 import sys
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Dict
 
@@ -98,6 +99,9 @@ class CleanDictYAMLDumper(yaml.SafeDumper):
         schema_dict = {name: str(dtype) for name, dtype in zip(data.names, data.types)}
         return self.represent_mapping("tag:yaml.org,2002:map", schema_dict)
 
+    def represent_str_enum(self, data):
+        return self.represent_scalar("tag:yaml.org,2002:str", str(data))
+
     def represent_posix_path(self, data):
         return self.represent_scalar("tag:yaml.org,2002:str", str(data))
 
@@ -109,10 +113,14 @@ class CleanDictYAMLDumper(yaml.SafeDumper):
         (pathlib.PosixPath, represent_posix_path),
     )
 
+    yaml_multi_representer_pairs = ((StrEnum, represent_str_enum),)
+
     @classmethod
     def add_representers(cls):
         for to_register, representer in cls.yaml_representer_pairs:
             cls.add_representer(to_register, representer)
+        for to_register, representer in cls.yaml_multi_representer_pairs:
+            cls.add_multi_representer(to_register, representer)
 
 
 CleanDictYAMLDumper.add_representers()
