@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774383438610,
+  "lastUpdate": 1774384602521,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -2376,6 +2376,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.008319157362658551",
             "extra": "mean: 196.8592709999939 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a065d884cf974f15ff16aa08746ccb305e43c745",
+          "message": "ref(graph): extract replace_unbound utility and simplify exchanger (#1742)\n\n## Summary\n- Extract a reusable `replace_unbound()` helper in `graph_utils` that\nreplaces a single `UnboundTable` node in an expression graph\n- Refactor `replace_one_unbound` and\n`UnboundExprExchanger.set_one_unbound_name` in `flight/exchanger.py` to\nuse it, eliminating duplicated inline `replace_nodes` callbacks\n\n## Test plan\n- [x] All 66 flight tests pass (`python -m pytest\npython/xorq/flight/tests/ -x -q`)\n- [ ] CI green\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-24T16:33:15-04:00",
+          "tree_id": "73159c3b707b2e1d5bf2fcdb0ff464a4201bb8bb",
+          "url": "https://github.com/xorq-labs/xorq/commit/a065d884cf974f15ff16aa08746ccb305e43c745"
+        },
+        "date": 1774384600404,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.831531109542153,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02414844761390839",
+            "extra": "mean: 113.23064909090745 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.0114145313950615,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06402858234126016",
+            "extra": "mean: 249.28862180000806 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7210380601982016,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17764174715232448",
+            "extra": "mean: 1.3868893408000076 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.071102815797565,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014262704227181518",
+            "extra": "mean: 197.19576516665902 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.18084998551492,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010888093641681725",
+            "extra": "mean: 193.0185206666645 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.775122076974908,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03390813169280806",
+            "extra": "mean: 209.41872979999516 msec\nrounds: 5"
           }
         ]
       }
