@@ -696,49 +696,8 @@ def build(script_path, expr_name, builds_dir, cache_dir, debug):
     build_command(script_path, expr_name, builds_dir, cache_dir, debug)
 
 
-def _resolve_alias(alias, name=None):
-    """Resolve a catalog alias to a CatalogEntry (latest revision).
-
-    Parameters
-    ----------
-    alias : str
-        Alias name to look up.
-    name : str, optional
-        Catalog name for scoping the lookup.
-
-    Returns
-    -------
-    CatalogEntry
-        The catalog entry the alias points to.
-    """
-    from xorq.catalog.catalog import Catalog, CatalogAlias
-
-    catalog = Catalog.from_kwargs(name=name, init=False)
-    aliases = catalog.list_aliases()
-    if alias not in aliases:
-        available = ", ".join(sorted(aliases)) or "(none)"
-        raise click.ClickException(
-            f"Unknown alias: {alias!r}. Available aliases: {available}"
-        )
-    # Latest revision is the current symlink target; future --revision
-    # flag can use catalog_alias.list_revisions() to select older ones.
-    return CatalogAlias.from_name(alias, catalog).catalog_entry
-
-
 @cli.command("run")
-@click.argument("build_path", required=False, default=None)
-@click.option(
-    "-a",
-    "--alias",
-    default=None,
-    help="Run a catalog entry by alias (latest revision).",
-)
-@click.option(
-    "-n",
-    "--name",
-    default=None,
-    help="Catalog name for scoping the alias lookup.",
-)
+@click.argument("build_path")
 @click.option(
     "--cache-dir",
     default=None,
@@ -764,23 +723,9 @@ def _resolve_alias(alias, name=None):
     default=None,
     help="Limit number of rows to output",
 )
-def run(build_path, alias, name, cache_dir, output_path, output_format, limit):
-    """Run a build from a builds directory or by catalog alias."""
-    match (build_path, alias):
-        case (None, None):
-            raise click.UsageError("Provide either BUILD_PATH or --alias, not neither.")
-        case (str(), str()):
-            raise click.UsageError("BUILD_PATH and --alias are mutually exclusive.")
-        case (None, str()):
-            from xorq.catalog.zip_utils import extract_build_zip_context
-
-            entry = _resolve_alias(alias, name=name)
-            with extract_build_zip_context(entry.catalog_path) as build_dir:
-                run_command(build_dir, output_path, output_format, cache_dir, limit)
-        case (str(), None):
-            if name is not None:
-                raise click.UsageError("--name is only valid with --alias.")
-            run_command(build_path, output_path, output_format, cache_dir, limit)
+def run(build_path, cache_dir, output_path, output_format, limit):
+    """Run a build from a builds directory."""
+    run_command(build_path, output_path, output_format, cache_dir, limit)
 
 
 @cli.command("run-cached")
