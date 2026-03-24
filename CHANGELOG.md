@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.16] - 2026-03-24
+### Details
+#### Added
+- Add LazyBackend by @mesejo in [#1655](https://github.com/xorq-labs/xorq/pull/1655)
+- Add ExprKind.Source to distinguish source from transformed expressions by @hussainsultan in [#1727](https://github.com/xorq-labs/xorq/pull/1727)
+- Add catalog schema (XOR-241) by @mesejo in [#1686](https://github.com/xorq-labs/xorq/pull/1686)
+
+#### Changed
+- Expand ci-benchmark to cover all benchmark tests, drop codspeed by @mesejo in [#1724](https://github.com/xorq-labs/xorq/pull/1724)
+- Normalize sequential IDs for deterministic build hashes by @dlovell in [#1728](https://github.com/xorq-labs/xorq/pull/1728)
+- Use __func_name__ for UDF SQL names and extract canonicalize_expr by @dlovell in [#1735](https://github.com/xorq-labs/xorq/pull/1735)
+
+#### Fixed
+- Use typed cache to prevent int/bool collision in translate_from_yaml by @hussainsultan in [#1725](https://github.com/xorq-labs/xorq/pull/1725)
+- Handle scalar expressions in _entry_info by @ghoersti in [#1726](https://github.com/xorq-labs/xorq/pull/1726)
+- Normalize path kwarg in Read nodes for cross-backen… by @dlovell in [#1730](https://github.com/xorq-labs/xorq/pull/1730)
+- Stabilize ScalarUDF normalization across processes by @dlovell in [#1738](https://github.com/xorq-labs/xorq/pull/1738)
+- Stabilize inmemory read yaml by @dlovell in [#1739](https://github.com/xorq-labs/xorq/pull/1739)
+
 ## [0.3.15] - 2026-03-17
 ### Details
 #### Added
