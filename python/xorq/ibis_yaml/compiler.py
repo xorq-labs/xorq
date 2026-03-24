@@ -539,7 +539,10 @@ class ExprDumper:
                         "table_name": node.name,
                         "schema": node.schema,
                         str(MemtableTypes.inmemory): True,
-                        "normalize_method": self.read_normalize_method,
+                        # InMemoryTable data is deterministic — use content hash
+                        # (not mtime/inode) so the YAML is reproducible across
+                        # processes and rebuild timestamps.
+                        "normalize_method": normalize_read_path_md5sum,
                     },
                 )
             elif (

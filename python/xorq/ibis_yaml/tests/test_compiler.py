@@ -114,6 +114,26 @@ def test_ibis_compiler(t, builds_dir):
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
+def test_memtable_yaml_stable_across_builds(tmp_path_factory):
+    """Building the same memtable expr in separate dirs must produce identical expr.yaml.
+
+    Without content-based normalization (normalize_read_path_md5sum) the Read
+    nodes created from InMemoryTable would hash mtime/inode, which differ
+    across build directories, making the YAML non-deterministic.
+    """
+    t = xo.memtable({"x": [1, 2, 3], "y": ["a", "b", "c"]})
+    expr = t.filter(t.x > 1)
+
+    dirs = [tmp_path_factory.mktemp(f"builds{i}") for i in range(2)]
+    yamls = []
+    for d in dirs:
+        build_path = build_expr(expr, builds_dir=d)
+        artifact_store = ArtifactStore(build_path)
+        yamls.append(artifact_store.load_yaml(DumpFiles.expr))
+
+    assert yamls[0] == yamls[1]
+
+
 def test_ibis_compiler_parquet_reader(builds_dir, parquet_dir):
     backend = xo.duckdb.connect()
     parquet_path = parquet_dir / "awards_players.parquet"
