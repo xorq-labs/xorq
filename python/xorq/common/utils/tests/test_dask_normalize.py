@@ -1,6 +1,7 @@
 import hashlib
 import operator
 import pathlib
+import pickle
 import re
 from unittest.mock import (
     Mock,
@@ -14,6 +15,7 @@ import toolz
 
 import xorq.api as xo
 import xorq.common.utils.dask_normalize  # noqa: F401
+import xorq.expr.datatypes as dt
 from xorq.caching import (
     ParquetCache,
     SourceSnapshotCache,
@@ -28,6 +30,7 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     patch_normalize_token,
     walk_normalized,
 )
+from xorq.expr.udf import agg, make_pandas_expr_udf
 from xorq.ibis_yaml.compiler import build_expr
 
 
@@ -261,3 +264,51 @@ def test_different_cache_types_produce_different_hashes():
     b0 = build_expr(c0)
     b1 = build_expr(c1)
     assert b0 != b1
+
+
+def test_scalar_udf_token_stable_across_udf_counter_states():
+    """Token of a ScalarUDF with computed_kwargs_expr must not depend on
+    the process-global UDF name counter."""
+
+    def train(df):
+        return pickle.dumps({"trained": True})
+
+    def predict(model, df):
+        return [0.0] * len(df)
+
+    def _build_scalar_udf():
+        t = xo.memtable({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]})
+        schema = t[("a", "b")].schema()
+        model_udaf = agg.pandas_df(
+            fn=train,
+            schema=schema,
+            return_type=dt.binary,
+            name="mymodel",
+        )
+        predict_udf = make_pandas_expr_udf(
+            computed_kwargs_expr=model_udaf.on_expr(t),
+            fn=predict,
+            schema=schema,
+            return_type=dt.float64,
+            name="mypredict",
+        )
+        return predict_udf(t.a, t.b).op()
+
+    udf_op_1 = _build_scalar_udf()
+    token_1 = dask.base.tokenize(udf_op_1)
+
+    # Bump the global counter by creating throwaway AggUDFs,
+    # simulating a different import order or parallel worker.
+    for _ in range(5):
+        agg.pandas_df(
+            fn=train,
+            schema=xo.memtable({"x": [1]}).schema(),
+            return_type=dt.binary,
+        )
+
+    udf_op_2 = _build_scalar_udf()
+    token_2 = dask.base.tokenize(udf_op_2)
+
+    assert token_1 == token_2, (
+        f"ScalarUDF token changed with UDF counter state: {token_1} != {token_2}"
+    )

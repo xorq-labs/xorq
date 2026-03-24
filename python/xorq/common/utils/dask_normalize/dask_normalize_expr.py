@@ -453,9 +453,52 @@ def tokenize_input_type(obj):
     )
 
 
+def _normalize_computed_kwargs_expr(cke):
+    """Content-stable normalization of a computed_kwargs_expr.
+
+    The default ``normalize_expr`` path generates SQL that includes
+    session-dependent UDF class names (e.g. ``_inner_fit_0`` vs
+    ``_inner_fit_3``).  These names contain a process-global counter that
+    changes depending on how many UDFs were created before this expression
+    was imported — making the token (and therefore the build hash)
+    non-deterministic under parallel test execution or multi-module import.
+
+    Instead of relying on the SQL string, we decompose the expression into
+    components whose registered normalizers are already name-insensitive:
+
+    * ``normalize_inmemorytable`` hashes pyarrow batch content
+    * ``normalize_agg_udf`` / ``normalize_scalar_udf`` hash ``__func__``
+      and arg types (excluding ``__func_name__``)
+    * ``normalize_read`` / ``normalize_cached_node`` are stable
+    """
+    op = cke.op()
+    mems = op.find(ir.InMemoryTable)
+    agg_udfs = op.find(AggUDF)
+    scalar_udfs = op.find(ScalarUDF)
+    reads = op.find(rel.Read)
+    cached = op.find(rel.CachedNode)
+    return normalize_seq_with_caller(
+        cke.schema() if isinstance(cke, ibis.expr.types.Table) else cke.type(),
+        tuple(map(normalize_inmemorytable, mems)),
+        agg_udfs,
+        scalar_udfs,
+        reads,
+        cached,
+        caller="normalize_computed_kwargs_expr",
+    )
+
+
 @dask.base.normalize_token.register(ScalarUDF)
 def normalize_scalar_udf(udf):
     typs = tuple(arg.dtype for arg in udf.args)
+    computed_kwargs_expr = udf.__config__.get("computed_kwargs_expr")
+    # Normalize computed_kwargs_expr via content-stable decomposition
+    # rather than the default normalize_expr -> normalize_op -> SQL path,
+    # which includes session-dependent UDF class names.
+    if computed_kwargs_expr is not None:
+        computed_kwargs_token = _normalize_computed_kwargs_expr(computed_kwargs_expr)
+    else:
+        computed_kwargs_token = None
     return normalize_seq_with_caller(
         ScalarUDF,
         typs,
@@ -463,7 +506,7 @@ def normalize_scalar_udf(udf):
         udf.__func__,
         #
         # ExprScalarUDF
-        udf.__config__.get("computed_kwargs_expr"),
+        computed_kwargs_token,
         # we are insensitive to these for now
         # udf.__udf_namespace__,
         # udf.__func_name__,
