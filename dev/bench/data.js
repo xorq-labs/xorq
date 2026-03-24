@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774377448538,
+  "lastUpdate": 1774383423407,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -2244,6 +2244,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.010039984904401751",
             "extra": "mean: 212.3574274999953 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5c1d572a3b4d19b94512780d2421ba09ac07268c",
+          "message": "ref(cli): simplify xorq run, use match in replace_cache_table (#1745)\n\n## Summary\n- Remove `--alias` / `--name` from `xorq run` — alias-based execution\nnow lives in `xorq catalog run` (#1744). `BUILD_PATH` becomes a required\npositional argument.\n- Delete `_resolve_alias` helper and `test_cli_run_alias.py` (143 lines)\n- Convert `replace_cache_table` from `if/elif` to `match` statement\n\n## Test plan\n- [x] 15 CLI tests pass\n- [x] 23 relation tests pass\n- [ ] CI green\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-24T16:13:20-04:00",
+          "tree_id": "b549a24383a96bb60424e60c175b7a0905c691df",
+          "url": "https://github.com/xorq-labs/xorq/commit/5c1d572a3b4d19b94512780d2421ba09ac07268c"
+        },
+        "date": 1774383420127,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.2795850587745745,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020024162077535046",
+            "extra": "mean: 137.37046712499534 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.801884917307833,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011280717517379807",
+            "extra": "mean: 208.25155479999466 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7395453447948385,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17123351572521534",
+            "extra": "mean: 1.352182130600005 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.3272749476211265,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04302942666056022",
+            "extra": "mean: 231.09231839999893 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.184252946420046,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0035414231074130547",
+            "extra": "mean: 192.8918226666667 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.019838149374617,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009310413437196978",
+            "extra": "mean: 199.20960999999218 msec\nrounds: 6"
           }
         ]
       }
