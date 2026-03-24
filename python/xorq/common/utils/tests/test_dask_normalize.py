@@ -10,6 +10,7 @@ from unittest.mock import (
 
 import cloudpickle
 import dask
+import pyarrow.compute as pc
 import pytest
 import toolz
 
@@ -312,3 +313,43 @@ def test_scalar_udf_token_stable_across_udf_counter_states():
     assert token_1 == token_2, (
         f"ScalarUDF token changed with UDF counter state: {token_1} != {token_2}"
     )
+
+
+def test_udf_sql_name_uses_func_name_not_class_name():
+    """Compiled SQL must use __func_name__ (stable) not type().__name__ (counter-suffixed).
+
+    When multiple UDFs are created, ibis appends a sequential counter to the
+    generated class name (e.g. my_add_0, my_add_3).  The SQL compiler should
+    use __func_name__ instead so that the emitted SQL is deterministic.
+    """
+
+    def _make_udf_expr():
+        @xo.udf.scalar.pyarrow
+        def my_add(x: dt.float64, y: dt.float64) -> dt.float64:
+            return pc.add(x, y)
+
+        t = xo.memtable({"a": [1.0], "b": [2.0]})
+        return t.mutate(c=my_add(t.a, t.b))
+
+    expr_1 = _make_udf_expr()
+    con = xo.duckdb.connect()
+    sql_1 = con.compile(expr_1)
+
+    # Bump the global UDF counter by creating throwaway UDFs
+    for _ in range(5):
+
+        @xo.udf.scalar.pyarrow
+        def _throwaway(x: dt.float64) -> dt.float64:
+            return x
+
+    expr_2 = _make_udf_expr()
+    sql_2 = con.compile(expr_2)
+
+    # Strip memtable names (they differ per instance) and compare the rest
+    normalize_memtable = re.compile(r"ibis_pandas_memtable_\w+")
+    assert normalize_memtable.sub("MEMTABLE", sql_1) == normalize_memtable.sub(
+        "MEMTABLE", sql_2
+    ), f"SQL changed with UDF counter state:\n  {sql_1}\n  {sql_2}"
+    # The user-given name must appear; the counter-suffixed class name must not
+    assert "my_add(" in sql_1.lower()
+    assert "my_add_" not in sql_1.lower()
