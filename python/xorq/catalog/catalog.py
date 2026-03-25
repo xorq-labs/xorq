@@ -529,7 +529,9 @@ class CatalogEntry:
 
     @cached_property
     def backends(self) -> tuple[str, ...]:
-        data = self._read_zip_member(DumpFiles.profiles, yaml12.parse_yaml)
+        data = self._read_zip_member(
+            DumpFiles.profiles, toolz.compose(yaml12.parse_yaml, bytes.decode)
+        )
         if not isinstance(data, dict):
             raise ValueError(
                 f"Expected {DumpFiles.profiles!r} to contain a YAML mapping in {self.catalog_path}"

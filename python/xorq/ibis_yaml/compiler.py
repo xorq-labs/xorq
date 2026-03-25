@@ -133,9 +133,8 @@ class ArtifactStore:
             yield (path, f)
 
     def write_yaml(self, data: Dict[str, Any], *path_parts) -> pathlib.Path:
-        path = self.get_path(*path_parts)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        yaml12.write_yaml(_to_yaml_safe(data), path)
+        with self._write(*path_parts) as (path, _):
+            yaml12.write_yaml(_to_yaml_safe(data), path)
         return path
 
     def write_text(self, content: str, *path_parts) -> pathlib.Path:
