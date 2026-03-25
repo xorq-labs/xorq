@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774384602521,
+  "lastUpdate": 1774469080461,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -2442,6 +2442,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.03390813169280806",
             "extra": "mean: 209.41872979999516 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ad57e3683815701719b7ef3ffa2b8330c1dce6a8",
+          "message": "feat(catalog): add bind(), ExprComposer, and Catalog.source/bind (#1748)\n\n## Summary\n- Add `ExprKind.Composed` variant and `sources` field to `ExprMetadata`\nfor tracking composed expression provenance\n- Add `bind()` function and `ExprComposer` class for chaining catalog\nentries through unbound transforms with schema validation and provenance\ntagging (`HashingTag`)\n- Add `Catalog.source()` and `Catalog.bind()` convenience methods;\nrefactor `check_consistency` out of `__attrs_post_init__` into callers\n- Add `safe_eval` utility for restricted inline code evaluation\n(AST-whitelisted)\n\n## Test plan\n- [x] `test_bind.py` covers schema validation, single/multi-step bind,\nprovenance tagging, error cases, and ExprComposer with inline code\n- [ ] Run full catalog test suite: `python -m pytest\npython/xorq/catalog/tests/ -x -q`\n- [ ] Verify no regressions in `python/xorq/ibis_yaml/tests/`\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-25T16:01:31-04:00",
+          "tree_id": "5e2050bd8d3ce39b4069c0bf7a6cd1f72e2e8621",
+          "url": "https://github.com/xorq-labs/xorq/commit/ad57e3683815701719b7ef3ffa2b8330c1dce6a8"
+        },
+        "date": 1774469077814,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.225268311973808,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007953874489986012",
+            "extra": "mean: 121.57658110000682 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 5.532299452933284,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005457160137213551",
+            "extra": "mean: 180.75666519999913 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.798997674547794,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19637688947407225",
+            "extra": "mean: 1.2515680981999935 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.676016041045612,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00984374916225649",
+            "extra": "mean: 176.17991083333587 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.735057325089699,
+            "unit": "iter/sec",
+            "range": "stddev: 0.056523475184172466",
+            "extra": "mean: 211.19068500000822 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.076851078060554,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03548886609925667",
+            "extra": "mean: 245.2873506666625 msec\nrounds: 6"
           }
         ]
       }
