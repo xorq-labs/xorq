@@ -135,6 +135,24 @@ def test_catalog_clone_from_push(repo_cloned_bare, tmpdir):
     assert before != after
 
 
+def test_remote_log_available_after_init(tmpdir):
+    """remote.log is readable immediately after initremote (journal flushed)."""
+    from xorq.catalog.annex import Annex, DirectoryRemoteConfig
+
+    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir.mkdir()
+    remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
+    repo_path = Path(tmpdir).joinpath("repo")
+    Catalog.from_repo_path(repo_path, init=True, annex=remote_config)
+
+    annex = Annex(repo_path=repo_path)
+    remote_log = annex.remote_log
+    assert remote_log
+    config = next(iter(remote_log.values()))
+    assert config["name"] == "mydir"
+    assert config["type"] == "directory"
+
+
 @pytest.mark.parametrize("elide", REQUIRED_ARCHIVE_NAMES)
 def test_test_zip(elide, catalog, tmpdir):
     zip_path = write_zip(
