@@ -305,11 +305,6 @@ def maybe_expr(entry):
     return entry.lazy_expr
 
 
-@maybe(default=())
-def maybe_schema(expr) -> tuple[tuple[str, str], ...]:
-    return tuple((name, str(dtype)) for name, dtype in expr.schema().items())
-
-
 @maybe(default="(unavailable)")
 def maybe_lineage(expr) -> str:
     chain = _build_lineage_chain(expr)
@@ -722,12 +717,17 @@ class ExploreScreen(Screen):
 
     @staticmethod
     def _build_explore_data(entry, alias, known_cached=None) -> ExploreData:
+        # Schema comes from the sidecar — no content fetch needed.
+        schema_items = tuple(
+            (name, str(dtype)) for name, dtype in entry.metadata.schema_out.items()
+        )
+        # Lineage and cache info require the deserialized expression.
         expr = maybe_expr(entry)
         computed_cached, cache_path = maybe_cache_info(expr)
         return ExploreData(
             hash=entry.name,
             alias=alias,
-            schema_items=maybe_schema(expr),
+            schema_items=schema_items,
             lineage_text=maybe_lineage(expr),
             is_cached=known_cached if known_cached is not None else computed_cached,
             cache_path=cache_path,
@@ -825,6 +825,12 @@ class ExploreScreen(Screen):
     @work(thread=True)
     def _load_data_preview(self) -> None:
         try:
+            if not self._entry.is_content_local:
+                self.app.call_from_thread(
+                    self.query_one("#data-status", Static).update,
+                    " Fetching content from remote…",
+                )
+                self._entry.fetch()
             expr = self._entry.expr
             df = self._execute_preview(expr)
             columns = tuple(str(c) for c in df.columns)

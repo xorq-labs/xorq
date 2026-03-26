@@ -3,7 +3,6 @@ import json
 import shutil
 import subprocess
 import tempfile
-import zipfile
 from contextlib import (
     contextmanager,
     nullcontext,
@@ -39,6 +38,7 @@ from xorq.catalog.constants import (
     PREFERRED_SUFFIX,
     CatalogInfix,
 )
+from xorq.catalog.exceptions import ContentNotAvailableError
 from xorq.catalog.expr_utils import (
     build_expr_context,
     build_expr_context_zip,
@@ -223,6 +223,20 @@ class Catalog:
             raise ValueError(f"Entry '{name}' not found in catalog")
         catalog_entry = CatalogEntry(name, self)
         return catalog_entry
+
+    def load(self, name_or_alias, con=None):
+        """Return a tagged RemoteTable expression for a catalog entry (by hash or alias)."""
+        from xorq.catalog.bind import _make_source_expr  # noqa: PLC0415
+
+        entry = self.get_catalog_entry(name_or_alias, maybe_alias=True)
+        alias = name_or_alias if name_or_alias in self.list_aliases() else None
+        return _make_source_expr(entry, con=con, alias=alias)
+
+    def bind(self, source_entry, *transforms, con=None):
+        """Bind a source entry through one or more transform entries."""
+        from xorq.catalog.bind import bind  # noqa: PLC0415
+
+        return bind(source_entry, *transforms, con=con)
 
     def get_zip(self, name, dir_path=None):
         """Export an entry's archive to *dir_path* (default: cwd).  Returns the output path."""
@@ -590,9 +604,27 @@ class CatalogAddition:
     def name(self):
         return self.build_zip.name
 
-    @property
+    @cached_property
     def metadata(self):
-        return {"md5sum": self.build_zip.md5sum}
+        prefix = self.build_zip.internal_prefix
+        expr_data = self.build_zip.read_member(
+            f"{prefix}/{DumpFiles.expr_metadata}", json.loads
+        )
+        profiles_data = self.build_zip.read_member(
+            f"{prefix}/{DumpFiles.profiles}", yaml.safe_load
+        )
+        backends = [
+            v["con_name"] for v in profiles_data.values() if isinstance(v, dict)
+        ]
+        return {
+            k: v
+            for k, v in {
+                "md5sum": self.build_zip.md5sum,
+                "backends": backends,
+                "expr_metadata": expr_data,
+            }.items()
+            if v is not None
+        }
 
     @property
     def catalog_entry(self):
@@ -621,6 +653,7 @@ class CatalogAddition:
             return None
         self.ensure_dirs()
         catalog_entry = self.catalog_entry
+        # yaml.safe_dump(self.metadata, sort_keys=False)
         catalog_entry.metadata_path.write_text(yaml12.format_yaml(self.metadata))
         shutil.copy(self.build_zip.path, catalog_entry.catalog_path)
         backend = self.catalog.backend
@@ -651,6 +684,12 @@ class CatalogEntry:
 
     Provides access to the entry's archive, metadata, deserialized expression,
     kind, backends, and any aliases pointing to it.
+
+    Prefer sidecar-backed properties (``metadata``, ``kind``, ``columns``,
+    ``backends``, ``composed_from``, ``root_tag``) over ``expr`` /
+    ``lazy_expr``.  The sidecar is always available; ``expr`` requires the
+    zip archive and raises ``ContentNotAvailableError`` when annex content
+    is not local.  See ADR-0003 for extension guidelines.
     """
 
     name = field(validator=instance_of(str))
@@ -682,12 +721,14 @@ class CatalogEntry:
 
     @property
     def expr(self):
+        self._require_content()
         return load_expr_from_zip(self.catalog_path)
 
     @property
     def lazy_expr(self):
         from xorq.catalog.expr_utils import load_expr_from_zip  # noqa: PLC0415
 
+        self._require_content()
         return load_expr_from_zip(self.catalog_path, lazy=True)
 
     @property
@@ -695,15 +736,15 @@ class CatalogEntry:
         return self.metadata.parquet_cache_paths
 
     @cached_property
+    def sidecar_metadata(self) -> dict:
+        """Always-available metadata from the git-tracked sidecar file."""
+        return yaml.safe_load(self.metadata_path.read_text()) or {}
+
+    @cached_property
     def metadata(self):
         from xorq.vendor.ibis.expr.types.core import ExprMetadata  # noqa: PLC0415
 
-        data = self._read_zip_member(DumpFiles.expr_metadata, json.loads)
-        if not isinstance(data, dict):
-            raise ValueError(
-                f"Expected {DumpFiles.expr_metadata!r} to contain a JSON object in {self.catalog_path}"
-            )
-        return ExprMetadata.from_dict(data)
+        return ExprMetadata.from_dict(self.sidecar_metadata["expr_metadata"])
 
     @property
     def kind(self) -> ExprKind:
@@ -718,19 +759,13 @@ class CatalogEntry:
         return self.metadata.root_tag or ""
 
     @cached_property
+    def composed_from(self) -> tuple:
+        """Catalog entry references this entry was composed from."""
+        return self.metadata.composed_from
+
+    @cached_property
     def backends(self) -> tuple[str, ...]:
-        data = self._read_zip_member(
-            DumpFiles.profiles, toolz.compose(yaml12.parse_yaml, bytes.decode)
-        )
-        if not isinstance(data, dict):
-            raise ValueError(
-                f"Expected {DumpFiles.profiles!r} to contain a YAML mapping in {self.catalog_path}"
-            )
-        if non_dicts := tuple(v for v in data.values() if not isinstance(v, dict)):
-            raise ValueError(
-                f"Expected all profile entries to be mappings in {self.catalog_path}, got: {non_dicts!r}"
-            )
-        return tuple(value["con_name"] for value in data.values())
+        return tuple(self.sidecar_metadata["backends"])
 
     @property
     def aliases(self):
@@ -739,6 +774,23 @@ class CatalogEntry:
             for catalog_alias in self.catalog.catalog_aliases
             if catalog_alias.catalog_entry.name == self.name
         )
+
+    @property
+    def is_content_local(self):
+        """True when the entry's archive can be read right now."""
+        return self.catalog.backend.is_content_local(self.catalog_path)
+
+    @property
+    def is_available(self):
+        """True when the entry is registered *and* its content is local."""
+        return self.exists() and self.is_content_local
+
+    def fetch(self):
+        """Fetch this entry's annex content from the remote.
+
+        No-op for plain-git backends.
+        """
+        self.catalog.backend.fetch_content(self.catalog_path)
 
     @property
     def _exists_components(self):
@@ -751,7 +803,16 @@ class CatalogEntry:
             "catalog_yaml_contents": self.catalog.catalog_yaml.contains(self.name),
         }
 
+    def _require_content(self):
+        if not self.is_content_local:
+            raise ContentNotAvailableError(
+                f"Content for entry '{self.name}' is not available locally. "
+                f"Call entry.fetch() or annex.get() to retrieve it from the remote."
+            )
+
     def get(self, dir_path=None):
+        if not self.is_content_local:
+            self.fetch()
         target = (
             Path(dir_path or Path.cwd())
             .joinpath(self.name)
@@ -765,14 +826,8 @@ class CatalogEntry:
         assert all(values) or not any(values)
 
     def exists(self):
+        """True when the entry is registered in the catalog (content may not be local)."""
         return all(self._exists_components.values())
-
-    def _read_zip_member(self, filename, read_f):
-        with zipfile.ZipFile(self.catalog_path, "r") as zf:
-            member_path = f"{self.name}/{filename}"
-            if member_path not in zf.namelist():
-                raise ValueError(f"{filename} not found in archive")
-            return read_f(zf.read(member_path))
 
 
 @frozen

@@ -67,7 +67,7 @@ def _validate_chain(source_schema, transforms):
                 f"transforms[{i}] must be a CatalogEntry, got {type(entry)}"
             )
 
-        meta = entry.expr.ls.metadata
+        meta = entry.metadata
         if meta.kind != ExprKind.UnboundExpr:
             raise ValueError(
                 f"transforms[{i}] ({entry.name!r}) has no UnboundTable "
@@ -110,6 +110,8 @@ def _resolve_source(source, con, alias):
 
     match source:
         case CatalogEntry():
+            if not source.is_content_local:
+                source.fetch()
             resolved_con = con if con is not None else source.expr._find_backend()
             node = RemoteTable.from_expr(resolved_con, source.expr)
             tagged = _make_source_tag(node.to_expr(), source, alias)
@@ -126,6 +128,8 @@ def _resolve_source(source, con, alias):
 
 def _bind_one(current_expr, transform_entry, con):
     """Bind a single transform entry onto *current_expr*, tagging the result."""
+    if not transform_entry.is_content_local:
+        transform_entry.fetch()
     transform_expr = transform_entry.expr
     source_node = _ensure_remote(current_expr.op(), con, current_expr)
     composed_expr = replace_unbound(transform_expr, source_node)

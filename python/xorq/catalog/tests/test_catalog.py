@@ -17,6 +17,7 @@ from xorq.catalog.catalog import (
     CatalogEntry,
 )
 from xorq.catalog.constants import CatalogInfix
+from xorq.catalog.exceptions import ContentNotAvailableError
 from xorq.catalog.expr_utils import (
     build_expr_context_zip,
 )
@@ -432,7 +433,7 @@ def test_directory_remote(tmpdir):
     remote_dir.mkdir()
     remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
     repo_path = Path(tmpdir).joinpath("repo")
-    GitAnnexBackend.init_repo_path(repo_path, remote_config=remote_config)
+    Catalog.init_repo_path(repo_path, annex=remote_config)
     annex = Annex(repo_path=repo_path)
     backend = GitAnnexBackend(repo=GitRepo(repo_path), annex=annex)
     catalog = Catalog(backend=backend)
@@ -456,6 +457,141 @@ def test_directory_remote(tmpdir):
     # get content back from directory remote
     annex.get()
     assert entry.catalog_path.exists()
+
+
+def test_annex_is_content_local_after_drop(tmpdir):
+    """is_content_local is False when annex content has been dropped."""
+    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir.mkdir()
+    remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
+    repo_path = Path(tmpdir).joinpath("repo")
+    Catalog.init_repo_path(repo_path, annex=remote_config)
+    annex = Annex(repo_path=repo_path)
+    backend = GitAnnexBackend(repo=GitRepo(repo_path), annex=annex)
+    catalog = Catalog(backend=backend)
+
+    with build_expr_context_zip(xo.memtable({"x": [1]})) as zp:
+        entry = catalog.add(zp, sync=False)
+
+    assert entry.is_content_local
+    assert entry.is_available
+
+    annex.copy(to="mydir")
+    annex.drop()
+
+    assert entry.exists(), "entry should still be registered"
+    assert not entry.is_content_local
+    assert not entry.is_available
+
+
+def test_annex_read_after_drop_raises_content_not_available(tmpdir):
+    """Accessing content after drop raises ContentNotAvailableError."""
+    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir.mkdir()
+    remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
+    repo_path = Path(tmpdir).joinpath("repo")
+    Catalog.init_repo_path(repo_path, annex=remote_config)
+    annex = Annex(repo_path=repo_path)
+    backend = GitAnnexBackend(repo=GitRepo(repo_path), annex=annex)
+    catalog = Catalog(backend=backend)
+
+    with build_expr_context_zip(xo.memtable({"x": [1]})) as zp:
+        entry = catalog.add(zp, sync=False)
+
+    annex.copy(to="mydir")
+    annex.drop()
+
+    # metadata reads from sidecar — works without content
+    assert entry.metadata is not None
+    assert entry.kind is not None
+
+    # expr requires the zip — raises without content
+    with pytest.raises(ContentNotAvailableError, match="not available locally"):
+        entry.expr
+
+    # get auto-fetches from the remote
+    out_dir = str(tmpdir.join("out"))
+    Path(out_dir).mkdir()
+    result = entry.get(dir_path=out_dir)
+    assert result.exists()
+
+
+def test_annex_fetch_restores_content(tmpdir):
+    """entry.fetch() retrieves annex content for a single entry."""
+    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir.mkdir()
+    remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
+    repo_path = Path(tmpdir).joinpath("repo")
+    Catalog.init_repo_path(repo_path, annex=remote_config)
+    annex = Annex(repo_path=repo_path)
+    backend = GitAnnexBackend(repo=GitRepo(repo_path), annex=annex)
+    catalog = Catalog(backend=backend)
+
+    with build_expr_context_zip(xo.memtable({"x": [1]})) as zp:
+        entry = catalog.add(zp, sync=False)
+
+    annex.copy(to="mydir")
+    annex.drop()
+    assert not entry.is_content_local
+
+    entry.fetch()
+    assert entry.is_content_local
+    assert entry.is_available
+    # content is actually readable after fetch
+    assert entry.metadata is not None
+
+
+def test_plain_git_is_content_local(catalog):
+    """Plain-git entries always have content local."""
+    expr = xo.memtable({"x": [1]})
+    entry = catalog.add(expr)
+    assert entry.is_content_local
+    assert entry.is_available
+
+
+def test_sidecar_contains_promoted_fields(catalog):
+    """Sidecar metadata file contains expr_metadata and backends."""
+    expr = xo.memtable({"x": [1], "y": ["a"]})
+    entry = catalog.add(expr)
+    sidecar = entry.sidecar_metadata
+    assert "md5sum" in sidecar
+    assert "expr_metadata" in sidecar
+    em = sidecar["expr_metadata"]
+    assert "kind" in em
+    assert "schema_out" in em
+    assert set(em["schema_out"]) == {"x", "y"}
+    assert "backends" in sidecar
+    assert isinstance(sidecar["backends"], list)
+
+
+def test_metadata_from_sidecar_after_drop(tmpdir):
+    """All metadata properties work from sidecar after annex content is dropped."""
+    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir.mkdir()
+    remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
+    repo_path = Path(tmpdir).joinpath("repo")
+    Catalog.init_repo_path(repo_path, annex=remote_config)
+    annex = Annex(repo_path=repo_path)
+    backend = GitAnnexBackend(repo=GitRepo(repo_path), annex=annex)
+    catalog = Catalog(backend=backend)
+
+    with build_expr_context_zip(xo.memtable({"x": [1]})) as zp:
+        entry = catalog.add(zp, sync=False)
+
+    annex.copy(to="mydir")
+    annex.drop()
+    assert not entry.is_content_local
+
+    # all sidecar-backed properties work without content
+    assert entry.kind == ExprKind.Source
+    assert entry.columns == ("x",)
+    assert entry.root_tag is not None or entry.root_tag == ""
+    assert isinstance(entry.backends, tuple)
+    assert entry.metadata.to_dict() is not None
+
+    # expr still requires content
+    with pytest.raises(ContentNotAvailableError):
+        entry.expr
 
 
 @pytest.mark.s3

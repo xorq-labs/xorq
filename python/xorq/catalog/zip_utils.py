@@ -2,6 +2,7 @@ import hashlib
 import tempfile
 import zipfile
 from contextlib import contextmanager
+from functools import cached_property
 from pathlib import Path
 
 from attr import field, frozen
@@ -74,6 +75,13 @@ class BuildZip:
     def name(self):
         return with_pure_suffix(self.path, "").name
 
+    @cached_property
+    def internal_prefix(self):
+        """The top-level directory inside the zip archive."""
+        with zipfile.ZipFile(self.path, "r") as zf:
+            first = zf.namelist()[0]
+            return first.split("/", 1)[0]
+
     @property
     def md5sum(self):
         from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
@@ -81,3 +89,8 @@ class BuildZip:
         )
 
         return file_digest(self.path, hashlib.md5)
+
+    def read_member(self, member_path, read_f):
+        """Read and parse a single member from the zip archive."""
+        with zipfile.ZipFile(self.path, "r") as zf:
+            return read_f(zf.read(member_path))

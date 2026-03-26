@@ -746,7 +746,9 @@ class ExprMetadata:
     )
     root_tag: Optional[str] = field(default=None)
     parquet_cache_paths: tuple[str, ...] = field(factory=tuple)
-    sources: tuple = field(factory=tuple, validator=deep_iterable(instance_of(dict)))
+    composed_from: tuple = field(
+        factory=tuple, validator=deep_iterable(instance_of(dict))
+    )
     params: tuple = field(factory=tuple)
 
     @classmethod
@@ -764,7 +766,7 @@ class ExprMetadata:
             ),
             root_tag=data.get("root_tag"),
             parquet_cache_paths=tuple(data.get("parquet_cache_paths") or ()),
-            sources=tuple(data.get("sources", ())),
+            composed_from=tuple(data.get("composed_from") or data.get("sources") or ()),
             params=tuple(data.get("params") or ()),
         )
 
@@ -809,7 +811,7 @@ class ExprMetadata:
             schema_out=expr.as_table().schema(),
             root_tag=root_tag,
             parquet_cache_paths=parquet_cache_paths,
-            sources=_extract_sources(catalog_tag_nodes),
+            composed_from=_extract_sources(catalog_tag_nodes),
             params=named_params,
         )
 
@@ -826,7 +828,10 @@ class ExprMetadata:
                 ("root_tag", self.root_tag),
                 ("parquet_cache_paths", list(self.parquet_cache_paths) or None),
                 ("params", self.params or None),
-                ("sources", list(self.sources) if self.sources else None),
+                (
+                    "composed_from",
+                    list(self.composed_from) if self.composed_from else None,
+                ),
             )
             if value is not None
         }
@@ -854,8 +859,8 @@ class LETSQLAccessor:
         return _extract_is_source(self.expr)
 
     @property
-    def sources(self):
-        return self.metadata.sources
+    def composed_from(self):
+        return self.metadata.composed_from
 
     @property
     def cached_nodes(self):

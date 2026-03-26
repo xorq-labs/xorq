@@ -27,6 +27,30 @@ class CatalogBackend(abc.ABC):
     @abc.abstractmethod
     def commit_context(self, message): ...
 
+    @abc.abstractmethod
+    def is_content_local(self, path) -> bool: ...
+
+    @abc.abstractmethod
+    def fetch_content(self, path): ...
+
+    def set_remote_config(self, catalog_yaml, remote_config):
+        """Persist a remote config to catalog.yaml and commit.
+
+        Override in backends that support remotes; default raises NotImplementedError.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support remote configuration"
+        )
+
+    def get_remote_config(self, catalog_yaml, **kwargs):
+        """Load the remote config from catalog.yaml, if any.
+
+        Override in backends that support remotes; default raises NotImplementedError.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support remote configuration"
+        )
+
 
 @frozen
 class GitBackend(CatalogBackend):
@@ -53,15 +77,11 @@ class GitBackend(CatalogBackend):
         yield self.repo.index
         self.repo.index.commit(message)
 
-    @staticmethod
-    def init_repo_path(repo_path):
-        repo_path = Path(repo_path)
-        if repo_path.exists():
-            raise FileExistsError(f"repo already exists at {repo_path}")
-        repo_path.mkdir(parents=True)
-        repo = Repo.init(repo_path)
-        repo.index.commit("initial commit")
-        return repo
+    def is_content_local(self, path):
+        return Path(path).exists()
+
+    def fetch_content(self, path):
+        pass
 
 
 @frozen
@@ -100,6 +120,14 @@ class GitAnnexBackend(CatalogBackend):
         yield self.repo.index
         self.repo.index.commit(message)
 
+    def is_content_local(self, path):
+        p = Path(path)
+        return p.exists() and not (p.is_symlink() and not p.resolve().exists())
+
+    def fetch_content(self, path):
+        relpath = self.get_relpath(path)
+        self.annex.get(path=str(relpath))
+
     def set_remote_config(self, catalog_yaml, remote_config):
         """Persist a remote config dict to catalog.yaml and commit."""
         catalog_yaml.set_remote(remote_config.to_dict())
@@ -115,14 +143,3 @@ class GitAnnexBackend(CatalogBackend):
         if remote_dict is None:
             return None
         return remote_config_from_dict(remote_dict, **kwargs)
-
-    @staticmethod
-    def init_repo_path(repo_path, remote_config=None):
-        repo_path = Path(repo_path)
-        if repo_path.exists():
-            raise FileExistsError(f"repo already exists at {repo_path}")
-        repo_path.mkdir(parents=True)
-        repo = Repo.init(repo_path)
-        repo.index.commit("initial commit")
-        Annex.init_repo_path(repo_path, remote_config=remote_config)
-        return repo
