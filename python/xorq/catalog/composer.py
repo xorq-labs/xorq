@@ -50,6 +50,7 @@ class ExprComposer:
             current = current.hashing_tag(CatalogTag.CODE, code=self.code)
 
         return current
+
     @classmethod
     def from_expr(cls, expr, catalog):
         """Recover an ExprComposer from a tagged expression.

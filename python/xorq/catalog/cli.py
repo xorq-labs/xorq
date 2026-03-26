@@ -272,7 +272,7 @@ def list_entries(ctx, kind):
             return
 
         for entry in entries:
-            click.echo("\t".join((entry.name, str(entry.kind))) if kind else entry.name)
+            click.echo(f"{entry.name}\t{entry.kind}" if kind else entry.name)
 
 
 @cli.command("list-aliases")
