@@ -6,6 +6,12 @@ Strategy:
   temporary git repo so that CatalogEntry objects carry genuine expr_metadata,
   backends, and column info loaded from the zip archive.
 - Git log: use the real repo that backs the catalog fixture.
+
+IMPORTANT — populating the catalog table in pilot tests:
+    Never wait for the async _do_refresh worker to populate rows.  It runs in
+    a background thread on a timer and is inherently racy under test.  Instead,
+    build CatalogRowData objects and call _render_refresh() directly — see the
+    _populate_table() helper below.
 """
 
 import asyncio
@@ -79,6 +85,20 @@ def alias_for_a(catalog, entry_a):
 
 def _make_tui(catalog):
     return CatalogTUI(lambda: catalog)
+
+
+async def _populate_table(pilot, catalog, *entries):
+    """Deterministically populate the catalog table with the given entries.
+
+    Use this instead of waiting for the async _do_refresh worker, which is
+    racy under test.  Returns the CatalogScreen and the list of CatalogRowData.
+    """
+    await pilot.pause()
+    screen = pilot.app.screen
+    rows = tuple(CatalogRowData(entry=e) for e in entries)
+    screen._render_refresh(catalog.repo.working_dir, rows)
+    await pilot.pause()
+    return screen, rows
 
 
 # ---------------------------------------------------------------------------
@@ -290,12 +310,9 @@ def test_j_k_moves_cursor(catalog, entry_a, entry_b):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            # Poll until the async _do_refresh populates both rows (CI can be slow)
-            table = app.screen.query_one("#catalog-table", DataTable)
-            for _ in range(20):
-                await pilot.pause()
-                if table.row_count >= 2:
-                    break
+            screen, _ = await _populate_table(pilot, catalog, entry_a, entry_b)
+
+            table = screen.query_one("#catalog-table", DataTable)
             assert table.row_count == 2
             assert table.cursor_row == 0
 
