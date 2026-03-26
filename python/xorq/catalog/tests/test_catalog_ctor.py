@@ -7,6 +7,8 @@ from git import (
     Repo,
 )
 
+from xorq.catalog.annex import LOCAL_ANNEX, Annex
+from xorq.catalog.backend import GitAnnexBackend
 from xorq.catalog.catalog import (
     Catalog,
 )
@@ -30,13 +32,18 @@ def _make_bare_clone(source_catalog, tmpdir_path):
 def test_catalog_ctor_fails(tmpdir):
     uninited_repo = Repo.init(Path(tmpdir), mkdir=True)
     with pytest.raises(
-        ValueError, match="Reference at 'refs/heads/(master|main)' does not exist"
+        (ValueError, AssertionError),
     ):
-        Catalog(uninited_repo)
+        repo_path = Path(uninited_repo.working_dir)
+        Annex.init_repo_path(repo_path)
+        backend = GitAnnexBackend(repo=uninited_repo, annex=Annex(repo_path=repo_path))
+        Catalog(backend=backend)
 
 
 def test_catalog_ctor(repo):
-    Catalog(repo)
+    repo_path = Path(repo.working_dir)
+    backend = GitAnnexBackend(repo=repo, annex=Annex(repo_path=repo_path))
+    Catalog(backend=backend)
 
 
 def test_catalog_ctor_from_repo_path_init(tmpdir):
@@ -57,7 +64,7 @@ def test_catalog_ctor_from_repo_path(tmpdir):
 
 def test_catalog_clone_from(repo_cloned_bare, tmpdir):
     cloned = Catalog.clone_from(
-        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("cloned")
+        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("cloned"), annex=LOCAL_ANNEX
     )
     compare_repo_and_catalog(repo_cloned_bare, cloned)
 

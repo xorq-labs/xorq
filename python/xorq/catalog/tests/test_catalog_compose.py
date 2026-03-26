@@ -1,13 +1,14 @@
 from pathlib import Path
 
 import xorq.api as xo
+from xorq.catalog.annex import LOCAL_ANNEX
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.tests.conftest import compare_repo_and_catalog
 
 
 def test_catalog_compose(repo_cloned_bare, tmpdir):
     cloned = Catalog.clone_from(
-        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("cloned")
+        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("cloned"), annex=LOCAL_ANNEX
     )
     expr = next(catalog_entry.expr for catalog_entry in cloned.catalog_entries)
     (on, *_) = expr.columns

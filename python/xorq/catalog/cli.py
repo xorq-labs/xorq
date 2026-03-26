@@ -394,7 +394,7 @@ def schema(ctx, name, as_json):
         catalog = ctx.obj.make_catalog(init=False)
         try:
             entry = catalog.get_catalog_entry(name, maybe_alias=True)
-        except AssertionError as err:
+        except (ValueError, AssertionError) as err:
             raise click.ClickException(
                 f"Entry {name!r} not found — run 'xorq catalog list' or 'xorq catalog list-aliases' to see available entries and aliases."
             ) from err

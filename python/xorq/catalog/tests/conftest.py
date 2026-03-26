@@ -9,15 +9,17 @@ from git import (
 )
 
 import xorq.api as xo
+from xorq.catalog.annex import LOCAL_ANNEX, Annex, _do_inside
+from xorq.catalog.backend import GitAnnexBackend
 from xorq.catalog.catalog import (
     CATALOG_YAML_NAME,
     METADATA_APPEND,
     PREFERRED_SUFFIX,
     Catalog,
-    with_pure_suffix,
 )
 from xorq.catalog.constants import CatalogInfix
 from xorq.catalog.expr_utils import build_expr_context_zip
+from xorq.catalog.zip_utils import with_pure_suffix
 
 
 def get_split_tree(repo):
@@ -73,13 +75,15 @@ def compare_repo_and_catalog(repo, catalog):
 
 @pytest.fixture
 def repo(tmpdir):
-    repo = Catalog.init_repo_path(Path(tmpdir).joinpath("repo"))
+    repo = Catalog.init_repo_path(Path(tmpdir).joinpath("repo"), annex=LOCAL_ANNEX)
     yield repo
 
 
 @pytest.fixture
 def catalog(repo):
-    yield Catalog(repo=repo)
+    repo_path = Path(repo.working_dir)
+    backend = GitAnnexBackend(repo=repo, annex=Annex(repo_path=repo_path))
+    yield Catalog(backend=backend)
 
 
 @pytest.fixture
@@ -129,9 +133,14 @@ def root_repo(tmpdir):
 
 @pytest.fixture
 def repo_cloned_bare(catalog_populated, tmpdir):
+    bare_path = Path(tmpdir).joinpath("catalog-populated-bare")
     repo_cloned_bare = Repo.clone_from(
         catalog_populated.repo_path,
-        Path(tmpdir).joinpath("catalog-populated-bare"),
+        bare_path,
         bare=True,
     )
+    # init annex in bare repo so it can serve content to clones
+    _do_inside(bare_path, "init")
+    # sync content from origin (the populated catalog)
+    _do_inside(bare_path, "sync", "--content")
     yield repo_cloned_bare
