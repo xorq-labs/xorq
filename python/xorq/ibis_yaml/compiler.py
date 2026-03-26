@@ -92,7 +92,7 @@ def _to_yaml_safe(data):
         return _to_yaml_safe(dict(data))
     elif isinstance(data, ibis.Schema):
         return {name: str(dtype) for name, dtype in zip(data.names, data.types)}
-    elif isinstance(data, pathlib.PurePath):
+    elif isinstance(data, (pathlib.PurePath, StrEnum)):
         return str(data)
     elif isinstance(data, dict):
         return {k: _to_yaml_safe(v) for k, v in data.items()}

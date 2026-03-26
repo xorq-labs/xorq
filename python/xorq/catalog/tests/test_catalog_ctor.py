@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-import yaml
+import yaml12
 from git import (
     NoSuchPathError,
     Repo,
@@ -236,7 +236,7 @@ def test_catalog_yaml_legacy_list_format(catalog, data_dict):
     entry names.  list() and list_aliases() must not raise.
     """
     names = [p.stem for p in data_dict.values()]
-    catalog.catalog_yaml.yaml_path.write_text(yaml.safe_dump(names))
+    catalog.catalog_yaml.yaml_path.write_text(yaml12.format_yaml(names))
 
     assert sorted(catalog.list()) == sorted(names)
     assert catalog.list_aliases() == []

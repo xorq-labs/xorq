@@ -9,7 +9,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 import toolz
-import yaml
+import yaml12
 
 import xorq.api as xo
 import xorq.vendor.ibis as ibis
@@ -172,7 +172,9 @@ def test_compiler_sql(builds_dir, parquet_dir):
     sql_text = build_path.joinpath(DumpFiles.sql).read_text()
     # build_expr normalizes profile idx, so read the canonical name from the
     # built profiles.yaml rather than from the original (un-rewritten) backend
-    built_profiles = yaml.safe_load(build_path.joinpath(DumpFiles.profiles).read_text())
+    built_profiles = yaml12.parse_yaml(
+        build_path.joinpath(DumpFiles.profiles).read_text()
+    )
     (profile_name,) = built_profiles.keys()
     expected_result = (
         "---\n"
@@ -204,7 +206,9 @@ def test_deferred_reads_yaml(builds_dir, parquet_dir):
 
     build_path = build_expr(expr, builds_dir=builds_dir, debug=True)
     # read canonical profile name from the built profiles.yaml
-    built_profiles = yaml.safe_load(build_path.joinpath(DumpFiles.profiles).read_text())
+    built_profiles = yaml12.parse_yaml(
+        build_path.joinpath(DumpFiles.profiles).read_text()
+    )
     (expected_profile,) = built_profiles.keys()
     yaml_path = build_path.joinpath(DumpFiles.deferred_reads)
     assert yaml_path.exists()
@@ -240,7 +244,7 @@ def test_ibis_compiler_expr_schema_ref(t, builds_dir):
     t = xo.memtable({"a": [0, 1], "b": [0, 1]})
     expr = t.filter(t.a == 1).drop("b")
     build_path = build_expr(expr, builds_dir=builds_dir)
-    yaml_dict = yaml.safe_load(build_path.joinpath(DumpFiles.expr).read_text())
+    yaml_dict = yaml12.parse_yaml(build_path.joinpath(DumpFiles.expr).read_text())
     assert yaml_dict["expression"][RefEnum.schema_ref]
 
 
