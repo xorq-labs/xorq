@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774469080461,
+  "lastUpdate": 1774531781733,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -2508,6 +2508,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.03548886609925667",
             "extra": "mean: 245.2873506666625 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9de2a7b767af75988c1b0885553c2ce86d5ba712",
+          "message": "fix(tui): eliminate race in test_j_k_moves_cursor (#1749)\n\n## Summary\n- Replace the racy polling loop in `test_j_k_moves_cursor` with a\ndeterministic `_populate_table()` helper that calls `_render_refresh()`\ndirectly\n- Add module-level docstring warning against waiting for the async\n`_do_refresh` worker in tests\n- The helper matches the pattern already used by every other multi-row\npilot test\n\nFixes the flaky failure seen in [CI run\n#23593493819](https://github.com/xorq-labs/xorq/actions/runs/23593493819/job/68708365740?pr=1718).\n\n## Test plan\n- [x] `pytest\npython/xorq/catalog/tests/test_tui.py::test_j_k_moves_cursor` passes\ndeterministically\n- [ ] Full TUI test suite passes in CI\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-26T14:26:08+01:00",
+          "tree_id": "c11658bab42a9a757b2408e2ae4853896075083a",
+          "url": "https://github.com/xorq-labs/xorq/commit/9de2a7b767af75988c1b0885553c2ce86d5ba712"
+        },
+        "date": 1774531779080,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.92571392289171,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02177740561372316",
+            "extra": "mean: 126.17159914285025 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.737196115430191,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010500745153971624",
+            "extra": "mean: 211.09533480000096 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7148485052208444,
+            "unit": "iter/sec",
+            "range": "stddev: 0.20195074406536406",
+            "extra": "mean: 1.3988977981999995 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.9093185707456133,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012366946065534226",
+            "extra": "mean: 255.79905600000075 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.422723763339441,
+            "unit": "iter/sec",
+            "range": "stddev: 0.026374781722653153",
+            "extra": "mean: 226.10500983333756 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.118037592729267,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0039178327527824575",
+            "extra": "mean: 195.38738859999967 msec\nrounds: 5"
           }
         ]
       }
