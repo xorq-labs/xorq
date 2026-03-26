@@ -50,3 +50,60 @@ class ExprComposer:
             current = current.hashing_tag(CatalogTag.CODE, code=self.code)
 
         return current
+
+    @classmethod
+    def from_expr(cls, expr, catalog):
+        """Recover an ExprComposer from a tagged expression.
+
+        Walks the HashingTag nodes embedded by a prior ``ExprComposer.expr``
+        call and reconstructs the original ``source``, ``transforms``,
+        ``code``, and ``alias`` fields.
+
+        Parameters
+        ----------
+        expr : Expr
+            An expression previously produced by ``ExprComposer.expr``.
+        catalog : Catalog
+            The catalog that owns the referenced entries.
+        """
+        from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+        from xorq.expr.relations import HashingTag  # noqa: PLC0415
+
+        # walk_nodes returns outermost-first; reverse to get composition order
+        # reversed order: SOURCE, transforms..., CODE (if present)
+        nodes = tuple(
+            reversed(
+                tuple(
+                    ht
+                    for ht in (walk_nodes(HashingTag, expr) or ())
+                    if ht.metadata.get("tag") in frozenset(CatalogTag)
+                )
+            )
+        )
+        if not nodes or not nodes[0].metadata["tag"] == CatalogTag.SOURCE:
+            raise ValueError(
+                "No catalog-source tag found; expression was not produced by ExprComposer"
+            )
+
+        if nodes[-1].metadata["tag"] == CatalogTag.CODE:
+            (*nodes, code_node) = nodes
+            code = code_node.metadata["code"]
+        else:
+            code = None
+
+        (source_node, *transform_nodes) = nodes
+        if not all(n.metadata["tag"] == CatalogTag.TRANSFORM for n in transform_nodes):
+            raise ValueError(
+                "Unexpected non-transform tag found between source and code tags"
+            )
+
+        (source_entry, *transform_entries) = (
+            catalog.get_catalog_entry(node.metadata["entry_name"]) for node in nodes
+        )
+        alias = source_node.metadata.get("alias")
+        return cls(
+            source=source_entry,
+            transforms=tuple(transform_entries),
+            code=code,
+            alias=alias,
+        )
