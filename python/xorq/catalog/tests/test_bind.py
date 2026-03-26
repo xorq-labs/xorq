@@ -562,3 +562,86 @@ def test_composed_expr_bare_source(catalog_with_entries):
 def test_composed_expr_bad_source_raises():
     with pytest.raises(TypeError, match="must be.*CatalogEntry"):
         ExprComposer(source="not-an-entry", transforms=("also-bad",))
+
+
+# --- ExprComposer.from_expr tests ---
+
+
+def test_from_expr_single_transform(catalog_with_entries):
+    catalog, source_entry, transform_entry = catalog_with_entries
+    original = ExprComposer(source=source_entry, transforms=(transform_entry,))
+    recovered = ExprComposer.from_expr(original.expr, catalog)
+
+    assert recovered.source.name == source_entry.name
+    assert len(recovered.transforms) == 1
+    assert recovered.transforms[0].name == transform_entry.name
+    assert recovered.code is None
+    # alias resolves to the entry's first alias even when not explicitly passed
+    assert recovered.alias == "my-source"
+
+
+def test_from_expr_bare_source(catalog_with_entries):
+    catalog, source_entry, _ = catalog_with_entries
+    original = ExprComposer(source=source_entry)
+    recovered = ExprComposer.from_expr(original.expr, catalog)
+
+    assert recovered.source.name == source_entry.name
+    assert recovered.transforms == ()
+    assert recovered.code is None
+
+
+def test_from_expr_with_code(catalog_with_entries):
+    catalog, source_entry, transform_entry = catalog_with_entries
+    code = "source.filter(source.amount > 15)"
+    original = ExprComposer(
+        source=source_entry, transforms=(transform_entry,), code=code
+    )
+    recovered = ExprComposer.from_expr(original.expr, catalog)
+
+    assert recovered.source.name == source_entry.name
+    assert len(recovered.transforms) == 1
+    assert recovered.transforms[0].name == transform_entry.name
+    assert recovered.code == code
+
+
+def test_from_expr_code_only(catalog_with_entries):
+    catalog, source_entry, _ = catalog_with_entries
+    code = "source.filter(source.amount > 15)"
+    original = ExprComposer(source=source_entry, code=code)
+    recovered = ExprComposer.from_expr(original.expr, catalog)
+
+    assert recovered.source.name == source_entry.name
+    assert recovered.transforms == ()
+    assert recovered.code == code
+
+
+def test_from_expr_with_alias(catalog_with_entries):
+    catalog, source_entry, transform_entry = catalog_with_entries
+    original = ExprComposer(
+        source=source_entry, transforms=(transform_entry,), alias="custom-alias"
+    )
+    recovered = ExprComposer.from_expr(original.expr, catalog)
+
+    assert recovered.alias == "custom-alias"
+
+
+def test_from_expr_chained_transforms(catalog_with_entries):
+    catalog, source_entry, transform_entry = catalog_with_entries
+    output_schema = xo.Schema({"user_id": "int64", "amount": "float64"})
+    ub2 = ops.UnboundTable(name="ph2", schema=output_schema).to_expr()
+    t2_entry = catalog.add(ub2.filter(ub2.amount > 15))
+
+    original = ExprComposer(source=source_entry, transforms=(transform_entry, t2_entry))
+    recovered = ExprComposer.from_expr(original.expr, catalog)
+
+    assert recovered.source.name == source_entry.name
+    assert len(recovered.transforms) == 2
+    assert recovered.transforms[0].name == transform_entry.name
+    assert recovered.transforms[1].name == t2_entry.name
+
+
+def test_from_expr_no_tags_raises(catalog_with_entries):
+    catalog, _, _ = catalog_with_entries
+    bare = xo.memtable({"x": [1, 2, 3]})
+    with pytest.raises(ValueError, match="No catalog-source tag found"):
+        ExprComposer.from_expr(bare, catalog)
