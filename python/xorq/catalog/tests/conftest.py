@@ -10,7 +10,7 @@ from git import (
 
 import xorq.api as xo
 from xorq.catalog.annex import LOCAL_ANNEX, Annex, _do_inside
-from xorq.catalog.backend import GitAnnexBackend
+from xorq.catalog.backend import GitAnnexBackend, GitBackend
 from xorq.catalog.catalog import (
     CATALOG_YAML_NAME,
     METADATA_APPEND,
@@ -73,16 +73,25 @@ def compare_repo_and_catalog(repo, catalog):
     assert tuple(sorted(alias_names)) == tuple(sorted(catalog.list_aliases()))
 
 
+@pytest.fixture(params=["git", "annex"])
+def backend_type(request):
+    return request.param
+
+
 @pytest.fixture
-def repo(tmpdir):
-    repo = Catalog.init_repo_path(Path(tmpdir).joinpath("repo"), annex=LOCAL_ANNEX)
+def repo(tmpdir, backend_type):
+    annex = LOCAL_ANNEX if backend_type == "annex" else None
+    repo = Catalog.init_repo_path(Path(tmpdir).joinpath("repo"), annex=annex)
     yield repo
 
 
 @pytest.fixture
-def catalog(repo):
+def catalog(repo, backend_type):
     repo_path = Path(repo.working_dir)
-    backend = GitAnnexBackend(repo=repo, annex=Annex(repo_path=repo_path))
+    if backend_type == "annex":
+        backend = GitAnnexBackend(repo=repo, annex=Annex(repo_path=repo_path))
+    else:
+        backend = GitBackend(repo=repo)
     yield Catalog(backend=backend)
 
 
@@ -132,7 +141,9 @@ def root_repo(tmpdir):
 
 
 @pytest.fixture
-def repo_cloned_bare(catalog_populated, tmpdir):
+def repo_cloned_bare(catalog_populated, backend_type, tmpdir):
+    if backend_type != "annex":
+        pytest.skip("repo_cloned_bare requires annex backend")
     bare_path = Path(tmpdir).joinpath("catalog-populated-bare")
     repo_cloned_bare = Repo.clone_from(
         catalog_populated.repo_path,

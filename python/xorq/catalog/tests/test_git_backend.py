@@ -1,4 +1,4 @@
-"""Tests for the plain-git (annex=False) Catalog backend."""
+"""Tests for the plain-git (annex=None) Catalog backend."""
 
 from pathlib import Path
 
@@ -14,7 +14,7 @@ from xorq.catalog.tests.conftest import compare_repo_and_catalog, make_build_zip
 @pytest.fixture
 def git_repo(tmpdir):
     repo_path = Path(tmpdir) / "repo"
-    Catalog.init_repo_path(repo_path, annex=False)
+    Catalog.init_repo_path(repo_path, annex=None)
     return Repo(repo_path)
 
 
@@ -41,40 +41,40 @@ def catalog_populated(catalog, data_dict):
 
 def test_init_repo_path_no_annex(tmpdir):
     repo_path = Path(tmpdir) / "new-catalog"
-    repo = Catalog.init_repo_path(repo_path, annex=False)
+    repo = Catalog.init_repo_path(repo_path, annex=None)
     assert isinstance(repo, Repo)
     assert not (repo_path / ".git" / "annex").exists()
 
 
 def test_from_repo_path_init_no_annex(tmpdir):
     repo_path = Path(tmpdir) / "catalog"
-    cat = Catalog.from_repo_path(repo_path, init=True, annex=False)
+    cat = Catalog.from_repo_path(repo_path, init=True, annex=None)
     assert isinstance(cat.backend, GitBackend)
 
 
 def test_from_repo_path_reopen_no_annex(tmpdir):
     repo_path = Path(tmpdir) / "catalog"
-    Catalog.from_repo_path(repo_path, init=True, annex=False)
-    cat = Catalog.from_repo_path(repo_path, init=False, annex=False)
+    Catalog.from_repo_path(repo_path, init=True, annex=None)
+    cat = Catalog.from_repo_path(repo_path, init=False, annex=None)
     assert isinstance(cat.backend, GitBackend)
 
 
 def test_from_name_no_annex(tmpdir, monkeypatch):
     monkeypatch.setattr(Catalog, "by_name_base_path", Path(tmpdir))
-    cat = Catalog.from_name("test-plain", annex=False)
+    cat = Catalog.from_name("test-plain", annex=None)
     assert isinstance(cat.backend, GitBackend)
     assert cat.repo_path == Path(tmpdir) / "test-plain"
 
 
 def test_from_default_no_annex(tmpdir, monkeypatch):
     monkeypatch.setattr(Catalog, "by_name_base_path", Path(tmpdir))
-    cat = Catalog.from_default(annex=False)
+    cat = Catalog.from_default(annex=None)
     assert isinstance(cat.backend, GitBackend)
 
 
 def test_from_kwargs_no_annex(tmpdir):
     repo_path = str(Path(tmpdir) / "kw-catalog")
-    cat = Catalog.from_kwargs(path=repo_path, init=True, annex=False)
+    cat = Catalog.from_kwargs(path=repo_path, init=True, annex=None)
     assert isinstance(cat.backend, GitBackend)
 
 
@@ -122,7 +122,7 @@ def test_remove_entry_removes_aliases(catalog_populated):
 def test_clone_from_no_annex(catalog_populated, tmpdir):
     bare_path = Path(tmpdir) / "bare"
     bare = Repo.clone_from(catalog_populated.repo_path, bare_path, bare=True)
-    cloned = Catalog.clone_from(bare.working_dir, Path(tmpdir) / "cloned", annex=False)
+    cloned = Catalog.clone_from(bare.working_dir, Path(tmpdir) / "cloned", annex=None)
     assert isinstance(cloned.backend, GitBackend)
     compare_repo_and_catalog(bare, cloned)
 
