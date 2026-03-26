@@ -550,7 +550,7 @@ def _compose_expr(catalog, entries, code, rename_map=None):
     return current
 
 
-@cli.command("run")
+@cli.command("compose")
 @click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias)
 @click.option(
     "-c",
@@ -559,11 +559,14 @@ def _compose_expr(catalog, entries, code, rename_map=None):
     help="Inline Ibis code expression applied to `source`.",
 )
 @click.option(
-    "-a", "--alias", default=None, help="Catalog the result under this alias."
+    "-a",
+    "--alias",
+    default=None,
+    help="Also register this alias for the cataloged entry.",
 )
+@click.option("--cache-dir", default=None, help="Directory for parquet cache files.")
 @click.option(
-    "-x",
-    "--execute-only",
+    "--dry-run",
     is_flag=True,
     default=False,
     help="Show composition plan without building.",
@@ -642,7 +645,7 @@ def compose(ctx, entries, code, alias, cache_dir, dry_run, raw_rename_params):
     "-o",
     "--output-path",
     default=None,
-    help="Path to write output (default: /dev/null).",
+    help=f"Path to write output (default: {os.devnull})",
 )
 @click.option(
     "-f",
@@ -675,15 +678,31 @@ def compose(ctx, entries, code, alias, cache_dir, dry_run, raw_rename_params):
 def run(ctx, entries, code, output_path, output_format, limit, instream, fuse, raw_rename_params):
     """Compose and execute catalog entries.
 
-    By default the result is added to the catalog (with --alias, or hash-only).
-    Use -x / --execute-only to skip cataloging.
+    One entry runs it directly; multiple entries compose source + transforms:
+
+    \b
+        xorq catalog run src -o - -f csv
+        xorq catalog run src trn -o - -f csv
+        xorq catalog run src trn -c "source.filter(source.amount > 100)" -o - -f csv
+
+    Piped Arrow input for a single unbound entry:
+
+    \b
+        xorq catalog run src -o - -f arrow | xorq catalog run trn -o - -f csv
+
+    To persist composed results, use 'compose'.
     """
+    from xorq.catalog.bind import _eval_code, _make_source_expr
     from xorq.cli import arbitrate_output_format
     from xorq.common.utils.otel_utils import tracer
+    from xorq.ibis_yaml.enums import ExprKind
 
     with tracer.start_as_current_span("catalog.run") as span:
         span.set_attributes({"entries": entries, "has_code": code is not None})
         with click_context_catalog(ctx):
+            if not entries:
+                raise click.UsageError("At least one entry is required.")
+
             catalog = ctx.obj.make_catalog(init=False)
             rename_map = (
                 _parse_rename_params(raw_rename_params) if raw_rename_params else None
@@ -700,7 +719,6 @@ def run(ctx, entries, code, output_path, output_format, limit, instream, fuse, r
                         f"Entry {entry!r} not found — run 'xorq catalog list' "
                         f"or 'xorq catalog list-aliases' to see available entries."
                     ) from err
-                from xorq.ibis_yaml.enums import ExprKind
 
                 span.set_attribute("kind", str(catalog_entry.kind))
                 expr = _eval_entry(catalog_entry, code, instream)
