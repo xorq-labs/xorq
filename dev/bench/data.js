@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774531781733,
+  "lastUpdate": 1774550880571,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -2574,6 +2574,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0039178327527824575",
             "extra": "mean: 195.38738859999967 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e2dc4d774f3468996aa0300cc8fda41ab4235e70",
+          "message": "feat(catalog): add ExprComposer.from_expr to recover composer from ta… (#1750)\n\n…gged expr\n\nWalks HashingTag nodes (SOURCE, TRANSFORM, CODE) embedded during\ncomposition and reconstructs the original ExprComposer fields. This\nenables round-tripping: build an expr via ExprComposer, then recover the\nrecipe from the expression's provenance tags.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-26T14:44:17-04:00",
+          "tree_id": "39a1a653fcb5ca345c446426b89660a777a84348",
+          "url": "https://github.com/xorq-labs/xorq/commit/e2dc4d774f3468996aa0300cc8fda41ab4235e70"
+        },
+        "date": 1774550877890,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.1209485491658855,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00799508934433635",
+            "extra": "mean: 140.43072957143264 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.660113759472459,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008254910361403757",
+            "extra": "mean: 214.58703619999255 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6964890674242387,
+            "unit": "iter/sec",
+            "range": "stddev: 0.21510674112879283",
+            "extra": "mean: 1.4357727159999911 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.782383183306556,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04090062614467218",
+            "extra": "mean: 264.38357816666286 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.537353581868632,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027482182719598958",
+            "extra": "mean: 220.39278666666462 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.014464389680994,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013423779863604362",
+            "extra": "mean: 199.4230933333275 msec\nrounds: 6"
           }
         ]
       }
