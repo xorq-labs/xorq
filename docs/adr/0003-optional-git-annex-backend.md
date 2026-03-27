@@ -22,7 +22,8 @@ Introduce a `CatalogBackend` abstract base class with two implementations:
 
 All `Catalog` classmethods (`from_repo_path`, `from_name`, `from_default`, `clone_from`, `from_kwargs`) accept an `annex` parameter to select the backend:
 
-- `annex=None` (default) — plain git.
+- `annex=None` (default) — auto-detect. If the repo has a `git-annex` branch (clone) or `.git/annex` directory (local), git-annex is used; otherwise plain git.
+- `annex=False` — force plain git, even if annex metadata exists.
 - `annex=LOCAL_ANNEX` — local-only git-annex (no special remote).
 - `annex=<RemoteConfig>` — git-annex with a special remote (S3, directory, etc.).
 
@@ -43,7 +44,7 @@ The ABC defines six operations that `Catalog` delegates to:
 
 ### What is NOT persisted
 
-The backend type has no explicit field in `catalog.yaml`. However, annex remote configuration (S3 bucket, directory path, credentials spec) IS persisted in `catalog.yaml` under the `remote` key, and git-annex's own metadata lives in `.git/annex`. These serve as implicit signals for auto-detection if needed in the future.
+The backend type has no explicit field in `catalog.yaml`. Remote configuration (S3 bucket, directory path, credentials) lives exclusively in git-annex's `remote.log` on the `git-annex` branch. The presence of a `git-annex` branch or `.git/annex` directory is the auto-detection signal.
 
 ### File layout
 
@@ -53,7 +54,7 @@ Both backends use an identical directory structure:
 entries/<name>.zip                    # the archive (annex-tracked or plain blob)
 metadata/<name>.zip.metadata.yaml    # sidecar metadata (always plain git)
 aliases/<alias>.zip                   # symlink to ../entries/<name>.zip
-catalog.yaml                         # entry/alias list + optional remote config
+catalog.yaml                         # entry/alias list
 ```
 
 ### Sidecar metadata
@@ -89,9 +90,9 @@ This means `CatalogEntry.metadata`, `.kind`, `.columns`, `.backends`, and `.comp
 
 Sprinkling `if self.annex:` throughout `Catalog` would couple the catalog logic to both storage strategies. The ABC keeps `Catalog` unaware of how staging works, and makes adding a third backend (e.g. DVC, LFS) a matter of implementing four methods.
 
-### Why default to annex=None (plain git)?
+### Why default to annex=None (auto-detect)?
 
-The plain-git backend has zero external dependencies and covers the common case (local dev, CI, single-machine workflows). Users who need lazy-fetch via git-annex opt in by passing an `AnnexConfig` instance, which also carries the remote configuration — eliminating the invalid state of `annex=True` with a contradictory `remote_config`.
+Auto-detection means `clone_from(url)` just works — if the repo uses annex, annex is initialised; if not, plain git. Users who need to override pass `annex=False` (force plain git) or an explicit `AnnexConfig`. The remote configuration is carried in git-annex's `remote.log`, so no separate config parameter is needed.
 
 ### Auto-detection
 
@@ -138,27 +139,34 @@ Existing catalogs won't have the new field in their sidecar files. Handle missin
 
 ### Embedded credentials (`embedcreds=yes`)
 
-When an S3 remote's credentials are read-only and safe to distribute publicly, the publisher can set `embedcreds="yes"` on the `S3RemoteConfig`. This has three effects:
+When an S3 remote's credentials are read-only and safe to distribute publicly, the publisher can set `embedcreds="yes"` on the `S3RemoteConfig`. This has two effects:
 
 1. **git-annex stores credentials in `remote.log`** on the `git-annex` branch, so any clone receives them automatically.
-2. **`to_dict()` includes secrets** — since they are already public in the git-annex branch, `catalog.yaml` includes `aws_access_key_id` and `aws_secret_access_key` rather than stripping them.
-3. **Consumers need no credentials** — `clone_from(url, annex=LOCAL_ANNEX)` reads the embedded credentials from `catalog.yaml` (or `remote.log`) and enables the remote without requiring environment variables or `**remote_kwargs`.
+2. **Consumers need no credentials** — `clone_from(url)` auto-detects annex, reads the embedded credentials from `remote.log`, and enables the remote without requiring environment variables or `**remote_kwargs`.
 
-The `has_embedded_creds` property on `S3RemoteConfig` is the single predicate that controls this behavior. When `embedcreds` is `None` or any value other than `"yes"`, secrets are stripped from `to_dict()` and must be supplied at clone time via env vars or kwargs, preserving the default secure-by-default behavior.
+The `has_embedded_creds` property on `S3RemoteConfig` is the single predicate that controls this behavior. `to_dict()` includes secrets when `embedcreds == "yes"` (they are already public in the git-annex branch). When `embedcreds` is `None` or any other value, secrets are excluded from `to_dict()` and must be supplied at clone time via env vars or kwargs.
 
 Pair `embedcreds="yes"` with `autoenable="true"` so that `git annex init` in a fresh clone enables the remote automatically.
+
+### Remote config: single source of truth
+
+Remote configuration (bucket, host, credentials, etc.) lives exclusively in git-annex's `remote.log` on the `git-annex` branch. There is no duplicate in `catalog.yaml`.
+
+- **Read:** `catalog.remote_config` resolves from `remote.log` via `Annex.resolve_remote_config()`, merging credentials from embedded creds, the Annex env, OS environment variables, and explicit `**remote_kwargs` (in that precedence order).
+- **Write:** `catalog.set_remote_config(rc)` calls `enableremote` to update `remote.log`.
+- **Update:** `evolve(catalog.remote_config, embedcreds="yes", ...)` then `set_remote_config`.
 
 ## Consequences
 
 ### Positive
 
-- Catalogs work without git-annex installed when `annex=None` (the default).
+- Catalogs work without git-annex installed when the repo has no `git-annex` branch (auto-detect picks plain git).
 - Migration between backends is straightforward: `git annex add`/`git annex unannex` the archive files and reopen with the other backend. No schema changes needed.
 - The identical file layout means a plain-git catalog can be upgraded to annex (or vice versa) without restructuring.
 
 ### Negative
 
-- **Annex-only features require guards.** `set_remote_config` raises `NotImplementedError` on `GitBackend`; `get_remote_config` raises `NotImplementedError`. Callers that assume annex must check or catch.
+- **Annex-only features require guards.** `set_remote_config` and `remote_config` only work on `GitAnnexBackend` catalogs. Callers that assume annex should check the backend type.
 - **Auto-detection can be wrong.** `clone_from` and `from_repo_path` auto-detect git-annex when `annex=None` (the default) by checking for a `git-annex` branch or `.git/annex` directory. A repo with leftover annex metadata from a previous experiment will be opened as annex. Pass `annex=False` to force plain git.
 - **No early detection of missing git-annex.** `require_git_annex()` checks `shutil.which` at `Annex` construction and `init_repo_path` time, but a user who passes an `AnnexConfig` won't see the error until the first annex operation rather than at import time.
 
@@ -171,7 +179,7 @@ The `test_s3_remote_minio` test (`@pytest.mark.s3`) exercises the full git-annex
 - git-annex special remote protocol (init, enable, copy, get, drop)
 - Credential passing via `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` env vars
 - `embedcreds` serialization and `to_dict()` secret inclusion/exclusion
-- `S3RemoteConfig` ↔ `catalog.yaml` round-trip
+- `S3RemoteConfig` ↔ `remote.log` round-trip
 
 ### Where MinIO diverges from AWS S3
 

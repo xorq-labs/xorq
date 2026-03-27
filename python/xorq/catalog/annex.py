@@ -168,16 +168,27 @@ class Annex:
             result[uuid] = config
         return result
 
-    @property
-    def remote_config(self):
-        """Recover the RemoteConfig from the git-annex branch and env vars.
+    # Maps AWS env-var names (as stored in Annex.env) back to attrs field names
+    # so resolve_remote_config can recover credentials from self.env.
+    _ENV_TO_FIELD = {
+        "AWS_ACCESS_KEY_ID": "aws_access_key_id",
+        "AWS_SECRET_ACCESS_KEY": "aws_secret_access_key",
+    }
 
-        Fields stored in remote.log take precedence; any missing required
-        fields (secrets, paths not stored by git-annex) are filled from
-        self.env or the RemoteConfig class's EnvConfig (XORQ_CATALOG_* env vars).
+    def resolve_remote_config(self, **kwargs):
+        """Recover the RemoteConfig from the git-annex branch, env vars, and kwargs.
 
-        When credentials are embedded in remote.log (embedcreds=yes), no
-        environment variables are needed — the remote.log has everything.
+        Precedence (highest to lowest):
+
+        1. *kwargs* — explicit overrides from the caller (e.g. credentials
+           passed to ``from_repo_path``).
+        2. ``remote.log`` on the ``git-annex`` branch — non-secret config
+           (and secrets when ``embedcreds=yes``).
+        3. ``self.env`` — credentials the Annex was constructed with.
+        4. ``XORQ_CATALOG_S3_*`` / ``XORQ_CATALOG_DIRECTORY_*`` environment
+           variables — fallback for fields missing from remote.log.
+
+        Returns ``None`` when no remote is configured.
         """
         if not (remote_log := self.remote_log):
             return None
@@ -199,7 +210,13 @@ class Annex:
                     "aws_access_key_id": lines[0],
                     "aws_secret_access_key": lines[1],
                 }
-            return cls.from_dict(config)
+            return cls.from_dict(config, **kwargs)
+        # recover creds from self.env (set at construction time)
+        instance_fallback = {
+            field_name: self.env[env_key]
+            for env_key, field_name in self._ENV_TO_FIELD.items()
+            if self.env and self.env.get(env_key) and field_name not in config
+        }
         # fill in fields missing from remote.log (e.g. secrets) from env vars
         env_config = cls.EnvConfig.from_env()
         env_fallback = {
@@ -209,7 +226,12 @@ class Annex:
             and getattr(env_config, a.name)
             and a.name not in config
         }
-        return cls.from_dict(config, **env_fallback)
+        return cls.from_dict(config, **{**env_fallback, **instance_fallback, **kwargs})
+
+    @property
+    def remote_config(self):
+        """Convenience property — calls ``resolve_remote_config()`` with no overrides."""
+        return self.resolve_remote_config()
 
     def findkeys(self):
         out = self._check_output_do("findkeys", check_stderr=False)

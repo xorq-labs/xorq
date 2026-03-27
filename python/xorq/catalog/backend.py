@@ -9,7 +9,7 @@ from attr import (
 from attr.validators import instance_of
 from git import Repo
 
-from xorq.catalog.annex import Annex, remote_config_from_dict
+from xorq.catalog.annex import Annex
 
 
 class CatalogBackend(abc.ABC):
@@ -32,24 +32,6 @@ class CatalogBackend(abc.ABC):
 
     @abc.abstractmethod
     def fetch_content(self, path): ...
-
-    def set_remote_config(self, catalog_yaml, remote_config):
-        """Persist a remote config to catalog.yaml and commit.
-
-        Override in backends that support remotes; default raises NotImplementedError.
-        """
-        raise NotImplementedError(
-            f"{type(self).__name__} does not support remote configuration"
-        )
-
-    def get_remote_config(self, catalog_yaml, **kwargs):
-        """Load the remote config from catalog.yaml, if any.
-
-        Override in backends that support remotes; default raises NotImplementedError.
-        """
-        raise NotImplementedError(
-            f"{type(self).__name__} does not support remote configuration"
-        )
 
 
 @frozen
@@ -127,19 +109,3 @@ class GitAnnexBackend(CatalogBackend):
     def fetch_content(self, path):
         relpath = self.get_relpath(path)
         self.annex.get(path=str(relpath))
-
-    def set_remote_config(self, catalog_yaml, remote_config):
-        """Persist a remote config dict to catalog.yaml and commit."""
-        catalog_yaml.set_remote(remote_config.to_dict())
-        with self.commit_context(f"set remote: {remote_config.name}"):
-            self.stage(catalog_yaml.yaml_path)
-
-    def get_remote_config(self, catalog_yaml, **kwargs):
-        """Load the remote config from catalog.yaml, if any.
-
-        Secrets (e.g. aws_secret_access_key) must be passed as kwargs.
-        """
-        remote_dict = catalog_yaml.remote_config
-        if remote_dict is None:
-            return None
-        return remote_config_from_dict(remote_dict, **kwargs)

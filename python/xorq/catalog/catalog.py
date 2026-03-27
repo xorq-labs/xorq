@@ -35,11 +35,9 @@ from xorq.catalog.annex import (
     AnnexConfig,
     AnnexError,
     RemoteConfig,
-    remote_config_from_dict,
 )
 from xorq.catalog.backend import CatalogBackend, GitAnnexBackend, GitBackend
 from xorq.catalog.constants import (
-    CATALOG_REMOTE_KEY,
     CATALOG_YAML_NAME,
     METADATA_APPEND,
     PREFERRED_SUFFIX,
@@ -68,36 +66,22 @@ def _has_annex_branch(repo):
     return any(ref.name.endswith("git-annex") for ref in repo.refs)
 
 
-def _try_resolve_annex_remote(repo_path, catalog_yaml, **remote_kwargs):
+def _try_resolve_annex_remote(repo_path, **remote_kwargs):
     """Try to resolve and enable an annex remote, with graceful degradation.
 
-    Tries ``Annex.remote_config`` (remote.log + env-var fallback), then
-    ``catalog.yaml`` + *remote_kwargs*.  Returns the resolved
-    ``RemoteConfig`` on success, or ``None`` if credentials are
+    Reads remote.log from the git-annex branch and resolves credentials
+    from embedded creds, env vars, and *remote_kwargs*.  Returns the
+    resolved ``RemoteConfig`` on success, or ``None`` if credentials are
     unavailable or the remote cannot be enabled.
     """
-    # Strategy 1: remote.log (git-annex branch) + env-var fallback
     try:
         tmp_annex = Annex(repo_path=Path(repo_path))
-        rc = tmp_annex.remote_config
+        rc = tmp_annex.resolve_remote_config(**remote_kwargs)
         if rc is not None:
-            if remote_kwargs:
-                rc = type(rc).from_dict({**rc.to_dict(), **remote_kwargs})
             rc.enableremote(repo_path)
             return rc
     except (ValueError, TypeError, AnnexError):
         pass
-
-    # Strategy 2: catalog.yaml + explicit remote_kwargs
-    try:
-        remote_dict = catalog_yaml.remote_config
-        if remote_dict is not None:
-            rc = remote_config_from_dict(remote_dict, **remote_kwargs)
-            rc.enableremote(repo_path)
-            return rc
-    except (ValueError, TypeError, AnnexError):
-        pass
-
     return None
 
 
@@ -143,19 +127,26 @@ class Catalog:
     def catalog_yaml(self):
         return CatalogYAML(self.repo_path)
 
+    @property
+    def remote_config(self):
+        """The resolved remote config, or None.
+
+        On GitAnnexBackend catalogs, resolves from remote.log using the
+        credentials the Annex was constructed with (embedded, env vars,
+        or explicit kwargs passed at construction time).
+        """
+        annex = getattr(self.backend, "annex", None)
+        if annex is None:
+            return None
+        return annex.resolve_remote_config()
+
     def set_remote_config(self, remote_config):
-        """Persist a remote config dict to catalog.yaml and commit.
+        """Update the git-annex special remote configuration.
 
-        Delegates to the backend; raises AttributeError on GitBackend.
+        Calls ``enableremote`` to write the config to remote.log on the
+        git-annex branch.  Use ``catalog.remote_config`` to read it back.
         """
-        self.backend.set_remote_config(self.catalog_yaml, remote_config)
-
-    def get_remote_config(self, **kwargs):
-        """Load the remote config from catalog.yaml, if any.
-
-        Delegates to the backend; raises AttributeError on GitBackend.
-        """
-        return self.backend.get_remote_config(self.catalog_yaml, **kwargs)
+        remote_config.enableremote(self.repo_path)
 
     def _add_zip(self, path, sync=True, aliases=(), exist_ok=False):
         # should we enable not syncing?
@@ -389,7 +380,7 @@ class Catalog:
         - ``False`` — force plain git, even if the repo has a
           ``git-annex`` branch.
         - Any ``AnnexConfig`` instance — git-annex is initialised and
-          the remote is enabled if catalog.yaml contains a ``remote`` key.
+          the remote is enabled if remote.log has a special remote configured.
 
         Content is **not** fetched eagerly; it is retrieved on demand
         when ``entry.expr`` is accessed (via ``fetch_content``).
@@ -449,10 +440,7 @@ class Catalog:
         if remote_config is not None:
             remote_config.enableremote(repo_path)
         else:
-            catalog_yaml = CatalogYAML(repo_path)
-            remote_config = _try_resolve_annex_remote(
-                repo_path, catalog_yaml, **remote_kwargs
-            )
+            remote_config = _try_resolve_annex_remote(repo_path, **remote_kwargs)
 
         env = getattr(remote_config, "env", None)
         annex_obj = Annex(repo_path=Path(repo.working_dir), env=env)
@@ -469,6 +457,7 @@ class Catalog:
         init=None,
         check_consistency=True,
         annex=None,
+        **remote_kwargs,
     ):
         remote_config = annex if isinstance(annex, RemoteConfig) else None
         init = not Path(repo_path).exists() if init is None else init
@@ -505,49 +494,40 @@ class Catalog:
             # temporary Annex without env to read remote.log and resolve
             # remote_config before we know what env should be
             annex_obj = Annex(repo_path=Path(repo.working_dir))
-            disk_config = annex_obj.remote_config
+            disk_config = annex_obj.resolve_remote_config(**remote_kwargs)
             if remote_config is None:
                 remote_config = disk_config
-            elif disk_config is None:
-                raise ValueError(
-                    f"remote_config was passed but no remote is registered in git-annex remote.log at {repo_path}; "
-                    f"pass init=True to create a new catalog"
-                )
-            else:
-                passed = remote_config.to_dict()
-                stored = disk_config.to_dict()
-                # only compare fields explicitly set in the passed config;
-                # git-annex may store extra defaults (storageclass, datacenter, etc.)
-                diffs = {
-                    k: (passed[k], stored.get(k))
-                    for k in passed
-                    if passed[k] != stored.get(k)
-                }
-                if diffs:
-                    raise ValueError(
-                        f"remote_config disagrees with git-annex remote.log: {diffs}"
-                    )
         env = getattr(remote_config, "env", None)
         annex_obj = Annex(repo_path=Path(repo.working_dir), env=env)
         backend = GitAnnexBackend(repo=repo, annex=annex_obj)
         catalog = cls(backend=backend)
-        if init and remote_config is not None:
-            catalog.set_remote_config(remote_config)
         if check_consistency:
             catalog.assert_consistency()
         return catalog
 
     @classmethod
-    def from_name(cls, name, init=None, check_consistency=True, annex=None):
+    def from_name(
+        cls, name, init=None, check_consistency=True, annex=None, **remote_kwargs
+    ):
         repo_path = cls.name_to_repo_path(name)
         return cls.from_repo_path(
-            repo_path, init=init, check_consistency=check_consistency, annex=annex
+            repo_path,
+            init=init,
+            check_consistency=check_consistency,
+            annex=annex,
+            **remote_kwargs,
         )
 
     @classmethod
-    def from_default(cls, init=None, check_consistency=True, annex=None):
+    def from_default(
+        cls, init=None, check_consistency=True, annex=None, **remote_kwargs
+    ):
         return cls.from_name(
-            name="default", init=init, check_consistency=check_consistency, annex=annex
+            name="default",
+            init=init,
+            check_consistency=check_consistency,
+            annex=annex,
+            **remote_kwargs,
         )
 
     @classmethod
@@ -1132,13 +1112,4 @@ class CatalogYAML:
         contents[CatalogInfix.ALIAS] = [
             el for el in contents[CatalogInfix.ALIAS] if el != alias
         ]
-        return self.set_contents(contents)
-
-    @property
-    def remote_config(self):
-        return self.contents.get(CATALOG_REMOTE_KEY)
-
-    def set_remote(self, remote_dict):
-        contents = self.contents
-        contents[CATALOG_REMOTE_KEY] = remote_dict
         return self.set_contents(contents)
