@@ -33,6 +33,7 @@ from xorq.common.utils.graph_utils import (
 __all__ = [  # noqa: PLE0604
     "api",
     "caching",
+    "catalog",
     "examples",
     "expr",
     "flight",
@@ -58,6 +59,7 @@ def connect(session_config: SessionConfig | None = None) -> Backend:
     return instance
 
 
+import xorq.catalog.api as catalog  # noqa: E402
 from xorq import flight  # noqa: E402
 
 

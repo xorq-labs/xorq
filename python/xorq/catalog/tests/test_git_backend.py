@@ -128,10 +128,10 @@ def test_clone_from_no_annex(catalog_populated, tmpdir):
 
 
 def test_set_remote_config_raises_on_git_backend(catalog):
-    with pytest.raises(AttributeError):
+    with pytest.raises(NotImplementedError):
         catalog.set_remote_config(object())
 
 
 def test_get_remote_config_raises_on_git_backend(catalog):
-    with pytest.raises(AttributeError):
+    with pytest.raises(NotImplementedError):
         catalog.get_remote_config()

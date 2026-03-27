@@ -8,7 +8,7 @@ from git import (
 )
 
 from xorq.catalog.annex import LOCAL_ANNEX, Annex
-from xorq.catalog.backend import GitAnnexBackend
+from xorq.catalog.backend import GitAnnexBackend, GitBackend
 from xorq.catalog.catalog import (
     Catalog,
 )
@@ -40,9 +40,12 @@ def test_catalog_ctor_fails(tmpdir):
         Catalog(backend=backend)
 
 
-def test_catalog_ctor(repo):
+def test_catalog_ctor(repo, backend_type):
     repo_path = Path(repo.working_dir)
-    backend = GitAnnexBackend(repo=repo, annex=Annex(repo_path=repo_path))
+    if backend_type == "annex":
+        backend = GitAnnexBackend(repo=repo, annex=Annex(repo_path=repo_path))
+    else:
+        backend = GitBackend(repo=repo)
     Catalog(backend=backend)
 
 
