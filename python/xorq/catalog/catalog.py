@@ -29,7 +29,14 @@ from git import (
     Repo,
 )
 
-from xorq.catalog.annex import Annex, AnnexConfig, RemoteConfig, remote_config_from_dict
+from xorq.catalog.annex import (
+    LOCAL_ANNEX,
+    Annex,
+    AnnexConfig,
+    AnnexError,
+    RemoteConfig,
+    remote_config_from_dict,
+)
 from xorq.catalog.backend import CatalogBackend, GitAnnexBackend, GitBackend
 from xorq.catalog.constants import (
     CATALOG_REMOTE_KEY,
@@ -54,6 +61,44 @@ from xorq.ibis_yaml.enums import DumpFiles, ExprKind
 
 abspath = toolz.compose(Path.absolute, Path)
 popen_shell = partial(Popen, shell=True)
+
+
+def _has_annex_branch(repo):
+    """Check whether a Repo has a git-annex branch (local or remote-tracking)."""
+    return any(ref.name.endswith("git-annex") for ref in repo.refs)
+
+
+def _try_resolve_annex_remote(repo_path, catalog_yaml, **remote_kwargs):
+    """Try to resolve and enable an annex remote, with graceful degradation.
+
+    Tries ``Annex.remote_config`` (remote.log + env-var fallback), then
+    ``catalog.yaml`` + *remote_kwargs*.  Returns the resolved
+    ``RemoteConfig`` on success, or ``None`` if credentials are
+    unavailable or the remote cannot be enabled.
+    """
+    # Strategy 1: remote.log (git-annex branch) + env-var fallback
+    try:
+        tmp_annex = Annex(repo_path=Path(repo_path))
+        rc = tmp_annex.remote_config
+        if rc is not None:
+            if remote_kwargs:
+                rc = type(rc).from_dict({**rc.to_dict(), **remote_kwargs})
+            rc.enableremote(repo_path)
+            return rc
+    except (ValueError, TypeError, AnnexError):
+        pass
+
+    # Strategy 2: catalog.yaml + explicit remote_kwargs
+    try:
+        remote_dict = catalog_yaml.remote_config
+        if remote_dict is not None:
+            rc = remote_config_from_dict(remote_dict, **remote_kwargs)
+            rc.enableremote(repo_path)
+            return rc
+    except (ValueError, TypeError, AnnexError):
+        pass
+
+    return None
 
 
 @frozen
@@ -337,20 +382,20 @@ class Catalog:
 
         *annex* controls the backend:
 
-        - ``None`` (default) — plain git, no annex.
+        - ``None`` (default) — auto-detect.  If the cloned repo has a
+          ``git-annex`` branch, git-annex is initialised and the remote
+          is enabled when credentials are available (embedded, env vars,
+          or *remote_kwargs*).  Otherwise falls back to plain git.
+        - ``False`` — force plain git, even if the repo has a
+          ``git-annex`` branch.
         - Any ``AnnexConfig`` instance — git-annex is initialised and
-          content is fetched.  If catalog.yaml contains a ``remote`` key
-          the remote is enabled automatically.  For S3 remotes the caller
-          must supply credentials via *remote_kwargs*::
+          the remote is enabled if catalog.yaml contains a ``remote`` key.
 
-              from xorq.catalog.annex import LOCAL_ANNEX
-
-              Catalog.clone_from(
-                  url,
-                  annex=LOCAL_ANNEX,
-                  aws_access_key_id="...",
-                  aws_secret_access_key="...",
-              )
+        Content is **not** fetched eagerly; it is retrieved on demand
+        when ``entry.expr`` is accessed (via ``fetch_content``).
+        For S3 remotes without embedded credentials, the caller
+        can supply credentials via *remote_kwargs* or environment
+        variables (``XORQ_CATALOG_S3_*``).
 
         Use *git_config* to set repo-local git config before annex init
         (e.g. ``{"annex.security.allowed-ip-addresses": "all"}``).
@@ -360,12 +405,29 @@ class Catalog:
             repo_path = cls.name_to_repo_path(name)
         repo = Repo.clone_from(url, repo_path)
 
-        if not isinstance(annex, AnnexConfig):
+        # annex=False → force plain git
+        if annex is False:
             backend = GitBackend(repo=repo)
             catalog = cls(backend=backend)
             if check_consistency:
                 catalog.assert_consistency()
             return catalog
+
+        # annex=None → auto-detect from git-annex branch
+        if annex is None:
+            if _has_annex_branch(repo):
+                annex = LOCAL_ANNEX
+            else:
+                backend = GitBackend(repo=repo)
+                catalog = cls(backend=backend)
+                if check_consistency:
+                    catalog.assert_consistency()
+                return catalog
+
+        if not isinstance(annex, AnnexConfig):
+            raise TypeError(
+                f"annex must be None, False, or an AnnexConfig; got {type(annex)}"
+            )
 
         # apply local git config before annex init (e.g. allowed-ip-addresses)
         if git_config:
@@ -382,17 +444,18 @@ class Catalog:
                     )
         Annex.init_repo_path(repo_path)
 
-        # read remote config from catalog.yaml (written by set_remote_config)
-        catalog_yaml = CatalogYAML(repo_path)
-        remote_dict = catalog_yaml.remote_config
+        # resolve remote config with graceful degradation
         remote_config = annex if isinstance(annex, RemoteConfig) else None
-        if remote_dict is not None:
-            remote_config = remote_config_from_dict(remote_dict, **remote_kwargs)
+        if remote_config is not None:
             remote_config.enableremote(repo_path)
+        else:
+            catalog_yaml = CatalogYAML(repo_path)
+            remote_config = _try_resolve_annex_remote(
+                repo_path, catalog_yaml, **remote_kwargs
+            )
 
         env = getattr(remote_config, "env", None)
         annex_obj = Annex(repo_path=Path(repo.working_dir), env=env)
-        annex_obj.get()
         backend = GitAnnexBackend(repo=repo, annex=annex_obj)
         catalog = cls(backend=backend)
         if check_consistency:
@@ -414,12 +477,29 @@ class Catalog:
         else:
             repo = Repo(repo_path)
 
-        if not isinstance(annex, AnnexConfig):
+        # annex=False → force plain git
+        if annex is False:
             backend = GitBackend(repo=repo)
             catalog = cls(backend=backend)
             if check_consistency:
                 catalog.assert_consistency()
             return catalog
+
+        # annex=None → auto-detect from .git/annex (existing repos only)
+        if annex is None:
+            if not init and Path(repo_path).joinpath(".git", "annex").exists():
+                annex = LOCAL_ANNEX
+            else:
+                backend = GitBackend(repo=repo)
+                catalog = cls(backend=backend)
+                if check_consistency:
+                    catalog.assert_consistency()
+                return catalog
+
+        if not isinstance(annex, AnnexConfig):
+            raise TypeError(
+                f"annex must be None, False, or an AnnexConfig; got {type(annex)}"
+            )
 
         if not init:
             # temporary Annex without env to read remote.log and resolve

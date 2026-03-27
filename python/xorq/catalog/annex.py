@@ -1,4 +1,5 @@
 import abc
+import base64
 import json
 import os
 import shutil
@@ -37,7 +38,7 @@ def require_git_annex():
     if shutil.which(GIT_ANNEX_COMMAND) is None:
         raise AnnexError(
             f"'{GIT_ANNEX_COMMAND}' not found on $PATH. "
-            "Install git-annex or omit the annex parameter for a plain-git catalog."
+            "Install git-annex, or pass annex=False for a plain-git catalog."
         )
 
 
@@ -174,6 +175,9 @@ class Annex:
         Fields stored in remote.log take precedence; any missing required
         fields (secrets, paths not stored by git-annex) are filled from
         self.env or the RemoteConfig class's EnvConfig (XORQ_CATALOG_* env vars).
+
+        When credentials are embedded in remote.log (embedcreds=yes), no
+        environment variables are needed — the remote.log has everything.
         """
         if not (remote_log := self.remote_log):
             return None
@@ -184,6 +188,18 @@ class Annex:
         cls = _REMOTE_CONFIG_CLASSES.get(remote_type)
         if cls is None:
             raise ValueError(f"unknown remote type: {remote_type!r}")
+        # when embedcreds=yes, remote.log has the credentials — git-annex
+        # stores S3 creds as base64 in a single "s3creds" field
+        if config.get("embedcreds") == "yes":
+            s3creds = config.get("s3creds")
+            if s3creds and "aws_access_key_id" not in config:
+                lines = base64.b64decode(s3creds).decode().strip().splitlines()
+                config = {
+                    **config,
+                    "aws_access_key_id": lines[0],
+                    "aws_secret_access_key": lines[1],
+                }
+            return cls.from_dict(config)
         # fill in fields missing from remote.log (e.g. secrets) from env vars
         env_config = cls.EnvConfig.from_env()
         env_fallback = {
@@ -477,11 +493,16 @@ class S3RemoteConfig(RemoteConfig):
         if info["bucket"] != self.bucket:
             raise ValueError(f"expected bucket {self.bucket!r}, got {info['bucket']!r}")
 
+    @property
+    def has_embedded_creds(self):
+        return self.embedcreds == "yes"
+
     def to_dict(self):
         d = {"type": "S3"} | {
             a.name: getattr(self, a.name)
             for a in attr.fields(type(self))
-            if not (a.name.startswith("_") or a.name in self._SECRET_FIELDS)
+            if not a.name.startswith("_")
+            and (self.has_embedded_creds or a.name not in self._SECRET_FIELDS)
             and getattr(self, a.name) is not None
         }
         return d

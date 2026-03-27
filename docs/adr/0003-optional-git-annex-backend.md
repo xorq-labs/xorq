@@ -93,9 +93,11 @@ Sprinkling `if self.annex:` throughout `Catalog` would couple the catalog logic 
 
 The plain-git backend has zero external dependencies and covers the common case (local dev, CI, single-machine workflows). Users who need lazy-fetch via git-annex opt in by passing an `AnnexConfig` instance, which also carries the remote configuration — eliminating the invalid state of `annex=True` with a contradictory `remote_config`.
 
-### Why not auto-detect the backend?
+### Auto-detection
 
-Auto-detection (check for `.git/annex` or `remote` key in `catalog.yaml`) was considered but deferred. The explicit `annex=` parameter is simpler and avoids surprising behavior when a user opens a repo that happens to have annex metadata from a previous experiment. Auto-detection can be added later as a convenience without changing the abstraction.
+`clone_from` checks for a `git-annex` branch in the cloned repo; `from_repo_path` checks for `.git/annex`. When detected, annex is initialised and the remote is enabled using the best available credentials (embedded via `embedcreds=yes`, environment variables, or explicit `**remote_kwargs`). If no credentials are available the catalog degrades to local-only annex — sidecar metadata works, but `entry.expr` raises `ContentNotAvailableError`.
+
+Pass `annex=False` to force plain git on a repo that has annex metadata.
 
 ### Why an AnnexConfig type instead of a boolean?
 
@@ -134,6 +136,18 @@ To promote a new field from the zip archive to the sidecar:
 
 Existing catalogs won't have the new field in their sidecar files. Handle missing keys with defaults (e.g. `data.get("new_field") or default`) so that old entries degrade gracefully.
 
+### Embedded credentials (`embedcreds=yes`)
+
+When an S3 remote's credentials are read-only and safe to distribute publicly, the publisher can set `embedcreds="yes"` on the `S3RemoteConfig`. This has three effects:
+
+1. **git-annex stores credentials in `remote.log`** on the `git-annex` branch, so any clone receives them automatically.
+2. **`to_dict()` includes secrets** — since they are already public in the git-annex branch, `catalog.yaml` includes `aws_access_key_id` and `aws_secret_access_key` rather than stripping them.
+3. **Consumers need no credentials** — `clone_from(url, annex=LOCAL_ANNEX)` reads the embedded credentials from `catalog.yaml` (or `remote.log`) and enables the remote without requiring environment variables or `**remote_kwargs`.
+
+The `has_embedded_creds` property on `S3RemoteConfig` is the single predicate that controls this behavior. When `embedcreds` is `None` or any value other than `"yes"`, secrets are stripped from `to_dict()` and must be supplied at clone time via env vars or kwargs, preserving the default secure-by-default behavior.
+
+Pair `embedcreds="yes"` with `autoenable="true"` so that `git annex init` in a fresh clone enables the remote automatically.
+
 ## Consequences
 
 ### Positive
@@ -145,7 +159,7 @@ Existing catalogs won't have the new field in their sidecar files. Handle missin
 ### Negative
 
 - **Annex-only features require guards.** `set_remote_config` raises `NotImplementedError` on `GitBackend`; `get_remote_config` raises `NotImplementedError`. Callers that assume annex must check or catch.
-- **No auto-detection.** Users must know which backend a repo uses and pass the correct config. A repo opened with the wrong backend will either fail (annex commands on a plain repo) or silently degrade (plain-git on an annex repo stores new entries as blobs alongside annex symlinks).
+- **Auto-detection can be wrong.** `clone_from` and `from_repo_path` auto-detect git-annex when `annex=None` (the default) by checking for a `git-annex` branch or `.git/annex` directory. A repo with leftover annex metadata from a previous experiment will be opened as annex. Pass `annex=False` to force plain git.
 - **No early detection of missing git-annex.** `require_git_annex()` checks `shutil.which` at `Annex` construction and `init_repo_path` time, but a user who passes an `AnnexConfig` won't see the error until the first annex operation rather than at import time.
 
 ## Testing: S3 coverage and MinIO gaps

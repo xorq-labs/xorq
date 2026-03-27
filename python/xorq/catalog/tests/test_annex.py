@@ -147,10 +147,60 @@ def test_s3_round_trip_via_dispatcher(s3_full, s3_secrets):
     assert restored == s3_full
 
 
-def test_s3_from_dict_requires_secrets(s3_minimal):
+def test_s3_from_dict_requires_secrets_without_embedcreds(s3_minimal):
     d = s3_minimal.to_dict()
     with pytest.raises(TypeError):
         S3RemoteConfig.from_dict(d)
+
+
+# ---------------------------------------------------------------------------
+# embedcreds=yes
+# ---------------------------------------------------------------------------
+
+
+def test_s3_to_dict_includes_secrets_when_embedcreds(s3_secrets):
+    rc = S3RemoteConfig(name="pub", bucket="pub-bucket", embedcreds="yes", **s3_secrets)
+    d = rc.to_dict()
+    assert d["aws_access_key_id"] == "AKID"
+    assert d["aws_secret_access_key"] == "SECRET"
+    assert d["embedcreds"] == "yes"
+
+
+def test_s3_to_dict_excludes_secrets_when_embedcreds_not_yes(s3_secrets):
+    rc = S3RemoteConfig(
+        name="priv", bucket="priv-bucket", embedcreds="no", **s3_secrets
+    )
+    d = rc.to_dict()
+    assert "aws_access_key_id" not in d
+    assert "aws_secret_access_key" not in d
+
+
+def test_s3_round_trip_with_embedcreds_no_kwargs(s3_secrets):
+    """With embedcreds=yes, round-trip works without supplying secrets as kwargs."""
+    original = S3RemoteConfig(
+        name="pub", bucket="pub-bucket", embedcreds="yes", **s3_secrets
+    )
+    d = original.to_dict()
+    restored = S3RemoteConfig.from_dict(d)
+    assert restored == original
+
+
+def test_s3_round_trip_via_dispatcher_with_embedcreds(s3_secrets):
+    original = S3RemoteConfig(
+        name="pub", bucket="pub-bucket", embedcreds="yes", **s3_secrets
+    )
+    d = original.to_dict()
+    restored = remote_config_from_dict(d)
+    assert restored == original
+
+
+def test_s3_has_embedded_creds_property(s3_secrets):
+    yes = S3RemoteConfig(name="a", bucket="b", embedcreds="yes", **s3_secrets)
+    no = S3RemoteConfig(name="a", bucket="b", embedcreds="no", **s3_secrets)
+    none = S3RemoteConfig(name="a", bucket="b", **s3_secrets)
+    assert yes.has_embedded_creds is True
+    assert no.has_embedded_creds is False
+    assert none.has_embedded_creds is False
 
 
 def test_s3_from_dict_with_different_secrets(s3_minimal):

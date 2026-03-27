@@ -9,7 +9,7 @@ from git import Repo as GitRepo
 
 import xorq.api as xo
 from xorq.catalog.annex import LOCAL_ANNEX, Annex, DirectoryRemoteConfig, S3RemoteConfig
-from xorq.catalog.backend import GitAnnexBackend
+from xorq.catalog.backend import GitAnnexBackend, GitBackend
 from xorq.catalog.catalog import (
     Catalog,
     CatalogAddition,
@@ -141,10 +141,60 @@ def test_catalog_clone_from_push(repo_cloned_bare, tmpdir):
     assert before != after
 
 
+# ---------------------------------------------------------------------------
+# clone_from auto-detection
+# ---------------------------------------------------------------------------
+
+
+def test_clone_from_auto_detects_annex(repo_cloned_bare, tmpdir):
+    """clone_from with annex=None auto-detects git-annex branch."""
+    cloned = Catalog.clone_from(
+        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("auto-detect")
+    )
+    assert isinstance(cloned.backend, GitAnnexBackend)
+    assert cloned.list()
+
+
+def test_clone_from_no_annex_branch(tmpdir):
+    """clone_from with annex=None on a plain-git repo returns GitBackend."""
+
+    origin_path = Path(tmpdir).joinpath("origin")
+    catalog = Catalog.from_repo_path(origin_path, init=True)
+    with build_expr_context_zip(xo.memtable({"plain": ["plain"]})) as zip_path:
+        catalog.add(zip_path)
+
+    cloned = Catalog.clone_from(str(origin_path), Path(tmpdir).joinpath("clone-plain"))
+    assert isinstance(cloned.backend, GitBackend)
+    assert cloned.list()
+
+
+def test_clone_from_false_forces_plain_git(repo_cloned_bare, tmpdir):
+    """annex=False forces GitBackend even when git-annex branch exists."""
+
+    cloned = Catalog.clone_from(
+        repo_cloned_bare.working_dir,
+        Path(tmpdir).joinpath("force-plain"),
+        annex=False,
+    )
+    assert isinstance(cloned.backend, GitBackend)
+
+
+# ---------------------------------------------------------------------------
+# from_repo_path auto-detection
+# ---------------------------------------------------------------------------
+
+
+def test_from_repo_path_auto_detects_annex(tmpdir):
+    """from_repo_path with annex=None auto-detects .git/annex."""
+    repo_path = Path(tmpdir).joinpath("annex-repo")
+    Catalog.from_repo_path(repo_path, init=True, annex=LOCAL_ANNEX)
+
+    reopened = Catalog.from_repo_path(repo_path)
+    assert isinstance(reopened.backend, GitAnnexBackend)
+
+
 def test_remote_log_available_after_init(tmpdir):
     """remote.log is readable immediately after initremote (journal flushed)."""
-    from xorq.catalog.annex import Annex, DirectoryRemoteConfig
-
     remote_dir = Path(tmpdir).joinpath("remote-store")
     remote_dir.mkdir()
     remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
@@ -157,6 +207,24 @@ def test_remote_log_available_after_init(tmpdir):
     config = next(iter(remote_log.values()))
     assert config["name"] == "mydir"
     assert config["type"] == "directory"
+
+
+def test_from_repo_path_no_annex(tmpdir):
+    """from_repo_path with annex=None on a plain-git repo returns GitBackend."""
+    repo_path = Path(tmpdir).joinpath("plain-repo")
+    Catalog.from_repo_path(repo_path, init=True)
+
+    reopened = Catalog.from_repo_path(repo_path)
+    assert isinstance(reopened.backend, GitBackend)
+
+
+def test_from_repo_path_false_forces_plain_git(tmpdir):
+    """annex=False forces GitBackend even when .git/annex exists."""
+    repo_path = Path(tmpdir).joinpath("annex-repo")
+    Catalog.from_repo_path(repo_path, init=True, annex=LOCAL_ANNEX)
+
+    reopened = Catalog.from_repo_path(repo_path, annex=False)
+    assert isinstance(reopened.backend, GitBackend)
 
 
 @pytest.mark.parametrize("elide", REQUIRED_ARCHIVE_NAMES)
@@ -358,6 +426,8 @@ def test_catalog_entry_relocatable(repo_cloned_bare, tmpdir):
         repo_cloned_bare.working_dir, Path(tmpdir).joinpath("cloned"), annex=LOCAL_ANNEX
     )
     catalog_entries = cloned.catalog_entries
+    for entry in catalog_entries:
+        entry.fetch()
     exprs = tuple(catalog_entry.expr for catalog_entry in catalog_entries)
     assert exprs
 
