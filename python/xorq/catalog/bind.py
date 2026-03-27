@@ -90,13 +90,11 @@ def _ensure_remote(node, con, expr):
 
 def _make_source_tag(expr, entry, alias):
     """Wrap *expr* in a HashingTag recording the catalog source provenance."""
-    match alias:
-        case str():
-            resolved_alias = alias
-        case _:
-            resolved_alias = next(
-                (a.alias for a in getattr(entry, "aliases", ())), None
-            )
+    resolved_alias = (
+        alias
+        if isinstance(alias, str)
+        else next((a.alias for a in getattr(entry, "aliases", ())), None)
+    )
     return expr.hashing_tag(
         CatalogTag.SOURCE,
         entry_name=entry.name,
