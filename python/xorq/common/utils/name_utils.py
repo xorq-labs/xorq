@@ -1,6 +1,6 @@
 import re
 
-import dask  # noqa: PLC0415
+import dask
 
 
 def tokenize_to_int(*args) -> int:
@@ -9,8 +9,6 @@ def tokenize_to_int(*args) -> int:
 
 
 def make_name(prefix, to_tokenize):
-    import dask  # noqa: PLC0415
-
     from xorq.ibis_yaml.config import config  # noqa: PLC0415
 
     tokenized = dask.base.tokenize(to_tokenize)

@@ -8,12 +8,6 @@ import xorq.expr.datatypes as dt
 import xorq.vendor.ibis as ibis
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.operations import NamedScalarParameter
-from xorq.ibis_yaml.compiler import YamlExpressionTranslator
-
-
-@pytest.fixture
-def compiler():
-    return YamlExpressionTranslator
 
 
 @pytest.fixture

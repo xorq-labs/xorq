@@ -353,8 +353,12 @@ def test_tokenize_expr_two_named_params_positional(snapshot):
     t = xo.table([("x", "float64"), ("y", "float64")], name="t")
     expr_ab = t.filter(t.x > a, t.y > b)
     expr_ba = t.filter(t.x > b, t.y > a)
-    snapshot.assert_match(dask.base.tokenize(expr_ab), "expr_params_ab.txt")
-    snapshot.assert_match(dask.base.tokenize(expr_ba), "expr_params_ba.txt")
+
+    tokenize_ab = dask.base.tokenize(expr_ab)
+    tokenize_ba = dask.base.tokenize(expr_ba)
+    assert tokenize_ab != tokenize_ba
+    snapshot.assert_match(tokenize_ab, "expr_params_ab.txt")
+    snapshot.assert_match(tokenize_ba, "expr_params_ba.txt")
 
 
 def test_udf_sql_name_uses_func_name_not_class_name():
