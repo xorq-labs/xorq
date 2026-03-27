@@ -52,37 +52,35 @@ def _validate_schema(source_schema, transform_schema, source_name, transform_nam
         )
 
 
-def _validated_entry_meta(entry, index):
-    """Validate a single transform entry, returning ``(name, metadata)``."""
-    from xorq.catalog.catalog import CatalogEntry  # noqa: PLC0415
-
-    if not isinstance(entry, CatalogEntry):
-        raise TypeError(
-            f"transforms[{index}] must be a CatalogEntry, got {type(entry)}"
-        )
-    meta = entry.expr.ls.metadata
-    if meta.kind != ExprKind.UnboundExpr:
-        raise ValueError(
-            f"transforms[{index}] ({entry.name!r}) has no UnboundTable "
-            f"(kind: {meta.kind}). Only unbound_expr entries can be used as transforms."
-        )
-    return (entry.name, meta)
-
-
 def _validate_chain(source_schema, transforms):
     """Pre-validate the full transform chain before building expressions.
 
     Checks that every transform has an UnboundTable and that schemas are
     compatible through the chain: source → transform[0] → transform[1] → …
     """
-    metas = tuple(_validated_entry_meta(entry, i) for i, entry in enumerate(transforms))
+    from xorq.catalog.catalog import CatalogEntry  # noqa: PLC0415
+
+    metas = []
+    for i, entry in enumerate(transforms):
+        if not isinstance(entry, CatalogEntry):
+            raise TypeError(
+                f"transforms[{i}] must be a CatalogEntry, got {type(entry)}"
+            )
+
+        meta = entry.expr.ls.metadata
+        if meta.kind != ExprKind.UnboundExpr:
+            raise ValueError(
+                f"transforms[{i}] ({entry.name!r}) has no UnboundTable "
+                f"(kind: {meta.kind}). Only unbound_expr entries can be used as transforms."
+            )
+        metas.append((entry.name, meta))
 
     current_schema = source_schema
     for name, meta in metas:
         _validate_schema(current_schema, meta.schema_in, "(current)", name)
         current_schema = meta.schema_out
 
-    return metas
+    return tuple(metas)
 
 
 def _ensure_remote(node, con, expr):
