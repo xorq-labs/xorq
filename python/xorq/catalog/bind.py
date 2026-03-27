@@ -128,7 +128,11 @@ def _bind_one(current_expr, transform_entry, con):
     """Bind a single transform entry onto *current_expr*, tagging the result."""
     transform_expr = transform_entry.expr
     source_node = _ensure_remote(current_expr.op(), con, current_expr)
-    composed_expr = replace_unbound(transform_expr, source_node)
+    source_tagged = source_node.to_expr().hashing_tag(
+        CatalogTag.SOURCE,
+        entry_name=transform_entry.name,
+    )
+    composed_expr = replace_unbound(transform_expr, source_tagged.op())
 
     result = RemoteTable(
         name=gen_name(),
