@@ -80,7 +80,7 @@ class ExprComposer:
                 )
             )
         )
-        if not nodes or nodes[0].metadata["tag"] != CatalogTag.SOURCE:
+        if not nodes or not nodes[0].metadata["tag"] == CatalogTag.SOURCE:
             raise ValueError(
                 "No catalog-source tag found; expression was not produced by ExprComposer"
             )
