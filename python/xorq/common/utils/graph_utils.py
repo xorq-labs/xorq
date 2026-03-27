@@ -246,6 +246,13 @@ def _find_missing_tables(tables_to_transfer):
         if key in seen:
             continue
         seen.add(key)
+        # When old and new backends share the same underlying connection
+        # (e.g. profile idx canonicalization), no transfer is needed —
+        # the data is already accessible via the shared connection.
+        old_con = getattr(old_backend, "con", None)
+        new_con = getattr(new_backend, "con", None)
+        if old_con is not None and old_con is new_con:
+            continue
         try:
             if table_name in new_backend.list_tables():
                 continue
