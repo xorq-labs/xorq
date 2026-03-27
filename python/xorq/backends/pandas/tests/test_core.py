@@ -47,7 +47,7 @@ def test_from_dataframe(dataframe, ibis_table, core_client):
 
 
 def test_execute_parameter_only():
-    param = xo.param("int64")
+    param = xo.param("value", "int64")
     con = xo.pandas.connect()
     result = con.execute(param, params={param.op(): 42})
     assert result == 42

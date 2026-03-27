@@ -315,6 +315,48 @@ def test_scalar_udf_token_stable_across_udf_counter_states():
     )
 
 
+@pytest.mark.snapshot_check
+def test_tokenize_named_scalar_parameter_float64(snapshot):
+    """Token for a float64 NamedScalarParameter is stable across sessions."""
+    p = xo.param("threshold", "float64", default=1.5)
+    actual = dask.base.tokenize(p.op())
+    snapshot.assert_match(actual, "named_scalar_param_float64.txt")
+
+
+@pytest.mark.snapshot_check
+def test_tokenize_named_scalar_parameter_string(snapshot):
+    """Token for a string NamedScalarParameter is stable across sessions."""
+    p = xo.param("prefix", "string")
+    actual = dask.base.tokenize(p.op())
+    snapshot.assert_match(actual, "named_scalar_param_string.txt")
+
+
+@pytest.mark.snapshot_check
+def test_tokenize_expr_with_named_param(snapshot):
+    """Token for an expression containing a NamedScalarParameter is stable.
+
+    Uses an unbound table with a fixed name so the SQL is deterministic
+    across sessions (InMemoryTable names are process-local random strings).
+    """
+    threshold = xo.param("threshold", "float64", default=1.5)
+    t = xo.table([("x", "float64")], name="t")
+    expr = t.filter(t.x > threshold)
+    actual = dask.base.tokenize(expr)
+    snapshot.assert_match(actual, "expr_with_named_param.txt")
+
+
+@pytest.mark.snapshot_check
+def test_tokenize_expr_two_named_params_positional(snapshot):
+    """Tokens for two exprs with swapped params are stable and distinct."""
+    a = xo.param("a", "float64", default=1.0)
+    b = xo.param("b", "float64", default=2.0)
+    t = xo.table([("x", "float64"), ("y", "float64")], name="t")
+    expr_ab = t.filter(t.x > a, t.y > b)
+    expr_ba = t.filter(t.x > b, t.y > a)
+    snapshot.assert_match(dask.base.tokenize(expr_ab), "expr_params_ab.txt")
+    snapshot.assert_match(dask.base.tokenize(expr_ba), "expr_params_ba.txt")
+
+
 def test_udf_sql_name_uses_func_name_not_class_name():
     """Compiled SQL must use __func_name__ (stable) not type().__name__ (counter-suffixed).
 

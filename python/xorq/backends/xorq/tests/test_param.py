@@ -17,7 +17,7 @@ from xorq.tests.util import assert_series_equal, default_series_rename
     ],
 )
 def test_floating_scalar_parameter(alltypes, alltypes_df, column, raw_value):
-    value = xo.param(dt.double)
+    value = xo.param("value", dt.double)
     expr = (alltypes[column] + value).name("tmp")
     expected = alltypes_df[column] + raw_value
     result = expr.execute(params={value: raw_value})
