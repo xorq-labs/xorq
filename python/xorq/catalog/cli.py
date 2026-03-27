@@ -432,17 +432,6 @@ def check(ctx):
         click.echo("OK")
 
 
-def _complete_entry_or_alias(ctx, param, incomplete):
-    from click.shell_completion import CompletionItem
-
-    try:
-        catalog = _make_catalog_for_completion(ctx)
-        names = set(catalog.list()) | set(catalog.list_aliases())
-        return [CompletionItem(n) for n in sorted(names) if n.startswith(incomplete)]
-    except Exception:
-        return []
-
-
 def _resolve_entries(catalog, entries):
     """Resolve entry names/aliases to CatalogEntry objects."""
     return tuple(catalog.get_catalog_entry(name, maybe_alias=True) for name in entries)
@@ -551,7 +540,7 @@ def _compose_expr(catalog, entries, code, rename_map=None):
 
 
 @cli.command("compose")
-@click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias)
+@click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
 @click.option(
     "-c",
     "--code",

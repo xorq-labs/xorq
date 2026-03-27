@@ -52,35 +52,37 @@ def _validate_schema(source_schema, transform_schema, source_name, transform_nam
         )
 
 
+def _validated_entry_meta(entry, index):
+    """Validate a single transform entry, returning ``(name, metadata)``."""
+    from xorq.catalog.catalog import CatalogEntry  # noqa: PLC0415
+
+    if not isinstance(entry, CatalogEntry):
+        raise TypeError(
+            f"transforms[{index}] must be a CatalogEntry, got {type(entry)}"
+        )
+    meta = entry.expr.ls.metadata
+    if meta.kind != ExprKind.UnboundExpr:
+        raise ValueError(
+            f"transforms[{index}] ({entry.name!r}) has no UnboundTable "
+            f"(kind: {meta.kind}). Only unbound_expr entries can be used as transforms."
+        )
+    return (entry.name, meta)
+
+
 def _validate_chain(source_schema, transforms):
     """Pre-validate the full transform chain before building expressions.
 
     Checks that every transform has an UnboundTable and that schemas are
     compatible through the chain: source → transform[0] → transform[1] → …
     """
-    from xorq.catalog.catalog import CatalogEntry  # noqa: PLC0415
-
-    metas = []
-    for i, entry in enumerate(transforms):
-        if not isinstance(entry, CatalogEntry):
-            raise TypeError(
-                f"transforms[{i}] must be a CatalogEntry, got {type(entry)}"
-            )
-
-        meta = entry.expr.ls.metadata
-        if meta.kind != ExprKind.UnboundExpr:
-            raise ValueError(
-                f"transforms[{i}] ({entry.name!r}) has no UnboundTable "
-                f"(kind: {meta.kind}). Only unbound_expr entries can be used as transforms."
-            )
-        metas.append((entry.name, meta))
+    metas = tuple(_validated_entry_meta(entry, i) for i, entry in enumerate(transforms))
 
     current_schema = source_schema
     for name, meta in metas:
         _validate_schema(current_schema, meta.schema_in, "(current)", name)
         current_schema = meta.schema_out
 
-    return tuple(metas)
+    return metas
 
 
 def _ensure_remote(node, con, expr):
@@ -90,11 +92,13 @@ def _ensure_remote(node, con, expr):
 
 def _make_source_tag(expr, entry, alias):
     """Wrap *expr* in a HashingTag recording the catalog source provenance."""
-    resolved_alias = (
-        alias
-        if isinstance(alias, str)
-        else next((a.alias for a in getattr(entry, "aliases", ())), None)
-    )
+    match alias:
+        case str():
+            resolved_alias = alias
+        case _:
+            resolved_alias = next(
+                (a.alias for a in getattr(entry, "aliases", ())), None
+            )
     return expr.hashing_tag(
         CatalogTag.SOURCE,
         entry_name=entry.name,
