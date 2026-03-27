@@ -747,6 +747,7 @@ class ExprMetadata:
     root_tag: Optional[str] = field(default=None)
     parquet_cache_paths: tuple[str, ...] = field(factory=tuple)
     sources: tuple = field(factory=tuple, validator=deep_iterable(instance_of(dict)))
+    params: tuple = field(factory=tuple)
 
     @classmethod
     def from_dict(cls, data):
@@ -764,13 +765,20 @@ class ExprMetadata:
             root_tag=data.get("root_tag"),
             parquet_cache_paths=tuple(data.get("parquet_cache_paths") or ()),
             sources=tuple(data.get("sources", ())),
+            params=tuple(data.get("params") or ()),
         )
 
     @classmethod
     def from_expr(cls, expr):
         from xorq.caching import ParquetSnapshotCache  # noqa: PLC0415
-        from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+        from xorq.common.utils.graph_utils import (  # noqa: PLC0415
+            validate_params,
+            walk_nodes,
+        )
+        from xorq.expr.operations import NamedScalarParameter  # noqa: PLC0415
         from xorq.expr.relations import CachedNode  # noqa: PLC0415
+
+        validate_params(expr)
 
         unbound_node = _extract_unbound_node(expr)
         is_source = _extract_is_source(expr)
@@ -786,6 +794,15 @@ class ExprMetadata:
             if isinstance(cn.cache, ParquetSnapshotCache)
         )
 
+        named_params = tuple(
+            {
+                "param_name": node.label,
+                "type": str(node.dtype),
+                **({"default": node.default} if node.default is not None else {}),
+            }
+            for node in walk_nodes(NamedScalarParameter, expr)
+        )
+
         return cls(
             kind=_extract_kind(unbound_node, catalog_tag_nodes, is_source),
             schema_in=unbound_node.schema if unbound_node else None,
@@ -793,6 +810,7 @@ class ExprMetadata:
             root_tag=root_tag,
             parquet_cache_paths=parquet_cache_paths,
             sources=_extract_sources(catalog_tag_nodes),
+            params=named_params,
         )
 
     def to_dict(self):
@@ -807,6 +825,7 @@ class ExprMetadata:
                 ("schema_out", toolz.valmap(str, self.schema_out)),
                 ("root_tag", self.root_tag),
                 ("parquet_cache_paths", list(self.parquet_cache_paths) or None),
+                ("params", self.params or None),
                 ("sources", list(self.sources) if self.sources else None),
             )
             if value is not None

@@ -3,6 +3,7 @@ from typing import Any, OrderedDict, Tuple
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.expr.operations import NamedScalarParameter
 from xorq.vendor.ibis import Expr
 from xorq.vendor.ibis.expr.operations.core import Node
 
@@ -292,6 +293,19 @@ def replace_unbound(expr, replacement, *, target=None):
             return node
 
     return replace_nodes(replacer, expr).to_expr()
+
+
+def validate_params(expr):
+    """Raise TypeError if two NamedScalarParameter nodes share a label but have different dtypes."""
+
+    seen = {}
+    for node in walk_nodes(NamedScalarParameter, expr):
+        if node.label in seen and seen[node.label] != node.dtype:
+            raise TypeError(
+                f"Parameter label {node.label!r} used with conflicting dtypes: "
+                f"{seen[node.label]} and {node.dtype}"
+            )
+        seen[node.label] = node.dtype
 
 
 def get_ordered_unique_sources(nodes):

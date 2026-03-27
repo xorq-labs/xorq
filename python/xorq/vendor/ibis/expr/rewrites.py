@@ -199,7 +199,9 @@ def peel_join_field(_):
 
 @replace(p.ScalarParameter)
 def replace_parameter(_, params, **kwargs):
-    """Replace scalar parameters with their values."""
+    """Replace scalar parameters with their values; pass through unbound ones."""
+    if _ not in params:
+        return _
     return ops.Literal(value=params[_], dtype=_.dtype)
 
 

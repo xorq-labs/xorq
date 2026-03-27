@@ -50,6 +50,59 @@ def _get_cache_dir(cache_dir):
     return cache_dir
 
 
+def _coerce_param(value: str, dtype):
+    """Coerce a CLI string to the Python type matching dtype."""
+    import datetime  # noqa: PLC0415
+
+    import xorq.expr.datatypes as dt  # noqa: PLC0415
+
+    match dtype:
+        case dt.Float64() | dt.Float32():
+            return float(value)
+        case dt.Int64() | dt.Int32() | dt.Int16() | dt.Int8():
+            return int(value)
+        case dt.String():
+            return value
+        case dt.Date():
+            return datetime.date.fromisoformat(value)
+        case dt.Timestamp():
+            return datetime.datetime.fromisoformat(value)
+        case dt.Boolean():
+            return value.lower() in ("true", "1", "yes")
+        case _:
+            raise click.BadParameter(f"Don't know how to coerce {value!r} to {dtype}")
+
+
+def _parse_cli_params(expr, raw_params: tuple) -> dict:
+    """Parse key=value CLI strings into a {param_expr: value} dict.
+
+    Does not bind the expression — callers pass the returned dict to
+    execute/to_parquet/etc. so that binding happens centrally in
+    _transform_expr.
+    """
+    if not raw_params:
+        return {}
+
+    from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+    from xorq.expr.operations import NamedScalarParameter  # noqa: PLC0415
+
+    named = {node.label: node for node in walk_nodes(NamedScalarParameter, expr)}
+
+    params = {}
+    for kv in raw_params:
+        key, sep, value = kv.partition("=")
+        if not sep:
+            raise click.BadParameter(f"Expected key=value, got {kv!r}")
+        if key not in named:
+            raise click.BadParameter(
+                f"Unknown parameter {key!r}. Available: {', '.join(named) or '(none)'}"
+            )
+        node = named[key]
+        params[node.to_expr()] = _coerce_param(value, node.dtype)
+
+    return params
+
+
 def ensure_build_dir(expr_path):
     build_dir = Path(expr_path)
     if not build_dir.exists() or not build_dir.is_dir():
@@ -163,6 +216,7 @@ def run_command(
     output_format=OutputFormats.default,
     cache_dir=None,
     limit=None,
+    raw_params=(),
 ):
     """
     Execute an artifact
@@ -224,6 +278,7 @@ def run_command(
                         " - compose it with a source first using xorq catalog compose-add"
                     ) from err
 
+                params = _parse_cli_params(expr, raw_params)
                 load_metrics = {"elapsed_s": round(get_elapsed(), 3)}
                 span.add_event("run.expr_loaded", load_metrics)
                 rl.log_event("run.expr_loaded", load_metrics)
@@ -232,7 +287,7 @@ def run_command(
                 expr = expr.limit(limit)
 
             with timed() as get_elapsed:
-                arbitrate_output_format(expr, output_path, output_format)
+                arbitrate_output_format(expr, output_path, output_format, params=params)
                 execute_metrics = {
                     "elapsed_s": round(get_elapsed(), 3),
                     "output_format": str(output_format),
@@ -264,6 +319,7 @@ def run_cached_command(
     limit=None,
     cache_type="modification-time",
     ttl=None,
+    raw_params=(),
 ):
     """
     Execute an artifact with a ParquetCache wrapping the top-level expression.
@@ -308,6 +364,12 @@ def run_cached_command(
     )
 
     expr = load_expr(expr_path, cache_dir=cache_dir)
+    params = _parse_cli_params(expr, raw_params)
+    if params:
+        from xorq.expr.api import bind_params  # noqa: PLC0415
+
+        expr = bind_params(expr, {p.op().label: v for p, v in params.items()})
+        params = {}
 
     match (cache_type, ttl):
         case ("modification-time", None):
@@ -329,10 +391,10 @@ def run_cached_command(
 
     if limit is not None:
         expr = expr.limit(limit)
-    arbitrate_output_format(expr, output_path, output_format)
+    arbitrate_output_format(expr, output_path, output_format, params=params)
 
 
-def arbitrate_output_format(expr, output_path, output_format):
+def arbitrate_output_format(expr, output_path, output_format, params=None):
     match (output_path, output_format):
         case (None, _):
             output_path = os.devnull
@@ -345,15 +407,15 @@ def arbitrate_output_format(expr, output_path, output_format):
             pass
     match output_format:
         case OutputFormats.csv:
-            expr.to_csv(output_path)
+            expr.to_csv(output_path, params=params)
         case OutputFormats.json:
-            expr.to_json(output_path)
+            expr.to_json(output_path, params=params)
         case OutputFormats.arrow:
             from xorq.expr.api import to_pyarrow_stream
 
-            to_pyarrow_stream(expr, output_path)
+            to_pyarrow_stream(expr, output_path, params=params)
         case OutputFormats.parquet:
-            expr.to_parquet(output_path)
+            expr.to_parquet(output_path, params=params)
         case _:
             raise ValueError(f"Unknown output_format: {output_format}")
 
@@ -723,9 +785,16 @@ def build(script_path, expr_name, builds_dir, cache_dir, debug):
     default=None,
     help="Limit number of rows to output",
 )
-def run(build_path, cache_dir, output_path, output_format, limit):
+@click.option(
+    "-p",
+    "--params",
+    "raw_params",
+    multiple=True,
+    help="Parameter as key=value (repeatable). e.g. --params threshold=0.5",
+)
+def run(build_path, cache_dir, output_path, output_format, limit, raw_params):
     """Run a build from a builds directory."""
-    run_command(build_path, output_path, output_format, cache_dir, limit)
+    run_command(build_path, output_path, output_format, cache_dir, limit, raw_params)
 
 
 @cli.command("run-cached")
@@ -767,12 +836,33 @@ def run(build_path, cache_dir, output_path, output_format, limit):
     default=None,
     help="TTL in seconds for snapshot cache (uses ParquetTTLSnapshotCache when set)",
 )
+@click.option(
+    "-p",
+    "--params",
+    "raw_params",
+    multiple=True,
+    help="Parameter as key=value (repeatable). e.g. --params threshold=0.5",
+)
 def run_cached(
-    build_path, cache_dir, output_path, output_format, limit, cache_type, ttl
+    build_path,
+    cache_dir,
+    output_path,
+    output_format,
+    limit,
+    cache_type,
+    ttl,
+    raw_params,
 ):
     """Run a build with a ParquetCache wrapping the expression."""
     run_cached_command(
-        build_path, output_path, output_format, cache_dir, limit, cache_type, ttl
+        build_path,
+        output_path,
+        output_format,
+        cache_dir,
+        limit,
+        cache_type,
+        ttl,
+        raw_params,
     )
 
 

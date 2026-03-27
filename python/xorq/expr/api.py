@@ -10,6 +10,8 @@ import pyarrow as pa
 import toolz
 from opentelemetry import trace
 
+import xorq.vendor.ibis.expr.datatypes as dt
+import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.xorq import Backend
 from xorq.common.exceptions import XorqError
@@ -19,6 +21,7 @@ from xorq.common.utils.defer_utils import (  # noqa: F403
     deferred_read_parquet,
     rbr_wrapper,
 )
+from xorq.common.utils.graph_utils import replace_nodes, walk_nodes
 from xorq.common.utils.io_utils import (
     extract_suffix,
     maybe_open,
@@ -29,6 +32,7 @@ from xorq.expr.ml import (
     calc_split_column,
     train_test_splits,
 )
+from xorq.expr.operations import NamedScalarParameter
 from xorq.expr.relations import (
     CachedNode,
     HashingTag,
@@ -69,6 +73,7 @@ __all__ = (
     "deferred_read_csv",
     "deferred_read_parquet",
     "get_object_metadata",
+    "bind_params",
     *api.__all__,
 )
 
@@ -407,7 +412,15 @@ def _remove_non_hashing_tag_nodes(expr):
 
 
 @tracer.start_as_current_span("_transform_expr")
-def _transform_expr(expr, **kwargs):
+def _transform_expr(expr, params=None, **kwargs):
+    """Transform an expression for execution, binding any named scalar parameters."""
+    name_values = {
+        p.op().label: v
+        for p, v in (params or {}).items()
+        if hasattr(p, "op") and isinstance(p.op(), NamedScalarParameter)
+    }
+    if name_values or walk_nodes(NamedScalarParameter, expr):
+        expr = bind_params(expr, name_values)
     expr = _remove_tag_nodes(expr)
     expr = _register_and_transform_cache_tables(expr)
     expr, created = register_and_transform_remote_tables(expr, **kwargs)
@@ -426,7 +439,8 @@ def _pandas_execute(con, expr: ir.Expr, **kwargs):
         span.set_attribute("engine", "flight")
         df = node.to_rbr().read_pandas(timestamp_as_object=True)
         return expr.__pandas_result__(df)
-    (expr, created) = _transform_expr(expr)
+    params = kwargs.get("params", None)
+    expr, created = _transform_expr(expr, params=params)
 
     span.set_attribute("engine", "pandas")
     return con.execute(expr, **kwargs)
@@ -464,7 +478,8 @@ def to_pyarrow_batches(
         # TODO: verify correct caching behavior
         span.set_attribute("engine", "flight")
         return expr.op().to_rbr()
-    (expr, created) = _transform_expr(expr)
+    params = kwargs.get("params", None)
+    expr, created = _transform_expr(expr, params=params)
     con, _ = find_backend(expr.op(), use_default=True)
 
     span.set_attribute("engine", con.name)
@@ -501,8 +516,13 @@ def to_pyarrow(expr: ir.Expr, **kwargs: Any):
     return expr.__pyarrow_result__(arrow_table)
 
 
-def to_pyarrow_stream(expr: ir.Expr, sink: Any, **kwargs: Any):
-    rbr = expr.to_pyarrow_batches()
+def to_pyarrow_stream(
+    expr: ir.Expr,
+    sink: Any,
+    params: Mapping[ir.Scalar, Any] | None = None,
+    **kwargs: Any,
+):
+    rbr = expr.to_pyarrow_batches(params=params)
     with maybe_open(sink, "wb") as fh:
         try:
             writer = pa.ipc.new_stream(fh, rbr.schema, **kwargs)
@@ -636,3 +656,74 @@ def get_object_metadata(path: str, **kwargs: Any) -> dict:
         kwargs["storage_options"] = dict(kwargs.pop("storage_options"))
 
     return con.con.get_object_metadata(path, suffix, **kwargs)
+
+
+def param(name: str, type, default=None) -> "ir.Scalar":
+    """Create a named scalar parameter for use in parameterized expressions.
+
+    Parameters
+    ----------
+    name
+        Human-readable label for the parameter (e.g. ``"cutoff"``).
+    type
+        ibis data type for the parameter, e.g. ``"float64"``, ``"date"``,
+        ``dt.timestamp()``.
+    default
+        Optional default Python value used when the parameter is not supplied
+        at execution time (e.g. ``0.5``, ``datetime.date(2024, 1, 1)``).
+
+    Returns
+    -------
+    ir.Scalar
+        A scalar expression backed by a :class:`NamedScalarParameter` node.
+        Pass it to :meth:`execute` via ``params={param_expr: value}``.
+
+    Examples
+    --------
+    >>> import xorq as xo
+    >>> cutoff = xo.param("cutoff", "date")
+    >>> threshold = xo.param("threshold", "float64", default=0.5)
+    >>> t = xo.memtable({"d": ["2024-01-01", "2024-06-01"], "v": [1, 2]})
+    """
+    dtype = dt.dtype(type)
+    return NamedScalarParameter(dtype=dtype, label=name, default=default).to_expr()
+
+
+def bind_params(expr, params: dict) -> "ir.Expr":
+    """Bind named parameters by name→value dict, applying defaults for omitted ones.
+
+    Parameters
+    ----------
+    expr
+        Expression containing :class:`NamedScalarParameter` nodes.
+    params
+        Mapping of parameter name to Python value.
+    Raises
+    ------
+    ValueError
+        If any required parameter (no default) is absent from *params*.
+    """
+    named = {node.label: node for node in walk_nodes(NamedScalarParameter, expr)}
+
+    missing = tuple(
+        f"{name} ({node.dtype})"
+        for name, node in named.items()
+        if name not in params and node.default is None
+    )
+    if missing:
+        raise ValueError(f"Missing required parameters: {', '.join(missing)}")
+
+    op_params = {
+        node: value
+        for name, node in named.items()
+        if (value := params.get(name, node.default)) is not None
+    }
+
+    def replacer(node, kwargs):
+        if kwargs:
+            node = node.__recreate__(kwargs)
+        if isinstance(node, NamedScalarParameter) and node in op_params:
+            return ops.Literal(value=op_params[node], dtype=node.dtype)
+        return node
+
+    return replace_nodes(replacer, expr).to_expr()
