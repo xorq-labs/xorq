@@ -153,12 +153,7 @@ class CatalogRowData:
     @cached_property
     def sqls(self) -> tuple[tuple[str, str, str], ...]:
         """((name, engine, sql), ...) for all queries in the expression plan."""
-        expr = maybe_expr(self.entry)
-        match expr:
-            case None:
-                return ()
-            case _:
-                return maybe_sqls(expr)
+        return maybe_sqls(self.entry)
 
     @cached_property
     def lineage_text(self) -> str:
@@ -371,30 +366,16 @@ def maybe_cache_info(expr) -> tuple[bool | None, str | None]:
 
 
 @maybe(default=())
-def maybe_sqls(expr) -> tuple[tuple[str, str, str], ...]:
+def maybe_sqls(entry) -> tuple[tuple[str, str, str], ...]:
     """Return ((name, engine, sql), ...) for all queries in the expression plan.
 
     Uses generate_sql_plans to decompose expressions into per-backend queries,
     showing every sub-query that gets executed.  Falls back to xorq's to_sql
     for unbound expressions that have no backend.
     """
-    from xorq.expr.api import _remove_tag_nodes  # noqa: PLC0415
-    from xorq.expr.api import to_sql as xorq_to_sql  # noqa: PLC0415
-    from xorq.ibis_yaml.sql import generate_sql_plans  # noqa: PLC0415
+    from xorq.ibis_yaml.compiler import _extract_sql_queries  # noqa: PLC0415
 
-    clean = _remove_tag_nodes(expr)
-    try:
-        sql_plans, deferred_reads = generate_sql_plans(clean)
-    except Exception:
-        # unbound expressions have no backend; use xorq default compiler
-        sql = str(xorq_to_sql(clean)).strip()
-        return (("main", "xorq", sql),) if sql else ()
-    return tuple(
-        (name, info.get("engine", "?"), info.get("sql", "").strip())
-        for mapping in (sql_plans.get("queries", {}), deferred_reads.get("reads", {}))
-        for name, info in mapping.items()
-        if info.get("sql", "").strip()
-    )
+    return _extract_sql_queries(entry.expr, entry.metadata.kind)
 
 
 @maybe(default=())
@@ -449,7 +430,7 @@ def _render_sql_dag(sqls: tuple[tuple[str, str, str], ...]) -> str:
 def _revision_pair(i, rev_entry, commit):
     try:
         exists = rev_entry.exists()
-    except Exception:
+    except (OSError, zipfile.BadZipFile, KeyError):
         exists = False
     col_count, cached = _entry_info(rev_entry) if exists else (None, None)
     row = RevisionRowData(
@@ -962,7 +943,7 @@ class CatalogScreen(Screen):
                 for pname, pdata in data.items()
             )
             self.app.call_from_thread(self._render_profiles, rows)
-        except Exception:
+        except (OSError, zipfile.BadZipFile, yaml.YAMLError, KeyError):
             pass
 
     def _render_profiles(self, rows) -> None:
@@ -978,7 +959,7 @@ class CatalogScreen(Screen):
     def _load_revisions_preview(self, catalog_alias) -> None:
         try:
             raw_revisions = catalog_alias.list_revisions()
-        except Exception:
+        except (KeyError, ValueError, OSError):
             return
         revision_rows = tuple(
             row
