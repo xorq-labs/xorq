@@ -516,28 +516,6 @@ class ExprDumper:
         )
         return path, writer
 
-    @staticmethod
-    def _extract_sql_queries(expr, kind) -> tuple[tuple[str, str, str], ...]:
-        """Extract (name, engine, sql) tuples from an expression for caching."""
-        from xorq.expr.api import _remove_tag_nodes  # noqa: PLC0415
-        from xorq.expr.api import to_sql as xorq_to_sql  # noqa: PLC0415
-
-        clean = _remove_tag_nodes(expr)
-        if kind is ExprKind.UnboundExpr:
-            sql = str(xorq_to_sql(clean)).strip()
-            return (("main", "xorq", sql),) if sql else ()
-        else:
-            sql_plans, deferred_reads = generate_sql_plans(clean)
-            return tuple(
-                (name, info.get("engine", "?"), info.get("sql", "").strip())
-                for mapping in (
-                    sql_plans.get("queries", {}),
-                    deferred_reads.get("reads", {}),
-                )
-                for name, info in mapping.items()
-                if info.get("sql", "").strip()
-            )
-
     def _make_expr_metadata(self, expr) -> Dict[str, Any]:
         from xorq.common.utils.lineage_utils import (  # noqa: PLC0415
             extract_lineage_chain,
