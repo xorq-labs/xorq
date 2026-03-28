@@ -120,8 +120,8 @@ class Annex:
     def init(self):
         self._do("init")
 
-    def get(self, path="."):
-        self._do("get", str(path))
+    def get(self, *paths):
+        self._do("get", *(str(p) for p in paths) or (".",))
 
     def copy(self, to=None, from_=None, path="."):
         if (to is None) == (from_ is None):

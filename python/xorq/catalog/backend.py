@@ -31,7 +31,7 @@ class CatalogBackend(abc.ABC):
     def is_content_local(self, path) -> bool: ...
 
     @abc.abstractmethod
-    def fetch_content(self, path): ...
+    def fetch_content(self, *paths): ...
 
 
 @frozen
@@ -62,7 +62,7 @@ class GitBackend(CatalogBackend):
     def is_content_local(self, path):
         return Path(path).exists()
 
-    def fetch_content(self, path):
+    def fetch_content(self, *paths):
         pass
 
 
@@ -106,6 +106,6 @@ class GitAnnexBackend(CatalogBackend):
         p = Path(path)
         return p.exists() and not (p.is_symlink() and not p.resolve().exists())
 
-    def fetch_content(self, path):
-        relpath = self.get_relpath(path)
-        self.annex.get(path=str(relpath))
+    def fetch_content(self, *paths):
+        relpaths = [self.get_relpath(p) for p in paths]
+        self.annex.get(*relpaths)

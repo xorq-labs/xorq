@@ -218,6 +218,21 @@ class Catalog:
         """Fetch from all git remotes (excludes annex-only special remotes)."""
         return tuple(map(Remote.fetch, self._git_remotes))
 
+    def fetch_entries(self, *entries):
+        """Fetch annex content for the given entries in a single operation.
+
+        Each element can be a ``CatalogEntry`` or a string (entry name).
+        No-op for plain-git backends.
+        """
+        paths = []
+        for entry in entries:
+            if isinstance(entry, str):
+                entry = self.get_catalog_entry(entry)
+            if not entry.is_content_local:
+                paths.append(entry.catalog_path)
+        if paths:
+            self.backend.fetch_content(*paths)
+
     def push(self):
         """Push to all git remotes after verifying consistency."""
         self.assert_consistency()
