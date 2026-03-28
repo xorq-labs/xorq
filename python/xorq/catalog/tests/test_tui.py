@@ -34,7 +34,6 @@ from xorq.catalog.tui import (
     _build_git_log_rows,
     _entry_info,
     _format_cached,
-    _format_column_count,
     maybe,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
@@ -115,16 +114,16 @@ def test_format_cached_none():
     assert _format_cached(None) == "—"
 
 
-def test_format_column_count_none():
-    assert _format_column_count(None) == "?"
+def test_revision_row_columns_display_none():
+    assert RevisionRowData(column_count=None).columns_display == "?"
 
 
-def test_format_column_count_int():
-    assert _format_column_count(5) == "5 cols"
+def test_revision_row_columns_display_int():
+    assert RevisionRowData(column_count=5).columns_display == "5 cols"
 
 
-def test_format_column_count_zero():
-    assert _format_column_count(0) == "0 cols"
+def test_revision_row_columns_display_zero():
+    assert RevisionRowData(column_count=0).columns_display == "0 cols"
 
 
 def test_maybe_returns_value_on_success():
@@ -640,16 +639,14 @@ def test_toggle_triggers_load_from_real_repo(catalog, entry_a):
 
 def test_entry_info(entry_b):
     """_entry_info reads column count from expr_metadata; cached is None for plain memtables."""
-    column_count, cached, root_tag, expr = _entry_info(entry_b)
+    column_count, cached = _entry_info(entry_b)
     assert column_count == 1  # single column: value
     assert cached is None  # no ParquetSnapshotCache nodes in a plain memtable
-    assert root_tag == ""
-    assert expr is None
 
 
 def test_entry_info_three_columns(entry_a):
     """_entry_info reports the correct column count for a multi-column expression."""
-    column_count, cached, root_tag, expr = _entry_info(entry_a)
+    column_count, cached = _entry_info(entry_a)
     assert column_count == 3  # id, name, score
     assert cached is None
 
@@ -659,7 +656,7 @@ def test_entry_info_scalar_expression_wraps_as_table(catalog):
     column_count is the number of columns of the resulting table (always 1)."""
     t = xo.memtable({"a": [1, 2, 3]})
     entry = catalog.add(t.a.sum())
-    column_count, cached, root_tag, expr = _entry_info(entry)
+    column_count, cached = _entry_info(entry)
     assert column_count == 1
     assert cached is None
 
@@ -677,7 +674,7 @@ def test_cached_false_before_execution(catalog, tmp_path, parquet_dir):
     assert parquet_paths, "entry must have parquet_cache_paths"
     assert not any(Path(p).exists() for p in parquet_paths)
     assert CatalogRowData(entry=entry).cached is False
-    _, cached, _, _ = _entry_info(entry)
+    _, cached = _entry_info(entry)
     assert cached is False
 
 
@@ -694,7 +691,7 @@ def test_cached_true_after_execution(catalog, tmp_path, parquet_dir):
     parquet_paths = entry.parquet_cache_paths
     assert all(Path(p).exists() for p in parquet_paths)
     assert CatalogRowData(entry=entry).cached is True
-    _, cached, _, _ = _entry_info(entry)
+    _, cached = _entry_info(entry)
     assert cached is True
 
 

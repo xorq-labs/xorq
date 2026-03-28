@@ -101,16 +101,6 @@ def _format_cached(value: bool | None) -> str:
             return "—"
 
 
-def _format_column_count(n: int | None) -> str:
-    match n:
-        case None:
-            return "?"
-        case int(n):
-            return f"{n} cols"
-        case _:
-            return "?"
-
-
 @frozen
 class CatalogRowData:
     entry: CatalogEntry = field(repr=False)
@@ -256,7 +246,13 @@ class RevisionRowData:
 
     @cached_property
     def columns_display(self) -> str:
-        return _format_column_count(self.column_count)
+        match self.column_count:
+            case None:
+                return "?"
+            case int(n):
+                return f"{n} cols"
+            case _:
+                return "?"
 
     @property
     def row(self) -> tuple[str, ...]:
@@ -275,14 +271,14 @@ def _check_cached(expr) -> bool:
     return any(cn.to_expr().ls.exists() for cn in expr.ls.cached_nodes)
 
 
-def _entry_info(entry) -> tuple[int | None, bool | None, str, None]:
+def _entry_info(entry) -> tuple[int | None, bool | None]:
     parquet_cache_paths = entry.parquet_cache_paths
     cached = (
         all(Path(p).exists() for p in parquet_cache_paths)
         if parquet_cache_paths
         else None
     )
-    return len(entry.columns), cached, entry.root_tag, None
+    return len(entry.columns), cached
 
 
 def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
@@ -290,18 +286,9 @@ def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
 
 
 def _build_lineage_chain(expr) -> tuple[str, ...]:
-    from xorq.common.utils.graph_utils import gen_children_of, to_node  # noqa: PLC0415
-    from xorq.common.utils.lineage_utils import format_node  # noqa: PLC0415
+    from xorq.common.utils.lineage_utils import extract_lineage_chain  # noqa: PLC0415
 
-    def _walk(node):
-        yield format_node(node)
-        match tuple(gen_children_of(node)):
-            case (first, *_):
-                yield from _walk(first)
-            case _:
-                pass
-
-    return tuple(reversed(tuple(_walk(to_node(expr)))))
+    return extract_lineage_chain(expr)
 
 
 @cache
@@ -424,14 +411,12 @@ def maybe_metadata(entry) -> tuple[tuple[str, str], ...]:
 
 def _render_sql_dag(sqls: tuple[tuple[str, str, str], ...]) -> str:
     """Render multiple SQL queries as a topologically-sorted DAG."""
-    import re as _re  # noqa: PLC0415
-
     name_to_sql = {name: (engine, sql) for name, engine, sql in sqls}
     # build dependency graph: name → set of names it depends on
     deps = {
         name: frozenset(
             ref
-            for ref in _re.findall(r'FROM "([a-f0-9]{20,})"', sql)
+            for ref in re.findall(r'FROM "([a-f0-9]{20,})"', sql)
             if ref in name_to_sql
         )
         for name, (_, sql) in name_to_sql.items()
@@ -466,9 +451,7 @@ def _revision_pair(i, rev_entry, commit):
         exists = rev_entry.exists()
     except Exception:
         exists = False
-    col_count, cached, _, _ = (
-        _entry_info(rev_entry) if exists else (None, None, "", None)
-    )
+    col_count, cached = _entry_info(rev_entry) if exists else (None, None)
     row = RevisionRowData(
         hash=rev_entry.name,
         column_count=col_count,
@@ -484,6 +467,13 @@ def _revision_pair(i, rev_entry, commit):
 # ---------------------------------------------------------------------------
 # Screens
 # ---------------------------------------------------------------------------
+
+
+@frozen
+class _TogglePanelState:
+    visible: bool = field(default=False, validator=instance_of(bool))
+    loaded: bool = field(default=False, validator=instance_of(bool))
+    entry_hash: str | None = field(default=None, validator=optional(instance_of(str)))
 
 
 class CatalogScreen(Screen):
@@ -515,12 +505,8 @@ class CatalogScreen(Screen):
         self._git_log_visible = False
         self._git_log_loaded = False
         self._refresh_lock = threading.Lock()
-        self._data_preview_visible = False
-        self._data_preview_loaded = False
-        self._data_preview_entry_hash: str | None = None
-        self._profiles_visible = False
-        self._profiles_loaded = False
-        self._profiles_entry_hash: str | None = None
+        self._data_preview = _TogglePanelState()
+        self._profiles = _TogglePanelState()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -714,17 +700,13 @@ class CatalogScreen(Screen):
         self._reset_toggle_panels()
 
     def _reset_toggle_panels(self) -> None:
-        self._data_preview_loaded = False
-        self._data_preview_entry_hash = None
-        self._data_preview_visible = False
+        self._data_preview = _TogglePanelState()
         self.query_one("#data-preview-panel").display = False
         dt = self.query_one("#data-preview-table", DataTable)
         dt.clear(columns=True)
         dt.loading = True
 
-        self._profiles_loaded = False
-        self._profiles_entry_hash = None
-        self._profiles_visible = False
+        self._profiles = _TogglePanelState()
         self.query_one("#profiles-panel").display = False
         self.query_one("#profiles-table", DataTable).clear()
 
@@ -851,20 +833,28 @@ class CatalogScreen(Screen):
         if row_data is None:
             return
 
-        self._data_preview_visible = not self._data_preview_visible
-        self.query_one("#data-preview-panel").display = self._data_preview_visible
+        toggled = not self._data_preview.visible
+        self._data_preview = _TogglePanelState(
+            visible=toggled,
+            loaded=self._data_preview.loaded,
+            entry_hash=self._data_preview.entry_hash,
+        )
+        self.query_one("#data-preview-panel").display = toggled
 
-        if not self._data_preview_visible:
+        if not toggled:
             return
 
         match row_data.cached:
             case True:
                 if (
-                    not self._data_preview_loaded
-                    or self._data_preview_entry_hash != entry_hash
+                    not self._data_preview.loaded
+                    or self._data_preview.entry_hash != entry_hash
                 ):
-                    self._data_preview_loaded = True
-                    self._data_preview_entry_hash = entry_hash
+                    self._data_preview = _TogglePanelState(
+                        visible=True,
+                        loaded=True,
+                        entry_hash=entry_hash,
+                    )
                     self.query_one("#data-preview-status", Static).update(
                         " Loading data preview..."
                     )
@@ -878,11 +868,7 @@ class CatalogScreen(Screen):
     @work(thread=True, exit_on_error=False)
     def _load_data_preview(self, entry) -> None:
         try:
-            expr = entry.expr
-            try:
-                df = expr.head(50).execute()
-            except Exception:
-                df = entry.expr.head(50).execute()
+            df = entry.expr.head(50).execute()
             columns = tuple(str(c) for c in df.columns)
             rows = tuple(
                 tuple(str(round(v, 2)) if isinstance(v, float) else str(v) for v in row)
@@ -925,14 +911,22 @@ class CatalogScreen(Screen):
         if row_data is None:
             return
 
-        self._profiles_visible = not self._profiles_visible
-        self.query_one("#profiles-panel").display = self._profiles_visible
+        toggled = not self._profiles.visible
+        self._profiles = _TogglePanelState(
+            visible=toggled,
+            loaded=self._profiles.loaded,
+            entry_hash=self._profiles.entry_hash,
+        )
+        self.query_one("#profiles-panel").display = toggled
 
-        if self._profiles_visible and (
-            not self._profiles_loaded or self._profiles_entry_hash != entry_hash
+        if toggled and (
+            not self._profiles.loaded or self._profiles.entry_hash != entry_hash
         ):
-            self._profiles_loaded = True
-            self._profiles_entry_hash = entry_hash
+            self._profiles = _TogglePanelState(
+                visible=True,
+                loaded=True,
+                entry_hash=entry_hash,
+            )
             self._load_profiles(row_data.entry)
 
     @work(thread=True, exit_on_error=False)
