@@ -38,7 +38,7 @@ The ABC defines six operations that `Catalog` delegates to:
 | `stage_unlink(path)` | `git rm` + unlink | `git rm` + unlink |
 | `commit_context(message)` | commit via index | commit via index |
 | `is_content_local(path)` | checks symlink target resolves | `Path.exists()` |
-| `fetch_content(path)` | `git annex get` on the entry | no-op |
+| `fetch_content(*paths)` | `git annex get` on the entries | no-op |
 
 `stage_content` is the key differentiator for writes: for annex it routes through `git annex add`; for plain git it's identical to `stage`. `is_content_local` and `fetch_content` support lazy content fetch: annex symlinks may exist without their target being present locally.
 
@@ -82,7 +82,7 @@ expr_metadata:
 - `backends` — backend connection names extracted from `profiles.yaml` in the archive.
 - `expr_metadata` — the full `ExprMetadata.to_dict()` output (`kind`, `schema_out`, `schema_in`, `root_tag`, `parquet_cache_paths`, `composed_from`).
 
-This means `CatalogEntry.metadata`, `.kind`, `.columns`, `.backends`, and `.composed_from` all read from the sidecar and never require the zip archive. Only `entry.expr` and `entry.lazy_expr` (which deserialize the full expression from `expr.yaml`) require fetching annex content.
+This means `CatalogEntry.metadata`, `.kind`, `.columns`, `.backends`, and `.composed_from` all read from the sidecar and never require the zip archive. `entry.expr` and `entry.lazy_expr` auto-fetch annex content from the remote if not local. Use `catalog.fetch_entries(*entries)` to batch-fetch multiple entries in a single `git annex get` invocation.
 
 ## Rationale
 
@@ -96,7 +96,7 @@ Auto-detection means `clone_from(url)` just works — if the repo uses annex, an
 
 ### Auto-detection
 
-`clone_from` checks for a `git-annex` branch in the cloned repo; `from_repo_path` checks for `.git/annex`. When detected, annex is initialised and the remote is enabled using the best available credentials (embedded via `embedcreds=yes`, environment variables, or explicit `**remote_kwargs`). If no credentials are available the catalog degrades to local-only annex — sidecar metadata works, but `entry.expr` raises `ContentNotAvailableError`.
+`clone_from` checks for a `git-annex` branch in the cloned repo; `from_repo_path` checks for `.git/annex`. When detected, annex is initialised and the remote is enabled using the best available credentials (embedded via `embedcreds=yes`, environment variables, or explicit `**remote_kwargs`). If no credentials are available the catalog degrades to local-only annex — sidecar metadata works, but `entry.expr` will fail when it attempts to auto-fetch content from the remote.
 
 Pass `annex=False` to force plain git on a repo that has annex metadata.
 
@@ -124,7 +124,7 @@ Use `entry.metadata`, `entry.kind`, `entry.columns`, `entry.backends`, `entry.co
 
 ### When `entry.expr` is required
 
-Only access `entry.expr` or `entry.lazy_expr` when you need the deserialized expression itself — to execute it, build a `RemoteTable`, walk its operation graph, or pass it to `replace_unbound`. These require the zip archive and will raise `ContentNotAvailableError` if annex content is not local.
+Only access `entry.expr` or `entry.lazy_expr` when you need the deserialized expression itself — to execute it, build a `RemoteTable`, walk its operation graph, or pass it to `replace_unbound`. These require the zip archive and will auto-fetch from the remote if annex content is not local.
 
 ### Extending the sidecar
 
