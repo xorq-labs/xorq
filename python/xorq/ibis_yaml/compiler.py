@@ -520,21 +520,20 @@ class ExprDumper:
         from xorq.expr.api import to_sql as xorq_to_sql  # noqa: PLC0415
 
         clean = _remove_tag_nodes(expr)
-        match kind:
-            case ExprKind.UnboundExpr:
-                sql = str(xorq_to_sql(clean)).strip()
-                return (("main", "xorq", sql),) if sql else ()
-            case _:
-                sql_plans, deferred_reads = generate_sql_plans(clean)
-                return tuple(
-                    (name, info.get("engine", "?"), info.get("sql", "").strip())
-                    for mapping in (
-                        sql_plans.get("queries", {}),
-                        deferred_reads.get("reads", {}),
-                    )
-                    for name, info in mapping.items()
-                    if info.get("sql", "").strip()
+        if kind is ExprKind.UnboundExpr:
+            sql = str(xorq_to_sql(clean)).strip()
+            return (("main", "xorq", sql),) if sql else ()
+        else:
+            sql_plans, deferred_reads = generate_sql_plans(clean)
+            return tuple(
+                (name, info.get("engine", "?"), info.get("sql", "").strip())
+                for mapping in (
+                    sql_plans.get("queries", {}),
+                    deferred_reads.get("reads", {}),
                 )
+                for name, info in mapping.items()
+                if info.get("sql", "").strip()
+            )
 
     def _make_expr_metadata(self, expr) -> Dict[str, Any]:
         metadata = ExprMetadata.from_expr(expr)
