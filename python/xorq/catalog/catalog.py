@@ -81,7 +81,8 @@ def _try_resolve_annex_remote(repo_path, **remote_kwargs):
             rc.enableremote(repo_path)
             return rc
     except (ValueError, TypeError, AnnexError):
-        pass
+        if remote_kwargs:
+            raise
     return None
 
 
