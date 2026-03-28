@@ -153,30 +153,23 @@ class CatalogRowData:
     @cached_property
     def sqls(self) -> tuple[tuple[str, str, str], ...]:
         """((name, engine, sql), ...) for all queries in the expression plan."""
-        return maybe_sqls(self.entry)
+        return self.entry.metadata.sql_queries
 
     @cached_property
     def lineage_text(self) -> str:
-        expr = maybe_expr(self.entry)
-        match expr:
-            case None:
-                return "(unavailable)"
-            case _:
-                return maybe_lineage(expr)
+        chain = self.entry.metadata.lineage
+        return " → ".join(chain) if chain else "(empty)"
 
     @cached_property
     def cache_info_text(self) -> str:
-        expr = maybe_expr(self.entry)
-        is_cached, cache_path = maybe_cache_info(expr)
-        match (is_cached, cache_path):
-            case (True, str() as path):
-                return f"● cached  {path}"
-            case (True, _):
-                return "● cached"
-            case (False, _):
-                return "○ uncached"
-            case _:
+        paths = self.entry.parquet_cache_paths
+        match paths:
+            case () | None:
                 return "— unknown"
+            case _ if all(Path(p).exists() for p in paths):
+                return f"● cached  {paths[0]}"
+            case _:
+                return "○ uncached"
 
     @cached_property
     def metadata_text(self) -> str:
@@ -260,12 +253,6 @@ class RevisionRowData:
         )
 
 
-def _check_cached(expr) -> bool:
-    if not expr.ls.has_cached:
-        return False
-    return any(cn.to_expr().ls.exists() for cn in expr.ls.cached_nodes)
-
-
 def _entry_info(entry) -> tuple[int | None, bool | None]:
     parquet_cache_paths = entry.parquet_cache_paths
     cached = (
@@ -278,12 +265,6 @@ def _entry_info(entry) -> tuple[int | None, bool | None]:
 
 def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
     return CatalogRowData(entry=entry, aliases=aliases)
-
-
-def _build_lineage_chain(expr) -> tuple[str, ...]:
-    from xorq.common.utils.lineage_utils import extract_lineage_chain  # noqa: PLC0415
-
-    return extract_lineage_chain(expr)
 
 
 @cache
@@ -336,46 +317,6 @@ def _build_git_log_rows(repo, max_count=100) -> tuple[GitLogRowData, ...]:
         )
         for commit in repo.iter_commits(max_count=max_count)
     )
-
-
-@maybe(default=None)
-def maybe_expr(entry):
-    return entry.lazy_expr
-
-
-@maybe(default="(unavailable)")
-def maybe_lineage(expr) -> str:
-    chain = _build_lineage_chain(expr)
-    return " → ".join(chain) if chain else "(empty)"
-
-
-@maybe(default=None)
-def maybe_cache_path(expr) -> str | None:
-    paths = expr.ls.get_cache_paths()
-    return str(paths[0]) if paths else None
-
-
-def maybe_cache_info(expr) -> tuple[bool | None, str | None]:
-    match expr:
-        case None:
-            return None, None
-        case _ if not _check_cached(expr):
-            return False, None
-        case _:
-            return True, maybe_cache_path(expr)
-
-
-@maybe(default=())
-def maybe_sqls(entry) -> tuple[tuple[str, str, str], ...]:
-    """Return ((name, engine, sql), ...) for all queries in the expression plan.
-
-    Uses generate_sql_plans to decompose expressions into per-backend queries,
-    showing every sub-query that gets executed.  Falls back to xorq's to_sql
-    for unbound expressions that have no backend.
-    """
-    from xorq.ibis_yaml.compiler import _extract_sql_queries  # noqa: PLC0415
-
-    return _extract_sql_queries(entry.expr, entry.metadata.kind)
 
 
 @maybe(default=())
