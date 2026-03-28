@@ -82,9 +82,10 @@ class Catalog:
         return CatalogYAML(self.repo_path)
 
     def _add_zip(self, path, sync=True, aliases=()):
-        # should we enable not syncing?
+        catalog_addition = CatalogAddition(BuildZip(path), self, aliases=aliases)
+        _ = catalog_addition.build_zip.md5sum  # force expensive hash before sync
+        catalog_addition.ensure_dirs()
         with self.maybe_synchronizing(sync):
-            catalog_addition = CatalogAddition(BuildZip(path), self, aliases=aliases)
             catalog_entry = catalog_addition.add()
             self.assert_consistency()
             return catalog_entry
@@ -373,7 +374,7 @@ class BuildZip:
     def name(self):
         return with_pure_suffix(self.path, "").name
 
-    @property
+    @cached_property
     def md5sum(self):
         from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
             file_digest,
