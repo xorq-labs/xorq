@@ -43,7 +43,6 @@ from xorq.catalog.constants import (
     PREFERRED_SUFFIX,
     CatalogInfix,
 )
-from xorq.catalog.exceptions import ContentNotAvailableError
 from xorq.catalog.expr_utils import (
     build_expr_context,
     build_expr_context_zip,
@@ -748,9 +747,9 @@ class CatalogEntry:
 
     Prefer sidecar-backed properties (``metadata``, ``kind``, ``columns``,
     ``backends``, ``composed_from``, ``root_tag``) over ``expr`` /
-    ``lazy_expr``.  The sidecar is always available; ``expr`` requires the
-    zip archive and raises ``ContentNotAvailableError`` when annex content
-    is not local.  See ADR-0003 for extension guidelines.
+    ``lazy_expr``.  The sidecar is always available; ``expr`` auto-fetches
+    annex content from the remote if not local.  See ADR-0003 for extension
+    guidelines.
     """
 
     name = field(validator=instance_of(str))
@@ -782,14 +781,16 @@ class CatalogEntry:
 
     @property
     def expr(self):
-        self._require_content()
+        if not self.is_content_local:
+            self.fetch()
         return load_expr_from_zip(self.catalog_path)
 
     @property
     def lazy_expr(self):
         from xorq.catalog.expr_utils import load_expr_from_zip  # noqa: PLC0415
 
-        self._require_content()
+        if not self.is_content_local:
+            self.fetch()
         return load_expr_from_zip(self.catalog_path, lazy=True)
 
     @property
@@ -863,13 +864,6 @@ class CatalogEntry:
             "catalog_path": catalog_path.exists() or catalog_path.is_symlink(),
             "catalog_yaml_contents": self.catalog.catalog_yaml.contains(self.name),
         }
-
-    def _require_content(self):
-        if not self.is_content_local:
-            raise ContentNotAvailableError(
-                f"Content for entry '{self.name}' is not available locally. "
-                f"Call entry.fetch() or annex.get() to retrieve it from the remote."
-            )
 
     def get(self, dir_path=None):
         if not self.is_content_local:

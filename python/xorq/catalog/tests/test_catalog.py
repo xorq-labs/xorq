@@ -17,7 +17,6 @@ from xorq.catalog.catalog import (
     CatalogEntry,
 )
 from xorq.catalog.constants import CatalogInfix
-from xorq.catalog.exceptions import ContentNotAvailableError
 from xorq.catalog.expr_utils import (
     build_expr_context_zip,
 )
@@ -426,8 +425,6 @@ def test_catalog_entry_relocatable(repo_cloned_bare, tmpdir):
         repo_cloned_bare.working_dir, Path(tmpdir).joinpath("cloned"), annex=LOCAL_ANNEX
     )
     catalog_entries = cloned.catalog_entries
-    for entry in catalog_entries:
-        entry.fetch()
     exprs = tuple(catalog_entry.expr for catalog_entry in catalog_entries)
     assert exprs
 
@@ -575,11 +572,11 @@ def test_annex_read_after_drop_raises_content_not_available(tmpdir):
     assert entry.metadata is not None
     assert entry.kind is not None
 
-    # expr requires the zip — raises without content
-    with pytest.raises(ContentNotAvailableError, match="not available locally"):
-        entry.expr
+    # expr auto-fetches from the remote
+    assert entry.expr is not None
 
-    # get auto-fetches from the remote
+    # drop again and verify get also auto-fetches
+    annex.drop()
     out_dir = str(tmpdir.join("out"))
     Path(out_dir).mkdir()
     result = entry.get(dir_path=out_dir)
@@ -659,9 +656,8 @@ def test_metadata_from_sidecar_after_drop(tmpdir):
     assert isinstance(entry.backends, tuple)
     assert entry.metadata.to_dict() is not None
 
-    # expr still requires content
-    with pytest.raises(ContentNotAvailableError):
-        entry.expr
+    # expr auto-fetches content from the remote
+    assert entry.expr is not None
 
 
 @pytest.mark.s3
