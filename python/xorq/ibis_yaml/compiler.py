@@ -535,6 +535,25 @@ class ExprDumper:
                 if info.get("sql", "").strip()
             )
 
+    @staticmethod
+    def _extract_lineage(expr) -> tuple[str, ...]:
+        """Extract lineage chain from an expression for caching."""
+        from xorq.common.utils.graph_utils import (  # noqa: PLC0415
+            gen_children_of,
+            to_node,
+        )
+        from xorq.common.utils.lineage_utils import format_node  # noqa: PLC0415
+
+        def _walk(node):
+            yield format_node(node)
+            match tuple(gen_children_of(node)):
+                case (first, *_):
+                    yield from _walk(first)
+                case _:
+                    pass
+
+        return tuple(reversed(tuple(_walk(to_node(expr)))))
+
     def _make_expr_metadata(self, expr) -> Dict[str, Any]:
         metadata = ExprMetadata.from_expr(expr)
         try:
@@ -545,7 +564,15 @@ class ExprDumper:
                 stacklevel=2,
             )
             sql_queries = ()
-        metadata = evolve(metadata, sql_queries=sql_queries)
+        try:
+            lineage = self._extract_lineage(expr)
+        except Exception as e:
+            warnings.warn(
+                f"Failed to extract lineage for caching: {e}",
+                stacklevel=2,
+            )
+            lineage = ()
+        metadata = evolve(metadata, sql_queries=sql_queries, lineage=lineage)
         return metadata.to_dict()
 
     def _prepare_expr_metadata_file(self, expr):
