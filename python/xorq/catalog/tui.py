@@ -428,10 +428,7 @@ def _render_sql_dag(sqls: tuple[tuple[str, str, str], ...]) -> str:
 
 
 def _revision_pair(i, rev_entry, commit):
-    try:
-        exists = rev_entry.exists()
-    except (OSError, zipfile.BadZipFile, KeyError):
-        exists = False
+    exists = rev_entry.exists()
     col_count, cached = _entry_info(rev_entry) if exists else (None, None)
     row = RevisionRowData(
         hash=rev_entry.name,
@@ -912,6 +909,11 @@ class CatalogScreen(Screen):
 
     @work(thread=True, exit_on_error=False)
     def _load_profiles(self, entry) -> None:
+        if not entry.catalog_path.exists() or not zipfile.is_zipfile(
+            entry.catalog_path
+        ):
+            return
+
         env_re = re.compile(r"^\$\{(.+)\}$|^\$(.+)$")
 
         def _extract_env_vars(kwargs):
@@ -921,30 +923,30 @@ class CatalogScreen(Screen):
                 if isinstance(v, str) and (m := env_re.match(v))
             )
 
-        try:
-            with zipfile.ZipFile(entry.catalog_path, "r") as zf:
-                member_path = f"{entry.name}/profiles.yaml"
-                if member_path not in zf.namelist():
-                    return
-                data = yaml12.parse_yaml(zf.read(member_path))
-            if not isinstance(data, dict):
+        with zipfile.ZipFile(entry.catalog_path, "r") as zf:
+            member_path = f"{entry.name}/profiles.yaml"
+            if member_path not in zf.namelist():
                 return
-            rows = tuple(
-                (
-                    pname,
-                    pdata.get("con_name", "?"),
-                    ", ".join(
-                        f"{k}={v}"
-                        for k, v in (pdata.get("kwargs_tuple") or {}).items()
-                        if v is not None
-                    ),
-                    ", ".join(_extract_env_vars(pdata.get("kwargs_tuple") or {})),
-                )
-                for pname, pdata in data.items()
+            data = yaml.safe_load(zf.read(member_path))
+        match data:
+            case dict():
+                pass
+            case _:
+                return
+        rows = tuple(
+            (
+                pname,
+                pdata.get("con_name", "?"),
+                ", ".join(
+                    f"{k}={v}"
+                    for k, v in (pdata.get("kwargs_tuple") or {}).items()
+                    if v is not None
+                ),
+                ", ".join(_extract_env_vars(pdata.get("kwargs_tuple") or {})),
             )
-            self.app.call_from_thread(self._render_profiles, rows)
-        except (OSError, zipfile.BadZipFile, yaml.YAMLError, KeyError):
-            pass
+            for pname, pdata in data.items()
+        )
+        self.app.call_from_thread(self._render_profiles, rows)
 
     def _render_profiles(self, rows) -> None:
         with self.app.batch_update():
