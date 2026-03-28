@@ -22,6 +22,7 @@ from xorq.vendor.ibis.expr.operations.core import Node
 __all__ = [
     "build_column_trees",
     "build_tree",
+    "extract_lineage_chain",
 ]
 
 
@@ -166,6 +167,24 @@ def _(node: ops.WindowFunction) -> str:
 @format_node.register
 def _(node: ops.Literal) -> str:
     return f"Literal: {node.value}"
+
+
+def extract_lineage_chain(expr: Any) -> tuple[str, ...]:
+    """Extract the primary lineage chain from an expression.
+
+    Walks the first child at each level, returning formatted node names
+    from root to leaf.
+    """
+
+    def _walk(node):
+        yield format_node(node)
+        match tuple(gen_children_of(node)):
+            case (first, *_):
+                yield from _walk(first)
+            case _:
+                pass
+
+    return tuple(reversed(tuple(_walk(to_node(expr)))))
 
 
 def build_tree(
