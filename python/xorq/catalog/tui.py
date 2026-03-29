@@ -440,7 +440,9 @@ def _format_size(size_bytes: int) -> str:
 
 
 def _build_cache_entry_map(catalog) -> dict[str, str]:
-    """Map parquet cache file paths to entry labels (alias or hash[:12]).
+    """Map parquet cache file paths to entry hashes.
+
+    Uses stable entry hashes (not aliases, which can be moved).
 
     Sources:
     1. Build-time: entry.parquet_cache_paths from catalog metadata
@@ -448,15 +450,12 @@ def _build_cache_entry_map(catalog) -> dict[str, str]:
     """
     from xorq.common.utils.logging_utils import Runs, get_xorq_runs_dir  # noqa: PLC0415
 
-    catalog_aliases = tuple(catalog.catalog_aliases)
-    alias_multimap = _build_alias_multimap(catalog_aliases)
     result: dict[str, str] = {}
 
     # 1. Build-time cache paths from catalog metadata
     for entry in catalog.catalog_entries:
-        label = alias_multimap.get(entry.name, (entry.name[:12],))[0]
         for path in entry.parquet_cache_paths:
-            result[path] = label
+            result[path] = entry.name[:12]
 
     # 2. Runtime cache paths from run logs
     runs_dir = get_xorq_runs_dir()
@@ -465,12 +464,11 @@ def _build_cache_entry_map(catalog) -> dict[str, str]:
             if not expr_dir.is_dir():
                 continue
             expr_hash = expr_dir.name
-            label = alias_multimap.get(expr_hash, (expr_hash[:12],))[0]
             for run in Runs(expr_dir=expr_dir).runs:
                 meta = run.read_meta()
                 match meta:
                     case {"output_snapshot_path": str(snap_path)}:
-                        result.setdefault(snap_path, label)
+                        result.setdefault(snap_path, expr_hash[:12])
                     case _:
                         pass
 
