@@ -26,7 +26,6 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.theme import Theme
 from textual.widgets import (
-    Button,
     DataTable,
     Footer,
     Header,
@@ -534,17 +533,20 @@ class _TogglePanelState:
 
 
 _CACHE_OPTIONS = (
-    ("snapshot", "Snapshot (ParquetSnapshotCache)"),
-    ("source", "Source (SourceCache)"),
-    ("none", "No Cache"),
-    ("ttl_snapshot", "TTL Snapshot"),
+    ("snapshot", "snapshot"),
+    ("source", "source"),
+    ("none", "no cache"),
+    ("ttl_snapshot", "ttl snapshot"),
 )
 
 
 class RunOptionsScreen(Screen):
-    """Modal screen for selecting cache strategy before running an entry."""
+    """Lightweight modal for selecting cache strategy. Enter=run, Esc=cancel."""
 
-    BINDINGS = (("escape", "cancel", "Cancel"),)
+    BINDINGS = (
+        ("escape", "cancel", "Cancel"),
+        ("enter", "confirm", "Run"),
+    )
 
     def __init__(self, entry_name: str, expr_hash: str):
         super().__init__()
@@ -553,17 +555,16 @@ class RunOptionsScreen(Screen):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="run-options-container"):
-            yield Static(f"Run — {self._entry_name}", id="run-options-title")
-            yield Static("Cache Strategy", id="run-options-label")
+            yield Static(
+                f" run {self._entry_name}  [dim]enter=run  esc=cancel[/]",
+                id="run-options-title",
+            )
             with RadioSet(id="cache-strategy"):
                 for i, (_, label) in enumerate(_CACHE_OPTIONS):
                     yield RadioButton(label, value=(i == 0))
             with Horizontal(id="ttl-row"):
-                yield Static("TTL (seconds):", id="ttl-label")
+                yield Static(" ttl:", id="ttl-label")
                 yield Input(placeholder="300", id="ttl-input", restrict=r"^\d*$")
-            with Horizontal(id="run-options-buttons"):
-                yield Button("Run", variant="success", id="run-btn")
-                yield Button("Cancel", variant="default", id="cancel-btn")
 
     def on_mount(self) -> None:
         self.query_one("#ttl-row").display = False
@@ -574,15 +575,7 @@ class RunOptionsScreen(Screen):
         cache_type = _CACHE_OPTIONS[selected_idx][0]
         self.query_one("#ttl-row").display = cache_type == "ttl_snapshot"
 
-    @on(Button.Pressed, "#run-btn")
-    def _on_run_pressed(self, event: Button.Pressed) -> None:
-        self._do_confirm()
-
-    @on(Button.Pressed, "#cancel-btn")
-    def _on_cancel_pressed(self, event: Button.Pressed) -> None:
-        self.dismiss(None)
-
-    def _do_confirm(self) -> None:
+    def action_confirm(self) -> None:
         radio_set = self.query_one("#cache-strategy", RadioSet)
         selected_idx = radio_set.pressed_index
         cache_type = _CACHE_OPTIONS[selected_idx][0]
@@ -1673,49 +1666,33 @@ class CatalogTUI(App):
     }
     RunOptionsScreen {
         align: center middle;
+        background: rgba(5, 24, 26, 0.85);
     }
     RunOptionsScreen #run-options-container {
-        width: 52;
+        width: 40;
         height: auto;
-        max-height: 22;
-        border: solid #C1F0FF;
-        border-title-color: #C1F0FF;
+        max-height: 14;
+        border: solid #5abfb5;
         background: $surface;
-        padding: 1 2;
+        padding: 0 1;
     }
     RunOptionsScreen #run-options-title {
         height: 1;
-        text-style: bold;
-        color: #C1F0FF;
-        margin-bottom: 1;
-    }
-    RunOptionsScreen #run-options-label {
-        height: 1;
-        text-style: bold;
+        color: #5abfb5;
     }
     RunOptionsScreen #cache-strategy {
         height: auto;
-        margin: 0 1;
+        margin: 0;
     }
     RunOptionsScreen #ttl-row {
         height: 3;
-        margin-top: 1;
         padding: 0 1;
     }
     RunOptionsScreen #ttl-label {
         width: auto;
-        padding-right: 1;
     }
     RunOptionsScreen #ttl-input {
-        width: 14;
-    }
-    RunOptionsScreen #run-options-buttons {
-        height: 3;
-        margin-top: 1;
-        align: center middle;
-    }
-    RunOptionsScreen Button {
-        margin: 0 1;
+        width: 10;
     }
     """
 
