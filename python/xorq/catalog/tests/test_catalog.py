@@ -38,7 +38,7 @@ def test_catalog_add(catalog, data_dict):
 
     # test not exists condition
     path = next(iter(data_dict.values()))
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError, match="already exists"):
         catalog.add(path)
 
 
