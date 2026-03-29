@@ -1745,9 +1745,50 @@ class CatalogScreen(Screen):
                         case _:
                             pass
                 self._hide_inline_data()
-            case _:
-                # Catalog table or other panels — show SQL
+            case _ if widget is self.query_one("#catalog-table", DataTable):
                 self._hide_inline_data()
+                self._refresh_sql_for_current_entry()
+            case _:
+                self._hide_inline_data()
+
+    def _refresh_sql_for_current_entry(self) -> None:
+        """Re-render SQL and info for the currently selected catalog entry."""
+        catalog_table = self.query_one("#catalog-table", DataTable)
+        if catalog_table.row_count == 0:
+            return
+        row_key, _ = catalog_table.coordinate_to_cell_key(
+            catalog_table.cursor_coordinate
+        )
+        row_data = self._row_cache.get(str(row_key.value))
+        if row_data is None:
+            return
+
+        sql_preview = self.query_one("#sql-preview", Static)
+        sql_panel = self.query_one("#sql-panel")
+        match row_data.sqls:
+            case ():
+                sql_preview.update("(SQL unavailable)")
+                sql_panel.border_subtitle = ""
+            case ((_, engine, sql),):
+                sql_preview.update(
+                    Syntax(sql, "sql", theme=XorqSQLStyle, word_wrap=True)
+                )
+                sql_panel.border_subtitle = engine
+            case sqls:
+                sql_preview.update(
+                    Syntax(
+                        _render_sql_dag(sqls),
+                        "sql",
+                        theme=XorqSQLStyle,
+                        word_wrap=True,
+                    )
+                )
+                engines = sorted({engine for _, engine, _ in sqls})
+                sql_panel.border_subtitle = (
+                    f"{len(sqls)} queries \u00b7 {', '.join(engines)}"
+                )
+
+        self.query_one("#info-content", Static).update(row_data.info_text)
 
     def action_quit_app(self) -> None:
         self.app.exit()
