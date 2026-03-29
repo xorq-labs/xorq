@@ -421,11 +421,6 @@ def check(ctx):
         click.echo("OK")
 
 
-def _resolve_entries(catalog, entries):
-    """Resolve entry names/aliases to CatalogEntry objects."""
-    return tuple(catalog.get_catalog_entry(name, maybe_alias=True) for name in entries)
-
-
 def _compose_expr(catalog, entries, code):
     """Build a composed expression from catalog entries and/or inline code."""
 
@@ -434,10 +429,12 @@ def _compose_expr(catalog, entries, code):
     if not entries:
         raise click.UsageError("At least one entry is required.")
 
-    resolved = _resolve_entries(catalog, entries)
+    source, *transforms = (
+        catalog.get_catalog_entry(name, maybe_alias=True) for name in entries
+    )
     return ExprComposer(
-        source=resolved[0],
-        transforms=resolved[1:],
+        source=source,
+        transforms=transforms,
         code=code,
     ).expr
 
@@ -488,12 +485,9 @@ def compose(ctx, entries, code, alias, cache_dir, dry_run):
                     click.echo(f"    {col:<24} {dtype}")
                 return
 
-            build_kwargs = {}
-            if cache_dir is not None:
-                build_kwargs["cache_dir"] = Path(cache_dir)
-
             from xorq.ibis_yaml.compiler import build_expr
 
+            build_kwargs = {} if cache_dir is None else {"cache_dir": Path(cache_dir)}
             build_path = build_expr(expr, **build_kwargs)
             entry_name = build_path.name
             aliases = (alias,) if alias else ()
