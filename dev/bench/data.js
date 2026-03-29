@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774794937429,
+  "lastUpdate": 1774798429801,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -2772,6 +2772,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.04003680489435473",
             "extra": "mean: 216.73666866666488 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5999fbcedf10b24a08a440c700a232675940f3f1",
+          "message": "feat(catalog): compose and run commands (#1753)\n\n## Summary\n- Add `xorq catalog compose` command to assemble, build, and persist\ncomposed expressions to catalog (with `--dry-run`, `--alias`, `--code`)\n- Add `xorq catalog run` command that composes and executes in one shot\n— accepts multiple entries, inline code, all output formats, `--limit`,\nand Arrow IPC stdin via shared `read_pyarrow_stream`/`maybe_open`\nmachinery\n\n## Test plan\n- [x] `python -m pytest python/xorq/catalog/tests/test_bind.py -v` —\nExprComposer, bind, source, provenance tests\n- [x] `python -m pytest python/xorq/catalog/tests/test_cli.py -v` — run\n(single, multi-entry, piped arrow, code, limit, formats), compose\n(alias, dry-run, code), roundtrip tests\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: dlovell <dlovell@gmail.com>\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-29T11:30:39-04:00",
+          "tree_id": "028e97d4430776946630f5e378ad58e801438221",
+          "url": "https://github.com/xorq-labs/xorq/commit/5999fbcedf10b24a08a440c700a232675940f3f1"
+        },
+        "date": 1774798426564,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.696205185932151,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015537860068127957",
+            "extra": "mean: 129.9341657142788 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 5.470342515713793,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016149514437676607",
+            "extra": "mean: 182.80390983333442 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.8020129620677198,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1437602517613917",
+            "extra": "mean: 1.2468626410000128 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 6.032132057558482,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009956590111558545",
+            "extra": "mean: 165.7788639999954 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.936789292906865,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012902924758668487",
+            "extra": "mean: 168.4412147142861 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.11421853256682,
+            "unit": "iter/sec",
+            "range": "stddev: 0.045525939192591625",
+            "extra": "mean: 195.53329479999775 msec\nrounds: 5"
           }
         ]
       }
