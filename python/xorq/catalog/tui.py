@@ -31,10 +31,8 @@ from textual.widgets import (
     Header,
     Static,
 )
-from toolz.curried import excepts as cexcepts
 
 from xorq.catalog.catalog import CatalogEntry
-from xorq.common.utils.func_utils import return_constant
 
 
 DEFAULT_REFRESH_INTERVAL = 10
@@ -85,10 +83,6 @@ SCHEMA_PREVIEW_COLUMNS = ("NAME", "TYPE")
 REVISION_COLUMNS = ("STATUS", "HASH", "COLUMNS", "CACHED", "DATE")
 
 GIT_LOG_COLUMNS = ("HASH", "DATE", "MESSAGE")
-
-
-def maybe(default, exc=Exception):
-    return cexcepts(exc, handler=return_constant(default))
 
 
 def _format_cached(value: bool | None) -> str:
@@ -172,22 +166,11 @@ class CatalogRowData:
                 return "○ uncached"
 
     @cached_property
-    def metadata_text(self) -> str:
-        items = maybe_metadata(self.entry)
-        match items:
-            case ():
-                return ""
-            case _:
-                return "  ".join(f"{k}={v}" for k, v in items)
-
-    @cached_property
     def info_text(self) -> str:
         parts = [
             f"Lineage: {self.lineage_text}",
             f"Cache: {self.cache_info_text}",
         ]
-        if self.metadata_text:
-            parts.append(f"Metadata: {self.metadata_text}")
         return "\n".join(parts)
 
     @property
@@ -319,18 +302,6 @@ def _build_git_log_rows(repo, max_count=100) -> tuple[GitLogRowData, ...]:
     )
 
 
-@maybe(default=())
-def maybe_metadata(entry) -> tuple[tuple[str, str], ...]:
-    if not entry.metadata_path.exists():
-        return ()
-    meta = yaml12.read_yaml(entry.metadata_path)
-    match meta:
-        case dict():
-            return tuple((str(k), str(v)) for k, v in meta.items())
-        case _:
-            return ()
-
-
 def _render_sql_dag(sqls: tuple[tuple[str, str, str], ...]) -> str:
     """Render multiple SQL queries as a topologically-sorted DAG."""
     name_to_sql = {name: (engine, sql) for name, engine, sql in sqls}
@@ -442,10 +413,12 @@ class CatalogScreen(Screen):
                     yield Static("", id="sql-preview")
                 with Vertical(id="info-panel"):
                     yield Static("", id="info-content")
-                with Vertical(id="schema-in-panel"):
-                    yield DataTable(id="schema-in-table")
-                with Vertical(id="schema-out-panel"):
-                    yield DataTable(id="schema-preview-table")
+                with Vertical(id="schema-panel"):
+                    with Horizontal(id="schema-split"):
+                        with Vertical(id="schema-in-half"):
+                            yield DataTable(id="schema-in-table")
+                        with Vertical(id="schema-out-half"):
+                            yield DataTable(id="schema-preview-table")
                 with Vertical(id="data-preview-panel"):
                     yield Static("", id="data-preview-status")
                     yield DataTable(id="data-preview-table")
@@ -499,9 +472,8 @@ class CatalogScreen(Screen):
         profiles_table.add_column("ENV VARS", key="env_vars")
 
         self.query_one("#catalog-panel").border_title = "Expressions"
-        self.query_one("#schema-in-panel").border_title = "Schema In"
-        self.query_one("#schema-in-panel").display = False
-        self.query_one("#schema-out-panel").border_title = "Schema"
+        self.query_one("#schema-panel").border_title = "Schema"
+        self.query_one("#schema-in-half").display = False
         self.query_one("#sql-panel").border_title = "SQL"
         self.query_one("#info-panel").border_title = "Info"
         self.query_one("#revisions-panel").border_title = "Revisions"
@@ -532,7 +504,7 @@ class CatalogScreen(Screen):
         if event.row_key is None:
             sql_preview.update("")
             info_content.update("")
-            self.query_one("#schema-in-panel").display = False
+            self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
             self._reset_toggle_panels()
             return
@@ -541,25 +513,24 @@ class CatalogScreen(Screen):
         if row_data is None:
             sql_preview.update("")
             info_content.update("")
-            self.query_one("#schema-in-panel").display = False
+            self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
             self._reset_toggle_panels()
             return
 
         # Schema
+        schema_panel = self.query_one("#schema-panel")
         match row_data.schema_in:
             case None:
-                self.query_one("#schema-in-panel").display = False
-                out_panel = self.query_one("#schema-out-panel")
-                out_panel.border_title = "Schema"
-                out_panel.border_subtitle = f"{len(row_data.schema_out)} cols"
+                self.query_one("#schema-in-half").display = False
+                schema_panel.border_title = "Schema"
+                schema_panel.border_subtitle = f"{len(row_data.schema_out)} cols"
             case schema_in:
-                self.query_one("#schema-in-panel").display = True
-                in_panel = self.query_one("#schema-in-panel")
-                in_panel.border_subtitle = f"{len(schema_in)} cols"
-                out_panel = self.query_one("#schema-out-panel")
-                out_panel.border_title = "Schema Out"
-                out_panel.border_subtitle = f"{len(row_data.schema_out)} cols"
+                self.query_one("#schema-in-half").display = True
+                schema_panel.border_title = "Schemas"
+                schema_panel.border_subtitle = (
+                    f"{len(schema_in)} in · {len(row_data.schema_out)} out"
+                )
                 for name, dtype in schema_in:
                     schema_in_table.add_row(name, dtype)
         for name, dtype in row_data.schema_out:
@@ -1057,20 +1028,23 @@ class CatalogTUI(App):
     #info-content {
         height: auto;
     }
-    #schema-in-panel {
-        height: 1fr;
-        border: solid #7ED4C8;
-        border-title-color: #7ED4C8;
-        border-subtitle-color: #7ED4C8;
-    }
-    #schema-in-table {
-        height: 1fr;
-    }
-    #schema-out-panel {
+    #schema-panel {
         height: 1fr;
         border: solid #4AA8EC;
         border-title-color: #4AA8EC;
         border-subtitle-color: #4AA8EC;
+    }
+    #schema-split {
+        height: 1fr;
+    }
+    #schema-in-half {
+        width: 1fr;
+    }
+    #schema-out-half {
+        width: 1fr;
+    }
+    #schema-in-table {
+        height: 1fr;
     }
     #schema-preview-table {
         height: 1fr;

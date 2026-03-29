@@ -34,7 +34,6 @@ from xorq.catalog.tui import (
     _build_git_log_rows,
     _entry_info,
     _format_cached,
-    maybe,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
 
@@ -124,22 +123,6 @@ def test_revision_row_columns_display_int():
 
 def test_revision_row_columns_display_zero():
     assert RevisionRowData(column_count=0).columns_display == "0 cols"
-
-
-def test_maybe_returns_value_on_success():
-    @maybe(default="fallback")
-    def ok():
-        return "good"
-
-    assert ok() == "good"
-
-
-def test_maybe_returns_default_on_exception():
-    @maybe(default="fallback")
-    def bad():
-        raise ValueError("boom")
-
-    assert bad() == "fallback"
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +260,7 @@ def test_panel_border_titles(catalog):
             catalog_panel = app.screen.query_one("#catalog-panel")
             assert "Expressions" in str(catalog_panel.border_title)
 
-            schema_panel = app.screen.query_one("#schema-out-panel")
+            schema_panel = app.screen.query_one("#schema-panel")
             assert schema_panel.border_title == "Schema"
 
     _run(_test())
