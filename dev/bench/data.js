@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774550880571,
+  "lastUpdate": 1774790107508,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -2640,6 +2640,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.013423779863604362",
             "extra": "mean: 199.4230933333275 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7b49e0bdec82d869a3c012bdb4e48800df81e10f",
+          "message": "ref(catalog): hoist work outside sync context in _add_zip (#1756)\n\nMove BuildZip construction, md5sum computation, and ensure_dirs() before\nthe maybe_synchronizing context to minimize time spent holding the\npull/push lock. Cache BuildZip.md5sum with cached_property so the\neagerly-computed hash is reused inside _add().\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-29T09:11:42-04:00",
+          "tree_id": "e6df5f2dfb1b378754ec5418d1221e695f63a692",
+          "url": "https://github.com/xorq-labs/xorq/commit/7b49e0bdec82d869a3c012bdb4e48800df81e10f"
+        },
+        "date": 1774790104968,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.357136497617827,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02447350972131739",
+            "extra": "mean: 119.65821071428552 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.810607730251565,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01192018947367316",
+            "extra": "mean: 207.87394359999212 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7332815898752421,
+            "unit": "iter/sec",
+            "range": "stddev: 0.20814873148102098",
+            "extra": "mean: 1.363732587599992 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.1382371070610455,
+            "unit": "iter/sec",
+            "range": "stddev: 0.039242892172879414",
+            "extra": "mean: 241.64879250000126 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.666987376334846,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03573274381639956",
+            "extra": "mean: 214.27098883334375 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.209716366505331,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005187956001053331",
+            "extra": "mean: 191.94902940000134 msec\nrounds: 5"
           }
         ]
       }
