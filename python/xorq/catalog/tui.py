@@ -776,7 +776,6 @@ class CatalogScreen(Screen):
         ("tab", "focus_next_panel", "Next"),
         ("shift+tab", "focus_prev_panel", "Prev"),
         ("r", "run_entry", "Run"),
-        ("e", "view_run_data", "View Data"),
         ("c", "toggle_caches", "Caches"),
         ("g", "toggle_git_log", "Git Log"),
         ("d", "toggle_data_preview", "Data"),
@@ -822,8 +821,12 @@ class CatalogScreen(Screen):
                 with Vertical(id="git-log-panel"):
                     yield DataTable(id="git-log-table")
             with Vertical(id="right-column"):
-                with VerticalScroll(id="sql-panel"):
-                    yield Static("", id="sql-preview")
+                with Vertical(id="main-content-panel"):
+                    with VerticalScroll(id="sql-panel"):
+                        yield Static("", id="sql-preview")
+                    with Vertical(id="inline-data-panel"):
+                        yield Static("", id="inline-data-status")
+                        yield DataTable(id="inline-data-table")
                 with Vertical(id="info-panel"):
                     yield Static("", id="info-content")
                 with Vertical(id="schema-panel"):
@@ -894,6 +897,12 @@ class CatalogScreen(Screen):
         self.query_one("#schema-panel").border_title = "Schema"
         self.query_one("#schema-in-half").display = False
         self.query_one("#sql-panel").border_title = "SQL"
+        inline_data_panel = self.query_one("#inline-data-panel")
+        inline_data_panel.border_title = "Data Preview"
+        inline_data_panel.display = False
+        inline_dt = self.query_one("#inline-data-table", DataTable)
+        inline_dt.cursor_type = "row"
+        inline_dt.zebra_stripes = True
         self.query_one("#info-panel").border_title = "Info"
         self.query_one("#revisions-panel").border_title = "Revisions"
         self.query_one("#runs-panel").border_title = "Runs"
@@ -932,6 +941,9 @@ class CatalogScreen(Screen):
         rev_table.clear()
         runs_table = self.query_one("#runs-table", DataTable)
         runs_table.clear()
+
+        # Restore SQL view when catalog entry is selected
+        self._hide_inline_data()
 
         if event.row_key is None:
             sql_preview.update("")
@@ -1427,6 +1439,72 @@ class CatalogScreen(Screen):
         info_content = self.query_one("#info-content", Static)
         info_content.update(_format_run_detail(run_data))
 
+        # Show inline data preview for the run's output
+        match run_data.output_snapshot_path:
+            case str(path) if Path(path).exists():
+                self._show_inline_data(path, f"run {run_data.run_id_display}")
+            case _:
+                self._hide_inline_data()
+
+    @on(DataTable.RowHighlighted, "#caches-table")
+    def _on_cache_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        if event.row_key is None:
+            return
+        path = self._cache_row_paths.get(str(event.row_key.value))
+        if path and Path(path).exists():
+            key = Path(path).stem[:16]
+            self._show_inline_data(path, key)
+        else:
+            self._hide_inline_data()
+
+    def _show_inline_data(self, parquet_path: str, label: str) -> None:
+        self.query_one("#sql-panel").display = False
+        panel = self.query_one("#inline-data-panel")
+        panel.display = True
+        panel.border_title = f"Data Preview — {label}"
+        self.query_one("#inline-data-status", Static).update(" Loading...")
+        self.query_one("#inline-data-table", DataTable).loading = True
+        self._load_inline_data(parquet_path)
+
+    def _hide_inline_data(self) -> None:
+        self.query_one("#inline-data-panel").display = False
+        self.query_one("#sql-panel").display = True
+
+    @work(thread=True, exit_on_error=False)
+    def _load_inline_data(self, parquet_path: str) -> None:
+        try:
+            import pyarrow.parquet as pq  # noqa: PLC0415
+
+            pf = pq.ParquetFile(parquet_path)
+            total_rows = pf.metadata.num_rows
+            df = pf.read().slice(0, 100).to_pandas()
+            columns = tuple(str(c) for c in df.columns)
+            rows = tuple(
+                tuple(str(round(v, 2)) if isinstance(v, float) else str(v) for v in row)
+                for row in df.itertuples(index=False)
+            )
+            self.app.call_from_thread(
+                self._render_inline_data, columns, rows, total_rows
+            )
+        except Exception as e:
+            self.app.call_from_thread(self._render_inline_data_error, str(e))
+
+    def _render_inline_data(self, columns, rows, total_rows) -> None:
+        self.query_one("#inline-data-status", Static).update(
+            f" {total_rows:,} rows · {len(columns)} cols (showing {len(rows)})"
+        )
+        table = self.query_one("#inline-data-table", DataTable)
+        table.clear(columns=True)
+        table.loading = False
+        for col in columns:
+            table.add_column(col, key=col)
+        for i, row in enumerate(rows):
+            table.add_row(*row, key=str(i))
+
+    def _render_inline_data_error(self, message: str) -> None:
+        self.query_one("#inline-data-status", Static).update(f" Error: {message}")
+        self.query_one("#inline-data-table", DataTable).loading = False
+
     # --- Run Execution ---
 
     def _get_current_alias(self) -> str | None:
@@ -1561,63 +1639,6 @@ class CatalogScreen(Screen):
         self._render_runs(run_rows)
         self.query_one("#status-bar", Static).update(f" {message}")
 
-    def action_view_run_data(self) -> None:
-        focused = self.app.focused
-
-        # From caches table: preview the selected cache file
-        caches_table = self.query_one("#caches-table", DataTable)
-        if focused is caches_table and caches_table.row_count > 0:
-            row_key, _ = caches_table.coordinate_to_cell_key(
-                caches_table.cursor_coordinate
-            )
-            path = self._cache_row_paths.get(str(row_key.value))
-            if path and Path(path).exists():
-                key = Path(path).stem[:16]
-                self.app.push_screen(RunDataScreen(path, f"Cache — {key}"))
-            return
-
-        # From runs table: preview the run's output
-        runs_table = self.query_one("#runs-table", DataTable)
-        if focused is not runs_table:
-            return
-        if runs_table.row_count == 0:
-            return
-
-        row_key, _ = runs_table.coordinate_to_cell_key(runs_table.cursor_coordinate)
-        run_data = self._run_row_cache.get(str(row_key.value))
-        if run_data is None:
-            return
-
-        alias = self._get_current_alias() or ""
-        title = f"Run Data — {run_data.run_id_display} — {alias}".strip(" —")
-
-        # 1. Try output_snapshot_path from the selected run's metadata
-        match run_data.output_snapshot_path:
-            case str(path) if Path(path).exists():
-                self.app.push_screen(RunDataScreen(path, title))
-                return
-            case _:
-                pass
-
-        # 2. Fall back to parquet_cache_paths from the catalog entry
-        catalog_table = self.query_one("#catalog-table", DataTable)
-        if catalog_table.row_count == 0:
-            return
-        cat_row_key, _ = catalog_table.coordinate_to_cell_key(
-            catalog_table.cursor_coordinate
-        )
-        entry_data = self._row_cache.get(str(cat_row_key.value))
-        match entry_data:
-            case CatalogRowData(entry=entry) if (
-                entry.parquet_cache_paths
-                and Path(entry.parquet_cache_paths[0]).exists()
-            ):
-                self.app.push_screen(RunDataScreen(entry.parquet_cache_paths[0], title))
-            case _:
-                self.query_one("#status-bar", Static).update(
-                    " No cached data available — run the entry first (r)"
-                )
-
     # --- Navigation ---
 
     def _focused_widget(self) -> DataTable | VerticalScroll:
@@ -1738,8 +1759,11 @@ class CatalogTUI(App):
     #git-log-table {
         height: 1fr;
     }
-    #sql-panel {
+    #main-content-panel {
         height: 2fr;
+    }
+    #sql-panel {
+        height: 1fr;
         border: solid #2BBE75;
         border-title-color: #2BBE75;
         border-subtitle-color: #2BBE75;
@@ -1750,6 +1774,19 @@ class CatalogTUI(App):
     #sql-preview {
         height: auto;
         padding: 1 2;
+    }
+    #inline-data-panel {
+        height: 1fr;
+        border: solid #C1F0FF;
+        border-title-color: #C1F0FF;
+        border-subtitle-color: #C1F0FF;
+    }
+    #inline-data-status {
+        height: 1;
+        padding: 0 1;
+    }
+    #inline-data-table {
+        height: 1fr;
     }
     DataTable:focus {
         border: none;
