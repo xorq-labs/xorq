@@ -659,9 +659,12 @@ _CACHE_OPTIONS = (
 
 
 class RunOptionsScreen(Screen):
-    """Lightweight modal for selecting cache strategy. Enter=run, Esc=cancel."""
+    """Lightweight modal for selecting cache strategy. ctrl+r=run, Esc=cancel."""
 
-    BINDINGS = (("escape", "cancel", "Cancel"),)
+    BINDINGS = (
+        ("escape", "cancel", "Cancel"),
+        ("ctrl+r", "confirm", "Run"),
+    )
 
     def __init__(self, entry_name: str, expr_hash: str):
         super().__init__()
@@ -671,7 +674,7 @@ class RunOptionsScreen(Screen):
     def compose(self) -> ComposeResult:
         with Vertical(id="run-options-container"):
             yield Static(
-                f" run {self._entry_name}  [dim]enter=run  esc=cancel[/]",
+                f" run {self._entry_name}  [dim]ctrl+r=run  esc=cancel[/]",
                 id="run-options-title",
             )
             with RadioSet(id="cache-strategy"):
@@ -684,11 +687,8 @@ class RunOptionsScreen(Screen):
     def on_mount(self) -> None:
         self.query_one("#ttl-row").display = False
 
-    def on_key(self, event) -> None:
-        if event.key == "enter":
-            event.prevent_default()
-            event.stop()
-            self._do_confirm()
+    def action_confirm(self) -> None:
+        self._do_confirm()
 
     @on(RadioSet.Changed, "#cache-strategy")
     def _on_cache_strategy_changed(self, event: RadioSet.Changed) -> None:
