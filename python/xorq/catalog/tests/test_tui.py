@@ -15,8 +15,11 @@ IMPORTANT — populating the catalog table in pilot tests:
 """
 
 import asyncio
+import json
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 from textual.widgets import DataTable, Static
 
@@ -25,13 +28,18 @@ from xorq.caching import ParquetSnapshotCache
 from xorq.catalog.tui import (
     COLUMNS,
     GIT_LOG_COLUMNS,
+    RUN_COLUMNS,
     SCHEMA_PREVIEW_COLUMNS,
     CatalogRowData,
     CatalogScreen,
     CatalogTUI,
     GitLogRowData,
     RevisionRowData,
+    RunDataScreen,
+    RunRowData,
     _build_git_log_rows,
+    _build_run_rows,
+    _compute_duration,
     _entry_info,
     _format_cached,
 )
@@ -703,3 +711,219 @@ def test_memtable_cached_lifecycle(catalog, tmp_path):
 
     entry.expr.execute()
     assert CatalogRowData(entry=entry).cached is True
+
+
+# ---------------------------------------------------------------------------
+# 7. Unit tests: RunRowData and run helpers
+# ---------------------------------------------------------------------------
+
+
+def test_run_row_data_status_display_ok():
+    row = RunRowData(status="ok")
+    assert row.status_display == "OK"
+
+
+def test_run_row_data_status_display_error():
+    row = RunRowData(status="error")
+    assert row.status_display == "ERR"
+
+
+def test_run_row_data_status_display_running():
+    row = RunRowData(status="running")
+    assert row.status_display == "..."
+
+
+def test_run_row_data_status_display_unknown():
+    row = RunRowData(status="")
+    assert row.status_display == "?"
+
+
+def test_run_row_data_run_id_truncated():
+    row = RunRowData(run_id="550e8400-e29b-41d4-a716-446655440000")
+    assert row.run_id_display == "550e8400"
+
+
+def test_run_row_data_row_tuple():
+    row = RunRowData(
+        run_id="abcdefgh-1234",
+        status="ok",
+        duration="1.2s",
+        output_format="parquet",
+        date="2025-01-15 10:30",
+    )
+    assert row.row == ("OK", "abcdefgh", "1.2s", "parquet", "2025-01-15 10:30")
+
+
+def test_run_row_data_is_frozen():
+    row = RunRowData()
+    with pytest.raises(AttributeError):
+        row.status = "error"
+
+
+def test_compute_duration_subsecond():
+    started = "2025-01-15T10:00:00.000+00:00"
+    completed = "2025-01-15T10:00:00.500+00:00"
+    assert _compute_duration(started, completed) == "500ms"
+
+
+def test_compute_duration_seconds():
+    started = "2025-01-15T10:00:00+00:00"
+    completed = "2025-01-15T10:00:05+00:00"
+    assert _compute_duration(started, completed) == "5.0s"
+
+
+def test_compute_duration_minutes():
+    started = "2025-01-15T10:00:00+00:00"
+    completed = "2025-01-15T10:02:30+00:00"
+    assert _compute_duration(started, completed) == "2.5m"
+
+
+def test_compute_duration_empty():
+    assert _compute_duration("", "2025-01-15T10:00:00+00:00") == ""
+    assert _compute_duration("2025-01-15T10:00:00+00:00", "") == ""
+
+
+def test_build_run_rows_empty(tmp_path):
+    """No runs directory returns empty tuple."""
+    rows = _build_run_rows("nonexistent_hash", runs_dir=tmp_path)
+    assert rows == ()
+
+
+def test_build_run_rows_with_meta(tmp_path):
+    """Reads meta.json from a mock run directory."""
+    expr_hash = "test_expr_hash"
+    run_id = "test-run-001"
+    run_dir = tmp_path / expr_hash / run_id
+    run_dir.mkdir(parents=True)
+    meta = {
+        "run_id": run_id,
+        "started_at": "2025-01-15T10:00:00+00:00",
+        "completed_at": "2025-01-15T10:00:03+00:00",
+        "status": "ok",
+        "output_format": "parquet",
+    }
+    (run_dir / "meta.json").write_text(json.dumps(meta))
+    (run_dir / "run.jsonl").write_text("")
+
+    rows = _build_run_rows(expr_hash, runs_dir=tmp_path)
+    assert len(rows) == 1
+    assert rows[0].status == "ok"
+    assert rows[0].run_id == run_id
+    assert rows[0].duration == "3.0s"
+    assert rows[0].output_format == "parquet"
+
+
+def test_build_run_rows_no_meta(tmp_path):
+    """Run directory without meta.json shows as 'running'."""
+    expr_hash = "test_expr_hash"
+    run_id = "in-progress-run"
+    run_dir = tmp_path / expr_hash / run_id
+    run_dir.mkdir(parents=True)
+    (run_dir / "run.jsonl").write_text("")
+
+    rows = _build_run_rows(expr_hash, runs_dir=tmp_path)
+    assert len(rows) == 1
+    assert rows[0].status == "running"
+
+
+# ---------------------------------------------------------------------------
+# 8. Pilot tests: Runs panel
+# ---------------------------------------------------------------------------
+
+
+def test_runs_panel_exists_with_columns(catalog):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            runs_table = app.screen.query_one("#runs-table", DataTable)
+            assert (
+                tuple(col.label.plain for col in runs_table.columns.values())
+                == RUN_COLUMNS
+            )
+
+    _run(_test())
+
+
+def test_runs_panel_has_border_title(catalog):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            runs_panel = app.screen.query_one("#runs-panel")
+            assert runs_panel.border_title == "Runs"
+
+    _run(_test())
+
+
+def test_runs_panel_in_focus_cycle(catalog):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert "#runs-table" in CatalogScreen.FOCUS_CYCLE
+
+    _run(_test())
+
+
+# ---------------------------------------------------------------------------
+# 9. Pilot tests: RunDataScreen
+# ---------------------------------------------------------------------------
+
+
+def test_run_data_screen_loads_parquet(tmp_path):
+    """RunDataScreen opens and reads a parquet file."""
+    parquet_path = tmp_path / "test_data.parquet"
+    table = pa.table({"col_a": [1, 2, 3], "col_b": ["x", "y", "z"]})
+    pq.write_table(table, parquet_path)
+
+    async def _test():
+        # Use a minimal CatalogTUI and push RunDataScreen
+        app = CatalogTUI(lambda: None, refresh_interval=999)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.push_screen(RunDataScreen(str(parquet_path), "Test Data"))
+            await pilot.pause()
+            # Allow the background worker to complete
+            await pilot.pause()
+            await pilot.pause()
+
+            screen = app.screen
+            assert isinstance(screen, RunDataScreen)
+
+            # Wait for async parquet loading to complete
+            for _ in range(10):
+                await pilot.pause()
+
+            status = screen.query_one("#run-data-status", Static)
+            status_text = str(status.render())
+            assert "3" in status_text
+
+            data_table = screen.query_one("#run-data-table", DataTable)
+            assert data_table.row_count == 3
+            col_labels = tuple(col.label.plain for col in data_table.columns.values())
+            assert "col_a" in col_labels
+            assert "col_b" in col_labels
+
+    _run(_test())
+
+
+def test_run_data_screen_back_navigation(tmp_path):
+    """Pressing q on RunDataScreen returns to the previous screen."""
+    parquet_path = tmp_path / "test_data.parquet"
+    table = pa.table({"x": [1]})
+    pq.write_table(table, parquet_path)
+
+    async def _test():
+        app = CatalogTUI(lambda: None, refresh_interval=999)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.push_screen(RunDataScreen(str(parquet_path), "Test"))
+            await pilot.pause()
+            assert isinstance(app.screen, RunDataScreen)
+
+            await pilot.press("q")
+            await pilot.pause()
+            assert isinstance(app.screen, CatalogScreen)
+
+    _run(_test())

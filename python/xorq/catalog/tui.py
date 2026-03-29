@@ -322,10 +322,13 @@ def _format_run_date(started: str) -> str:
                 return started
 
 
-def _build_run_rows(expr_hash: str, max_count: int = 20) -> tuple[RunRowData, ...]:
+def _build_run_rows(
+    expr_hash: str, max_count: int = 20, runs_dir: Path | None = None
+) -> tuple[RunRowData, ...]:
     from xorq.common.utils.logging_utils import Runs, get_xorq_runs_dir  # noqa: PLC0415
 
-    expr_dir = get_xorq_runs_dir() / expr_hash
+    base = runs_dir if runs_dir is not None else get_xorq_runs_dir()
+    expr_dir = base / expr_hash
     runs = Runs(expr_dir=expr_dir)
     return tuple(_run_to_row(run) for run in runs.runs[:max_count])
 
