@@ -1209,53 +1209,48 @@ class CatalogScreen(Screen):
 
     @work(thread=True, exit_on_error=False)
     def _execute_run(self, entry_name: str, expr_hash: str) -> None:
-        import shutil  # noqa: PLC0415
-        import subprocess  # noqa: PLC0415
-        import sys  # noqa: PLC0415
+        import os  # noqa: PLC0415
+
+        from xorq.caching import ParquetSnapshotCache  # noqa: PLC0415
+        from xorq.catalog.bind import _make_source_expr  # noqa: PLC0415
+        from xorq.cli import arbitrate_output_format  # noqa: PLC0415
+        from xorq.common.utils.logging_utils import RunLogger  # noqa: PLC0415
+        from xorq.common.utils.profile_utils import timed  # noqa: PLC0415
 
         catalog = self.app._catalog
         if catalog is None:
             return
 
-        repo_path = str(catalog.repo.working_dir)
-
-        # Prefer the `xorq` entry point if on PATH, otherwise fall back to
-        # `sys.executable -m xorq.cli` which invokes the same CLI.
-        xorq_bin = shutil.which("xorq")
-        match xorq_bin:
-            case str(bin_path):
-                cmd = [
-                    bin_path,
-                    "catalog",
-                    "--path",
-                    repo_path,
-                    "run-cached",
-                    entry_name,
-                ]
-            case _:
-                cmd = [
-                    sys.executable,
-                    "-m",
-                    "xorq.cli",
-                    "catalog",
-                    "--path",
-                    repo_path,
-                    "run-cached",
-                    entry_name,
-                ]
-
         try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=300,
+            catalog_entry = catalog.get_catalog_entry(entry_name, maybe_alias=True)
+            expr = _make_source_expr(catalog_entry)
+            cache = ParquetSnapshotCache.from_kwargs()
+            cached_expr = expr.cache(cache=cache)
+
+            cache_key = cache.calc_key(expr)
+            snapshot_path = str(cache.storage.get_path(cache_key))
+
+            run_params = (
+                ("expr_hash", expr_hash),
+                ("output_format", "parquet"),
+                ("output_snapshot_path", snapshot_path),
             )
-            status = "ok" if result.returncode == 0 else "error"
-            detail = result.stderr.strip() if result.stderr else ""
-        except subprocess.TimeoutExpired:
-            status = "timeout"
-            detail = "Run timed out after 5 minutes"
+
+            with RunLogger.from_expr_hash(expr_hash, params_tuple=run_params) as rl:
+                rl.log_event("run.start", dict(run_params))
+                with timed() as get_elapsed:
+                    arbitrate_output_format(cached_expr, os.devnull, "parquet")
+                rl.log_event(
+                    "run.done",
+                    {
+                        "elapsed_s": round(get_elapsed(), 3),
+                        "output_snapshot_path": snapshot_path,
+                    },
+                )
+                rl.finalize(status="ok")
+
+            status = "ok"
+            detail = f"Cached at {snapshot_path}"
         except Exception as e:
             status = "error"
             detail = str(e)
