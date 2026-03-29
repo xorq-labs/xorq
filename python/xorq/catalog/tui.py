@@ -942,6 +942,10 @@ class CatalogScreen(Screen):
         runs_table = self.query_one("#runs-table", DataTable)
         runs_table.clear()
 
+        # Restore SQL when catalog table has focus (click or j/k navigation)
+        if self.app.focused is self.query_one("#catalog-table", DataTable):
+            self._hide_inline_data()
+
         if event.row_key is None:
             sql_preview.update("")
             info_content.update("")
