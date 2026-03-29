@@ -26,10 +26,12 @@ from textual.widgets import DataTable, RadioButton, RadioSet, Static
 import xorq.api as xo
 from xorq.caching import ParquetSnapshotCache
 from xorq.catalog.tui import (
+    CACHE_PANEL_COLUMNS,
     COLUMNS,
     GIT_LOG_COLUMNS,
     RUN_COLUMNS,
     SCHEMA_PREVIEW_COLUMNS,
+    CacheRowData,
     CatalogRowData,
     CatalogScreen,
     CatalogTUI,
@@ -45,6 +47,7 @@ from xorq.catalog.tui import (
     _compute_duration,
     _entry_info,
     _format_cached,
+    _format_size,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
 
@@ -1031,5 +1034,68 @@ def test_run_options_screen_cancel():
             await pilot.pause()
             assert isinstance(app.screen, CatalogScreen)
             assert dismissed == [None]
+
+    _run(_test())
+
+
+# ---------------------------------------------------------------------------
+# 12. Unit tests: CacheRowData and helpers
+# ---------------------------------------------------------------------------
+
+
+def test_format_size_bytes():
+    assert _format_size(500) == "500 B"
+
+
+def test_format_size_kb():
+    assert _format_size(2048) == "2.0 KB"
+
+
+def test_format_size_mb():
+    assert _format_size(5 * 1024 * 1024) == "5.0 MB"
+
+
+def test_format_size_gb():
+    assert _format_size(2 * 1024 * 1024 * 1024) == "2.0 GB"
+
+
+def test_cache_row_data_is_frozen():
+    row = CacheRowData(key="abc", entry_label="test", size="1 MB", rows="100")
+    with pytest.raises(AttributeError):
+        row.key = "xyz"
+
+
+def test_cache_row_data_row_tuple():
+    row = CacheRowData(
+        key="snapshot-abcdef123456", entry_label="my-model", size="1.2 MB", rows="500"
+    )
+    k, entry, size, rows = row.row
+    assert k == "snapshot-abcdef1"  # truncated to 16
+    assert entry == "my-model"
+    assert size == "1.2 MB"
+    assert rows == "500"
+
+
+def test_caches_panel_hidden_by_default(catalog):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            panel = app.screen.query_one("#caches-panel")
+            assert panel.display is False
+
+    _run(_test())
+
+
+def test_caches_panel_has_columns(catalog):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            table = app.screen.query_one("#caches-table", DataTable)
+            assert (
+                tuple(col.label.plain for col in table.columns.values())
+                == CACHE_PANEL_COLUMNS
+            )
 
     _run(_test())

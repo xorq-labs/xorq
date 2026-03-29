@@ -89,6 +89,8 @@ GIT_LOG_COLUMNS = ("HASH", "DATE", "MESSAGE")
 
 RUN_COLUMNS = ("STATUS", "RUN ID", "CACHE", "DURATION", "FORMAT", "DATE")
 
+CACHE_PANEL_COLUMNS = ("KEY", "ENTRY", "SIZE", "ROWS")
+
 
 def _format_cached(value: bool | None) -> str:
     match value:
@@ -412,6 +414,72 @@ def _format_run_detail(run: RunRowData) -> str:
     return "\n".join(parts)
 
 
+@frozen
+class CacheRowData:
+    key: str = field(default="", validator=instance_of(str))
+    entry_label: str = field(default="", validator=instance_of(str))
+    size: str = field(default="", validator=instance_of(str))
+    rows: str = field(default="", validator=instance_of(str))
+
+    @property
+    def row(self) -> tuple[str, ...]:
+        return (self.key[:16], self.entry_label, self.size, self.rows)
+
+
+def _format_size(size_bytes: int) -> str:
+    match size_bytes:
+        case b if b < 1024:
+            return f"{b} B"
+        case b if b < 1024 * 1024:
+            return f"{b / 1024:.1f} KB"
+        case b if b < 1024 * 1024 * 1024:
+            return f"{b / (1024 * 1024):.1f} MB"
+        case b:
+            return f"{b / (1024 * 1024 * 1024):.1f} GB"
+
+
+def _build_cache_entry_map(catalog) -> dict[str, str]:
+    """Map parquet cache file paths to entry labels (alias or hash[:12])."""
+    catalog_aliases = tuple(catalog.catalog_aliases)
+    alias_multimap = _build_alias_multimap(catalog_aliases)
+    result = {}
+    for entry in catalog.catalog_entries:
+        label = alias_multimap.get(entry.name, (entry.name[:12],))[0]
+        for path in entry.parquet_cache_paths:
+            result[path] = label
+    return result
+
+
+def _parquet_to_cache_row(
+    parquet_path: Path, entry_map: dict[str, str]
+) -> CacheRowData:
+    key = parquet_path.stem
+    entry_label = entry_map.get(str(parquet_path), "—")
+    try:
+        size = _format_size(parquet_path.stat().st_size)
+    except OSError:
+        size = "?"
+    try:
+        import pyarrow.parquet as pq  # noqa: PLC0415
+
+        rows = str(pq.read_metadata(str(parquet_path)).num_rows)
+    except Exception:
+        rows = "?"
+    return CacheRowData(key=key, entry_label=entry_label, size=size, rows=rows)
+
+
+def _build_cache_rows(catalog) -> tuple[CacheRowData, ...]:
+    from xorq.common.utils.caching_utils import get_xorq_cache_dir  # noqa: PLC0415
+
+    cache_dir = get_xorq_cache_dir() / "parquet"
+    if not cache_dir.exists():
+        return ()
+    entry_map = _build_cache_entry_map(catalog)
+    return tuple(
+        _parquet_to_cache_row(p, entry_map) for p in sorted(cache_dir.glob("*.parquet"))
+    )
+
+
 def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
     return CatalogRowData(entry=entry, aliases=aliases)
 
@@ -703,6 +771,7 @@ class CatalogScreen(Screen):
         ("shift+tab", "focus_prev_panel", "Prev"),
         ("r", "run_entry", "Run"),
         ("e", "view_run_data", "View Data"),
+        ("c", "toggle_caches", "Caches"),
         ("g", "toggle_git_log", "Git Log"),
         ("d", "toggle_data_preview", "Data"),
         ("p", "toggle_profiles", "Profiles"),
@@ -727,6 +796,8 @@ class CatalogScreen(Screen):
         self._refresh_lock = threading.Lock()
         self._data_preview = _TogglePanelState()
         self._profiles = _TogglePanelState()
+        self._caches_visible = False
+        self._caches_loaded = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -751,6 +822,8 @@ class CatalogScreen(Screen):
                             yield DataTable(id="schema-in-table")
                         with Vertical(id="schema-out-half"):
                             yield DataTable(id="schema-preview-table")
+                with Vertical(id="caches-panel"):
+                    yield DataTable(id="caches-table")
                 with Vertical(id="data-preview-panel"):
                     yield Static("", id="data-preview-status")
                     yield DataTable(id="data-preview-table")
@@ -825,6 +898,16 @@ class CatalogScreen(Screen):
         profiles_panel = self.query_one("#profiles-panel")
         profiles_panel.border_title = "Profiles"
         profiles_panel.display = False
+
+        caches_table = self.query_one("#caches-table", DataTable)
+        caches_table.cursor_type = "row"
+        caches_table.zebra_stripes = True
+        for col in CACHE_PANEL_COLUMNS:
+            caches_table.add_column(col, key=col)
+        caches_panel = self.query_one("#caches-panel")
+        caches_panel.border_title = "Caches"
+        caches_panel.display = False
+
         self.query_one("#status-bar", Static).update(" Loading catalog...")
 
         self.set_interval(self._refresh_interval, self._do_refresh)
@@ -1220,6 +1303,60 @@ class CatalogScreen(Screen):
             table.clear()
             for i, (name, backend, params, env_vars) in enumerate(rows):
                 table.add_row(name, backend, params, env_vars, key=str(i))
+
+    # --- Toggle: Caches ---
+
+    def action_toggle_caches(self) -> None:
+        self._caches_visible = not self._caches_visible
+        self.query_one("#caches-panel").display = self._caches_visible
+        if self._caches_visible and not self._caches_loaded:
+            self._load_caches()
+
+    @work(thread=True, exit_on_error=False)
+    def _load_caches(self) -> None:
+        catalog = self.app._catalog
+        if catalog is None:
+            return
+        rows = _build_cache_rows(catalog)
+        self._caches_loaded = True
+        self.app.call_from_thread(self._render_caches, rows)
+
+    def _render_caches(self, rows: tuple[CacheRowData, ...]) -> None:
+        with self.app.batch_update():
+            table = self.query_one("#caches-table", DataTable)
+            table.clear()
+            for i, row_data in enumerate(rows):
+                table.add_row(*row_data.row, key=str(i))
+            panel = self.query_one("#caches-panel")
+            match rows:
+                case ():
+                    panel.border_subtitle = "empty"
+                case _:
+                    total_size = (
+                        sum(
+                            Path(p).stat().st_size
+                            for p in (self._get_cache_dir() / "parquet").glob(
+                                "*.parquet"
+                            )
+                            if p.exists()
+                        )
+                        if self._get_cache_dir()
+                        else 0
+                    )
+                    panel.border_subtitle = (
+                        f"{len(rows)} files · {_format_size(total_size)}"
+                    )
+
+    @staticmethod
+    def _get_cache_dir() -> Path | None:
+        try:
+            from xorq.common.utils.caching_utils import (  # noqa: PLC0415
+                get_xorq_cache_dir,
+            )
+
+            return get_xorq_cache_dir()
+        except Exception:
+            return None
 
     # --- Revisions Preview ---
 
@@ -1621,6 +1758,15 @@ class CatalogTUI(App):
         height: 1fr;
     }
     #schema-preview-table {
+        height: 1fr;
+    }
+    #caches-panel {
+        height: 1fr;
+        border: solid #F5CA2C;
+        border-title-color: #F5CA2C;
+        border-subtitle-color: #F5CA2C;
+    }
+    #caches-table {
         height: 1fr;
     }
     #data-preview-panel {
