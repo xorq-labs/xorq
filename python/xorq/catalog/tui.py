@@ -420,6 +420,7 @@ class CacheRowData:
     entry_label: str = field(default="", validator=instance_of(str))
     size: str = field(default="", validator=instance_of(str))
     rows: str = field(default="", validator=instance_of(str))
+    path: str = field(default="", validator=instance_of(str))
 
     @property
     def row(self) -> tuple[str, ...]:
@@ -465,7 +466,9 @@ def _parquet_to_cache_row(
         rows = str(pq.read_metadata(str(parquet_path)).num_rows)
     except Exception:
         rows = "?"
-    return CacheRowData(key=key, entry_label=entry_label, size=size, rows=rows)
+    return CacheRowData(
+        key=key, entry_label=entry_label, size=size, rows=rows, path=str(parquet_path)
+    )
 
 
 def _build_cache_rows(catalog) -> tuple[CacheRowData, ...]:
@@ -780,6 +783,7 @@ class CatalogScreen(Screen):
     FOCUS_CYCLE = (
         "#catalog-table",
         "#runs-table",
+        "#caches-table",
         "#sql-panel",
         "#schema-preview-table",
         "#revisions-preview-table",
@@ -798,6 +802,7 @@ class CatalogScreen(Screen):
         self._profiles = _TogglePanelState()
         self._caches_visible = False
         self._caches_loaded = False
+        self._cache_row_paths: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -1325,8 +1330,11 @@ class CatalogScreen(Screen):
         with self.app.batch_update():
             table = self.query_one("#caches-table", DataTable)
             table.clear()
+            self._cache_row_paths.clear()
             for i, row_data in enumerate(rows):
-                table.add_row(*row_data.row, key=str(i))
+                key = str(i)
+                table.add_row(*row_data.row, key=key)
+                self._cache_row_paths[key] = row_data.path
             panel = self.query_one("#caches-panel")
             match rows:
                 case ():
@@ -1551,9 +1559,23 @@ class CatalogScreen(Screen):
         self.query_one("#status-bar", Static).update(f" {message}")
 
     def action_view_run_data(self) -> None:
-        # Only works when the runs table is focused
+        focused = self.app.focused
+
+        # From caches table: preview the selected cache file
+        caches_table = self.query_one("#caches-table", DataTable)
+        if focused is caches_table and caches_table.row_count > 0:
+            row_key, _ = caches_table.coordinate_to_cell_key(
+                caches_table.cursor_coordinate
+            )
+            path = self._cache_row_paths.get(str(row_key.value))
+            if path and Path(path).exists():
+                key = Path(path).stem[:16]
+                self.app.push_screen(RunDataScreen(path, f"Cache — {key}"))
+            return
+
+        # From runs table: preview the run's output
         runs_table = self.query_one("#runs-table", DataTable)
-        if self.app.focused is not runs_table:
+        if focused is not runs_table:
             return
         if runs_table.row_count == 0:
             return
