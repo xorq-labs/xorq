@@ -1,9 +1,12 @@
+import os
 from contextlib import contextmanager
 from functools import cache, partial
 from pathlib import Path
 from types import SimpleNamespace
 
 import click
+
+from xorq.cli import OutputFormats
 
 
 def click_handler(e):
@@ -257,6 +260,7 @@ def list_entries(ctx, kind):
         if not (entries := catalog.catalog_entries):
             click.echo("No entries.")
             return
+
         for entry in entries:
             click.echo(f"{entry.name}\t{entry.kind}" if kind else entry.name)
 
@@ -415,3 +419,198 @@ def check(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog.assert_consistency()
         click.echo("OK")
+
+
+def _resolve_entries(catalog, entries):
+    """Resolve entry names/aliases to CatalogEntry objects."""
+    return tuple(catalog.get_catalog_entry(name, maybe_alias=True) for name in entries)
+
+
+def _compose_expr(catalog, entries, code):
+    """Build a composed expression from catalog entries and/or inline code."""
+
+    from xorq.catalog.composer import ExprComposer  # noqa: PLC0415
+
+    if not entries:
+        raise click.UsageError("At least one entry is required.")
+
+    resolved = _resolve_entries(catalog, entries)
+    return ExprComposer(
+        source=resolved[0],
+        transforms=resolved[1:],
+        code=code,
+    ).expr
+
+
+@cli.command("compose")
+@click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
+@click.option(
+    "-c",
+    "--code",
+    default=None,
+    help="Inline Ibis code expression applied to `source`.",
+)
+@click.option(
+    "-a",
+    "--alias",
+    default=None,
+    help="Also register this alias for the cataloged entry.",
+)
+@click.option("--cache-dir", default=None, help="Directory for parquet cache files.")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Show composition plan without building.",
+)
+@click.pass_context
+def compose(ctx, entries, code, alias, cache_dir, dry_run):
+    """Assemble expressions from catalog entries, build, and persist to catalog.
+
+    Always catalogs the result. Use 'run' to execute an entry for data output.
+    """
+    from xorq.common.utils.otel_utils import tracer
+
+    with tracer.start_as_current_span("catalog.compose") as span:
+        span.set_attributes({"entries": entries, "has_code": code is not None})
+        with click_context_catalog(ctx):
+            catalog = ctx.obj.make_catalog(init=False)
+            expr = _compose_expr(catalog, entries, code)
+
+            if dry_run:
+                click.echo("Dry run — composition plan:")
+                click.echo(f"  Entries: {' -> '.join(entries)}")
+                if code:
+                    click.echo(f"  Code: {code}")
+                sch = expr.schema()
+                click.echo("  Schema:")
+                for col, dtype in sch.items():
+                    click.echo(f"    {col:<24} {dtype}")
+                return
+
+            build_kwargs = {}
+            if cache_dir is not None:
+                build_kwargs["cache_dir"] = Path(cache_dir)
+
+            from xorq.ibis_yaml.compiler import build_expr
+
+            build_path = build_expr(expr, **build_kwargs)
+            entry_name = build_path.name
+            aliases = (alias,) if alias else ()
+            if catalog.contains(entry_name):
+                if alias:
+                    catalog.add_alias(entry_name, alias)
+            else:
+                catalog.add(build_path, aliases=aliases)
+            label = alias or entry_name
+            click.echo(f"Cataloged as {label!r}", err=True)
+            span.set_attribute("cataloged", label)
+
+
+@cli.command("run")
+@click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
+@click.option(
+    "-c",
+    "--code",
+    default=None,
+    help="Inline Ibis code expression applied to `source`.",
+)
+@click.option(
+    "-o",
+    "--output-path",
+    default=None,
+    help=f"Path to write output (default: {os.devnull})",
+)
+@click.option(
+    "-f",
+    "--format",
+    "output_format",
+    type=click.Choice([f.value for f in OutputFormats]),
+    default=OutputFormats.default,
+    help="Output format (default: parquet).",
+)
+@click.option("--limit", type=int, default=None, help="Limit number of rows to output.")
+@click.option(
+    "-i",
+    "--instream",
+    type=click.File("rb"),
+    default="-",
+    help="Stream to read Arrow IPC record batches from (default: stdin).",
+)
+@click.pass_context
+def run(ctx, entries, code, output_path, output_format, limit, instream):
+    """Compose and execute catalog entries.
+
+    One entry runs it directly; multiple entries compose source + transforms:
+
+    \b
+        xorq catalog run src -o - -f csv
+        xorq catalog run src trn -o - -f csv
+        xorq catalog run src trn -c "source.filter(source.amount > 100)" -o - -f csv
+
+    Piped Arrow input for a single unbound entry:
+
+    \b
+        xorq catalog run src -o - -f arrow | xorq catalog run trn -o - -f csv
+
+    To persist composed results, use 'compose'.
+    """
+    from xorq.catalog.bind import _eval_code, _make_source_expr
+    from xorq.cli import arbitrate_output_format
+    from xorq.common.utils.otel_utils import tracer
+    from xorq.ibis_yaml.enums import ExprKind
+
+    with tracer.start_as_current_span("catalog.run") as span:
+        span.set_attributes({"entries": entries, "has_code": code is not None})
+        with click_context_catalog(ctx):
+            if not entries:
+                raise click.UsageError("At least one entry is required.")
+
+            catalog = ctx.obj.make_catalog(init=False)
+
+            if len(entries) > 1:
+                expr = _compose_expr(catalog, entries, code)
+            else:
+                entry = entries[0]
+                try:
+                    catalog_entry = catalog.get_catalog_entry(entry, maybe_alias=True)
+                except AssertionError as err:
+                    raise click.ClickException(
+                        f"Entry {entry!r} not found — run 'xorq catalog list' "
+                        f"or 'xorq catalog list-aliases' to see available entries."
+                    ) from err
+
+                span.set_attribute("kind", str(catalog_entry.kind))
+
+                match catalog_entry.kind:
+                    case ExprKind.UnboundExpr:
+                        import pyarrow as pa
+
+                        from xorq.common.utils.graph_utils import replace_unbound
+                        from xorq.common.utils.io_utils import maybe_open
+                        from xorq.expr.api import read_pyarrow_stream
+
+                        try:
+                            with maybe_open(instream, "rb") as stream:
+                                input_expr = read_pyarrow_stream(stream)
+                        except (pa.ArrowInvalid, pa.ArrowException) as err:
+                            raise click.ClickException(
+                                f"Entry {entry!r} is an unbound expression — "
+                                f"pipe Arrow data into it or pass a source entry: "
+                                f"'xorq catalog run SOURCE {entry} -o - -f csv'."
+                            ) from err
+                        span.set_attribute("piped_stdin", True)
+                        expr = replace_unbound(catalog_entry.expr, input_expr.op())
+                    case ExprKind.Source | ExprKind.Expr | ExprKind.Composed:
+                        expr = _make_source_expr(catalog_entry)
+                    case _:
+                        raise click.ClickException(
+                            f"Unsupported entry kind {catalog_entry.kind!r} for 'run'."
+                        )
+
+                if code is not None:
+                    expr = _eval_code(code, expr)
+
+            if limit is not None:
+                expr = expr.limit(limit)
+            arbitrate_output_format(expr, output_path, output_format)
