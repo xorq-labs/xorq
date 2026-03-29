@@ -683,7 +683,9 @@ def run(ctx, entries, code, output_path, output_format, limit, instream, fuse, r
     """
     from xorq.catalog.bind import _eval_code, _make_source_expr
     from xorq.cli import arbitrate_output_format
+    from xorq.common.utils.logging_utils import RunLogger
     from xorq.common.utils.otel_utils import tracer
+    from xorq.common.utils.profile_utils import timed
     from xorq.ibis_yaml.enums import ExprKind
 
     with tracer.start_as_current_span("catalog.run") as span:
@@ -696,6 +698,7 @@ def run(ctx, entries, code, output_path, output_format, limit, instream, fuse, r
             rename_map = (
                 _parse_rename_params(raw_rename_params) if raw_rename_params else None
             )
+            expr_hash = None
 
             if len(entries) > 1:
                 expr = _compose_expr(catalog, entries, code, rename_map=rename_map)
@@ -709,6 +712,7 @@ def run(ctx, entries, code, output_path, output_format, limit, instream, fuse, r
                         f"or 'xorq catalog list-aliases' to see available entries."
                     ) from err
 
+                expr_hash = catalog_entry.name
                 span.set_attribute("kind", str(catalog_entry.kind))
                 expr = _eval_entry(catalog_entry, code, instream)
                 if rename_map and entry in rename_map:
@@ -725,4 +729,151 @@ def run(ctx, entries, code, output_path, output_format, limit, instream, fuse, r
 
             if limit is not None:
                 expr = expr.limit(limit)
-            arbitrate_output_format(expr, output_path, output_format)
+
+            run_params = (
+                ("expr_hash", expr_hash or "composed"),
+                ("output_path", str(output_path or os.devnull)),
+                ("output_format", str(output_format)),
+                ("limit", limit),
+            )
+
+            with RunLogger.from_expr_hash(
+                expr_hash or "composed", params_tuple=run_params
+            ) as rl:
+                rl.log_event("run.start", dict(run_params))
+                with timed() as get_elapsed:
+                    arbitrate_output_format(expr, output_path, output_format)
+                execute_metrics = {
+                    "elapsed_s": round(get_elapsed(), 3),
+                    "output_format": str(output_format),
+                }
+                span.add_event("run.done", execute_metrics)
+                rl.log_event("run.done", execute_metrics)
+
+                file_metrics = RunLogger._compute_file_metrics(
+                    output_format, output_path
+                )
+                if file_metrics:
+                    span.add_event("run.output_written", file_metrics)
+                    rl.log_event("run.output_written", file_metrics)
+
+                from opentelemetry.trace import StatusCode  # noqa: PLC0415
+
+                span.set_status(StatusCode.OK)
+                rl.finalize(status="ok", span_context=span.get_span_context())
+
+
+@cli.command("run-cached")
+@click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
+@click.option(
+    "-c",
+    "--code",
+    default=None,
+    help="Inline Ibis code expression applied to `source`.",
+)
+@click.option(
+    "--cache-dir",
+    default=None,
+    help="Directory for parquet snapshot cache files.",
+)
+@click.option("--limit", type=int, default=None, help="Limit number of rows to output.")
+@click.pass_context
+def run_cached(ctx, entries, code, cache_dir, limit):
+    """Run a catalog entry with snapshot caching.
+
+    Resolves catalog entries, wraps the expression with ParquetSnapshotCache,
+    and executes. The cache file persists as the run artifact and can be
+    previewed in the TUI.
+
+    \b
+        xorq catalog run-cached my-alias
+        xorq catalog run-cached src trn --cache-dir /tmp/cache
+    """
+    from xorq.caching import ParquetSnapshotCache
+    from xorq.catalog.bind import _eval_code, _make_source_expr
+    from xorq.cli import arbitrate_output_format
+    from xorq.common.utils.logging_utils import RunLogger
+    from xorq.common.utils.otel_utils import tracer
+    from xorq.common.utils.profile_utils import timed
+    from xorq.ibis_yaml.enums import ExprKind
+
+    with tracer.start_as_current_span("catalog.run-cached") as span:
+        span.set_attributes({"entries": entries, "has_code": code is not None})
+        with click_context_catalog(ctx):
+            if not entries:
+                raise click.UsageError("At least one entry is required.")
+
+            catalog = ctx.obj.make_catalog(init=False)
+            expr_hash = None
+
+            if len(entries) > 1:
+                expr = _compose_expr(catalog, entries, code)
+            else:
+                entry = entries[0]
+                try:
+                    catalog_entry = catalog.get_catalog_entry(entry, maybe_alias=True)
+                except AssertionError as err:
+                    raise click.ClickException(
+                        f"Entry {entry!r} not found — run 'xorq catalog list' "
+                        f"or 'xorq catalog list-aliases' to see available entries."
+                    ) from err
+
+                expr_hash = catalog_entry.name
+                span.set_attribute("kind", str(catalog_entry.kind))
+
+                match catalog_entry.kind:
+                    case ExprKind.UnboundExpr:
+                        raise click.ClickException(
+                            f"Entry {entry!r} is an unbound expression — "
+                            f"compose it with a source first."
+                        )
+                    case ExprKind.Source | ExprKind.Expr | ExprKind.Composed:
+                        expr = _make_source_expr(catalog_entry)
+                    case _:
+                        raise click.ClickException(
+                            f"Unsupported entry kind {catalog_entry.kind!r} "
+                            f"for 'run-cached'."
+                        )
+
+                if code is not None:
+                    expr = _eval_code(code, expr)
+
+            if limit is not None:
+                expr = expr.limit(limit)
+
+            cache_path = Path(cache_dir) if cache_dir else None
+            cache = ParquetSnapshotCache.from_kwargs(
+                **({"base_path": cache_path} if cache_path else {})
+            )
+            cached_expr = expr.cache(cache=cache)
+
+            # Compute snapshot path for logging
+            cache_key = cache.calc_key(expr)
+            snapshot_path = str(cache.storage.get_path(cache_key))
+
+            run_params = (
+                ("expr_hash", expr_hash or "composed"),
+                ("output_format", "parquet"),
+                ("output_snapshot_path", snapshot_path),
+                ("limit", limit),
+            )
+
+            with RunLogger.from_expr_hash(
+                expr_hash or "composed", params_tuple=run_params
+            ) as rl:
+                rl.log_event("run.start", dict(run_params))
+                with timed() as get_elapsed:
+                    arbitrate_output_format(cached_expr, os.devnull, "parquet")
+                execute_metrics = {
+                    "elapsed_s": round(get_elapsed(), 3),
+                    "output_snapshot_path": snapshot_path,
+                }
+                span.add_event("run-cached.done", execute_metrics)
+                rl.log_event("run.done", execute_metrics)
+
+                from opentelemetry.trace import StatusCode  # noqa: PLC0415
+
+                span.set_status(StatusCode.OK)
+                rl.finalize(status="ok", span_context=span.get_span_context())
+
+            click.echo(f"Cached at {snapshot_path}", err=True)
