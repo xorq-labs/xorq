@@ -5,7 +5,7 @@ from datetime import datetime
 from functools import cache, cached_property
 from pathlib import Path
 
-import yaml
+import yaml12
 from attr import field, frozen
 from attr.validators import instance_of, optional
 from textual import on, work
@@ -336,7 +336,7 @@ def maybe_cache_info(expr) -> tuple[bool | None, str | None]:
 def maybe_metadata(entry) -> tuple[tuple[str, str], ...]:
     if not entry.metadata_path.exists():
         return ()
-    meta = yaml.safe_load(entry.metadata_path.read_text())
+    meta = yaml12.read_yaml(entry.metadata_path)
     match meta:
         case dict():
             return tuple((str(k), str(v)) for k, v in meta.items())
@@ -695,7 +695,7 @@ class ExploreScreen(Screen):
                 member_path = f"{self._entry.name}/profiles.yaml"
                 if member_path not in zf.namelist():
                     return
-                data = yaml.safe_load(zf.read(member_path))
+                data = yaml12.parse_yaml(zf.read(member_path))
             if not isinstance(data, dict):
                 return
             rows = tuple(

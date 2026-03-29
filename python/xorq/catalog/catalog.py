@@ -14,7 +14,7 @@ from subprocess import Popen
 from urllib.parse import urlparse
 
 import toolz
-import yaml
+import yaml12
 from attr import (
     field,
     frozen,
@@ -425,7 +425,7 @@ class CatalogAddition:
         )
         self.ensure_dirs()
         catalog_entry = self.catalog_entry
-        catalog_entry.metadata_path.write_text(yaml.safe_dump(self.metadata))
+        catalog_entry.metadata_path.write_text(yaml12.format_yaml(self.metadata))
         shutil.copy(self.build_zip.path, catalog_entry.catalog_path)
         index = self.catalog.repo.index
         #
@@ -530,7 +530,9 @@ class CatalogEntry:
 
     @cached_property
     def backends(self) -> tuple[str, ...]:
-        data = self._read_zip_member(DumpFiles.profiles, yaml.safe_load)
+        data = self._read_zip_member(
+            DumpFiles.profiles, toolz.compose(yaml12.parse_yaml, bytes.decode)
+        )
         if not isinstance(data, dict):
             raise ValueError(
                 f"Expected {DumpFiles.profiles!r} to contain a YAML mapping in {self.catalog_path}"
@@ -736,7 +738,7 @@ class CatalogYAML:
     def __attrs_post_init__(self):
         if not self.yaml_path.exists():
             self.yaml_path.write_text(
-                yaml.safe_dump(
+                yaml12.format_yaml(
                     {str(CatalogInfix.ENTRY): [], str(CatalogInfix.ALIAS): []}
                 )
             )
@@ -751,14 +753,14 @@ class CatalogYAML:
 
     @property
     def contents(self):
-        raw = yaml.safe_load(self.yaml_path.read_text())
+        raw = yaml12.read_yaml(self.yaml_path)
         if isinstance(raw, list):
             # legacy format: plain list of entry names, no aliases section
             return {str(CatalogInfix.ENTRY): raw, str(CatalogInfix.ALIAS): []}
         return raw
 
     def set_contents(self, contents):
-        self.yaml_path.write_text(yaml.safe_dump(contents))
+        self.yaml_path.write_text(yaml12.format_yaml(contents))
         return self.yaml_path
 
     def contains(self, entry):

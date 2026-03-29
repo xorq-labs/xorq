@@ -7,7 +7,7 @@ import re
 from collections import defaultdict
 
 import ibis.expr.operations as ops
-import yaml
+import yaml12
 from ibis.backends.sql.compilers.base import ALL_OPERATIONS
 from ibis.expr.types.arrays import ArrayValue
 from ibis.expr.types.binary import BinaryValue
@@ -157,4 +157,4 @@ for key in sorted(groups, key=order_key):
     if "contents" in page and page["contents"]:
         pages.append(page)
 
-print(yaml.dump(pages, sort_keys=False))
+print(yaml12.format_yaml(pages))

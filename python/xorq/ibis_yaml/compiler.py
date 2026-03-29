@@ -11,7 +11,7 @@ from typing import Any, Dict
 import dask
 import pyarrow.parquet as pq
 import toolz
-import yaml
+import yaml12
 from attr import (
     evolve,
     field,
@@ -85,45 +85,20 @@ memory_backends = ("pandas", "duckdb", "datafusion", "xorq")
 table_like_ops = tuple(o for o in opaque_ops if issubclass(o, DatabaseTable))
 
 
-class CleanDictYAMLDumper(yaml.SafeDumper):
-    def ignore_aliases(self, data):
-        return True
-
-    def represent_enum(self, data):
-        return self.represent_scalar("tag:yaml.org,2002:str", data.name)
-
-    def represent_frozenordereddict(self, data):
-        return self.represent_dict(dict(data))
-
-    def represent_ibis_schema(self, data):
-        schema_dict = {name: str(dtype) for name, dtype in zip(data.names, data.types)}
-        return self.represent_mapping("tag:yaml.org,2002:map", schema_dict)
-
-    def represent_str_enum(self, data):
-        return self.represent_scalar("tag:yaml.org,2002:str", str(data))
-
-    def represent_posix_path(self, data):
-        return self.represent_scalar("tag:yaml.org,2002:str", str(data))
-
-    yaml_representer_pairs = (
-        (RefEnum, represent_enum),
-        (RegistryEnum, represent_enum),
-        (FrozenOrderedDict, represent_frozenordereddict),
-        (ibis.Schema, represent_ibis_schema),
-        (pathlib.PosixPath, represent_posix_path),
-    )
-
-    yaml_multi_representer_pairs = ((StrEnum, represent_str_enum),)
-
-    @classmethod
-    def add_representers(cls):
-        for to_register, representer in cls.yaml_representer_pairs:
-            cls.add_representer(to_register, representer)
-        for to_register, representer in cls.yaml_multi_representer_pairs:
-            cls.add_multi_representer(to_register, representer)
-
-
-CleanDictYAMLDumper.add_representers()
+def _to_yaml_safe(data):
+    if isinstance(data, (RefEnum, RegistryEnum)):
+        return data.name
+    elif isinstance(data, FrozenOrderedDict):
+        return _to_yaml_safe(dict(data))
+    elif isinstance(data, ibis.Schema):
+        return {name: str(dtype) for name, dtype in zip(data.names, data.types)}
+    elif isinstance(data, (pathlib.PurePath, StrEnum)):
+        return str(data)
+    elif isinstance(data, dict):
+        return {k: _to_yaml_safe(v) for k, v in data.items()}
+    elif isinstance(data, (list, tuple)):
+        return [_to_yaml_safe(v) for v in data]
+    return data
 
 
 @frozen
@@ -142,7 +117,7 @@ class ArtifactStore:
             return read_f(f)
 
     def read_yaml(self, *path_parts) -> Dict[str, Any]:
-        return self._read(yaml.safe_load, *path_parts)
+        return yaml12.read_yaml(self.get_path(*path_parts))
 
     def read_json(self, *path_parts) -> Dict[str, Any]:
         return self._read(json.load, *path_parts)
@@ -158,14 +133,8 @@ class ArtifactStore:
             yield (path, f)
 
     def write_yaml(self, data: Dict[str, Any], *path_parts) -> pathlib.Path:
-        with self._write(*path_parts) as (path, f):
-            yaml.dump(
-                data,
-                f,
-                Dumper=CleanDictYAMLDumper,
-                default_flow_style=False,
-                sort_keys=False,
-            )
+        with self._write(*path_parts) as (path, _):
+            yaml12.write_yaml(_to_yaml_safe(data), path)
         return path
 
     def write_text(self, content: str, *path_parts) -> pathlib.Path:
