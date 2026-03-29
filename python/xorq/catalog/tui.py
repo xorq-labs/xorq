@@ -1171,6 +1171,125 @@ class CatalogScreen(Screen):
         info_content = self.query_one("#info-content", Static)
         info_content.update(_format_run_detail(run_data))
 
+    # --- Run Execution ---
+
+    def _get_current_alias(self) -> str | None:
+        table = self.query_one("#catalog-table", DataTable)
+        if table.row_count == 0:
+            return None
+        row_key, _ = table.coordinate_to_cell_key(table.cursor_coordinate)
+        row_data = self._row_cache.get(str(row_key.value))
+        match row_data:
+            case CatalogRowData(aliases=(first_alias, *_)):
+                return first_alias
+            case _:
+                return None
+
+    def action_run_entry(self) -> None:
+        table = self.query_one("#catalog-table", DataTable)
+        if table.row_count == 0:
+            return
+        row_key, _ = table.coordinate_to_cell_key(table.cursor_coordinate)
+        entry_hash = str(row_key.value)
+        row_data = self._row_cache.get(entry_hash)
+        if row_data is None:
+            return
+
+        match row_data.aliases:
+            case (first_alias, *_):
+                entry_name = first_alias
+            case _:
+                entry_name = entry_hash
+
+        self.query_one("#runs-panel").border_subtitle = "running..."
+        self._execute_run(entry_name, entry_hash)
+
+    @work(thread=True, exit_on_error=False)
+    def _execute_run(self, entry_name: str, expr_hash: str) -> None:
+        import subprocess  # noqa: PLC0415
+        import sys  # noqa: PLC0415
+
+        catalog = self.app._catalog
+        if catalog is None:
+            return
+
+        repo_path = str(catalog.repo.working_dir)
+        cmd = [
+            sys.executable,
+            "-m",
+            "xorq.catalog.cli",
+            "--path",
+            repo_path,
+            "run-cached",
+            entry_name,
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            status = "ok" if result.returncode == 0 else "error"
+            detail = result.stderr.strip() if result.stderr else ""
+        except subprocess.TimeoutExpired:
+            status = "timeout"
+            detail = "Run timed out after 5 minutes"
+        except Exception as e:
+            status = "error"
+            detail = str(e)
+
+        # Refresh the runs panel
+        run_rows = _build_run_rows(expr_hash)
+        self.app.call_from_thread(self._render_runs, run_rows)
+        match status:
+            case "ok":
+                message = f"Run completed · {detail}" if detail else "Run completed"
+            case _:
+                message = f"Run {status} · {detail}" if detail else f"Run {status}"
+        self.app.call_from_thread(
+            self.query_one("#status-bar", Static).update,
+            f" {message}",
+        )
+
+    def action_view_run_data(self) -> None:
+        runs_table = self.query_one("#runs-table", DataTable)
+        if runs_table.row_count == 0:
+            return
+        row_key, _ = runs_table.coordinate_to_cell_key(runs_table.cursor_coordinate)
+        run_data = self._run_row_cache.get(str(row_key.value))
+        if run_data is None:
+            return
+
+        # Try output_snapshot_path from run meta first
+        match run_data.output_snapshot_path:
+            case str(path) if Path(path).exists():
+                alias = self._get_current_alias() or ""
+                title = f"Run Data — {run_data.run_id_display} — {alias}"
+                self.app.push_screen(RunDataScreen(path, title))
+                return
+            case _:
+                pass
+
+        # Fallback: try parquet_cache_paths from current entry
+        table = self.query_one("#catalog-table", DataTable)
+        if table.row_count == 0:
+            return
+        row_key, _ = table.coordinate_to_cell_key(table.cursor_coordinate)
+        entry_data = self._row_cache.get(str(row_key.value))
+        if entry_data is None:
+            return
+        match entry_data.entry.parquet_cache_paths:
+            case (first_path, *_) if Path(first_path).exists():
+                alias = self._get_current_alias() or ""
+                title = f"Cached Data — {alias}"
+                self.app.push_screen(RunDataScreen(first_path, title))
+            case _:
+                self.query_one("#status-bar", Static).update(
+                    " No cached data available — run the entry first (r)"
+                )
+
     # --- Navigation ---
 
     def _focused_widget(self) -> DataTable | VerticalScroll:
