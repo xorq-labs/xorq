@@ -1209,6 +1209,7 @@ class CatalogScreen(Screen):
 
     @work(thread=True, exit_on_error=False)
     def _execute_run(self, entry_name: str, expr_hash: str) -> None:
+        import shutil  # noqa: PLC0415
         import subprocess  # noqa: PLC0415
         import sys  # noqa: PLC0415
 
@@ -1217,15 +1218,31 @@ class CatalogScreen(Screen):
             return
 
         repo_path = str(catalog.repo.working_dir)
-        cmd = [
-            sys.executable,
-            "-m",
-            "xorq.catalog.cli",
-            "--path",
-            repo_path,
-            "run-cached",
-            entry_name,
-        ]
+
+        # Prefer the `xorq` entry point if on PATH, otherwise fall back to
+        # `sys.executable -m xorq.cli` which invokes the same CLI.
+        xorq_bin = shutil.which("xorq")
+        match xorq_bin:
+            case str(bin_path):
+                cmd = [
+                    bin_path,
+                    "catalog",
+                    "--path",
+                    repo_path,
+                    "run-cached",
+                    entry_name,
+                ]
+            case _:
+                cmd = [
+                    sys.executable,
+                    "-m",
+                    "xorq.cli",
+                    "catalog",
+                    "--path",
+                    repo_path,
+                    "run-cached",
+                    entry_name,
+                ]
 
         try:
             result = subprocess.run(
