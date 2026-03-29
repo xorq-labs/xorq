@@ -774,7 +774,7 @@ class ExprMetadata:
 
     @classmethod
     def from_expr(cls, expr):
-        from xorq.caching import ParquetSnapshotCache  # noqa: PLC0415
+        from xorq.caching.storage import ParquetStorage  # noqa: PLC0415
         from xorq.common.utils.graph_utils import (  # noqa: PLC0415
             validate_params,
             walk_nodes,
@@ -795,7 +795,7 @@ class ExprMetadata:
         parquet_cache_paths = tuple(
             str(cn.cache.storage.get_path(cn.cache.calc_key(cn.parent)))
             for cn in cached_nodes
-            if isinstance(cn.cache, ParquetSnapshotCache)
+            if isinstance(cn.cache.storage, ParquetStorage)
         )
 
         named_params = tuple(
