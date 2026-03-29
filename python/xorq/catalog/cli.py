@@ -421,6 +421,42 @@ def check(ctx):
         click.echo("OK")
 
 
+def _eval_entry(catalog_entry, code, instream=None):
+    """Evaluate a single catalog entry to an expression."""
+    from xorq.catalog.bind import _eval_code, _make_source_expr
+    from xorq.ibis_yaml.enums import ExprKind
+
+    match catalog_entry.kind:
+        case ExprKind.UnboundExpr:
+            import pyarrow as pa
+
+            from xorq.common.utils.graph_utils import replace_unbound
+            from xorq.common.utils.io_utils import maybe_open
+            from xorq.expr.api import read_pyarrow_stream
+
+            try:
+                with maybe_open(instream, "rb") as stream:
+                    input_expr = read_pyarrow_stream(stream)
+            except (pa.ArrowInvalid, pa.ArrowException) as err:
+                raise click.ClickException(
+                    f"Entry {catalog_entry.name!r} is an unbound expression — "
+                    f"pipe Arrow data into it or pass a source entry: "
+                    f"'xorq catalog run SOURCE {catalog_entry.name} -o - -f csv'."
+                ) from err
+            expr = replace_unbound(catalog_entry.expr, input_expr.op())
+        case ExprKind.Source | ExprKind.Expr | ExprKind.Composed:
+            expr = _make_source_expr(catalog_entry)
+        case _:
+            raise click.ClickException(
+                f"Unsupported entry kind {catalog_entry.kind!r} for 'run'."
+            )
+
+    if code is not None:
+        expr = _eval_code(code, expr)
+
+    return expr
+
+
 def _compose_expr(catalog, entries, code):
     """Build a composed expression from catalog entries and/or inline code."""
 
@@ -549,10 +585,8 @@ def run(ctx, entries, code, output_path, output_format, limit, instream):
 
     To persist composed results, use 'compose'.
     """
-    from xorq.catalog.bind import _eval_code, _make_source_expr
     from xorq.cli import arbitrate_output_format
     from xorq.common.utils.otel_utils import tracer
-    from xorq.ibis_yaml.enums import ExprKind
 
     with tracer.start_as_current_span("catalog.run") as span:
         span.set_attributes({"entries": entries, "has_code": code is not None})
@@ -565,7 +599,7 @@ def run(ctx, entries, code, output_path, output_format, limit, instream):
             if len(entries) > 1:
                 expr = _compose_expr(catalog, entries, code)
             else:
-                entry = entries[0]
+                (entry,) = entries
                 try:
                     catalog_entry = catalog.get_catalog_entry(entry, maybe_alias=True)
                 except AssertionError as err:
@@ -573,37 +607,12 @@ def run(ctx, entries, code, output_path, output_format, limit, instream):
                         f"Entry {entry!r} not found — run 'xorq catalog list' "
                         f"or 'xorq catalog list-aliases' to see available entries."
                     ) from err
+                from xorq.ibis_yaml.enums import ExprKind
 
                 span.set_attribute("kind", str(catalog_entry.kind))
-
-                match catalog_entry.kind:
-                    case ExprKind.UnboundExpr:
-                        import pyarrow as pa
-
-                        from xorq.common.utils.graph_utils import replace_unbound
-                        from xorq.common.utils.io_utils import maybe_open
-                        from xorq.expr.api import read_pyarrow_stream
-
-                        try:
-                            with maybe_open(instream, "rb") as stream:
-                                input_expr = read_pyarrow_stream(stream)
-                        except (pa.ArrowInvalid, pa.ArrowException) as err:
-                            raise click.ClickException(
-                                f"Entry {entry!r} is an unbound expression — "
-                                f"pipe Arrow data into it or pass a source entry: "
-                                f"'xorq catalog run SOURCE {entry} -o - -f csv'."
-                            ) from err
-                        span.set_attribute("piped_stdin", True)
-                        expr = replace_unbound(catalog_entry.expr, input_expr.op())
-                    case ExprKind.Source | ExprKind.Expr | ExprKind.Composed:
-                        expr = _make_source_expr(catalog_entry)
-                    case _:
-                        raise click.ClickException(
-                            f"Unsupported entry kind {catalog_entry.kind!r} for 'run'."
-                        )
-
-                if code is not None:
-                    expr = _eval_code(code, expr)
+                expr = _eval_entry(catalog_entry, code, instream)
+                if catalog_entry.kind is ExprKind.UnboundExpr:
+                    span.set_attribute("piped_stdin", True)
 
             if limit is not None:
                 expr = expr.limit(limit)
