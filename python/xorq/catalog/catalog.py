@@ -82,9 +82,10 @@ class Catalog:
         return CatalogYAML(self.repo_path)
 
     def _add_zip(self, path, sync=True, aliases=(), exist_ok=False):
-        # should we enable not syncing?
+        catalog_addition = CatalogAddition(BuildZip(path), self, aliases=aliases)
+        _ = catalog_addition.build_zip.md5sum  # force expensive hash before sync
+        catalog_addition.ensure_dirs()
         with self.maybe_synchronizing(sync):
-            catalog_addition = CatalogAddition(BuildZip(path), self, aliases=aliases)
             catalog_entry = catalog_addition.add(exist_ok=exist_ok)
             self.assert_consistency()
             return catalog_entry

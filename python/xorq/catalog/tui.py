@@ -421,10 +421,24 @@ class CacheRowData:
     size: str = field(default="", validator=instance_of(str))
     rows: str = field(default="", validator=instance_of(str))
     path: str = field(default="", validator=instance_of(str))
+    schema: tuple[tuple[str, str], ...] = field(
+        factory=tuple, validator=instance_of(tuple)
+    )
 
     @property
     def row(self) -> tuple[str, ...]:
         return (self.key[:16], self.entry_label, self.size, self.rows)
+
+    @cached_property
+    def info_text(self) -> str:
+        parts = [f"Key: {self.key}"]
+        if self.entry_label and self.entry_label != "—":
+            parts.append(f"Entry: {self.entry_label}")
+        parts.append(f"Size: {self.size}")
+        parts.append(f"Rows: {self.rows}")
+        if self.path:
+            parts.append(f"Path: {self.path}")
+        return "\n".join(parts)
 
 
 def _format_size(size_bytes: int) -> str:
@@ -484,14 +498,23 @@ def _parquet_to_cache_row(
         size = _format_size(parquet_path.stat().st_size)
     except OSError:
         size = "?"
+    schema: tuple[tuple[str, str], ...] = ()
     try:
         import pyarrow.parquet as pq  # noqa: PLC0415
 
-        rows = str(pq.read_metadata(str(parquet_path)).num_rows)
+        pf_meta = pq.read_metadata(str(parquet_path))
+        rows = str(pf_meta.num_rows)
+        arrow_schema = pq.read_schema(str(parquet_path))
+        schema = tuple((field.name, str(field.type)) for field in arrow_schema)
     except Exception:
         rows = "?"
     return CacheRowData(
-        key=key, entry_label=entry_label, size=size, rows=rows, path=str(parquet_path)
+        key=key,
+        entry_label=entry_label,
+        size=size,
+        rows=rows,
+        path=str(parquet_path),
+        schema=schema,
     )
 
 
@@ -503,9 +526,7 @@ def _build_cache_rows(catalog) -> tuple[CacheRowData, ...]:
         return ()
     entry_map = _build_cache_entry_map(catalog)
     return tuple(
-        row
-        for p in sorted(cache_dir.glob("*.parquet"))
-        if (row := _parquet_to_cache_row(p, entry_map)).entry_label != "—"
+        _parquet_to_cache_row(p, entry_map) for p in sorted(cache_dir.glob("*.parquet"))
     )
 
 
@@ -831,6 +852,7 @@ class CatalogScreen(Screen):
         self._caches_visible = False
         self._caches_loaded = False
         self._cache_row_paths: dict[str, str] = {}
+        self._cache_row_data: dict[str, CacheRowData] = {}
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -1373,10 +1395,12 @@ class CatalogScreen(Screen):
             table = self.query_one("#caches-table", DataTable)
             table.clear()
             self._cache_row_paths.clear()
+            self._cache_row_data.clear()
             for i, row_data in enumerate(rows):
                 key = str(i)
                 table.add_row(*row_data.row, key=key)
                 self._cache_row_paths[key] = row_data.path
+                self._cache_row_data[key] = row_data
             panel = self.query_one("#caches-panel")
             match rows:
                 case ():
@@ -1479,13 +1503,38 @@ class CatalogScreen(Screen):
     def _on_cache_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         if event.row_key is None:
             return
-        # Only show inline data when caches table is focused
+        # Only update panels when caches table is focused
         if self.app.focused is not self.query_one("#caches-table", DataTable):
             return
-        path = self._cache_row_paths.get(str(event.row_key.value))
+
+        row_key = str(event.row_key.value)
+        cache_data = self._cache_row_data.get(row_key)
+        if cache_data is None:
+            return
+
+        # Info panel
+        self.query_one("#info-content", Static).update(cache_data.info_text)
+
+        # Schema panel — show output schema from parquet columns
+        schema_in_half = self.query_one("#schema-in-half")
+        schema_in_half.display = False
+        schema_panel = self.query_one("#schema-panel")
+        schema_panel.border_title = "Schema"
+
+        schema_out_table = self.query_one("#schema-preview-table", DataTable)
+        schema_out_table.clear()
+        match cache_data.schema:
+            case ():
+                schema_panel.border_subtitle = ""
+            case cols:
+                schema_panel.border_subtitle = f"{len(cols)} cols"
+                for name, dtype in cols:
+                    schema_out_table.add_row(name, dtype)
+
+        # Inline data preview
+        path = self._cache_row_paths.get(row_key)
         if path and Path(path).exists():
-            key = Path(path).stem[:16]
-            self._show_inline_data(path, key)
+            self._show_inline_data(path, Path(path).stem[:16])
         else:
             self._hide_inline_data()
 
@@ -1749,11 +1798,30 @@ class CatalogScreen(Screen):
 
         match widget:
             case _ if widget is caches_table:
-                # Show data for selected cache row
+                # Trigger cache row highlight to update all right panels
                 if caches_table.row_count > 0:
                     row_key, _ = caches_table.coordinate_to_cell_key(
                         caches_table.cursor_coordinate
                     )
+                    cache_data = self._cache_row_data.get(str(row_key.value))
+                    if cache_data is not None:
+                        # Update info + schema
+                        self.query_one("#info-content", Static).update(
+                            cache_data.info_text
+                        )
+                        self.query_one("#schema-in-half").display = False
+                        schema_panel = self.query_one("#schema-panel")
+                        schema_panel.border_title = "Schema"
+                        schema_out = self.query_one("#schema-preview-table", DataTable)
+                        schema_out.clear()
+                        match cache_data.schema:
+                            case ():
+                                schema_panel.border_subtitle = ""
+                            case cols:
+                                schema_panel.border_subtitle = f"{len(cols)} cols"
+                                for name, dtype in cols:
+                                    schema_out.add_row(name, dtype)
+                    # Update data preview
                     path = self._cache_row_paths.get(str(row_key.value))
                     if path and Path(path).exists():
                         self._show_inline_data(path, Path(path).stem[:16])
