@@ -377,7 +377,7 @@ class BuildZip:
     def name(self):
         return with_pure_suffix(self.path, "").name
 
-    @cached_property
+    @property
     def md5sum(self):
         from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
             file_digest,
