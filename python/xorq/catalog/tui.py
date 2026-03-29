@@ -614,10 +614,7 @@ _CACHE_OPTIONS = (
 class RunOptionsScreen(Screen):
     """Lightweight modal for selecting cache strategy. Enter=run, Esc=cancel."""
 
-    BINDINGS = (
-        ("escape", "cancel", "Cancel"),
-        ("enter", "confirm", "Run"),
-    )
+    BINDINGS = (("escape", "cancel", "Cancel"),)
 
     def __init__(self, entry_name: str, expr_hash: str):
         super().__init__()
@@ -640,13 +637,19 @@ class RunOptionsScreen(Screen):
     def on_mount(self) -> None:
         self.query_one("#ttl-row").display = False
 
+    def on_key(self, event) -> None:
+        if event.key == "enter":
+            event.prevent_default()
+            event.stop()
+            self._do_confirm()
+
     @on(RadioSet.Changed, "#cache-strategy")
     def _on_cache_strategy_changed(self, event: RadioSet.Changed) -> None:
         selected_idx = event.radio_set.pressed_index
         cache_type = _CACHE_OPTIONS[selected_idx][0]
         self.query_one("#ttl-row").display = cache_type == "ttl_snapshot"
 
-    def action_confirm(self) -> None:
+    def _do_confirm(self) -> None:
         radio_set = self.query_one("#cache-strategy", RadioSet)
         selected_idx = radio_set.pressed_index
         cache_type = _CACHE_OPTIONS[selected_idx][0]
