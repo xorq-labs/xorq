@@ -21,7 +21,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from textual.widgets import DataTable, Static
+from textual.widgets import DataTable, RadioButton, RadioSet, Static
 
 import xorq.api as xo
 from xorq.caching import ParquetSnapshotCache
@@ -35,10 +35,13 @@ from xorq.catalog.tui import (
     CatalogTUI,
     GitLogRowData,
     RevisionRowData,
+    RunConfig,
     RunDataScreen,
+    RunOptionsScreen,
     RunRowData,
     _build_git_log_rows,
     _build_run_rows,
+    _cache_type_display,
     _compute_duration,
     _entry_info,
     _format_cached,
@@ -747,11 +750,19 @@ def test_run_row_data_row_tuple():
     row = RunRowData(
         run_id="abcdefgh-1234",
         status="ok",
+        cache_type="snapshot",
         duration="1.2s",
         output_format="parquet",
         date="2025-01-15 10:30",
     )
-    assert row.row == ("OK", "abcdefgh", "1.2s", "parquet", "2025-01-15 10:30")
+    assert row.row == (
+        "OK",
+        "abcdefgh",
+        "snapshot",
+        "1.2s",
+        "parquet",
+        "2025-01-15 10:30",
+    )
 
 
 def test_run_row_data_is_frozen():
@@ -925,5 +936,100 @@ def test_run_data_screen_back_navigation(tmp_path):
             await pilot.press("q")
             await pilot.pause()
             assert isinstance(app.screen, CatalogScreen)
+
+    _run(_test())
+
+
+# ---------------------------------------------------------------------------
+# 10. Unit tests: RunConfig and cache type display
+# ---------------------------------------------------------------------------
+
+
+def test_run_config_is_frozen():
+    config = RunConfig(entry_name="test", expr_hash="abc123")
+    with pytest.raises(AttributeError):
+        config.cache_type = "none"
+
+
+def test_run_config_defaults():
+    config = RunConfig(entry_name="test", expr_hash="abc123")
+    assert config.cache_type == "snapshot"
+    assert config.ttl is None
+
+
+def test_cache_type_display_snapshot():
+    assert _cache_type_display("snapshot") == "snapshot"
+
+
+def test_cache_type_display_source():
+    assert _cache_type_display("source") == "source"
+
+
+def test_cache_type_display_none():
+    assert _cache_type_display("none") == "—"
+
+
+def test_cache_type_display_ttl_with_value():
+    assert _cache_type_display("ttl_snapshot", 60) == "ttl(60s)"
+
+
+def test_cache_type_display_ttl_without_value():
+    assert _cache_type_display("ttl_snapshot") == "ttl"
+
+
+def test_cache_type_display_unknown():
+    assert _cache_type_display("") == "?"
+
+
+def test_run_row_data_cache_type_display():
+    row = RunRowData(cache_type="snapshot")
+    assert row.cache_type_display == "snapshot"
+
+    row_ttl = RunRowData(cache_type="ttl_snapshot", ttl=120)
+    assert row_ttl.cache_type_display == "ttl(120s)"
+
+
+# ---------------------------------------------------------------------------
+# 11. Pilot tests: RunOptionsScreen
+# ---------------------------------------------------------------------------
+
+
+def test_run_options_screen_shows_cache_options():
+    async def _test():
+        app = CatalogTUI(lambda: None, refresh_interval=999)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.push_screen(RunOptionsScreen("test-alias", "abc123"))
+            await pilot.pause()
+
+            screen = app.screen
+            assert isinstance(screen, RunOptionsScreen)
+
+            radio_set = screen.query_one("#cache-strategy", RadioSet)
+            assert radio_set is not None
+
+            buttons = screen.query(RadioButton)
+            assert len(list(buttons)) == 4
+
+    _run(_test())
+
+
+def test_run_options_screen_cancel():
+    async def _test():
+        dismissed = []
+        app = CatalogTUI(lambda: None, refresh_interval=999)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.push_screen(
+                RunOptionsScreen("test", "abc"),
+                callback=dismissed.append,
+            )
+            await pilot.pause()
+            assert isinstance(app.screen, RunOptionsScreen)
+
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, CatalogScreen)
+            assert dismissed == [None]
 
     _run(_test())

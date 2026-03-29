@@ -26,9 +26,13 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.theme import Theme
 from textual.widgets import (
+    Button,
     DataTable,
     Footer,
     Header,
+    Input,
+    RadioButton,
+    RadioSet,
     Static,
 )
 
@@ -84,7 +88,7 @@ REVISION_COLUMNS = ("STATUS", "HASH", "COLUMNS", "CACHED", "DATE")
 
 GIT_LOG_COLUMNS = ("HASH", "DATE", "MESSAGE")
 
-RUN_COLUMNS = ("STATUS", "RUN ID", "DURATION", "FORMAT", "DATE")
+RUN_COLUMNS = ("STATUS", "RUN ID", "CACHE", "DURATION", "FORMAT", "DATE")
 
 
 def _format_cached(value: bool | None) -> str:
@@ -249,13 +253,41 @@ def _entry_info(entry) -> tuple[int | None, bool | None]:
 
 
 @frozen
+class RunConfig:
+    entry_name: str = field(validator=instance_of(str))
+    expr_hash: str = field(validator=instance_of(str))
+    cache_type: str = field(default="snapshot", validator=instance_of(str))
+    ttl: int | None = field(default=None, validator=optional(instance_of(int)))
+
+
+CACHE_TYPE_LABELS = {
+    "snapshot": "snapshot",
+    "source": "source",
+    "ttl_snapshot": "ttl",
+    "none": "—",
+}
+
+
+def _cache_type_display(cache_type: str, ttl: int | None = None) -> str:
+    match cache_type:
+        case "ttl_snapshot":
+            return f"ttl({ttl}s)" if ttl else "ttl"
+        case str(ct) if ct in CACHE_TYPE_LABELS:
+            return CACHE_TYPE_LABELS[ct]
+        case _:
+            return "?"
+
+
+@frozen
 class RunRowData:
     run_id: str = field(default="", validator=instance_of(str))
     status: str = field(default="", validator=instance_of(str))
+    cache_type: str = field(default="", validator=instance_of(str))
     duration: str = field(default="", validator=instance_of(str))
     output_format: str = field(default="", validator=instance_of(str))
     date: str = field(default="", validator=instance_of(str))
     error: str | None = field(default=None, validator=optional(instance_of(str)))
+    ttl: int | None = field(default=None, validator=optional(instance_of(int)))
     output_snapshot_path: str | None = field(
         default=None, validator=optional(instance_of(str))
     )
@@ -276,6 +308,10 @@ class RunRowData:
                 return self.status.upper() if self.status else "?"
 
     @cached_property
+    def cache_type_display(self) -> str:
+        return _cache_type_display(self.cache_type, self.ttl)
+
+    @cached_property
     def run_id_display(self) -> str:
         return self.run_id[:8] if self.run_id else ""
 
@@ -284,6 +320,7 @@ class RunRowData:
         return (
             self.status_display,
             self.run_id_display,
+            self.cache_type_display,
             self.duration,
             self.output_format,
             self.date,
@@ -339,13 +376,16 @@ def _run_to_row(run) -> RunRowData:
         case dict():
             started = meta.get("started_at", "")
             completed = meta.get("completed_at", "")
+            raw_ttl = meta.get("ttl")
             return RunRowData(
                 run_id=meta.get("run_id", run.run_id),
                 status=meta.get("status", "?"),
+                cache_type=meta.get("cache_type", ""),
                 duration=_compute_duration(started, completed),
                 output_format=meta.get("output_format", ""),
                 date=_format_run_date(started),
                 error=meta.get("error"),
+                ttl=int(raw_ttl) if raw_ttl is not None else None,
                 output_snapshot_path=meta.get("output_snapshot_path"),
                 meta=tuple((str(k), str(v)) for k, v in meta.items()),
             )
@@ -491,6 +531,78 @@ class _TogglePanelState:
     visible: bool = field(default=False, validator=instance_of(bool))
     loaded: bool = field(default=False, validator=instance_of(bool))
     entry_hash: str | None = field(default=None, validator=optional(instance_of(str)))
+
+
+_CACHE_OPTIONS = (
+    ("snapshot", "Snapshot (ParquetSnapshotCache)"),
+    ("source", "Source (SourceCache)"),
+    ("none", "No Cache"),
+    ("ttl_snapshot", "TTL Snapshot"),
+)
+
+
+class RunOptionsScreen(Screen):
+    """Modal screen for selecting cache strategy before running an entry."""
+
+    BINDINGS = (("escape", "cancel", "Cancel"),)
+
+    def __init__(self, entry_name: str, expr_hash: str):
+        super().__init__()
+        self._entry_name = entry_name
+        self._expr_hash = expr_hash
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="run-options-container"):
+            yield Static(f"Run — {self._entry_name}", id="run-options-title")
+            yield Static("Cache Strategy", id="run-options-label")
+            with RadioSet(id="cache-strategy"):
+                for i, (_, label) in enumerate(_CACHE_OPTIONS):
+                    yield RadioButton(label, value=(i == 0))
+            with Horizontal(id="ttl-row"):
+                yield Static("TTL (seconds):", id="ttl-label")
+                yield Input(placeholder="300", id="ttl-input", restrict=r"^\d*$")
+            with Horizontal(id="run-options-buttons"):
+                yield Button("Run", variant="success", id="run-btn")
+                yield Button("Cancel", variant="default", id="cancel-btn")
+
+    def on_mount(self) -> None:
+        self.query_one("#ttl-row").display = False
+
+    @on(RadioSet.Changed, "#cache-strategy")
+    def _on_cache_strategy_changed(self, event: RadioSet.Changed) -> None:
+        selected_idx = event.radio_set.pressed_index
+        cache_type = _CACHE_OPTIONS[selected_idx][0]
+        self.query_one("#ttl-row").display = cache_type == "ttl_snapshot"
+
+    @on(Button.Pressed, "#run-btn")
+    def _on_run_pressed(self, event: Button.Pressed) -> None:
+        self._do_confirm()
+
+    @on(Button.Pressed, "#cancel-btn")
+    def _on_cancel_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(None)
+
+    def _do_confirm(self) -> None:
+        radio_set = self.query_one("#cache-strategy", RadioSet)
+        selected_idx = radio_set.pressed_index
+        cache_type = _CACHE_OPTIONS[selected_idx][0]
+
+        ttl = None
+        if cache_type == "ttl_snapshot":
+            ttl_text = self.query_one("#ttl-input", Input).value.strip()
+            ttl = int(ttl_text) if ttl_text else 300
+
+        self.dismiss(
+            RunConfig(
+                entry_name=self._entry_name,
+                expr_hash=self._expr_hash,
+                cache_type=cache_type,
+                ttl=ttl,
+            )
+        )
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 class RunDataScreen(Screen):
@@ -1210,11 +1322,20 @@ class CatalogScreen(Screen):
             case _:
                 entry_name = entry_hash
 
+        self.app.push_screen(
+            RunOptionsScreen(entry_name, entry_hash),
+            callback=self._on_run_options_dismissed,
+        )
+
+    def _on_run_options_dismissed(self, config: RunConfig | None) -> None:
+        if config is None:
+            return
         self.query_one("#runs-panel").border_subtitle = "running..."
-        self._execute_run(entry_name, entry_hash)
+        self._execute_run(config)
 
     @work(thread=True, exit_on_error=False)
-    def _execute_run(self, entry_name: str, expr_hash: str) -> None:
+    def _execute_run(self, config: RunConfig) -> None:
+        import datetime as dt  # noqa: PLC0415
         import os  # noqa: PLC0415
 
         from xorq.common.utils.logging_utils import RunLogger  # noqa: PLC0415
@@ -1225,44 +1346,67 @@ class CatalogScreen(Screen):
             return
 
         try:
-            catalog_entry = catalog.get_catalog_entry(entry_name, maybe_alias=True)
+            catalog_entry = catalog.get_catalog_entry(
+                config.entry_name, maybe_alias=True
+            )
             expr = catalog_entry.expr
+            snapshot_path = None
 
-            from xorq.caching import ParquetSnapshotCache  # noqa: PLC0415
+            match config.cache_type:
+                case "snapshot":
+                    from xorq.caching import ParquetSnapshotCache  # noqa: PLC0415
 
-            cache = ParquetSnapshotCache.from_kwargs()
-            cached_expr = expr.cache(cache=cache)
+                    cache = ParquetSnapshotCache.from_kwargs()
+                    run_expr = expr.cache(cache=cache)
+                    snapshot_path = str(cache.storage.get_path(cache.calc_key(expr)))
+                case "source":
+                    from xorq.caching import SourceCache  # noqa: PLC0415
 
-            cache_key = cache.calc_key(expr)
-            snapshot_path = str(cache.storage.get_path(cache_key))
+                    cache = SourceCache.from_kwargs()
+                    run_expr = expr.cache(cache=cache)
+                case "ttl_snapshot":
+                    from xorq.caching import (  # noqa: PLC0415
+                        ParquetTTLSnapshotCache,
+                    )
+
+                    ttl_delta = dt.timedelta(seconds=config.ttl or 300)
+                    cache = ParquetTTLSnapshotCache.from_kwargs(ttl=ttl_delta)
+                    run_expr = expr.cache(cache=cache)
+                    snapshot_path = str(cache.storage.get_path(cache.calc_key(expr)))
+                case _:
+                    run_expr = expr
 
             run_params = (
-                ("expr_hash", expr_hash),
+                ("expr_hash", config.expr_hash),
+                ("cache_type", config.cache_type),
                 ("output_format", "parquet"),
-                ("output_snapshot_path", snapshot_path),
+                *((("ttl", config.ttl),) if config.ttl is not None else ()),
+                *(
+                    (("output_snapshot_path", snapshot_path),)
+                    if snapshot_path is not None
+                    else ()
+                ),
             )
 
-            with RunLogger.from_expr_hash(expr_hash, params_tuple=run_params) as rl:
+            with RunLogger.from_expr_hash(
+                config.expr_hash, params_tuple=run_params
+            ) as rl:
                 rl.log_event("run.start", dict(run_params))
                 with timed() as get_elapsed:
-                    cached_expr.to_parquet(os.devnull)
+                    run_expr.to_parquet(os.devnull)
                 rl.log_event(
                     "run.done",
-                    {
-                        "elapsed_s": round(get_elapsed(), 3),
-                        "output_snapshot_path": snapshot_path,
-                    },
+                    {"elapsed_s": round(get_elapsed(), 3)},
                 )
                 rl.finalize(status="ok")
 
             status = "ok"
-            detail = f"Cached at {snapshot_path}"
+            detail = f"Cached at {snapshot_path}" if snapshot_path else "Run completed"
         except Exception as e:
             status = "error"
             detail = str(e)
 
-        # Refresh the runs panel
-        run_rows = _build_run_rows(expr_hash)
+        run_rows = _build_run_rows(config.expr_hash)
         match status:
             case "ok":
                 message = f"Run completed · {detail}" if detail else "Run completed"
@@ -1526,6 +1670,52 @@ class CatalogTUI(App):
     }
     RunDataScreen #run-data-table {
         height: 1fr;
+    }
+    RunOptionsScreen {
+        align: center middle;
+    }
+    RunOptionsScreen #run-options-container {
+        width: 52;
+        height: auto;
+        max-height: 22;
+        border: solid #C1F0FF;
+        border-title-color: #C1F0FF;
+        background: $surface;
+        padding: 1 2;
+    }
+    RunOptionsScreen #run-options-title {
+        height: 1;
+        text-style: bold;
+        color: #C1F0FF;
+        margin-bottom: 1;
+    }
+    RunOptionsScreen #run-options-label {
+        height: 1;
+        text-style: bold;
+    }
+    RunOptionsScreen #cache-strategy {
+        height: auto;
+        margin: 0 1;
+    }
+    RunOptionsScreen #ttl-row {
+        height: 3;
+        margin-top: 1;
+        padding: 0 1;
+    }
+    RunOptionsScreen #ttl-label {
+        width: auto;
+        padding-right: 1;
+    }
+    RunOptionsScreen #ttl-input {
+        width: 14;
+    }
+    RunOptionsScreen #run-options-buttons {
+        height: 3;
+        margin-top: 1;
+        align: center middle;
+    }
+    RunOptionsScreen Button {
+        margin: 0 1;
     }
     """
 
