@@ -1271,36 +1271,34 @@ class CatalogScreen(Screen):
         self.query_one("#status-bar", Static).update(f" {message}")
 
     def action_view_run_data(self) -> None:
+        # Only works when the runs table is focused
+        focused = self.app.focused
         runs_table = self.query_one("#runs-table", DataTable)
+        if focused is not runs_table:
+            return
         if runs_table.row_count == 0:
             return
-        row_key, _ = runs_table.coordinate_to_cell_key(runs_table.cursor_coordinate)
-        run_data = self._run_row_cache.get(str(row_key.value))
-        if run_data is None:
-            return
 
-        # Try output_snapshot_path from run meta first
-        match run_data.output_snapshot_path:
-            case str(path) if Path(path).exists():
-                alias = self._get_current_alias() or ""
-                title = f"Run Data — {run_data.run_id_display} — {alias}"
-                self.app.push_screen(RunDataScreen(path, title))
-                return
-            case _:
-                pass
-
-        # Fallback: try parquet_cache_paths from current entry
-        table = self.query_one("#catalog-table", DataTable)
-        if table.row_count == 0:
+        # Look up the parquet cache paths from the selected catalog entry
+        catalog_table = self.query_one("#catalog-table", DataTable)
+        if catalog_table.row_count == 0:
             return
-        row_key, _ = table.coordinate_to_cell_key(table.cursor_coordinate)
-        entry_data = self._row_cache.get(str(row_key.value))
+        cat_row_key, _ = catalog_table.coordinate_to_cell_key(
+            catalog_table.cursor_coordinate
+        )
+        entry_data = self._row_cache.get(str(cat_row_key.value))
         if entry_data is None:
             return
+
         match entry_data.entry.parquet_cache_paths:
             case (first_path, *_) if Path(first_path).exists():
                 alias = self._get_current_alias() or ""
-                title = f"Cached Data — {alias}"
+                run_row_key, _ = runs_table.coordinate_to_cell_key(
+                    runs_table.cursor_coordinate
+                )
+                run_data = self._run_row_cache.get(str(run_row_key.value))
+                run_label = run_data.run_id_display if run_data else ""
+                title = f"Run Data — {run_label} — {alias}".strip(" —")
                 self.app.push_screen(RunDataScreen(first_path, title))
             case _:
                 self.query_one("#status-bar", Static).update(
