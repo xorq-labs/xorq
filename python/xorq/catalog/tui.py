@@ -84,6 +84,8 @@ REVISION_COLUMNS = ("STATUS", "HASH", "COLUMNS", "CACHED", "DATE")
 
 GIT_LOG_COLUMNS = ("HASH", "DATE", "MESSAGE")
 
+RUN_COLUMNS = ("STATUS", "RUN ID", "DURATION", "FORMAT", "DATE")
+
 
 def _format_cached(value: bool | None) -> str:
     match value:
@@ -244,6 +246,128 @@ def _entry_info(entry) -> tuple[int | None, bool | None]:
         else None
     )
     return len(entry.columns), cached
+
+
+@frozen
+class RunRowData:
+    run_id: str = field(default="", validator=instance_of(str))
+    status: str = field(default="", validator=instance_of(str))
+    duration: str = field(default="", validator=instance_of(str))
+    output_format: str = field(default="", validator=instance_of(str))
+    date: str = field(default="", validator=instance_of(str))
+    error: str | None = field(default=None, validator=optional(instance_of(str)))
+    output_snapshot_path: str | None = field(
+        default=None, validator=optional(instance_of(str))
+    )
+    meta: tuple[tuple[str, str], ...] = field(
+        factory=tuple, validator=instance_of(tuple)
+    )
+
+    @cached_property
+    def status_display(self) -> str:
+        match self.status:
+            case "ok":
+                return "OK"
+            case "error":
+                return "ERR"
+            case "running":
+                return "..."
+            case _:
+                return self.status.upper() if self.status else "?"
+
+    @cached_property
+    def run_id_display(self) -> str:
+        return self.run_id[:8] if self.run_id else ""
+
+    @property
+    def row(self) -> tuple[str, ...]:
+        return (
+            self.status_display,
+            self.run_id_display,
+            self.duration,
+            self.output_format,
+            self.date,
+        )
+
+
+def _compute_duration(started: str, completed: str) -> str:
+    match (started, completed):
+        case ("", _) | (_, ""):
+            return ""
+        case _:
+            try:
+                s = datetime.fromisoformat(started)
+                c = datetime.fromisoformat(completed)
+                delta = (c - s).total_seconds()
+                match delta:
+                    case d if d < 1:
+                        return f"{d * 1000:.0f}ms"
+                    case d if d < 60:
+                        return f"{d:.1f}s"
+                    case d:
+                        return f"{d / 60:.1f}m"
+            except (ValueError, TypeError):
+                return ""
+
+
+def _format_run_date(started: str) -> str:
+    match started:
+        case "":
+            return ""
+        case _:
+            try:
+                dt = datetime.fromisoformat(started)
+                return dt.strftime("%Y-%m-%d %H:%M")
+            except (ValueError, TypeError):
+                return started
+
+
+def _build_run_rows(expr_hash: str, max_count: int = 20) -> tuple[RunRowData, ...]:
+    from xorq.common.utils.logging_utils import Runs, get_xorq_runs_dir  # noqa: PLC0415
+
+    expr_dir = get_xorq_runs_dir() / expr_hash
+    runs = Runs(expr_dir=expr_dir)
+    return tuple(_run_to_row(run) for run in runs.runs[:max_count])
+
+
+def _run_to_row(run) -> RunRowData:
+    meta = run.read_meta()
+    match meta:
+        case dict():
+            started = meta.get("started_at", "")
+            completed = meta.get("completed_at", "")
+            return RunRowData(
+                run_id=meta.get("run_id", run.run_id),
+                status=meta.get("status", "?"),
+                duration=_compute_duration(started, completed),
+                output_format=meta.get("output_format", ""),
+                date=_format_run_date(started),
+                error=meta.get("error"),
+                output_snapshot_path=meta.get("output_snapshot_path"),
+                meta=tuple((str(k), str(v)) for k, v in meta.items()),
+            )
+        case _:
+            return RunRowData(run_id=run.run_id, status="running")
+
+
+def _format_run_detail(run: RunRowData) -> str:
+    meta_dict = dict(run.meta)
+    parts = [f"Run: {run.run_id}"]
+    for key in (
+        "status",
+        "started_at",
+        "completed_at",
+        "output_format",
+        "output_snapshot_path",
+        "expr_hash",
+        "error",
+    ):
+        match meta_dict.get(key):
+            case None:
+                pass
+            case value:
+                parts.append(f"{key}: {value}")
+    return "\n".join(parts)
 
 
 def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
