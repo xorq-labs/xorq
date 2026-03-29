@@ -942,9 +942,6 @@ class CatalogScreen(Screen):
         runs_table = self.query_one("#runs-table", DataTable)
         runs_table.clear()
 
-        # Restore SQL view when catalog entry is selected
-        self._hide_inline_data()
-
         if event.row_key is None:
             sql_preview.update("")
             info_content.update("")
@@ -1439,7 +1436,9 @@ class CatalogScreen(Screen):
         info_content = self.query_one("#info-content", Static)
         info_content.update(_format_run_detail(run_data))
 
-        # Show inline data preview for the run's output
+        # Only show inline data when runs table is focused
+        if self.app.focused is not self.query_one("#runs-table", DataTable):
+            return
         match run_data.output_snapshot_path:
             case str(path) if Path(path).exists():
                 self._show_inline_data(path, f"run {run_data.run_id_display}")
@@ -1449,6 +1448,9 @@ class CatalogScreen(Screen):
     @on(DataTable.RowHighlighted, "#caches-table")
     def _on_cache_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         if event.row_key is None:
+            return
+        # Only show inline data when caches table is focused
+        if self.app.focused is not self.query_one("#caches-table", DataTable):
             return
         path = self._cache_row_paths.get(str(event.row_key.value))
         if path and Path(path).exists():
@@ -1706,7 +1708,46 @@ class CatalogScreen(Screen):
             0,
         )
         next_idx = (current_idx + direction) % len(visible)
-        self.query_one(visible[next_idx]).focus()
+        target = self.query_one(visible[next_idx])
+        target.focus()
+        self._on_panel_focus_changed(target)
+
+    def _on_panel_focus_changed(self, widget) -> None:
+        """Swap main content pane between SQL and data preview based on focus."""
+        runs_table = self.query_one("#runs-table", DataTable)
+        caches_table = self.query_one("#caches-table", DataTable)
+
+        match widget:
+            case _ if widget is caches_table:
+                # Show data for selected cache row
+                if caches_table.row_count > 0:
+                    row_key, _ = caches_table.coordinate_to_cell_key(
+                        caches_table.cursor_coordinate
+                    )
+                    path = self._cache_row_paths.get(str(row_key.value))
+                    if path and Path(path).exists():
+                        self._show_inline_data(path, Path(path).stem[:16])
+                        return
+                self._hide_inline_data()
+            case _ if widget is runs_table:
+                # Show data for selected run
+                if runs_table.row_count > 0:
+                    row_key, _ = runs_table.coordinate_to_cell_key(
+                        runs_table.cursor_coordinate
+                    )
+                    run_data = self._run_row_cache.get(str(row_key.value))
+                    match run_data:
+                        case RunRowData(output_snapshot_path=str(p)) if Path(
+                            p
+                        ).exists():
+                            self._show_inline_data(p, f"run {run_data.run_id_display}")
+                            return
+                        case _:
+                            pass
+                self._hide_inline_data()
+            case _:
+                # Catalog table or other panels — show SQL
+                self._hide_inline_data()
 
     def action_quit_app(self) -> None:
         self.app.exit()
