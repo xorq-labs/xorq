@@ -807,6 +807,8 @@ class CatalogScreen(Screen):
                     yield DataTable(id="catalog-table")
                 with Vertical(id="runs-panel"):
                     yield DataTable(id="runs-table")
+                with Vertical(id="caches-panel"):
+                    yield DataTable(id="caches-table")
                 with Vertical(id="revisions-panel"):
                     yield DataTable(id="revisions-preview-table")
                 with Vertical(id="git-log-panel"):
@@ -822,8 +824,6 @@ class CatalogScreen(Screen):
                             yield DataTable(id="schema-in-table")
                         with Vertical(id="schema-out-half"):
                             yield DataTable(id="schema-preview-table")
-                with Vertical(id="caches-panel"):
-                    yield DataTable(id="caches-table")
                 with Vertical(id="data-preview-panel"):
                     yield Static("", id="data-preview-status")
                     yield DataTable(id="data-preview-table")
