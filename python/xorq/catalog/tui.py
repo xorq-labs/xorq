@@ -1198,6 +1198,12 @@ class CatalogScreen(Screen):
         if row_data is None:
             return
 
+        if row_data.kind == "unbound_expr":
+            self.query_one("#status-bar", Static).update(
+                " Cannot run unbound expression — compose with a source first"
+            )
+            return
+
         match row_data.aliases:
             case (first_alias, *_):
                 entry_name = first_alias
