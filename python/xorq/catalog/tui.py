@@ -505,7 +505,9 @@ def _build_cache_rows(catalog) -> tuple[CacheRowData, ...]:
         return ()
     entry_map = _build_cache_entry_map(catalog)
     return tuple(
-        _parquet_to_cache_row(p, entry_map) for p in sorted(cache_dir.glob("*.parquet"))
+        row
+        for p in sorted(cache_dir.glob("*.parquet"))
+        if (row := _parquet_to_cache_row(p, entry_map)).entry_label != "—"
     )
 
 
