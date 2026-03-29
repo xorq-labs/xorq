@@ -500,6 +500,8 @@ class CatalogScreen(Screen):
         ("l", "scroll_right", "Right"),
         ("tab", "focus_next_panel", "Next"),
         ("shift+tab", "focus_prev_panel", "Prev"),
+        ("r", "run_entry", "Run"),
+        ("e", "view_run_data", "View Data"),
         ("g", "toggle_git_log", "Git Log"),
         ("d", "toggle_data_preview", "Data"),
         ("p", "toggle_profiles", "Profiles"),
@@ -507,6 +509,7 @@ class CatalogScreen(Screen):
 
     FOCUS_CYCLE = (
         "#catalog-table",
+        "#runs-table",
         "#sql-panel",
         "#schema-preview-table",
         "#revisions-preview-table",
@@ -516,6 +519,8 @@ class CatalogScreen(Screen):
         super().__init__()
         self._refresh_interval = refresh_interval
         self._row_cache: dict[str, CatalogRowData] = {}
+        self._run_row_cache: dict[str, RunRowData] = {}
+        self._current_runs_hash: str | None = None
         self._git_log_visible = False
         self._git_log_loaded = False
         self._refresh_lock = threading.Lock()
@@ -528,6 +533,8 @@ class CatalogScreen(Screen):
             with Vertical(id="left-column"):
                 with Vertical(id="catalog-panel"):
                     yield DataTable(id="catalog-table")
+                with Vertical(id="runs-panel"):
+                    yield DataTable(id="runs-table")
                 with Vertical(id="revisions-panel"):
                     yield DataTable(id="revisions-preview-table")
                 with Vertical(id="git-log-panel"):
@@ -576,6 +583,12 @@ class CatalogScreen(Screen):
         for col in REVISION_COLUMNS:
             rev_table.add_column(col, key=col)
 
+        runs_table = self.query_one("#runs-table", DataTable)
+        runs_table.cursor_type = "row"
+        runs_table.zebra_stripes = True
+        for col in RUN_COLUMNS:
+            runs_table.add_column(col, key=col)
+
         git_log_table = self.query_one("#git-log-table", DataTable)
         git_log_table.cursor_type = "row"
         git_log_table.zebra_stripes = True
@@ -601,6 +614,7 @@ class CatalogScreen(Screen):
         self.query_one("#sql-panel").border_title = "SQL"
         self.query_one("#info-panel").border_title = "Info"
         self.query_one("#revisions-panel").border_title = "Revisions"
+        self.query_one("#runs-panel").border_title = "Runs"
         git_log_panel = self.query_one("#git-log-panel")
         git_log_panel.border_title = "Git Log"
         git_log_panel.display = False
@@ -624,12 +638,17 @@ class CatalogScreen(Screen):
         info_content = self.query_one("#info-content", Static)
         rev_table = self.query_one("#revisions-preview-table", DataTable)
         rev_table.clear()
+        runs_table = self.query_one("#runs-table", DataTable)
+        runs_table.clear()
 
         if event.row_key is None:
             sql_preview.update("")
             info_content.update("")
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
+            self.query_one("#runs-panel").border_subtitle = ""
+            self._current_runs_hash = None
+            self._run_row_cache.clear()
             self._reset_toggle_panels()
             return
 
@@ -639,6 +658,9 @@ class CatalogScreen(Screen):
             info_content.update("")
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
+            self.query_one("#runs-panel").border_subtitle = ""
+            self._current_runs_hash = None
+            self._run_row_cache.clear()
             self._reset_toggle_panels()
             return
 
@@ -710,6 +732,9 @@ class CatalogScreen(Screen):
                     "#revisions-panel"
                 ).border_title = "Revisions — (no alias)"
 
+        # Runs (async — reads from disk)
+        self._load_runs(row_data.hash)
+
         # Reset toggle panels on row change
         self._reset_toggle_panels()
 
@@ -778,6 +803,10 @@ class CatalogScreen(Screen):
         if self._git_log_visible:
             git_rows = _build_git_log_rows(catalog.repo)
             self.app.call_from_thread(self._render_git_log, git_rows)
+
+        if self._current_runs_hash:
+            run_rows = _build_run_rows(self._current_runs_hash)
+            self.app.call_from_thread(self._render_runs, run_rows)
 
         stamp = datetime.now().strftime("%H:%M:%S")
         self.app.call_from_thread(self._render_status, stamp, repo_path)
@@ -1015,6 +1044,40 @@ class CatalogScreen(Screen):
             rev_panel = self.query_one("#revisions-panel")
             rev_panel.border_subtitle = f"{len(revision_rows)} revisions"
 
+    # --- Runs ---
+
+    @work(thread=True, exit_on_error=False)
+    def _load_runs(self, expr_hash: str) -> None:
+        rows = _build_run_rows(expr_hash)
+        self._current_runs_hash = expr_hash
+        self.app.call_from_thread(self._render_runs, rows)
+
+    def _render_runs(self, rows: tuple[RunRowData, ...]) -> None:
+        with self.app.batch_update():
+            runs_table = self.query_one("#runs-table", DataTable)
+            runs_table.clear()
+            self._run_row_cache.clear()
+            for i, row_data in enumerate(rows):
+                key = str(i)
+                runs_table.add_row(*row_data.row, key=key)
+                self._run_row_cache[key] = row_data
+            runs_panel = self.query_one("#runs-panel")
+            match rows:
+                case ():
+                    runs_panel.border_subtitle = "no runs"
+                case _:
+                    runs_panel.border_subtitle = f"{len(rows)} runs"
+
+    @on(DataTable.RowHighlighted, "#runs-table")
+    def _on_run_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        if event.row_key is None:
+            return
+        run_data = self._run_row_cache.get(str(event.row_key.value))
+        if run_data is None:
+            return
+        info_content = self.query_one("#info-content", Static)
+        info_content.update(_format_run_detail(run_data))
+
     # --- Navigation ---
 
     def _focused_widget(self) -> DataTable | VerticalScroll:
@@ -1107,6 +1170,15 @@ class CatalogTUI(App):
         background: $surface;
     }
     #catalog-table {
+        height: 1fr;
+    }
+    #runs-panel {
+        height: 1fr;
+        border: solid #F5CA2C;
+        border-title-color: #F5CA2C;
+        border-subtitle-color: #F5CA2C;
+    }
+    #runs-table {
         height: 1fr;
     }
     #revisions-panel {
