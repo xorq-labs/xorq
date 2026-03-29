@@ -81,28 +81,31 @@ class Catalog:
     def catalog_yaml(self):
         return CatalogYAML(self.repo_path)
 
-    def _add_zip(self, path, sync=True, aliases=()):
-        catalog_addition = CatalogAddition(BuildZip(path), self, aliases=aliases)
-        _ = catalog_addition.build_zip.md5sum  # force expensive hash before sync
-        catalog_addition.ensure_dirs()
+    def _add_zip(self, path, sync=True, aliases=(), exist_ok=False):
+        # should we enable not syncing?
         with self.maybe_synchronizing(sync):
-            catalog_entry = catalog_addition.add()
+            catalog_addition = CatalogAddition(BuildZip(path), self, aliases=aliases)
+            catalog_entry = catalog_addition.add(exist_ok=exist_ok)
             self.assert_consistency()
             return catalog_entry
 
-    def _add_build_dir(self, build_dir, sync=True, aliases=()):
+    def _add_build_dir(self, build_dir, sync=True, aliases=(), exist_ok=False):
         from xorq.catalog.zip_utils import make_zip_context  # noqa: PLC0415
 
         with make_zip_context(build_dir) as zip_path:
-            return self._add_zip(zip_path, sync=sync, aliases=aliases)
+            return self._add_zip(
+                zip_path, sync=sync, aliases=aliases, exist_ok=exist_ok
+            )
 
-    def _add_expr(self, expr, sync=True, aliases=()):
+    def _add_expr(self, expr, sync=True, aliases=(), exist_ok=False):
         from xorq.catalog.expr_utils import build_expr_context  # noqa: PLC0415
 
         with build_expr_context(expr) as path:
-            return self._add_build_dir(path, sync=sync, aliases=aliases)
+            return self._add_build_dir(
+                path, sync=sync, aliases=aliases, exist_ok=exist_ok
+            )
 
-    def add(self, obj, sync=True, aliases=()):
+    def add(self, obj, sync=True, aliases=(), exist_ok=False):
         from xorq.api import Expr  # noqa: PLC0415
 
         match obj:
@@ -114,7 +117,7 @@ class Catalog:
                 f = self._add_expr
             case _:
                 raise ValueError(f"don't know how to handle type={type(obj)}")
-        return f(obj, sync=sync, aliases=aliases)
+        return f(obj, sync=sync, aliases=aliases, exist_ok=exist_ok)
 
     def remove(self, name, sync=True):
         with self.maybe_synchronizing(sync):
@@ -419,10 +422,13 @@ class CatalogAddition:
         message = f"add: {self.name}{alias_message}"
         return message
 
-    def _add(self):
-        assert not self.catalog.contains(self.name), (
-            f"Entry '{self.name}' already exists in catalog"
-        )
+    def _add(self, exist_ok=False):
+        if self.catalog.contains(self.name):
+            if not exist_ok:
+                raise ValueError(f"Entry '{self.name}' already exists in catalog")
+            for catalog_alias in self.catalog_aliases:
+                catalog_alias._add()
+            return None
         self.ensure_dirs()
         catalog_entry = self.catalog_entry
         catalog_entry.metadata_path.write_text(yaml.safe_dump(self.metadata))
@@ -441,9 +447,9 @@ class CatalogAddition:
             catalog_alias._add()
         return CatalogEntry(self.name, self.catalog, require_exists=True)
 
-    def add(self):
+    def add(self, exist_ok=False):
         with self.catalog.commit_context(self.message):
-            return self._add()
+            return self._add(exist_ok=exist_ok)
 
     @classmethod
     def from_expr(cls, expr, catalog):
@@ -606,6 +612,11 @@ class CatalogAlias:
         if alias_path.exists():
             if not alias_path.is_symlink():
                 raise ValueError(f"non symlink already exists at {alias_path}")
+            if (
+                alias_path.resolve()
+                == self.alias_path.parent.joinpath(self.target).resolve()
+            ):
+                return None
             alias_path.unlink()
         else:
             self.ensure_dirs()

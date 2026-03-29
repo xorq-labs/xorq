@@ -527,13 +527,25 @@ def compose(ctx, entries, code, alias, cache_dir, dry_run):
             build_path = build_expr(expr, **build_kwargs)
             entry_name = build_path.name
             aliases = (alias,) if alias else ()
-            if catalog.contains(entry_name):
-                if alias:
-                    catalog.add_alias(entry_name, alias)
-            else:
-                catalog.add(build_path, aliases=aliases)
+            alias_existed = alias and catalog.catalog_yaml.contains_alias(alias)
+            catalog_entry = catalog.add(build_path, aliases=aliases, exist_ok=True)
             label = alias or entry_name
-            click.echo(f"Cataloged as {label!r}", err=True)
+            if catalog_entry is None:
+                if alias and not alias_existed:
+                    click.echo(
+                        f"Entry {entry_name!r} already exists; alias {alias!r} added",
+                        err=True,
+                    )
+                elif alias:
+                    click.echo(
+                        f"Entry {entry_name!r} already exists;"
+                        f" alias {alias!r} already set",
+                        err=True,
+                    )
+                else:
+                    click.echo(f"Entry {entry_name!r} already exists", err=True)
+            else:
+                click.echo(f"Cataloged as {label!r}", err=True)
             span.set_attribute("cataloged", label)
 
 
