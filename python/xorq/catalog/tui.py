@@ -1211,9 +1211,6 @@ class CatalogScreen(Screen):
     def _execute_run(self, entry_name: str, expr_hash: str) -> None:
         import os  # noqa: PLC0415
 
-        from xorq.caching import ParquetSnapshotCache  # noqa: PLC0415
-        from xorq.catalog.bind import _make_source_expr  # noqa: PLC0415
-        from xorq.cli import arbitrate_output_format  # noqa: PLC0415
         from xorq.common.utils.logging_utils import RunLogger  # noqa: PLC0415
         from xorq.common.utils.profile_utils import timed  # noqa: PLC0415
 
@@ -1223,7 +1220,10 @@ class CatalogScreen(Screen):
 
         try:
             catalog_entry = catalog.get_catalog_entry(entry_name, maybe_alias=True)
-            expr = _make_source_expr(catalog_entry)
+            expr = catalog_entry.expr
+
+            from xorq.caching import ParquetSnapshotCache  # noqa: PLC0415
+
             cache = ParquetSnapshotCache.from_kwargs()
             cached_expr = expr.cache(cache=cache)
 
@@ -1239,7 +1239,7 @@ class CatalogScreen(Screen):
             with RunLogger.from_expr_hash(expr_hash, params_tuple=run_params) as rl:
                 rl.log_event("run.start", dict(run_params))
                 with timed() as get_elapsed:
-                    arbitrate_output_format(cached_expr, os.devnull, "parquet")
+                    cached_expr.to_parquet(os.devnull)
                 rl.log_event(
                     "run.done",
                     {
@@ -1257,16 +1257,18 @@ class CatalogScreen(Screen):
 
         # Refresh the runs panel
         run_rows = _build_run_rows(expr_hash)
-        self.app.call_from_thread(self._render_runs, run_rows)
         match status:
             case "ok":
                 message = f"Run completed · {detail}" if detail else "Run completed"
             case _:
                 message = f"Run {status} · {detail}" if detail else f"Run {status}"
-        self.app.call_from_thread(
-            self.query_one("#status-bar", Static).update,
-            f" {message}",
-        )
+        self.app.call_from_thread(self._render_run_result, run_rows, message)
+
+    def _render_run_result(
+        self, run_rows: tuple[RunRowData, ...], message: str
+    ) -> None:
+        self._render_runs(run_rows)
+        self.query_one("#status-bar", Static).update(f" {message}")
 
     def action_view_run_data(self) -> None:
         runs_table = self.query_one("#runs-table", DataTable)
