@@ -93,4 +93,4 @@ class BuildZip:
     def read_member(self, member_path, read_f):
         """Read and parse a single member from the zip archive."""
         with zipfile.ZipFile(self.path, "r") as zf:
-            return read_f(zf.read(member_path))
+            return read_f(zf.read(member_path).decode())
