@@ -626,6 +626,10 @@ def run(ctx, entries, code, output_path, output_format, limit, instream):
                 if catalog_entry.kind is ExprKind.UnboundExpr:
                     span.set_attribute("piped_stdin", True)
 
+            from xorq.catalog.bind import fuse_catalog_source
+
+            expr = fuse_catalog_source(expr)
+
             if limit is not None:
                 expr = expr.limit(limit)
             arbitrate_output_format(expr, output_path, output_format)
