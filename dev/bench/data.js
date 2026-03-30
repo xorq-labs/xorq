@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774875051174,
+  "lastUpdate": 1774885195110,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -2904,6 +2904,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0063131147731386675",
             "extra": "mean: 180.22484400000374 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "95d0bd653e0766b84e3c4f7600fd5ca1be2e6398",
+          "message": "fix(cli): restore --pdb behavior for catalog commands (#1762)\n\n## Summary\n- `click_context_catalog` and `click_context` were catching all\nexceptions and\nwrapping them as `ClickException`, which `PdbGroup` re-raises without\nentering\nthe debugger. Now they check whether `--pdb` is active and re-raise the\n  original exception so `post_mortem` fires.\n- Removed the unnecessary `import pdb as pdb_module` alias (the `--pdb`\noption\n  is already mapped to `use_pdb`, so no shadowing risk).\n\n## Test plan\n- [x] `test_pdb_flag_invokes_post_mortem` — mocks `pdb.post_mortem`,\ninvokes a\n  failing catalog command with `--pdb`, asserts `post_mortem` is called\n- [x] `test_no_pdb_flag_wraps_exception` — same failing command without\n`--pdb`,\n  asserts clean `Error:` output\n- [x] Full catalog test suite passes (93 tests)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-30T11:36:19-04:00",
+          "tree_id": "ef9977cd0b8032cdbcd501ef767e44bda219844d",
+          "url": "https://github.com/xorq-labs/xorq/commit/95d0bd653e0766b84e3c4f7600fd5ca1be2e6398"
+        },
+        "date": 1774885192185,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.894442806604657,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00911272156862094",
+            "extra": "mean: 101.06683312500309 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.17033897681224,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05479829008935984",
+            "extra": "mean: 239.78866120000362 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6689740912996067,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19827587284829928",
+            "extra": "mean: 1.4948262018000036 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.541409124263588,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05206991761466325",
+            "extra": "mean: 220.1959727999963 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.165820952940358,
+            "unit": "iter/sec",
+            "range": "stddev: 0.024206777571284407",
+            "extra": "mean: 240.04872300000577 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.799154799731911,
+            "unit": "iter/sec",
+            "range": "stddev: 0.029422104161474904",
+            "extra": "mean: 208.3700238333345 msec\nrounds: 6"
           }
         ]
       }
