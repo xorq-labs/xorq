@@ -103,4 +103,4 @@ def test_params_string_keyed_dict():
     t = xo.memtable({"x": [1.0, 2.0, 3.0]})
     expr = t.filter(t.x > threshold)
 
-    assert list(expr.execute(params={"threshold": 1.5})["x"]) == [2.0, 3.0]
+    assert tuple(expr.execute(params={"threshold": 1.5})["x"]) == (2.0, 3.0)

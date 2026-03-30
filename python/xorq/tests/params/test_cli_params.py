@@ -159,4 +159,4 @@ def test_parse_cli_params_result_works_with_bind_params():
     params = _parse_cli_params(expr, ("threshold=1.5",))
     bound = bind_params(expr, params)
     result = bound.execute()
-    assert list(result["x"]) == [2.0, 3.0]
+    assert tuple(result["x"]) == (2.0, 3.0)
