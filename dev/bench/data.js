@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774798429801,
+  "lastUpdate": 1774875051174,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -2838,6 +2838,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.045525939192591625",
             "extra": "mean: 195.53329479999775 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5becdfbebd89563c4e3e41c1c445df1a54797bfe",
+          "message": "feat(direnv): add worktree helper script and envrcs documentation (#1760)\n\nAdd setup-worktree script that copies gitignored direnv files\n(.envrc.secrets, .envrc.user, .env.*) from the main worktree into new\nworktrees, and a README documenting the composable .envrcs/ layout.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-30T08:47:16-04:00",
+          "tree_id": "33dbe54166d7b84fc65f26c7631ad0b5c27d3950",
+          "url": "https://github.com/xorq-labs/xorq/commit/5becdfbebd89563c4e3e41c1c445df1a54797bfe"
+        },
+        "date": 1774875047557,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.006271071942288,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022816738765313965",
+            "extra": "mean: 124.90209125000362 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 5.220928410706953,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010934987198085847",
+            "extra": "mean: 191.5368151666712 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7419717725998026,
+            "unit": "iter/sec",
+            "range": "stddev: 0.20760702420542704",
+            "extra": "mean: 1.3477601667999977 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.552421067130173,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030888832446126974",
+            "extra": "mean: 219.66333633334045 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.5197511682926015,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012482897374756557",
+            "extra": "mean: 181.1675869999997 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.54862458363387,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0063131147731386675",
+            "extra": "mean: 180.22484400000374 msec\nrounds: 6"
           }
         ]
       }
