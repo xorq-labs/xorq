@@ -1,5 +1,5 @@
 import os
-import pdb as pdb_module
+import pdb
 import sys
 import traceback
 from functools import partial, wraps
@@ -599,14 +599,14 @@ class PdbGroup(click.Group):
     def invoke(self, ctx):
         try:
             if ctx.params.get("pdb_runcall"):
-                return pdb_module.runcall(super().invoke, ctx)
+                return pdb.runcall(super().invoke, ctx)
             return super().invoke(ctx)
         except (click.ClickException, click.exceptions.Exit, SystemExit):
             raise
         except Exception as e:
             if ctx.params.get("use_pdb"):
                 traceback.print_exception(e)
-                pdb_module.post_mortem(e.__traceback__)
+                pdb.post_mortem(e.__traceback__)
             else:
                 traceback.print_exc()
             sys.exit(1)

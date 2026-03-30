@@ -25,13 +25,20 @@ def _init_hint(ctx):
             return "xorq catalog init"
 
 
+def _pdb_active(ctx):
+    """Return True when --pdb was passed to the top-level CLI group."""
+    return ctx.find_root().params.get("use_pdb", False)
+
+
 @contextmanager
-def click_context(*typs):
+def click_context(ctx, *typs):
     try:
         yield
     except click.ClickException:
         raise
     except typs as e:
+        if _pdb_active(ctx):
+            raise
         click_handler(e)
 
 
@@ -49,10 +56,13 @@ def click_context_catalog(ctx):
             f"Catalog not found: {e}\nRun `{hint}` to create it."
         ) from e
     except Exception as e:
+        if _pdb_active(ctx):
+            raise
         click_handler(e)
 
 
-click_context_default = partial(click_context, AssertionError, Exception)
+def click_context_default(ctx):
+    return click_context(ctx, AssertionError, Exception)
 
 
 @cache
@@ -351,11 +361,12 @@ def sync(ctx):
     type=click.Path(),
     help="Destination repo path.",
 )
-def clone(url, dest_name, dest_path):
+@click.pass_context
+def clone(ctx, url, dest_name, dest_path):
     """Clone a catalog from a remote URL."""
     from xorq.catalog.catalog import Catalog
 
-    with click_context_default():
+    with click_context_default(ctx):
         match (dest_path, dest_name):
             case (None, None):
                 repo_path = None
