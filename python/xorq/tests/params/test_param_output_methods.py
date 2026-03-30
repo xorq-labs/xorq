@@ -95,3 +95,12 @@ def test_params_remote_table():
 
     assert list(expr.execute()["x"]) == [2.0, 3.0]
     assert list(expr.execute(params={threshold: 0.5})["x"]) == [1.0, 2.0, 3.0]
+
+
+def test_params_string_keyed_dict():
+    """execute(params={"name": value}) works via _transform_expr string-key path."""
+    threshold = xo.param("threshold", "float64")
+    t = xo.memtable({"x": [1.0, 2.0, 3.0]})
+    expr = t.filter(t.x > threshold)
+
+    assert list(expr.execute(params={"threshold": 1.5})["x"]) == [2.0, 3.0]

@@ -414,11 +414,24 @@ def _remove_non_hashing_tag_nodes(expr):
 @tracer.start_as_current_span("_transform_expr")
 def _transform_expr(expr, params=None, **kwargs):
     """Transform an expression for execution, binding any named scalar parameters."""
-    name_values = {
-        p.op().label: v
-        for p, v in (params or {}).items()
-        if hasattr(p, "op") and isinstance(p.op(), NamedScalarParameter)
-    }
+    from xorq.vendor.ibis.expr.operations.generic import (  # noqa: PLC0415
+        ScalarParameter,
+    )
+
+    name_values = {}
+    for p, v in (params or {}).items():
+        match getattr(p, "op", lambda: None)():
+            case NamedScalarParameter() as op:
+                name_values[op.label] = v
+            case ScalarParameter():
+                raise TypeError(
+                    "Legacy ibis.param() expressions are not supported as param keys. "
+                    "Use xorq.param(name, dtype) and pass {name: value} dicts instead."
+                )
+            case None if isinstance(p, str):
+                name_values[p] = v
+            case _:
+                raise TypeError(f"Unsupported param key type: {type(p)}")
     if name_values or walk_nodes(NamedScalarParameter, expr):
         expr = bind_params(expr, name_values)
     expr = _remove_tag_nodes(expr)
@@ -439,7 +452,7 @@ def _pandas_execute(con, expr: ir.Expr, **kwargs):
         span.set_attribute("engine", "flight")
         df = node.to_rbr().read_pandas(timestamp_as_object=True)
         return expr.__pandas_result__(df)
-    params = kwargs.get("params", None)
+    params = kwargs.pop("params", None)
     expr, created = _transform_expr(expr, params=params)
 
     span.set_attribute("engine", "pandas")
@@ -478,7 +491,7 @@ def to_pyarrow_batches(
         # TODO: verify correct caching behavior
         span.set_attribute("engine", "flight")
         return expr.op().to_rbr()
-    params = kwargs.get("params", None)
+    params = kwargs.pop("params", None)
     expr, created = _transform_expr(expr, params=params)
     con, _ = find_backend(expr.op(), use_default=True)
 
