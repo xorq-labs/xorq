@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+branch="${1:?usage: new-worktree <branch-name>}"
+root=$(git rev-parse --show-toplevel)
+dest="$(dirname "$root")/xorq-${branch//\//-}"
+
+git worktree add "$dest" "$branch" >&2
+cd "$dest"
+"$root/dev/setup-worktree" >&2
+direnv allow >&2
+
+echo "$dest"

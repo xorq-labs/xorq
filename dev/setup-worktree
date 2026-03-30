@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+main=$(git worktree list --porcelain | head -1 | cut -d' ' -f2)
+here=$(git rev-parse --show-toplevel)
+
+if [ "$main" = "$here" ]; then
+    echo "Already in the main worktree, nothing to copy." >&2
+    exit 0
+fi
+
+manifest="$here/.envrcs/.worktree-manifest"
+: > "$manifest"
+
+for f in "$main"/.envrcs/.envrc.secrets "$main"/.envrcs/.envrc.user "$main"/.envrcs/.env.*; do
+    if [ -f "$f" ]; then
+        cp -v "$f" "$here/.envrcs/"
+        echo ".envrcs/$(basename "$f")" >> "$manifest"
+    fi
+done
+
+# Symlink shared dotfiles from main worktree
+for target in .gitignore; do
+    if [ -e "$main/$target" ] && [ ! -e "$here/$target" ]; then
+        ln -sv "$main/$target" "$here/$target"
+        echo "$target" >> "$manifest"
+    fi
+done
+
+echo "Manifest written to .envrcs/.worktree-manifest"
+echo "To remove: dev/cleanup-worktree"
