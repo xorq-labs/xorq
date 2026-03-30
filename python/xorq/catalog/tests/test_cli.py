@@ -1192,7 +1192,7 @@ def test_compose_then_run_arrow_stdout(runner, catalog_with_source_and_transform
 def test_pdb_flag_invokes_post_mortem(tmp_path, monkeypatch):
     """--pdb should let exceptions propagate to PdbGroup, which calls pdb.post_mortem."""
     mock_pm = MagicMock()
-    monkeypatch.setattr("xorq.cli.pdb_module.post_mortem", mock_pm)
+    monkeypatch.setattr("xorq.cli.pdb.post_mortem", mock_pm)
 
     # "catalog list" on a non-catalog directory fails inside the command body
     # (not at Click arg-parsing time), so it exercises click_context_catalog.
