@@ -79,7 +79,7 @@ def _try_resolve_annex_remote(repo_path, **remote_kwargs):
         if rc is not None:
             rc.enableremote(repo_path)
             return rc
-    except (ValueError, TypeError, AnnexError):
+    except (ValueError, AnnexError):
         if remote_kwargs:
             raise
     return None
@@ -799,8 +799,6 @@ class CatalogEntry:
 
     @property
     def lazy_expr(self):
-        from xorq.catalog.expr_utils import load_expr_from_zip  # noqa: PLC0415
-
         if not self.is_content_local:
             self.fetch()
         return load_expr_from_zip(self.catalog_path, lazy=True)

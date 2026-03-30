@@ -91,7 +91,7 @@ def test_bound_kind(catalog_with_entries):
     assert len(source_entries) == 1
 
 
-def test_bound_to_dict_includes_sources(catalog_with_entries):
+def test_bound_to_dict_includes_composed_from(catalog_with_entries):
     catalog, source_entry, transform_entry = catalog_with_entries
     bound = bind(source_entry, transform_entry)
     meta = ExprMetadata.from_expr(bound)

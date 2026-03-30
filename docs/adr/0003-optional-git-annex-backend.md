@@ -88,7 +88,7 @@ This means `CatalogEntry.metadata`, `.kind`, `.columns`, `.backends`, and `.comp
 
 ### Why an ABC, not a flag inside Catalog?
 
-Sprinkling `if self.annex:` throughout `Catalog` would couple the catalog logic to both storage strategies. The ABC keeps `Catalog` unaware of how staging works, and makes adding a third backend (e.g. DVC, LFS) a matter of implementing four methods.
+Sprinkling `if self.annex:` throughout `Catalog` would couple the catalog logic to both storage strategies. The ABC keeps `Catalog` unaware of how staging works, and makes adding a third backend (e.g. DVC, LFS) a matter of implementing six methods.
 
 ### Why default to annex=None (auto-detect)?
 

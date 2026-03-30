@@ -551,8 +551,8 @@ def test_annex_is_content_local_after_drop(tmpdir):
     assert not entry.is_available
 
 
-def test_annex_read_after_drop_raises_content_not_available(tmpdir):
-    """Accessing content after drop raises ContentNotAvailableError."""
+def test_annex_auto_fetch_after_drop(tmpdir):
+    """Sidecar metadata works after drop; expr and get auto-fetch from remote."""
     remote_dir = Path(tmpdir).joinpath("remote-store")
     remote_dir.mkdir()
     remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
@@ -606,6 +606,38 @@ def test_annex_fetch_restores_content(tmpdir):
     assert entry.is_available
     # content is actually readable after fetch
     assert entry.metadata is not None
+
+
+def test_fetch_entries_bulk(tmpdir):
+    """catalog.fetch_entries() batch-fetches multiple entries in one operation."""
+    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir.mkdir()
+    remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
+    repo_path = Path(tmpdir).joinpath("repo")
+    Catalog.init_repo_path(repo_path, annex=remote_config)
+    annex = Annex(repo_path=repo_path)
+    backend = GitAnnexBackend(repo=GitRepo(repo_path), annex=annex)
+    catalog = Catalog(backend=backend)
+
+    with build_expr_context_zip(xo.memtable({"a": [1]})) as zp:
+        entry_a = catalog.add(zp, sync=False)
+    with build_expr_context_zip(xo.memtable({"b": [2]})) as zp:
+        entry_b = catalog.add(zp, sync=False)
+
+    annex.copy(to="mydir")
+    annex.drop()
+    assert not entry_a.is_content_local
+    assert not entry_b.is_content_local
+
+    catalog.fetch_entries(entry_a, entry_b)
+    assert entry_a.is_content_local
+    assert entry_b.is_content_local
+
+    # also test string-based lookup
+    annex.drop()
+    catalog.fetch_entries(entry_a.name, entry_b.name)
+    assert entry_a.is_content_local
+    assert entry_b.is_content_local
 
 
 def test_plain_git_is_content_local(catalog):

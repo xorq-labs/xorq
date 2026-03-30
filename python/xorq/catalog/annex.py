@@ -342,6 +342,7 @@ class DirectoryRemoteConfig(RemoteConfig):
     name = field(validator=instance_of(str))
     directory = field(validator=instance_of(str))
     encryption = field(validator=instance_of(str), default="none")
+    autoenable = field(validator=optional(instance_of(str)), default=None)
 
     EnvConfig = EnvConfigable.subclass_from_env_file(
         env_templates_dir.joinpath(".env.catalog.directory.template"),
@@ -350,13 +351,18 @@ class DirectoryRemoteConfig(RemoteConfig):
 
     def initremote(self, repo_path):
         Path(self.directory).mkdir(exist_ok=True, parents=True)
-        _check_output_do_inside(
-            repo_path,
-            "initremote",
+        params = [
             self.name,
             "type=directory",
             f"directory={self.directory}",
             f"encryption={self.encryption}",
+        ]
+        if self.autoenable is not None:
+            params.append(f"autoenable={self.autoenable}")
+        _check_output_do_inside(
+            repo_path,
+            "initremote",
+            *params,
             check_stderr=False,
         )
 
@@ -369,7 +375,8 @@ class DirectoryRemoteConfig(RemoteConfig):
             raise ValueError(f"expected remote type 'directory', got {info['type']!r}")
 
     def to_dict(self):
-        return {"type": "directory", **attr.asdict(self)}
+        d = {"type": "directory", **attr.asdict(self)}
+        return {k: v for k, v in d.items() if v is not None}
 
 
 _REQUIRED_S3_FIELDS = frozenset(
@@ -399,6 +406,7 @@ class S3RemoteConfig(RemoteConfig):
     versioning = field(validator=optional(instance_of(str)), default=None)
     partsize = field(validator=optional(instance_of(str)), default=None)
     embedcreds = field(validator=optional(instance_of(str)), default=None)
+    autoenable = field(validator=optional(instance_of(str)), default=None)
 
     EnvConfig = EnvConfigable.subclass_from_env_file(
         env_templates_dir.joinpath(".env.catalog.s3.template"),
