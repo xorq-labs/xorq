@@ -723,7 +723,7 @@ def bind_params(expr, params: dict) -> "ir.Expr":
 
     errors = []
 
-    inapplicable = sorted(set(params) - set(named))
+    inapplicable = tuple(sorted(set(params) - set(named)))
     if inapplicable:
         errors.append(f"Got unexpected extra parameter: {', '.join(inapplicable)}")
 
@@ -737,11 +737,11 @@ def bind_params(expr, params: dict) -> "ir.Expr":
     if errors:
         raise TypeError("\n".join(errors))
 
-    missing = [
+    missing = tuple(
         f"{name} ({node.dtype})"
         for name, node in named.items()
         if name not in params and node.default is None
-    ]
+    )
     if missing:
         raise ValueError(f"Missing required parameters: {', '.join(missing)}")
 
