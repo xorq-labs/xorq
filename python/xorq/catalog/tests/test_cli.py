@@ -3,6 +3,7 @@ import json
 import shutil
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pytest
@@ -23,6 +24,7 @@ from xorq.catalog.zip_utils import (
     extract_build_zip_context,
     write_zip,
 )
+from xorq.cli import cli as top_cli
 from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES
 from xorq.vendor.ibis.expr import operations as ops
 
@@ -1182,3 +1184,33 @@ def test_compose_then_run_arrow_stdout(runner, catalog_with_source_and_transform
     )
     assert result.exit_code == 0, result.output
     assert len(result.output) > 0
+
+
+# --- --pdb flag ---
+
+
+def test_pdb_flag_invokes_post_mortem(tmp_path, monkeypatch):
+    """--pdb should let exceptions propagate to PdbGroup, which calls pdb.post_mortem."""
+    mock_pm = MagicMock()
+    monkeypatch.setattr("xorq.cli.pdb_module.post_mortem", mock_pm)
+
+    # "catalog list" on a non-catalog directory fails inside the command body
+    # (not at Click arg-parsing time), so it exercises click_context_catalog.
+    runner = CliRunner()
+    result = runner.invoke(
+        top_cli,
+        ["--pdb", "catalog", "--path", str(tmp_path), "list"],
+    )
+    assert result.exit_code != 0
+    assert mock_pm.called, "pdb.post_mortem was not called with --pdb"
+
+
+def test_no_pdb_flag_wraps_exception(tmp_path):
+    """Without --pdb, errors should be wrapped as clean 'Error: ...' messages."""
+    runner = CliRunner()
+    result = runner.invoke(
+        top_cli,
+        ["catalog", "--path", str(tmp_path), "list"],
+    )
+    assert result.exit_code != 0
+    assert "Error:" in result.output
