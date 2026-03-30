@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import time
+import uuid
 from pathlib import Path
 
 import attr
@@ -454,30 +455,67 @@ class S3RemoteConfig(RemoteConfig):
             return None
         return f"https://{self.host}"
 
-    def check_bucket(self):
-        """Verify that credentials can reach the bucket.
-
-        Returns a dict with connection details on success, raises on failure.
-        Requires boto3.
-        """
+    def _make_boto3_client(self):
         import boto3  # noqa: PLC0415
 
-        client = boto3.client(
+        # boto3 SigV4 needs a real region in the credential scope;
+        # "auto" works for git-annex but not for boto3 PUT signing.
+        region = "us-east-1" if self.region in (None, "auto") else self.region
+        return boto3.client(
             "s3",
             aws_access_key_id=self.aws_access_key_id,
             aws_secret_access_key=self.aws_secret_access_key,
             endpoint_url=self.boto3_endpoint_url,
-            region_name=self.region,
+            region_name=region,
         )
+
+    def check_bucket(self, check_write=False):
+        """Verify that credentials can reach the bucket.
+
+        Returns a dict with connection details on success, raises on failure.
+        When *check_write* is True, probes write access by uploading and
+        deleting a zero-byte sentinel object under the configured fileprefix.
+        Requires boto3.
+        """
+        client = self._make_boto3_client()
         # head_bucket verifies both auth and bucket existence
         client.head_bucket(Bucket=self.bucket)
         # list a single key to confirm read access
         listing = client.list_objects_v2(Bucket=self.bucket, MaxKeys=1)
-        return {
+        result = {
             "bucket": self.bucket,
             "endpoint_url": self.boto3_endpoint_url or "(AWS default)",
             "key_count": listing.get("KeyCount", 0),
         }
+        if check_write:
+            result["writable"] = self._probe_write(client)
+        return result
+
+    def _probe_write(self, client=None):
+        """Upload and delete a zero-byte sentinel to test write access.
+
+        Returns True if the write succeeds, False on AccessDenied.
+        """
+        from botocore.exceptions import ClientError  # noqa: PLC0415
+
+        if client is None:
+            client = self._make_boto3_client()
+        probe_key = f"{self.fileprefix or ''}.xorq-write-probe-{uuid.uuid4().hex[:12]}"
+        try:
+            resp = client.create_multipart_upload(
+                Bucket=self.bucket,
+                Key=probe_key,
+            )
+            client.abort_multipart_upload(
+                Bucket=self.bucket,
+                Key=probe_key,
+                UploadId=resp["UploadId"],
+            )
+            return True
+        except ClientError as e:
+            if e.response["Error"]["Code"] in ("AccessDenied", "403"):
+                return False
+            raise
 
     @property
     def initremote_params(self):
