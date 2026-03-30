@@ -50,35 +50,48 @@ def _get_cache_dir(cache_dir):
     return cache_dir
 
 
-def _coerce_param(value: str, dtype):
-    """Coerce a CLI string to the Python type matching dtype."""
-    import datetime  # noqa: PLC0415
+class _ClickDate(click.ParamType):
+    name = "date"
 
+    def convert(self, value, param, ctx):
+        import datetime  # noqa: PLC0415
+
+        try:
+            return datetime.date.fromisoformat(value)
+        except (ValueError, TypeError):
+            self.fail(
+                f"{value!r} is not a valid date (expected YYYY-MM-DD)", param, ctx
+            )
+
+
+def _click_type_for_dtype(dtype):
+    """Return the :class:`click.ParamType` corresponding to an ibis *dtype*."""
     import xorq.expr.datatypes as dt  # noqa: PLC0415
 
-    match dtype:
-        case dt.Float64() | dt.Float32():
-            return float(value)
-        case dt.Int64() | dt.Int32() | dt.Int16() | dt.Int8():
-            return int(value)
-        case dt.String():
-            return value
-        case dt.Date():
-            return datetime.date.fromisoformat(value)
-        case dt.Timestamp():
-            return datetime.datetime.fromisoformat(value)
-        case dt.Boolean():
-            return value.lower() in ("true", "1", "yes")
-        case _:
-            raise click.BadParameter(f"Don't know how to coerce {value!r} to {dtype}")
+    _CLICK_TYPES = {
+        dt.Float64: click.FLOAT,
+        dt.Float32: click.FLOAT,
+        dt.Int64: click.INT,
+        dt.Int32: click.INT,
+        dt.Int16: click.INT,
+        dt.Int8: click.INT,
+        dt.String: click.STRING,
+        dt.Boolean: click.BOOL,
+        dt.Date: _ClickDate(),
+        dt.Timestamp: click.DateTime(),
+    }
+    click_type = _CLICK_TYPES.get(type(dtype))
+    if click_type is None:
+        raise click.BadParameter(f"Unsupported parameter dtype: {dtype}")
+    return click_type
 
 
 def _parse_cli_params(expr, raw_params: tuple) -> dict:
-    """Parse key=value CLI strings into a {param_expr: value} dict.
+    """Parse key=value CLI strings into a {name: typed_value} dict.
 
-    Does not bind the expression — callers pass the returned dict to
-    execute/to_parquet/etc. so that binding happens centrally in
-    _transform_expr.
+    Uses Click type converters to coerce and validate each string value
+    against the declared parameter dtype. The returned dict is suitable
+    for passing directly to :func:`xorq.expr.api.bind_params`.
     """
     if not raw_params:
         return {}
@@ -97,8 +110,8 @@ def _parse_cli_params(expr, raw_params: tuple) -> dict:
             raise click.BadParameter(
                 f"Unknown parameter {key!r}. Available: {', '.join(named) or '(none)'}"
             )
-        node = named[key]
-        params[node.to_expr()] = _coerce_param(value, node.dtype)
+        click_type = _click_type_for_dtype(named[key].dtype)
+        params[key] = click_type.convert(value, param=None, ctx=None)
 
     return params
 
@@ -259,9 +272,7 @@ def run_command(
         ("limit", limit),
     )
 
-    span.add_event(
-        "run.params", {k: v for k, v in run_params if run_params is not None}
-    )
+    span.add_event("run.params", {k: v for k, v in run_params if v is not None})
 
     try:
         with RunLogger.from_expr_hash(expr_hash, params_tuple=run_params) as rl:
@@ -278,16 +289,21 @@ def run_command(
                         " - compose it with a source first using xorq catalog compose-add"
                     ) from err
 
-                params = _parse_cli_params(expr, raw_params)
+                raw_param_dict = _parse_cli_params(expr, raw_params)
                 load_metrics = {"elapsed_s": round(get_elapsed(), 3)}
                 span.add_event("run.expr_loaded", load_metrics)
                 rl.log_event("run.expr_loaded", load_metrics)
+
+            if raw_param_dict:
+                from xorq.expr.api import bind_params  # noqa: PLC0415
+
+                expr = bind_params(expr, raw_param_dict)
 
             if limit is not None:
                 expr = expr.limit(limit)
 
             with timed() as get_elapsed:
-                arbitrate_output_format(expr, output_path, output_format, params=params)
+                arbitrate_output_format(expr, output_path, output_format)
                 execute_metrics = {
                     "elapsed_s": round(get_elapsed(), 3),
                     "output_format": str(output_format),
@@ -364,12 +380,11 @@ def run_cached_command(
     )
 
     expr = load_expr(expr_path, cache_dir=cache_dir)
-    params = _parse_cli_params(expr, raw_params)
-    if params:
+    raw_param_dict = _parse_cli_params(expr, raw_params)
+    if raw_param_dict:
         from xorq.expr.api import bind_params  # noqa: PLC0415
 
-        expr = bind_params(expr, {p.op().label: v for p, v in params.items()})
-        params = {}
+        expr = bind_params(expr, raw_param_dict)
 
     match (cache_type, ttl):
         case ("modification-time", None):
@@ -391,7 +406,7 @@ def run_cached_command(
 
     if limit is not None:
         expr = expr.limit(limit)
-    arbitrate_output_format(expr, output_path, output_format, params=params)
+    arbitrate_output_format(expr, output_path, output_format)
 
 
 def arbitrate_output_format(expr, output_path, output_format, params=None):

@@ -64,3 +64,19 @@ def test_bind_date_param():
     expr = t.filter(t.d >= cutoff)
     result = xo.bind_params(expr, {"cutoff": date(2024, 6, 1)}).execute()
     assert len(result) == 2
+
+
+def test_bind_raises_on_inapplicable_param():
+    threshold = xo.param("threshold", "float64")
+    t = xo.memtable({"x": [1.0, 2.0]})
+    expr = t.filter(t.x > threshold)
+    with pytest.raises(TypeError, match="unexpected extra parameter"):
+        xo.bind_params(expr, {"threshold": 1.0, "bogus": 42})
+
+
+def test_bind_raises_on_incompatible_value_type():
+    cutoff = xo.param("cutoff", "date")
+    t = xo.memtable({"d": [date(2024, 1, 1)]})
+    expr = t.filter(t.d >= cutoff)
+    with pytest.raises(TypeError, match="not compatible with declared dtype"):
+        xo.bind_params(expr, {"cutoff": 42})

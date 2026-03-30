@@ -702,14 +702,33 @@ def bind_params(expr, params: dict) -> "ir.Expr":
     ------
     ValueError
         If any required parameter (no default) is absent from *params*.
+    TypeError
+        If *params* contains names not found in *expr*, or values
+        incompatible with the declared dtype.
     """
     named = {node.label: node for node in walk_nodes(NamedScalarParameter, expr)}
 
-    missing = tuple(
+    errors = []
+
+    inapplicable = sorted(set(params) - set(named))
+    if inapplicable:
+        errors.append(f"Got unexpected extra parameter: {', '.join(inapplicable)}")
+
+    for name, value in params.items():
+        if name in named and not dt.infer(value).castable(named[name].dtype):
+            errors.append(
+                f"Parameter {name!r}: value {value!r} (inferred {dt.infer(value)}) "
+                f"is not compatible with declared dtype {named[name].dtype}"
+            )
+
+    if errors:
+        raise TypeError("\n".join(errors))
+
+    missing = [
         f"{name} ({node.dtype})"
         for name, node in named.items()
         if name not in params and node.default is None
-    )
+    ]
     if missing:
         raise ValueError(f"Missing required parameters: {', '.join(missing)}")
 
