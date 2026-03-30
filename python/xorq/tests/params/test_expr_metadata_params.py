@@ -70,6 +70,19 @@ def test_conflicting_param_dtypes_raises():
         ExprMetadata.from_expr(expr)
 
 
+def test_conflicting_param_dtypes_reports_all_conflicts():
+    """All conflicting labels are reported in a single TypeError, not just the first."""
+    px_float = NamedScalarParameter(dtype="float64", label="x").to_expr()
+    px_int = NamedScalarParameter(dtype="int64", label="x").to_expr()
+    py_str = NamedScalarParameter(dtype="string", label="y").to_expr()
+    py_bool = NamedScalarParameter(dtype="boolean", label="y").to_expr()
+    t = ibis.memtable({"x": [1.0], "y": ["a"]})
+    expr = t.filter((t.x > px_float) & (t.x < px_int) & (t.y == py_str)).filter(py_bool)
+    with pytest.raises(TypeError, match="'x'") as exc_info:
+        ExprMetadata.from_expr(expr)
+    assert "'y'" in str(exc_info.value)
+
+
 def test_conflicting_param_dtypes_raises_on_build(tmp_path):
     p_float = NamedScalarParameter(dtype="float64", label="x").to_expr()
     p_int = NamedScalarParameter(dtype="int64", label="x").to_expr()

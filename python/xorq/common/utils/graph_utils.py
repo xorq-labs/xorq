@@ -299,13 +299,19 @@ def validate_params(expr):
     """Raise TypeError if two NamedScalarParameter nodes share a label but have different dtypes."""
 
     seen = {}
+    conflicts = {}
     for node in walk_nodes(NamedScalarParameter, expr):
         if node.label in seen and seen[node.label] != node.dtype:
-            raise TypeError(
-                f"Parameter label {node.label!r} used with conflicting dtypes: "
-                f"{seen[node.label]} and {node.dtype}"
-            )
+            conflicts.setdefault(node.label, {seen[node.label]}).add(node.dtype)
         seen[node.label] = node.dtype
+
+    if conflicts:
+        messages = tuple(
+            f"Parameter label {label!r} used with conflicting dtypes: "
+            + ", ".join(str(d) for d in dtypes)
+            for label, dtypes in conflicts.items()
+        )
+        raise TypeError("\n".join(messages))
 
 
 def get_ordered_unique_sources(nodes):
