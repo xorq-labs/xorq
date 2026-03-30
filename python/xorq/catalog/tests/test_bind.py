@@ -771,3 +771,66 @@ def test_fuse_skips_read_source(catalog, tmpdir):
         t for t in (tags or ()) if t.metadata.get("tag") in frozenset(CatalogTag)
     )
     assert len(catalog_tags) >= 2
+
+
+def test_fuse_preserves_non_catalog_hashing_tag(catalog_with_entries):
+    """Fusing strips CatalogTag wrappers but preserves unrelated HashingTags."""
+    _, source_entry, transform_entry = catalog_with_entries
+    bound = bind(source_entry, transform_entry)
+
+    # Add a non-catalog HashingTag on top
+    tagged = bound.hashing_tag("custom-provenance", author="test")
+    fused = fuse_catalog_source(tagged)
+
+    tags = walk_nodes(HashingTag, fused) or ()
+    catalog_tags = tuple(
+        t for t in tags if t.metadata.get("tag") in frozenset(CatalogTag)
+    )
+    custom_tags = tuple(t for t in tags if t.metadata.get("tag") == "custom-provenance")
+    assert len(catalog_tags) == 0
+    assert len(custom_tags) == 1
+    assert custom_tags[0].metadata["author"] == "test"
+
+
+def test_fuse_preserves_non_catalog_remote_table(source_expr):
+    """Fusing does not strip user-created RemoteTables (e.g. into_backend)."""
+    con = xo.connect()
+    remote = source_expr.into_backend(con, name="user_rt")
+
+    # No catalog tags → fuse is a no-op, RemoteTable preserved
+    result = fuse_catalog_source(remote)
+    assert result is remote
+
+    rts = walk_nodes(RemoteTable, result)
+    assert len(rts) == 1
+
+
+def test_fuse_preserves_non_catalog_remote_table_inside_bind(catalog):
+    """User-created RemoteTables inside a source expression survive fusing."""
+    con = xo.connect()
+    inner = xo.memtable({"user_id": [1, 2, 3], "amount": [10.0, 20.0, 30.0]})
+    remote_source = inner.into_backend(con, name="user_rt")
+    source_entry = catalog.add(remote_source, aliases=("remote-src",))
+
+    schema = remote_source.schema()
+    ub = ops.UnboundTable(name="ph", schema=schema).to_expr()
+    transform_entry = catalog.add(ub.filter(ub.amount > 0).select("user_id", "amount"))
+
+    bound = bind(source_entry, transform_entry)
+    fused = fuse_catalog_source(bound)
+
+    # Catalog wrappers stripped
+    tags = walk_nodes(HashingTag, fused) or ()
+    catalog_tags = tuple(
+        t for t in tags if t.metadata.get("tag") in frozenset(CatalogTag)
+    )
+    assert len(catalog_tags) == 0
+
+    # The user-created RemoteTable is still present
+    rts = walk_nodes(RemoteTable, fused)
+    assert len(rts) == 1
+
+    # Still produces correct results
+    expected = bound.execute()
+    actual = fused.execute()
+    assert actual.reset_index(drop=True).equals(expected.reset_index(drop=True))
