@@ -157,14 +157,12 @@ class Catalog:
             return catalog_entry
 
     def _add_build_dir(self, build_dir, sync=True, aliases=(), exist_ok=False):
-        from xorq.catalog.zip_utils import make_zip_context  # noqa: PLC0415
         with make_zip_context(build_dir) as zip_path:
             return self._add_zip(
                 zip_path, sync=sync, aliases=aliases, exist_ok=exist_ok
             )
 
     def _add_expr(self, expr, sync=True, aliases=(), exist_ok=False):
-        from xorq.catalog.expr_utils import build_expr_context  # noqa: PLC0415
         with build_expr_context(expr) as path:
             return self._add_build_dir(
                 path, sync=sync, aliases=aliases, exist_ok=exist_ok
@@ -686,7 +684,7 @@ class CatalogAddition:
             f"{prefix}/{DumpFiles.expr_metadata}", json.loads
         )
         profiles_data = self.build_zip.read_member(
-            f"{prefix}/{DumpFiles.profiles}", yaml.safe_load
+            f"{prefix}/{DumpFiles.profiles}", yaml12.parse_yaml
         )
         backends = [
             v["con_name"] for v in profiles_data.values() if isinstance(v, dict)
@@ -728,7 +726,6 @@ class CatalogAddition:
             return None
         self.ensure_dirs()
         catalog_entry = self.catalog_entry
-        # yaml.safe_dump(self.metadata, sort_keys=False)
         catalog_entry.metadata_path.write_text(yaml12.format_yaml(self.metadata))
         shutil.copy(self.build_zip.path, catalog_entry.catalog_path)
         backend = self.catalog.backend
@@ -815,7 +812,7 @@ class CatalogEntry:
     @cached_property
     def sidecar_metadata(self) -> dict:
         """Always-available metadata from the git-tracked sidecar file."""
-        return yaml.safe_load(self.metadata_path.read_text()) or {}
+        return yaml12.parse_yaml(self.metadata_path.read_text()) or {}
 
     @cached_property
     def metadata(self):
