@@ -210,3 +210,73 @@ def _make_source_expr(source, con=None, alias=None):
     """Wrap a CatalogEntry as a RemoteTable + HashingTag without transforms."""
     source_expr, _ = _resolve_source(source, con, alias)
     return source_expr
+
+
+def fuse_catalog_source(expr):
+    """Strip catalog-created RemoteTable + HashingTag layers for catalog sources.
+
+    When ``bind()`` composes catalog entries it wraps everything in
+    RemoteTable and HashingTag layers for provenance tracking.  These
+    layers add unnecessary indirection that prevents query push-down.
+
+    This function detects catalog source tags and, when fusable, strips the
+    catalog wrappers to produce a single flat expression that the backend
+    can execute as one query.  This applies to both database-backed sources
+    (DatabaseTable / DatabaseTableView) and deferred reads (Read).
+    """
+    from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+    from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
+    from xorq.expr.relations import HashingTag  # noqa: PLC0415
+
+    with tracer.start_as_current_span("catalog.fuse") as span:
+        source_tags = tuple(
+            ht
+            for ht in (walk_nodes(HashingTag, expr) or ())
+            if ht.metadata.get("tag") == CatalogTag.SOURCE
+        )
+        span.set_attribute("source_tags_count", len(source_tags))
+
+        if not source_tags:
+            span.set_attribute("fused", False)
+            span.set_attribute("reason", "no_catalog_source_tags")
+            return expr
+
+        fusable = all(isinstance(st.parent, RemoteTable) for st in source_tags)
+        if not fusable:
+            span.set_attribute("fused", False)
+            span.set_attribute("reason", "not_fusable")
+            return expr
+
+        from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
+
+        catalog_tags_set = frozenset(CatalogTag)
+
+        def replacer(node, kwargs):
+            if kwargs:
+                node = node.__recreate__(kwargs)
+            match node:
+                case HashingTag() if node.metadata.get("tag") in catalog_tags_set:
+                    match node.parent:
+                        case RemoteTable():
+                            return node.parent.remote_expr.op()
+                        case _:
+                            return node.parent
+                case RemoteTable():
+                    # RemoteTable_B: _ensure_remote can't see through the
+                    # HashingTag to RemoteTable_A, so _bind_one wraps it
+                    # again. Fuse this redundant layer by stripping the
+                    # inner tag.
+                    inner = node.remote_expr.op()
+                    match inner:
+                        case HashingTag() if (
+                            inner.metadata.get("tag") in catalog_tags_set
+                        ):
+                            return replace_nodes(replacer, inner.to_expr())
+                        case _:
+                            return node
+                case _:
+                    return node
+
+        result = replace_nodes(replacer, expr).to_expr()
+        span.set_attribute("fused", True)
+        return result

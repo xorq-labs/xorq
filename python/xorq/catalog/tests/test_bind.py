@@ -1,13 +1,22 @@
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 import xorq.api as xo
-from xorq.catalog.bind import CatalogTag, _validate_schema, bind
+from xorq.catalog.bind import (
+    CatalogTag,
+    _make_source_expr,
+    _validate_schema,
+    bind,
+    fuse_catalog_source,
+)
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.composer import ExprComposer
+from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import walk_nodes
-from xorq.expr.relations import HashingTag
+from xorq.expr.relations import HashingTag, Read, RemoteTable
 from xorq.ibis_yaml.enums import ExprKind
 from xorq.vendor.ibis import Schema
 from xorq.vendor.ibis.expr import operations as ops
@@ -645,3 +654,191 @@ def test_from_expr_no_tags_raises(catalog_with_entries):
     bare = xo.memtable({"x": [1, 2, 3]})
     with pytest.raises(ValueError, match="No catalog-source tag found"):
         ExprComposer.from_expr(bare, catalog)
+
+
+# --- fuse_catalog_source tests ---
+
+
+def test_fuse_strips_catalog_wrappers(catalog_with_entries):
+    """Fusing a bound expression removes all CatalogTag HashingTag nodes."""
+    _, source_entry, transform_entry = catalog_with_entries
+    bound = bind(source_entry, transform_entry)
+
+    tags_before = walk_nodes(HashingTag, bound)
+    catalog_tags_before = tuple(
+        t for t in tags_before if t.metadata.get("tag") in frozenset(CatalogTag)
+    )
+    assert len(catalog_tags_before) >= 2  # at least SOURCE + TRANSFORM
+
+    fused = fuse_catalog_source(bound)
+    tags_after = walk_nodes(HashingTag, fused)
+    catalog_tags_after = tuple(
+        t for t in (tags_after or ()) if t.metadata.get("tag") in frozenset(CatalogTag)
+    )
+    assert len(catalog_tags_after) == 0
+
+
+def test_fuse_strips_catalog_remote_tables(catalog_with_entries):
+    """Fusing removes all RemoteTable wrappers created by bind."""
+    _, source_entry, transform_entry = catalog_with_entries
+    bound = bind(source_entry, transform_entry)
+    fused = fuse_catalog_source(bound)
+
+    rts = walk_nodes(RemoteTable, fused)
+    assert not rts
+
+
+def test_fuse_preserves_correctness(catalog_with_entries):
+    """Fused expression produces the same result as the unfused one."""
+    _, source_entry, transform_entry = catalog_with_entries
+    bound = bind(source_entry, transform_entry)
+    fused = fuse_catalog_source(bound)
+
+    expected = bound.execute()
+    actual = fused.execute()
+    assert actual.reset_index(drop=True).equals(expected.reset_index(drop=True))
+
+
+def test_fuse_chained_transforms(catalog_with_entries):
+    """Fusing a multi-transform chain strips all intermediate wrappers."""
+    catalog, source_entry, transform_entry = catalog_with_entries
+    output_schema = xo.Schema({"user_id": "int64", "amount": "float64"})
+    ub2 = ops.UnboundTable(name="ph2", schema=output_schema).to_expr()
+    t2_entry = catalog.add(ub2.filter(ub2.amount > 15))
+
+    bound = bind(source_entry, transform_entry, t2_entry)
+    fused = fuse_catalog_source(bound)
+
+    tags_after = walk_nodes(HashingTag, fused)
+    catalog_tags_after = tuple(
+        t for t in (tags_after or ()) if t.metadata.get("tag") in frozenset(CatalogTag)
+    )
+    assert len(catalog_tags_after) == 0
+
+    expected = bound.execute()
+    actual = fused.execute()
+    assert actual.reset_index(drop=True).equals(expected.reset_index(drop=True))
+
+
+def test_fuse_bare_source(catalog_with_entries):
+    """Fusing a bare source (no transforms) strips its catalog wrappers."""
+    _, source_entry, _ = catalog_with_entries
+    source_expr = _make_source_expr(source_entry)
+
+    fused = fuse_catalog_source(source_expr)
+    tags_after = walk_nodes(HashingTag, fused)
+    catalog_tags_after = tuple(
+        t for t in (tags_after or ()) if t.metadata.get("tag") in frozenset(CatalogTag)
+    )
+    assert len(catalog_tags_after) == 0
+
+
+def test_fuse_noop_without_catalog_tags():
+    """Fusing an expression without CatalogTag markers returns it unchanged."""
+    plain = xo.memtable({"x": [1, 2, 3]})
+    result = fuse_catalog_source(plain)
+    assert result is plain
+
+
+def test_fuse_idempotent(catalog_with_entries):
+    """Fusing an already-fused expression returns it unchanged."""
+    _, source_entry, transform_entry = catalog_with_entries
+    bound = bind(source_entry, transform_entry)
+    fused = fuse_catalog_source(bound)
+    fused_again = fuse_catalog_source(fused)
+    assert fused_again is fused
+
+
+def test_fuse_read_source(catalog, tmpdir):
+    """Fusing strips catalog wrappers even when the source contains Read ops."""
+    pq_path = Path(tmpdir) / "data.parquet"
+    pq.write_table(pa.table({"x": [1, 2, 3], "y": [4, 5, 6]}), pq_path)
+
+    source_expr = deferred_read_parquet(pq_path)
+    reads = walk_nodes(Read, source_expr)
+    assert reads, "Expected Read ops for a deferred parquet source"
+
+    source_entry = catalog.add(source_expr)
+    transform_schema = source_expr.schema()
+    ub = ops.UnboundTable(name="ph", schema=transform_schema).to_expr()
+    transform_entry = catalog.add(ub.limit(1))
+    bound = bind(source_entry, transform_entry)
+
+    result = fuse_catalog_source(bound)
+    # Catalog wrappers should be stripped
+    tags = walk_nodes(HashingTag, result)
+    catalog_tags = tuple(
+        t for t in (tags or ()) if t.metadata.get("tag") in frozenset(CatalogTag)
+    )
+    assert len(catalog_tags) == 0
+
+    # Read nodes should still be present
+    assert walk_nodes(Read, result)
+
+    # Results should be correct
+    expected = bound.execute()
+    actual = result.execute()
+    assert actual.reset_index(drop=True).equals(expected.reset_index(drop=True))
+
+
+def test_fuse_preserves_non_catalog_hashing_tag(catalog_with_entries):
+    """Fusing strips CatalogTag wrappers but preserves unrelated HashingTags."""
+    _, source_entry, transform_entry = catalog_with_entries
+    bound = bind(source_entry, transform_entry)
+
+    # Add a non-catalog HashingTag on top
+    tagged = bound.hashing_tag("custom-provenance", author="test")
+    fused = fuse_catalog_source(tagged)
+
+    tags = walk_nodes(HashingTag, fused) or ()
+    catalog_tags = tuple(
+        t for t in tags if t.metadata.get("tag") in frozenset(CatalogTag)
+    )
+    custom_tags = tuple(t for t in tags if t.metadata.get("tag") == "custom-provenance")
+    assert len(catalog_tags) == 0
+    assert len(custom_tags) == 1
+    assert custom_tags[0].metadata["author"] == "test"
+
+
+def test_fuse_preserves_non_catalog_remote_table(source_expr):
+    """Fusing does not strip user-created RemoteTables (e.g. into_backend)."""
+    con = xo.connect()
+    remote = source_expr.into_backend(con, name="user_rt")
+
+    # No catalog tags → fuse is a no-op, RemoteTable preserved
+    result = fuse_catalog_source(remote)
+    assert result is remote
+
+    rts = walk_nodes(RemoteTable, result)
+    assert len(rts) == 1
+
+
+def test_fuse_preserves_non_catalog_remote_table_inside_bind(catalog):
+    """User-created RemoteTables inside a source expression survive fusing."""
+    con = xo.connect()
+    inner = xo.memtable({"user_id": [1, 2, 3], "amount": [10.0, 20.0, 30.0]})
+    remote_source = inner.into_backend(con, name="user_rt")
+    source_entry = catalog.add(remote_source, aliases=("remote-src",))
+
+    schema = remote_source.schema()
+    ub = ops.UnboundTable(name="ph", schema=schema).to_expr()
+    transform_entry = catalog.add(ub.filter(ub.amount > 0).select("user_id", "amount"))
+
+    bound = bind(source_entry, transform_entry)
+    fused = fuse_catalog_source(bound)
+
+    # Catalog wrappers stripped
+    tags = walk_nodes(HashingTag, fused) or ()
+    catalog_tags = tuple(
+        t for t in tags if t.metadata.get("tag") in frozenset(CatalogTag)
+    )
+    assert len(catalog_tags) == 0
+
+    # The user-created RemoteTable is still present
+    rts = walk_nodes(RemoteTable, fused)
+    assert len(rts) == 1
+
+    # Still produces correct results
+    expected = bound.execute()
+    actual = fused.execute()
+    assert actual.reset_index(drop=True).equals(expected.reset_index(drop=True))

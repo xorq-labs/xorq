@@ -934,6 +934,13 @@ class LETSQLAccessor:
         return _remove_non_hashing_tag_nodes(self.expr)
 
     @property
+    def fused(self):
+        """Strip catalog-created RemoteTable + HashingTag wrappers."""
+        from xorq.catalog.bind import fuse_catalog_source
+
+        return fuse_catalog_source(self.expr)
+
+    @property
     def uncached(self):
         from xorq.expr.relations import CachedNode, RemoteTable, replace_cache_table
 
