@@ -514,7 +514,7 @@ def _compose_expr(catalog, entries, code, rename_map=None):
 
     source_entry, *transform_entries = catalog_entries.values()
 
-    source_name = entries[0]
+    source_name, *transform_names = entries
 
     if not rename_map:
         # Fast path: no renames, use ExprComposer directly
@@ -558,7 +558,7 @@ def _compose_expr(catalog, entries, code, rename_map=None):
 
         current = reduce(
             _bind_one_with_rename,
-            zip(transform_entries, entries[1:]),
+            zip(transform_entries, transform_names),
             source_tagged,
         )
     else:

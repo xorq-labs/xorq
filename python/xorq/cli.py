@@ -298,15 +298,15 @@ def run_command(
                         " - compose it with a source first using xorq catalog compose-add"
                     ) from err
 
-                raw_param_dict = _parse_cli_params(expr, raw_params)
+                param_dict = _parse_cli_params(expr, raw_params)
                 load_metrics = {"elapsed_s": round(get_elapsed(), 3)}
                 span.add_event("run.expr_loaded", load_metrics)
                 rl.log_event("run.expr_loaded", load_metrics)
 
-            if raw_param_dict:
+            if param_dict:
                 from xorq.expr.api import bind_params  # noqa: PLC0415
 
-                expr = bind_params(expr, raw_param_dict)
+                expr = bind_params(expr, param_dict)
 
             if limit is not None:
                 expr = expr.limit(limit)
@@ -389,11 +389,11 @@ def run_cached_command(
     )
 
     expr = load_expr(expr_path, cache_dir=cache_dir)
-    raw_param_dict = _parse_cli_params(expr, raw_params)
-    if raw_param_dict:
+    param_dict = _parse_cli_params(expr, raw_params)
+    if param_dict:
         from xorq.expr.api import bind_params  # noqa: PLC0415
 
-        expr = bind_params(expr, raw_param_dict)
+        expr = bind_params(expr, param_dict)
 
     match (cache_type, ttl):
         case ("modification-time", None):
