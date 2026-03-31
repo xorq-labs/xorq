@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-import xorq.vendor.ibis.expr.datatypes as dat
+import xorq.vendor.ibis.expr.datatypes as dt
 from xorq.common.utils.name_utils import tokenize_to_int
 from xorq.vendor.ibis.expr.operations.generic import ScalarParameter
 
@@ -31,8 +31,8 @@ class NamedScalarParameter(ScalarParameter):
         if counter is None:
             counter = tokenize_to_int(label, dtype)
         if default is not None:
-            normalized = dat.dtype(dtype)
-            if not dat.infer(default).castable(normalized):
+            normalized = dt.dtype(dtype)
+            if not dt.infer(default).castable(normalized):
                 raise TypeError(
                     f"Default value {default!r} is not compatible with dtype {normalized}"
                 )
