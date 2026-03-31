@@ -9,7 +9,27 @@ from xorq.common.utils.name_utils import tokenize_to_int
 from xorq.vendor.ibis.expr.operations.generic import ScalarParameter
 
 
-_MISSING = object()
+class _MissingSentinel:
+    """Sentinel for 'no default provided'. Singleton with deterministic dask token."""
+
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self):
+        return "_MISSING"
+
+    def __bool__(self):
+        return False
+
+    def __dask_tokenize__(self):
+        return (type(self).__qualname__,)
+
+
+_MISSING = _MissingSentinel()
 
 
 class NamedScalarParameter(ScalarParameter):
