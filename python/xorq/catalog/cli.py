@@ -468,22 +468,108 @@ def _eval_entry(catalog_entry, code, instream=None):
     return expr
 
 
-def _compose_expr(catalog, entries, code):
+def _parse_rename_params(raw_rename_params):
+    """Parse repeatable ``--rename-params entry,old,new`` strings.
+
+    Returns ``{entry_name: {old_label: new_label}}``.
+    """
+    result = {}
+    errors = []
+    for spec in raw_rename_params:
+        parts = tuple(p.strip() for p in spec.split(","))
+        if len(parts) != 3:
+            errors.append(f"Expected 'entry,old_name,new_name', got {spec!r}")
+            continue
+        entry_name, old, new = parts
+        result.setdefault(entry_name, {})[old] = new
+    if errors:
+        raise click.BadParameter("\n".join(errors))
+    return result
+
+
+def _compose_expr(catalog, entries, code, rename_map=None):
     """Build a composed expression from catalog entries and/or inline code."""
 
-    from xorq.catalog.composer import ExprComposer  # noqa: PLC0415
+    from xorq.catalog.bind import (  # noqa: PLC0415
+        _eval_code,
+        _resolve_source,
+    )
+    from xorq.common.utils.graph_utils import rename_params  # noqa: PLC0415
 
     if not entries:
         raise click.UsageError("At least one entry is required.")
 
-    source, *transforms = (
-        catalog.get_catalog_entry(name, maybe_alias=True) for name in entries
-    )
-    return ExprComposer(
-        source=source,
-        transforms=transforms,
-        code=code,
-    ).expr
+    rename_map = rename_map or {}
+
+    catalog_entries = {
+        name: catalog.get_catalog_entry(name, maybe_alias=True) for name in entries
+    }
+
+    # Validate that rename_map keys refer to actual entry names
+    unknown = set(rename_map) - set(catalog_entries)
+    if unknown:
+        raise click.BadParameter(
+            f"Unknown entry name(s) in --rename-params: {', '.join(sorted(unknown))}"
+        )
+
+    entry_list = list(catalog_entries.values())
+    source_entry = entry_list[0]
+    transform_entries = entry_list[1:]
+
+    source_name = entries[0]
+
+    if not rename_map:
+        # Fast path: no renames, use ExprComposer directly
+        from xorq.catalog.composer import ExprComposer  # noqa: PLC0415
+
+        return ExprComposer(
+            source=source_entry,
+            transforms=transform_entries,
+            code=code,
+        ).expr
+
+    # Slow path: apply renames per-entry, then compose manually
+    if source_name in rename_map:
+        source_expr = rename_params(source_entry.expr, rename_map[source_name])
+    else:
+        source_expr = source_entry.expr
+
+    source_tagged, resolved_con = _resolve_source(source_expr, None, None)
+
+    if transform_entries:
+        from functools import reduce  # noqa: PLC0415
+
+        from xorq.catalog.bind import _ensure_remote  # noqa: PLC0415
+        from xorq.common.utils.graph_utils import replace_unbound  # noqa: PLC0415
+        from xorq.expr.relations import RemoteTable, gen_name  # noqa: PLC0415
+
+        def _bind_one_with_rename(current_expr, entry_and_name):
+            entry, name = entry_and_name
+            if name in rename_map:
+                transform_expr = rename_params(entry.expr, rename_map[name])
+            else:
+                transform_expr = entry.expr
+            source_node = _ensure_remote(current_expr.op(), resolved_con, current_expr)
+            composed_expr = replace_unbound(transform_expr, source_node)
+            return RemoteTable(
+                name=gen_name(),
+                schema=composed_expr.as_table().schema(),
+                source=resolved_con,
+                remote_expr=composed_expr,
+            ).to_expr()
+
+        current = reduce(
+            _bind_one_with_rename,
+            zip(transform_entries, entries[1:]),
+            source_tagged,
+        )
+    else:
+        current = source_tagged
+
+    if code is not None:
+        current = _eval_code(code, current)
+
+    return current
 
 
 @cli.command("compose")
@@ -507,8 +593,14 @@ def _compose_expr(catalog, entries, code):
     default=False,
     help="Show composition plan without building.",
 )
+@click.option(
+    "--rename-params",
+    "raw_rename_params",
+    multiple=True,
+    help="Rename a parameter: entry,old_name,new_name (repeatable).",
+)
 @click.pass_context
-def compose(ctx, entries, code, alias, cache_dir, dry_run):
+def compose(ctx, entries, code, alias, cache_dir, dry_run, raw_rename_params):
     """Assemble expressions from catalog entries, build, and persist to catalog.
 
     Always catalogs the result. Use 'run' to execute an entry for data output.
@@ -519,7 +611,10 @@ def compose(ctx, entries, code, alias, cache_dir, dry_run):
         span.set_attributes({"entries": entries, "has_code": code is not None})
         with click_context_catalog(ctx):
             catalog = ctx.obj.make_catalog(init=False)
-            expr = _compose_expr(catalog, entries, code)
+            rename_map = (
+                _parse_rename_params(raw_rename_params) if raw_rename_params else None
+            )
+            expr = _compose_expr(catalog, entries, code, rename_map=rename_map)
 
             if dry_run:
                 click.echo("Dry run — composition plan:")
@@ -595,8 +690,14 @@ def compose(ctx, entries, code, alias, cache_dir, dry_run):
     default=True,
     help="Enable/disable catalog source fusion (default: enabled).",
 )
+@click.option(
+    "--rename-params",
+    "raw_rename_params",
+    multiple=True,
+    help="Rename a parameter: entry,old_name,new_name (repeatable).",
+)
 @click.pass_context
-def run(ctx, entries, code, output_path, output_format, limit, instream, fuse):
+def run(ctx, entries, code, output_path, output_format, limit, instream, fuse, raw_rename_params):
     """Compose and execute catalog entries.
 
     One entry runs it directly; multiple entries compose source + transforms:
@@ -623,9 +724,12 @@ def run(ctx, entries, code, output_path, output_format, limit, instream, fuse):
                 raise click.UsageError("At least one entry is required.")
 
             catalog = ctx.obj.make_catalog(init=False)
+            rename_map = (
+                _parse_rename_params(raw_rename_params) if raw_rename_params else None
+            )
 
             if len(entries) > 1:
-                expr = _compose_expr(catalog, entries, code)
+                expr = _compose_expr(catalog, entries, code, rename_map=rename_map)
             else:
                 (entry,) = entries
                 try:
@@ -639,6 +743,12 @@ def run(ctx, entries, code, output_path, output_format, limit, instream, fuse):
 
                 span.set_attribute("kind", str(catalog_entry.kind))
                 expr = _eval_entry(catalog_entry, code, instream)
+                if rename_map and entry in rename_map:
+                    from xorq.common.utils.graph_utils import (
+                        rename_params,  # noqa: PLC0415
+                    )
+
+                    expr = rename_params(expr, rename_map[entry])
                 if catalog_entry.kind is ExprKind.UnboundExpr:
                     span.set_attribute("piped_stdin", True)
 

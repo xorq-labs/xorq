@@ -1214,3 +1214,119 @@ def test_no_pdb_flag_wraps_exception(tmp_path):
     )
     assert result.exit_code != 0
     assert "Error:" in result.output
+
+
+# --- --rename-params tests ---
+
+
+@pytest.fixture
+def catalog_with_parameterized_entries(catalog_path):
+    """Populate a catalog with source and transform entries containing NamedScalarParameter nodes."""
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+
+    # Source: a memtable with a parameterized filter
+    threshold = xo.param("threshold", "float64", default=5.0)
+    source = xo.memtable(
+        {"user_id": [1, 2, 3], "amount": [10.0, 20.0, 30.0], "name": ["a", "b", "c"]}
+    )
+    source_filtered = source.filter(source.amount > threshold)
+    source_entry = catalog.add(source_filtered, aliases=("psrc",))
+
+    # Transform: an unbound expr with its own NamedScalarParameter
+    limit_param = xo.param("threshold", "float64", default=15.0)
+    schema = source_filtered.schema()
+    unbound = ops.UnboundTable(name="placeholder", schema=schema).to_expr()
+    transform = unbound.filter(unbound.amount > limit_param).select("user_id", "amount")
+    transform_entry = catalog.add(transform, aliases=("ptrn",))
+
+    return catalog_path, source_entry.name, transform_entry.name
+
+
+def test_run_with_rename_params(runner, catalog_with_parameterized_entries):
+    """run with --rename-params renames a parameter in a transform entry."""
+    catalog_path, _, _ = catalog_with_parameterized_entries
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "psrc",
+            "ptrn",
+            "--rename-params",
+            "ptrn,threshold,trn_threshold",
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "user_id" in result.output
+
+
+def test_compose_with_rename_params(runner, catalog_with_parameterized_entries):
+    """compose with --rename-params renames params before composition."""
+    catalog_path, _, _ = catalog_with_parameterized_entries
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "compose",
+            "psrc",
+            "ptrn",
+            "--rename-params",
+            "ptrn,threshold,trn_threshold",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Dry run" in result.output
+    assert "user_id" in result.output
+
+
+def test_rename_params_bad_format(runner, catalog_with_parameterized_entries):
+    """--rename-params with wrong format should show an error."""
+    catalog_path, _, _ = catalog_with_parameterized_entries
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "psrc",
+            "ptrn",
+            "--rename-params",
+            "bad_format",
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Expected" in result.output
+
+
+def test_rename_params_unknown_entry(runner, catalog_with_parameterized_entries):
+    """--rename-params with unknown entry name should show an error."""
+    catalog_path, _, _ = catalog_with_parameterized_entries
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "psrc",
+            "ptrn",
+            "--rename-params",
+            "nonexistent,threshold,new_threshold",
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Unknown entry" in result.output

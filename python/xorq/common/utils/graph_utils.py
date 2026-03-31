@@ -295,6 +295,36 @@ def replace_unbound(expr, replacement, *, target=None):
     return replace_nodes(replacer, expr).to_expr()
 
 
+def rename_params(expr, rename_map: dict[str, str]):
+    """Rename NamedScalarParameter labels in an expression.
+
+    Parameters
+    ----------
+    expr : Expr
+        The expression to rewrite.
+    rename_map : dict[str, str]
+        ``{old_label: new_label, ...}``
+
+    Returns
+    -------
+    Expr
+        A new expression with matching parameter labels renamed.
+    """
+
+    def replacer(node, kwargs):
+        if kwargs:
+            node = node.__recreate__(kwargs)
+        if isinstance(node, NamedScalarParameter) and node.label in rename_map:
+            return NamedScalarParameter(
+                dtype=node.dtype,
+                label=rename_map[node.label],
+                default=node.default,
+            )
+        return node
+
+    return replace_nodes(replacer, expr).to_expr()
+
+
 def validate_params(expr):
     """Raise TypeError if two NamedScalarParameter nodes share a label but have different dtypes."""
 
