@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774977070526,
+  "lastUpdate": 1774980595658,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -3036,6 +3036,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.025604757911969863",
             "extra": "mean: 203.96599966666903 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3b477e71d0a0ad87ba56e1da05044e4f0361374e",
+          "message": "feat(catalog): fuse catalog source wrappers for database backends (#1761)\n\n## Summary\n\n- Adds `fuse_catalog_source()` to strip catalog-created `RemoteTable` +\n`HashingTag` wrappers when the source is a database table (not a\ndeferred `Read`)\n- Integrates fuse in `catalog run` before execution so composed queries\npush down to the backend as a single query\n- Skips fusion when the source contains `Read` ops, preserving the\n`RemoteTable` boundary for cross-engine data transfer\n\n## Test plan\n\n- [x] `test_fuse_strips_catalog_wrappers` — all CatalogTag HashingTags\nremoved\n- [x] `test_fuse_strips_catalog_remote_tables` — no RemoteTables left\nafter fuse\n- [x] `test_fuse_preserves_correctness` — fused expression produces\nidentical results\n- [x] `test_fuse_chained_transforms` — multi-transform chain fully\nstripped\n- [x] `test_fuse_bare_source` — source-only expression fused\n- [x] `test_fuse_noop_without_catalog_tags` — plain expressions returned\nunchanged\n- [x] `test_fuse_idempotent` — double-fuse returns same object\n- [x] `test_fuse_skips_read_source` — deferred reads preserve wrappers\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-03-31T14:06:16-04:00",
+          "tree_id": "462e8a8d6269348ccc3e2493a985b771c362d1a2",
+          "url": "https://github.com/xorq-labs/xorq/commit/3b477e71d0a0ad87ba56e1da05044e4f0361374e"
+        },
+        "date": 1774980592581,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.568028614474297,
+            "unit": "iter/sec",
+            "range": "stddev: 0.029122130295445543",
+            "extra": "mean: 116.71296222221548 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 5.251789029154167,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008760163278509274",
+            "extra": "mean: 190.41130449999363 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7541752367394848,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18225827890703636",
+            "extra": "mean: 1.3259517831999972 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.305097755885,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016670675596442405",
+            "extra": "mean: 232.28276259999348 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.202106299200314,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02344291061028665",
+            "extra": "mean: 192.22982816666465 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.55811222542249,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010319412787649945",
+            "extra": "mean: 179.9172019999986 msec\nrounds: 6"
           }
         ]
       }
