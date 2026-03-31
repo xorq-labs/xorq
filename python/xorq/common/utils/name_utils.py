@@ -1,6 +1,13 @@
 import re
 
 
+def tokenize_to_int(*args) -> int:
+    """Derive a deterministic integer from arbitrary args via dask tokenize."""
+    import dask  # noqa: PLC0415
+
+    return int(dask.base.tokenize(args), 16) % (2**31)
+
+
 def make_name(prefix, to_tokenize):
     import dask  # noqa: PLC0415
 

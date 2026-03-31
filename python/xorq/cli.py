@@ -50,6 +50,82 @@ def _get_cache_dir(cache_dir):
     return cache_dir
 
 
+class _ClickDate(click.ParamType):
+    name = "date"
+
+    def convert(self, value, param, ctx):
+        import datetime  # noqa: PLC0415
+
+        try:
+            return datetime.date.fromisoformat(value)
+        except (ValueError, TypeError):
+            self.fail(
+                f"{value!r} is not a valid date (expected YYYY-MM-DD)", param, ctx
+            )
+
+
+def _click_type_for_dtype(dtype):
+    """Return the :class:`click.ParamType` corresponding to an ibis *dtype*."""
+    import xorq.expr.datatypes as dt  # noqa: PLC0415
+
+    # Rebuilt per-call because the dt import is deferred for startup speed.
+    _CLICK_TYPES = {
+        dt.Float64: click.FLOAT,
+        dt.Float32: click.FLOAT,
+        dt.Int64: click.INT,
+        dt.Int32: click.INT,
+        dt.Int16: click.INT,
+        dt.Int8: click.INT,
+        dt.String: click.STRING,
+        dt.Boolean: click.BOOL,
+        dt.Date: _ClickDate(),
+        dt.Timestamp: click.DateTime(),
+    }
+    click_type = _CLICK_TYPES.get(type(dtype))
+    if click_type is None:
+        raise click.BadParameter(f"Unsupported parameter dtype: {dtype}")
+    return click_type
+
+
+def _parse_cli_params(expr, raw_params: tuple) -> dict:
+    """Parse key=value CLI strings into a {name: typed_value} dict.
+
+    Uses Click type converters to coerce and validate each string value
+    against the declared parameter dtype. The returned dict is suitable
+    for passing directly to :func:`xorq.expr.api.bind_params`.
+    """
+    if not raw_params:
+        return {}
+
+    from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+    from xorq.expr.operations import NamedScalarParameter  # noqa: PLC0415
+
+    named = {node.label: node for node in walk_nodes(NamedScalarParameter, expr)}
+
+    params = {}
+    errors = []
+    for kv in raw_params:
+        key, sep, value = kv.partition("=")
+        if not sep:
+            errors.append(f"Expected key=value, got {kv!r}")
+            continue
+        if key not in named:
+            errors.append(
+                f"Unknown parameter {key!r}. Available: {', '.join(named) or '(none)'}"
+            )
+            continue
+        click_type = _click_type_for_dtype(named[key].dtype)
+        try:
+            params[key] = click_type.convert(value, param=None, ctx=None)
+        except click.exceptions.BadParameter as e:
+            errors.append(str(e))
+
+    if errors:
+        raise click.BadParameter("\n".join(errors))
+
+    return params
+
+
 def ensure_build_dir(expr_path):
     build_dir = Path(expr_path)
     if not build_dir.exists() or not build_dir.is_dir():
@@ -163,6 +239,7 @@ def run_command(
     output_format=OutputFormats.default,
     cache_dir=None,
     limit=None,
+    raw_params=(),
 ):
     """
     Execute an artifact
@@ -205,9 +282,7 @@ def run_command(
         ("limit", limit),
     )
 
-    span.add_event(
-        "run.params", {k: v for k, v in run_params if run_params is not None}
-    )
+    span.add_event("run.params", {k: v for k, v in run_params if v is not None})
 
     try:
         with RunLogger.from_expr_hash(expr_hash, params_tuple=run_params) as rl:
@@ -224,9 +299,15 @@ def run_command(
                         " - compose it with a source first using xorq catalog compose-add"
                     ) from err
 
+                param_dict = _parse_cli_params(expr, raw_params)
                 load_metrics = {"elapsed_s": round(get_elapsed(), 3)}
                 span.add_event("run.expr_loaded", load_metrics)
                 rl.log_event("run.expr_loaded", load_metrics)
+
+            if param_dict:
+                from xorq.expr.api import bind_params  # noqa: PLC0415
+
+                expr = bind_params(expr, param_dict)
 
             if limit is not None:
                 expr = expr.limit(limit)
@@ -264,6 +345,7 @@ def run_cached_command(
     limit=None,
     cache_type="modification-time",
     ttl=None,
+    raw_params=(),
 ):
     """
     Execute an artifact with a ParquetCache wrapping the top-level expression.
@@ -308,6 +390,11 @@ def run_cached_command(
     )
 
     expr = load_expr(expr_path, cache_dir=cache_dir)
+    param_dict = _parse_cli_params(expr, raw_params)
+    if param_dict:
+        from xorq.expr.api import bind_params  # noqa: PLC0415
+
+        expr = bind_params(expr, param_dict)
 
     match (cache_type, ttl):
         case ("modification-time", None):
@@ -723,9 +810,16 @@ def build(script_path, expr_name, builds_dir, cache_dir, debug):
     default=None,
     help="Limit number of rows to output",
 )
-def run(build_path, cache_dir, output_path, output_format, limit):
+@click.option(
+    "-p",
+    "--params",
+    "raw_params",
+    multiple=True,
+    help="Parameter as key=value (repeatable). e.g. --params threshold=0.5",
+)
+def run(build_path, cache_dir, output_path, output_format, limit, raw_params):
     """Run a build from a builds directory."""
-    run_command(build_path, output_path, output_format, cache_dir, limit)
+    run_command(build_path, output_path, output_format, cache_dir, limit, raw_params)
 
 
 @cli.command("run-cached")
@@ -767,12 +861,33 @@ def run(build_path, cache_dir, output_path, output_format, limit):
     default=None,
     help="TTL in seconds for snapshot cache (uses ParquetTTLSnapshotCache when set)",
 )
+@click.option(
+    "-p",
+    "--params",
+    "raw_params",
+    multiple=True,
+    help="Parameter as key=value (repeatable). e.g. --params threshold=0.5",
+)
 def run_cached(
-    build_path, cache_dir, output_path, output_format, limit, cache_type, ttl
+    build_path,
+    cache_dir,
+    output_path,
+    output_format,
+    limit,
+    cache_type,
+    ttl,
+    raw_params,
 ):
     """Run a build with a ParquetCache wrapping the expression."""
     run_cached_command(
-        build_path, output_path, output_format, cache_dir, limit, cache_type, ttl
+        build_path,
+        output_path,
+        output_format,
+        cache_dir,
+        limit,
+        cache_type,
+        ttl,
+        raw_params,
     )
 
 

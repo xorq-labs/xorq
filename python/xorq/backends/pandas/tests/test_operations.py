@@ -10,7 +10,6 @@ import pytest
 from pytest import param
 
 import xorq.api as xo
-import xorq.vendor.ibis.expr.datatypes as dt
 from xorq.api import _
 from xorq.backends.pandas import Backend
 from xorq.tests.util import assert_frame_equal, assert_series_equal
@@ -476,9 +475,9 @@ def test_notnull(t, df):
 
 @pytest.mark.parametrize("raw_value", [0.0, 1.0])
 def test_scalar_parameter(t, df, raw_value):
-    value = ibis.param(dt.double)
+    value = xo.param("value", "float64")
     expr = t.float64_with_zeros == value
-    result = expr.execute(params={value: raw_value})
+    result = expr.execute(params={"value": raw_value})
     expected = df.float64_with_zeros == raw_value
     assert_series_equal(result, expected)
 

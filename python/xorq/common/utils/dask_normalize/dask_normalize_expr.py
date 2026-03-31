@@ -9,6 +9,7 @@ import dask
 import sqlglot as sg
 
 import xorq.expr.datatypes as dat
+import xorq.expr.operations as xops
 import xorq.expr.relations as rel
 import xorq.vendor.ibis.expr.operations.relations as ir
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
@@ -397,6 +398,16 @@ def normalize_cached_node(node):
     )
 
 
+@dask.base.normalize_token.register(xops.NamedScalarParameter)
+def normalize_named_scalar_parameter(node):
+    return normalize_seq_with_caller(
+        node.label,
+        node.dtype,
+        node.default,
+        caller="normalize_named_scalar_parameter",
+    )
+
+
 @dask.base.normalize_token.register(ibis.backends.BaseBackend)
 def normalize_backend(con):
     name = con.name
@@ -578,6 +589,12 @@ def opaque_node_replacer(node, kwargs):
                 node.schema,
                 name=dask.base.tokenize(node.parent.to_expr(), node.metadata),
             ).op()
+        case xops.NamedScalarParameter():
+            new_node = (
+                api.literal(value=None, type=node.dtype)
+                .name(dask.base.tokenize(node))
+                .op()
+            )
         case _:
             if isinstance(node, opaque_ops):
                 raise ValueError(f"unhandled opaque node type: {type(node)}")
@@ -608,12 +625,18 @@ def normalize_op(op, compiler=None):
     )
     udfs = op.find((AggUDF, ScalarUDF))
     mems = op.find(ir.InMemoryTable)
+    named_params = op.find(xops.NamedScalarParameter)
     token = normalize_seq_with_caller(
         sql,
         reads,
         dts,
         udfs,
         tuple(map(normalize_inmemorytable, mems)),
+        *(
+            (tuple(map(normalize_named_scalar_parameter, named_params)),)
+            if named_params
+            else ()
+        ),
         caller="normalize_expr",
     )
     return token

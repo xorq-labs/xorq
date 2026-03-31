@@ -469,10 +469,10 @@ def test_window_with_preceding_expr(index):
 
 
 def test_window_grouping_key_has_scope(t, df):
-    param = ibis.param(dt.string)
+    param = xo.param("suffix", "string")
     window = ibis.window(group_by=t.dup_strings + param)
     expr = t.plain_int64.mean().over(window)
-    result = expr.execute(params={param: "a"})
+    result = expr.execute(params={"suffix": "a"})
     expected = df.groupby(df.dup_strings + "a").plain_int64.transform("mean")
     assert_series_equal(result, expected.rename("mean"))
 
