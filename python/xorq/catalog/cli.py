@@ -512,9 +512,7 @@ def _compose_expr(catalog, entries, code, rename_map=None):
             f"Unknown entry name(s) in --rename-params: {', '.join(sorted(unknown))}"
         )
 
-    entry_list = list(catalog_entries.values())
-    source_entry = entry_list[0]
-    transform_entries = entry_list[1:]
+    source_entry, *transform_entries = catalog_entries.values()
 
     source_name = entries[0]
 

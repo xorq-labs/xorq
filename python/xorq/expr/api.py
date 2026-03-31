@@ -411,9 +411,16 @@ def _remove_non_hashing_tag_nodes(expr):
     return replace_nodes(replacer, expr).to_expr()
 
 
-@tracer.start_as_current_span("_transform_expr")
-def _transform_expr(expr, params=None, **kwargs):
-    """Transform an expression for execution, binding any named scalar parameters."""
+@tracer.start_as_current_span("_resolve_params")
+def _resolve_params(params):
+    """Resolve param keys to a {name: value} dict.
+
+    Accepts a mapping where keys can be:
+    - ``xorq.param()`` expressions (NamedScalarParameter)
+    - plain strings (param names)
+
+    Raises TypeError for legacy ``ibis.param()`` expressions or unsupported key types.
+    """
     from xorq.vendor.ibis.expr.operations.generic import (  # noqa: PLC0415
         ScalarParameter,
     )
@@ -432,8 +439,17 @@ def _transform_expr(expr, params=None, **kwargs):
                 name_values[p] = v
             case _:
                 raise TypeError(f"Unsupported param key type: {type(p)}")
-    if name_values or walk_nodes(NamedScalarParameter, expr):
-        expr = bind_params(expr, name_values)
+    return name_values
+
+
+def _transform_expr(expr, params=None, **kwargs):
+    """Transform an expression for execution, binding any named scalar parameters."""
+    name_values = _resolve_params(params)
+    expr = (
+        bind_params(expr, name_values)
+        if name_values or walk_nodes(NamedScalarParameter, expr)
+        else expr
+    )
     expr = _remove_tag_nodes(expr)
     expr = _register_and_transform_cache_tables(expr)
     expr, created = register_and_transform_remote_tables(expr, **kwargs)
