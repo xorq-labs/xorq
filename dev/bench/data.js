@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774885195110,
+  "lastUpdate": 1774977070526,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -2970,6 +2970,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.029422104161474904",
             "extra": "mean: 208.3700238333345 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "philip@gizmodata.com",
+            "name": "Philip Moore",
+            "username": "prmoore77"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "946e12530d637ff97dbfe4ed9090f22094489de2",
+          "message": "chore: bump adbc-driver-gizmosql from >=1.1.3 to >=1.1.5 (#1763)\n\n## Summary\n- Bump `adbc-driver-gizmosql` optional dependency from `>=1.1.3` to\n`>=1.1.5` in the `[gizmosql]` extras group\n\n## Changes in adbc-driver-gizmosql 1.1.4-1.1.5\n- **1.1.4**: Strip SQL comments before DDL/DML keyword detection — fixes\ndbt integration where query comment prefixes prevented DDL/DML from\nbeing routed through `execute_update()`\n- **1.1.5**: Thread-safe `adbc_get_info()` with cached result — prevents\nconcurrent map writes crash in the Go ADBC driver\n(apache/arrow-adbc#1178)\n\nGenerated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-03-31T13:07:34-04:00",
+          "tree_id": "ddb6b59fc46ac5ad9daeeba913fbf4775e3d15b8",
+          "url": "https://github.com/xorq-labs/xorq/commit/946e12530d637ff97dbfe4ed9090f22094489de2"
+        },
+        "date": 1774977068151,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.078780796450951,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027411044322760245",
+            "extra": "mean: 123.78105375000459 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 5.205327130397308,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004474431315201847",
+            "extra": "mean: 192.11088466666126 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6858395305784112,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2017905023885121",
+            "extra": "mean: 1.4580670192000127 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.948745017992734,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04456905595602717",
+            "extra": "mean: 253.24501720000399 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.227981780380563,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02449929316454986",
+            "extra": "mean: 236.51946766667228 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.902777921978407,
+            "unit": "iter/sec",
+            "range": "stddev: 0.025604757911969863",
+            "extra": "mean: 203.96599966666903 msec\nrounds: 6"
           }
         ]
       }
