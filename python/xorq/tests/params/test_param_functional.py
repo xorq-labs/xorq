@@ -154,10 +154,10 @@ def test_bind_mixed_params():
 
 def test_multiple_params_same_expr():
     p1 = xo.param("p1", "float64", default=1.0)
-    _ = xo.param("p2", "float64", default=2.0)
+    p2 = xo.param("p2", "float64", default=2.0)
     p3 = xo.param("p3", "float64", default=3.0)
     t = xo.memtable({"x": [0.5, 1.5, 2.5, 3.5]})
-    assert list(t.filter((t.x > p1) & (t.x < p3)).execute()["x"]) == [1.5, 2.5]
+    assert list(t.filter((t.x > p1) & (t.x > p2) & (t.x < p3)).execute()["x"]) == [2.5]
 
 
 def test_param_in_complex_expr():

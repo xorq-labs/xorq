@@ -418,7 +418,7 @@ def run_cached_command(
     arbitrate_output_format(expr, output_path, output_format)
 
 
-def arbitrate_output_format(expr, output_path, output_format, params=None):
+def arbitrate_output_format(expr, output_path, output_format):
     match (output_path, output_format):
         case (None, _):
             output_path = os.devnull
@@ -431,15 +431,15 @@ def arbitrate_output_format(expr, output_path, output_format, params=None):
             pass
     match output_format:
         case OutputFormats.csv:
-            expr.to_csv(output_path, params=params)
+            expr.to_csv(output_path)
         case OutputFormats.json:
-            expr.to_json(output_path, params=params)
+            expr.to_json(output_path)
         case OutputFormats.arrow:
             from xorq.expr.api import to_pyarrow_stream
 
-            to_pyarrow_stream(expr, output_path, params=params)
+            to_pyarrow_stream(expr, output_path)
         case OutputFormats.parquet:
-            expr.to_parquet(output_path, params=params)
+            expr.to_parquet(output_path)
         case _:
             raise ValueError(f"Unknown output_format: {output_format}")
 
