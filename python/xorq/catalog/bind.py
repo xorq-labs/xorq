@@ -262,6 +262,10 @@ def fuse_catalog_source(expr):
                         case _:
                             return node.parent
                 case RemoteTable():
+                    # RemoteTable_B: _ensure_remote can't see through the
+                    # HashingTag to RemoteTable_A, so _bind_one wraps it
+                    # again. Fuse this redundant layer by stripping the
+                    # inner tag.
                     inner = node.remote_expr.op()
                     match inner:
                         case HashingTag() if (
