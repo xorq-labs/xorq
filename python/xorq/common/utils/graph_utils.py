@@ -1,3 +1,4 @@
+from collections import defaultdict
 from typing import Any, OrderedDict, Tuple
 
 import xorq.expr.relations as rel
@@ -328,13 +329,12 @@ def rename_params(expr, rename_map: dict[str, str]):
 def validate_params(expr):
     """Raise TypeError if two NamedScalarParameter nodes share a label but have different dtypes."""
 
-    seen = {}
-    conflicts = {}
+    dtypes_by_label = defaultdict(set)
     for node in walk_nodes(NamedScalarParameter, expr):
-        if node.label in seen and seen[node.label] != node.dtype:
-            conflicts.setdefault(node.label, {seen[node.label]}).add(node.dtype)
-        seen[node.label] = node.dtype
-
+        dtypes_by_label[node.label].add(node.dtype)
+    conflicts = {
+        label: dtypes for label, dtypes in dtypes_by_label.items() if len(dtypes) > 1
+    }
     if conflicts:
         messages = tuple(
             f"Parameter label {label!r} used with conflicting dtypes: "
