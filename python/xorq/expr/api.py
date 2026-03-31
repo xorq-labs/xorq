@@ -426,19 +426,22 @@ def _resolve_params(params):
     )
 
     name_values = {}
+    errors = []
     for p, v in (params or {}).items():
         match getattr(p, "op", lambda: None)():
             case NamedScalarParameter() as op:
                 name_values[op.label] = v
             case ScalarParameter():
-                raise TypeError(
+                errors.append(
                     "Legacy ibis.param() expressions are not supported as param keys. "
                     "Use xorq.param(name, dtype) and pass {name: value} dicts instead."
                 )
             case None if isinstance(p, str):
                 name_values[p] = v
             case _:
-                raise TypeError(f"Unsupported param key type: {type(p)}")
+                errors.append(f"Unsupported param key type: {type(p)}")
+    if errors:
+        raise TypeError("\n".join(errors))
     return name_values
 
 
