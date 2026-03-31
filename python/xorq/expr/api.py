@@ -445,6 +445,7 @@ def _resolve_params(params):
     return name_values
 
 
+@tracer.start_as_current_span("_transform_expr")
 def _transform_expr(expr, params=None, **kwargs):
     """Transform an expression for execution, binding any named scalar parameters."""
     name_values = _resolve_params(params)
@@ -690,14 +691,14 @@ def get_object_metadata(path: str, **kwargs: Any) -> dict:
     return con.con.get_object_metadata(path, suffix, **kwargs)
 
 
-def param(name: str, type, default=None) -> "ir.Scalar":
+def param(name: str, dtype, default=None) -> "ir.Scalar":
     """Create a named scalar parameter for use in parameterized expressions.
 
     Parameters
     ----------
     name
         Human-readable label for the parameter (e.g. ``"cutoff"``).
-    type
+    dtype
         ibis data type for the parameter, e.g. ``"float64"``, ``"date"``,
         ``dt.timestamp()``.
     default
@@ -717,7 +718,7 @@ def param(name: str, type, default=None) -> "ir.Scalar":
     >>> threshold = xo.param("threshold", "float64", default=0.5)
     >>> t = xo.memtable({"d": ["2024-01-01", "2024-06-01"], "v": [1, 2]})
     """
-    dtype = dt.dtype(type)
+    dtype = dt.dtype(dtype)
     return NamedScalarParameter(dtype=dtype, label=name, default=default).to_expr()
 
 
