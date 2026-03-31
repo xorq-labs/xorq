@@ -68,6 +68,7 @@ def _click_type_for_dtype(dtype):
     """Return the :class:`click.ParamType` corresponding to an ibis *dtype*."""
     import xorq.expr.datatypes as dt  # noqa: PLC0415
 
+    # Rebuilt per-call because the dt import is deferred for startup speed.
     _CLICK_TYPES = {
         dt.Float64: click.FLOAT,
         dt.Float32: click.FLOAT,
