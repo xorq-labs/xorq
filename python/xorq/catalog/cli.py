@@ -632,9 +632,7 @@ def run(ctx, entries, code, output_path, output_format, limit, instream, fuse):
                     span.set_attribute("piped_stdin", True)
 
             if fuse:
-                from xorq.catalog.bind import fuse_catalog_source
-
-                expr = fuse_catalog_source(expr)
+                expr = expr.ls.fused
 
             if limit is not None:
                 expr = expr.limit(limit)
