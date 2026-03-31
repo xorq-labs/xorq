@@ -749,8 +749,8 @@ def test_fuse_idempotent(catalog_with_entries):
     assert fused_again is fused
 
 
-def test_fuse_skips_read_source(catalog, tmpdir):
-    """Fusing is skipped when the source contains Read ops (deferred parquet)."""
+def test_fuse_read_source(catalog, tmpdir):
+    """Fusing strips catalog wrappers even when the source contains Read ops."""
     pq_path = Path(tmpdir) / "data.parquet"
     pq.write_table(pa.table({"x": [1, 2, 3], "y": [4, 5, 6]}), pq_path)
 
@@ -765,12 +765,20 @@ def test_fuse_skips_read_source(catalog, tmpdir):
     bound = bind(source_entry, transform_entry)
 
     result = fuse_catalog_source(bound)
-    # Should still have catalog tags (not fused)
+    # Catalog wrappers should be stripped
     tags = walk_nodes(HashingTag, result)
     catalog_tags = tuple(
         t for t in (tags or ()) if t.metadata.get("tag") in frozenset(CatalogTag)
     )
-    assert len(catalog_tags) >= 2
+    assert len(catalog_tags) == 0
+
+    # Read nodes should still be present
+    assert walk_nodes(Read, result)
+
+    # Results should be correct
+    expected = bound.execute()
+    actual = result.execute()
+    assert actual.reset_index(drop=True).equals(expected.reset_index(drop=True))
 
 
 def test_fuse_preserves_non_catalog_hashing_tag(catalog_with_entries):

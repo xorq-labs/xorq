@@ -579,8 +579,13 @@ def compose(ctx, entries, code, alias, cache_dir, dry_run):
     default="-",
     help="Stream to read Arrow IPC record batches from (default: stdin).",
 )
+@click.option(
+    "--fuse/--no-fuse",
+    default=True,
+    help="Enable/disable catalog source fusion (default: enabled).",
+)
 @click.pass_context
-def run(ctx, entries, code, output_path, output_format, limit, instream):
+def run(ctx, entries, code, output_path, output_format, limit, instream, fuse):
     """Compose and execute catalog entries.
 
     One entry runs it directly; multiple entries compose source + transforms:
@@ -626,9 +631,10 @@ def run(ctx, entries, code, output_path, output_format, limit, instream):
                 if catalog_entry.kind is ExprKind.UnboundExpr:
                     span.set_attribute("piped_stdin", True)
 
-            from xorq.catalog.bind import fuse_catalog_source
+            if fuse:
+                from xorq.catalog.bind import fuse_catalog_source
 
-            expr = fuse_catalog_source(expr)
+                expr = fuse_catalog_source(expr)
 
             if limit is not None:
                 expr = expr.limit(limit)

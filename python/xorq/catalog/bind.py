@@ -213,64 +213,66 @@ def _make_source_expr(source, con=None, alias=None):
 
 
 def fuse_catalog_source(expr):
-    """Strip catalog-created RemoteTable + HashingTag layers for database sources.
+    """Strip catalog-created RemoteTable + HashingTag layers for catalog sources.
 
     When ``bind()`` composes catalog entries it wraps everything in
-    RemoteTable and HashingTag layers for provenance tracking.  When the
-    source leaves are DatabaseTable / DatabaseTableView (not Read), these
+    RemoteTable and HashingTag layers for provenance tracking.  These
     layers add unnecessary indirection that prevents query push-down.
 
-    This function detects the source type and, when fusable, strips the
+    This function detects catalog source tags and, when fusable, strips the
     catalog wrappers to produce a single flat expression that the backend
-    can execute as one query.
-
-    When NOT to fuse
-    ----------------
-    If the source contains ``Read`` ops (deferred parquet), the
-    RemoteTable boundary is load-bearing — it handles cross-engine data
-    transfer.  In that case the expression is returned unchanged.
+    can execute as one query.  This applies to both database-backed sources
+    (DatabaseTable / DatabaseTableView) and deferred reads (Read).
     """
     from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
-    from xorq.expr.relations import HashingTag, Read  # noqa: PLC0415
+    from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
+    from xorq.expr.relations import HashingTag  # noqa: PLC0415
 
-    source_tags = tuple(
-        ht
-        for ht in (walk_nodes(HashingTag, expr) or ())
-        if ht.metadata.get("tag") == CatalogTag.SOURCE
-    )
-    if not source_tags:
-        return expr
+    with tracer.start_as_current_span("catalog.fuse") as span:
+        source_tags = tuple(
+            ht
+            for ht in (walk_nodes(HashingTag, expr) or ())
+            if ht.metadata.get("tag") == CatalogTag.SOURCE
+        )
+        span.set_attribute("source_tags_count", len(source_tags))
 
-    fusable = all(
-        isinstance(st.parent, RemoteTable)
-        and not walk_nodes(Read, st.parent.remote_expr)
-        for st in source_tags
-    )
-    if not fusable:
-        return expr
+        if not source_tags:
+            span.set_attribute("fused", False)
+            span.set_attribute("reason", "no_catalog_source_tags")
+            return expr
 
-    from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
+        fusable = all(isinstance(st.parent, RemoteTable) for st in source_tags)
+        if not fusable:
+            span.set_attribute("fused", False)
+            span.set_attribute("reason", "not_fusable")
+            return expr
 
-    catalog_tags_set = frozenset(CatalogTag)
+        from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
 
-    def replacer(node, kwargs):
-        if kwargs:
-            node = node.__recreate__(kwargs)
-        match node:
-            case HashingTag() if node.metadata.get("tag") in catalog_tags_set:
-                match node.parent:
-                    case RemoteTable() if node.parent.remote_expr is not None:
-                        return node.parent.remote_expr.op()
-                    case _:
-                        return node.parent
-            case RemoteTable() if node.remote_expr is not None:
-                inner = node.remote_expr.op()
-                match inner:
-                    case HashingTag() if inner.metadata.get("tag") in catalog_tags_set:
-                        return replace_nodes(replacer, inner.to_expr())
-                    case _:
-                        return node
-            case _:
-                return node
+        catalog_tags_set = frozenset(CatalogTag)
 
-    return replace_nodes(replacer, expr).to_expr()
+        def replacer(node, kwargs):
+            if kwargs:
+                node = node.__recreate__(kwargs)
+            match node:
+                case HashingTag() if node.metadata.get("tag") in catalog_tags_set:
+                    match node.parent:
+                        case RemoteTable() if node.parent.remote_expr is not None:
+                            return node.parent.remote_expr.op()
+                        case _:
+                            return node.parent
+                case RemoteTable() if node.remote_expr is not None:
+                    inner = node.remote_expr.op()
+                    match inner:
+                        case HashingTag() if (
+                            inner.metadata.get("tag") in catalog_tags_set
+                        ):
+                            return replace_nodes(replacer, inner.to_expr())
+                        case _:
+                            return node
+                case _:
+                    return node
+
+        result = replace_nodes(replacer, expr).to_expr()
+        span.set_attribute("fused", True)
+        return result
