@@ -177,7 +177,7 @@ gen_name = toolz.compose(
 
 
 class RemoteTable(DatabaseTableView):
-    remote_expr: Expr = None
+    remote_expr: Expr
 
     @classmethod
     def from_expr(cls, con, expr, name=None):

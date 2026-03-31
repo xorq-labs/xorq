@@ -257,11 +257,11 @@ def fuse_catalog_source(expr):
             match node:
                 case HashingTag() if node.metadata.get("tag") in catalog_tags_set:
                     match node.parent:
-                        case RemoteTable() if node.parent.remote_expr is not None:
+                        case RemoteTable():
                             return node.parent.remote_expr.op()
                         case _:
                             return node.parent
-                case RemoteTable() if node.remote_expr is not None:
+                case RemoteTable():
                     inner = node.remote_expr.op()
                     match inner:
                         case HashingTag() if (
