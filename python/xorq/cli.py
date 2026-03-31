@@ -102,16 +102,25 @@ def _parse_cli_params(expr, raw_params: tuple) -> dict:
     named = {node.label: node for node in walk_nodes(NamedScalarParameter, expr)}
 
     params = {}
+    errors = []
     for kv in raw_params:
         key, sep, value = kv.partition("=")
         if not sep:
-            raise click.BadParameter(f"Expected key=value, got {kv!r}")
+            errors.append(f"Expected key=value, got {kv!r}")
+            continue
         if key not in named:
-            raise click.BadParameter(
+            errors.append(
                 f"Unknown parameter {key!r}. Available: {', '.join(named) or '(none)'}"
             )
+            continue
         click_type = _click_type_for_dtype(named[key].dtype)
-        params[key] = click_type.convert(value, param=None, ctx=None)
+        try:
+            params[key] = click_type.convert(value, param=None, ctx=None)
+        except click.exceptions.BadParameter as e:
+            errors.append(str(e))
+
+    if errors:
+        raise click.BadParameter("\n".join(errors))
 
     return params
 

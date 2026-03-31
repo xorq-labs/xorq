@@ -153,6 +153,17 @@ def test_parse_cli_params_type_error_propagates():
         _parse_cli_params(_make_expr(), ("threshold=abc",))
 
 
+def test_parse_cli_params_collects_all_errors():
+    """All bad params are reported in a single error, not one at a time."""
+    expr = _make_multi_param_expr()
+    with pytest.raises(click.BadParameter, match="Expected key=value") as exc_info:
+        _parse_cli_params(expr, ("bad_format", "unknown=1.0", "threshold=abc"))
+    msg = str(exc_info.value)
+    assert "Expected key=value" in msg
+    assert "Unknown parameter" in msg
+    assert "abc" in msg
+
+
 def test_parse_cli_params_result_works_with_bind_params():
     """End-to-end: parsed params can be passed to bind_params and executed."""
     expr = _make_expr()
