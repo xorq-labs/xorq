@@ -775,7 +775,7 @@ class ExprMetadata:
             validate_params,
             walk_nodes,
         )
-        from xorq.expr.operations import NamedScalarParameter  # noqa: PLC0415
+        from xorq.expr.operations import _MISSING, NamedScalarParameter  # noqa: PLC0415
         from xorq.expr.relations import CachedNode  # noqa: PLC0415
 
         validate_params(expr)
@@ -798,7 +798,7 @@ class ExprMetadata:
             {
                 "param_name": node.label,
                 "type": str(node.dtype),
-                **({"default": node.default} if node.default is not None else {}),
+                **({"default": node.default} if node.default is not _MISSING else {}),
             }
             for node in walk_nodes(NamedScalarParameter, expr)
         )

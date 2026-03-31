@@ -20,7 +20,7 @@ import xorq.vendor.ibis.expr.operations.temporal as tm
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.common.utils.node_utils import update_read_kwargs
-from xorq.expr.operations import NamedScalarParameter
+from xorq.expr.operations import _MISSING, NamedScalarParameter
 from xorq.expr.relations import (
     CachedNode,
     HashingTag,
@@ -670,7 +670,7 @@ def _named_scalar_param_to_yaml(
             "dtype": context.translate_to_yaml(op.dtype),
             **(
                 {"default": _translate_literal_value(op.default, op.dtype)}
-                if op.default is not None
+                if op.default is not _MISSING
                 else {}
             ),
         }
@@ -683,12 +683,11 @@ def _named_scalar_param_from_yaml(
 ) -> ir.Expr:
     dtype = context.translate_from_yaml(yaml_dict["dtype"])
     label = yaml_dict["label"]
-    raw_default = yaml_dict.get("default")
-    default = (
-        ibis.literal(raw_default, type=dtype).op().value
-        if raw_default is not None
-        else None
-    )
+    if "default" in yaml_dict:
+        raw_default = yaml_dict["default"]
+        default = ibis.literal(raw_default, type=dtype).op().value
+    else:
+        default = _MISSING
     return NamedScalarParameter(dtype=dtype, label=label, default=default).to_expr()
 
 

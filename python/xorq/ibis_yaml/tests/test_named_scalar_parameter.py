@@ -7,7 +7,7 @@ import pytest
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis as ibis
 from xorq.common.utils.graph_utils import walk_nodes
-from xorq.expr.operations import NamedScalarParameter
+from xorq.expr.operations import _MISSING, NamedScalarParameter
 
 
 @pytest.fixture
@@ -96,10 +96,10 @@ def test_named_scalar_parameter_default_none_round_trips(compiler, t):
     restored = compiler.from_yaml(yaml_dict)
 
     params = walk_nodes(NamedScalarParameter, restored)
-    assert params[0].default is None
+    assert params[0].default is _MISSING
 
 
-def test_named_scalar_parameter_default_not_in_yaml_when_none(compiler, t):
+def test_named_scalar_parameter_default_not_in_yaml_when_missing(compiler, t):
     p = NamedScalarParameter(dtype=dt.float64(), label="p").to_expr()
     expr = t.filter(t.x > p)
 

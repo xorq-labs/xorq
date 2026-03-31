@@ -32,7 +32,7 @@ from xorq.expr.ml import (
     calc_split_column,
     train_test_splits,
 )
-from xorq.expr.operations import NamedScalarParameter
+from xorq.expr.operations import _MISSING, NamedScalarParameter
 from xorq.expr.relations import (
     CachedNode,
     HashingTag,
@@ -691,7 +691,7 @@ def get_object_metadata(path: str, **kwargs: Any) -> dict:
     return con.con.get_object_metadata(path, suffix, **kwargs)
 
 
-def param(name: str, dtype, default=None) -> "ir.Scalar":
+def param(name: str, dtype, default=_MISSING) -> "ir.Scalar":
     """Create a named scalar parameter for use in parameterized expressions.
 
     Parameters
@@ -760,15 +760,15 @@ def bind_params(expr, params: dict) -> "ir.Expr":
     missing = tuple(
         f"{name} ({node.dtype})"
         for name, node in named.items()
-        if name not in params and node.default is None
+        if name not in params and node.default is _MISSING
     )
     if missing:
         raise ValueError(f"Missing required parameters: {', '.join(missing)}")
 
     op_params = {
-        node: value
+        node: params.get(name, node.default)
         for name, node in named.items()
-        if (value := params.get(name, node.default)) is not None
+        if params.get(name, node.default) is not _MISSING
     }
 
     def replacer(node, kwargs):

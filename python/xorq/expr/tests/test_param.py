@@ -7,7 +7,7 @@ import pytest
 import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.types as ir
-from xorq.expr.operations import NamedScalarParameter
+from xorq.expr.operations import _MISSING, NamedScalarParameter
 
 
 def test_param_returns_scalar():
@@ -66,9 +66,9 @@ def test_param_various_types(type_str):
     assert p.op().label == "p"
 
 
-def test_param_default_none_when_not_supplied():
+def test_param_default_missing_when_not_supplied():
     p = xo.param("cutoff", "date")
-    assert p.op().default is None
+    assert p.op().default is _MISSING
 
 
 def test_param_default_value_stored():

@@ -8,7 +8,7 @@ import datetime
 import pytest
 
 import xorq.api as xo
-from xorq.expr.operations import NamedScalarParameter
+from xorq.expr.operations import _MISSING, NamedScalarParameter
 from xorq.ibis_yaml.compiler import build_expr, load_expr
 
 
@@ -26,7 +26,7 @@ def test_param_with_default():
 
 def test_param_required():
     cutoff = xo.param("cutoff", "date")
-    assert cutoff.op().default is None
+    assert cutoff.op().default is _MISSING
 
 
 def test_param_in_filter():
