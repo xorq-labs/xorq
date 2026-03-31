@@ -27,16 +27,16 @@ wheels = [
 
 [[package]]
 name = "adbc-driver-gizmosql"
-version = "1.1.3"
+version = "1.1.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "adbc-driver-flightsql" },
     { name = "adbc-driver-manager" },
     { name = "pyarrow" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/33/57/b46c8bc25f052271554bbd443e64700238257c85d7a8e2f12b58f3556829/adbc_driver_gizmosql-1.1.3.tar.gz", hash = "sha256:29c3550f8acd536c2f47156aea87e9e40df76920325ec3894c45b366eb5d1980", size = 23560, upload-time = "2026-03-02T19:00:32.122Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ef/ac/97f9dacb1411f27aca25c0ac3dbbaaa12bec571db21129601f6a1c0d799b/adbc_driver_gizmosql-1.1.5.tar.gz", hash = "sha256:a90cc85fc660a81e0223fbea796dfe4f2dd0d6b5040e885a0aa84528abd2cf1c", size = 24393, upload-time = "2026-03-31T14:34:16.958Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/09/1b/5244a40683774beffa6282940fc27f550d4fbcf438464f033149828534a5/adbc_driver_gizmosql-1.1.3-py3-none-any.whl", hash = "sha256:d929fec79eda5d4fbdc2476cc4d024dd2bb3fbf280872e76c4220be69549d914", size = 16343, upload-time = "2026-03-02T19:00:30.238Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/ff/6e2f51b2981da3a65c59f7b2f57a2642dfd3cd5f77c41a9e2aa8b2e25995/adbc_driver_gizmosql-1.1.5-py3-none-any.whl", hash = "sha256:4980b7770f99462a0b6a582cdbb48730bd46589acec9d094713f0ae03aa87a84", size = 16855, upload-time = "2026-03-31T14:34:15.292Z" },
 ]
 
 [[package]]
@@ -5912,7 +5912,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "adbc-driver-gizmosql", marker = "extra == 'gizmosql'", specifier = ">=1.1.3" },
+    { name = "adbc-driver-gizmosql", marker = "extra == 'gizmosql'", specifier = ">=1.1.5" },
     { name = "adbc-driver-postgresql", marker = "extra == 'examples'", specifier = ">=1.4.0" },
     { name = "adbc-driver-postgresql", marker = "extra == 'postgres'", specifier = ">=1.4.0" },
     { name = "adbc-driver-snowflake", marker = "extra == 'snowflake'", specifier = ">=1.5.0" },
