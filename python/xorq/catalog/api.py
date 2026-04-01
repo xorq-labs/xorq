@@ -1,6 +1,7 @@
 from xorq.catalog.annex import (
     LOCAL_ANNEX,
     DirectoryRemoteConfig,
+    RsyncRemoteConfig,
     S3RemoteConfig,
 )
 from xorq.catalog.catalog import Catalog, CatalogEntry
@@ -13,5 +14,6 @@ __all__ = [
     "DirectoryRemoteConfig",
     "ExprComposer",
     "LOCAL_ANNEX",
+    "RsyncRemoteConfig",
     "S3RemoteConfig",
 ]

@@ -380,6 +380,50 @@ class DirectoryRemoteConfig(RemoteConfig):
         return {k: v for k, v in d.items() if v is not None}
 
 
+@frozen
+class RsyncRemoteConfig(RemoteConfig):
+    name = field(validator=instance_of(str))
+    rsyncurl = field(validator=instance_of(str))
+    encryption = field(validator=instance_of(str), default="none")
+    autoenable = field(validator=optional(instance_of(str)), default=None)
+    shellescape = field(validator=optional(instance_of(str)), default=None)
+
+    EnvConfig = EnvConfigable.subclass_from_env_file(
+        env_templates_dir.joinpath(".env.catalog.rsync.template"),
+        prefix="XORQ_CATALOG_RSYNC_",
+    )
+
+    def initremote(self, repo_path):
+        params = [
+            self.name,
+            "type=rsync",
+            f"rsyncurl={self.rsyncurl}",
+            f"encryption={self.encryption}",
+        ]
+        for key in ("autoenable", "shellescape"):
+            value = getattr(self, key)
+            if value is not None:
+                params.append(f"{key}={value}")
+        _check_output_do_inside(
+            repo_path,
+            "initremote",
+            *params,
+            check_stderr=False,
+        )
+
+    def validate_config(self, repo_path):
+        out = _check_output_do_inside(
+            repo_path, "info", self.name, "--json", check_stderr=False
+        )
+        info = json.loads(out)
+        if info["type"] != "rsync":
+            raise ValueError(f"expected remote type 'rsync', got {info['type']!r}")
+
+    def to_dict(self):
+        d = {"type": "rsync", **attr.asdict(self)}
+        return {k: v for k, v in d.items() if v is not None}
+
+
 _REQUIRED_S3_FIELDS = frozenset(
     {"name", "bucket", "aws_access_key_id", "aws_secret_access_key", "encryption"}
 )
@@ -650,6 +694,7 @@ class S3RemoteConfig(RemoteConfig):
 
 _REMOTE_CONFIG_CLASSES = {
     "directory": DirectoryRemoteConfig,
+    "rsync": RsyncRemoteConfig,
     "S3": S3RemoteConfig,
 }
 

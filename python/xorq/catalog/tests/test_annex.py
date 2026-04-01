@@ -2,6 +2,7 @@ import pytest
 
 from xorq.catalog.annex import (
     DirectoryRemoteConfig,
+    RsyncRemoteConfig,
     S3RemoteConfig,
     remote_config_from_dict,
 )
@@ -96,6 +97,58 @@ def test_directory_from_dict_with_overrides():
     d = {"type": "directory", "name": "old", "directory": "/old"}
     rc = DirectoryRemoteConfig.from_dict(d, directory="/new")
     assert rc.directory == "/new"
+    assert rc.name == "old"
+
+
+# ---------------------------------------------------------------------------
+# RsyncRemoteConfig round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_rsync_to_dict_includes_type():
+    rc = RsyncRemoteConfig(name="myrsync", rsyncurl="user@host:/data")
+    d = rc.to_dict()
+    assert d["type"] == "rsync"
+
+
+def test_rsync_to_dict_includes_all_fields():
+    rc = RsyncRemoteConfig(
+        name="myrsync", rsyncurl="user@host:/data", encryption="shared"
+    )
+    d = rc.to_dict()
+    assert d == {
+        "type": "rsync",
+        "name": "myrsync",
+        "rsyncurl": "user@host:/data",
+        "encryption": "shared",
+    }
+
+
+def test_rsync_to_dict_omits_none():
+    rc = RsyncRemoteConfig(name="r", rsyncurl="host:/path")
+    d = rc.to_dict()
+    assert "autoenable" not in d
+    assert "shellescape" not in d
+
+
+def test_rsync_round_trip():
+    original = RsyncRemoteConfig(
+        name="myrsync", rsyncurl="user@host:/data", encryption="none"
+    )
+    restored = RsyncRemoteConfig.from_dict(original.to_dict())
+    assert restored == original
+
+
+def test_rsync_round_trip_via_dispatcher():
+    original = RsyncRemoteConfig(name="r", rsyncurl="host:/data")
+    restored = remote_config_from_dict(original.to_dict())
+    assert restored == original
+
+
+def test_rsync_from_dict_with_overrides():
+    d = {"type": "rsync", "name": "old", "rsyncurl": "host:/old"}
+    rc = RsyncRemoteConfig.from_dict(d, rsyncurl="host:/new")
+    assert rc.rsyncurl == "host:/new"
     assert rc.name == "old"
 
 
@@ -244,6 +297,23 @@ def test_directory_from_env_overrides_template_default(monkeypatch):
     assert rc.encryption == "shared"
 
 
+def test_rsync_from_env_all(monkeypatch):
+    monkeypatch.setenv("XORQ_CATALOG_RSYNC_NAME", "env-rsync")
+    monkeypatch.setenv("XORQ_CATALOG_RSYNC_RSYNCURL", "user@host:/data")
+    rc = RsyncRemoteConfig.from_env()
+    assert rc.name == "env-rsync"
+    assert rc.rsyncurl == "user@host:/data"
+    assert rc.encryption == "none"
+
+
+def test_rsync_from_env_kwargs_override(monkeypatch):
+    monkeypatch.setenv("XORQ_CATALOG_RSYNC_NAME", "env-name")
+    monkeypatch.setenv("XORQ_CATALOG_RSYNC_RSYNCURL", "host:/path")
+    rc = RsyncRemoteConfig.from_env(name="kwarg-name")
+    assert rc.name == "kwarg-name"
+    assert rc.rsyncurl == "host:/path"
+
+
 def test_s3_from_env_secrets(monkeypatch):
     monkeypatch.setenv("XORQ_CATALOG_S3_AWS_ACCESS_KEY_ID", "AKID")
     monkeypatch.setenv("XORQ_CATALOG_S3_AWS_SECRET_ACCESS_KEY", "SECRET")
@@ -300,6 +370,12 @@ def test_remote_config_from_dict_dispatches_directory():
     d = {"type": "directory", "name": "d", "directory": "/tmp"}
     rc = remote_config_from_dict(d)
     assert isinstance(rc, DirectoryRemoteConfig)
+
+
+def test_remote_config_from_dict_dispatches_rsync():
+    d = {"type": "rsync", "name": "r", "rsyncurl": "host:/data"}
+    rc = remote_config_from_dict(d)
+    assert isinstance(rc, RsyncRemoteConfig)
 
 
 def test_remote_config_from_dict_dispatches_s3():
