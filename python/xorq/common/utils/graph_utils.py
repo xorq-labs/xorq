@@ -202,7 +202,9 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
             # DatabaseTable (but not its subclasses like CachedNode, RemoteTable,
             # Read) needs its data transferred to the new backend.
             if type(node) is ops.DatabaseTable:
-                tables_to_transfer.append((source, new_source, node.name))
+                tables_to_transfer.append(
+                    (source, new_source, node.name, node.namespace)
+                )
 
         cache = getattr(node, "cache", None)
         if cache is not None:
@@ -239,18 +241,28 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
     return result
 
 
+def _namespace_to_database(namespace):
+    """Convert a Namespace to the ``database`` kwarg accepted by backend methods."""
+    if namespace.catalog and namespace.database:
+        return (namespace.catalog, namespace.database)
+    if namespace.database:
+        return namespace.database
+    return None
+
+
 def _find_missing_tables(tables_to_transfer):
     """Return the subset of tables that don't exist on the target backend."""
     missing = []
     seen = set()
-    for old_backend, new_backend, table_name in tables_to_transfer:
-        key = (id(new_backend), table_name)
+    for old_backend, new_backend, table_name, namespace in tables_to_transfer:
+        key = (id(new_backend), table_name, namespace.catalog, namespace.database)
         if key in seen:
             continue
         seen.add(key)
         try:
-            if table_name in new_backend.list_tables():
-                continue
+            database = _namespace_to_database(namespace)
+            new_backend.table(table_name, database=database)
+            continue
         except Exception:
             pass
         missing.append((old_backend, new_backend, table_name))

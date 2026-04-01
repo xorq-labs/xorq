@@ -5,8 +5,14 @@ import pytest
 import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.expr.relations as rel
+import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import ParquetCache, SourceCache
-from xorq.common.utils.graph_utils import find_all_sources, replace_sources
+from xorq.common.utils.graph_utils import (
+    _find_missing_tables,
+    _namespace_to_database,
+    find_all_sources,
+    replace_sources,
+)
 
 
 def assert_result_equal(left, right):
@@ -401,3 +407,88 @@ def test_replace_sources_does_not_mutate_original(parquet_path):
 
     assert find_all_sources(t) == original_sources
     assert original_sources[0] is xo_con
+
+
+# ---------------------------------------------------------------------------
+# _namespace_to_database helper
+# ---------------------------------------------------------------------------
+
+
+def test_namespace_to_database_both():
+    ns = ops.Namespace(catalog="my_cat", database="my_db")
+    assert _namespace_to_database(ns) == ("my_cat", "my_db")
+
+
+def test_namespace_to_database_db_only():
+    ns = ops.Namespace(catalog=None, database="my_db")
+    assert _namespace_to_database(ns) == "my_db"
+
+
+def test_namespace_to_database_empty():
+    ns = ops.Namespace()
+    assert _namespace_to_database(ns) is None
+
+
+# ---------------------------------------------------------------------------
+# _find_missing_tables with namespace
+# ---------------------------------------------------------------------------
+
+
+def test_find_missing_tables_respects_namespace():
+    """A table in a non-default schema should not be flagged as missing."""
+    con = xo.duckdb.connect()
+    con.raw_sql("CREATE SCHEMA IF NOT EXISTS other_schema")
+    con.raw_sql("CREATE TABLE other_schema.my_table AS SELECT 1 AS x")
+
+    ns = ops.Namespace(catalog=None, database="other_schema")
+    result = _find_missing_tables([(con, con, "my_table", ns)])
+    assert result == []
+
+
+def test_find_missing_tables_detects_truly_missing():
+    """A table that doesn't exist anywhere should be flagged as missing."""
+    con = xo.duckdb.connect()
+    ns = ops.Namespace(catalog=None, database="nonexistent_schema")
+    result = _find_missing_tables([(con, con, "no_such_table", ns)])
+    assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# Cross-schema / cross-catalog replace_sources (end-to-end)
+# ---------------------------------------------------------------------------
+
+
+def test_replace_sources_cross_schema_no_transfer():
+    """Replacing source on a table in a non-default schema should not
+    require transfer_tables when the table already exists on the target."""
+    con1 = xo.duckdb.connect()
+    con1.raw_sql("CREATE SCHEMA IF NOT EXISTS alt")
+    con1.raw_sql("CREATE TABLE alt.t AS SELECT 1 AS x")
+
+    t = con1.table("t", database="alt")
+
+    con2 = xo.duckdb.connect()
+    con2.raw_sql("CREATE SCHEMA IF NOT EXISTS alt")
+    con2.raw_sql("CREATE TABLE alt.t AS SELECT 1 AS x")
+
+    # Before fix: raises ValueError because list_tables() (default schema) misses "t"
+    result = replace_sources({id(con1): con2}, t)
+    assert_result_equal(result.execute(), t.execute())
+
+
+def test_replace_sources_catalog_and_schema():
+    """Table in catalog.schema is found via namespace, not bare list_tables."""
+    con = xo.duckdb.connect()
+    con.raw_sql("ATTACH ':memory:' AS other_cat")
+    con.raw_sql("CREATE SCHEMA other_cat.my_schema")
+    con.raw_sql("CREATE TABLE other_cat.my_schema.t AS SELECT 42 AS val")
+
+    t = con.table("t", database=("other_cat", "my_schema"))
+
+    con2 = xo.duckdb.connect()
+    con2.raw_sql("ATTACH ':memory:' AS other_cat")
+    con2.raw_sql("CREATE SCHEMA other_cat.my_schema")
+    con2.raw_sql("CREATE TABLE other_cat.my_schema.t AS SELECT 42 AS val")
+
+    result = replace_sources({id(con): con2}, t)
+    assert result.execute()["val"].tolist() == [42]
