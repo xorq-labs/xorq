@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.17] - 2026-03-31
+### Details
+#### Added
+- Add bind(), ExprComposer, and Catalog.source/bind by @dlovell in [#1748](https://github.com/xorq-labs/xorq/pull/1748)
+- Add ExprComposer.from_expr to recover composer from ta… by @dlovell in [#1750](https://github.com/xorq-labs/xorq/pull/1750)
+- Add worktree helper script and envrcs documentation by @dlovell in [#1760](https://github.com/xorq-labs/xorq/pull/1760)
+- Add xorq param by @mesejo in [#1747](https://github.com/xorq-labs/xorq/pull/1747)
+
+#### Changed
+- Load expr lazily by @mesejo in [#1720](https://github.com/xorq-labs/xorq/pull/1720)
+- Simplify xorq run, use match in replace_cache_table by @dlovell in [#1745](https://github.com/xorq-labs/xorq/pull/1745)
+- Extract replace_unbound utility and simplify exchanger by @dlovell in [#1742](https://github.com/xorq-labs/xorq/pull/1742)
+- Hoist work outside sync context in _add_zip by @dlovell in [#1756](https://github.com/xorq-labs/xorq/pull/1756)
+- Use pyyaml-12 by @mesejo in [#1718](https://github.com/xorq-labs/xorq/pull/1718)
+- Compose and run commands by @hussainsultan in [#1753](https://github.com/xorq-labs/xorq/pull/1753)
+- Bump adbc-driver-gizmosql from >=1.1.3 to >=1.1.5 by @prmoore77 in [#1763](https://github.com/xorq-labs/xorq/pull/1763)
+- Fuse catalog source wrappers for database backends by @hussainsultan in [#1761](https://github.com/xorq-labs/xorq/pull/1761)
+
+#### Fixed
+- Avoid wrapping Expr without backend by @mesejo in [#1731](https://github.com/xorq-labs/xorq/pull/1731)
+- Make test_j_k_moves_cursor resilient to slow CI by @dlovell in [#1746](https://github.com/xorq-labs/xorq/pull/1746)
+- Eliminate race in test_j_k_moves_cursor by @dlovell in [#1749](https://github.com/xorq-labs/xorq/pull/1749)
+- Restore --pdb behavior for catalog commands by @dlovell in [#1762](https://github.com/xorq-labs/xorq/pull/1762)
+
 ## [0.3.16] - 2026-03-24
 ### Details
 #### Added
