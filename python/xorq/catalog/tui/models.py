@@ -468,6 +468,13 @@ def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
     return CatalogRowData(entry=entry, aliases=aliases)
 
 
+def _invalidate_catalog_caches() -> None:
+    """Clear mtime-keyed caches so the next refresh reads fresh catalog state."""
+    _catalog_list_cached.cache_clear()
+    _catalog_aliases_cached.cache_clear()
+    _build_alias_multimap.cache_clear()
+
+
 @cache
 def _catalog_list_cached(catalog, yaml_mtime: float) -> tuple:
     """Compute catalog entry list; auto-invalidates when yaml mtime changes."""

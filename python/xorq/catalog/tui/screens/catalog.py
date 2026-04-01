@@ -45,6 +45,7 @@ from xorq.catalog.tui.models import (
     _format_size,
     _get_catalog_aliases,
     _get_catalog_list,
+    _invalidate_catalog_caches,
     _load_catalog_row,
     _render_sql_dag,
     _revision_pair,
@@ -417,6 +418,12 @@ class CatalogScreen(Screen):
             self._do_refresh_locked()
         finally:
             self._refresh_lock.release()
+
+    @work(thread=True, exit_on_error=False)
+    def _do_force_refresh(self) -> None:
+        """Refresh that blocks until the lock is available (used after mutations)."""
+        with self._refresh_lock:
+            self._do_refresh_locked()
 
     @property
     def catalog_aliases(self) -> tuple:
@@ -1242,7 +1249,8 @@ class CatalogScreen(Screen):
             self.query_one("#info-panel").border_title = "Compose Error"
             self.query_one("#info-content", Static).update(error_detail)
         else:
-            self._do_refresh()
+            _invalidate_catalog_caches()
+            self._do_force_refresh()
 
     @work(thread=True, exit_on_error=False)
     def _execute_run(self, config: RunConfig) -> None:
