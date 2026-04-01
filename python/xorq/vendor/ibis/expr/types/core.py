@@ -731,6 +731,7 @@ def _extract_builders(expr):
     from xorq.expr.builders import get_registry  # noqa: PLC0415
     from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: PLC0415
     from xorq.expr.relations import HashingTag, Tag  # noqa: PLC0415
+    from xorq.vendor.ibis.common.collections import FrozenOrderedDict  # noqa: PLC0415
 
     tag_nodes = walk_nodes((Tag, HashingTag), expr)
     if not tag_nodes:
@@ -749,6 +750,26 @@ def _extract_builders(expr):
 
                 builders.append(FittedPipelineSpec.from_tagged(tag_node))
                 continue
+        # check BSL tags — return provenance dict, not a full spec
+        if tag_name == "bsl":
+            meta = tag_node.metadata
+            # dims/measures live on the SemanticTableOp — which may be nested
+            # inside SemanticAggregateOp -> SemanticGroupByOp -> SemanticTableOp
+            table_meta = meta
+            while table_meta.get("bsl_op_type") != "SemanticTableOp":
+                source = table_meta.get("source")
+                if source is None:
+                    break
+                table_meta = dict(source) if isinstance(source, tuple) else source
+            dims = tuple(d[0] for d in table_meta.get("dimensions", ()))
+            measures = tuple(m[0] for m in table_meta.get("measures", ()))
+            builders.append(FrozenOrderedDict({
+                "type": "semantic_model",
+                "description": f"{len(dims)} dims, {len(measures)} measures",
+                "dimensions": dims,
+                "measures": measures,
+            }))
+            continue
         # check registry for matching builder
         if tag_name in registry:
             builder_cls = registry[tag_name]
