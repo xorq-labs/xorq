@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775049548530,
+  "lastUpdate": 1775070266239,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -3300,6 +3300,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.018744013284144205",
             "extra": "mean: 195.7764271999963 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1faba5fe05f677ccc80606eed0d849d6b9876aff",
+          "message": "feat(catalog): CatalogBackend abstraction with optional git-annex (#1752)\n\n## Summary\n\n- Introduce `CatalogBackend` ABC with `GitBackend` (plain git) and\n`GitAnnexBackend` implementations, decoupling `Catalog` from git-annex\nas a hard dependency\n- Add `Annex` wrapper, `RemoteConfig` hierarchy\n(`DirectoryRemoteConfig`, `S3RemoteConfig`), and auto-detection logic so\n`clone_from` / `from_repo_path` pick the right backend automatically\n(`annex=None` default)\n- Promote entry metadata to a git-tracked sidecar YAML so `entry.kind`,\n`.columns`, `.backends`, `.composed_from` work without fetching annex\ncontent; `entry.expr` / `entry.lazy_expr` auto-fetch on access\n- Add `Catalog.fetch_entries()` for bulk content fetch, `embedcreds`\nsupport for credential-free clones, `autoenable` field for git-annex\nnative auto-enable on clone, and `remote.log` as single source of truth\nfor remote config\n- Rename `ExprMetadata.sources` → `composed_from` (backwards-compatible\n`from_dict`)\n- Extract `BuildZip` and zip helpers into `zip_utils.py`; expose public\nAPI via `xo.catalog`\n- ADR-0003 documents the design, sidecar guidelines, and MinIO testing\ngaps\n\n## Test plan\n\n- [ ] `test_annex.py` — 31 tests for `RemoteConfig` round-trips,\n`from_env`, `embedcreds`, `from_dict` dispatch\n- [ ] `test_git_backend.py` — plain-git backend: init, add, remove,\nalias, clone\n- [ ] `test_catalog.py` — both backends via parametrized fixtures:\nauto-detection, `is_content_local`, sidecar metadata after drop,\n`fetch_entries` bulk, directory remote round-trip, S3/MinIO\n(`@pytest.mark.s3`)\n- [ ] `test_bind.py` — compose/bind with `composed_from` rename\n- [ ] Verify `xo.catalog` import works and CLI `xorq catalog schema` /\n`xorq catalog run` handle `ValueError`\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-01T15:00:39-04:00",
+          "tree_id": "a5c21c88a7afc885f3cbb6b2388137268f0f1dd4",
+          "url": "https://github.com/xorq-labs/xorq/commit/1faba5fe05f677ccc80606eed0d849d6b9876aff"
+        },
+        "date": 1775070262989,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.206258030491854,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016774647162583242",
+            "extra": "mean: 108.62176540000519 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.456421233358871,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0529202027381431",
+            "extra": "mean: 289.316588600002 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.640642559197733,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2254908017040121",
+            "extra": "mean: 1.5609328253999935 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.174176232331286,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05375391809128115",
+            "extra": "mean: 239.56822720000446 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.932746324945053,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006944476740559963",
+            "extra": "mean: 202.72682480000412 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.811781424320536,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0065660836182044055",
+            "extra": "mean: 207.82323880000604 msec\nrounds: 5"
           }
         ]
       }
