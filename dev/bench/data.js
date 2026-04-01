@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774986200810,
+  "lastUpdate": 1775010818209,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -3168,6 +3168,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.01880455463066153",
             "extra": "mean: 184.20700549999935 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eeddd9938c8b40597b5ed7334b921b149e92f946",
+          "message": "release: 0.3.17 (#1764)\n\n## Summary\n- Bump version from 0.3.16 to 0.3.17\n- Update CHANGELOG.md with git-cliff generated release notes\n\n## Highlights\n### Added\n- `bind()`, `ExprComposer`, and `Catalog.source/bind`\n- `ExprComposer.from_expr` to recover composer from table\n- Worktree helper script and envrcs documentation\n- `xorq param`\n\n### Changed\n- Lazy expr loading in TUI\n- Compose and run commands for catalog\n- Fuse catalog source wrappers for database backends\n- Bump adbc-driver-gizmosql to >=1.1.5\n\n### Fixed\n- Avoid wrapping Expr without backend\n- TUI test race conditions\n- Restore `--pdb` behavior for catalog commands\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-31T22:30:04-04:00",
+          "tree_id": "4e53aa8d09c18f63fc7c1b8f7ebe8370942073be",
+          "url": "https://github.com/xorq-labs/xorq/commit/eeddd9938c8b40597b5ed7334b921b149e92f946"
+        },
+        "date": 1775010815935,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.05013596207677,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00533752350515361",
+            "extra": "mean: 99.50114145454397 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.770123318327184,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03718324607246915",
+            "extra": "mean: 265.24331316666405 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6752102275348538,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17091511479571908",
+            "extra": "mean: 1.481020220399995 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.171409694364862,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014172841737310185",
+            "extra": "mean: 193.37087159999555 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.2009934215172136,
+            "unit": "iter/sec",
+            "range": "stddev: 0.058378410089016265",
+            "extra": "mean: 238.03893500000868 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.7033576043613508,
+            "unit": "iter/sec",
+            "range": "stddev: 0.025302217345478138",
+            "extra": "mean: 270.0252330000012 msec\nrounds: 5"
           }
         ]
       }
