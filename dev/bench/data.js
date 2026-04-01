@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775010818209,
+  "lastUpdate": 1775049548530,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -3234,6 +3234,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.025302217345478138",
             "extra": "mean: 270.0252330000012 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bc0094fe6ccdacad5426d8dba73a82761c79a07d",
+          "message": "fix: use namespace-aware table lookup in cross-database expr building (#1773)\n\n## Summary\n- `_find_missing_tables` was checking `table_name in\nbackend.list_tables()` which only searches the default schema, causing\nfalse `ValueError` for tables in non-default schemas/catalogs (e.g.\n`CREDIT_CARD_ACCOUNTS` in a specific catalog/schema)\n- Now propagates the `DatabaseTable` node's `namespace` and uses\n`backend.table(name, database=...)` to test reachability directly\n- Adds `_namespace_to_database` helper to convert `Namespace(catalog,\ndatabase)` to the `database` kwarg format\n\n## Test plan\n- [x] Unit tests for `_namespace_to_database` (catalog+db, db-only,\nempty)\n- [x] `_find_missing_tables` correctly finds table in non-default schema\n- [x] `_find_missing_tables` still detects truly missing tables\n- [x] End-to-end `replace_sources` with cross-schema table (no transfer\nneeded)\n- [x] End-to-end `replace_sources` with catalog + schema namespace\n- [x] All 75 existing tests still pass\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-01T09:15:36-04:00",
+          "tree_id": "73d0365d1acae022f0d4d76e2838a62d7f54d339",
+          "url": "https://github.com/xorq-labs/xorq/commit/bc0094fe6ccdacad5426d8dba73a82761c79a07d"
+        },
+        "date": 1775049545603,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.318512456931578,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011310115296727395",
+            "extra": "mean: 136.63978928571348 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 5.0374861932368065,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011253698380441364",
+            "extra": "mean: 198.51171033333515 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7673498518986442,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15607743811274324",
+            "extra": "mean: 1.3031865419999917 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.745258335406764,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03103191935801584",
+            "extra": "mean: 210.73668266667292 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.403105283041942,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007475128267185568",
+            "extra": "mean: 185.07875520000994 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.107867245827535,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018744013284144205",
+            "extra": "mean: 195.7764271999963 msec\nrounds: 5"
           }
         ]
       }
