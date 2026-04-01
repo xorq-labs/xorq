@@ -104,6 +104,8 @@ async def _populate_table(pilot, catalog, *entries):
     """
     await pilot.pause()
     screen = pilot.app.screen
+    # Disable the alias filter so all injected rows are visible.
+    screen._alias_filter = False
     rows = tuple(CatalogRowData(entry=e) for e in entries)
     screen._render_refresh(catalog.repo.working_dir, rows)
     await pilot.pause()
@@ -349,6 +351,7 @@ def test_render_refresh_populates_table(catalog, entry_a, entry_b):
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             screen = app.screen
+            screen._alias_filter = False
             assert isinstance(screen, CatalogScreen)
 
             screen._render_refresh(catalog.repo.working_dir, rows)
@@ -367,6 +370,7 @@ def test_render_refresh_uses_entry_name_as_row_key(catalog, entry_a, entry_b):
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             screen = app.screen
+            screen._alias_filter = False
 
             screen._render_refresh(catalog.repo.working_dir, rows)
             await pilot.pause()
@@ -426,6 +430,7 @@ def test_unaliased_entry_uses_name_as_key(catalog, entry_a):
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             screen = app.screen
+            screen._alias_filter = False
 
             screen._render_refresh(catalog.repo.working_dir, (row,))
             await pilot.pause()

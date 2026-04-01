@@ -681,7 +681,6 @@ def run(ctx, entries, code, output_path, output_format, limit, instream, fuse, r
 
     To persist composed results, use 'compose'.
     """
-    from xorq.catalog.bind import _eval_code, _make_source_expr
     from xorq.cli import arbitrate_output_format
     from xorq.common.utils.logging_utils import RunLogger
     from xorq.common.utils.otel_utils import tracer

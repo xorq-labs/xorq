@@ -97,6 +97,7 @@ class CatalogScreen(Screen):
         ("x", "compose", "Compose"),
         ("t", "show_telemetry", "Telemetry"),
         ("shift+x", "clear_runs", "Clear Runs"),
+        ("a", "toggle_alias_filter", "Aliases"),
     )
 
     FOCUS_CYCLE = (
@@ -127,6 +128,7 @@ class CatalogScreen(Screen):
         self._caches_loaded = False
         self._cache_row_paths: dict[str, str] = {}
         self._cache_row_data: dict[str, CacheRowData] = {}
+        self._alias_filter = True
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -472,14 +474,21 @@ class CatalogScreen(Screen):
     def _render_refresh(self, repo_path, cached_rows) -> None:
         with self.app.batch_update():
             catalog_name = Path(repo_path).name
+            filter_tag = " (aliased)" if self._alias_filter else ""
             self.query_one(
                 "#catalog-panel"
-            ).border_title = f"Expressions \u2014 {catalog_name}"
+            ).border_title = f"Expressions \u2014 {catalog_name}{filter_tag}"
+
+            visible_rows = (
+                tuple(r for r in cached_rows if r.aliases)
+                if self._alias_filter
+                else cached_rows
+            )
 
             # If the currently highlighted entry was removed, clear the
             # dedup guard so the new entry at that cursor position gets
             # a full render.
-            remaining_keys = frozenset(r.row_key for r in cached_rows)
+            remaining_keys = frozenset(r.row_key for r in visible_rows)
             if (
                 self._current_highlighted_hash is not None
                 and self._current_highlighted_hash not in remaining_keys
@@ -489,7 +498,7 @@ class CatalogScreen(Screen):
             table = self.query_one("#catalog-table", DataTable)
             saved_cursor = table.cursor_row
             table.clear()
-            for row_data in cached_rows:
+            for row_data in visible_rows:
                 table.add_row(*row_data.row, key=row_data.row_key)
             count = table.row_count
             if saved_cursor is not None and count > 0:
@@ -500,13 +509,44 @@ class CatalogScreen(Screen):
             table = self.query_one("#catalog-table", DataTable)
             if len(table.columns) < len(COLUMNS):
                 return
+            if self._alias_filter and not row_data.aliases:
+                return
             table.add_row(*row_data.row, key=row_data.row_key)
 
     def _render_status(self, stamp, repo_path) -> None:
         count = self.query_one("#catalog-table", DataTable).row_count
+        total = len(self._row_cache)
+        filter_info = f" (filtered {count}/{total})" if self._alias_filter else ""
         self.query_one("#status-bar", Static).update(
-            f" {count} entries \u00b7 {repo_path} \u00b7 {stamp}"
+            f" {count} entries{filter_info} \u00b7 {repo_path} \u00b7 {stamp}"
         )
+
+    # --- Toggle: Alias Filter ---
+
+    def action_toggle_alias_filter(self) -> None:
+        self._alias_filter = not self._alias_filter
+        self._current_highlighted_hash = None
+        table = self.query_one("#catalog-table", DataTable)
+        saved_cursor = table.cursor_row
+        table.clear()
+        visible = (
+            tuple(r for r in self._row_cache.values() if r.aliases)
+            if self._alias_filter
+            else tuple(self._row_cache.values())
+        )
+        for row_data in visible:
+            table.add_row(*row_data.row, key=row_data.row_key)
+        count = table.row_count
+        if saved_cursor is not None and count > 0:
+            table.move_cursor(row=min(saved_cursor, count - 1))
+
+        catalog = self.app._catalog
+        if catalog is not None:
+            catalog_name = Path(catalog.repo.working_dir).name
+            filter_tag = " (aliased)" if self._alias_filter else ""
+            self.query_one(
+                "#catalog-panel"
+            ).border_title = f"Expressions \u2014 {catalog_name}{filter_tag}"
 
     # --- Toggle: Git Log ---
 
