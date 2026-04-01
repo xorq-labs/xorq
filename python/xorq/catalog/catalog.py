@@ -234,7 +234,10 @@ class Catalog:
     def push(self):
         """Push to all git remotes after verifying consistency."""
         self.assert_consistency()
-        return tuple(map(Remote.push, self._git_remotes))
+        results = tuple(map(Remote.push, self._git_remotes))
+        for remote in self._git_remotes:
+            remote.push("git-annex")
+        return results
 
     def pull(self):
         """Pull from all git remotes."""
