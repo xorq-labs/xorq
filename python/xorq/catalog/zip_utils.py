@@ -12,6 +12,7 @@ from xorq.catalog.constants import (
     PREFERRED_SUFFIX,
     VALID_SUFFIXES,
 )
+from xorq.expr.builders import BUILDER_META_FILENAME
 from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES
 
 
@@ -23,9 +24,25 @@ def with_pure_suffix(path, suffix=""):
 
 def test_zip(zip_path):
     with zipfile.ZipFile(zip_path, "r") as zf:
-        names = {Path(name).name for name in zf.namelist() if not name.endswith("/")}
-        missing = set(REQUIRED_ARCHIVE_NAMES).difference(names)
-        assert not missing, missing
+        names = {
+            Path(info.filename).name
+            for info in zf.infolist()
+            if not info.is_dir()
+        }
+        is_expression = not set(REQUIRED_ARCHIVE_NAMES).difference(names)
+        is_builder = BUILDER_META_FILENAME in names
+        match (is_expression, is_builder):
+            case (True, _):
+                pass
+            case (_, True):
+                pass
+            case _:
+                missing_expr = set(REQUIRED_ARCHIVE_NAMES).difference(names)
+                assert False, (
+                    f"Archive is neither a valid expression entry "
+                    f"(missing {missing_expr}) nor a builder entry "
+                    f"(missing {BUILDER_META_FILENAME}); found: {sorted(names)}"
+                )
 
 
 @contextmanager
