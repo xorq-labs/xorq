@@ -1,17 +1,20 @@
 import shutil
+import subprocess
+import uuid
 from pathlib import Path
 
 import pytest
 from attr import evolve
+from git import Repo as GitRepo
 
 import xorq.api as xo
+from xorq.catalog.annex import LOCAL_ANNEX, Annex, DirectoryRemoteConfig, S3RemoteConfig
+from xorq.catalog.backend import GitAnnexBackend, GitBackend
 from xorq.catalog.catalog import (
-    BuildZip,
     Catalog,
     CatalogAddition,
     CatalogAlias,
     CatalogEntry,
-    with_pure_suffix,
 )
 from xorq.catalog.constants import CatalogInfix
 from xorq.catalog.expr_utils import (
@@ -21,6 +24,8 @@ from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
 )
 from xorq.catalog.zip_utils import (
+    BuildZip,
+    with_pure_suffix,
     write_zip,
 )
 from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES, ExprKind
@@ -133,6 +138,92 @@ def test_catalog_clone_from_push(repo_cloned_bare, tmpdir):
     compare_repo_and_catalog(repo_cloned_bare, cloned)
 
     assert before != after
+
+
+# ---------------------------------------------------------------------------
+# clone_from auto-detection
+# ---------------------------------------------------------------------------
+
+
+def test_clone_from_auto_detects_annex(repo_cloned_bare, tmpdir):
+    """clone_from with annex=None auto-detects git-annex branch."""
+    cloned = Catalog.clone_from(
+        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("auto-detect")
+    )
+    assert isinstance(cloned.backend, GitAnnexBackend)
+    assert cloned.list()
+
+
+def test_clone_from_no_annex_branch(tmpdir):
+    """clone_from with annex=None on a plain-git repo returns GitBackend."""
+
+    origin_path = Path(tmpdir).joinpath("origin")
+    catalog = Catalog.from_repo_path(origin_path, init=True)
+    with build_expr_context_zip(xo.memtable({"plain": ["plain"]})) as zip_path:
+        catalog.add(zip_path)
+
+    cloned = Catalog.clone_from(str(origin_path), Path(tmpdir).joinpath("clone-plain"))
+    assert isinstance(cloned.backend, GitBackend)
+    assert cloned.list()
+
+
+def test_clone_from_false_forces_plain_git(repo_cloned_bare, tmpdir):
+    """annex=False forces GitBackend even when git-annex branch exists."""
+
+    cloned = Catalog.clone_from(
+        repo_cloned_bare.working_dir,
+        Path(tmpdir).joinpath("force-plain"),
+        annex=False,
+    )
+    assert isinstance(cloned.backend, GitBackend)
+
+
+# ---------------------------------------------------------------------------
+# from_repo_path auto-detection
+# ---------------------------------------------------------------------------
+
+
+def test_from_repo_path_auto_detects_annex(tmpdir):
+    """from_repo_path with annex=None auto-detects .git/annex."""
+    repo_path = Path(tmpdir).joinpath("annex-repo")
+    Catalog.from_repo_path(repo_path, init=True, annex=LOCAL_ANNEX)
+
+    reopened = Catalog.from_repo_path(repo_path)
+    assert isinstance(reopened.backend, GitAnnexBackend)
+
+
+def test_remote_log_available_after_init(tmpdir):
+    """remote.log is readable immediately after initremote (journal flushed)."""
+    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir.mkdir()
+    remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
+    repo_path = Path(tmpdir).joinpath("repo")
+    Catalog.from_repo_path(repo_path, init=True, annex=remote_config)
+
+    annex = Annex(repo_path=repo_path)
+    remote_log = annex.remote_log
+    assert remote_log
+    config = next(iter(remote_log.values()))
+    assert config["name"] == "mydir"
+    assert config["type"] == "directory"
+
+
+def test_from_repo_path_no_annex(tmpdir):
+    """from_repo_path with annex=None on a plain-git repo returns GitBackend."""
+    repo_path = Path(tmpdir).joinpath("plain-repo")
+    Catalog.from_repo_path(repo_path, init=True)
+
+    reopened = Catalog.from_repo_path(repo_path)
+    assert isinstance(reopened.backend, GitBackend)
+
+
+def test_from_repo_path_false_forces_plain_git(tmpdir):
+    """annex=False forces GitBackend even when .git/annex exists."""
+    repo_path = Path(tmpdir).joinpath("annex-repo")
+    Catalog.from_repo_path(repo_path, init=True, annex=LOCAL_ANNEX)
+
+    reopened = Catalog.from_repo_path(repo_path, annex=False)
+    assert isinstance(reopened.backend, GitBackend)
 
 
 @pytest.mark.parametrize("elide", REQUIRED_ARCHIVE_NAMES)
@@ -331,7 +422,7 @@ def test_catalog_alias_from_name_matches_catalog_aliases(catalog_populated):
 
 def test_catalog_entry_relocatable(repo_cloned_bare, tmpdir):
     cloned = Catalog.clone_from(
-        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("cloned")
+        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("cloned"), annex=LOCAL_ANNEX
     )
     catalog_entries = cloned.catalog_entries
     exprs = tuple(catalog_entry.expr for catalog_entry in catalog_entries)
@@ -399,5 +490,263 @@ def test_get_entry_by_alias(catalog):
 
 
 def test_get_entry_unknown_raises(catalog):
-    with pytest.raises(AssertionError, match="no-such"):
+    with pytest.raises(ValueError, match="no-such"):
         catalog.get_catalog_entry("no-such")
+
+
+def test_directory_remote(tmpdir):
+    """Add entries, copy to a directory remote, drop local, get back."""
+    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir.mkdir()
+    remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
+    repo_path = Path(tmpdir).joinpath("repo")
+    Catalog.init_repo_path(repo_path, annex=remote_config)
+    annex = Annex(repo_path=repo_path)
+    backend = GitAnnexBackend(repo=GitRepo(repo_path), annex=annex)
+    catalog = Catalog(backend=backend)
+
+    # add two entries
+    with build_expr_context_zip(xo.memtable({"x": [1]})) as zp:
+        entry = catalog.add(zp, sync=False)
+    catalog.assert_consistency()
+    assert entry.catalog_path.is_symlink()
+
+    # copy content to directory remote
+    annex.copy(to="mydir")
+    # content is in the remote directory
+    assert any(remote_dir.rglob("*"))
+
+    # drop local content — symlink stays, but target is gone
+    annex.drop()
+    assert entry.catalog_path.is_symlink()
+    assert not entry.catalog_path.exists()
+
+    # get content back from directory remote
+    annex.get()
+    assert entry.catalog_path.exists()
+
+
+def test_annex_is_content_local_after_drop(tmpdir):
+    """is_content_local is False when annex content has been dropped."""
+    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir.mkdir()
+    remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
+    repo_path = Path(tmpdir).joinpath("repo")
+    Catalog.init_repo_path(repo_path, annex=remote_config)
+    annex = Annex(repo_path=repo_path)
+    backend = GitAnnexBackend(repo=GitRepo(repo_path), annex=annex)
+    catalog = Catalog(backend=backend)
+
+    with build_expr_context_zip(xo.memtable({"x": [1]})) as zp:
+        entry = catalog.add(zp, sync=False)
+
+    assert entry.is_content_local
+    assert entry.is_available
+
+    annex.copy(to="mydir")
+    annex.drop()
+
+    assert entry.exists(), "entry should still be registered"
+    assert not entry.is_content_local
+    assert not entry.is_available
+
+
+def test_annex_auto_fetch_after_drop(tmpdir):
+    """Sidecar metadata works after drop; expr and get auto-fetch from remote."""
+    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir.mkdir()
+    remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
+    repo_path = Path(tmpdir).joinpath("repo")
+    Catalog.init_repo_path(repo_path, annex=remote_config)
+    annex = Annex(repo_path=repo_path)
+    backend = GitAnnexBackend(repo=GitRepo(repo_path), annex=annex)
+    catalog = Catalog(backend=backend)
+
+    with build_expr_context_zip(xo.memtable({"x": [1]})) as zp:
+        entry = catalog.add(zp, sync=False)
+
+    annex.copy(to="mydir")
+    annex.drop()
+
+    # metadata reads from sidecar — works without content
+    assert entry.metadata is not None
+    assert entry.kind is not None
+
+    # expr auto-fetches from the remote
+    assert entry.expr is not None
+
+    # drop again and verify get also auto-fetches
+    annex.drop()
+    out_dir = str(tmpdir.join("out"))
+    Path(out_dir).mkdir()
+    result = entry.get(dir_path=out_dir)
+    assert result.exists()
+
+
+def test_annex_fetch_restores_content(tmpdir):
+    """entry.fetch() retrieves annex content for a single entry."""
+    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir.mkdir()
+    remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
+    repo_path = Path(tmpdir).joinpath("repo")
+    Catalog.init_repo_path(repo_path, annex=remote_config)
+    annex = Annex(repo_path=repo_path)
+    backend = GitAnnexBackend(repo=GitRepo(repo_path), annex=annex)
+    catalog = Catalog(backend=backend)
+
+    with build_expr_context_zip(xo.memtable({"x": [1]})) as zp:
+        entry = catalog.add(zp, sync=False)
+
+    annex.copy(to="mydir")
+    annex.drop()
+    assert not entry.is_content_local
+
+    entry.fetch()
+    assert entry.is_content_local
+    assert entry.is_available
+    # content is actually readable after fetch
+    assert entry.metadata is not None
+
+
+def test_fetch_entries_bulk(tmpdir):
+    """catalog.fetch_entries() batch-fetches multiple entries in one operation."""
+    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir.mkdir()
+    remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
+    repo_path = Path(tmpdir).joinpath("repo")
+    Catalog.init_repo_path(repo_path, annex=remote_config)
+    annex = Annex(repo_path=repo_path)
+    backend = GitAnnexBackend(repo=GitRepo(repo_path), annex=annex)
+    catalog = Catalog(backend=backend)
+
+    with build_expr_context_zip(xo.memtable({"a": [1]})) as zp:
+        entry_a = catalog.add(zp, sync=False)
+    with build_expr_context_zip(xo.memtable({"b": [2]})) as zp:
+        entry_b = catalog.add(zp, sync=False)
+
+    annex.copy(to="mydir")
+    annex.drop()
+    assert not entry_a.is_content_local
+    assert not entry_b.is_content_local
+
+    catalog.fetch_entries(entry_a, entry_b)
+    assert entry_a.is_content_local
+    assert entry_b.is_content_local
+
+    # also test string-based lookup
+    annex.drop()
+    catalog.fetch_entries(entry_a.name, entry_b.name)
+    assert entry_a.is_content_local
+    assert entry_b.is_content_local
+
+
+def test_plain_git_is_content_local(catalog):
+    """Plain-git entries always have content local."""
+    expr = xo.memtable({"x": [1]})
+    entry = catalog.add(expr)
+    assert entry.is_content_local
+    assert entry.is_available
+
+
+def test_sidecar_contains_promoted_fields(catalog):
+    """Sidecar metadata file contains expr_metadata and backends."""
+    expr = xo.memtable({"x": [1], "y": ["a"]})
+    entry = catalog.add(expr)
+    sidecar = entry.sidecar_metadata
+    assert "md5sum" in sidecar
+    assert "expr_metadata" in sidecar
+    em = sidecar["expr_metadata"]
+    assert "kind" in em
+    assert "schema_out" in em
+    assert set(em["schema_out"]) == {"x", "y"}
+    assert "backends" in sidecar
+    assert isinstance(sidecar["backends"], list)
+
+
+def test_metadata_from_sidecar_after_drop(tmpdir):
+    """All metadata properties work from sidecar after annex content is dropped."""
+    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir.mkdir()
+    remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
+    repo_path = Path(tmpdir).joinpath("repo")
+    Catalog.init_repo_path(repo_path, annex=remote_config)
+    annex = Annex(repo_path=repo_path)
+    backend = GitAnnexBackend(repo=GitRepo(repo_path), annex=annex)
+    catalog = Catalog(backend=backend)
+
+    with build_expr_context_zip(xo.memtable({"x": [1]})) as zp:
+        entry = catalog.add(zp, sync=False)
+
+    annex.copy(to="mydir")
+    annex.drop()
+    assert not entry.is_content_local
+
+    # all sidecar-backed properties work without content
+    assert entry.kind == ExprKind.Source
+    assert entry.columns == ("x",)
+    assert entry.root_tag is not None or entry.root_tag == ""
+    assert isinstance(entry.backends, tuple)
+    assert entry.metadata.to_dict() is not None
+
+    # expr auto-fetches content from the remote
+    assert entry.expr is not None
+
+
+@pytest.mark.s3
+def test_s3_remote_minio(tmpdir):
+    """Add entries, copy to S3 (minio), drop local, get back."""
+    remote_config = S3RemoteConfig.from_env(
+        name="mys3",
+        bucket=f"test-annex-{uuid.uuid4().hex[:12]}",
+        host="minio",
+        port="9000",
+        aws_access_key_id="accesskey",
+        aws_secret_access_key="secretkey",
+        protocol="http",
+        requeststyle="path",
+        signature="v2",
+    )
+    # check minio is reachable
+    result = subprocess.run(
+        [
+            "curl",
+            "-sf",
+            f"http://{remote_config.host}:{remote_config.port}/minio/health/live",
+        ],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        pytest.skip("minio not reachable")
+    repo_path = Path(tmpdir).joinpath("repo")
+    repo_path.mkdir(parents=True)
+    repo = GitRepo.init(repo_path)
+    repo.index.commit("initial commit")
+    # allow private IPs for minio
+    subprocess.run(
+        ["git", "config", "annex.security.allowed-ip-addresses", "all"],
+        cwd=repo_path,
+        check=True,
+    )
+    Annex.init_repo_path(repo_path, remote_config=remote_config)
+
+    annex = Annex(repo_path=repo_path, env=remote_config.env)
+    backend = GitAnnexBackend(repo=repo, annex=annex)
+    catalog = Catalog(backend=backend)
+
+    # add an entry
+    with build_expr_context_zip(xo.memtable({"s3col": [42]})) as zp:
+        entry = catalog.add(zp, sync=False)
+    catalog.assert_consistency()
+    assert entry.catalog_path.is_symlink()
+
+    # copy to S3
+    annex.copy(to="mys3")
+
+    # drop local content
+    annex.drop()
+    assert entry.catalog_path.is_symlink()
+    assert not entry.catalog_path.exists()
+
+    # get content back from S3
+    annex.get()
+    assert entry.catalog_path.exists()

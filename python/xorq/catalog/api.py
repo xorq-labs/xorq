@@ -1,22 +1,19 @@
-from xorq.catalog.catalog import (
-    Catalog,
-    CatalogAddition,
-    CatalogEntry,
-    CatalogRemoval,
+from xorq.catalog.annex import (
+    LOCAL_ANNEX,
+    DirectoryRemoteConfig,
+    RsyncRemoteConfig,
+    S3RemoteConfig,
 )
-from xorq.catalog.expr_utils import (
-    build_expr_context,
-    build_expr_context_zip,
-    load_expr_from_zip,
-)
+from xorq.catalog.catalog import Catalog, CatalogEntry
+from xorq.catalog.composer import ExprComposer
 
 
-__all__ = [  # noqa: PLE0604
+__all__ = [
     "Catalog",
-    "CatalogAddition",
     "CatalogEntry",
-    "CatalogRemoval",
-    "build_expr_context",
-    "build_expr_context_zip",
-    "load_expr_from_zip",
+    "DirectoryRemoteConfig",
+    "ExprComposer",
+    "LOCAL_ANNEX",
+    "RsyncRemoteConfig",
+    "S3RemoteConfig",
 ]

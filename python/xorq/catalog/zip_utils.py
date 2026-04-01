@@ -1,12 +1,24 @@
+import hashlib
 import tempfile
 import zipfile
 from contextlib import contextmanager
+from functools import cached_property
 from pathlib import Path
+
+from attr import field, frozen
+from attr.validators import instance_of
 
 from xorq.catalog.constants import (
     PREFERRED_SUFFIX,
+    VALID_SUFFIXES,
 )
 from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES
+
+
+def with_pure_suffix(path, suffix=""):
+    return path.with_name(path.name.removesuffix("".join(path.suffixes))).with_suffix(
+        suffix
+    )
 
 
 def test_zip(zip_path):
@@ -44,3 +56,41 @@ def write_zip(path, relpath_to_bytes):
         for relpath, byts in dict(relpath_to_bytes).items():
             zf.writestr(str(relpath), byts)
     return path
+
+
+@frozen
+class BuildZip:
+    """A validated build archive.  Checks suffix and required archive members on init."""
+
+    path = field(validator=instance_of(Path), converter=Path)
+
+    def __attrs_post_init__(self):
+        assert "".join(self.path.suffixes) in VALID_SUFFIXES, (
+            f"Invalid archive suffix '{self.path.suffixes}', expected one of {VALID_SUFFIXES}"
+        )
+        assert self.path.exists(), f"Build archive not found at {self.path}"
+        test_zip(self.path)
+
+    @property
+    def name(self):
+        return with_pure_suffix(self.path, "").name
+
+    @cached_property
+    def internal_prefix(self):
+        """The top-level directory inside the zip archive."""
+        with zipfile.ZipFile(self.path, "r") as zf:
+            first = zf.namelist()[0]
+            return first.split("/", 1)[0]
+
+    @property
+    def md5sum(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
+            file_digest,
+        )
+
+        return file_digest(self.path, hashlib.md5)
+
+    def read_member(self, member_path, read_f):
+        """Read and parse a single member from the zip archive."""
+        with zipfile.ZipFile(self.path, "r") as zf:
+            return read_f(zf.read(member_path).decode())

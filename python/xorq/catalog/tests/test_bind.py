@@ -5,6 +5,7 @@ import pyarrow.parquet as pq
 import pytest
 
 import xorq.api as xo
+from xorq.catalog.backend import GitBackend
 from xorq.catalog.bind import (
     CatalogTag,
     _make_source_expr,
@@ -26,7 +27,7 @@ from xorq.vendor.ibis.expr.types.core import ExprMetadata
 @pytest.fixture
 def catalog(tmpdir):
     repo = Catalog.init_repo_path(Path(tmpdir).joinpath("bind-repo"))
-    return Catalog(repo=repo)
+    return Catalog(backend=GitBackend(repo=repo))
 
 
 @pytest.fixture
@@ -85,19 +86,19 @@ def test_bound_kind(catalog_with_entries):
     bound = bind(source_entry, transform_entry)
     meta = ExprMetadata.from_expr(bound)
     assert meta.kind == ExprKind.Composed
-    assert len(meta.sources) == 2
-    source_entries = [s for s in meta.sources if s["kind"] == "source"]
+    assert len(meta.composed_from) == 2
+    source_entries = [s for s in meta.composed_from if s["kind"] == "source"]
     assert len(source_entries) == 1
 
 
-def test_bound_to_dict_includes_sources(catalog_with_entries):
+def test_bound_to_dict_includes_composed_from(catalog_with_entries):
     catalog, source_entry, transform_entry = catalog_with_entries
     bound = bind(source_entry, transform_entry)
     meta = ExprMetadata.from_expr(bound)
     d = meta.to_dict()
     assert d["kind"] == "composed"
-    assert "sources" in d
-    assert len(d["sources"]) == 2
+    assert "composed_from" in d
+    assert len(d["composed_from"]) == 2
 
 
 def test_chained_bind_kind(catalog_with_bound):
@@ -105,7 +106,7 @@ def test_chained_bind_kind(catalog_with_bound):
     bound2 = bind(bound_entry, transform2_entry)
     meta = ExprMetadata.from_expr(bound2)
     assert meta.kind == ExprKind.Composed
-    assert len(meta.sources) >= 1
+    assert len(meta.composed_from) >= 1
 
 
 # --- Schema validation tests ---
@@ -167,14 +168,14 @@ def test_bind_roundtrip_catalog(catalog_with_entries):
     bound = bind(source_entry, transform_entry)
     bound_entry = catalog.add(bound, aliases=("bound-result",))
     assert bound_entry.kind == ExprKind.Composed
-    assert len(bound_entry.sources) == 2
+    assert len(bound_entry.composed_from) == 2
 
 
 def test_bind_with_alias(catalog_with_entries):
     catalog, source_entry, transform_entry = catalog_with_entries
     bound = bind(source_entry, transform_entry, alias="custom-alias")
     meta = ExprMetadata.from_expr(bound)
-    source_sources = tuple(s for s in meta.sources if s["kind"] == "source")
+    source_sources = tuple(s for s in meta.composed_from if s["kind"] == "source")
     assert source_sources[0]["alias"] == "custom-alias"
 
 
@@ -202,7 +203,7 @@ def test_bind_bound_roundtrip_catalog(catalog_with_bound):
     bound2 = bind(bound_entry, transform2_entry)
     bound2_entry = catalog.add(bound2, aliases=("bound2",))
     assert bound2_entry.kind == ExprKind.Composed
-    assert len(bound2_entry.sources) >= 1
+    assert len(bound2_entry.composed_from) >= 1
 
 
 def test_bind_schema_mismatch(catalog):
@@ -253,7 +254,7 @@ def test_bind_cross_catalog_raises(catalog_with_entries, tmpdir):
     """Binding entries from different catalogs raises ValueError."""
     catalog, source_entry, _ = catalog_with_entries
     other_repo = Catalog.init_repo_path(Path(tmpdir).joinpath("other-repo"))
-    other_catalog = Catalog(repo=other_repo)
+    other_catalog = Catalog(backend=GitBackend(repo=other_repo))
     other_transform = xo.memtable({"user_id": [1], "amount": [10.0]})
     schema = other_transform.schema()
     unbound = ops.UnboundTable(name="ph", schema=schema).to_expr()
@@ -280,34 +281,34 @@ def test_get_catalog_entry_by_alias(catalog_with_entries):
 
 def test_get_catalog_entry_unknown_raises(catalog_with_entries):
     catalog, _, _ = catalog_with_entries
-    with pytest.raises(AssertionError, match="not found"):
+    with pytest.raises(ValueError, match="not found"):
         catalog.get_catalog_entry("nonexistent", maybe_alias=True)
 
 
-# --- catalog.source() tests ---
+# --- catalog.load() tests ---
 
 
 def test_catalog_source_returns_catalog_source_expr(catalog_with_entries):
     catalog, source_entry, _ = catalog_with_entries
-    expr = catalog.source("my-source")
+    expr = catalog.load("my-source")
     assert expr is not None
     meta = ExprMetadata.from_expr(expr)
     assert meta.kind == ExprKind.Composed
-    assert len(meta.sources) == 1
-    assert meta.sources[0]["kind"] == "source"
-    assert meta.sources[0]["entry_name"] == source_entry.name
+    assert len(meta.composed_from) == 1
+    assert meta.composed_from[0]["kind"] == "source"
+    assert meta.composed_from[0]["entry_name"] == source_entry.name
 
 
 def test_catalog_source_by_name(catalog_with_entries):
     catalog, source_entry, _ = catalog_with_entries
-    expr = catalog.source(source_entry.name)
+    expr = catalog.load(source_entry.name)
     meta = ExprMetadata.from_expr(expr)
-    assert meta.sources[0]["kind"] == "source"
+    assert meta.composed_from[0]["kind"] == "source"
 
 
 def test_catalog_source_executes(catalog_with_entries):
     catalog, _, _ = catalog_with_entries
-    expr = catalog.source("my-source")
+    expr = catalog.load("my-source")
     result = expr.execute()
     assert len(result) == 3
 
@@ -320,7 +321,7 @@ def test_catalog_bind_produces_composed(catalog_with_entries):
     bound = catalog.bind(source_entry, transform_entry)
     meta = ExprMetadata.from_expr(bound)
     assert meta.kind == ExprKind.Composed
-    assert len(meta.sources) == 2
+    assert len(meta.composed_from) == 2
 
 
 def test_catalog_bind_source_provenance(catalog_with_entries):
@@ -328,7 +329,7 @@ def test_catalog_bind_source_provenance(catalog_with_entries):
     bound = catalog.bind(source_entry, transform_entry)
     meta = ExprMetadata.from_expr(bound)
 
-    source_entries = tuple(s for s in meta.sources if s["kind"] == "source")
+    source_entries = tuple(s for s in meta.composed_from if s["kind"] == "source")
     assert len(source_entries) == 1
     assert source_entries[0]["entry_name"] == source_entry.name
 
@@ -338,8 +339,8 @@ def test_catalog_bind_has_source_and_transform_tags(catalog_with_entries):
     bound = catalog.bind(source_entry, transform_entry)
     meta = ExprMetadata.from_expr(bound)
 
-    source_entries = [s for s in meta.sources if s["kind"] == "source"]
-    transform_entries = [s for s in meta.sources if s["kind"] == "unbound_expr"]
+    source_entries = [s for s in meta.composed_from if s["kind"] == "source"]
+    transform_entries = [s for s in meta.composed_from if s["kind"] == "unbound_expr"]
     assert len(source_entries) == 1
     assert source_entries[0]["entry_name"] == source_entry.name
     assert len(transform_entries) == 1
@@ -366,7 +367,7 @@ def test_catalog_bind_roundtrip_catalog(catalog_with_entries):
     bound = catalog.bind(source_entry, transform_entry)
     bound_entry = catalog.add(bound, aliases=("bound-result",))
     assert bound_entry.kind == ExprKind.Composed
-    assert len(bound_entry.sources) == 2
+    assert len(bound_entry.composed_from) == 2
 
 
 def test_catalog_bind_variadic(catalog_with_entries):
@@ -430,8 +431,8 @@ def test_chain_has_source_and_all_transform_tags(catalog_with_entries):
 
     bound = bind(source_entry, transform_entry, t2_entry)
     meta = ExprMetadata.from_expr(bound)
-    source_entries = [s for s in meta.sources if s["kind"] == "source"]
-    transform_entries = [s for s in meta.sources if s["kind"] == "unbound_expr"]
+    source_entries = [s for s in meta.composed_from if s["kind"] == "source"]
+    transform_entries = [s for s in meta.composed_from if s["kind"] == "unbound_expr"]
     assert len(source_entries) == 1
     assert len(transform_entries) == 2
 
@@ -450,7 +451,7 @@ def test_kind_survives_yaml_roundtrip(catalog_with_entries):
     meta = ExprMetadata.from_expr(loaded_expr)
 
     assert meta.kind == ExprKind.Composed
-    assert len(meta.sources) >= 1
+    assert len(meta.composed_from) >= 1
 
 
 # --- ExprComposer tests ---
