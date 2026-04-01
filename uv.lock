@@ -499,6 +499,24 @@ css = [
 ]
 
 [[package]]
+name = "boring-semantic-layer"
+version = "0.3.10"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "ibis-framework" },
+    { name = "packaging" },
+    { name = "pyyaml" },
+    { name = "returns" },
+    { name = "toolz" },
+    { name = "xorq" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5a/48/01440da4ff1917269fed653d8eb7ad42c5efa47471e90342491fddc92ef2/boring_semantic_layer-0.3.10.tar.gz", hash = "sha256:83b1d366bad34db9e671213848ee53555a96b6983ce59ddbbe6ad611088459be", size = 1327965, upload-time = "2026-03-25T19:21:48.382Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/21/6e/e0ecaad9fdf1f9ede6c3f5ab8b6fb69e4f4f9cfcbe31d725974ffa57bcb7/boring_semantic_layer-0.3.10-py3-none-any.whl", hash = "sha256:187285889c9e5d48267671f318335da0f395e15a2c6dc97f91a91d71ac605b9c", size = 545133, upload-time = "2026-03-25T19:21:46.684Z" },
+]
+
+[[package]]
 name = "boto3"
 version = "1.40.1"
 source = { registry = "https://pypi.org/simple" }
@@ -4761,6 +4779,18 @@ wheels = [
 ]
 
 [[package]]
+name = "returns"
+version = "0.26.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/06/c2/6dda7ef39464568152e35c766a8b49ab1cdb1b03a5891441a7c2fa40dc61/returns-0.26.0.tar.gz", hash = "sha256:180320e0f6e9ea9845330ccfc020f542330f05b7250941d9b9b7c00203fcc3da", size = 105300, upload-time = "2025-07-24T13:11:21.772Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/57/4d/a7545bf6c62b0dbe5795f22ea9e88cc070fdced5c34663ebc5bed2f610c0/returns-0.26.0-py3-none-any.whl", hash = "sha256:7cae94c730d6c56ffd9d0f583f7a2c0b32cfe17d141837150c8e6cff3eb30d71", size = 160515, upload-time = "2025-07-24T13:11:20.041Z" },
+]
+
+[[package]]
 name = "rfc3339-validator"
 version = "0.1.4"
 source = { registry = "https://pypi.org/simple" }
@@ -5833,6 +5863,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+bsl = [
+    { name = "boring-semantic-layer" },
+]
 datafusion = [
     { name = "datafusion" },
 ]
@@ -5933,6 +5966,7 @@ requires-dist = [
     { name = "adbc-driver-sqlite", marker = "extra == 'sqlite'", specifier = ">=1.4.0" },
     { name = "atpublic", specifier = ">=5.1" },
     { name = "attrs", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=24.0.0,<26" },
+    { name = "boring-semantic-layer", marker = "extra == 'bsl'", specifier = ">=0.1.0" },
     { name = "cityhash", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.4.7,<1" },
     { name = "click", specifier = ">=8.0" },
     { name = "cloudpickle", specifier = ">=3.1.1" },
@@ -5989,7 +6023,7 @@ requires-dist = [
     { name = "xorq-feature-utils", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-feature-utils?branch=main" },
     { name = "xorq-weather-lib", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-weather-lib?branch=main" },
 ]
-provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "quickgrove", "examples", "postgres", "sqlite", "gizmosql", "ibis", "trino"]
+provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "quickgrove", "examples", "postgres", "sqlite", "gizmosql", "ibis", "trino", "bsl"]
 
 [package.metadata.requires-dev]
 dev = [

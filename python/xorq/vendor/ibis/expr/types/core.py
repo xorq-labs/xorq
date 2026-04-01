@@ -723,6 +723,39 @@ def _extract_sources(catalog_tag_nodes):
     )
 
 
+def _extract_builders(expr):
+    from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+    from xorq.expr.builders import get_registry  # noqa: PLC0415
+    from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: PLC0415
+    from xorq.expr.relations import HashingTag, Tag  # noqa: PLC0415
+
+    tag_nodes = walk_nodes((Tag, HashingTag), expr)
+    if not tag_nodes:
+        return ()
+
+    registry = get_registry()
+    builders = []
+    for tag_node in tag_nodes:
+        tag_name = tag_node.metadata.get("tag")
+        # check ML pipeline tags
+        if tag_name in tuple(FittedPipelineTagKey):
+            if FittedPipelineTagKey.ALL_STEPS in tag_node.metadata:
+                from xorq.expr.builders.fitted_pipeline import (  # noqa: PLC0415
+                    FittedPipelineSpec,
+                )
+
+                builders.append(FittedPipelineSpec.from_tagged(tag_node))
+                continue
+        # check registry for matching builder
+        if tag_name in registry:
+            builder_cls = registry[tag_name]
+            try:
+                builders.append(builder_cls.from_tagged(tag_node))
+            except Exception:
+                pass
+    return tuple(builders)
+
+
 def _extract_kind(unbound_node, catalog_tag_nodes, is_source):
     # Priority: UnboundExpr (incomplete/has placeholder) > Composed (has
     # catalog HashingTag nodes) > Source (plain table) > Expr (everything else).
@@ -750,6 +783,7 @@ class ExprMetadata:
         factory=tuple, validator=deep_iterable(instance_of(dict))
     )
     params: tuple = field(factory=tuple)
+    builders: tuple = field(factory=tuple)
 
     @classmethod
     def from_dict(cls, data):
@@ -768,6 +802,7 @@ class ExprMetadata:
             parquet_cache_paths=tuple(data.get("parquet_cache_paths") or ()),
             composed_from=tuple(data.get("composed_from") or data.get("sources") or ()),
             params=tuple(data.get("params") or ()),
+            builders=tuple(data.get("builders", ())),
         )
 
     @classmethod
@@ -813,6 +848,7 @@ class ExprMetadata:
             parquet_cache_paths=parquet_cache_paths,
             composed_from=_extract_sources(catalog_tag_nodes),
             params=named_params,
+            builders=_extract_builders(expr),
         )
 
     def to_dict(self):
@@ -832,6 +868,7 @@ class ExprMetadata:
                     "composed_from",
                     list(self.composed_from) if self.composed_from else None,
                 ),
+                ("builders", list(self.builders) if self.builders else None),
             )
             if value is not None
         }
