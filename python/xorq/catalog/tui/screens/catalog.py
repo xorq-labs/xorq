@@ -52,7 +52,11 @@ from xorq.catalog.tui.models import (
     _TogglePanelState,
 )
 from xorq.catalog.tui.panels.services import ServicesPanel
-from xorq.catalog.tui.screens.modals import ComposeScreen, RunOptionsScreen
+from xorq.catalog.tui.screens.modals import (
+    ComposeScreen,
+    ConfirmScreen,
+    RunOptionsScreen,
+)
 from xorq.catalog.tui.screens.telemetry import TelemetryScreen
 
 
@@ -99,6 +103,8 @@ class CatalogScreen(Screen):
         ("t", "show_telemetry", "Telemetry"),
         ("shift+x", "clear_runs", "Clear Runs"),
         ("a", "toggle_alias_filter", "Aliases"),
+        ("shift+d", "delete_entry", "Delete"),
+        ("shift+a", "remove_alias", "Rm Alias"),
     )
 
     FOCUS_CYCLE = (
@@ -1267,6 +1273,118 @@ class CatalogScreen(Screen):
                 self._row_cache[row_data.row_key] = row_data
                 self._render_catalog_row(row_data)
             self._do_force_refresh()
+
+    # --- Delete Entry / Remove Alias ---
+
+    def _get_selected_entry(self) -> tuple[str, CatalogRowData] | None:
+        """Return (entry_hash, row_data) for the currently highlighted row."""
+        table = self.query_one("#catalog-table", DataTable)
+        if table.row_count == 0:
+            return None
+        row_key, _ = table.coordinate_to_cell_key(table.cursor_coordinate)
+        entry_hash = str(row_key.value)
+        row_data = self._row_cache.get(entry_hash)
+        if row_data is None:
+            return None
+        return entry_hash, row_data
+
+    def action_delete_entry(self) -> None:
+        sel = self._get_selected_entry()
+        if sel is None:
+            return
+        entry_hash, row_data = sel
+        label = row_data.aliases_display or entry_hash[:12]
+        aliases_note = (
+            f"\n aliases: {row_data.aliases_display}" if row_data.aliases else ""
+        )
+        self.app.push_screen(
+            ConfirmScreen(
+                f" delete {label}",
+                f" {entry_hash[:12]}{aliases_note}",
+            ),
+            callback=lambda confirmed: self._on_delete_confirmed(confirmed, entry_hash),
+        )
+
+    def _on_delete_confirmed(self, confirmed: bool | None, entry_hash: str) -> None:
+        if not confirmed:
+            return
+        self.query_one("#status-bar", Static).update(" Deleting...")
+        self._execute_delete(entry_hash)
+
+    @work(thread=True, exit_on_error=False)
+    def _execute_delete(self, entry_hash: str) -> None:
+        catalog = self.app._catalog
+        if catalog is None:
+            return
+        try:
+            catalog.remove(entry_hash, sync=False)
+            self.app.call_from_thread(self._render_delete_result, entry_hash, None)
+        except Exception as e:
+            self.app.call_from_thread(self._render_delete_result, entry_hash, str(e))
+
+    def _render_delete_result(self, entry_hash: str, error: str | None) -> None:
+        if error is not None:
+            self.query_one("#status-bar", Static).update(f" Delete error: {error}")
+            return
+        # Remove from row cache and DataTable immediately.
+        self._row_cache.pop(entry_hash, None)
+        table = self.query_one("#catalog-table", DataTable)
+        try:
+            table.remove_row(entry_hash)
+        except Exception:
+            pass
+        self._current_highlighted_hash = None
+        self.query_one("#status-bar", Static).update(" Deleted")
+        _invalidate_catalog_caches()
+        self._do_force_refresh()
+
+    def action_remove_alias(self) -> None:
+        sel = self._get_selected_entry()
+        if sel is None:
+            return
+        entry_hash, row_data = sel
+        if not row_data.aliases:
+            self.query_one("#status-bar", Static).update(" No aliases on this entry")
+            return
+        alias = row_data.aliases[0]
+        self.app.push_screen(
+            ConfirmScreen(
+                f" remove alias {alias!r}",
+                f" from {entry_hash[:12]}",
+            ),
+            callback=lambda confirmed: self._on_remove_alias_confirmed(
+                confirmed, alias
+            ),
+        )
+
+    def _on_remove_alias_confirmed(self, confirmed: bool | None, alias: str) -> None:
+        if not confirmed:
+            return
+        self.query_one("#status-bar", Static).update(" Removing alias...")
+        self._execute_remove_alias(alias)
+
+    @work(thread=True, exit_on_error=False)
+    def _execute_remove_alias(self, alias: str) -> None:
+        from xorq.catalog.catalog import CatalogAlias  # noqa: PLC0415
+
+        catalog = self.app._catalog
+        if catalog is None:
+            return
+        try:
+            CatalogAlias.from_name(alias, catalog).remove()
+            self.app.call_from_thread(self._render_remove_alias_result, alias, None)
+        except Exception as e:
+            self.app.call_from_thread(self._render_remove_alias_result, alias, str(e))
+
+    def _render_remove_alias_result(self, alias: str, error: str | None) -> None:
+        if error is not None:
+            self.query_one("#status-bar", Static).update(
+                f" Remove alias error: {error}"
+            )
+            return
+        self.query_one("#status-bar", Static).update(f" Removed alias {alias!r}")
+        _invalidate_catalog_caches()
+        self._do_force_refresh()
 
     @work(thread=True, exit_on_error=False)
     def _execute_run(self, config: RunConfig) -> None:

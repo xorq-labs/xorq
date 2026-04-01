@@ -272,6 +272,29 @@ class CatalogTUI(App):
         height: auto;
         margin: 0;
     }
+    ConfirmScreen {
+        align: center middle;
+        background: rgba(5, 24, 26, 0.85);
+    }
+    ConfirmScreen #confirm-container {
+        width: 50;
+        height: auto;
+        max-height: 10;
+        border: solid #e05252;
+        background: $surface;
+        padding: 0 1;
+    }
+    ConfirmScreen #confirm-title {
+        height: 1;
+        color: #e05252;
+    }
+    ConfirmScreen #confirm-message {
+        height: auto;
+        padding: 1 1;
+    }
+    ConfirmScreen #confirm-hint {
+        height: 1;
+    }
     TelemetryScreen {
         background: $surface;
     }

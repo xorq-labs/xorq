@@ -242,6 +242,43 @@ class ActionChooserScreen(ActionModalBase):
 
 
 # ---------------------------------------------------------------------------
+# Confirm (generic destructive-action confirmation)
+# ---------------------------------------------------------------------------
+
+
+class ConfirmScreen(Screen):
+    """Confirmation modal for destructive actions (delete entry, remove alias).
+
+    Dismisses with True on confirm, None on cancel.
+    """
+
+    BINDINGS = (
+        ("escape", "cancel", "Cancel"),
+        ("ctrl+d", "confirm", "Confirm"),
+    )
+
+    def __init__(self, title: str, message: str):
+        super().__init__()
+        self._title = title
+        self._message = message
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="confirm-container"):
+            yield Static(self._title, id="confirm-title")
+            yield Static(self._message, id="confirm-message")
+            yield Static(
+                " [dim]ctrl+d=confirm  esc=cancel[/]",
+                id="confirm-hint",
+            )
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+
+# ---------------------------------------------------------------------------
 # Compose (select entries + optional code + alias -> build & catalog)
 # ---------------------------------------------------------------------------
 
