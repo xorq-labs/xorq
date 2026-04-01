@@ -453,12 +453,17 @@ class CatalogScreen(Screen):
                 pass
 
         # load new entries incrementally (expensive I/O, off the main thread)
+        new_count = 0
         for entry_hash in new_keys:
             entry = catalog.get_catalog_entry(entry_hash)
             aliases = alias_multimap.get(entry_hash, ())
             row_data = _load_catalog_row(entry, aliases)
             self._row_cache[row_data.row_key] = row_data
             self.app.call_from_thread(self._render_catalog_row, row_data)
+            new_count += 1
+
+        if new_count:
+            self.app.call_from_thread(self._notify_new_entries, new_count)
 
         if self._git_log_visible:
             git_rows = _build_git_log_rows(catalog.repo)
@@ -512,6 +517,16 @@ class CatalogScreen(Screen):
             if self._alias_filter and not row_data.aliases:
                 return
             table.add_row(*row_data.row, key=row_data.row_key)
+
+    def _notify_new_entries(self, count: int) -> None:
+        label = "entry" if count == 1 else "entries"
+        self.notify(f"+{count} new {label}", timeout=4)
+        panel = self.query_one("#catalog-panel")
+        panel.border_subtitle = f"+{count} new"
+        self.set_timer(5.0, self._clear_new_entries_subtitle)
+
+    def _clear_new_entries_subtitle(self) -> None:
+        self.query_one("#catalog-panel").border_subtitle = ""
 
     def _render_status(self, stamp, repo_path) -> None:
         count = self.query_one("#catalog-table", DataTable).row_count

@@ -38,6 +38,7 @@ class CatalogTUI(App):
         height: 2fr;
         border: solid #C1F0FF;
         border-title-color: #C1F0FF;
+        border-subtitle-color: #2BBE75;
         background: $surface;
     }
     #catalog-table {
