@@ -456,6 +456,42 @@ def _parse_rename_params(raw_rename_params):
     return result
 
 
+def _eval_entry(catalog_entry, code, instream=None):
+    """Evaluate a single catalog entry to an expression."""
+    from xorq.catalog.bind import _eval_code, _make_source_expr  # noqa: PLC0415
+    from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
+
+    match catalog_entry.kind:
+        case ExprKind.UnboundExpr:
+            import pyarrow as pa  # noqa: PLC0415
+
+            from xorq.common.utils.graph_utils import replace_unbound  # noqa: PLC0415
+            from xorq.common.utils.io_utils import maybe_open  # noqa: PLC0415
+            from xorq.expr.api import read_pyarrow_stream  # noqa: PLC0415
+
+            try:
+                with maybe_open(instream, "rb") as stream:
+                    input_expr = read_pyarrow_stream(stream)
+            except (pa.ArrowInvalid, pa.ArrowException) as err:
+                raise click.ClickException(
+                    f"Entry {catalog_entry.name!r} is an unbound expression — "
+                    f"pipe Arrow data into it or pass a source entry: "
+                    f"'xorq catalog run SOURCE {catalog_entry.name} -o - -f csv'."
+                ) from err
+            expr = replace_unbound(catalog_entry.expr, input_expr.op())
+        case ExprKind.Source | ExprKind.Expr | ExprKind.Composed:
+            expr = _make_source_expr(catalog_entry)
+        case _:
+            raise click.ClickException(
+                f"Unsupported entry kind {catalog_entry.kind!r} for 'run'."
+            )
+
+    if code is not None:
+        expr = _eval_code(code, expr)
+
+    return expr
+
+
 def _compose_expr(catalog, entries, code, rename_map=None):
     """Build a composed expression from catalog entries and/or inline code."""
 
@@ -664,7 +700,17 @@ def compose(ctx, entries, code, alias, cache_dir, dry_run, raw_rename_params):
     help="Rename a parameter: entry,old_name,new_name (repeatable).",
 )
 @click.pass_context
-def run(ctx, entries, code, output_path, output_format, limit, instream, fuse, raw_rename_params):
+def run(
+    ctx,
+    entries,
+    code,
+    output_path,
+    output_format,
+    limit,
+    instream,
+    fuse,
+    raw_rename_params,
+):
     """Compose and execute catalog entries.
 
     One entry runs it directly; multiple entries compose source + transforms:
