@@ -305,13 +305,22 @@ class Catalog:
 
         return bind(source_entry, *transforms, con=con)
 
-    def add_builder(self, spec, sync=True, aliases=(), exist_ok=False):
-        """Add a BuilderSpec to the catalog as a builder entry."""
+    def add_builder(self, spec, sdist_path, sync=True, aliases=(), exist_ok=False):
+        """Add a BuilderSpec to the catalog as a builder entry.
+
+        *sdist_path* is the path to an sdist zip to bundle into the catalog
+        entry so the builder can be run in an isolated environment via
+        ``SdistRunner``.
+        """
         import tempfile  # noqa: PLC0415
 
+        from xorq.common.utils.zip_utils import copy_path  # noqa: PLC0415
+        from xorq.ibis_yaml.packager import BUILD_SDIST_NAME  # noqa: PLC0415
+
         with tempfile.TemporaryDirectory() as tmp:
-            build_dir = Path(tmp) / "builder"
-            spec.to_build_dir(build_dir)
+            build_dir = spec.to_build_dir(Path(tmp))
+            copy_path(Path(sdist_path), build_dir / BUILD_SDIST_NAME)
+
             return self._add_build_dir(
                 build_dir, sync=sync, aliases=aliases, exist_ok=exist_ok
             )
@@ -347,6 +356,12 @@ class Catalog:
         tag_nodes = walk_nodes((Tag, HashingTag), expr)
         for tag_node in tag_nodes:
             tag_name = tag_node.metadata.get("tag")
+            if tag_name == "bsl":
+                from xorq.expr.builders.semantic_model import (  # noqa: PLC0415
+                    SemanticModelSpec,
+                )
+
+                return SemanticModelSpec.from_tagged(tag_node)
             if tag_name in registry:
                 return registry[tag_name].from_tagged(tag_node)
         raise ValueError("No builder tags found in expression")
@@ -887,11 +902,14 @@ class CatalogEntry:
     def metadata(self):
         from xorq.vendor.ibis.expr.types.core import ExprMetadata  # noqa: PLC0415
 
-        return ExprMetadata.from_dict(self.sidecar_metadata["expr_metadata"])
+        try:
+            return ExprMetadata.from_dict(self.sidecar_metadata["expr_metadata"])
+        except (KeyError, TypeError):
+            return None
 
     @property
-    def kind(self) -> ExprKind:
-        return self.metadata.kind
+    def kind(self) -> ExprKind | None:
+        return self.metadata.kind if self.metadata is not None else None
 
     @property
     def columns(self) -> tuple[str]:
