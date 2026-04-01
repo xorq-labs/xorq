@@ -101,10 +101,10 @@ class CatalogScreen(Screen):
         ("s", "toggle_services", "Services"),
         ("x", "compose", "Compose"),
         ("t", "show_telemetry", "Telemetry"),
-        ("shift+x", "clear_runs", "Clear Runs"),
+        ("X", "clear_runs", "Clear Runs"),
         ("a", "toggle_alias_filter", "Aliases"),
-        ("shift+d", "delete_entry", "Delete"),
-        ("shift+a", "remove_alias", "Rm Alias"),
+        ("D", "delete_entry", "Delete"),
+        ("A", "remove_alias", "Rm Alias"),
     )
 
     FOCUS_CYCLE = (
