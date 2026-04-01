@@ -1231,9 +1231,18 @@ class CatalogScreen(Screen):
                     catalog.add_alias(entry_name, config.alias)
             else:
                 catalog.add(build_path, aliases=aliases)
+
+            # Build row data on worker thread so the main thread can insert
+            # it directly into the DataTable without another refresh round-trip.
+            _invalidate_catalog_caches()
+            entry = catalog.get_catalog_entry(entry_name)
+            alias_multimap = _build_alias_multimap(_get_catalog_aliases(catalog))
+            entry_aliases = alias_multimap.get(entry_name, ())
+            row_data = _load_catalog_row(entry, entry_aliases)
+
             label = config.alias or entry_name[:12]
             self.app.call_from_thread(
-                self._render_compose_result, f"Composed as {label!r}", None
+                self._render_compose_result, f"Composed as {label!r}", None, row_data
             )
         except Exception as e:
             import traceback  # noqa: PLC0415
@@ -1243,13 +1252,20 @@ class CatalogScreen(Screen):
                 self._render_compose_result, f"Compose error: {e}", "".join(tb)
             )
 
-    def _render_compose_result(self, message: str, error_detail: str | None) -> None:
+    def _render_compose_result(
+        self,
+        message: str,
+        error_detail: str | None,
+        row_data: CatalogRowData | None = None,
+    ) -> None:
         self.query_one("#status-bar", Static).update(f" {message}")
         if error_detail is not None:
             self.query_one("#info-panel").border_title = "Compose Error"
             self.query_one("#info-content", Static).update(error_detail)
         else:
-            _invalidate_catalog_caches()
+            if row_data is not None:
+                self._row_cache[row_data.row_key] = row_data
+                self._render_catalog_row(row_data)
             self._do_force_refresh()
 
     @work(thread=True, exit_on_error=False)
