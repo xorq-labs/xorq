@@ -590,8 +590,52 @@ class CatalogScreen(Screen):
                     "#revisions-panel"
                 ).border_title = "Revisions — (no alias)"
 
-        # Reset toggle panels on row change
-        self._reset_toggle_panels()
+        # Update toggle panels for new row (preserve visibility)
+        self._update_toggle_panels(row_data, str(event.row_key.value))
+
+    def _update_toggle_panels(self, row_data, entry_hash) -> None:
+        """Update toggle panels for a new row, preserving visibility."""
+        if self._data_preview.visible:
+            dt = self.query_one("#data-preview-table", DataTable)
+            if row_data.cached:
+                self._data_preview = _TogglePanelState(
+                    visible=True,
+                    loaded=True,
+                    entry_hash=entry_hash,
+                )
+                dt.loading = True
+                self.query_one("#data-preview-status", Static).update(
+                    " Loading data preview..."
+                )
+                self._load_data_preview(row_data.entry)
+            else:
+                self._data_preview = _TogglePanelState(visible=True)
+                self.query_one("#data-preview-status", Static).update(
+                    " uncached — run to materialize"
+                )
+                dt.clear(columns=True)
+                dt.loading = False
+        else:
+            self._data_preview = _TogglePanelState()
+            dt = self.query_one("#data-preview-table", DataTable)
+            dt.clear(columns=True)
+            dt.loading = True
+
+        if self._profiles.visible:
+            self._reload_profiles_for_current(row_data, entry_hash)
+        else:
+            self._profiles = _TogglePanelState()
+            self.query_one("#profiles-panel").display = False
+            self.query_one("#profiles-table", DataTable).clear()
+
+    def _reload_profiles_for_current(self, row_data, entry_hash) -> None:
+        """Reload profiles panel content for a new row while keeping it visible."""
+        self._profiles = _TogglePanelState(
+            visible=True,
+            loaded=True,
+            entry_hash=entry_hash,
+        )
+        self._load_profiles(row_data.entry)
 
     def _reset_toggle_panels(self) -> None:
         self._data_preview = _TogglePanelState()
