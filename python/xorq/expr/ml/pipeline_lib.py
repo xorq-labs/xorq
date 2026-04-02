@@ -380,6 +380,27 @@ class FittedStep:
     )
     dest_col = field(validator=optional(instance_of(str)), default=None)
 
+    # Attrs' auto-generated __getstate__ only includes fields, dropping
+    # cached_property slots like ``model``.  Override so eagerly-materialized
+    # model weights survive cloudpickle roundtrips.
+    _cached_property_slots = ("model",)
+
+    def __getstate__(self):
+        state = {
+            a.name: getattr(self, a.name)
+            for a in self.__class__.__attrs_attrs__
+        }
+        for slot in self._cached_property_slots:
+            try:
+                state[slot] = object.__getattribute__(self, slot)
+            except AttributeError:
+                pass
+        return state
+
+    def __setstate__(self, state):
+        for key, value in state.items():
+            object.__setattr__(self, key, value)
+
     def __attrs_post_init__(self):
         # we must have at least transform or predict
         if not (self.is_transform or self.is_predict):

@@ -1,4 +1,4 @@
-"""Tests for BuilderSpec framework — registry, base class, and built-in builders."""
+"""Tests for Builder framework — registry, base class, and built-in builders."""
 
 from __future__ import annotations
 
@@ -13,13 +13,13 @@ from xorq.expr.builders import (
     _BUILDER_REGISTRY,
     BUILDER_META_FILENAME,
     BuilderKind,
-    BuilderSpec,
+    Builder,
     get_registry,
     register_builder,
 )
 from xorq.expr.builders.fitted_pipeline import (
     PIPELINE_PICKLE_FILENAME,
-    FittedPipelineSpec,
+    FittedPipelineBuilder,
 )
 from xorq.vendor.ibis.expr.types.core import ExprMetadata
 
@@ -30,7 +30,7 @@ class TestBuilderRegistry:
         try:
 
             @register_builder("test_dummy")
-            class DummyBuilder(BuilderSpec):
+            class DummyBuilder(Builder):
                 tag_name = "test_dummy"
 
             assert "test_dummy" in _BUILDER_REGISTRY
@@ -53,32 +53,32 @@ class TestBuilderRegistry:
         assert str(BuilderKind.FittedPipeline) in registry
 
 
-class TestBuilderSpecBase:
+class TestBuilderBase:
     def test_build_expr_raises_not_implemented(self):
-        spec = BuilderSpec(tag_name="test")
+        spec = Builder(tag_name="test")
         with pytest.raises(NotImplementedError):
             spec.build_expr()
 
     def test_from_tagged_raises_not_implemented(self):
         with pytest.raises(NotImplementedError):
-            BuilderSpec.from_tagged(None)
+            Builder.from_tagged(None)
 
     def test_from_build_dir_raises_not_implemented(self):
         with pytest.raises(NotImplementedError):
-            BuilderSpec.from_build_dir(Path("/tmp"))
+            Builder.from_build_dir(Path("/tmp"))
 
     def test_to_build_dir_raises_not_implemented(self):
-        spec = BuilderSpec(tag_name="test")
+        spec = Builder(tag_name="test")
         with pytest.raises(NotImplementedError):
             spec.to_build_dir(Path("/tmp"))
 
     def test_frozen(self):
-        spec = BuilderSpec(tag_name="test")
+        spec = Builder(tag_name="test")
         with pytest.raises(AttributeError):
             spec.tag_name = "other"
 
 
-class TestFittedPipelineSpec:
+class TestFittedPipelineBuilder:
     @pytest.fixture
     def mock_fitted_pipeline(self):
         fp = MagicMock()
@@ -98,7 +98,7 @@ class TestFittedPipelineSpec:
         return fp
 
     def test_to_build_dir_writes_meta_and_pickle(self, mock_fitted_pipeline):
-        spec = FittedPipelineSpec(fitted_pipeline=mock_fitted_pipeline)
+        spec = FittedPipelineBuilder(fitted_pipeline=mock_fitted_pipeline)
 
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)
@@ -113,24 +113,24 @@ class TestFittedPipelineSpec:
             assert len(meta["steps"]) == 2
 
     def test_roundtrip_through_build_dir(self, mock_fitted_pipeline):
-        spec = FittedPipelineSpec(fitted_pipeline=mock_fitted_pipeline)
+        spec = FittedPipelineBuilder(fitted_pipeline=mock_fitted_pipeline)
 
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)
             spec.to_build_dir(path)
-            restored = FittedPipelineSpec.from_build_dir(path)
+            restored = FittedPipelineBuilder.from_build_dir(path)
 
             assert restored.tag_name == str(BuilderKind.FittedPipeline)
             assert restored.is_predict is True
             assert len(restored.steps) == 2
 
     def test_build_expr_unknown_method(self, mock_fitted_pipeline):
-        spec = FittedPipelineSpec(fitted_pipeline=mock_fitted_pipeline)
+        spec = FittedPipelineBuilder(fitted_pipeline=mock_fitted_pipeline)
         with pytest.raises(ValueError, match="Unknown method"):
             spec.build_expr(data=MagicMock(), method="nonexistent")
 
     def test_steps_property(self, mock_fitted_pipeline):
-        spec = FittedPipelineSpec(fitted_pipeline=mock_fitted_pipeline)
+        spec = FittedPipelineBuilder(fitted_pipeline=mock_fitted_pipeline)
         steps = spec.steps
         assert isinstance(steps, tuple)
         assert len(steps) == 2
