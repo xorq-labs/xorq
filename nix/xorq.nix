@@ -177,6 +177,18 @@ let
         psycopg-c = (prev.psycopg-c.overrideAttrs (addResolved final [
           "setuptools"
         ])).overrideAttrs(addNativeBuildInputs [ pkgs.postgresql.pg_config ]);
+        # git-annex PyPI package is a platform-specific binary wheel that
+        # uv2nix cannot resolve.  Stub it out and provide the real binary
+        # via pkgs.git-annex in the shell packages instead.
+        git-annex = python.pkgs.buildPythonPackage {
+          pname = "git-annex";
+          version = "0.0.0";
+          src = pkgs.emptyDirectory;
+          format = "other";
+          installPhase = ''
+            mkdir -p $out/${python.sitePackages}
+          '';
+        };
       };
       pyprojectOverrides-editable = final: prev: {
         xorq = prev.xorq.overrideAttrs (old: {
@@ -230,6 +242,7 @@ let
         pkgs.uv
         xorq-commands-star
         pkgs.gh
+        pkgs.git-annex
       ];
       defaultShell = pkgs.mkShell {
         packages = [
