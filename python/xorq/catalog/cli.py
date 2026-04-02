@@ -432,6 +432,61 @@ def check(ctx):
         click.echo("OK")
 
 
+@cli.command()
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+@click.pass_context
+def log(ctx, as_json):
+    """Show catalog history as structured operations."""
+    import json as json_mod
+
+    import attr
+
+    from xorq.catalog.replay import Replayer
+
+    with click_context_catalog(ctx):
+        catalog = ctx.obj.make_catalog(init=False)
+        replayer = Replayer(from_catalog=catalog)
+        if as_json:
+            click.echo(
+                json_mod.dumps(
+                    [
+                        {"type": type(op).__name__, **attr.asdict(op)}
+                        for op in replayer.ops
+                    ],
+                    indent=2,
+                )
+            )
+        else:
+            replayer.print_plan()
+
+
+@cli.command()
+@click.argument("target_path", type=click.Path(file_okay=False))
+@click.option(
+    "--preserve-commits/--no-preserve-commits",
+    default=True,
+    help="Preserve original commit authors and timestamps (default: yes).",
+)
+@click.option(
+    "--dry-run", is_flag=True, help="Show what would be replayed without executing."
+)
+@click.pass_context
+def replay(ctx, target_path, preserve_commits, dry_run):
+    """Replay catalog operations into a target catalog."""
+    from xorq.catalog.catalog import Catalog
+    from xorq.catalog.replay import Replayer
+
+    with click_context_catalog(ctx):
+        source = ctx.obj.make_catalog(init=False)
+        replayer = Replayer(from_catalog=source)
+        if dry_run:
+            replayer.print_plan()
+            return
+        target = Catalog.from_repo_path(target_path, init=True)
+        replayer.replay(target, preserve_commits=preserve_commits)
+        click.echo(f"Replayed {len(replayer.ops)} operations into {target_path}")
+
+
 def _eval_entry(catalog_entry, code, instream=None):
     """Evaluate a single catalog entry to an expression."""
     from xorq.catalog.bind import _eval_code, _make_source_expr
@@ -695,7 +750,17 @@ def compose(ctx, entries, code, alias, cache_dir, dry_run, raw_rename_params):
     help="Rename a parameter: entry,old_name,new_name (repeatable).",
 )
 @click.pass_context
-def run(ctx, entries, code, output_path, output_format, limit, instream, fuse, raw_rename_params):
+def run(
+    ctx,
+    entries,
+    code,
+    output_path,
+    output_format,
+    limit,
+    instream,
+    fuse,
+    raw_rename_params,
+):
     """Compose and execute catalog entries.
 
     One entry runs it directly; multiple entries compose source + transforms:
