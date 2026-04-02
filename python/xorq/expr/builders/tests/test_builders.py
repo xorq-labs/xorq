@@ -8,14 +8,19 @@ from pathlib import Path
 
 import pytest
 
+import xorq.api as xo
 from xorq.catalog.zip_utils import test_zip as validate_zip
 from xorq.expr.builders import (
     _FROM_TAGGED_REGISTRY,
+    TagHandler,
+    extract_builder_metadata,
     from_tagged_dispatch,
     get_from_tagged_registry,
-    register_from_tagged,
+    register_tag_handler,
 )
+from xorq.expr.relations import Tag
 from xorq.ibis_yaml.enums import ExprKind
+from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.types.core import (
     ExprMetadata,
     _extract_builders,
@@ -24,52 +29,72 @@ from xorq.vendor.ibis.expr.types.core import (
 
 
 # ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def saved_registry():
+    """Save and restore the handler registry around a test."""
+    saved = dict(_FROM_TAGGED_REGISTRY)
+    yield
+    _FROM_TAGGED_REGISTRY.clear()
+    _FROM_TAGGED_REGISTRY.update(saved)
+
+
+@pytest.fixture
+def con():
+    return xo.connect()
+
+
+# ---------------------------------------------------------------------------
 # ExprKind.ExprBuilder detection
 # ---------------------------------------------------------------------------
 
 
-class TestExprKindExprBuilder:
-    def test_enum_value(self):
-        assert str(ExprKind.ExprBuilder) == "expr_builder"
+def test_expr_builder_enum_value():
+    assert str(ExprKind.ExprBuilder) == "expr_builder"
 
-    def test_extract_kind_with_builders(self):
-        kind = _extract_kind(
-            unbound_node=None,
-            catalog_tag_nodes=[],
-            is_source=False,
-            has_builders=True,
-        )
-        assert kind == ExprKind.ExprBuilder
 
-    def test_extract_kind_unbound_takes_priority(self):
-        """UnboundExpr has higher priority than ExprBuilder."""
-        sentinel = type("FakeNode", (), {"schema": None})()
-        kind = _extract_kind(
-            unbound_node=sentinel,
-            catalog_tag_nodes=[],
-            is_source=False,
-            has_builders=True,
-        )
-        assert kind == ExprKind.UnboundExpr
+def test_extract_kind_with_builders():
+    kind = _extract_kind(
+        unbound_node=None,
+        catalog_tag_nodes=[],
+        is_source=False,
+        has_builders=True,
+    )
+    assert kind == ExprKind.ExprBuilder
 
-    def test_extract_kind_builder_over_composed(self):
-        """ExprBuilder has higher priority than Composed."""
-        kind = _extract_kind(
-            unbound_node=None,
-            catalog_tag_nodes=["something"],
-            is_source=False,
-            has_builders=True,
-        )
-        assert kind == ExprKind.ExprBuilder
 
-    def test_extract_kind_no_builders_falls_through(self):
-        kind = _extract_kind(
-            unbound_node=None,
-            catalog_tag_nodes=[],
-            is_source=True,
-            has_builders=False,
-        )
-        assert kind == ExprKind.Source
+def test_extract_kind_unbound_takes_priority():
+    sentinel = type("FakeNode", (), {"schema": None})()
+    kind = _extract_kind(
+        unbound_node=sentinel,
+        catalog_tag_nodes=[],
+        is_source=False,
+        has_builders=True,
+    )
+    assert kind == ExprKind.UnboundExpr
+
+
+def test_extract_kind_builder_over_composed():
+    kind = _extract_kind(
+        unbound_node=None,
+        catalog_tag_nodes=["something"],
+        is_source=False,
+        has_builders=True,
+    )
+    assert kind == ExprKind.ExprBuilder
+
+
+def test_extract_kind_no_builders_falls_through():
+    kind = _extract_kind(
+        unbound_node=None,
+        catalog_tag_nodes=[],
+        is_source=True,
+        has_builders=False,
+    )
+    assert kind == ExprKind.Source
 
 
 # ---------------------------------------------------------------------------
@@ -77,24 +102,72 @@ class TestExprKindExprBuilder:
 # ---------------------------------------------------------------------------
 
 
-class TestFromTaggedRegistry:
-    def test_register_and_retrieve(self):
-        saved = dict(_FROM_TAGGED_REGISTRY)
-        try:
+def test_register_and_retrieve(saved_registry):
+    handler = TagHandler(
+        extract_metadata=lambda tag_node: {"type": "test_dummy"},
+        from_tagged=lambda tag_node: "dummy",
+    )
+    register_tag_handler("test_dummy", handler)
 
-            @register_from_tagged("test_dummy")
-            def dummy_from_tagged(tag_node):
-                return "dummy"
+    assert "test_dummy" in _FROM_TAGGED_REGISTRY
+    assert _FROM_TAGGED_REGISTRY["test_dummy"] is handler
 
-            assert "test_dummy" in _FROM_TAGGED_REGISTRY
-            assert _FROM_TAGGED_REGISTRY["test_dummy"] is dummy_from_tagged
-        finally:
-            _FROM_TAGGED_REGISTRY.clear()
-            _FROM_TAGGED_REGISTRY.update(saved)
 
-    def test_get_registry_returns_dict(self):
-        registry = get_from_tagged_registry()
-        assert isinstance(registry, dict)
+def test_get_registry_returns_dict():
+    registry = get_from_tagged_registry()
+    assert isinstance(registry, dict)
+
+
+def test_third_party_handler_roundtrip(saved_registry, con):
+    """A third-party handler can extract metadata and recover a domain object."""
+    handler = TagHandler(
+        extract_metadata=lambda tag_node: {
+            "type": "weather_model",
+            "description": "3 features",
+            "features": tag_node.metadata.get("features", ()),
+        },
+        from_tagged=lambda tag_node: {
+            "recovered": True,
+            "features": tag_node.metadata.get("features"),
+        },
+    )
+    register_tag_handler("weather_model", handler)
+
+    table = con.create_table("weather", {"temp": [72.0], "wind": [5.0]})
+    tag_meta = FrozenOrderedDict(
+        {
+            "tag": "weather_model",
+            "features": ("temp", "wind", "humidity"),
+        }
+    )
+    tagged_expr = Tag(
+        schema=table.schema(),
+        parent=table.op(),
+        metadata=tag_meta,
+    ).to_expr()
+
+    # extract_builder_metadata dispatches to our handler
+    meta = extract_builder_metadata(
+        "weather_model",
+        Tag(
+            schema=table.schema(),
+            parent=table.op(),
+            metadata=tag_meta,
+        ),
+    )
+    assert meta["type"] == "weather_model"
+    assert meta["features"] == ("temp", "wind", "humidity")
+
+    # from_tagged_dispatch recovers the domain object
+    recovered = from_tagged_dispatch(tagged_expr)
+    assert recovered["recovered"] is True
+    assert recovered["features"] == ("temp", "wind", "humidity")
+
+    # ExprMetadata detects ExprBuilder kind
+    expr_meta = ExprMetadata.from_expr(tagged_expr)
+    assert expr_meta.kind == ExprKind.ExprBuilder
+    assert len(expr_meta.builders) == 1
+    assert expr_meta.builders[0]["type"] == "weather_model"
 
 
 # ---------------------------------------------------------------------------
@@ -102,45 +175,47 @@ class TestFromTaggedRegistry:
 # ---------------------------------------------------------------------------
 
 
-class TestExprMetadataBuilders:
-    def test_from_dict_with_builders(self):
-        data = {
-            "kind": "expr_builder",
-            "schema_out": {"a": "int64"},
-            "builders": ({"type": "fitted_pipeline", "description": "test"},),
-        }
-        meta = ExprMetadata.from_dict(data)
-        assert len(meta.builders) == 1
-        assert meta.builders[0]["type"] == "fitted_pipeline"
-        assert meta.kind == ExprKind.ExprBuilder
+def test_from_dict_with_builders():
+    data = {
+        "kind": "expr_builder",
+        "schema_out": {"a": "int64"},
+        "builders": ({"type": "fitted_pipeline", "description": "test"},),
+    }
+    meta = ExprMetadata.from_dict(data)
+    assert len(meta.builders) == 1
+    assert meta.builders[0]["type"] == "fitted_pipeline"
+    assert meta.kind == ExprKind.ExprBuilder
 
-    def test_from_dict_without_builders_backward_compat(self):
-        data = {
-            "kind": "expr",
-            "schema_out": {"a": "int64"},
-        }
-        meta = ExprMetadata.from_dict(data)
-        assert meta.builders == ()
 
-    def test_to_dict_with_builders(self):
-        data = {
-            "kind": "expr_builder",
-            "schema_out": {"a": "int64"},
-            "builders": ({"type": "bsl", "description": "test"},),
-        }
-        meta = ExprMetadata.from_dict(data)
-        d = meta.to_dict()
-        assert "builders" in d
-        assert d["builders"][0]["type"] == "bsl"
+def test_from_dict_without_builders_backward_compat():
+    data = {
+        "kind": "expr",
+        "schema_out": {"a": "int64"},
+    }
+    meta = ExprMetadata.from_dict(data)
+    assert meta.builders == ()
 
-    def test_to_dict_without_builders_omits_key(self):
-        data = {
-            "kind": "expr",
-            "schema_out": {"a": "int64"},
-        }
-        meta = ExprMetadata.from_dict(data)
-        d = meta.to_dict()
-        assert "builders" not in d
+
+def test_to_dict_with_builders():
+    data = {
+        "kind": "expr_builder",
+        "schema_out": {"a": "int64"},
+        "builders": ({"type": "bsl", "description": "test"},),
+    }
+    meta = ExprMetadata.from_dict(data)
+    d = meta.to_dict()
+    assert "builders" in d
+    assert d["builders"][0]["type"] == "bsl"
+
+
+def test_to_dict_without_builders_omits_key():
+    data = {
+        "kind": "expr",
+        "schema_out": {"a": "int64"},
+    }
+    meta = ExprMetadata.from_dict(data)
+    d = meta.to_dict()
+    assert "builders" not in d
 
 
 # ---------------------------------------------------------------------------
