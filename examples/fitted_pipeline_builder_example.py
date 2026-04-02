@@ -14,6 +14,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import StandardScaler
 
 import xorq.api as xo
+from xorq.caching import ParquetCache
 from xorq.catalog.catalog import Catalog
 from xorq.expr.builders.fitted_pipeline import FittedPipelineBuilder
 from xorq.expr.ml.pipeline_lib import Pipeline
@@ -48,7 +49,10 @@ sklearn_pipe = sklearn.pipeline.Pipeline([
 ])
 
 xorq_pipeline = Pipeline.from_instance(sklearn_pipe)
-fitted = xorq_pipeline.fit(train_data, features=features, target=target)
+# Cache ensures model weights are fitted once and reused across predictions.
+# Without cache, the deferred fit UDAF re-executes on every .execute() call.
+cache = ParquetCache.from_kwargs(source=con)
+fitted = xorq_pipeline.fit(train_data, features=features, target=target, cache=cache)
 fitted_builder = FittedPipelineBuilder(fitted_pipeline=fitted)
 
 print("Pipeline steps:", fitted_builder.steps)
