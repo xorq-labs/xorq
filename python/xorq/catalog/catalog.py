@@ -490,9 +490,9 @@ class Catalog:
                 catalog.assert_consistency()
             return catalog
 
-        # annex=None → auto-detect from .git/annex (existing repos only)
+        # annex=None → auto-detect from git-annex branch (existing repos only)
         if annex is None:
-            if not init and Path(repo_path).joinpath(".git", "annex").exists():
+            if not init and _has_annex_branch(repo):
                 annex = LOCAL_ANNEX
             else:
                 backend = GitBackend(repo=repo)
@@ -507,12 +507,19 @@ class Catalog:
             )
 
         if not init:
-            # temporary Annex without env to read remote.log and resolve
-            # remote_config before we know what env should be
-            annex_obj = Annex(repo_path=Path(repo.working_dir))
-            disk_config = annex_obj.resolve_remote_config(**remote_kwargs)
+            # ensure annex is initialized locally (e.g. after
+            # git submodule update --init, which clones but doesn't annex init)
+            Annex.init_repo_path(repo_path)
             if remote_config is None:
-                remote_config = disk_config
+                # temporary Annex without env to read remote.log and resolve
+                # remote_config before we know what env should be
+                annex_obj = Annex(repo_path=Path(repo.working_dir))
+                remote_config = annex_obj.resolve_remote_config(**remote_kwargs)
+            # ensure the special remote is enabled locally (e.g. after
+            # git submodule add, which clones but doesn't enableremote)
+            if remote_config is not None:
+                remote_config.enableremote(repo_path)
+
         env = getattr(remote_config, "env", None)
         annex_obj = Annex(repo_path=Path(repo.working_dir), env=env)
         backend = GitAnnexBackend(repo=repo, annex=annex_obj)

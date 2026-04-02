@@ -8,7 +8,13 @@ from attr import evolve
 from git import Repo as GitRepo
 
 import xorq.api as xo
-from xorq.catalog.annex import LOCAL_ANNEX, Annex, DirectoryRemoteConfig, S3RemoteConfig
+from xorq.catalog.annex import (
+    LOCAL_ANNEX,
+    Annex,
+    DirectoryRemoteConfig,
+    S3RemoteConfig,
+    _do_inside,
+)
 from xorq.catalog.backend import GitAnnexBackend, GitBackend
 from xorq.catalog.catalog import (
     Catalog,
@@ -750,3 +756,56 @@ def test_s3_remote_minio(tmpdir):
     # get content back from S3
     annex.get()
     assert entry.catalog_path.exists()
+
+
+def test_from_repo_path_enables_special_remote_on_clone(tmpdir):
+    """from_repo_path enables the special remote on a fresh clone.
+
+    Simulates the scenario where a catalog is cloned via git submodule add
+    from a host like GitHub (annex-ignore on origin). Without enableremote,
+    git-annex cannot locate the special remote and content fetch fails.
+    """
+    # create origin catalog with a directory remote
+    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir.mkdir()
+    remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
+    origin_path = Path(tmpdir).joinpath("origin")
+    Catalog.init_repo_path(origin_path, annex=remote_config)
+    annex = Annex(repo_path=origin_path)
+    backend = GitAnnexBackend(repo=GitRepo(origin_path), annex=annex)
+    origin_catalog = Catalog(backend=backend)
+
+    with build_expr_context_zip(xo.memtable({"x": [1]})) as zp:
+        entry = origin_catalog.add(zp, sync=False)
+    entry_name = entry.name
+
+    # copy content to directory remote
+    annex.copy(to="mydir")
+
+    # create a bare clone (intermediary, like GitHub)
+    bare_path = Path(tmpdir).joinpath("bare")
+    GitRepo.clone_from(origin_path, bare_path, bare=True)
+    _do_inside(bare_path, "init")
+    _do_inside(bare_path, "sync", "--content")
+
+    # clone from bare (simulates git submodule add)
+    clone_path = Path(tmpdir).joinpath("cloned")
+    GitRepo.clone_from(bare_path, clone_path)
+    _do_inside(clone_path, "init")
+
+    # simulate GitHub: origin has annex-ignore set
+    subprocess.run(
+        ["git", "config", "remote.origin.annex-ignore", "true"],
+        cwd=clone_path,
+        check=True,
+    )
+
+    # open with from_repo_path — this should enableremote automatically
+    cloned_catalog = Catalog.from_repo_path(clone_path, init=False, annex=remote_config)
+    assert isinstance(cloned_catalog.backend, GitAnnexBackend)
+
+    # verify content is fetchable from the directory remote
+    cloned_entry = cloned_catalog.get_catalog_entry(entry_name)
+    assert not cloned_entry.is_content_local
+    cloned_entry.fetch()
+    assert cloned_entry.is_content_local

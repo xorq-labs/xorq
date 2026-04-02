@@ -350,8 +350,8 @@ class DirectoryRemoteConfig(RemoteConfig):
         prefix="XORQ_CATALOG_DIRECTORY_",
     )
 
-    def initremote(self, repo_path):
-        Path(self.directory).mkdir(exist_ok=True, parents=True)
+    @property
+    def _remote_params(self):
         params = [
             self.name,
             "type=directory",
@@ -360,10 +360,22 @@ class DirectoryRemoteConfig(RemoteConfig):
         ]
         if self.autoenable is not None:
             params.append(f"autoenable={self.autoenable}")
+        return params
+
+    def initremote(self, repo_path):
+        Path(self.directory).mkdir(exist_ok=True, parents=True)
         _check_output_do_inside(
             repo_path,
             "initremote",
-            *params,
+            *self._remote_params,
+            check_stderr=False,
+        )
+
+    def enableremote(self, repo_path):
+        _check_output_do_inside(
+            repo_path,
+            "enableremote",
+            *self._remote_params,
             check_stderr=False,
         )
 
@@ -393,7 +405,8 @@ class RsyncRemoteConfig(RemoteConfig):
         prefix="XORQ_CATALOG_RSYNC_",
     )
 
-    def initremote(self, repo_path):
+    @property
+    def _remote_params(self):
         params = [
             self.name,
             "type=rsync",
@@ -404,10 +417,21 @@ class RsyncRemoteConfig(RemoteConfig):
             value = getattr(self, key)
             if value is not None:
                 params.append(f"{key}={value}")
+        return params
+
+    def initremote(self, repo_path):
         _check_output_do_inside(
             repo_path,
             "initremote",
-            *params,
+            *self._remote_params,
+            check_stderr=False,
+        )
+
+    def enableremote(self, repo_path):
+        _check_output_do_inside(
+            repo_path,
+            "enableremote",
+            *self._remote_params,
             check_stderr=False,
         )
 
