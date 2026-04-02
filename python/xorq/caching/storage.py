@@ -42,12 +42,25 @@ class CacheStorage:
         pass
 
     @abstractmethod
-    def put(self, key, value):
+    def put(self, key, value, parquet_metadata=None):
         pass
 
     @abstractmethod
     def drop(self, key):
         pass
+
+
+def _write_parquet_with_metadata(expr, path, metadata_dict):
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    from xorq.caching.provenance import inject_metadata_into_schema  # noqa: PLC0415
+    from xorq.expr.api import to_pyarrow_batches  # noqa: PLC0415
+
+    with to_pyarrow_batches(expr) as batch_reader:
+        schema = inject_metadata_into_schema(batch_reader.schema, metadata_dict)
+        with pq.ParquetWriter(path, schema) as writer:
+            for batch in batch_reader:
+                writer.write_batch(batch)
 
 
 @frozen
@@ -100,11 +113,14 @@ class ParquetStorage(CacheStorage):
         ).op()
         return op
 
-    def put(self, key, value):
+    def put(self, key, value, parquet_metadata=None):
         path = self.get_path(key)
         # move from temp location upon success to prevent empty files on failure
         tmp_path = path.with_name(path.name + ".tmp")
-        value.to_expr().to_parquet(tmp_path)
+        if parquet_metadata is not None:
+            _write_parquet_with_metadata(value.to_expr(), tmp_path, parquet_metadata)
+        else:
+            value.to_expr().to_parquet(tmp_path)
         tmp_path.rename(path)
         return self.get(key)
 
@@ -163,7 +179,7 @@ class SourceStorage(CacheStorage):
     def get(self, key):
         return self.source.table(key).op()
 
-    def put(self, key, value):
+    def put(self, key, value, parquet_metadata=None):
         def is_remote(value):
             name = value.to_expr()._find_backend().name
             # FIXME: add pyiceberg, trino

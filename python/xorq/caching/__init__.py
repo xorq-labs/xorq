@@ -78,12 +78,33 @@ class Cache:
         else:
             return self.storage.get(key)
 
+    def _build_provenance(self, key):
+        if isinstance(self.storage, ParquetStorage):
+            from xorq.caching.provenance import (  # noqa: PLC0415
+                build_provenance_metadata,
+            )
+
+            return build_provenance_metadata(key, self.strategy, self.storage)
+        try:
+            from xorq.common.utils.gcloud_utils import GCStorage  # noqa: PLC0415
+
+            if isinstance(self.storage, GCStorage):
+                from xorq.caching.provenance import (  # noqa: PLC0415
+                    build_provenance_metadata,
+                )
+
+                return build_provenance_metadata(key, self.strategy, self.storage)
+        except ImportError:
+            pass
+        return None
+
     def put(self, expr: ir.Expr, value):
         key = self.calc_key(expr)
         if self.key_exists(key):
             raise ValueError(f"cache entry already exists for key {key!r}")
         else:
-            return self.storage.put(key, value)
+            provenance = self._build_provenance(key)
+            return self.storage.put(key, value, parquet_metadata=provenance)
 
     @tracer.start_as_current_span("cache.set_default")
     def set_default(self, expr: ir.Expr, default):
@@ -93,7 +114,8 @@ class Cache:
             span.add_event("cache.miss", {"key": key})
             with tracer.start_as_current_span("cache.put") as child_span:
                 child_span.add_event("cache.miss", {"key": key})
-                return self.storage.put(key, default)
+                provenance = self._build_provenance(key)
+                return self.storage.put(key, default, parquet_metadata=provenance)
         else:
             span.add_event("cache.hit", {"key": key})
             return self.storage.get(key)
