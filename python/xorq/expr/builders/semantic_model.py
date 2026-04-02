@@ -1,8 +1,8 @@
-"""SemanticModelSpec — builder for BSL semantic models.
+"""SemanticModelBuilder — builder for BSL semantic models.
 
 TODO: This is a reference implementation in xorq. It will be moved to
 boring_semantic_layer and registered via entry point in BSL's pyproject.toml.
-Once BSL ships its own SemanticModelSpec, this module can be removed.
+Once BSL ships its own SemanticModelBuilder, this module can be removed.
 """
 
 from __future__ import annotations
@@ -13,12 +13,12 @@ from pathlib import Path
 from attr import field, frozen
 from attr.validators import instance_of
 
-from xorq.expr.builders import BUILDER_META_FILENAME, BuilderKind, BuilderSpec
+from xorq.expr.builders import BUILDER_META_FILENAME, BuilderKind, Builder
 from xorq.vendor.ibis import Expr
 
 
 @frozen
-class SemanticModelSpec(BuilderSpec):
+class SemanticModelBuilder(Builder):
     """Builder that wraps a BSL SemanticModel.
 
     Produces expressions by calling ``.query(dimensions=..., measures=...)``.
@@ -42,7 +42,7 @@ class SemanticModelSpec(BuilderSpec):
         return self.model.query(dimensions=dimensions, measures=measures)
 
     @classmethod
-    def from_tagged(cls, tag_node) -> SemanticModelSpec:
+    def from_tagged(cls, tag_node) -> SemanticModelBuilder:
         """Recover SemanticModel from a BSL Tag on an expression."""
         from boring_semantic_layer import from_tagged  # noqa: PLC0415
 
@@ -50,7 +50,7 @@ class SemanticModelSpec(BuilderSpec):
         return cls(model=model)
 
     @classmethod
-    def from_build_dir(cls, path: Path) -> SemanticModelSpec:
+    def from_build_dir(cls, path: Path) -> SemanticModelBuilder:
         """Reconstruct from a catalog build directory.
 
         Reads the serialized expression and recovers the SemanticModel.
@@ -111,7 +111,7 @@ class SemanticModelSpec(BuilderSpec):
 
     @classmethod
     def _from_expr(cls, expr):
-        """Recover a SemanticModelSpec from an expression containing BSL tags."""
+        """Recover a SemanticModelBuilder from an expression containing BSL tags."""
         from boring_semantic_layer import from_tagged  # noqa: PLC0415
 
         from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
@@ -125,11 +125,11 @@ class SemanticModelSpec(BuilderSpec):
         model = from_tagged(bsl_tags[0].to_expr())
         return cls(model=model)
 
-    def rebind(self, table) -> SemanticModelSpec:
+    def rebind(self, table) -> SemanticModelBuilder:
         """Return a new spec with the same dims/measures but a different base table."""
         from boring_semantic_layer.expr import SemanticModel  # noqa: PLC0415
 
-        return SemanticModelSpec(
+        return SemanticModelBuilder(
             model=SemanticModel(
                 table=table,
                 dimensions=self.model.get_dimensions(),

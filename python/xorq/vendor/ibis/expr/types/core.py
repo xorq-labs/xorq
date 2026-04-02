@@ -743,10 +743,10 @@ def _extract_builders(expr):
         if tag_name in tuple(FittedPipelineTagKey):
             if FittedPipelineTagKey.ALL_STEPS in tag_node.metadata:
                 from xorq.expr.builders.fitted_pipeline import (  # noqa: PLC0415
-                    FittedPipelineSpec,
+                    FittedPipelineBuilder,
                 )
 
-                builders.append(FittedPipelineSpec.from_tagged(tag_node))
+                builders.append(FittedPipelineBuilder.from_tagged(tag_node))
                 continue
         # check BSL tags — return provenance dict, not a full spec
         if tag_name == "bsl":

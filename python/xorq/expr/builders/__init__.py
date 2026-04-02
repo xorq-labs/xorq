@@ -1,6 +1,6 @@
-"""BuilderSpec framework — factories that produce expressions.
+"""Builder framework — factories that produce expressions.
 
-A BuilderSpec is an attrs @frozen class that knows how to:
+A Builder is an attrs @frozen class that knows how to:
 - build_expr(**kwargs) → Expr — produce an expression from builder-specific selections
 - to_build_dir(path)       — serialize to a catalog build directory (writes builder_meta.json)
 - from_build_dir(path)     — reconstruct from a catalog build directory
@@ -35,11 +35,11 @@ class BuilderKind(StrEnum):
     FittedPipeline = "fitted_pipeline"
 
 
-_BUILDER_REGISTRY: dict[str, type[BuilderSpec]] = {}
+_BUILDER_REGISTRY: dict[str, type[Builder]] = {}
 
 
 def register_builder(name):
-    """Register a BuilderSpec subclass by name."""
+    """Register a Builder subclass by name."""
 
     def decorator(cls):
         _BUILDER_REGISTRY[name] = cls
@@ -76,7 +76,7 @@ def _discover_builders():
 
 
 @frozen
-class BuilderSpec:
+class Builder:
     """Base class for expression builders (factories).
 
     Subclasses must set ``tag_name`` as a class-level default and implement
@@ -90,12 +90,12 @@ class BuilderSpec:
         raise NotImplementedError
 
     @classmethod
-    def from_tagged(cls, tag_node) -> BuilderSpec:
+    def from_tagged(cls, tag_node) -> Builder:
         """Recover builder from expression tags (for provenance detection)."""
         raise NotImplementedError
 
     @classmethod
-    def from_build_dir(cls, path: Path) -> BuilderSpec:
+    def from_build_dir(cls, path: Path) -> Builder:
         """Reconstruct builder from a catalog build directory."""
         raise NotImplementedError
 
