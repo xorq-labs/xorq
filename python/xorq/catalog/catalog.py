@@ -38,7 +38,9 @@ from xorq.catalog.annex import (
 )
 from xorq.catalog.backend import CatalogBackend, GitAnnexBackend, GitBackend
 from xorq.catalog.constants import (
+    ANNEX_BRANCH,
     CATALOG_YAML_NAME,
+    MAIN_BRANCH,
     METADATA_APPEND,
     PREFERRED_SUFFIX,
     CatalogInfix,
@@ -62,7 +64,7 @@ popen_shell = partial(Popen, shell=True)
 
 def _has_annex_branch(repo):
     """Check whether a Repo has a git-annex branch (local or remote-tracking)."""
-    return any(ref.name.endswith("git-annex") for ref in repo.refs)
+    return any(ref.name.endswith(ANNEX_BRANCH) for ref in repo.refs)
 
 
 def _try_resolve_annex_remote(repo_path, **remote_kwargs):
@@ -236,7 +238,7 @@ class Catalog:
         self.assert_consistency()
         results = tuple(map(Remote.push, self._git_remotes))
         for remote in self._git_remotes:
-            remote.push("git-annex")
+            remote.push(ANNEX_BRANCH)
         return results
 
     def pull(self):
@@ -659,7 +661,7 @@ class Catalog:
         assert not (repo_path := Path(repo_path)).exists(), (
             f"Catalog repo already exists at {repo_path}"
         )
-        repo = Repo.init(repo_path, mkdir=True, bare=bare)
+        repo = Repo.init(repo_path, mkdir=True, bare=bare, initial_branch=MAIN_BRANCH)
         repo.index.commit("initial commit")
         if isinstance(annex, AnnexConfig):
             remote_config = annex if isinstance(annex, RemoteConfig) else None

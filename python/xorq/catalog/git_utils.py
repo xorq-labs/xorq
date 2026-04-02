@@ -3,6 +3,8 @@ from pathlib import Path
 
 from toolz import curry
 
+from xorq.catalog.constants import DEFAULT_REMOTE
+
 
 @contextmanager
 @curry
@@ -11,7 +13,7 @@ def commit_context(repo, message):
     repo.index.commit(message)
 
 
-def add_as_submodule(repo, subrepo, remote="origin"):
+def add_as_submodule(repo, subrepo, remote=DEFAULT_REMOTE):
     strpath = "./" + str(Path(subrepo.working_dir).relative_to(repo.working_dir))
     match subrepo.remotes:
         case ():

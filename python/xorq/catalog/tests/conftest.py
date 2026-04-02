@@ -17,7 +17,7 @@ from xorq.catalog.catalog import (
     PREFERRED_SUFFIX,
     Catalog,
 )
-from xorq.catalog.constants import CatalogInfix
+from xorq.catalog.constants import MAIN_BRANCH, CatalogInfix
 from xorq.catalog.expr_utils import build_expr_context_zip
 from xorq.catalog.zip_utils import with_pure_suffix
 
@@ -133,7 +133,7 @@ def catalog_populated(catalog, data_dict):
 def root_repo(tmpdir):
     root_path = Path(tmpdir).joinpath("root")
     root_path.mkdir()
-    repo = Repo.init(root_path)
+    repo = Repo.init(root_path, initial_branch=MAIN_BRANCH)
     (root_path / "README.md").write_text("root repo")
     repo.index.add(["README.md"])
     repo.index.commit("initial commit")

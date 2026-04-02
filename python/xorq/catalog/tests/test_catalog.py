@@ -22,7 +22,7 @@ from xorq.catalog.catalog import (
     CatalogAlias,
     CatalogEntry,
 )
-from xorq.catalog.constants import CatalogInfix
+from xorq.catalog.constants import MAIN_BRANCH, CatalogInfix
 from xorq.catalog.expr_utils import (
     build_expr_context_zip,
 )
@@ -725,7 +725,7 @@ def test_s3_remote_minio(tmpdir):
         pytest.skip("minio not reachable")
     repo_path = Path(tmpdir).joinpath("repo")
     repo_path.mkdir(parents=True)
-    repo = GitRepo.init(repo_path)
+    repo = GitRepo.init(repo_path, initial_branch=MAIN_BRANCH)
     repo.index.commit("initial commit")
     # allow private IPs for minio
     subprocess.run(

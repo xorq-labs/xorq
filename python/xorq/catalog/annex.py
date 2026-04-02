@@ -20,6 +20,7 @@ from attr.validators import (
 )
 from git import Repo
 
+from xorq.catalog.constants import ANNEX_BRANCH
 from xorq.common.utils.env_utils import EnvConfigable, env_templates_dir
 
 
@@ -155,7 +156,7 @@ class Annex:
     def remote_log(self):
         """Parse the git-annex branch's remote.log into {uuid: {key: value}}."""
         self._merge_annex_branch()
-        branch = Repo(self.repo_path).commit("git-annex")
+        branch = Repo(self.repo_path).commit(ANNEX_BRANCH)
         try:
             blob = branch.tree / "remote.log"
         except KeyError:
