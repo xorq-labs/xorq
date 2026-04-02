@@ -746,7 +746,10 @@ class ExprMetadata:
     )
     root_tag: Optional[str] = field(default=None)
     parquet_cache_paths: tuple[str, ...] = field(factory=tuple)
-    sources: tuple = field(factory=tuple, validator=deep_iterable(instance_of(dict)))
+    composed_from: tuple = field(
+        factory=tuple, validator=deep_iterable(instance_of(dict))
+    )
+    params: tuple = field(factory=tuple)
     sql_queries: tuple[tuple[str, str, str], ...] = field(factory=tuple)
     lineage: tuple[str, ...] = field(factory=tuple)
 
@@ -765,7 +768,8 @@ class ExprMetadata:
             ),
             root_tag=data.get("root_tag"),
             parquet_cache_paths=tuple(data.get("parquet_cache_paths") or ()),
-            sources=tuple(data.get("sources", ())),
+            composed_from=tuple(data.get("composed_from") or data.get("sources") or ()),
+            params=tuple(data.get("params") or ()),
             sql_queries=tuple(tuple(q) for q in data.get("sql_queries", ())),
             lineage=tuple(data.get("lineage", ())),
         )
@@ -827,7 +831,11 @@ class ExprMetadata:
                 ("schema_out", toolz.valmap(str, self.schema_out)),
                 ("root_tag", self.root_tag),
                 ("parquet_cache_paths", list(self.parquet_cache_paths) or None),
-                ("sources", list(self.sources) if self.sources else None),
+                ("params", self.params or None),
+                (
+                    "composed_from",
+                    list(self.composed_from) if self.composed_from else None,
+                ),
                 (
                     "sql_queries",
                     [list(q) for q in self.sql_queries] if self.sql_queries else None,
