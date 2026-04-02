@@ -1,23 +1,19 @@
-"""Demonstrates the SemanticModelBuilder builder: catalog a semantic model, build expressions, recover and rebind.
+"""Demonstrates ExprBuilder: catalog a BSL expression, recover the model, rebind to new data.
 
-Traditional approach: You define a semantic model with dimensions and measures, then manually
-track which selections produced which expression. When the underlying data source changes
-(e.g., dev -> prod), you rebuild everything from scratch and lose the connection between the
-model definition and the expressions it produced.
-
-With xorq: SemanticModelBuilder wraps a BSL SemanticModel as a catalog builder entry. You can
-build multiple expressions from different dimension/measure selections, recover the original
-model from any cataloged expression, rebind to new data, and catalog the result — all while
-maintaining full provenance.
+With xorq: A BSL semantic model produces expressions via .query(). The result is tagged
+(to_tagged), which makes it an ExprBuilder entry when cataloged. You can recover the
+original SemanticModel from any cataloged expression via from_tagged, rebind to new
+data, and query with different selections — all while maintaining full provenance.
 """
 
 import tempfile
 from pathlib import Path
 
-import xorq.api as xo
 from boring_semantic_layer import to_semantic_table
+from boring_semantic_layer.expr import SemanticModel
+
+import xorq.api as xo
 from xorq.catalog.catalog import Catalog
-from xorq.expr.builders.semantic_model import SemanticModelBuilder
 
 
 # ---------------------------------------------------------------------------
@@ -37,88 +33,71 @@ dev_data = con.create_table(
 )
 
 # ---------------------------------------------------------------------------
-# 2. Create a SemanticModel and wrap it as a Builder
+# 2. Create a SemanticModel and query it
 # ---------------------------------------------------------------------------
 
-model = to_semantic_table(dev_data).with_dimensions(
-    origin=lambda t: t.origin,
-    destination=lambda t: t.destination,
-    carrier=lambda t: t.carrier,
-).with_measures(
-    flight_count=lambda t: t.count(),
-    avg_dep_delay=lambda t: t.dep_delay.mean(),
-    total_distance=lambda t: t.distance.sum(),
+model = (
+    to_semantic_table(dev_data)
+    .with_dimensions(
+        origin=lambda t: t.origin,
+        destination=lambda t: t.destination,
+        carrier=lambda t: t.carrier,
+    )
+    .with_measures(
+        flight_count=lambda t: t.count(),
+        avg_dep_delay=lambda t: t.dep_delay.mean(),
+        total_distance=lambda t: t.distance.sum(),
+    )
 )
 
-spec = SemanticModelBuilder(model=model)
-print("Available dimensions:", spec.available_dimensions)
-print("Available measures:", spec.available_measures)
+print("Available dimensions:", tuple(model.dimensions))
+print("Available measures:", tuple(model.measures))
 
 # ---------------------------------------------------------------------------
-# 3. Add the builder to a catalog
+# 3. Build a tagged expression and add to catalog
 # ---------------------------------------------------------------------------
+
+expr_by_origin = model.query(
+    dimensions=("origin",),
+    measures=("flight_count", "avg_dep_delay"),
+)
+tagged_expr = expr_by_origin.to_tagged()
 
 catalog_dir = Path(tempfile.mkdtemp()) / "example-catalog"
 catalog = Catalog.from_repo_path(catalog_dir, init=True)
 print(f"\nCatalog directory: {catalog_dir}")
 
-semantic_builder = catalog.add_builder(spec, __file__, aliases=("flights-model-dev",), sync=False)
-print("\nBuilder entry:", semantic_builder)
+catalog.add(tagged_expr, aliases=("origin-delays-dev",), sync=False)
 print("Catalog entries:", catalog.list())
 print("Catalog aliases:", catalog.list_aliases())
 
 # ---------------------------------------------------------------------------
-# 4. Retrieve the builder from the catalog and build expressions
+# 4. Check that the entry has ExprBuilder kind and builder metadata
 # ---------------------------------------------------------------------------
 
-builder = catalog.get_builder("flights-model-dev")
-print("\nLoaded semantic builder from catalog:")
-print("  dimensions:", builder.available_dimensions)
-print("  measures:", builder.available_measures)
-
-expr_by_origin = builder.build_expr(
-    dimensions=("origin",),
-    measures=("flight_count", "avg_dep_delay"),
-)
-print("\nFlights by origin:")
-print(expr_by_origin.execute())
-
-expr_by_carrier = builder.build_expr(
-    dimensions=("carrier",),
-    measures=("total_distance",),
-)
-print("\nDistance by carrier:")
-print(expr_by_carrier.execute())
+entry = catalog.get_catalog_entry("origin-delays-dev", maybe_alias=True)
+print(f"\nEntry kind: {entry.kind}")
+print(f"Builder metadata: {entry.metadata.builders}")
 
 # ---------------------------------------------------------------------------
-# 5. Catalog a built expression (with BSL provenance tags)
+# 5. Recover the full SemanticModel from the cataloged expression
 # ---------------------------------------------------------------------------
 
-catalog.add(expr_by_origin.to_tagged(), aliases=("origin-delays-dev",), sync=False)
-print("\nCatalog after adding expression:", catalog.list())
+recovered_model = catalog.get_builder_from_expr(entry.expr)
+print(f"\nRecovered model type: {type(recovered_model).__name__}")
+print(f"Recovered dimensions: {tuple(recovered_model.dimensions)}")
+print(f"Recovered measures: {tuple(recovered_model.measures)}")
 
-# ---------------------------------------------------------------------------
-# 6. Recover the full builder from the catalog and build a new selection
-# ---------------------------------------------------------------------------
-
-recovered_builder = catalog.get_builder("flights-model-dev")
-print("\nRecovered builder from catalog:")
-print("  dimensions:", recovered_builder.available_dimensions)
-print("  measures:", recovered_builder.available_measures)
-
-expr_by_dest = recovered_builder.build_expr(
+# Build a different selection from the recovered model
+expr_by_dest = recovered_model.query(
     dimensions=("destination",),
     measures=("flight_count", "total_distance"),
 )
-print("\nFlights by destination (from recovered builder):")
+print("\nFlights by destination (from recovered model):")
 print(expr_by_dest.execute())
 
-# Check expression provenance — the cataloged expression records it was built by BSL
-origin_entry = catalog.get_catalog_entry("origin-delays-dev", maybe_alias=True)
-print("\nExpression metadata builders:", origin_entry.metadata.builders)
-
 # ---------------------------------------------------------------------------
-# 7. Rebind to production data — same model shape, different fact table
+# 6. Rebind to production data — same model shape, different fact table
 # ---------------------------------------------------------------------------
 
 prd_data = con.create_table(
@@ -132,18 +111,27 @@ prd_data = con.create_table(
     },
 )
 
-prd_spec = recovered_builder.rebind(prd_data)
-prd_expr = prd_spec.build_expr(
+prd_model = SemanticModel(
+    table=prd_data,
+    dimensions=recovered_model.get_dimensions(),
+    measures=recovered_model.get_measures(),
+    calc_measures=recovered_model.get_calculated_measures(),
+    name=recovered_model.name,
+    description=recovered_model.description,
+)
+prd_expr = prd_model.query(
     dimensions=("origin",),
     measures=("flight_count", "avg_dep_delay"),
 )
-catalog.add(prd_expr.to_tagged(), aliases=("origin-delays-prd",), sync=False, exist_ok=True)
+catalog.add(
+    prd_expr.to_tagged(), aliases=("origin-delays-prd",), sync=False, exist_ok=True
+)
 
 print("\nProd flights by origin:")
 print(prd_expr.execute())
 
 # ---------------------------------------------------------------------------
-# 8. Final catalog state — one builder, multiple expressions
+# 7. Final catalog state
 # ---------------------------------------------------------------------------
 
 print("\nFinal catalog entries:", catalog.list())

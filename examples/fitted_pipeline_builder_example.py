@@ -1,9 +1,9 @@
-"""Demonstrates FittedPipelineBuilder as a catalog builder: fit, catalog, recover, rebind inference.
+"""Demonstrates fitted ML pipeline as a catalog ExprBuilder entry.
 
-With xorq: FittedPipelineBuilder wraps a fitted Pipeline as a catalog builder entry. The
-builder is a selector — pick a method (predict, transform, predict_proba) and provide
-inference data to yield an expression. Training data is fixed in the fit subgraph;
-only the inference input changes between dev and prd.
+With xorq: A fitted Pipeline produces prediction expressions directly. The prediction
+expression carries ML pipeline metadata in its tags. When cataloged, it becomes an
+ExprBuilder entry. The sidecar records pipeline steps and builder type. No separate
+builder wrapper is needed — the pipeline is the builder.
 """
 
 import tempfile
@@ -16,8 +16,8 @@ from sklearn.preprocessing import StandardScaler
 import xorq.api as xo
 from xorq.caching import ParquetCache
 from xorq.catalog.catalog import Catalog
-from xorq.expr.builders.fitted_pipeline import FittedPipelineBuilder
 from xorq.expr.ml.pipeline_lib import Pipeline
+
 
 # ---------------------------------------------------------------------------
 # 1. Set up connection and training data
@@ -43,45 +43,21 @@ target = "species"
 # 2. Create and fit an ML pipeline
 # ---------------------------------------------------------------------------
 
-sklearn_pipe = sklearn.pipeline.Pipeline([
-    ("scaler", StandardScaler()),
-    ("clf", KNeighborsClassifier(n_neighbors=3)),
-])
+sklearn_pipe = sklearn.pipeline.Pipeline(
+    [
+        ("scaler", StandardScaler()),
+        ("clf", KNeighborsClassifier(n_neighbors=3)),
+    ]
+)
 
 xorq_pipeline = Pipeline.from_instance(sklearn_pipe)
-# Cache ensures model weights are fitted once and reused across predictions.
-# Without cache, the deferred fit UDAF re-executes on every .execute() call.
 cache = ParquetCache.from_kwargs(source=con)
 fitted = xorq_pipeline.fit(train_data, features=features, target=target, cache=cache)
-fitted_builder = FittedPipelineBuilder(fitted_pipeline=fitted)
 
-print("Pipeline steps:", fitted_builder.steps)
-print("Is predict pipeline:", fitted_builder.is_predict)
+print("Pipeline fitted.")
 
 # ---------------------------------------------------------------------------
-# 3. Add the fitted pipeline builder to a catalog
-# ---------------------------------------------------------------------------
-
-catalog_dir = Path(tempfile.mkdtemp()) / "pipeline-catalog"
-catalog = Catalog.from_repo_path(catalog_dir, init=True)
-print(f"\nCatalog directory: {catalog_dir}")
-
-catalog.add_builder(fitted_builder, __file__, aliases=("iris-classifier",), sync=False)
-print("Catalog entries:", catalog.list())
-print("Catalog aliases:", catalog.list_aliases())
-
-# ---------------------------------------------------------------------------
-# 4. Recover the builder from the catalog and rebind training data
-# ---------------------------------------------------------------------------
-
-recovered_builder = catalog.get_builder("iris-classifier")
-recovered_builder = recovered_builder.rebind(train_data)
-print("\nRecovered builder type:", type(recovered_builder).__name__)
-print("Recovered steps:", recovered_builder.steps)
-print("Recovered is_predict:", recovered_builder.is_predict)
-
-# ---------------------------------------------------------------------------
-# 5. Build prediction on dev inference data
+# 3. Build predictions — the expression carries ML tags automatically
 # ---------------------------------------------------------------------------
 
 dev_inference = con.create_table(
@@ -94,12 +70,29 @@ dev_inference = con.create_table(
     },
 )
 
-dev_predictions = recovered_builder.build_expr(data=dev_inference, method="predict")
+predictions = fitted.predict(dev_inference)
 print("\nDev predictions:")
-print(dev_predictions.execute())
+print(predictions.execute())
 
 # ---------------------------------------------------------------------------
-# 6. Build prediction on prd inference data — same model, different data
+# 4. Catalog the prediction expression (it becomes an ExprBuilder entry)
+# ---------------------------------------------------------------------------
+
+catalog_dir = Path(tempfile.mkdtemp()) / "pipeline-catalog"
+catalog = Catalog.from_repo_path(catalog_dir, init=True)
+print(f"\nCatalog directory: {catalog_dir}")
+
+catalog.add(predictions, aliases=("iris-predictions-dev",), sync=False)
+print("Catalog entries:", catalog.list())
+print("Catalog aliases:", catalog.list_aliases())
+
+# Check the entry kind and builder metadata
+entry = catalog.get_catalog_entry("iris-predictions-dev", maybe_alias=True)
+print(f"\nEntry kind: {entry.kind}")
+print(f"Builder metadata: {entry.metadata.builders}")
+
+# ---------------------------------------------------------------------------
+# 5. Build predictions on production data — same fitted model, different input
 # ---------------------------------------------------------------------------
 
 prd_inference = con.create_table(
@@ -112,19 +105,14 @@ prd_inference = con.create_table(
     },
 )
 
-prd_predictions = recovered_builder.build_expr(data=prd_inference, method="predict")
+prd_predictions = fitted.predict(prd_inference)
+catalog.add(prd_predictions, aliases=("iris-predictions-prd",), sync=False)
+
 print("\nProd predictions:")
 print(prd_predictions.execute())
 
 # ---------------------------------------------------------------------------
-# 7. Catalog the prediction expressions
-# ---------------------------------------------------------------------------
-
-catalog.add(dev_predictions, aliases=("iris-predictions-dev",), sync=False)
-catalog.add(prd_predictions, aliases=("iris-predictions-prd",), sync=False)
-
-# ---------------------------------------------------------------------------
-# 8. Final catalog state — one builder, multiple prediction expressions
+# 6. Final catalog state
 # ---------------------------------------------------------------------------
 
 print("\nFinal catalog entries:", catalog.list())
