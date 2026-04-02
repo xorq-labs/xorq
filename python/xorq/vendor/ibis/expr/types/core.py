@@ -726,7 +726,7 @@ def _extract_sources(catalog_tag_nodes):
 
 def _extract_builders(expr):
     from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
-    from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: PLC0415
+    from xorq.expr.builders import extract_builder_metadata  # noqa: PLC0415
     from xorq.expr.relations import HashingTag, Tag  # noqa: PLC0415
     from xorq.vendor.ibis.common.collections import FrozenOrderedDict  # noqa: PLC0415
 
@@ -737,57 +737,9 @@ def _extract_builders(expr):
     builders = []
     for tag_node in tag_nodes:
         tag_name = tag_node.metadata.get("tag")
-        # ML pipeline tags — inline dict extraction
-        if tag_name in tuple(FittedPipelineTagKey):
-            if FittedPipelineTagKey.ALL_STEPS in tag_node.metadata:
-                tag_key = tag_name
-                steps_info = tuple(
-                    {"name": d["name"], "estimator": d["typ"].__name__}
-                    for step_items in tag_node.metadata.get(
-                        FittedPipelineTagKey.ALL_STEPS, ()
-                    )
-                    for d in (dict(step_items),)
-                )
-                builders.append(
-                    FrozenOrderedDict(
-                        {
-                            "type": "fitted_pipeline",
-                            "description": f"{tag_key}, {len(steps_info)} steps",
-                            "is_predict": tag_key
-                            in (
-                                str(FittedPipelineTagKey.PREDICT),
-                                str(FittedPipelineTagKey.PREDICT_PROBA),
-                                str(FittedPipelineTagKey.DECISION_FUNCTION),
-                            ),
-                            "steps": steps_info,
-                        }
-                    )
-                )
-                continue
-        # BSL tags — provenance dict
-        if tag_name == "bsl":
-            meta = tag_node.metadata
-            # dims/measures live on the SemanticTableOp — which may be nested
-            # inside SemanticAggregateOp -> SemanticGroupByOp -> SemanticTableOp
-            table_meta = meta
-            while table_meta.get("bsl_op_type") != "SemanticTableOp":
-                source = table_meta.get("source")
-                if source is None:
-                    break
-                table_meta = dict(source) if isinstance(source, tuple) else source
-            dims = tuple(d[0] for d in table_meta.get("dimensions", ()))
-            measures = tuple(m[0] for m in table_meta.get("measures", ()))
-            builders.append(
-                FrozenOrderedDict(
-                    {
-                        "type": "semantic_model",
-                        "description": f"{len(dims)} dims, {len(measures)} measures",
-                        "dimensions": dims,
-                        "measures": measures,
-                    }
-                )
-            )
-            continue
+        meta = extract_builder_metadata(tag_name, tag_node)
+        if meta is not None:
+            builders.append(FrozenOrderedDict(meta))
     return tuple(builders)
 
 
