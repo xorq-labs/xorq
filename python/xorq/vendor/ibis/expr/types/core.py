@@ -725,7 +725,6 @@ def _extract_sources(catalog_tag_nodes):
 
 def _extract_builders(expr):
     from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
-    from xorq.expr.builders import get_registry  # noqa: PLC0415
     from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: PLC0415
     from xorq.expr.relations import HashingTag, Tag  # noqa: PLC0415
     from xorq.vendor.ibis.common.collections import FrozenOrderedDict  # noqa: PLC0415
@@ -734,20 +733,37 @@ def _extract_builders(expr):
     if not tag_nodes:
         return ()
 
-    registry = get_registry()
     builders = []
     for tag_node in tag_nodes:
         tag_name = tag_node.metadata.get("tag")
-        # check ML pipeline tags
+        # ML pipeline tags — inline dict extraction
         if tag_name in tuple(FittedPipelineTagKey):
             if FittedPipelineTagKey.ALL_STEPS in tag_node.metadata:
-                from xorq.expr.builders.fitted_pipeline import (  # noqa: PLC0415
-                    FittedPipelineBuilder,
+                tag_key = tag_name
+                steps_info = tuple(
+                    {"name": d["name"], "estimator": d["typ"].__name__}
+                    for step_items in tag_node.metadata.get(
+                        FittedPipelineTagKey.ALL_STEPS, ()
+                    )
+                    for d in (dict(step_items),)
                 )
-
-                builders.append(FittedPipelineBuilder.from_tagged(tag_node))
+                builders.append(
+                    FrozenOrderedDict(
+                        {
+                            "type": "fitted_pipeline",
+                            "description": f"{tag_key}, {len(steps_info)} steps",
+                            "is_predict": tag_key
+                            in (
+                                str(FittedPipelineTagKey.PREDICT),
+                                str(FittedPipelineTagKey.PREDICT_PROBA),
+                                str(FittedPipelineTagKey.DECISION_FUNCTION),
+                            ),
+                            "steps": steps_info,
+                        }
+                    )
+                )
                 continue
-        # check BSL tags — return provenance dict, not a full spec
+        # BSL tags — provenance dict
         if tag_name == "bsl":
             meta = tag_node.metadata
             # dims/measures live on the SemanticTableOp — which may be nested
@@ -760,32 +776,32 @@ def _extract_builders(expr):
                 table_meta = dict(source) if isinstance(source, tuple) else source
             dims = tuple(d[0] for d in table_meta.get("dimensions", ()))
             measures = tuple(m[0] for m in table_meta.get("measures", ()))
-            builders.append(FrozenOrderedDict({
-                "type": "semantic_model",
-                "description": f"{len(dims)} dims, {len(measures)} measures",
-                "dimensions": dims,
-                "measures": measures,
-            }))
+            builders.append(
+                FrozenOrderedDict(
+                    {
+                        "type": "semantic_model",
+                        "description": f"{len(dims)} dims, {len(measures)} measures",
+                        "dimensions": dims,
+                        "measures": measures,
+                    }
+                )
+            )
             continue
-        # check registry for matching builder
-        if tag_name in registry:
-            builder_cls = registry[tag_name]
-            try:
-                builders.append(builder_cls.from_tagged(tag_node))
-            except Exception:
-                pass
     return tuple(builders)
 
 
-def _extract_kind(unbound_node, catalog_tag_nodes, is_source):
-    # Priority: UnboundExpr (incomplete/has placeholder) > Composed (has
-    # catalog HashingTag nodes) > Source (plain table) > Expr (everything else).
-    match (unbound_node, bool(catalog_tag_nodes), is_source):
-        case (node, _, _) if node is not None:
+def _extract_kind(unbound_node, catalog_tag_nodes, is_source, has_builders=False):
+    # Priority: UnboundExpr (incomplete/has placeholder) > ExprBuilder (has
+    # builder tags) > Composed (has catalog HashingTag nodes) > Source
+    # (plain table) > Expr (everything else).
+    match (unbound_node, has_builders, bool(catalog_tag_nodes), is_source):
+        case (node, _, _, _) if node is not None:
             return ExprKind.UnboundExpr
-        case (_, True, _):
+        case (_, True, _, _):
+            return ExprKind.ExprBuilder
+        case (_, _, True, _):
             return ExprKind.Composed
-        case (_, _, True):
+        case (_, _, _, True):
             return ExprKind.Source
         case _:
             return ExprKind.Expr
@@ -861,15 +877,22 @@ class ExprMetadata:
             for node in walk_nodes(NamedScalarParameter, expr)
         )
 
+        builders = _extract_builders(expr)
+
         return cls(
-            kind=_extract_kind(unbound_node, catalog_tag_nodes, is_source),
+            kind=_extract_kind(
+                unbound_node,
+                catalog_tag_nodes,
+                is_source,
+                has_builders=bool(builders),
+            ),
             schema_in=unbound_node.schema if unbound_node else None,
             schema_out=expr.as_table().schema(),
             root_tag=root_tag,
             parquet_cache_paths=parquet_cache_paths,
             composed_from=_extract_sources(catalog_tag_nodes),
             params=named_params,
-            builders=_extract_builders(expr),
+            builders=builders,
         )
 
     def to_dict(self):

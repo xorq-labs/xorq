@@ -270,6 +270,8 @@ def remove_alias(ctx, aliases, sync):
 @click.pass_context
 def list_entries(ctx, kind, filter_kind):
     """List all entries."""
+    from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
+
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
 
@@ -278,12 +280,13 @@ def list_entries(ctx, kind, filter_kind):
             return
 
         for entry in entries:
-            category = "builder" if entry.is_builder else "expression"
+            category = "builder" if entry.kind == ExprKind.ExprBuilder else "expression"
             if filter_kind and category != filter_kind:
                 continue
-            match (kind, entry.is_builder):
+            match (kind, entry.kind == ExprKind.ExprBuilder):
                 case (True, True):
-                    builder_type = (entry.builder_meta or {}).get("type", "unknown")
+                    builders = entry.metadata.builders
+                    builder_type = builders[0]["type"] if builders else "unknown"
                     click.echo(f"{entry.name}\tbuilder\t{builder_type}")
                 case (True, False):
                     click.echo(f"{entry.name}\texpression\t{entry.kind}")
@@ -415,25 +418,27 @@ def schema(ctx, name, as_json):
                 f"Entry {name!r} not found — run 'xorq catalog list' or 'xorq catalog list-aliases' to see available entries and aliases."
             ) from err
 
-        # Builder entries: show builder_meta.json content
-        if entry.is_builder:
-            bmeta = entry.builder_meta
+        # ExprBuilder entries: show builder metadata from sidecar
+        if entry.kind == ExprKind.ExprBuilder:
+            meta = entry.metadata
+            builders = meta.builders
             if as_json:
-                click.echo(json_mod.dumps(bmeta, indent=2))
+                click.echo(json_mod.dumps(meta.to_dict(), indent=2))
                 return
 
+            bmeta = builders[0] if builders else {}
             builder_type = bmeta.get("type", "unknown")
-            click.echo(f"Kind: builder ({builder_type})")
+            click.echo(f"Kind: expr_builder ({builder_type})")
             if desc := bmeta.get("description"):
                 click.echo(f"Description: {desc}")
 
-            if dims := bmeta.get("available_dimensions"):
+            if dims := bmeta.get("dimensions"):
                 click.echo()
-                click.echo("Available Dimensions:")
+                click.echo("Dimensions:")
                 click.echo(f"  {', '.join(dims)}")
-            if measures := bmeta.get("available_measures"):
+            if measures := bmeta.get("measures"):
                 click.echo()
-                click.echo("Available Measures:")
+                click.echo("Measures:")
                 click.echo(f"  {', '.join(measures)}")
             if steps := bmeta.get("steps"):
                 click.echo()
@@ -501,7 +506,7 @@ def _eval_entry(catalog_entry, code, instream=None):
                     f"'xorq catalog run SOURCE {catalog_entry.name} -o - -f csv'."
                 ) from err
             expr = replace_unbound(catalog_entry.expr, input_expr.op())
-        case ExprKind.Source | ExprKind.Expr | ExprKind.Composed:
+        case ExprKind.Source | ExprKind.Expr | ExprKind.Composed | ExprKind.ExprBuilder:
             expr = _make_source_expr(catalog_entry)
         case _:
             raise click.ClickException(
@@ -741,7 +746,17 @@ def compose(ctx, entries, code, alias, cache_dir, dry_run, raw_rename_params):
     help="Rename a parameter: entry,old_name,new_name (repeatable).",
 )
 @click.pass_context
-def run(ctx, entries, code, output_path, output_format, limit, instream, fuse, raw_rename_params):
+def run(
+    ctx,
+    entries,
+    code,
+    output_path,
+    output_format,
+    limit,
+    instream,
+    fuse,
+    raw_rename_params,
+):
     """Compose and execute catalog entries.
 
     One entry runs it directly; multiple entries compose source + transforms:
@@ -784,13 +799,6 @@ def run(ctx, entries, code, output_path, output_format, limit, instream, fuse, r
                         f"or 'xorq catalog list-aliases' to see available entries."
                     ) from err
                 from xorq.ibis_yaml.enums import ExprKind
-
-                if catalog_entry.is_builder:
-                    raise click.ClickException(
-                        f"Entry {entry!r} is a builder, not an expression — "
-                        f"use 'xorq catalog schema {entry}' to inspect it, "
-                        f"or use the Python API to build an expression from it."
-                    )
 
                 span.set_attribute("kind", str(catalog_entry.kind))
                 expr = _eval_entry(catalog_entry, code, instream)

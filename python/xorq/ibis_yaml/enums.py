@@ -26,6 +26,7 @@ class ExprKind(StrEnum):
     Expr = "expr"
     UnboundExpr = "unbound_expr"
     Composed = "composed"
+    ExprBuilder = "expr_builder"
 
 
 class MemtableTypes(StrEnum):

@@ -3,6 +3,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+import zipfile
 from contextlib import (
     contextmanager,
     nullcontext,
@@ -290,69 +291,14 @@ class Catalog:
 
         return bind(source_entry, *transforms, con=con)
 
-    def add_builder(self, spec, script_path, sync=True, aliases=(), exist_ok=False):
-        """Add a Builder to the catalog as a builder entry.
-
-        *script_path* is the path to the calling script; the enclosing project
-        is discovered by walking up to ``pyproject.toml`` and an sdist is
-        bundled into the catalog entry for isolated execution via
-        ``SdistRunner``.
-        """
-        import tempfile  # noqa: PLC0415
-
-        from xorq.common.utils.zip_utils import copy_path  # noqa: PLC0415
-        from xorq.ibis_yaml.packager import BUILD_SDIST_NAME, Sdister  # noqa: PLC0415
-
-        sdister = Sdister.from_script_path(script_path)
-
-        with tempfile.TemporaryDirectory() as tmp:
-            build_dir = spec.to_build_dir(Path(tmp))
-            copy_path(sdister.sdist_path, build_dir / BUILD_SDIST_NAME)
-
-            return self._add_build_dir(
-                build_dir, sync=sync, aliases=aliases, exist_ok=exist_ok
-            )
-
-    def get_builder(self, name_or_alias):
-        """Retrieve a Builder from a catalog entry (by hash or alias)."""
-        import json as json_mod  # noqa: PLC0415
-
-        from xorq.expr.builders import (  # noqa: PLC0415
-            BUILDER_META_FILENAME,
-            get_registry,
-        )
-
-        entry = self.get_catalog_entry(name_or_alias, maybe_alias=True)
-        meta = entry._read_zip_member(BUILDER_META_FILENAME, json_mod.loads)
-        builder_type = meta["type"]
-        registry = get_registry()
-        if builder_type not in registry:
-            raise ValueError(
-                f"Builder type {builder_type!r} not found in registry — "
-                f"is the required package installed?"
-            )
-        builder_cls = registry[builder_type]
-        return entry._with_extracted_build_dir(builder_cls.from_build_dir)
-
     def get_builder_from_expr(self, expr):
-        """Recover a Builder from tags on a cataloged expression."""
-        from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
-        from xorq.expr.builders import get_registry  # noqa: PLC0415
-        from xorq.expr.relations import HashingTag, Tag  # noqa: PLC0415
+        """Recover a domain object from builder tags on a cataloged expression.
 
-        registry = get_registry()
-        tag_nodes = walk_nodes((Tag, HashingTag), expr)
-        for tag_node in tag_nodes:
-            tag_name = tag_node.metadata.get("tag")
-            if tag_name == "bsl":
-                from xorq.expr.builders.semantic_model import (  # noqa: PLC0415
-                    SemanticModelBuilder,
-                )
+        Delegates to the from_tagged registry (BSL, ML pipeline, third-party).
+        """
+        from xorq.expr.builders import from_tagged_dispatch  # noqa: PLC0415
 
-                return SemanticModelBuilder.from_tagged(tag_node)
-            if tag_name in registry:
-                return registry[tag_name].from_tagged(tag_node)
-        raise ValueError("No builder tags found in expression")
+        return from_tagged_dispatch(expr)
 
     def get_zip(self, name, dir_path=None):
         """Export an entry's archive to *dir_path* (default: cwd).  Returns the output path."""
@@ -971,27 +917,10 @@ class CatalogEntry:
                 raise ValueError(f"{filename} not found in archive")
             return read_f(zf.read(member_path))
 
-    def _with_extracted_build_dir(self, fn):
-        """Extract archive to a temp directory and call fn(build_dir)."""
-        with zipfile.ZipFile(self.catalog_path, "r") as zf:
-            with tempfile.TemporaryDirectory() as tmp:
-                zf.extractall(tmp)
-                build_dir = Path(tmp) / self.name
-                return fn(build_dir)
-
-    @cached_property
-    def builder_meta(self):
-        """Read builder_meta.json if present, else None."""
-        from xorq.expr.builders import BUILDER_META_FILENAME  # noqa: PLC0415
-
-        try:
-            return self._read_zip_member(BUILDER_META_FILENAME, json.loads)
-        except ValueError:
-            return None
-
     @property
-    def is_builder(self) -> bool:
-        return self.builder_meta is not None
+    def is_expr_builder(self) -> bool:
+        """True when this entry's kind is ExprBuilder."""
+        return self.kind == ExprKind.ExprBuilder
 
 
 @frozen
