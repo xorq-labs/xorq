@@ -237,7 +237,6 @@ class DeferredFitOther:
                 mode = "transform"  # Default to transform
 
         kwargs = {
-            # still need to add: fit, other, return_type, name_infix
             "expr": fitted_step.expr,
             "target": fitted_step.target,
             "features": fitted_step.features,

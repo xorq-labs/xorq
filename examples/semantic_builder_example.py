@@ -1,11 +1,11 @@
-"""Demonstrates the SemanticModelSpec builder: catalog a semantic model, build expressions, recover and rebind.
+"""Demonstrates the SemanticModelBuilder builder: catalog a semantic model, build expressions, recover and rebind.
 
 Traditional approach: You define a semantic model with dimensions and measures, then manually
 track which selections produced which expression. When the underlying data source changes
 (e.g., dev -> prod), you rebuild everything from scratch and lose the connection between the
 model definition and the expressions it produced.
 
-With xorq: SemanticModelSpec wraps a BSL SemanticModel as a catalog builder entry. You can
+With xorq: SemanticModelBuilder wraps a BSL SemanticModel as a catalog builder entry. You can
 build multiple expressions from different dimension/measure selections, recover the original
 model from any cataloged expression, rebind to new data, and catalog the result — all while
 maintaining full provenance.
@@ -17,8 +17,7 @@ from pathlib import Path
 import xorq.api as xo
 from boring_semantic_layer import to_semantic_table
 from xorq.catalog.catalog import Catalog
-from xorq.expr.builders.semantic_model import SemanticModelSpec
-from xorq.ibis_yaml.packager import Sdister
+from xorq.expr.builders.semantic_model import SemanticModelBuilder
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +37,7 @@ dev_data = con.create_table(
 )
 
 # ---------------------------------------------------------------------------
-# 2. Create a SemanticModel and wrap it as a BuilderSpec
+# 2. Create a SemanticModel and wrap it as a Builder
 # ---------------------------------------------------------------------------
 
 model = to_semantic_table(dev_data).with_dimensions(
@@ -51,7 +50,7 @@ model = to_semantic_table(dev_data).with_dimensions(
     total_distance=lambda t: t.distance.sum(),
 )
 
-spec = SemanticModelSpec(model=model)
+spec = SemanticModelBuilder(model=model)
 print("Available dimensions:", spec.available_dimensions)
 print("Available measures:", spec.available_measures)
 
@@ -63,9 +62,9 @@ catalog_dir = Path(tempfile.mkdtemp()) / "example-catalog"
 catalog = Catalog.from_repo_path(catalog_dir, init=True)
 print(f"\nCatalog directory: {catalog_dir}")
 
-sdister = Sdister.from_script_path(__file__)
-catalog.add_builder(spec, sdister.sdist_path, aliases=("flights-model-dev",), sync=False)
-print("\nCatalog entries:", catalog.list())
+semantic_builder = catalog.add_builder(spec, __file__, aliases=("flights-model-dev",), sync=False)
+print("\nBuilder entry:", semantic_builder)
+print("Catalog entries:", catalog.list())
 print("Catalog aliases:", catalog.list_aliases())
 
 # ---------------------------------------------------------------------------
@@ -73,8 +72,9 @@ print("Catalog aliases:", catalog.list_aliases())
 # ---------------------------------------------------------------------------
 
 builder = catalog.get_builder("flights-model-dev")
-print("\nRecovered dimensions:", builder.available_dimensions)
-print("Recovered measures:", builder.available_measures)
+print("\nLoaded semantic builder from catalog:")
+print("  dimensions:", builder.available_dimensions)
+print("  measures:", builder.available_measures)
 
 expr_by_origin = builder.build_expr(
     dimensions=("origin",),

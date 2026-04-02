@@ -136,7 +136,7 @@ ibis = [
 trino = [
     "trino==0.336.0",
 ]
-# TODO: remove once SemanticModelSpec moves to boring_semantic_layer
+# TODO: remove once SemanticModelBuilder moves to boring_semantic_layer
 bsl = [
     "boring-semantic-layer>=0.1.0",
 ]
@@ -193,10 +193,10 @@ sqlite = "xorq.backends.sqlite"
 gizmosql = "xorq.backends.gizmosql"
 
 # TODO: semantic_model entry point moves to boring_semantic_layer once BSL
-# ships its own SemanticModelSpec; this xorq reference impl can then be removed.
+# ships its own SemanticModelBuilder; this xorq reference impl can then be removed.
 [project.entry-points."xorq.builders"]
-semantic_model = "xorq.expr.builders.semantic_model:SemanticModelSpec"
-fitted_pipeline = "xorq.expr.builders.fitted_pipeline:FittedPipelineSpec"
+semantic_model = "xorq.expr.builders.semantic_model:SemanticModelBuilder"
+fitted_pipeline = "xorq.expr.builders.fitted_pipeline:FittedPipelineBuilder"
 
 [project.scripts]
 xorq = "xorq.cli:main"

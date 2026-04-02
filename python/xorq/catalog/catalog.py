@@ -305,28 +305,31 @@ class Catalog:
 
         return bind(source_entry, *transforms, con=con)
 
-    def add_builder(self, spec, sdist_path, sync=True, aliases=(), exist_ok=False):
-        """Add a BuilderSpec to the catalog as a builder entry.
+    def add_builder(self, spec, script_path, sync=True, aliases=(), exist_ok=False):
+        """Add a Builder to the catalog as a builder entry.
 
-        *sdist_path* is the path to an sdist zip to bundle into the catalog
-        entry so the builder can be run in an isolated environment via
+        *script_path* is the path to the calling script; the enclosing project
+        is discovered by walking up to ``pyproject.toml`` and an sdist is
+        bundled into the catalog entry for isolated execution via
         ``SdistRunner``.
         """
         import tempfile  # noqa: PLC0415
 
         from xorq.common.utils.zip_utils import copy_path  # noqa: PLC0415
-        from xorq.ibis_yaml.packager import BUILD_SDIST_NAME  # noqa: PLC0415
+        from xorq.ibis_yaml.packager import BUILD_SDIST_NAME, Sdister  # noqa: PLC0415
+
+        sdister = Sdister.from_script_path(script_path)
 
         with tempfile.TemporaryDirectory() as tmp:
             build_dir = spec.to_build_dir(Path(tmp))
-            copy_path(Path(sdist_path), build_dir / BUILD_SDIST_NAME)
+            copy_path(sdister.sdist_path, build_dir / BUILD_SDIST_NAME)
 
             return self._add_build_dir(
                 build_dir, sync=sync, aliases=aliases, exist_ok=exist_ok
             )
 
     def get_builder(self, name_or_alias):
-        """Retrieve a BuilderSpec from a catalog entry (by hash or alias)."""
+        """Retrieve a Builder from a catalog entry (by hash or alias)."""
         import json as json_mod  # noqa: PLC0415
 
         from xorq.expr.builders import (  # noqa: PLC0415
@@ -347,7 +350,7 @@ class Catalog:
         return entry._with_extracted_build_dir(builder_cls.from_build_dir)
 
     def get_builder_from_expr(self, expr):
-        """Recover a BuilderSpec from tags on a cataloged expression."""
+        """Recover a Builder from tags on a cataloged expression."""
         from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
         from xorq.expr.builders import get_registry  # noqa: PLC0415
         from xorq.expr.relations import HashingTag, Tag  # noqa: PLC0415
@@ -358,10 +361,10 @@ class Catalog:
             tag_name = tag_node.metadata.get("tag")
             if tag_name == "bsl":
                 from xorq.expr.builders.semantic_model import (  # noqa: PLC0415
-                    SemanticModelSpec,
+                    SemanticModelBuilder,
                 )
 
-                return SemanticModelSpec.from_tagged(tag_node)
+                return SemanticModelBuilder.from_tagged(tag_node)
             if tag_name in registry:
                 return registry[tag_name].from_tagged(tag_node)
         raise ValueError("No builder tags found in expression")
