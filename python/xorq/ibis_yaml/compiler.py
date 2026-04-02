@@ -347,10 +347,20 @@ def make_read_op(parquet_path, read_kwargs, con=_backend_init()):  # noqa: B008
 
 def _extract_sql_queries(expr, kind) -> tuple[tuple[str, str, str], ...]:
     """Extract (name, engine, sql) tuples from an expression for caching."""
-    from xorq.expr.api import _remove_tag_nodes  # noqa: PLC0415
+    from xorq.expr.api import _remove_tag_nodes, bind_params  # noqa: PLC0415
     from xorq.expr.api import to_sql as xorq_to_sql  # noqa: PLC0415
+    from xorq.expr.operations import NamedScalarParameter  # noqa: PLC0415
 
     clean = _remove_tag_nodes(expr)
+    # Bind named params to their defaults so SQL generation doesn't see them
+    named = {n.label: n for n in clean.op().find(NamedScalarParameter)}
+    if named:
+        defaults = {
+            label: node.default
+            for label, node in named.items()
+            if node.default is not None
+        }
+        clean = bind_params(clean, defaults)
     match kind:
         case ExprKind.UnboundExpr:
             sql = str(xorq_to_sql(clean)).strip()
