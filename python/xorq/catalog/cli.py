@@ -176,20 +176,58 @@ def tui(ctx, refresh):
     app.run()
 
 
+def _resolve_annex_option(env_file, env_prefix, gcs):
+    """Return a RemoteConfig from CLI options, or None for plain git."""
+    if env_file and env_prefix:
+        raise click.UsageError("--env-file and --env-prefix are mutually exclusive.")
+    if env_file:
+        from xorq.catalog.annex import remote_config_from_env_file
+
+        return remote_config_from_env_file(env_file, gcs=gcs)
+    elif env_prefix:
+        from xorq.catalog.annex import remote_config_from_prefix
+
+        return remote_config_from_prefix(env_prefix, gcs=gcs)
+    return None
+
+
 @cli.command()
+@click.option(
+    "--env-file",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Env file for annex remote (e.g. .env.catalog.s3).",
+)
+@click.option(
+    "--env-prefix",
+    default=None,
+    help="Env var prefix for annex remote (e.g. XORQ_CATALOG_S3_).",
+)
+@click.option("--gcs", is_flag=True, help="Apply GCS defaults to S3 remote config.")
+@click.option(
+    "--remote-url",
+    default=None,
+    help="Git remote URL (sets origin).",
+)
 @click.pass_context
-def init(ctx):
+def init(ctx, env_file, env_prefix, gcs, remote_url):
     """Initialize a new catalog."""
     with click_context_catalog(ctx):
+        annex = _resolve_annex_option(env_file, env_prefix, gcs)
         try:
-            catalog = ctx.obj.make_catalog(init=True)
+            catalog = ctx.obj.make_catalog(init=True, annex=annex)
         except AssertionError as err:
             # init_repo_path asserts the path does not already exist
             probe = ctx.obj.make_catalog(init=False)
             raise click.ClickException(
                 f"Catalog already exists at {probe.repo_path}"
             ) from err
-    click.echo(f"Initialized catalog at {catalog.repo_path}")
+        click.echo(f"Initialized catalog at {catalog.repo_path}")
+        if remote_url:
+            from xorq.catalog.constants import DEFAULT_REMOTE
+
+            catalog.repo.create_remote(DEFAULT_REMOTE, remote_url)
+            click.echo(f"Added remote {DEFAULT_REMOTE} -> {remote_url}")
 
 
 @cli.command()
@@ -463,15 +501,43 @@ def log(ctx, as_json):
 @cli.command()
 @click.argument("target_path", type=click.Path(file_okay=False))
 @click.option(
+    "--env-file",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Env file for target annex remote (e.g. .env.catalog.s3).",
+)
+@click.option(
+    "--env-prefix",
+    default=None,
+    help="Env var prefix for target annex remote (e.g. XORQ_CATALOG_S3_).",
+)
+@click.option("--gcs", is_flag=True, help="Apply GCS defaults to S3 remote config.")
+@click.option(
+    "--remote-url",
+    default=None,
+    help="Git remote URL for the target catalog (sets origin and pushes).",
+)
+@click.option(
     "--preserve-commits/--no-preserve-commits",
     default=True,
     help="Preserve original commit authors and timestamps (default: yes).",
 )
+@click.option("--force", is_flag=True, help="Force-push to the remote.")
 @click.option(
     "--dry-run", is_flag=True, help="Show what would be replayed without executing."
 )
 @click.pass_context
-def replay(ctx, target_path, preserve_commits, dry_run):
+def replay(
+    ctx,
+    target_path,
+    env_file,
+    env_prefix,
+    gcs,
+    remote_url,
+    preserve_commits,
+    force,
+    dry_run,
+):
     """Replay catalog operations into a target catalog."""
     from xorq.catalog.catalog import Catalog
     from xorq.catalog.replay import Replayer
@@ -482,9 +548,24 @@ def replay(ctx, target_path, preserve_commits, dry_run):
         if dry_run:
             replayer.print_plan()
             return
-        target = Catalog.from_repo_path(target_path, init=True)
+        annex = _resolve_annex_option(env_file, env_prefix, gcs)
+        target = Catalog.from_repo_path(target_path, init=True, annex=annex)
         replayer.replay(target, preserve_commits=preserve_commits)
         click.echo(f"Replayed {len(replayer.ops)} operations into {target_path}")
+        if remote_url:
+            from xorq.catalog.constants import ANNEX_BRANCH, DEFAULT_REMOTE, MAIN_BRANCH
+
+            origin = target.repo.create_remote(DEFAULT_REMOTE, remote_url)
+            refspec_prefix = "+" if force else ""
+            origin.push(f"{refspec_prefix}{MAIN_BRANCH}:{MAIN_BRANCH}")
+            origin.push(f"{refspec_prefix}{ANNEX_BRANCH}:{ANNEX_BRANCH}")
+            origin.fetch()
+            target.repo.heads[MAIN_BRANCH].set_tracking_branch(origin.refs[MAIN_BRANCH])
+            if ANNEX_BRANCH in target.repo.heads:
+                target.repo.heads[ANNEX_BRANCH].set_tracking_branch(
+                    origin.refs[ANNEX_BRANCH]
+                )
+            click.echo(f"Pushed to {remote_url}")
 
 
 def _eval_entry(catalog_entry, code, instream=None):

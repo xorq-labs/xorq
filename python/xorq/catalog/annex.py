@@ -21,7 +21,7 @@ from attr.validators import (
 from git import Repo
 
 from xorq.catalog.constants import ANNEX_BRANCH
-from xorq.common.utils.env_utils import EnvConfigable, env_templates_dir
+from xorq.common.utils.env_utils import EnvConfigable, env_templates_dir, parse_env_file
 
 
 abspath = toolz.compose(Path.absolute, Path)
@@ -722,6 +722,50 @@ _REMOTE_CONFIG_CLASSES = {
     "rsync": RsyncRemoteConfig,
     "S3": S3RemoteConfig,
 }
+
+
+_PREFIX_TO_REMOTE_CONFIG = {
+    "XORQ_CATALOG_S3_": S3RemoteConfig,
+    "XORQ_CATALOG_DIRECTORY_": DirectoryRemoteConfig,
+    "XORQ_CATALOG_RSYNC_": RsyncRemoteConfig,
+}
+
+
+def remote_config_from_prefix(prefix, *, gcs=False):
+    """Return a RemoteConfig from environment variables matching *prefix*.
+
+    When *gcs* is True and the prefix resolves to S3RemoteConfig,
+    GCS-compatible defaults (host, protocol, etc.) are applied.
+    """
+    cls = _PREFIX_TO_REMOTE_CONFIG.get(prefix)
+    if cls is None:
+        raise ValueError(
+            f"Unknown prefix {prefix!r}. "
+            f"Expected one of: {', '.join(_PREFIX_TO_REMOTE_CONFIG)}"
+        )
+    if gcs and cls is S3RemoteConfig:
+        return cls.make_gcs_remote_from_env()
+    return cls.from_env()
+
+
+def remote_config_from_env_file(env_file, *, gcs=False):
+    """Load an env file and return the matching RemoteConfig.
+
+    Detects the remote type from the env var prefix
+    (``XORQ_CATALOG_S3_``, ``XORQ_CATALOG_DIRECTORY_``, ``XORQ_CATALOG_RSYNC_``).
+    When *gcs* is True and the file contains S3 keys,
+    GCS-compatible defaults are applied.
+    """
+    env_vars = parse_env_file(env_file)
+    os.environ.update(env_vars)
+    keys = env_vars.keys()
+    for prefix in _PREFIX_TO_REMOTE_CONFIG:
+        if any(k.startswith(prefix) for k in keys):
+            return remote_config_from_prefix(prefix, gcs=gcs)
+    raise ValueError(
+        f"Could not determine remote type from {env_file}. "
+        f"Expected keys with prefix: {', '.join(_PREFIX_TO_REMOTE_CONFIG)}"
+    )
 
 
 def remote_config_from_dict(d, **kwargs):

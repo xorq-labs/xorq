@@ -574,6 +574,71 @@ def test_check_populated(runner, catalog_path, data_dict):
     assert "OK" in result.output
 
 
+# --- log command ---
+
+
+def test_log_command(runner, catalog_path, data_dict):
+    paths = [str(p) for p in data_dict.values()]
+    runner.invoke(cli, ["--path", catalog_path, "add", *paths])
+    result = runner.invoke(cli, ["--path", catalog_path, "log"])
+    assert result.exit_code == 0, result.output
+    assert "[init]" in result.output
+    assert "[add]" in result.output
+    assert "--- summary ---" in result.output
+
+
+def test_log_json(runner, catalog_path, data_dict):
+    paths = [str(p) for p in data_dict.values()]
+    runner.invoke(cli, ["--path", catalog_path, "add", *paths])
+    result = runner.invoke(cli, ["--path", catalog_path, "log", "--json"])
+    assert result.exit_code == 0, result.output
+    ops = json.loads(result.output)
+    assert isinstance(ops, list)
+    assert any(op["type"] == "AddEntry" for op in ops)
+
+
+def test_log_empty_catalog(runner, catalog_path):
+    result = runner.invoke(cli, ["--path", catalog_path, "log"])
+    assert result.exit_code == 0, result.output
+    assert "[init]" in result.output
+
+
+# --- replay command ---
+
+
+def test_replay_command(runner, catalog_path, data_dict, tmpdir):
+    paths = [str(p) for p in data_dict.values()]
+    runner.invoke(cli, ["--path", catalog_path, "add", *paths])
+    target = str(Path(tmpdir).joinpath("replayed"))
+    result = runner.invoke(cli, ["--path", catalog_path, "replay", target])
+    assert result.exit_code == 0, result.output
+    assert "Replayed" in result.output
+    target_catalog = Catalog.from_repo_path(target, init=False)
+    assert sorted(target_catalog.list()) == sorted(
+        Catalog.from_repo_path(catalog_path, init=False).list()
+    )
+
+
+def test_replay_dry_run(runner, catalog_path, data_dict, tmpdir):
+    paths = [str(p) for p in data_dict.values()]
+    runner.invoke(cli, ["--path", catalog_path, "add", *paths])
+    target = str(Path(tmpdir).joinpath("replayed"))
+    result = runner.invoke(cli, ["--path", catalog_path, "replay", target, "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "Replayed" not in result.output
+
+
+def test_replay_no_preserve_commits(runner, catalog_path, data_dict, tmpdir):
+    paths = [str(p) for p in data_dict.values()]
+    runner.invoke(cli, ["--path", catalog_path, "add", *paths])
+    target = str(Path(tmpdir).joinpath("replayed"))
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "replay", target, "--no-preserve-commits"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "Replayed" in result.output
+
+
 # --- clone command ---
 
 
