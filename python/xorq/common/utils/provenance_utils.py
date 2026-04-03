@@ -43,9 +43,7 @@ def build_provenance_metadata(expr, strategy, storage):
 
 
 def inject_metadata_into_schema(schema, metadata_dict):
-    existing = schema.metadata or {}
-    merged = {**existing, **metadata_dict}
-    return schema.with_metadata(merged)
+    return schema.with_metadata((schema.metadata or {}) | metadata_dict)
 
 
 def read_parquet_provenance(path, fs=None):
