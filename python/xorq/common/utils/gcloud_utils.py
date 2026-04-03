@@ -37,9 +37,16 @@ def rbr_from_fs(fs, path):
 
 
 @curry
-def rbr_to_fs(fs, path, rbr, **kwargs):
+def rbr_to_fs(fs, path, rbr, parquet_metadata=None, **kwargs):
+    schema = rbr.schema
+    if parquet_metadata is not None:
+        from xorq.common.utils.provenance_utils import (  # noqa: PLC0415
+            inject_metadata_into_schema,
+        )
+
+        schema = inject_metadata_into_schema(schema, parquet_metadata)
     with fs.open(path, "wb") as fh:
-        with pq.ParquetWriter(fh, rbr.schema, **kwargs) as writer:
+        with pq.ParquetWriter(fh, schema, **kwargs) as writer:
             for batch in rbr:
                 writer.write_batch(batch)
 
@@ -80,10 +87,10 @@ class GCStorage(CacheStorage):
         op = self.source.read_record_batches(rbr).op()
         return op
 
-    def put(self, key, value):
+    def put(self, key, value, parquet_metadata=None):
         path = self.get_path(key)
         rbr = value.to_expr().to_pyarrow_batches()
-        rbr_to_fs(self.fs, path, rbr)
+        rbr_to_fs(self.fs, path, rbr, parquet_metadata=parquet_metadata)
         return self.get(key)
 
     def drop(self, key):

@@ -78,22 +78,22 @@ class Cache:
         else:
             return self.storage.get(key)
 
-    def put(self, expr: ir.Expr, value):
+    def put(self, expr: ir.Expr, value, parquet_metadata=None):
         key = self.calc_key(expr)
         if self.key_exists(key):
             raise ValueError(f"cache entry already exists for key {key!r}")
         else:
-            return self.storage.put(key, value)
+            return self.storage.put(key, value, parquet_metadata=parquet_metadata)
 
     @tracer.start_as_current_span("cache.set_default")
-    def set_default(self, expr: ir.Expr, default):
+    def set_default(self, expr: ir.Expr, default, parquet_metadata=None):
         span = trace.get_current_span()
         key = self.calc_key(expr)
         if not self.key_exists(key):
             span.add_event("cache.miss", {"key": key})
             with tracer.start_as_current_span("cache.put") as child_span:
                 child_span.add_event("cache.miss", {"key": key})
-                return self.storage.put(key, default)
+                return self.storage.put(key, default, parquet_metadata=parquet_metadata)
         else:
             span.add_event("cache.hit", {"key": key})
             return self.storage.get(key)

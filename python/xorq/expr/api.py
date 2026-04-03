@@ -274,16 +274,34 @@ def to_sql(expr: ir.Expr, compiler=None, pretty: bool = True) -> SQLString:
 @tracer.start_as_current_span("_register_and_transform_cache_tables")
 def _register_and_transform_cache_tables(expr):
     """This function will sequentially execute any cache node that is not already cached"""
+    op = expr.op()
+    root_is_cached = isinstance(op, CachedNode)
 
     def fn(node, kwargs):
+        is_root = root_is_cached and node is op
         if kwargs:
             node = node.__recreate__(kwargs)
         if isinstance(node, CachedNode):
             uncached, cache = node.parent, node.cache
-            node = cache.set_default(uncached, uncached.op())
+            parquet_metadata = None
+            # Only stamp provenance on the root CachedNode: inner cached nodes
+            # are independently keyed and will get their own provenance when
+            # they are the root of a separate execute() call.
+            # We use `expr` (the original full expression from the closure) so
+            # that the embedded hash matches what build_expr produces.
+            if is_root and hasattr(cache.storage, "get_path"):
+                from xorq.common.utils.provenance_utils import (  # noqa: PLC0415
+                    build_provenance_metadata,
+                )
+
+                parquet_metadata = build_provenance_metadata(
+                    expr, cache.strategy, cache.storage
+                )
+            node = cache.set_default(
+                uncached, uncached.op(), parquet_metadata=parquet_metadata
+            )
         return node
 
-    op = expr.op()
     out = op.replace(fn)
 
     return out.to_expr()
