@@ -22,7 +22,7 @@ from textual.widgets import DataTable, Static
 
 import xorq.api as xo
 from xorq.caching import ParquetSnapshotCache
-from xorq.catalog.testing import (
+from xorq.catalog.tests.testing import (
     Assert,
     Press,
     run_script,
