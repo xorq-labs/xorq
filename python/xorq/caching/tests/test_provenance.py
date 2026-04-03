@@ -8,15 +8,15 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 import xorq.api as xo
-from xorq.caching.provenance import (
+from xorq.caching.storage import ParquetStorage, ParquetTTLStorage
+from xorq.caching.strategy import ModificationTimeStrategy, SnapshotStrategy
+from xorq.common.utils.provenance_utils import (
     build_provenance_metadata,
     cache_to_entry_map,
     check_cache_valid,
     inject_metadata_into_schema,
     read_parquet_provenance,
 )
-from xorq.caching.storage import ParquetStorage, ParquetTTLStorage
-from xorq.caching.strategy import ModificationTimeStrategy, SnapshotStrategy
 
 
 def test_build_provenance_metadata():

@@ -53,7 +53,9 @@ class CacheStorage:
 def _write_parquet_with_metadata(expr, path, metadata_dict):
     import pyarrow.parquet as pq  # noqa: PLC0415
 
-    from xorq.caching.provenance import inject_metadata_into_schema  # noqa: PLC0415
+    from xorq.common.utils.provenance_utils import (  # noqa: PLC0415
+        inject_metadata_into_schema,
+    )
     from xorq.expr.api import to_pyarrow_batches  # noqa: PLC0415
 
     with to_pyarrow_batches(expr) as batch_reader:

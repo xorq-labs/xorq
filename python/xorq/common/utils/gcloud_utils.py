@@ -85,12 +85,12 @@ class GCStorage(CacheStorage):
         path = self.get_path(key)
         rbr = value.to_expr().to_pyarrow_batches()
         if parquet_metadata is not None:
-            from xorq.caching.provenance import (  # noqa: PLC0415
+            from xorq.common.utils.provenance_utils import (  # noqa: PLC0415
                 inject_metadata_into_schema,
             )
 
-            enriched_schema = inject_metadata_into_schema(rbr.schema, parquet_metadata)
-            rbr_to_fs(self.fs, path, rbr, schema_override=enriched_schema)
+            schema = inject_metadata_into_schema(rbr.schema, parquet_metadata)
+            rbr_to_fs(self.fs, path, rbr, schema_override=schema)
         else:
             rbr_to_fs(self.fs, path, rbr)
         return self.get(key)
