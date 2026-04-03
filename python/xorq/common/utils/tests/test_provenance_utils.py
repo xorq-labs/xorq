@@ -9,6 +9,7 @@ import xorq.api as xo
 from xorq.caching.storage import ParquetStorage, ParquetTTLStorage
 from xorq.caching.strategy import ModificationTimeStrategy, SnapshotStrategy
 from xorq.common.utils.provenance_utils import (
+    ProvenanceField,
     build_provenance_metadata,
     get_expr_hash,
     inject_metadata_into_schema,
@@ -17,37 +18,40 @@ from xorq.common.utils.provenance_utils import (
 
 
 def test_build_provenance_metadata():
+    F = ProvenanceField
     strategy = SnapshotStrategy()
     storage = ParquetStorage()
     t = xo.memtable({"x": [1, 2, 3]})
     meta = build_provenance_metadata(t, strategy, storage)
 
-    assert b"xorq:expr_hash" in meta
-    assert meta[b"xorq:expr_hash"] == get_expr_hash(t).encode()
-    assert meta[b"xorq:cache_strategy"] == b"SnapshotStrategy"
-    assert meta[b"xorq:cache_storage"] == b"ParquetStorage"
-    assert b"xorq:cache_ttl_seconds" not in meta
+    assert F.expr_hash.encode() in meta
+    assert meta[F.expr_hash.encode()] == get_expr_hash(t).encode()
+    assert meta[F.cache_strategy.encode()] == b"SnapshotStrategy"
+    assert meta[F.cache_storage.encode()] == b"ParquetStorage"
+    assert F.cache_ttl_seconds.encode() not in meta
 
 
 def test_build_provenance_metadata_with_ttl():
+    F = ProvenanceField
     strategy = SnapshotStrategy()
     storage = ParquetTTLStorage(ttl=datetime.timedelta(hours=2))
     t = xo.memtable({"y": [10, 20]})
     meta = build_provenance_metadata(t, strategy, storage)
 
-    assert meta[b"xorq:expr_hash"] == get_expr_hash(t).encode()
-    assert meta[b"xorq:cache_strategy"] == b"SnapshotStrategy"
-    assert meta[b"xorq:cache_storage"] == b"ParquetTTLStorage"
-    assert meta[b"xorq:cache_ttl_seconds"] == b"7200"
+    assert meta[F.expr_hash.encode()] == get_expr_hash(t).encode()
+    assert meta[F.cache_strategy.encode()] == b"SnapshotStrategy"
+    assert meta[F.cache_storage.encode()] == b"ParquetTTLStorage"
+    assert meta[F.cache_ttl_seconds.encode()] == b"7200"
 
 
 def test_build_provenance_metadata_modification_time():
+    F = ProvenanceField
     strategy = ModificationTimeStrategy()
     storage = ParquetStorage()
     t = xo.memtable({"z": [1]})
     meta = build_provenance_metadata(t, strategy, storage)
 
-    assert meta[b"xorq:cache_strategy"] == b"ModificationTimeStrategy"
+    assert meta[F.cache_strategy.encode()] == b"ModificationTimeStrategy"
 
 
 def test_inject_metadata_into_schema():
@@ -76,13 +80,14 @@ def _write_test_parquet(path, metadata_dict=None):
 
 
 def test_read_parquet_provenance(tmp_path):
+    F = ProvenanceField
     path = tmp_path / "test.parquet"
-    meta = {b"xorq:expr_hash": b"abc", b"xorq:cache_strategy": b"Snapshot"}
+    meta = {F.expr_hash.encode(): b"abc", F.cache_strategy.encode(): b"Snapshot"}
     _write_test_parquet(path, meta)
     prov = read_parquet_provenance(path)
     assert prov == {
-        "xorq:expr_hash": "abc",
-        "xorq:cache_strategy": "Snapshot",
+        F.expr_hash: "abc",
+        F.cache_strategy: "Snapshot",
     }
 
 
@@ -106,14 +111,16 @@ def test_parquet_storage_embeds_metadata():
     path = cn.cache.storage.get_path(key)
     assert path.exists()
 
+    F = ProvenanceField
     prov = read_parquet_provenance(path)
     assert prov is not None
-    assert prov["xorq:expr_hash"] == get_expr_hash(expr)
-    assert prov["xorq:cache_strategy"] == "SnapshotStrategy"
-    assert prov["xorq:cache_storage"] == "ParquetStorage"
+    assert prov[F.expr_hash] == get_expr_hash(expr)
+    assert prov[F.cache_strategy] == "SnapshotStrategy"
+    assert prov[F.cache_storage] == "ParquetStorage"
 
 
 def test_parquet_ttl_storage_embeds_ttl():
+    F = ProvenanceField
     cache = xo.ParquetTTLSnapshotCache(
         strategy=SnapshotStrategy(),
         storage=ParquetTTLStorage(ttl=datetime.timedelta(hours=6)),
@@ -132,4 +139,4 @@ def test_parquet_ttl_storage_embeds_ttl():
 
     prov = read_parquet_provenance(path)
     assert prov is not None
-    assert prov["xorq:cache_ttl_seconds"] == "21600"
+    assert prov[F.cache_ttl_seconds] == "21600"

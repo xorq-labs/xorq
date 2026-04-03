@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+import enum
+
 import pyarrow.parquet as pq
 
 
 XORQ_METADATA_PREFIX = "xorq:"
+
+
+class ProvenanceField(enum.StrEnum):
+    expr_hash = f"{XORQ_METADATA_PREFIX}expr_hash"
+    cache_strategy = f"{XORQ_METADATA_PREFIX}cache_strategy"
+    cache_storage = f"{XORQ_METADATA_PREFIX}cache_storage"
+    cache_ttl_seconds = f"{XORQ_METADATA_PREFIX}cache_ttl_seconds"
 
 
 def get_expr_hash(expr):
@@ -19,14 +28,15 @@ def get_expr_hash(expr):
 
 
 def build_provenance_metadata(expr, strategy, storage):
+    F = ProvenanceField
     expr_hash = get_expr_hash(expr)
     metadata = {
-        b"xorq:expr_hash": expr_hash.encode(),
-        b"xorq:cache_strategy": type(strategy).__name__.encode(),
-        b"xorq:cache_storage": type(storage).__name__.encode(),
+        F.expr_hash.encode(): expr_hash.encode(),
+        F.cache_strategy.encode(): type(strategy).__name__.encode(),
+        F.cache_storage.encode(): type(storage).__name__.encode(),
     }
     if hasattr(storage, "ttl"):
-        metadata[b"xorq:cache_ttl_seconds"] = str(
+        metadata[F.cache_ttl_seconds.encode()] = str(
             int(storage.ttl.total_seconds())
         ).encode()
     return metadata
