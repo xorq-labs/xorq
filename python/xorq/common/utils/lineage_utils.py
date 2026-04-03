@@ -242,9 +242,8 @@ def extract_lineage_dag(expr: Any) -> dict:
 
     node_to_id: dict[Node, str] = {}
     nodes: list[dict] = []
-    edges: list[dict] = []
 
-    for i, (node, children) in enumerate(graph.items()):
+    for i, (node, _children) in enumerate(graph.items()):
         node_id = f"node_{i}"
         node_to_id[node] = node_id
 
@@ -270,7 +269,10 @@ def extract_lineage_dag(expr: Any) -> dict:
 
         nodes.append(node_data)
 
-        # Edges: upstream (child) → downstream (current node).
+    # Build edges after all IDs are assigned (children appear after parents in BFS).
+    edges: list[dict] = []
+    for node, children in graph.items():
+        node_id = node_to_id[node]
         for child in children:
             child_id = node_to_id.get(child)
             if child_id is not None:

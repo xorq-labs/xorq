@@ -21,7 +21,6 @@ from pygments.token import (
     Token,
 )
 from rich.syntax import Syntax
-from rich.tree import Tree as RichTree
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -32,6 +31,7 @@ from textual.widgets import (
     Footer,
     Header,
     Static,
+    Tree,
 )
 
 from xorq.catalog.catalog import CatalogEntry
@@ -152,11 +152,11 @@ class CatalogRowData:
         return self.entry.metadata.sql_queries
 
     @cached_property
-    def lineage_tree(self) -> RichTree:
+    def lineage_dag(self) -> dict | None:
         dag = self.entry.metadata.lineage
         if isinstance(dag, dict) and dag.get("nodes"):
-            return _format_lineage_dag(dag)
-        return RichTree("(empty)")
+            return dag
+        return None
 
     @cached_property
     def cache_info_text(self) -> str:
@@ -295,53 +295,91 @@ def _build_git_log_rows(repo, max_count=100) -> tuple[GitLogRowData, ...]:
     )
 
 
-def _format_lineage_dag(dag: dict) -> RichTree:
-    """Build a Rich Tree from a lineage DAG dict.
+def _populate_lineage_tree(tree_widget: Tree, dag: dict) -> None:
+    """Populate a Textual Tree widget with relation nodes from a lineage DAG.
 
-    The root expression is shown at the top with its upstream inputs
-    branching below it (like a dependency tree).
+    Non-relation ops (Field, Sum, Greater, Literal, …) are skipped;
+    their upstream relation inputs are promoted to the nearest downstream
+    relation.  Each relation node is expandable to show its schema columns.
     """
+    tree_widget.clear()
     nodes_by_id = {n["id"]: n for n in dag.get("nodes", ())}
-    # inputs_map: node_id → [upstream node ids that feed into it]
+    relation_ids = {n["id"] for n in dag.get("nodes", ()) if "schema" in n}
+
     inputs_map: dict[str, list[str]] = {}
     for edge in dag.get("edges", ()):
         inputs_map.setdefault(edge["target"], []).append(edge["source"])
 
     root_id = dag.get("root")
     if not root_id or root_id not in nodes_by_id:
-        return RichTree("(empty)")
+        tree_widget.root.set_label("(empty)")
+        return
+
+    def _relation_inputs(node_id: str, seen: set[str]) -> list[str]:
+        result: list[str] = []
+        for inp in inputs_map.get(node_id, []):
+            if inp in seen:
+                continue
+            seen.add(inp)
+            if inp in relation_ids:
+                result.append(inp)
+            else:
+                result.extend(_relation_inputs(inp, seen))
+        return result
 
     def _label(node: dict) -> str:
-        # Prefer the rich format_node label (e.g. "RemoteTable:foo", "Cache[parquet] bar")
-        label = node.get("label") or node.get("op", "?")
-        schema = node.get("schema")
-        ncols = len(schema) if schema else 0
-        parts = [f"[bold]{label}[/bold]"]
+        op = node.get("op", "?")
+        name = node.get("name", "")
+        label = node.get("label") or op
+        ncols = len(node.get("schema", {}))
+        if name and name not in label:
+            label = f"{label} ({name})"
         if ncols:
-            parts.append(f" [dim]({ncols} cols)[/dim]")
-        return "".join(parts)
+            label = f"{label}  [dim]{ncols} cols[/dim]"
+        return label
+
+    def _add_schema_leaves(branch, node: dict) -> None:
+        schema = node.get("schema", {})
+        for col_name, col_info in schema.items():
+            dtype = col_info.get("dtype", "?")
+            nullable = col_info.get("nullable", True)
+            null_tag = "" if nullable else " [dim]NOT NULL[/dim]"
+            branch.add_leaf(f"[dim]{col_name}[/dim]  {dtype}{null_tag}")
 
     visited: set[str] = set()
 
-    def _build(node_id: str, parent_tree: RichTree) -> None:
+    def _build(node_id: str, parent) -> None:
         node = nodes_by_id.get(node_id)
         if node is None:
             return
         label = _label(node)
         if node_id in visited:
-            parent_tree.add(f"[dim]↻ {label}[/dim]")
+            parent.add_leaf(f"[dim]↻ {label}[/dim]")
             return
         visited.add(node_id)
-        branch = parent_tree.add(label)
-        for inp in inputs_map.get(node_id, []):
+        rel_inputs = _relation_inputs(node_id, set())
+        if rel_inputs:
+            branch = parent.add(label, expand=True)
+        else:
+            branch = parent.add(label, expand=False)
+        _add_schema_leaves(branch, node)
+        for inp in rel_inputs:
             _build(inp, branch)
 
-    root_label = _label(nodes_by_id[root_id])
-    tree = RichTree(root_label)
-    visited.add(root_id)
-    for inp in inputs_map.get(root_id, []):
-        _build(inp, tree)
-    return tree
+    # Set root label.
+    if root_id in relation_ids:
+        root_node = nodes_by_id[root_id]
+        tree_widget.root.set_label(_label(root_node))
+        _add_schema_leaves(tree_widget.root, root_node)
+        visited.add(root_id)
+        start_inputs = _relation_inputs(root_id, set())
+    else:
+        tree_widget.root.set_label("[dim](expression)[/dim]")
+        start_inputs = _relation_inputs(root_id, set())
+
+    for inp in start_inputs:
+        _build(inp, tree_widget.root)
+    tree_widget.root.expand()
 
 
 def _render_sql_dag(sqls: tuple[tuple[str, str, str], ...]) -> str:
@@ -455,8 +493,8 @@ class CatalogScreen(Screen):
                     yield DataTable(id="git-log-table")
             with Vertical(id="right-column"):
                 with Vertical(id="detail-view"):
-                    with VerticalScroll(id="lineage-panel"):
-                        yield Static("", id="lineage-content")
+                    with Vertical(id="lineage-panel"):
+                        yield Tree("Lineage", id="lineage-tree")
                     with VerticalScroll(id="sql-panel"):
                         yield Static("", id="sql-preview")
                     with Vertical(id="data-preview-panel"):
@@ -543,13 +581,14 @@ class CatalogScreen(Screen):
         schema_out_table = self.query_one("#schema-preview-table", DataTable)
         schema_out_table.clear()
         sql_preview = self.query_one("#sql-preview", Static)
-        lineage_content = self.query_one("#lineage-content", Static)
+        lineage_tree = self.query_one("#lineage-tree", Tree)
         rev_table = self.query_one("#revisions-preview-table", DataTable)
         rev_table.clear()
 
         if event.row_key is None:
             sql_preview.update("")
-            lineage_content.update("")
+            lineage_tree.clear()
+            lineage_tree.root.set_label("Lineage")
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
             self._reset_toggle_panels()
@@ -558,7 +597,8 @@ class CatalogScreen(Screen):
         row_data = self._row_cache.get(str(event.row_key.value))
         if row_data is None:
             sql_preview.update("")
-            lineage_content.update("")
+            lineage_tree.clear()
+            lineage_tree.root.set_label("Lineage")
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
             self._reset_toggle_panels()
@@ -590,7 +630,12 @@ class CatalogScreen(Screen):
 
         # Lineage panel (sync)
         lineage_panel = self.query_one("#lineage-panel")
-        lineage_content.update(row_data.lineage_tree)
+        dag = row_data.lineage_dag
+        if dag:
+            _populate_lineage_tree(lineage_tree, dag)
+        else:
+            lineage_tree.clear()
+            lineage_tree.root.set_label("(no lineage)")
         lineage_panel.border_subtitle = row_data.cache_info_text
 
         # SQL preview (sync — in-memory AST compilation)
@@ -1114,9 +1159,9 @@ class CatalogTUI(App):
     #lineage-panel:focus-within {
         border: double #5abfb5;
     }
-    #lineage-content {
-        height: auto;
-        padding: 1 2;
+    #lineage-tree {
+        height: 1fr;
+        padding: 0 1;
     }
     #sql-panel {
         height: 1fr;
