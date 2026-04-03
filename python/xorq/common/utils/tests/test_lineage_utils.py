@@ -317,70 +317,73 @@ def test_build_column_tree_output_size_bounded(multi_join_expression):
     )
 
 
-class TestExtractLineageDag:
-    def test_basic_structure(self, sample_expression):
-        dag = extract_lineage_dag(sample_expression)
+def test_extract_lineage_dag_basic_structure(sample_expression):
+    dag = extract_lineage_dag(sample_expression)
 
-        assert "nodes" in dag
-        assert "edges" in dag
-        assert "root" in dag
-        assert isinstance(dag["nodes"], list)
-        assert isinstance(dag["edges"], list)
-        assert dag["root"] is not None
+    assert "nodes" in dag
+    assert "edges" in dag
+    assert "root" in dag
+    assert isinstance(dag["nodes"], list)
+    assert isinstance(dag["edges"], list)
+    assert dag["root"] is not None
 
-    def test_nodes_have_required_fields(self, sample_expression):
-        dag = extract_lineage_dag(sample_expression)
 
-        for node in dag["nodes"]:
-            assert "id" in node
-            assert "op" in node
-            assert "name" in node
-            assert node["id"].startswith("node_")
+def test_extract_lineage_dag_nodes_have_required_fields(sample_expression):
+    dag = extract_lineage_dag(sample_expression)
 
-    def test_relation_nodes_have_schema(self, sample_expression):
-        dag = extract_lineage_dag(sample_expression)
+    for node in dag["nodes"]:
+        assert "id" in node
+        assert "op" in node
+        assert "name" in node
+        assert node["id"].startswith("node_")
 
-        schema_nodes = [n for n in dag["nodes"] if "schema" in n]
-        assert len(schema_nodes) > 0, "At least one relation node should have schema"
 
-        for node in schema_nodes:
-            for _col_name, col_info in node["schema"].items():
-                assert "dtype" in col_info
-                assert "nullable" in col_info
+def test_extract_lineage_dag_relation_nodes_have_schema(sample_expression):
+    dag = extract_lineage_dag(sample_expression)
 
-    def test_edges_reference_valid_nodes(self, sample_expression):
-        dag = extract_lineage_dag(sample_expression)
-        node_ids = {n["id"] for n in dag["nodes"]}
+    schema_nodes = [n for n in dag["nodes"] if "schema" in n]
+    assert len(schema_nodes) > 0, "At least one relation node should have schema"
 
-        for edge in dag["edges"]:
-            assert "source" in edge
-            assert "target" in edge
-            assert edge["source"] in node_ids
-            assert edge["target"] in node_ids
+    for node in schema_nodes:
+        for _col_name, col_info in node["schema"].items():
+            assert "dtype" in col_info
+            assert "nullable" in col_info
 
-    def test_root_is_a_valid_node(self, sample_expression):
-        dag = extract_lineage_dag(sample_expression)
-        node_ids = {n["id"] for n in dag["nodes"]}
-        assert dag["root"] in node_ids
 
-    def test_multi_join(self, multi_join_expression):
-        dag = extract_lineage_dag(multi_join_expression)
+def test_extract_lineage_dag_edges_reference_valid_nodes(sample_expression):
+    dag = extract_lineage_dag(sample_expression)
+    node_ids = {n["id"] for n in dag["nodes"]}
 
-        assert len(dag["nodes"]) > 1
-        assert len(dag["edges"]) > 0
+    for edge in dag["edges"]:
+        assert "source" in edge
+        assert "target" in edge
+        assert edge["source"] in node_ids
+        assert edge["target"] in node_ids
 
-        # Should contain JoinChain nodes
-        op_types = {n["op"] for n in dag["nodes"]}
-        assert "JoinChain" in op_types
 
-    def test_round_trip_via_expr_metadata(self, sample_expression):
-        """Verify lineage survives ExprMetadata to_dict/from_dict."""
-        dag = extract_lineage_dag(sample_expression)
+def test_extract_lineage_dag_root_is_valid(sample_expression):
+    dag = extract_lineage_dag(sample_expression)
+    node_ids = {n["id"] for n in dag["nodes"]}
+    assert dag["root"] in node_ids
 
-        metadata = ExprMetadata.from_expr(sample_expression)
-        metadata_with_lineage = evolve(metadata, lineage=dag)
-        serialized = metadata_with_lineage.to_dict()
-        assert "lineage" in serialized
 
-        restored = ExprMetadata.from_dict(serialized)
-        assert restored.lineage == dag
+def test_extract_lineage_dag_multi_join(multi_join_expression):
+    dag = extract_lineage_dag(multi_join_expression)
+
+    assert len(dag["nodes"]) > 1
+    assert len(dag["edges"]) > 0
+
+    op_types = {n["op"] for n in dag["nodes"]}
+    assert "JoinChain" in op_types
+
+
+def test_extract_lineage_dag_round_trip_via_expr_metadata(sample_expression):
+    dag = extract_lineage_dag(sample_expression)
+
+    metadata = ExprMetadata.from_expr(sample_expression)
+    metadata_with_lineage = evolve(metadata, lineage=dag)
+    serialized = metadata_with_lineage.to_dict()
+    assert "lineage" in serialized
+
+    restored = ExprMetadata.from_dict(serialized)
+    assert restored.lineage == dag
