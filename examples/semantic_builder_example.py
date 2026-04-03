@@ -10,7 +10,6 @@ import tempfile
 from pathlib import Path
 
 from boring_semantic_layer import to_semantic_table
-from boring_semantic_layer.expr import SemanticModel
 
 import xorq.api as xo
 from xorq.catalog.catalog import Catalog
@@ -96,42 +95,9 @@ expr_by_dest = recovered_model.query(
 print("\nFlights by destination (from recovered model):")
 print(expr_by_dest.execute())
 
-# ---------------------------------------------------------------------------
-# 6. Rebind to production data — same model shape, different fact table
-# ---------------------------------------------------------------------------
-
-prd_data = con.create_table(
-    "flights_prd",
-    {
-        "origin": ["SFO", "DEN", "ATL", "SFO", "DEN", "ATL"],
-        "destination": ["DEN", "ATL", "SFO", "ATL", "SFO", "DEN"],
-        "carrier": ["DL", "WN", "DL", "WN", "DL", "WN"],
-        "dep_delay": [8.0, 12.0, -3.0, 22.0, 5.0, 18.0],
-        "distance": [967, 1199, 2139, 1837, 1535, 1199],
-    },
-)
-
-prd_model = SemanticModel(
-    table=prd_data,
-    dimensions=recovered_model.get_dimensions(),
-    measures=recovered_model.get_measures(),
-    calc_measures=recovered_model.get_calculated_measures(),
-    name=recovered_model.name,
-    description=recovered_model.description,
-)
-prd_expr = prd_model.query(
-    dimensions=("origin",),
-    measures=("flight_count", "avg_dep_delay"),
-)
-catalog.add(
-    prd_expr.to_tagged(), aliases=("origin-delays-prd",), sync=False, exist_ok=True
-)
-
-print("\nProd flights by origin:")
-print(prd_expr.execute())
 
 # ---------------------------------------------------------------------------
-# 7. Final catalog state
+# 6. Final catalog state
 # ---------------------------------------------------------------------------
 
 print("\nFinal catalog entries:", catalog.list())

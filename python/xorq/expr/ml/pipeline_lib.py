@@ -386,10 +386,7 @@ class FittedStep:
     _cached_property_slots = ("model",)
 
     def __getstate__(self):
-        state = {
-            a.name: getattr(self, a.name)
-            for a in self.__class__.__attrs_attrs__
-        }
+        state = {a.name: getattr(self, a.name) for a in self.__class__.__attrs_attrs__}
         for slot in self._cached_property_slots:
             try:
                 state[slot] = object.__getattribute__(self, slot)
