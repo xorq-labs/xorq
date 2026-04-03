@@ -155,28 +155,10 @@ def _bsl_from_tagged(tag_node):
     return from_tagged(tag_node.to_expr())
 
 
-def _ml_pipeline_extract_metadata(tag_node):
-    from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: PLC0415
+def _ml_pipeline_extract_metadata(tag_node): ...
 
-    tag_key = tag_node.metadata.get("tag")
-    if FittedPipelineTagKey.ALL_STEPS not in tag_node.metadata:
-        return None
-    steps_info = tuple(
-        {"name": d["name"], "estimator": d["typ"].__name__}
-        for step_items in tag_node.metadata.get(FittedPipelineTagKey.ALL_STEPS, ())
-        for d in (dict(step_items),)
-    )
-    return {
-        "type": "fitted_pipeline",
-        "description": f"{tag_key}, {len(steps_info)} steps",
-        "is_predict": tag_key
-        in (
-            str(FittedPipelineTagKey.PREDICT),
-            str(FittedPipelineTagKey.PREDICT_PROBA),
-            str(FittedPipelineTagKey.DECISION_FUNCTION),
-        ),
-        "steps": steps_info,
-    }
+
+def _ml_from_tagged(tag_node): ...
 
 
 def _register_builtins():
@@ -188,7 +170,10 @@ def _register_builtins():
         from_tagged=_bsl_from_tagged,
     )
 
-    ml_handler = TagHandler(extract_metadata=_ml_pipeline_extract_metadata)
+    ml_handler = TagHandler(
+        extract_metadata=_ml_pipeline_extract_metadata,
+        from_tagged=_ml_from_tagged,
+    )
     for key in FittedPipelineTagKey:
         if key != FittedPipelineTagKey.ALL_STEPS:
             _FROM_TAGGED_REGISTRY[str(key)] = ml_handler
