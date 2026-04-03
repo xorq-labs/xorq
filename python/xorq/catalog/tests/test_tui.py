@@ -139,12 +139,10 @@ def test_revision_row_columns_display_zero():
 
 def test_row_shape(entry_a, alias_for_a):
     row = CatalogRowData(entry=entry_a, aliases=(alias_for_a,))
-    kind, alias, hash_, backends, cached = row.row
+    kind, alias, hash_ = row.row
     assert kind == "source"
     assert alias == alias_for_a
     assert hash_ == entry_a.name
-    assert isinstance(backends, str)
-    assert cached == "—"  # simple memtable has no ParquetSnapshotCache
 
 
 def test_cached_is_none_for_plain_memtable(entry_a):
@@ -176,8 +174,8 @@ def test_cached_with_parquet_snapshot(entry_cached):
     assert row_after.cached is True
     assert row_after.cached_display == "●"
 
-    _, _, _, _, cached_field = row_after.row
-    assert cached_field == "●"
+    # cached_display still works even though it's not in .row
+    assert row_after.cached_display == "●"
 
 
 def test_catalog_row_data_is_frozen(entry_a):
@@ -314,24 +312,24 @@ def test_data_preview_hidden_by_default(catalog):
     _run(_test())
 
 
-def test_profiles_hidden_by_default(catalog):
+def test_info_hidden_by_default(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
             await settle(pilot)
-            panel = app.screen.query_one("#profiles-panel")
+            panel = app.screen.query_one("#info-panel")
             assert panel.display is False
 
     _run(_test())
 
 
-def test_info_panel_exists(catalog):
+def test_lineage_panel_exists(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
             await settle(pilot)
-            info = app.screen.query_one("#info-panel")
-            assert info.border_title == "Info"
+            lineage = app.screen.query_one("#lineage-panel")
+            assert lineage.border_title == "Lineage"
 
     _run(_test())
 

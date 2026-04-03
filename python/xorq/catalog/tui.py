@@ -20,6 +20,7 @@ from pygments.token import (
     Token,
 )
 from rich.syntax import Syntax
+from rich.tree import Tree as RichTree
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -76,7 +77,7 @@ XORQ_DARK = Theme(
     dark=True,
 )
 
-COLUMNS = ("KIND", "ALIAS", "HASH", "BACKEND", "CACHED")
+COLUMNS = ("KIND", "ALIAS", "HASH")
 
 SCHEMA_PREVIEW_COLUMNS = ("NAME", "TYPE")
 
@@ -150,9 +151,11 @@ class CatalogRowData:
         return self.entry.metadata.sql_queries
 
     @cached_property
-    def lineage_text(self) -> str:
-        chain = self.entry.metadata.lineage
-        return " → ".join(chain) if chain else "(empty)"
+    def lineage_tree(self) -> RichTree:
+        dag = self.entry.metadata.lineage
+        if isinstance(dag, dict) and dag.get("nodes"):
+            return _format_lineage_dag(dag)
+        return RichTree("(empty)")
 
     @cached_property
     def cache_info_text(self) -> str:
@@ -165,14 +168,6 @@ class CatalogRowData:
             case _:
                 return "○ uncached"
 
-    @cached_property
-    def info_text(self) -> str:
-        parts = [
-            f"Lineage: {self.lineage_text}",
-            f"Cache: {self.cache_info_text}",
-        ]
-        return "\n".join(parts)
-
     @property
     def row_key(self) -> str:
         return self.hash
@@ -183,8 +178,6 @@ class CatalogRowData:
             self.kind,
             self.aliases_display,
             self.hash,
-            self.backends_display,
-            self.cached_display,
         )
 
 
@@ -302,6 +295,55 @@ def _build_git_log_rows(repo, max_count=100) -> tuple[GitLogRowData, ...]:
     )
 
 
+def _format_lineage_dag(dag: dict) -> RichTree:
+    """Build a Rich Tree from a lineage DAG dict.
+
+    The root expression is shown at the top with its upstream inputs
+    branching below it (like a dependency tree).
+    """
+    nodes_by_id = {n["id"]: n for n in dag.get("nodes", ())}
+    # inputs_map: node_id → [upstream node ids that feed into it]
+    inputs_map: dict[str, list[str]] = {}
+    for edge in dag.get("edges", ()):
+        inputs_map.setdefault(edge["target"], []).append(edge["source"])
+
+    root_id = dag.get("root")
+    if not root_id or root_id not in nodes_by_id:
+        return RichTree("(empty)")
+
+    def _label(node: dict) -> str:
+        # Prefer the rich format_node label (e.g. "RemoteTable:foo", "Cache[parquet] bar")
+        label = node.get("label") or node.get("op", "?")
+        schema = node.get("schema")
+        ncols = len(schema) if schema else 0
+        parts = [f"[bold]{label}[/bold]"]
+        if ncols:
+            parts.append(f" [dim]({ncols} cols)[/dim]")
+        return "".join(parts)
+
+    visited: set[str] = set()
+
+    def _build(node_id: str, parent_tree: RichTree) -> None:
+        node = nodes_by_id.get(node_id)
+        if node is None:
+            return
+        label = _label(node)
+        if node_id in visited:
+            parent_tree.add(f"[dim]↻ {label}[/dim]")
+            return
+        visited.add(node_id)
+        branch = parent_tree.add(label)
+        for inp in inputs_map.get(node_id, []):
+            _build(inp, branch)
+
+    root_label = _label(nodes_by_id[root_id])
+    tree = RichTree(root_label)
+    visited.add(root_id)
+    for inp in inputs_map.get(root_id, []):
+        _build(inp, tree)
+    return tree
+
+
 def _render_sql_dag(sqls: tuple[tuple[str, str, str], ...]) -> str:
     """Render multiple SQL queries as a topologically-sorted DAG."""
     name_to_sql = {name: (engine, sql) for name, engine, sql in sqls}
@@ -381,13 +423,21 @@ class CatalogScreen(Screen):
         ("tab", "focus_next_panel", "Next"),
         ("shift+tab", "focus_prev_panel", "Prev"),
         ("g", "toggle_git_log", "Git Log"),
-        ("d", "toggle_data_preview", "Data"),
-        ("p", "toggle_profiles", "Profiles"),
+        ("1", "show_view('sql')", "SQL"),
+        ("2", "show_view('lineage')", "Lineage"),
+        ("3", "show_view('data')", "Data"),
+        ("i", "toggle_info", "Info"),
     )
+
+    VIEW_PANELS = {
+        "lineage": "#lineage-panel",
+        "sql": "#sql-panel",
+        "data": "#data-preview-panel",
+    }
 
     FOCUS_CYCLE = (
         "#catalog-table",
-        "#sql-panel",
+        "#detail-view",
         "#schema-preview-table",
         "#revisions-preview-table",
     )
@@ -399,8 +449,9 @@ class CatalogScreen(Screen):
         self._git_log_visible = False
         self._git_log_loaded = False
         self._refresh_lock = threading.Lock()
+        self._active_view = "sql"
         self._data_preview = _TogglePanelState()
-        self._profiles = _TogglePanelState()
+        self._info_state = _TogglePanelState()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -413,21 +464,22 @@ class CatalogScreen(Screen):
                 with Vertical(id="git-log-panel"):
                     yield DataTable(id="git-log-table")
             with Vertical(id="right-column"):
-                with VerticalScroll(id="sql-panel"):
-                    yield Static("", id="sql-preview")
-                with Vertical(id="info-panel"):
-                    yield Static("", id="info-content")
+                with Vertical(id="detail-view"):
+                    with VerticalScroll(id="lineage-panel"):
+                        yield Static("", id="lineage-content")
+                    with VerticalScroll(id="sql-panel"):
+                        yield Static("", id="sql-preview")
+                    with Vertical(id="data-preview-panel"):
+                        yield Static("", id="data-preview-status")
+                        yield DataTable(id="data-preview-table")
                 with Vertical(id="schema-panel"):
                     with Horizontal(id="schema-split"):
                         with Vertical(id="schema-in-half"):
                             yield DataTable(id="schema-in-table")
                         with Vertical(id="schema-out-half"):
                             yield DataTable(id="schema-preview-table")
-                with Vertical(id="data-preview-panel"):
-                    yield Static("", id="data-preview-status")
-                    yield DataTable(id="data-preview-table")
-                with Vertical(id="profiles-panel"):
-                    yield DataTable(id="profiles-table")
+                with Vertical(id="info-panel"):
+                    yield DataTable(id="info-table")
         yield Static("", id="status-bar")
         yield Footer()
 
@@ -467,29 +519,29 @@ class CatalogScreen(Screen):
         data_table.zebra_stripes = True
         data_table.loading = True
 
-        profiles_table = self.query_one("#profiles-table", DataTable)
-        profiles_table.cursor_type = "row"
-        profiles_table.zebra_stripes = True
-        profiles_table.add_column("NAME", key="name")
-        profiles_table.add_column("BACKEND", key="backend")
-        profiles_table.add_column("PARAMETERS", key="params")
-        profiles_table.add_column("ENV VARS", key="env_vars")
+        info_table = self.query_one("#info-table", DataTable)
+        info_table.cursor_type = "row"
+        info_table.zebra_stripes = True
+        info_table.add_column("NAME", key="name")
+        info_table.add_column("BACKEND", key="backend")
+        info_table.add_column("PARAMETERS", key="params")
+        info_table.add_column("ENV VARS", key="env_vars")
 
         self.query_one("#catalog-panel").border_title = "Expressions"
         self.query_one("#schema-panel").border_title = "Schema"
         self.query_one("#schema-in-half").display = False
+        self.query_one("#lineage-panel").border_title = "Lineage"
         self.query_one("#sql-panel").border_title = "SQL"
-        self.query_one("#info-panel").border_title = "Info"
+        data_panel = self.query_one("#data-preview-panel")
+        data_panel.border_title = "Data Preview"
+        self._apply_view("sql")
         self.query_one("#revisions-panel").border_title = "Revisions"
         git_log_panel = self.query_one("#git-log-panel")
         git_log_panel.border_title = "Git Log"
         git_log_panel.display = False
-        data_panel = self.query_one("#data-preview-panel")
-        data_panel.border_title = "Data Preview"
-        data_panel.display = False
-        profiles_panel = self.query_one("#profiles-panel")
-        profiles_panel.border_title = "Profiles"
-        profiles_panel.display = False
+        info_panel = self.query_one("#info-panel")
+        info_panel.border_title = "Info"
+        info_panel.display = False
         self.query_one("#status-bar", Static).update(" Loading catalog...")
 
         self.set_interval(self._refresh_interval, self._do_refresh)
@@ -501,13 +553,13 @@ class CatalogScreen(Screen):
         schema_out_table = self.query_one("#schema-preview-table", DataTable)
         schema_out_table.clear()
         sql_preview = self.query_one("#sql-preview", Static)
-        info_content = self.query_one("#info-content", Static)
+        lineage_content = self.query_one("#lineage-content", Static)
         rev_table = self.query_one("#revisions-preview-table", DataTable)
         rev_table.clear()
 
         if event.row_key is None:
             sql_preview.update("")
-            info_content.update("")
+            lineage_content.update("")
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
             self._reset_toggle_panels()
@@ -516,7 +568,7 @@ class CatalogScreen(Screen):
         row_data = self._row_cache.get(str(event.row_key.value))
         if row_data is None:
             sql_preview.update("")
-            info_content.update("")
+            lineage_content.update("")
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
             self._reset_toggle_panels()
@@ -530,15 +582,26 @@ class CatalogScreen(Screen):
                 schema_panel.border_title = "Schema"
                 schema_panel.border_subtitle = f"{len(row_data.schema_out)} cols"
             case schema_in:
-                self.query_one("#schema-in-half").display = True
+                schema_in_half = self.query_one("#schema-in-half")
+                schema_in_half.display = True
+                schema_in_half.border_title = "In"
+                schema_in_half.border_subtitle = f"{len(schema_in)} cols"
                 schema_panel.border_title = "Schemas"
-                schema_panel.border_subtitle = (
-                    f"{len(schema_in)} in · {len(row_data.schema_out)} out"
-                )
+                schema_panel.border_subtitle = ""
                 for name, dtype in schema_in:
                     schema_in_table.add_row(name, dtype)
+        schema_out_half = self.query_one("#schema-out-half")
+        schema_out_half.border_title = "Out" if row_data.schema_in else ""
+        schema_out_half.border_subtitle = (
+            f"{len(row_data.schema_out)} cols" if row_data.schema_in else ""
+        )
         for name, dtype in row_data.schema_out:
             schema_out_table.add_row(name, dtype)
+
+        # Lineage panel (sync)
+        lineage_panel = self.query_one("#lineage-panel")
+        lineage_content.update(row_data.lineage_tree)
+        lineage_panel.border_subtitle = row_data.cache_info_text
 
         # SQL preview (sync — in-memory AST compilation)
         sql_panel = self.query_one("#sql-panel")
@@ -564,9 +627,6 @@ class CatalogScreen(Screen):
                 sql_panel.border_subtitle = (
                     f"{len(sqls)} queries \u00b7 {', '.join(engines)}"
                 )
-
-        # Info panel (sync)
-        info_content.update(row_data.info_text)
 
         # Revisions preview (async — requires git I/O)
         match row_data.aliases:
@@ -595,7 +655,7 @@ class CatalogScreen(Screen):
 
     def _update_toggle_panels(self, row_data, entry_hash) -> None:
         """Update toggle panels for a new row, preserving visibility."""
-        if self._data_preview.visible:
+        if self._active_view == "data":
             dt = self.query_one("#data-preview-table", DataTable)
             if row_data.cached:
                 self._data_preview = _TogglePanelState(
@@ -621,32 +681,39 @@ class CatalogScreen(Screen):
             dt.clear(columns=True)
             dt.loading = True
 
-        if self._profiles.visible:
-            self._reload_profiles_for_current(row_data, entry_hash)
+        if self._info_state.visible:
+            self._reload_info_for_current(row_data, entry_hash)
         else:
-            self._profiles = _TogglePanelState()
-            self.query_one("#profiles-panel").display = False
-            self.query_one("#profiles-table", DataTable).clear()
+            self._info_state = _TogglePanelState()
+            self.query_one("#info-panel").display = False
+            self.query_one("#info-table", DataTable).clear()
 
-    def _reload_profiles_for_current(self, row_data, entry_hash) -> None:
+    def _reload_info_for_current(self, row_data, entry_hash) -> None:
         """Reload profiles panel content for a new row while keeping it visible."""
-        self._profiles = _TogglePanelState(
+        self._info_state = _TogglePanelState(
             visible=True,
             loaded=True,
             entry_hash=entry_hash,
         )
-        self._load_profiles(row_data.entry)
+        self._load_info(row_data.entry)
+
+    def _apply_view(self, name: str) -> None:
+        """Show the named detail view, hiding the others."""
+        self._active_view = name
+        for view_name, selector in self.VIEW_PANELS.items():
+            self.query_one(selector).display = view_name == name
 
     def _reset_toggle_panels(self) -> None:
+        self._apply_view("sql")
+
         self._data_preview = _TogglePanelState()
-        self.query_one("#data-preview-panel").display = False
         dt = self.query_one("#data-preview-table", DataTable)
         dt.clear(columns=True)
         dt.loading = True
 
-        self._profiles = _TogglePanelState()
-        self.query_one("#profiles-panel").display = False
-        self.query_one("#profiles-table", DataTable).clear()
+        self._info_state = _TogglePanelState()
+        self.query_one("#info-panel").display = False
+        self.query_one("#info-table", DataTable).clear()
 
     @work(thread=True, exit_on_error=False)
     def _do_refresh(self) -> None:
@@ -759,9 +826,14 @@ class CatalogScreen(Screen):
             for i, row_data in enumerate(rows):
                 table.add_row(*row_data.row, key=str(i))
 
-    # --- Toggle: Data Preview ---
+    # --- View switching (1/2/3) ---
 
-    def action_toggle_data_preview(self) -> None:
+    def action_show_view(self, name: str) -> None:
+        self._apply_view(name)
+        if name == "data":
+            self._ensure_data_loaded()
+
+    def _ensure_data_loaded(self) -> None:
         table = self.query_one("#catalog-table", DataTable)
         if table.row_count == 0:
             return
@@ -771,32 +843,20 @@ class CatalogScreen(Screen):
         if row_data is None:
             return
 
-        toggled = not self._data_preview.visible
-        self._data_preview = _TogglePanelState(
-            visible=toggled,
-            loaded=self._data_preview.loaded,
-            entry_hash=self._data_preview.entry_hash,
-        )
-        self.query_one("#data-preview-panel").display = toggled
-
-        if not toggled:
+        if self._data_preview.loaded and self._data_preview.entry_hash == entry_hash:
             return
 
         match row_data.cached:
             case True:
-                if (
-                    not self._data_preview.loaded
-                    or self._data_preview.entry_hash != entry_hash
-                ):
-                    self._data_preview = _TogglePanelState(
-                        visible=True,
-                        loaded=True,
-                        entry_hash=entry_hash,
-                    )
-                    self.query_one("#data-preview-status", Static).update(
-                        " Loading data preview..."
-                    )
-                    self._load_data_preview(row_data.entry)
+                self._data_preview = _TogglePanelState(
+                    visible=True,
+                    loaded=True,
+                    entry_hash=entry_hash,
+                )
+                self.query_one("#data-preview-status", Static).update(
+                    " Loading data preview..."
+                )
+                self._load_data_preview(row_data.entry)
             case _:
                 self.query_one("#data-preview-status", Static).update(
                     " uncached — run to materialize"
@@ -839,7 +899,7 @@ class CatalogScreen(Screen):
 
     # --- Toggle: Profiles ---
 
-    def action_toggle_profiles(self) -> None:
+    def action_toggle_info(self) -> None:
         table = self.query_one("#catalog-table", DataTable)
         if table.row_count == 0:
             return
@@ -849,26 +909,26 @@ class CatalogScreen(Screen):
         if row_data is None:
             return
 
-        toggled = not self._profiles.visible
-        self._profiles = _TogglePanelState(
+        toggled = not self._info_state.visible
+        self._info_state = _TogglePanelState(
             visible=toggled,
-            loaded=self._profiles.loaded,
-            entry_hash=self._profiles.entry_hash,
+            loaded=self._info_state.loaded,
+            entry_hash=self._info_state.entry_hash,
         )
-        self.query_one("#profiles-panel").display = toggled
+        self.query_one("#info-panel").display = toggled
 
         if toggled and (
-            not self._profiles.loaded or self._profiles.entry_hash != entry_hash
+            not self._info_state.loaded or self._info_state.entry_hash != entry_hash
         ):
-            self._profiles = _TogglePanelState(
+            self._info_state = _TogglePanelState(
                 visible=True,
                 loaded=True,
                 entry_hash=entry_hash,
             )
-            self._load_profiles(row_data.entry)
+            self._load_info(row_data.entry)
 
     @work(thread=True, exit_on_error=False)
-    def _load_profiles(self, entry) -> None:
+    def _load_info(self, entry) -> None:
         if not entry.catalog_path.exists() or not zipfile.is_zipfile(
             entry.catalog_path
         ):
@@ -906,11 +966,11 @@ class CatalogScreen(Screen):
             )
             for pname, pdata in data.items()
         )
-        self.app.call_from_thread(self._render_profiles, rows)
+        self.app.call_from_thread(self._render_info, rows)
 
-    def _render_profiles(self, rows) -> None:
+    def _render_info(self, rows) -> None:
         with self.app.batch_update():
-            table = self.query_one("#profiles-table", DataTable)
+            table = self.query_one("#info-table", DataTable)
             table.clear()
             for i, (name, backend, params, env_vars) in enumerate(rows):
                 table.add_row(name, backend, params, env_vars, key=str(i))
@@ -1020,12 +1080,13 @@ class CatalogTUI(App):
     }
     #left-column {
         width: 2fr;
+        max-width: 60;
     }
     #right-column {
         width: 3fr;
     }
     #catalog-panel {
-        height: 2fr;
+        height: 1fr;
         border: solid #C1F0FF;
         border-title-color: #C1F0FF;
         background: $surface;
@@ -1050,8 +1111,25 @@ class CatalogTUI(App):
     #git-log-table {
         height: 1fr;
     }
-    #sql-panel {
+    #detail-view {
         height: 2fr;
+    }
+    #lineage-panel {
+        height: 1fr;
+        border: solid #5abfb5;
+        border-title-color: #5abfb5;
+        border-subtitle-color: #5abfb5;
+        padding: 0 1;
+    }
+    #lineage-panel:focus-within {
+        border: double #5abfb5;
+    }
+    #lineage-content {
+        height: auto;
+        padding: 1 2;
+    }
+    #sql-panel {
+        height: 1fr;
         border: solid #2BBE75;
         border-title-color: #2BBE75;
         border-subtitle-color: #2BBE75;
@@ -1063,18 +1141,13 @@ class CatalogTUI(App):
         height: auto;
         padding: 1 2;
     }
+    #data-preview-panel {
+        height: 1fr;
+        border: solid #F5CA2C;
+        border-title-color: #F5CA2C;
+    }
     DataTable:focus {
         border: none;
-    }
-    #info-panel {
-        height: auto;
-        max-height: 6;
-        border: solid #5abfb5;
-        border-title-color: #5abfb5;
-        padding: 0 1;
-    }
-    #info-content {
-        height: auto;
     }
     #schema-panel {
         height: 1fr;
@@ -1087,21 +1160,21 @@ class CatalogTUI(App):
     }
     #schema-in-half {
         width: 1fr;
+        border: solid #4AA8EC 50%;
+        border-title-color: #4AA8EC;
+        border-subtitle-color: #4AA8EC;
     }
     #schema-out-half {
         width: 1fr;
+        border: solid #4AA8EC 50%;
+        border-title-color: #4AA8EC;
+        border-subtitle-color: #4AA8EC;
     }
     #schema-in-table {
         height: 1fr;
     }
     #schema-preview-table {
         height: 1fr;
-    }
-    #data-preview-panel {
-        height: 2fr;
-        border: solid #C1F0FF;
-        border-title-color: #C1F0FF;
-        border-subtitle-color: #C1F0FF;
     }
     #data-preview-status {
         height: 1;
@@ -1110,12 +1183,12 @@ class CatalogTUI(App):
     #data-preview-table {
         height: 1fr;
     }
-    #profiles-panel {
+    #info-panel {
         height: 1fr;
         border: solid #2BBE75;
         border-title-color: #2BBE75;
     }
-    #profiles-table {
+    #info-table {
         height: 1fr;
     }
     #status-bar {
