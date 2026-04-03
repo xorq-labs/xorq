@@ -518,7 +518,7 @@ class ExprDumper:
 
     def _make_expr_metadata(self, expr) -> Dict[str, Any]:
         from xorq.common.utils.lineage_utils import (  # noqa: PLC0415
-            extract_lineage_chain,
+            extract_lineage_dag,
         )
 
         metadata = ExprMetadata.from_expr(expr)
@@ -530,7 +530,10 @@ class ExprDumper:
                 stacklevel=2,
             )
             sql_queries = ()
-        lineage = extract_lineage_chain(expr)
+        try:
+            lineage = extract_lineage_dag(expr)
+        except Exception:
+            lineage = None
         metadata = evolve(metadata, sql_queries=sql_queries, lineage=lineage)
         return metadata.to_dict()
 

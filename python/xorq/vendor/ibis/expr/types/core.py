@@ -737,6 +737,24 @@ def _extract_kind(unbound_node, catalog_tag_nodes, is_source):
             return ExprKind.Expr
 
 
+def _parse_lineage(raw):
+    """Normalize lineage from sidecar: accept new dict format or old list format."""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, (list, tuple)) and raw:
+        # Old flat-chain format: convert to a minimal DAG for backward compat.
+        nodes = [
+            {"id": f"node_{i}", "op": name, "name": "", "label": name}
+            for i, name in enumerate(raw)
+        ]
+        edges = [
+            {"source": f"node_{i}", "target": f"node_{i + 1}"}
+            for i in range(len(raw) - 1)
+        ]
+        return {"nodes": nodes, "edges": edges, "root": f"node_{len(raw) - 1}"}
+    return None
+
+
 @frozen
 class ExprMetadata:
     kind: ExprKind = field(validator=instance_of(ExprKind))
@@ -751,7 +769,7 @@ class ExprMetadata:
     )
     params: tuple = field(factory=tuple)
     sql_queries: tuple[tuple[str, str, str], ...] = field(factory=tuple)
-    lineage: tuple[str, ...] = field(factory=tuple)
+    lineage: Optional[dict] = field(default=None)
 
     @classmethod
     def from_dict(cls, data):
@@ -771,7 +789,7 @@ class ExprMetadata:
             composed_from=tuple(data.get("composed_from") or data.get("sources") or ()),
             params=tuple(data.get("params") or ()),
             sql_queries=tuple(tuple(q) for q in data.get("sql_queries", ())),
-            lineage=tuple(data.get("lineage", ())),
+            lineage=_parse_lineage(data.get("lineage")),
         )
 
     @classmethod
@@ -840,7 +858,7 @@ class ExprMetadata:
                     "sql_queries",
                     [list(q) for q in self.sql_queries] if self.sql_queries else None,
                 ),
-                ("lineage", list(self.lineage) if self.lineage else None),
+                ("lineage", self.lineage),
             )
             if value is not None
         }
