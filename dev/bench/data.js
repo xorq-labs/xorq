@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775237476347,
+  "lastUpdate": 1775258198105,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -3498,6 +3498,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.051656689617794495",
             "extra": "mean: 236.73837660001027 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7d452c5e72cc85770a00e4c8d5bf51926ef69668",
+          "message": "feat(tui): lazygit-style horizontal layout with SQL, info, and inline panels (#1755)\n\n## Summary\n- **Drop Expression Detail**\n- **Cache SQL queries in expr_metadata.json at build time** —\npre-compute SQL plans during `build_expr` and store them in the metadata\nZIP, eliminating runtime expression deserialization for SQL display\n- **Cache lineage chain in expr_metadata.json at build time** — extract\nlineage during `build_expr` and persist it alongside SQL queries in\nmetadata\n- **Move `extract_lineage_chain` to `lineage_utils`** — relocate lineage\nextraction logic to a shared utility module\n- **Lazygit-style horizontal layout** — redesign TUI with left column\n(expressions, revisions, git log) and right column (SQL, info, schema)\npanels\n- **Read lineage, SQL, and cache info from metadata** — TUI now reads\npre-computed lineage, sql_queries, and parquet_cache_paths directly from\n`ExprMetadata` instead of loading full expressions; removes\n`maybe_expr`, `maybe_sqls`, `maybe_lineage`, `_build_lineage_chain`,\n`maybe_cache_path`, `maybe_cache_info`, `_check_cached`\n\n## Test plan\n\n- [x] `pytest python/xorq/catalog/tests/test_tui.py` — 45 passing (3\npre-existing failures from missing local parquet fixture)\n- [ ] Manual: `xorq catalog --name flights tui` — verify schema panel\nshows side-by-side \"In | Out\" for expressions with schema_in\n- [ ] Manual: verify SQL panel reads from cached metadata without\nloading expressions\n- [ ] Manual: verify lineage displays from cached metadata\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-03T19:13:06-04:00",
+          "tree_id": "caec20d266e15cf59796fb11b96c0dff8beb4211",
+          "url": "https://github.com/xorq-labs/xorq/commit/7d452c5e72cc85770a00e4c8d5bf51926ef69668"
+        },
+        "date": 1775258195189,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.67094584788186,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004581635655935121",
+            "extra": "mean: 93.71240509092229 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.052869879412731,
+            "unit": "iter/sec",
+            "range": "stddev: 0.026853595220199703",
+            "extra": "mean: 246.7387381666697 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7214459235706865,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18851782141047616",
+            "extra": "mean: 1.3861052746000042 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.729866591615553,
+            "unit": "iter/sec",
+            "range": "stddev: 0.051278395552969945",
+            "extra": "mean: 211.4224535999938 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.7874328549606866,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022466861133791274",
+            "extra": "mean: 264.03108339999335 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.366764793329902,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03896003962636287",
+            "extra": "mean: 229.00248750000665 msec\nrounds: 6"
           }
         ]
       }
