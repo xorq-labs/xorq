@@ -48,6 +48,7 @@ from xorq.common.utils.graph_utils import (
     replace_sources,
     walk_nodes,
 )
+from xorq.common.utils.lineage_utils import extract_lineage_dag
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.common.utils.node_utils import (
     change_read_table_name,
@@ -517,10 +518,6 @@ class ExprDumper:
         return path, writer
 
     def _make_expr_metadata(self, expr) -> Dict[str, Any]:
-        from xorq.common.utils.lineage_utils import (  # noqa: PLC0415
-            extract_lineage_dag,
-        )
-
         metadata = ExprMetadata.from_expr(expr)
         try:
             sql_queries = _extract_sql_queries(expr, metadata.kind)

@@ -2,7 +2,8 @@ import re
 import threading
 import zipfile
 from datetime import datetime
-from functools import cache, cached_property
+from functools import cached_property, lru_cache
+from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 
 import yaml12
@@ -101,7 +102,7 @@ class CatalogRowData:
     entry: CatalogEntry = field(repr=False)
     aliases: tuple[str, ...] = field(factory=tuple, validator=instance_of(tuple))
 
-    @property
+    @cached_property
     def cached(self) -> bool | None:
         parquet_cache_paths = self.entry.parquet_cache_paths
         if parquet_cache_paths:
@@ -159,12 +160,11 @@ class CatalogRowData:
 
     @cached_property
     def cache_info_text(self) -> str:
-        paths = self.entry.parquet_cache_paths
-        match paths:
-            case () | None:
+        match self.cached:
+            case None:
                 return "— unknown"
-            case _ if all(Path(p).exists() for p in paths):
-                return f"● cached  {paths[0]}"
+            case True:
+                return f"● cached  {self.entry.parquet_cache_paths[0]}"
             case _:
                 return "○ uncached"
 
@@ -243,7 +243,7 @@ def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
     return CatalogRowData(entry=entry, aliases=aliases)
 
 
-@cache
+@lru_cache(maxsize=1)
 def _catalog_list_cached(catalog, yaml_mtime: float) -> tuple:
     """Compute catalog entry list; auto-invalidates when yaml mtime changes."""
     return tuple(catalog.list())
@@ -255,7 +255,7 @@ def _get_catalog_list(catalog) -> tuple:
     return _catalog_list_cached(catalog, yaml_mtime)
 
 
-@cache
+@lru_cache(maxsize=1)
 def _catalog_aliases_cached(catalog, yaml_mtime: float) -> tuple:
     """Compute catalog aliases; auto-invalidates when yaml mtime changes."""
     return tuple(catalog.catalog_aliases)
@@ -267,7 +267,7 @@ def _get_catalog_aliases(catalog) -> tuple:
     return _catalog_aliases_cached(catalog, yaml_mtime)
 
 
-@cache
+@lru_cache(maxsize=1)
 def _build_alias_multimap(
     catalog_aliases,
 ) -> dict[str, tuple[str, ...]]:
@@ -356,20 +356,10 @@ def _render_sql_dag(sqls: tuple[tuple[str, str, str], ...]) -> str:
         )
         for name, (_, sql) in name_to_sql.items()
     }
-    # topological sort (Kahn's algorithm) — leaves first, main last
-    in_degree = {n: len(d) for n, d in deps.items()}
-    queue = [n for n, d in in_degree.items() if d == 0]
-    order = []
-    while queue:
-        node = queue.pop(0)
-        order.append(node)
-        for n, d in deps.items():
-            if node in d:
-                in_degree[n] -= 1
-                if in_degree[n] == 0:
-                    queue.append(n)
-    # append any remaining (cycle fallback)
-    order.extend(n for n in name_to_sql if n not in order)
+    try:
+        order = list(TopologicalSorter(deps).static_order())
+    except CycleError:
+        order = list(name_to_sql)
 
     parts = tuple(
         segment

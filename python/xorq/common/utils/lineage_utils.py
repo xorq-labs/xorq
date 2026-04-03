@@ -22,7 +22,6 @@ from xorq.vendor.ibis.expr.operations.core import Node
 __all__ = [
     "build_column_trees",
     "build_tree",
-    "extract_lineage_chain",
     "extract_lineage_dag",
 ]
 
@@ -170,24 +169,6 @@ def _(node: ops.Literal) -> str:
     return f"Literal: {node.value}"
 
 
-def extract_lineage_chain(expr: Any) -> tuple[str, ...]:
-    """Extract the primary lineage chain from an expression.
-
-    Walks the first child at each level, returning formatted node names
-    from root to leaf.
-    """
-
-    def _walk(node):
-        yield format_node(node)
-        match tuple(gen_children_of(node)):
-            case (first, *_):
-                yield from _walk(first)
-            case _:
-                pass
-
-    return tuple(reversed(tuple(_walk(to_node(expr)))))
-
-
 def build_tree(
     node: GenericNode,
     *,
@@ -259,27 +240,21 @@ def extract_lineage_dag(expr: Any) -> dict:
     root_node = to_node(expr)
     graph = bfs(root_node)
 
-    # Assign stable IDs in BFS insertion order.
     node_to_id: dict[Node, str] = {}
-    for i, node in enumerate(graph):
-        node_to_id[node] = f"node_{i}"
-
     nodes: list[dict] = []
     edges: list[dict] = []
 
-    for node, children in graph.items():
-        node_id = node_to_id[node]
-        op_name = node.__class__.__name__
-        name = getattr(node, "name", "") or ""
+    for i, (node, children) in enumerate(graph.items()):
+        node_id = f"node_{i}"
+        node_to_id[node] = node_id
 
         node_data: dict[str, Any] = {
             "id": node_id,
-            "op": op_name,
-            "name": name,
+            "op": node.__class__.__name__,
+            "name": getattr(node, "name", "") or "",
             "label": format_node(node),
         }
 
-        # Attach per-column schema for relation nodes.
         if isinstance(node, Relation):
             try:
                 schema = node.schema
@@ -290,12 +265,12 @@ def extract_lineage_dag(expr: Any) -> dict:
                     }
                     for col_name, dtype in schema.items()
                 }
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
 
         nodes.append(node_data)
 
-        # Edges point from upstream (child/source) to downstream (current node).
+        # Edges: upstream (child) → downstream (current node).
         for child in children:
             child_id = node_to_id.get(child)
             if child_id is not None:
