@@ -4,6 +4,7 @@ import json
 import operator
 import pathlib
 import sys
+import warnings
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Dict
@@ -345,6 +346,39 @@ def make_read_op(parquet_path, read_kwargs, con=_backend_init()):  # noqa: B008
     return op
 
 
+def _extract_sql_queries(expr, kind) -> tuple[tuple[str, str, str], ...]:
+    """Extract (name, engine, sql) tuples from an expression for caching."""
+    from xorq.expr.api import _remove_tag_nodes, bind_params  # noqa: PLC0415
+    from xorq.expr.api import to_sql as xorq_to_sql  # noqa: PLC0415
+    from xorq.expr.operations import NamedScalarParameter  # noqa: PLC0415
+
+    clean = _remove_tag_nodes(expr)
+    # Bind named params to their defaults so SQL generation doesn't see them
+    named = {n.label: n for n in clean.op().find(NamedScalarParameter)}
+    if named:
+        defaults = {
+            label: node.default
+            for label, node in named.items()
+            if node.default is not None
+        }
+        clean = bind_params(clean, defaults)
+    match kind:
+        case ExprKind.UnboundExpr:
+            sql = str(xorq_to_sql(clean)).strip()
+            return (("main", "xorq", sql),) if sql else ()
+        case _:
+            sql_plans, deferred_reads = generate_sql_plans(clean)
+            return tuple(
+                (name, info.get("engine", "?"), info.get("sql", "").strip())
+                for mapping in (
+                    sql_plans.get("queries", {}),
+                    deferred_reads.get("reads", {}),
+                )
+                for name, info in mapping.items()
+                if info.get("sql", "").strip()
+            )
+
+
 @frozen
 class ExprDumper:
     """
@@ -483,7 +517,22 @@ class ExprDumper:
         return path, writer
 
     def _make_expr_metadata(self, expr) -> Dict[str, Any]:
-        return ExprMetadata.from_expr(expr).to_dict()
+        from xorq.common.utils.lineage_utils import (  # noqa: PLC0415
+            extract_lineage_chain,
+        )
+
+        metadata = ExprMetadata.from_expr(expr)
+        try:
+            sql_queries = _extract_sql_queries(expr, metadata.kind)
+        except (ValueError, RuntimeError, KeyError) as e:
+            warnings.warn(
+                f"Failed to extract SQL queries for caching: {e}",
+                stacklevel=2,
+            )
+            sql_queries = ()
+        lineage = extract_lineage_chain(expr)
+        metadata = evolve(metadata, sql_queries=sql_queries, lineage=lineage)
+        return metadata.to_dict()
 
     def _prepare_expr_metadata_file(self, expr):
         path = self.artifact_store.get_path(DumpFiles.expr_metadata)

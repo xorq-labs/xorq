@@ -18,27 +18,29 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from textual.widgets import DataTable, Static, TabbedContent, TabPane
+from textual.widgets import DataTable, Static
 
 import xorq.api as xo
 from xorq.caching import ParquetSnapshotCache
+from xorq.catalog.tests.testing import (
+    Assert,
+    Press,
+    run_script,
+    settle,
+    wait_until,
+)
 from xorq.catalog.tui import (
-    ALIAS_COLUMNS,
     COLUMNS,
     GIT_LOG_COLUMNS,
     SCHEMA_PREVIEW_COLUMNS,
     CatalogRowData,
     CatalogScreen,
     CatalogTUI,
-    ExploreData,
-    ExploreScreen,
     GitLogRowData,
     RevisionRowData,
     _build_git_log_rows,
     _entry_info,
     _format_cached,
-    _format_column_count,
-    maybe,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
 
@@ -93,11 +95,11 @@ async def _populate_table(pilot, catalog, *entries):
     Use this instead of waiting for the async _do_refresh worker, which is
     racy under test.  Returns the CatalogScreen and the list of CatalogRowData.
     """
-    await pilot.pause()
+    await settle(pilot)
     screen = pilot.app.screen
     rows = tuple(CatalogRowData(entry=e) for e in entries)
     screen._render_refresh(catalog.repo.working_dir, rows)
-    await pilot.pause()
+    await settle(pilot)
     return screen, rows
 
 
@@ -118,32 +120,16 @@ def test_format_cached_none():
     assert _format_cached(None) == "—"
 
 
-def test_format_column_count_none():
-    assert _format_column_count(None) == "?"
+def test_revision_row_columns_display_none():
+    assert RevisionRowData(column_count=None).columns_display == "?"
 
 
-def test_format_column_count_int():
-    assert _format_column_count(5) == "5 cols"
+def test_revision_row_columns_display_int():
+    assert RevisionRowData(column_count=5).columns_display == "5 cols"
 
 
-def test_format_column_count_zero():
-    assert _format_column_count(0) == "0 cols"
-
-
-def test_maybe_returns_value_on_success():
-    @maybe(default="fallback")
-    def ok():
-        return "good"
-
-    assert ok() == "good"
-
-
-def test_maybe_returns_default_on_exception():
-    @maybe(default="fallback")
-    def bad():
-        raise ValueError("boom")
-
-    assert bad() == "fallback"
+def test_revision_row_columns_display_zero():
+    assert RevisionRowData(column_count=0).columns_display == "0 cols"
 
 
 # ---------------------------------------------------------------------------
@@ -153,14 +139,12 @@ def test_maybe_returns_default_on_exception():
 
 def test_row_shape(entry_a, alias_for_a):
     row = CatalogRowData(entry=entry_a, aliases=(alias_for_a,))
-    kind, alias, hash_, backends, output, cached, root_tag = row.row
+    kind, alias, hash_, backends, cached = row.row
     assert kind == "source"
     assert alias == alias_for_a
     assert hash_ == entry_a.name
     assert isinstance(backends, str)
-    assert output == "3 cols"
     assert cached == "—"  # simple memtable has no ParquetSnapshotCache
-    assert root_tag == ""
 
 
 def test_cached_is_none_for_plain_memtable(entry_a):
@@ -168,10 +152,9 @@ def test_cached_is_none_for_plain_memtable(entry_a):
     assert row.cached is None
 
 
-def test_column_count_single_column(entry_b):
+def test_schema_out_single_column(entry_b):
     row = CatalogRowData(entry=entry_b)
-    assert row.column_count == 1
-    assert row.output_display == "1 cols"
+    assert len(row.schema_out) == 1
 
 
 def test_row_key_is_entry_name(entry_a, entry_b):
@@ -193,7 +176,7 @@ def test_cached_with_parquet_snapshot(entry_cached):
     assert row_after.cached is True
     assert row_after.cached_display == "●"
 
-    _, alias, _, _, _, cached_field, _ = row_after.row
+    _, _, _, _, cached_field = row_after.row
     assert cached_field == "●"
 
 
@@ -220,12 +203,6 @@ def test_revision_row_data_not_current():
     assert row.status_display == ""
 
 
-def test_explore_data_is_frozen():
-    data = ExploreData(hash="abc123", alias="test")
-    with pytest.raises(AttributeError):
-        data.hash = "new"
-
-
 # ---------------------------------------------------------------------------
 # 3. Pilot tests: CatalogTUI app
 # ---------------------------------------------------------------------------
@@ -235,7 +212,7 @@ def test_app_starts_and_pushes_catalog_screen(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
+            await settle(pilot)
             assert isinstance(app.screen, CatalogScreen)
 
     _run(_test())
@@ -245,7 +222,7 @@ def test_app_has_custom_theme(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
+            await settle(pilot)
             assert app.theme == "xorq-dark"
 
     _run(_test())
@@ -255,7 +232,7 @@ def test_tables_have_correct_columns(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
+            await settle(pilot)
             catalog_table = app.screen.query_one("#catalog-table", DataTable)
             assert (
                 tuple(col.label.plain for col in catalog_table.columns.values())
@@ -275,7 +252,7 @@ def test_status_bar_exists(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
+            await settle(pilot)
             status = app.screen.query_one("#status-bar", Static)
             assert status is not None
 
@@ -286,7 +263,7 @@ def test_panel_border_titles(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
+            await settle(pilot)
             catalog_panel = app.screen.query_one("#catalog-panel")
             assert "Expressions" in str(catalog_panel.border_title)
 
@@ -300,7 +277,7 @@ def test_quit_exits_app(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
+            await settle(pilot)
             await pilot.press("q")
 
     _run(_test())
@@ -311,279 +288,50 @@ def test_j_k_moves_cursor(catalog, entry_a, entry_b):
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
             screen, _ = await _populate_table(pilot, catalog, entry_a, entry_b)
-
             table = screen.query_one("#catalog-table", DataTable)
-            assert table.row_count == 2
-            assert table.cursor_row == 0
 
-            await pilot.press("j")
-            assert table.cursor_row == 1
-
-            await pilot.press("k")
-            assert table.cursor_row == 0
-
-    _run(_test())
-
-
-def test_explore_on_empty_table_is_noop(catalog):
-    async def _test():
-        app = _make_tui(catalog)
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            await pilot.press("enter")
-            assert isinstance(app.screen, CatalogScreen)
-
-    _run(_test())
-
-
-def test_explore_screen_has_tabs(catalog, entry_a):
-    async def _test():
-        app = _make_tui(catalog)
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            app.push_screen(ExploreScreen(entry_a, "my-model"))
-            await pilot.pause()
-
-            tabs = app.screen.query_one("#explore-tabs", TabbedContent)
-            assert tabs is not None
-
-    _run(_test())
-
-
-def test_explore_screen_breadcrumb(catalog, entry_a):
-    async def _test():
-        app = _make_tui(catalog)
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            app.push_screen(ExploreScreen(entry_a, "my-model"))
-            await pilot.pause()
-
-            breadcrumb = app.screen.query_one("#breadcrumb", Static)
-            text = breadcrumb.content
-            assert entry_a.name[:12] in text
-            assert "my-model" in text
-
-    _run(_test())
-
-
-def test_explore_screen_schema_table_has_columns(catalog, entry_a):
-    async def _test():
-        app = _make_tui(catalog)
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            app.push_screen(ExploreScreen(entry_a, ""))
-            await pilot.pause()
-
-            schema_table = app.screen.query_one("#schema-table", DataTable)
-            col_labels = tuple(col.label.plain for col in schema_table.columns.values())
-            assert col_labels == ("NAME", "TYPE")
-
-    _run(_test())
-
-
-def test_explore_screen_back_with_q(catalog, entry_a):
-    async def _test():
-        app = _make_tui(catalog)
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            app.push_screen(ExploreScreen(entry_a, ""))
-            await pilot.pause()
-            assert isinstance(app.screen, ExploreScreen)
-
-            await pilot.press("q")
-            await pilot.pause()
-            assert isinstance(app.screen, CatalogScreen)
-
-    _run(_test())
-
-
-def test_explore_screen_back_with_escape(catalog, entry_a):
-    async def _test():
-        app = _make_tui(catalog)
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            app.push_screen(ExploreScreen(entry_a, ""))
-            await pilot.pause()
-            assert isinstance(app.screen, ExploreScreen)
-
-            await pilot.press("escape")
-            await pilot.pause()
-            assert isinstance(app.screen, CatalogScreen)
-
-    _run(_test())
-
-
-def test_number_keys_switch_tabs(catalog, entry_a):
-    async def _test():
-        app = _make_tui(catalog)
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            app.push_screen(ExploreScreen(entry_a, ""))
-            await pilot.pause()
-
-            tabs = app.screen.query_one("#explore-tabs", TabbedContent)
-
-            await pilot.press("2")
-            await pilot.pause()
-            assert tabs.active == "pane-schema"
-
-            await pilot.press("4")
-            await pilot.pause()
-            assert tabs.active == "pane-info"
-
-            await pilot.press("5")
-            await pilot.pause()
-            assert tabs.active == "pane-profiles"
-
-            await pilot.press("6")
-            await pilot.pause()
-            assert tabs.active == "pane-aliases"
-
-    _run(_test())
-
-
-def test_disabled_data_tab_cannot_be_activated(catalog, entry_a):
-    async def _test():
-        app = _make_tui(catalog)
-        async with app.run_test(size=(120, 40), notifications=True) as pilot:
-            await pilot.pause()
-            app.push_screen(ExploreScreen(entry_a, ""))
-            await pilot.pause()
-
-            await pilot.press("3")
-            await pilot.pause()
-            tabs = app.screen.query_one("#explore-tabs", TabbedContent)
-            assert tabs.active != "pane-data"
-
-    _run(_test())
-
-
-def test_disabled_revisions_tab_without_alias(catalog, entry_a):
-    async def _test():
-        app = _make_tui(catalog)
-        async with app.run_test(size=(120, 40), notifications=True) as pilot:
-            await pilot.pause()
-            app.push_screen(ExploreScreen(entry_a, ""))
-            await pilot.pause()
-
-            await pilot.press("2")
-            await pilot.pause()
-            tabs = app.screen.query_one("#explore-tabs", TabbedContent)
-            assert tabs.active == "pane-schema"
-
-            await pilot.press("1")
-            await pilot.pause()
-            assert tabs.active != "pane-revisions"
-
-    _run(_test())
-
-
-def test_render_explore_populates_schema(catalog, entry_a):
-    async def _test():
-        app = _make_tui(catalog)
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            screen = ExploreScreen(entry_a, "test-alias")
-            app.push_screen(screen)
-            await pilot.pause()
-
-            data = ExploreData(
-                hash=entry_a.name,
-                alias="test-alias",
-                schema_items=(("id", "int64"), ("name", "string")),
-                lineage_text="source → output",
-                is_cached=False,
+            await run_script(
+                pilot,
+                Assert(lambda p: table.row_count == 2),
+                Assert(lambda p: table.cursor_row == 0),
+                Press(("j",)),
+                Assert(lambda p: table.cursor_row == 1),
+                Press(("k",)),
+                Assert(lambda p: table.cursor_row == 0),
             )
-            screen._render_explore(data)
-            await pilot.pause()
-
-            schema_table = screen.query_one("#schema-table", DataTable)
-            assert schema_table.row_count >= 2
 
     _run(_test())
 
 
-def test_render_explore_uncached_shows_uncached_status(catalog, entry_a):
+def test_data_preview_hidden_by_default(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            screen = ExploreScreen(entry_a, "")
-            app.push_screen(screen)
-            await pilot.pause()
-
-            data = ExploreData(hash=entry_a.name, alias="", is_cached=False)
-            screen._render_explore(data)
-            await pilot.pause()
-
-            status = screen.query_one("#data-status", Static)
-            assert "uncached" in status.content
+            await settle(pilot)
+            panel = app.screen.query_one("#data-preview-panel")
+            assert panel.display is False
 
     _run(_test())
 
 
-def test_render_explore_cached_enables_data_tab(catalog, entry_a):
+def test_profiles_hidden_by_default(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            screen = ExploreScreen(entry_a, "test-alias")
-            app.push_screen(screen)
-            await pilot.pause()
-
-            data = ExploreData(
-                hash=entry_a.name,
-                alias="test-alias",
-                is_cached=True,
-                cache_path="/tmp/cache/abc123",
-            )
-            screen._render_explore(data)
-            await pilot.pause()
-
-            pane = screen.query_one("#pane-data", TabPane)
-            assert not pane.disabled
+            await settle(pilot)
+            panel = app.screen.query_one("#profiles-panel")
+            assert panel.display is False
 
     _run(_test())
 
 
-def test_render_explore_shows_metadata_when_present(catalog, entry_a):
+def test_info_panel_exists(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            screen = ExploreScreen(entry_a, "")
-            app.push_screen(screen)
-            await pilot.pause()
-
-            data = ExploreData(
-                hash=entry_a.name,
-                alias="",
-                metadata=(("author", "alice"), ("version", "1.0")),
-            )
-            screen._render_explore(data)
-            await pilot.pause()
-
-            section = screen.query_one("#metadata-section")
-            assert section.display is True
-
-    _run(_test())
-
-
-def test_render_explore_hides_metadata_when_empty(catalog, entry_a):
-    async def _test():
-        app = _make_tui(catalog)
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            screen = ExploreScreen(entry_a, "")
-            app.push_screen(screen)
-            await pilot.pause()
-
-            data = ExploreData(hash=entry_a.name, alias="", metadata=())
-            screen._render_explore(data)
-            await pilot.pause()
-
-            section = screen.query_one("#metadata-section")
-            assert section.display is False
+            await settle(pilot)
+            info = app.screen.query_one("#info-panel")
+            assert info.border_title == "Info"
 
     _run(_test())
 
@@ -593,12 +341,12 @@ def test_render_refresh_populates_table(catalog, entry_a, entry_b):
         app = _make_tui(catalog)
         rows = (CatalogRowData(entry=entry_a), CatalogRowData(entry=entry_b))
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
+            await settle(pilot)
             screen = app.screen
             assert isinstance(screen, CatalogScreen)
 
             screen._render_refresh(catalog.repo.working_dir, rows)
-            await pilot.pause()
+            await settle(pilot)
 
             catalog_table = screen.query_one("#catalog-table", DataTable)
             assert catalog_table.row_count == 2
@@ -611,11 +359,11 @@ def test_render_refresh_uses_entry_name_as_row_key(catalog, entry_a, entry_b):
         app = _make_tui(catalog)
         rows = (CatalogRowData(entry=entry_a), CatalogRowData(entry=entry_b))
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
+            await settle(pilot)
             screen = app.screen
 
             screen._render_refresh(catalog.repo.working_dir, rows)
-            await pilot.pause()
+            await settle(pilot)
 
             table = screen.query_one("#catalog-table", DataTable)
             keys = [str(k.value) for k in table.rows.keys()]
@@ -629,11 +377,11 @@ def test_render_status_updates_status_bar(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
+            await settle(pilot)
             screen = app.screen
             repo_path = catalog.repo.working_dir
             screen._render_status("12:00:00", repo_path)
-            await pilot.pause()
+            await settle(pilot)
 
             status = screen.query_one("#status-bar", Static)
             text = status.content
@@ -650,12 +398,12 @@ def test_two_aliases_same_entry_produce_one_row(catalog, entry_a):
         app = _make_tui(catalog)
         row = CatalogRowData(entry=entry_a, aliases=("latest", "v1"))
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
+            await settle(pilot)
             screen = app.screen
             assert isinstance(screen, CatalogScreen)
 
             screen._render_refresh(catalog.repo.working_dir, (row,))
-            await pilot.pause()
+            await settle(pilot)
 
             table = screen.query_one("#catalog-table", DataTable)
             assert table.row_count == 1
@@ -670,11 +418,11 @@ def test_unaliased_entry_uses_name_as_key(catalog, entry_a):
         app = _make_tui(catalog)
         row = CatalogRowData(entry=entry_a, aliases=())
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
+            await settle(pilot)
             screen = app.screen
 
             screen._render_refresh(catalog.repo.working_dir, (row,))
-            await pilot.pause()
+            await settle(pilot)
 
             table = screen.query_one("#catalog-table", DataTable)
             assert table.row_count == 1
@@ -692,29 +440,38 @@ def test_cursor_move_updates_schema_preview(catalog, entry_a, entry_b):
             CatalogRowData(entry=entry_b, aliases=("b",)),
         )
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
+            await settle(pilot)
             screen = app.screen
             assert isinstance(screen, CatalogScreen)
 
             screen._render_refresh(catalog.repo.working_dir, rows)
             screen._row_cache = {r.row_key: r for r in rows}
-            await pilot.pause()
+            await settle(pilot)
 
-            # Move to second row (entry_b: value)
-            await pilot.press("j")
-            await pilot.pause()
             schema_table = screen.query_one("#schema-preview-table", DataTable)
-            assert schema_table.row_count == 1
-            assert schema_table.get_cell_at((0, 0)) == "value"
 
-            # Move back to first row (entry_a: id, name, score)
-            await pilot.press("k")
-            await pilot.pause()
-            assert schema_table.row_count == 3
-            col_names = [schema_table.get_cell_at((i, 0)) for i in range(3)]
-            assert "id" in col_names
-            assert "name" in col_names
-            assert "score" in col_names
+            await run_script(
+                pilot,
+                # Move to second row (entry_b: value)
+                Press(("j",)),
+                Assert(lambda p: schema_table.row_count == 1),
+                Assert(lambda p: schema_table.get_cell_at((0, 0)) == "value"),
+                # Move back to first row (entry_a: id, name, score)
+                Press(("k",)),
+                Assert(lambda p: schema_table.row_count == 3),
+                Assert(
+                    lambda p: "id"
+                    in [schema_table.get_cell_at((i, 0)) for i in range(3)]
+                ),
+                Assert(
+                    lambda p: "name"
+                    in [schema_table.get_cell_at((i, 0)) for i in range(3)]
+                ),
+                Assert(
+                    lambda p: "score"
+                    in [schema_table.get_cell_at((i, 0)) for i in range(3)]
+                ),
+            )
 
     _run(_test())
 
@@ -723,72 +480,9 @@ def test_schema_preview_empty_before_selection(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
+            await settle(pilot)
             schema_table = app.screen.query_one("#schema-preview-table", DataTable)
             assert schema_table.row_count == 0
-
-    _run(_test())
-
-
-def test_aliases_tab_has_correct_columns(catalog, entry_a):
-    async def _test():
-        app = _make_tui(catalog)
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            app.push_screen(ExploreScreen(entry_a, ""))
-            await pilot.pause()
-
-            aliases_table = app.screen.query_one("#aliases-table", DataTable)
-            col_labels = tuple(
-                col.label.plain for col in aliases_table.columns.values()
-            )
-            assert col_labels == ALIAS_COLUMNS
-
-    _run(_test())
-
-
-def test_aliases_rendered_from_row_data(catalog, entry_a):
-    async def _test():
-        catalog.add_alias(entry_a.name, "latest")
-        catalog.add_alias(entry_a.name, "v1")
-        catalog.add_alias(entry_a.name, "prod")
-        row_data = CatalogRowData(entry=entry_a, aliases=("latest", "v1", "prod"))
-        app = _make_tui(catalog)
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            screen = ExploreScreen(entry_a, "v1", row_data=row_data)
-            app.push_screen(screen)
-            await pilot.pause()
-
-            data = ExploreData(hash=entry_a.name, alias="v1")
-            screen._render_explore(data)
-            await pilot.pause()
-
-            aliases_table = screen.query_one("#aliases-table", DataTable)
-            assert aliases_table.row_count == 3
-            rows = [
-                aliases_table.get_cell_at((i, 0))
-                for i in range(aliases_table.row_count)
-            ]
-            assert "latest" in rows
-            assert "v1" in rows
-            assert "prod" in rows
-
-    _run(_test())
-
-
-def test_keybinding_6_activates_aliases_tab(catalog, entry_a):
-    async def _test():
-        app = _make_tui(catalog)
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            app.push_screen(ExploreScreen(entry_a, ""))
-            await pilot.pause()
-
-            await pilot.press("6")
-            await pilot.pause()
-            tabs = app.screen.query_one("#explore-tabs", TabbedContent)
-            assert tabs.active == "pane-aliases"
 
     _run(_test())
 
@@ -845,7 +539,7 @@ def test_git_log_panel_hidden_by_default(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
+            await settle(pilot)
             panel = app.screen.query_one("#git-log-panel")
             assert panel.display is False
 
@@ -856,17 +550,17 @@ def test_g_toggles_git_log_visibility(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
+            await settle(pilot)
             panel = app.screen.query_one("#git-log-panel")
-            assert panel.display is False
 
-            await pilot.press("g")
-            await pilot.pause()
-            assert panel.display is True
-
-            await pilot.press("g")
-            await pilot.pause()
-            assert panel.display is False
+            await run_script(
+                pilot,
+                Assert(lambda p: panel.display is False),
+                Press(("g",)),
+                Assert(lambda p: panel.display is True),
+                Press(("g",)),
+                Assert(lambda p: panel.display is False),
+            )
 
     _run(_test())
 
@@ -875,7 +569,7 @@ def test_git_log_table_has_correct_columns(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
+            await settle(pilot)
             git_table = app.screen.query_one("#git-log-table", DataTable)
             col_labels = tuple(col.label.plain for col in git_table.columns.values())
             assert col_labels == GIT_LOG_COLUMNS
@@ -887,7 +581,7 @@ def test_git_log_panel_border_title(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
+            await settle(pilot)
             panel = app.screen.query_one("#git-log-panel")
             assert panel.border_title == "Git Log"
 
@@ -898,7 +592,7 @@ def test_render_git_log_populates_table(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
+            await settle(pilot)
             screen = app.screen
             assert isinstance(screen, CatalogScreen)
 
@@ -907,7 +601,7 @@ def test_render_git_log_populates_table(catalog):
                 GitLogRowData(hash="ccdd", date="2025-01-02 11:00", message="second"),
             )
             screen._render_git_log(rows)
-            await pilot.pause()
+            await settle(pilot)
 
             git_table = screen.query_one("#git-log-table", DataTable)
             assert git_table.row_count == 2
@@ -922,18 +616,10 @@ def test_toggle_triggers_load_from_real_repo(catalog, entry_a):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            await pilot.pause()
-            await pilot.pause()
-
+            await settle(pilot)
             await pilot.press("g")
-            await pilot.pause()
-            await pilot.pause()
-            await pilot.pause()
-
             git_table = app.screen.query_one("#git-log-table", DataTable)
-            # at minimum: initial commit + add catalog.yaml + add entry_a
-            assert git_table.row_count >= 3
+            await wait_until(pilot, lambda: git_table.row_count >= 3)
 
     _run(_test())
 
@@ -945,16 +631,14 @@ def test_toggle_triggers_load_from_real_repo(catalog, entry_a):
 
 def test_entry_info(entry_b):
     """_entry_info reads column count from expr_metadata; cached is None for plain memtables."""
-    column_count, cached, root_tag, expr = _entry_info(entry_b)
+    column_count, cached = _entry_info(entry_b)
     assert column_count == 1  # single column: value
     assert cached is None  # no ParquetSnapshotCache nodes in a plain memtable
-    assert root_tag == ""
-    assert expr is None
 
 
 def test_entry_info_three_columns(entry_a):
     """_entry_info reports the correct column count for a multi-column expression."""
-    column_count, cached, root_tag, expr = _entry_info(entry_a)
+    column_count, cached = _entry_info(entry_a)
     assert column_count == 3  # id, name, score
     assert cached is None
 
@@ -964,7 +648,7 @@ def test_entry_info_scalar_expression_wraps_as_table(catalog):
     column_count is the number of columns of the resulting table (always 1)."""
     t = xo.memtable({"a": [1, 2, 3]})
     entry = catalog.add(t.a.sum())
-    column_count, cached, root_tag, expr = _entry_info(entry)
+    column_count, cached = _entry_info(entry)
     assert column_count == 1
     assert cached is None
 
@@ -982,7 +666,7 @@ def test_cached_false_before_execution(catalog, tmp_path, parquet_dir):
     assert parquet_paths, "entry must have parquet_cache_paths"
     assert not any(Path(p).exists() for p in parquet_paths)
     assert CatalogRowData(entry=entry).cached is False
-    _, cached, _, _ = _entry_info(entry)
+    _, cached = _entry_info(entry)
     assert cached is False
 
 
@@ -999,7 +683,7 @@ def test_cached_true_after_execution(catalog, tmp_path, parquet_dir):
     parquet_paths = entry.parquet_cache_paths
     assert all(Path(p).exists() for p in parquet_paths)
     assert CatalogRowData(entry=entry).cached is True
-    _, cached, _, _ = _entry_info(entry)
+    _, cached = _entry_info(entry)
     assert cached is True
 
 

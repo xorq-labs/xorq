@@ -750,6 +750,8 @@ class ExprMetadata:
         factory=tuple, validator=deep_iterable(instance_of(dict))
     )
     params: tuple = field(factory=tuple)
+    sql_queries: tuple[tuple[str, str, str], ...] = field(factory=tuple)
+    lineage: tuple[str, ...] = field(factory=tuple)
 
     @classmethod
     def from_dict(cls, data):
@@ -768,6 +770,8 @@ class ExprMetadata:
             parquet_cache_paths=tuple(data.get("parquet_cache_paths") or ()),
             composed_from=tuple(data.get("composed_from") or data.get("sources") or ()),
             params=tuple(data.get("params") or ()),
+            sql_queries=tuple(tuple(q) for q in data.get("sql_queries", ())),
+            lineage=tuple(data.get("lineage", ())),
         )
 
     @classmethod
@@ -832,6 +836,11 @@ class ExprMetadata:
                     "composed_from",
                     list(self.composed_from) if self.composed_from else None,
                 ),
+                (
+                    "sql_queries",
+                    [list(q) for q in self.sql_queries] if self.sql_queries else None,
+                ),
+                ("lineage", list(self.lineage) if self.lineage else None),
             )
             if value is not None
         }

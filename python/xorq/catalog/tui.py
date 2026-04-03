@@ -8,9 +8,21 @@ from pathlib import Path
 import yaml12
 from attr import field, frozen
 from attr.validators import instance_of, optional
+from pygments.style import Style as PygmentsStyle
+from pygments.token import (
+    Comment,
+    Keyword,
+    Name,
+    Number,
+    Operator,
+    Punctuation,
+    String,
+    Token,
+)
+from rich.syntax import Syntax
 from textual import on, work
 from textual.app import App, ComposeResult
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.theme import Theme
 from textual.widgets import (
@@ -18,16 +30,36 @@ from textual.widgets import (
     Footer,
     Header,
     Static,
-    TabbedContent,
-    TabPane,
 )
-from toolz.curried import excepts as cexcepts
 
 from xorq.catalog.catalog import CatalogEntry
-from xorq.common.utils.func_utils import return_constant
 
 
 DEFAULT_REFRESH_INTERVAL = 10
+
+
+class XorqSQLStyle(PygmentsStyle):
+    """Pygments style using xorq brand colors for SQL syntax highlighting."""
+
+    background_color = "#0a2a2e"
+    styles = {
+        Token: "#C1F0FF",
+        Keyword: "bold #C1F0FF",
+        Keyword.DML: "bold #C1F0FF",
+        Keyword.DDL: "bold #C1F0FF",
+        Name: "#C1F0FF",
+        Name.Builtin: "#7ED4C8",
+        String: "#2BBE75",
+        String.Single: "#2BBE75",
+        Number: "#F5CA2C",
+        Number.Integer: "#F5CA2C",
+        Number.Float: "#F5CA2C",
+        Comment: "italic #4AA8EC",
+        Comment.Single: "italic #4AA8EC",
+        Operator: "#5abfb5",
+        Punctuation: "#7ED4C8",
+    }
+
 
 XORQ_DARK = Theme(
     name="xorq-dark",
@@ -44,19 +76,13 @@ XORQ_DARK = Theme(
     dark=True,
 )
 
-COLUMNS = ("KIND", "ALIAS", "HASH", "BACKEND", "OUTPUT", "CACHED", "ROOT TAG")
+COLUMNS = ("KIND", "ALIAS", "HASH", "BACKEND", "CACHED")
 
 SCHEMA_PREVIEW_COLUMNS = ("NAME", "TYPE")
 
 REVISION_COLUMNS = ("STATUS", "HASH", "COLUMNS", "CACHED", "DATE")
 
-ALIAS_COLUMNS = ("ALIAS",)
-
 GIT_LOG_COLUMNS = ("HASH", "DATE", "MESSAGE")
-
-
-def maybe(default, exc=Exception):
-    return cexcepts(exc, handler=return_constant(default))
 
 
 def _format_cached(value: bool | None) -> str:
@@ -67,16 +93,6 @@ def _format_cached(value: bool | None) -> str:
             return "○"
         case _:
             return "—"
-
-
-def _format_column_count(n: int | None) -> str:
-    match n:
-        case None:
-            return "?"
-        case int(n):
-            return f"{n} cols"
-        case _:
-            return "?"
 
 
 @frozen
@@ -104,16 +120,13 @@ class CatalogRowData:
         return self.entry.backends
 
     @property
-    def root_tag(self) -> str:
-        return self.entry.root_tag
+    def schema_in(self) -> tuple[tuple[str, str], ...] | None:
+        si = self.entry.metadata.schema_in
+        return tuple(si.items()) if si is not None else None
 
     @property
     def schema_out(self) -> tuple[tuple[str, str], ...]:
         return tuple(self.entry.metadata.schema_out.items())
-
-    @property
-    def column_count(self) -> int | None:
-        return len(self.schema_out) if self.schema_out else None
 
     @cached_property
     def aliases_display(self) -> str:
@@ -123,10 +136,6 @@ class CatalogRowData:
     def backends_display(self) -> str:
         return ", ".join(sorted(set(self.backends))) if self.backends else ""
 
-    @cached_property
-    def output_display(self) -> str:
-        return _format_column_count(self.column_count)
-
     @property
     def cached_display(self) -> str:
         return _format_cached(self.cached)
@@ -134,6 +143,35 @@ class CatalogRowData:
     @property
     def sort_key(self) -> tuple[str, str]:
         return (self.aliases_display, self.hash)
+
+    @cached_property
+    def sqls(self) -> tuple[tuple[str, str, str], ...]:
+        """((name, engine, sql), ...) for all queries in the expression plan."""
+        return self.entry.metadata.sql_queries
+
+    @cached_property
+    def lineage_text(self) -> str:
+        chain = self.entry.metadata.lineage
+        return " → ".join(chain) if chain else "(empty)"
+
+    @cached_property
+    def cache_info_text(self) -> str:
+        paths = self.entry.parquet_cache_paths
+        match paths:
+            case () | None:
+                return "— unknown"
+            case _ if all(Path(p).exists() for p in paths):
+                return f"● cached  {paths[0]}"
+            case _:
+                return "○ uncached"
+
+    @cached_property
+    def info_text(self) -> str:
+        parts = [
+            f"Lineage: {self.lineage_text}",
+            f"Cache: {self.cache_info_text}",
+        ]
+        return "\n".join(parts)
 
     @property
     def row_key(self) -> str:
@@ -146,9 +184,7 @@ class CatalogRowData:
             self.aliases_display,
             self.hash,
             self.backends_display,
-            self.output_display,
             self.cached_display,
-            self.root_tag,
         )
 
 
@@ -161,25 +197,6 @@ class GitLogRowData:
     @property
     def row(self) -> tuple[str, ...]:
         return (self.hash, self.date, self.message)
-
-
-@frozen
-class ExploreData:
-    hash: str = field(default="", validator=instance_of(str))
-    alias: str = field(default="", validator=instance_of(str))
-    schema_items: tuple[tuple[str, str], ...] = field(
-        factory=tuple, validator=instance_of(tuple)
-    )
-    lineage_text: str = field(default="", validator=instance_of(str))
-    is_cached: bool | None = field(default=None, validator=optional(instance_of(bool)))
-    cache_path: str | None = field(default=None, validator=optional(instance_of(str)))
-    metadata: tuple[tuple[str, str], ...] = field(
-        factory=tuple, validator=instance_of(tuple)
-    )
-
-    @property
-    def has_alias(self) -> bool:
-        return bool(self.alias)
 
 
 @frozen
@@ -200,7 +217,13 @@ class RevisionRowData:
 
     @cached_property
     def columns_display(self) -> str:
-        return _format_column_count(self.column_count)
+        match self.column_count:
+            case None:
+                return "?"
+            case int(n):
+                return f"{n} cols"
+            case _:
+                return "?"
 
     @property
     def row(self) -> tuple[str, ...]:
@@ -213,39 +236,18 @@ class RevisionRowData:
         )
 
 
-def _check_cached(expr) -> bool:
-    if not expr.ls.has_cached:
-        return False
-    return any(cn.to_expr().ls.exists() for cn in expr.ls.cached_nodes)
-
-
-def _entry_info(entry) -> tuple[int | None, bool | None, str, None]:
+def _entry_info(entry) -> tuple[int | None, bool | None]:
     parquet_cache_paths = entry.parquet_cache_paths
     cached = (
         all(Path(p).exists() for p in parquet_cache_paths)
         if parquet_cache_paths
         else None
     )
-    return len(entry.columns), cached, entry.root_tag, None
+    return len(entry.columns), cached
 
 
 def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
     return CatalogRowData(entry=entry, aliases=aliases)
-
-
-def _build_lineage_chain(expr) -> tuple[str, ...]:
-    from xorq.common.utils.graph_utils import gen_children_of, to_node  # noqa: PLC0415
-    from xorq.common.utils.lineage_utils import format_node  # noqa: PLC0415
-
-    def _walk(node):
-        yield format_node(node)
-        match tuple(gen_children_of(node)):
-            case (first, *_):
-                yield from _walk(first)
-            case _:
-                pass
-
-    return tuple(reversed(tuple(_walk(to_node(expr)))))
 
 
 @cache
@@ -300,48 +302,72 @@ def _build_git_log_rows(repo, max_count=100) -> tuple[GitLogRowData, ...]:
     )
 
 
-@maybe(default=None)
-def maybe_expr(entry):
-    return entry.lazy_expr
+def _render_sql_dag(sqls: tuple[tuple[str, str, str], ...]) -> str:
+    """Render multiple SQL queries as a topologically-sorted DAG."""
+    name_to_sql = {name: (engine, sql) for name, engine, sql in sqls}
+    # build dependency graph: name → set of names it depends on
+    deps = {
+        name: frozenset(
+            ref
+            for ref in re.findall(r'FROM "([a-f0-9]{20,})"', sql)
+            if ref in name_to_sql
+        )
+        for name, (_, sql) in name_to_sql.items()
+    }
+    # topological sort (Kahn's algorithm) — leaves first, main last
+    in_degree = {n: len(d) for n, d in deps.items()}
+    queue = [n for n, d in in_degree.items() if d == 0]
+    order = []
+    while queue:
+        node = queue.pop(0)
+        order.append(node)
+        for n, d in deps.items():
+            if node in d:
+                in_degree[n] -= 1
+                if in_degree[n] == 0:
+                    queue.append(n)
+    # append any remaining (cycle fallback)
+    order.extend(n for n in name_to_sql if n not in order)
+
+    parts = tuple(
+        segment
+        for i, name in enumerate(order)
+        for engine, sql in (name_to_sql[name],)
+        for label in (("main" if name == "main" else name[:12]),)
+        for segment in (
+            (f"-- [{label}] ({engine})\n{sql}", "  ↓")
+            if i < len(order) - 1
+            else (f"-- [{label}] ({engine})\n{sql}",)
+        )
+    )
+    return "\n\n".join(parts)
 
 
-@maybe(default="(unavailable)")
-def maybe_lineage(expr) -> str:
-    chain = _build_lineage_chain(expr)
-    return " → ".join(chain) if chain else "(empty)"
-
-
-@maybe(default=None)
-def maybe_cache_path(expr) -> str | None:
-    paths = expr.ls.get_cache_paths()
-    return str(paths[0]) if paths else None
-
-
-def maybe_cache_info(expr) -> tuple[bool | None, str | None]:
-    match expr:
-        case None:
-            return None, None
-        case _ if not _check_cached(expr):
-            return False, None
-        case _:
-            return True, maybe_cache_path(expr)
-
-
-@maybe(default=())
-def maybe_metadata(entry) -> tuple[tuple[str, str], ...]:
-    if not entry.metadata_path.exists():
-        return ()
-    meta = yaml12.read_yaml(entry.metadata_path)
-    match meta:
-        case dict():
-            return tuple((str(k), str(v)) for k, v in meta.items())
-        case _:
-            return ()
+def _revision_pair(i, rev_entry, commit):
+    exists = rev_entry.exists()
+    col_count, cached = _entry_info(rev_entry) if exists else (None, None)
+    row = RevisionRowData(
+        hash=rev_entry.name,
+        column_count=col_count,
+        cached=cached,
+        commit_date=datetime.fromtimestamp(commit.committed_date).strftime(
+            "%Y-%m-%d %H:%M"
+        ),
+        is_current=(i == 0),
+    )
+    return row, (rev_entry, commit, exists)
 
 
 # ---------------------------------------------------------------------------
 # Screens
 # ---------------------------------------------------------------------------
+
+
+@frozen
+class _TogglePanelState:
+    visible: bool = field(default=False, validator=instance_of(bool))
+    loaded: bool = field(default=False, validator=instance_of(bool))
+    entry_hash: str | None = field(default=None, validator=optional(instance_of(str)))
 
 
 class CatalogScreen(Screen):
@@ -352,9 +378,18 @@ class CatalogScreen(Screen):
         ("j", "cursor_down", "Down"),
         ("k", "cursor_up", "Up"),
         ("l", "scroll_right", "Right"),
-        ("enter", "explore", "Explore"),
-        ("e", "explore", "Explore"),
+        ("tab", "focus_next_panel", "Next"),
+        ("shift+tab", "focus_prev_panel", "Prev"),
         ("g", "toggle_git_log", "Git Log"),
+        ("d", "toggle_data_preview", "Data"),
+        ("p", "toggle_profiles", "Profiles"),
+    )
+
+    FOCUS_CYCLE = (
+        "#catalog-table",
+        "#sql-panel",
+        "#schema-preview-table",
+        "#revisions-preview-table",
     )
 
     def __init__(self, refresh_interval=DEFAULT_REFRESH_INTERVAL):
@@ -364,15 +399,35 @@ class CatalogScreen(Screen):
         self._git_log_visible = False
         self._git_log_loaded = False
         self._refresh_lock = threading.Lock()
+        self._data_preview = _TogglePanelState()
+        self._profiles = _TogglePanelState()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        with Vertical(id="catalog-panel"):
-            yield DataTable(id="catalog-table")
-        with Vertical(id="schema-panel"):
-            yield DataTable(id="schema-preview-table")
-        with Vertical(id="git-log-panel"):
-            yield DataTable(id="git-log-table")
+        with Horizontal(id="main-split"):
+            with Vertical(id="left-column"):
+                with Vertical(id="catalog-panel"):
+                    yield DataTable(id="catalog-table")
+                with Vertical(id="revisions-panel"):
+                    yield DataTable(id="revisions-preview-table")
+                with Vertical(id="git-log-panel"):
+                    yield DataTable(id="git-log-table")
+            with Vertical(id="right-column"):
+                with VerticalScroll(id="sql-panel"):
+                    yield Static("", id="sql-preview")
+                with Vertical(id="info-panel"):
+                    yield Static("", id="info-content")
+                with Vertical(id="schema-panel"):
+                    with Horizontal(id="schema-split"):
+                        with Vertical(id="schema-in-half"):
+                            yield DataTable(id="schema-in-table")
+                        with Vertical(id="schema-out-half"):
+                            yield DataTable(id="schema-preview-table")
+                with Vertical(id="data-preview-panel"):
+                    yield Static("", id="data-preview-status")
+                    yield DataTable(id="data-preview-table")
+                with Vertical(id="profiles-panel"):
+                    yield DataTable(id="profiles-table")
         yield Static("", id="status-bar")
         yield Footer()
 
@@ -383,11 +438,23 @@ class CatalogScreen(Screen):
         for col in COLUMNS:
             table.add_column(col, key=col)
 
+        schema_in_table = self.query_one("#schema-in-table", DataTable)
+        schema_in_table.cursor_type = "row"
+        schema_in_table.zebra_stripes = True
+        for col in SCHEMA_PREVIEW_COLUMNS:
+            schema_in_table.add_column(col, key=col)
+
         schema_table = self.query_one("#schema-preview-table", DataTable)
         schema_table.cursor_type = "row"
         schema_table.zebra_stripes = True
         for col in SCHEMA_PREVIEW_COLUMNS:
             schema_table.add_column(col, key=col)
+
+        rev_table = self.query_one("#revisions-preview-table", DataTable)
+        rev_table.cursor_type = "row"
+        rev_table.zebra_stripes = True
+        for col in REVISION_COLUMNS:
+            rev_table.add_column(col, key=col)
 
         git_log_table = self.query_one("#git-log-table", DataTable)
         git_log_table.cursor_type = "row"
@@ -395,26 +462,191 @@ class CatalogScreen(Screen):
         for col in GIT_LOG_COLUMNS:
             git_log_table.add_column(col, key=col)
 
+        data_table = self.query_one("#data-preview-table", DataTable)
+        data_table.cursor_type = "none"
+        data_table.zebra_stripes = True
+        data_table.loading = True
+
+        profiles_table = self.query_one("#profiles-table", DataTable)
+        profiles_table.cursor_type = "row"
+        profiles_table.zebra_stripes = True
+        profiles_table.add_column("NAME", key="name")
+        profiles_table.add_column("BACKEND", key="backend")
+        profiles_table.add_column("PARAMETERS", key="params")
+        profiles_table.add_column("ENV VARS", key="env_vars")
+
         self.query_one("#catalog-panel").border_title = "Expressions"
         self.query_one("#schema-panel").border_title = "Schema"
+        self.query_one("#schema-in-half").display = False
+        self.query_one("#sql-panel").border_title = "SQL"
+        self.query_one("#info-panel").border_title = "Info"
+        self.query_one("#revisions-panel").border_title = "Revisions"
         git_log_panel = self.query_one("#git-log-panel")
         git_log_panel.border_title = "Git Log"
         git_log_panel.display = False
+        data_panel = self.query_one("#data-preview-panel")
+        data_panel.border_title = "Data Preview"
+        data_panel.display = False
+        profiles_panel = self.query_one("#profiles-panel")
+        profiles_panel.border_title = "Profiles"
+        profiles_panel.display = False
         self.query_one("#status-bar", Static).update(" Loading catalog...")
 
         self.set_interval(self._refresh_interval, self._do_refresh)
 
     @on(DataTable.RowHighlighted, "#catalog-table")
     def _on_catalog_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        schema_table = self.query_one("#schema-preview-table", DataTable)
-        schema_table.clear()
+        schema_in_table = self.query_one("#schema-in-table", DataTable)
+        schema_in_table.clear()
+        schema_out_table = self.query_one("#schema-preview-table", DataTable)
+        schema_out_table.clear()
+        sql_preview = self.query_one("#sql-preview", Static)
+        info_content = self.query_one("#info-content", Static)
+        rev_table = self.query_one("#revisions-preview-table", DataTable)
+        rev_table.clear()
+
         if event.row_key is None:
+            sql_preview.update("")
+            info_content.update("")
+            self.query_one("#schema-in-half").display = False
+            self.query_one("#revisions-panel").border_title = "Revisions"
+            self._reset_toggle_panels()
             return
+
         row_data = self._row_cache.get(str(event.row_key.value))
         if row_data is None:
+            sql_preview.update("")
+            info_content.update("")
+            self.query_one("#schema-in-half").display = False
+            self.query_one("#revisions-panel").border_title = "Revisions"
+            self._reset_toggle_panels()
             return
+
+        # Schema
+        schema_panel = self.query_one("#schema-panel")
+        match row_data.schema_in:
+            case None:
+                self.query_one("#schema-in-half").display = False
+                schema_panel.border_title = "Schema"
+                schema_panel.border_subtitle = f"{len(row_data.schema_out)} cols"
+            case schema_in:
+                self.query_one("#schema-in-half").display = True
+                schema_panel.border_title = "Schemas"
+                schema_panel.border_subtitle = (
+                    f"{len(schema_in)} in · {len(row_data.schema_out)} out"
+                )
+                for name, dtype in schema_in:
+                    schema_in_table.add_row(name, dtype)
         for name, dtype in row_data.schema_out:
-            schema_table.add_row(name, dtype)
+            schema_out_table.add_row(name, dtype)
+
+        # SQL preview (sync — in-memory AST compilation)
+        sql_panel = self.query_one("#sql-panel")
+        match row_data.sqls:
+            case ():
+                sql_preview.update("(SQL unavailable)")
+                sql_panel.border_subtitle = ""
+            case ((_, engine, sql),):
+                sql_preview.update(
+                    Syntax(sql, "sql", theme=XorqSQLStyle, word_wrap=True)
+                )
+                sql_panel.border_subtitle = engine
+            case sqls:
+                sql_preview.update(
+                    Syntax(
+                        _render_sql_dag(sqls),
+                        "sql",
+                        theme=XorqSQLStyle,
+                        word_wrap=True,
+                    )
+                )
+                engines = sorted({engine for _, engine, _ in sqls})
+                sql_panel.border_subtitle = (
+                    f"{len(sqls)} queries \u00b7 {', '.join(engines)}"
+                )
+
+        # Info panel (sync)
+        info_content.update(row_data.info_text)
+
+        # Revisions preview (async — requires git I/O)
+        match row_data.aliases:
+            case (first_alias, *_):
+                catalog_alias = next(
+                    (ca for ca in self.catalog_aliases if ca.alias == first_alias),
+                    None,
+                )
+                match catalog_alias:
+                    case None:
+                        self.query_one(
+                            "#revisions-panel"
+                        ).border_title = "Revisions — (alias not found)"
+                    case _:
+                        self.query_one(
+                            "#revisions-panel"
+                        ).border_title = f"Revisions — {first_alias}"
+                        self._load_revisions_preview(catalog_alias)
+            case _:
+                self.query_one(
+                    "#revisions-panel"
+                ).border_title = "Revisions — (no alias)"
+
+        # Update toggle panels for new row (preserve visibility)
+        self._update_toggle_panels(row_data, str(event.row_key.value))
+
+    def _update_toggle_panels(self, row_data, entry_hash) -> None:
+        """Update toggle panels for a new row, preserving visibility."""
+        if self._data_preview.visible:
+            dt = self.query_one("#data-preview-table", DataTable)
+            if row_data.cached:
+                self._data_preview = _TogglePanelState(
+                    visible=True,
+                    loaded=True,
+                    entry_hash=entry_hash,
+                )
+                dt.loading = True
+                self.query_one("#data-preview-status", Static).update(
+                    " Loading data preview..."
+                )
+                self._load_data_preview(row_data.entry)
+            else:
+                self._data_preview = _TogglePanelState(visible=True)
+                self.query_one("#data-preview-status", Static).update(
+                    " uncached — run to materialize"
+                )
+                dt.clear(columns=True)
+                dt.loading = False
+        else:
+            self._data_preview = _TogglePanelState()
+            dt = self.query_one("#data-preview-table", DataTable)
+            dt.clear(columns=True)
+            dt.loading = True
+
+        if self._profiles.visible:
+            self._reload_profiles_for_current(row_data, entry_hash)
+        else:
+            self._profiles = _TogglePanelState()
+            self.query_one("#profiles-panel").display = False
+            self.query_one("#profiles-table", DataTable).clear()
+
+    def _reload_profiles_for_current(self, row_data, entry_hash) -> None:
+        """Reload profiles panel content for a new row while keeping it visible."""
+        self._profiles = _TogglePanelState(
+            visible=True,
+            loaded=True,
+            entry_hash=entry_hash,
+        )
+        self._load_profiles(row_data.entry)
+
+    def _reset_toggle_panels(self) -> None:
+        self._data_preview = _TogglePanelState()
+        self.query_one("#data-preview-panel").display = False
+        dt = self.query_one("#data-preview-table", DataTable)
+        dt.clear(columns=True)
+        dt.loading = True
+
+        self._profiles = _TogglePanelState()
+        self.query_one("#profiles-panel").display = False
+        self.query_one("#profiles-table", DataTable).clear()
 
     @work(thread=True, exit_on_error=False)
     def _do_refresh(self) -> None:
@@ -500,8 +732,10 @@ class CatalogScreen(Screen):
     def _render_status(self, stamp, repo_path) -> None:
         count = self.query_one("#catalog-table", DataTable).row_count
         self.query_one("#status-bar", Static).update(
-            f" {count} entries | {repo_path} | refreshed {stamp}"
+            f" {count} entries \u00b7 {repo_path} \u00b7 {stamp}"
         )
+
+    # --- Toggle: Git Log ---
 
     def action_toggle_git_log(self) -> None:
         self._git_log_visible = not self._git_log_visible
@@ -525,157 +759,121 @@ class CatalogScreen(Screen):
             for i, row_data in enumerate(rows):
                 table.add_row(*row_data.row, key=str(i))
 
-    def _focused_table(self) -> DataTable:
-        focused = self.app.focused
-        if isinstance(focused, DataTable):
-            return focused
-        return self.query_one("#catalog-table", DataTable)
+    # --- Toggle: Data Preview ---
 
-    def action_scroll_left(self) -> None:
-        self._focused_table().action_scroll_left()
-
-    def action_cursor_down(self) -> None:
-        self._focused_table().action_cursor_down()
-
-    def action_cursor_up(self) -> None:
-        self._focused_table().action_cursor_up()
-
-    def action_scroll_right(self) -> None:
-        self._focused_table().action_scroll_right()
-
-    def action_quit_app(self) -> None:
-        self.app.exit()
-
-    def action_explore(self) -> None:
+    def action_toggle_data_preview(self) -> None:
         table = self.query_one("#catalog-table", DataTable)
         if table.row_count == 0:
             return
         row_key, _ = table.coordinate_to_cell_key(table.cursor_coordinate)
         entry_hash = str(row_key.value)
-        catalog = self.app._catalog
-        try:
-            entry = catalog.get_catalog_entry(entry_hash)
-        except (AssertionError, KeyError):
-            self.notify("Entry not found", severity="error")
-            return
         row_data = self._row_cache.get(entry_hash)
-        match row_data:
-            case CatalogRowData(aliases=(first_alias, *_)):
-                catalog_alias = next(
-                    (ca for ca in self.catalog_aliases if ca.alias == first_alias),
-                    None,
-                )
+        if row_data is None:
+            return
+
+        toggled = not self._data_preview.visible
+        self._data_preview = _TogglePanelState(
+            visible=toggled,
+            loaded=self._data_preview.loaded,
+            entry_hash=self._data_preview.entry_hash,
+        )
+        self.query_one("#data-preview-panel").display = toggled
+
+        if not toggled:
+            return
+
+        match row_data.cached:
+            case True:
+                if (
+                    not self._data_preview.loaded
+                    or self._data_preview.entry_hash != entry_hash
+                ):
+                    self._data_preview = _TogglePanelState(
+                        visible=True,
+                        loaded=True,
+                        entry_hash=entry_hash,
+                    )
+                    self.query_one("#data-preview-status", Static).update(
+                        " Loading data preview..."
+                    )
+                    self._load_data_preview(row_data.entry)
             case _:
-                first_alias = ""
-                catalog_alias = None
-        self.app.push_screen(
-            ExploreScreen(
-                entry, first_alias, catalog_alias=catalog_alias, row_data=row_data
+                self.query_one("#data-preview-status", Static).update(
+                    " uncached — run to materialize"
+                )
+                self.query_one("#data-preview-table", DataTable).loading = False
+
+    @work(thread=True, exit_on_error=False)
+    def _load_data_preview(self, entry) -> None:
+        try:
+            df = entry.expr.head(50).execute()
+            columns = tuple(str(c) for c in df.columns)
+            rows = tuple(
+                tuple(str(round(v, 2)) if isinstance(v, float) else str(v) for v in row)
+                for row in df.itertuples(index=False)
             )
+            total_rows = len(df)
+            self.app.call_from_thread(
+                self._render_data_preview, columns, rows, total_rows
+            )
+        except Exception as e:
+            self.app.call_from_thread(self._render_data_preview_error, str(e))
+
+    def _render_data_preview(self, columns, rows, total_rows) -> None:
+        with self.app.batch_update():
+            self.query_one("#data-preview-status", Static).update(
+                f" Data Preview — {total_rows} rows (max 50)"
+            )
+            data_table = self.query_one("#data-preview-table", DataTable)
+            data_table.clear(columns=True)
+            data_table.loading = False
+            for col in columns:
+                data_table.add_column(col, key=col)
+            for i, row in enumerate(rows):
+                data_table.add_row(*row, key=str(i))
+            data_table.cursor_type = "row"
+
+    def _render_data_preview_error(self, message) -> None:
+        self.query_one("#data-preview-status", Static).update(f" Error: {message}")
+        self.query_one("#data-preview-table", DataTable).loading = False
+
+    # --- Toggle: Profiles ---
+
+    def action_toggle_profiles(self) -> None:
+        table = self.query_one("#catalog-table", DataTable)
+        if table.row_count == 0:
+            return
+        row_key, _ = table.coordinate_to_cell_key(table.cursor_coordinate)
+        entry_hash = str(row_key.value)
+        row_data = self._row_cache.get(entry_hash)
+        if row_data is None:
+            return
+
+        toggled = not self._profiles.visible
+        self._profiles = _TogglePanelState(
+            visible=toggled,
+            loaded=self._profiles.loaded,
+            entry_hash=self._profiles.entry_hash,
         )
+        self.query_one("#profiles-panel").display = toggled
 
+        if toggled and (
+            not self._profiles.loaded or self._profiles.entry_hash != entry_hash
+        ):
+            self._profiles = _TogglePanelState(
+                visible=True,
+                loaded=True,
+                entry_hash=entry_hash,
+            )
+            self._load_profiles(row_data.entry)
 
-class ExploreScreen(Screen):
-    BINDINGS = (
-        ("q", "go_back", "Back"),
-        ("escape", "go_back", "Back"),
-        ("ctrl+c", "quit_app", "Quit"),
-        ("1", "tab_revisions", "Revisions"),
-        ("2", "tab_schema", "Schema"),
-        ("3", "tab_data", "Data"),
-        ("4", "tab_info", "Info"),
-        ("5", "tab_profiles", "Profiles"),
-        ("6", "tab_aliases", "Aliases"),
-        ("h", "scroll_left", "Left"),
-        ("j", "cursor_down", "Down"),
-        ("k", "cursor_up", "Up"),
-        ("l", "scroll_right", "Right"),
-        ("enter", "select_row", "Select"),
-    )
+    @work(thread=True, exit_on_error=False)
+    def _load_profiles(self, entry) -> None:
+        if not entry.catalog_path.exists() or not zipfile.is_zipfile(
+            entry.catalog_path
+        ):
+            return
 
-    def __init__(self, entry, alias, catalog_alias=None, row_data=None):
-        super().__init__()
-        self._entry = entry
-        self._alias = alias
-        self._catalog_alias = catalog_alias
-        self._row_data = row_data
-        self._explore_data = None
-        self._data_loaded = False
-        self._revisions_loaded = False
-        self._revisions = ()
-
-    def compose(self) -> ComposeResult:
-        alias_part = f" ({self._alias})" if self._alias else ""
-        yield Header(show_clock=True)
-        yield Static(
-            f" {self._entry.name[:12]}{alias_part}",
-            id="breadcrumb",
-        )
-        with TabbedContent(id="explore-tabs"):
-            with TabPane("Revisions", id="pane-revisions", disabled=True):
-                yield Static("Loading...", id="revisions-status")
-                yield DataTable(id="revisions-table")
-            with TabPane("Schema", id="pane-schema"):
-                yield DataTable(id="schema-table")
-            with TabPane("Data", id="pane-data", disabled=True):
-                yield Static("Loading...", id="data-status")
-                yield DataTable(id="data-table")
-            with TabPane("Info", id="pane-info"):
-                with VerticalScroll(id="info-scroll"):
-                    with Vertical(id="lineage-section", classes="info-section"):
-                        yield Static("", id="lineage-content")
-                    with Vertical(id="cache-section", classes="info-section"):
-                        yield Static("", id="cache-content")
-                    with Vertical(id="metadata-section", classes="info-section"):
-                        yield Static("", id="metadata-content")
-            with TabPane("Profiles", id="pane-profiles"):
-                yield DataTable(id="profiles-table")
-            with TabPane("Aliases", id="pane-aliases"):
-                yield DataTable(id="aliases-table")
-        yield Footer()
-
-    def on_mount(self) -> None:
-        schema_table = self.query_one("#schema-table", DataTable)
-        schema_table.cursor_type = "row"
-        schema_table.zebra_stripes = True
-        schema_table.add_column("NAME", key="name")
-        schema_table.add_column("TYPE", key="type")
-
-        aliases_table = self.query_one("#aliases-table", DataTable)
-        aliases_table.cursor_type = "row"
-        aliases_table.zebra_stripes = True
-        for col in ALIAS_COLUMNS:
-            aliases_table.add_column(col, key=col)
-
-        data_table = self.query_one("#data-table", DataTable)
-        data_table.cursor_type = "none"
-        data_table.zebra_stripes = True
-        data_table.loading = True
-
-        rev_table = self.query_one("#revisions-table", DataTable)
-        rev_table.cursor_type = "row"
-        rev_table.zebra_stripes = True
-        for col in REVISION_COLUMNS:
-            rev_table.add_column(col, key=col)
-
-        profiles_table = self.query_one("#profiles-table", DataTable)
-        profiles_table.cursor_type = "row"
-        profiles_table.zebra_stripes = True
-        profiles_table.add_column("NAME", key="name")
-        profiles_table.add_column("BACKEND", key="backend")
-        profiles_table.add_column("PARAMETERS", key="params")
-        profiles_table.add_column("ENV VARS", key="env_vars")
-        self._load_profiles()
-
-        self.query_one("#lineage-section").border_title = "Lineage"
-        self.query_one("#cache-section").border_title = "Cache"
-        self.query_one("#metadata-section").border_title = "Metadata"
-        self.query_one("#metadata-section").display = False
-
-        self._load_explore_data()
-
-    @work(thread=True)
-    def _load_profiles(self) -> None:
         env_re = re.compile(r"^\$\{(.+)\}$|^\$(.+)$")
 
         def _extract_env_vars(kwargs):
@@ -685,417 +883,246 @@ class ExploreScreen(Screen):
                 if isinstance(v, str) and (m := env_re.match(v))
             )
 
-        try:
-            with zipfile.ZipFile(self._entry.catalog_path, "r") as zf:
-                member_path = f"{self._entry.name}/profiles.yaml"
-                if member_path not in zf.namelist():
-                    return
-                data = yaml12.parse_yaml(zf.read(member_path))
-            if not isinstance(data, dict):
+        with zipfile.ZipFile(entry.catalog_path, "r") as zf:
+            member_path = f"{entry.name}/profiles.yaml"
+            if member_path not in zf.namelist():
                 return
-            rows = tuple(
-                (
-                    pname,
-                    pdata.get("con_name", "?"),
-                    ", ".join(
-                        f"{k}={v}"
-                        for k, v in (pdata.get("kwargs_tuple") or {}).items()
-                        if v is not None
-                    ),
-                    ", ".join(_extract_env_vars(pdata.get("kwargs_tuple") or {})),
-                )
-                for pname, pdata in data.items()
+            data = yaml12.parse_yaml(zf.read(member_path))
+        match data:
+            case dict():
+                pass
+            case _:
+                return
+        rows = tuple(
+            (
+                pname,
+                pdata.get("con_name", "?"),
+                ", ".join(
+                    f"{k}={v}"
+                    for k, v in (pdata.get("kwargs_tuple") or {}).items()
+                    if v is not None
+                ),
+                ", ".join(_extract_env_vars(pdata.get("kwargs_tuple") or {})),
             )
-            self.app.call_from_thread(self._render_profiles, rows)
-        except Exception:
-            pass
+            for pname, pdata in data.items()
+        )
+        self.app.call_from_thread(self._render_profiles, rows)
 
     def _render_profiles(self, rows) -> None:
-        table = self.query_one("#profiles-table", DataTable)
-        for i, (name, backend, params, env_vars) in enumerate(rows):
-            table.add_row(name, backend, params, env_vars, key=str(i))
+        with self.app.batch_update():
+            table = self.query_one("#profiles-table", DataTable)
+            table.clear()
+            for i, (name, backend, params, env_vars) in enumerate(rows):
+                table.add_row(name, backend, params, env_vars, key=str(i))
 
-    @staticmethod
-    def _build_explore_data(entry, alias, known_cached=None) -> ExploreData:
-        # Schema comes from the sidecar — no content fetch needed.
-        schema_items = tuple(
-            (name, str(dtype)) for name, dtype in entry.metadata.schema_out.items()
+    # --- Revisions Preview ---
+
+    @work(thread=True, exit_on_error=False)
+    def _load_revisions_preview(self, catalog_alias) -> None:
+        try:
+            raw_revisions = catalog_alias.list_revisions()
+        except (KeyError, ValueError, OSError):
+            return
+        revision_rows = tuple(
+            row
+            for i, (rev_entry, commit) in enumerate(raw_revisions)
+            for row, _ in (_revision_pair(i, rev_entry, commit),)
         )
-        # Lineage and cache info require the deserialized expression.
-        expr = maybe_expr(entry)
-        computed_cached, cache_path = maybe_cache_info(expr)
-        return ExploreData(
-            hash=entry.name,
-            alias=alias,
-            schema_items=schema_items,
-            lineage_text=maybe_lineage(expr),
-            is_cached=known_cached if known_cached is not None else computed_cached,
-            cache_path=cache_path,
-            metadata=maybe_metadata(entry),
-        )
+        self.app.call_from_thread(self._render_revisions_preview, revision_rows)
 
-    @work(thread=True)
-    def _load_explore_data(self) -> None:
-        known_cached = self._row_data.cached if self._row_data is not None else None
-        data = self._build_explore_data(
-            self._entry,
-            self._alias,
-            known_cached=known_cached,
-        )
-        self.app.call_from_thread(self._render_explore, data)
+    def _render_revisions_preview(self, revision_rows) -> None:
+        with self.app.batch_update():
+            rev_table = self.query_one("#revisions-preview-table", DataTable)
+            rev_table.clear()
+            for i, row_data in enumerate(revision_rows):
+                rev_table.add_row(*row_data.row, key=str(i))
+            rev_panel = self.query_one("#revisions-panel")
+            rev_panel.border_subtitle = f"{len(revision_rows)} revisions"
 
-    def _render_explore(self, data) -> None:
-        self._explore_data = data
+    # --- Navigation ---
 
-        schema_table = self.query_one("#schema-table", DataTable)
-        if data.schema_items:
-            for name, dtype in data.schema_items:
-                schema_table.add_row(name, dtype)
-        else:
-            schema_table.add_row("(unavailable)", "")
+    def _focused_widget(self) -> DataTable | VerticalScroll:
+        focused = self.app.focused
+        if isinstance(focused, (DataTable, VerticalScroll)):
+            return focused
+        return self.query_one("#catalog-table", DataTable)
 
-        self.query_one("#lineage-content", Static).update(data.lineage_text)
-
-        match (data.is_cached, data.cache_path):
-            case (True, str() as path):
-                cache_text = f"● cached\n  Path: {path}"
-            case (True, _):
-                cache_text = "● cached"
-            case (False, _):
-                cache_text = "○ uncached"
-            case _:
-                cache_text = "— unknown"
-        self.query_one("#cache-content", Static).update(cache_text)
-
-        metadata_section = self.query_one("#metadata-section")
-        if data.metadata:
-            metadata_section.display = True
-            metadata_text = "\n".join(f"{k}: {v}" for k, v in data.metadata)
-            self.query_one("#metadata-content", Static).update(metadata_text)
-        else:
-            metadata_section.display = False
-
-        aliases_table = self.query_one("#aliases-table", DataTable)
-        aliases_table.clear()
-        if self._row_data is not None:
-            for i, alias_name in enumerate(self._row_data.aliases):
-                aliases_table.add_row(alias_name, key=str(i))
-
-        if data.is_cached is True:
-            self.query_one("#pane-data", TabPane).disabled = False
-            self.query_one("#data-status", Static).update(
-                " Data preview (select tab to load)"
-            )
-        else:
-            self.query_one("#data-status", Static).update(
-                " uncached — run to materialize"
-            )
-
-        if data.has_alias:
-            self.query_one("#pane-revisions", TabPane).disabled = False
-            self._revisions_loaded = True
-            self._load_revisions()
-        else:
-            self.query_one("#revisions-status", Static).update(
-                " No alias — revisions unavailable"
-            )
-
-    @on(TabbedContent.TabActivated)
-    def _on_tab_activated(self, event: TabbedContent.TabActivated) -> None:
-        match event.pane.id:
-            case "pane-data":
-                if (
-                    not self._data_loaded
-                    and self._explore_data
-                    and self._explore_data.is_cached is True
-                ):
-                    self._data_loaded = True
-                    self._load_data_preview()
-            case "pane-revisions":
-                if (
-                    not self._revisions_loaded
-                    and self._explore_data
-                    and self._explore_data.has_alias
-                ):
-                    self._revisions_loaded = True
-                    self._load_revisions()
-            case _:
+    def action_scroll_left(self) -> None:
+        w = self._focused_widget()
+        match w:
+            case DataTable():
+                w.action_scroll_left()
+            case VerticalScroll():
                 pass
 
-    @work(thread=True)
-    def _load_data_preview(self) -> None:
-        try:
-            if not self._entry.is_content_local:
-                self.app.call_from_thread(
-                    self.query_one("#data-status", Static).update,
-                    " Fetching content from remote…",
+    def action_cursor_down(self) -> None:
+        w = self._focused_widget()
+        match w:
+            case DataTable():
+                w.action_cursor_down()
+            case VerticalScroll():
+                w.scroll_down()
+
+    def action_cursor_up(self) -> None:
+        w = self._focused_widget()
+        match w:
+            case DataTable():
+                w.action_cursor_up()
+            case VerticalScroll():
+                w.scroll_up()
+
+    def action_scroll_right(self) -> None:
+        w = self._focused_widget()
+        match w:
+            case DataTable():
+                w.action_scroll_right()
+            case VerticalScroll():
+                pass
+
+    def action_focus_next_panel(self) -> None:
+        self._cycle_focus(1)
+
+    def action_focus_prev_panel(self) -> None:
+        self._cycle_focus(-1)
+
+    def _cycle_focus(self, direction: int) -> None:
+        visible = tuple(
+            sel for sel in self.FOCUS_CYCLE if self.query_one(sel).display is not False
+        )
+        if not visible:
+            return
+        current = self.app.focused
+        current_idx = next(
+            (
+                i
+                for i, sel in enumerate(visible)
+                if current is self.query_one(sel)
+                or (
+                    isinstance(current, DataTable)
+                    and current.parent is not None
+                    and current.parent is self.query_one(sel).parent
                 )
-                self._entry.fetch()
-            expr = self._entry.expr
-            df = self._execute_preview(expr)
-            columns = tuple(str(c) for c in df.columns)
-            rows = tuple(
-                tuple(str(round(v, 2)) if isinstance(v, float) else str(v) for v in row)
-                for row in df.itertuples(index=False)
-            )
-            total_rows = len(df)
-            self.app.call_from_thread(self._render_data, columns, rows, total_rows)
-        except Exception as e:
-            self.app.call_from_thread(self._render_data_error, str(e))
-
-    def _execute_preview(self, expr):
-        try:
-            return expr.head(50).execute()
-        except Exception:
-            # connection may be stale; reload from catalog entry and retry
-            fresh_expr = self._entry.expr
-            return fresh_expr.head(50).execute()
-
-    def _render_data(self, columns, rows, total_rows) -> None:
-        self.query_one("#data-status", Static).update(
-            f" Data Preview — {total_rows} rows shown (max 50)"
+            ),
+            0,
         )
-        data_table = self.query_one("#data-table", DataTable)
-        data_table.loading = False
-        for col in columns:
-            data_table.add_column(col, key=col)
-        for i, row in enumerate(rows):
-            data_table.add_row(*row, key=str(i))
-        data_table.cursor_type = "row"
-
-    def _render_data_error(self, message) -> None:
-        self.query_one("#data-status", Static).update(f" Error loading data: {message}")
-        self.query_one("#data-table", DataTable).loading = False
-
-    @work(thread=True)
-    def _load_revisions(self) -> None:
-        if self._catalog_alias is None:
-            self.app.call_from_thread(
-                self._render_revisions_error, "Alias object not available"
-            )
-            return
-        try:
-            raw_revisions = self._catalog_alias.list_revisions()
-        except Exception as e:
-            self.app.call_from_thread(
-                self._render_revisions_error,
-                f"Failed to load revisions: {e}",
-            )
-            return
-
-        def _revision_pair(i, rev_entry, commit):
-            try:
-                exists = rev_entry.exists()
-            except Exception:
-                exists = False
-            col_count, cached, _, _ = (
-                _entry_info(rev_entry) if exists else (None, None, "", None)
-            )
-            row = RevisionRowData(
-                hash=rev_entry.name,
-                column_count=col_count,
-                cached=cached,
-                commit_date=datetime.fromtimestamp(commit.committed_date).strftime(
-                    "%Y-%m-%d %H:%M"
-                ),
-                is_current=(i == 0),
-            )
-            return row, (rev_entry, commit, exists)
-
-        pairs = tuple(
-            _revision_pair(i, rev_entry, commit)
-            for i, (rev_entry, commit) in enumerate(raw_revisions)
-        )
-        revision_rows = tuple(row for row, _ in pairs)
-        valid_revisions = tuple(info for _, info in pairs)
-        self.app.call_from_thread(
-            self._render_revisions,
-            revision_rows,
-            valid_revisions,
-        )
-
-    def _render_revisions(self, revision_rows, valid_revisions) -> None:
-        self._revisions = valid_revisions
-        alias_name = (
-            (self._alias or self._explore_data.alias) if self._explore_data else "?"
-        )
-        self.query_one("#revisions-status", Static).update(
-            f" Revisions for '{alias_name}' — {len(revision_rows)} revisions"
-        )
-        rev_table = self.query_one("#revisions-table", DataTable)
-        for i, row_data in enumerate(revision_rows):
-            rev_table.add_row(*row_data.row, key=str(i))
-
-    def _render_revisions_error(self, message) -> None:
-        self.query_one("#revisions-status", Static).update(f" Error: {message}")
-
-    def _active_table(self) -> DataTable | None:
-        tabs = self.query_one("#explore-tabs", TabbedContent)
-        match tabs.active:
-            case "pane-schema":
-                return self.query_one("#schema-table", DataTable)
-            case "pane-aliases":
-                return self.query_one("#aliases-table", DataTable)
-            case "pane-data":
-                return self.query_one("#data-table", DataTable)
-            case "pane-revisions":
-                return self.query_one("#revisions-table", DataTable)
-            case "pane-profiles":
-                return self.query_one("#profiles-table", DataTable)
-            case _:
-                return None
-
-    def action_go_back(self) -> None:
-        self.dismiss()
+        next_idx = (current_idx + direction) % len(visible)
+        self.query_one(visible[next_idx]).focus()
 
     def action_quit_app(self) -> None:
         self.app.exit()
-
-    def action_scroll_left(self) -> None:
-        table = self._active_table()
-        if table is not None:
-            table.action_scroll_left()
-
-    def action_cursor_down(self) -> None:
-        table = self._active_table()
-        if table is not None:
-            table.action_cursor_down()
-        else:
-            self.query_one("#info-scroll", VerticalScroll).scroll_down()
-
-    def action_cursor_up(self) -> None:
-        table = self._active_table()
-        if table is not None:
-            table.action_cursor_up()
-        else:
-            self.query_one("#info-scroll", VerticalScroll).scroll_up()
-
-    def action_scroll_right(self) -> None:
-        table = self._active_table()
-        if table is not None:
-            table.action_scroll_right()
-
-    def action_tab_schema(self) -> None:
-        self.query_one("#explore-tabs", TabbedContent).active = "pane-schema"
-
-    def action_tab_aliases(self) -> None:
-        self.query_one("#explore-tabs", TabbedContent).active = "pane-aliases"
-
-    def action_tab_data(self) -> None:
-        pane = self.query_one("#pane-data", TabPane)
-        if pane.disabled:
-            self.notify("Data tab unavailable (not cached)", severity="warning")
-            return
-        self.query_one("#explore-tabs", TabbedContent).active = "pane-data"
-
-    def action_tab_revisions(self) -> None:
-        pane = self.query_one("#pane-revisions", TabPane)
-        if pane.disabled:
-            self.notify("Revisions tab unavailable (no alias)", severity="warning")
-            return
-        self.query_one("#explore-tabs", TabbedContent).active = "pane-revisions"
-
-    def action_tab_info(self) -> None:
-        self.query_one("#explore-tabs", TabbedContent).active = "pane-info"
-
-    def action_tab_profiles(self) -> None:
-        self.query_one("#explore-tabs", TabbedContent).active = "pane-profiles"
-
-    def action_select_row(self) -> None:
-        tabs = self.query_one("#explore-tabs", TabbedContent)
-        if tabs.active != "pane-revisions":
-            return
-        rev_table = self.query_one("#revisions-table", DataTable)
-        if rev_table.row_count == 0:
-            return
-        row_key, _ = rev_table.coordinate_to_cell_key(rev_table.cursor_coordinate)
-        idx = int(row_key.value)
-        if idx >= len(self._revisions):
-            return
-        rev_entry, _, exists = self._revisions[idx]
-        if not exists:
-            self.notify("Entry no longer exists on disk", severity="warning")
-            return
-        explore_screens = tuple(
-            s for s in self.app.screen_stack if isinstance(s, ExploreScreen)
-        )
-        if len(explore_screens) >= 2:
-            self.notify("Maximum drill-down depth reached", severity="warning")
-            return
-        self.app.push_screen(ExploreScreen(rev_entry, ""))
 
 
 class CatalogTUI(App):
     TITLE = "xorq catalog"
     CSS = """
+    #main-split {
+        height: 1fr;
+    }
+    #left-column {
+        width: 2fr;
+    }
+    #right-column {
+        width: 3fr;
+    }
     #catalog-panel {
         height: 2fr;
-        border: solid $primary;
+        border: solid #C1F0FF;
+        border-title-color: #C1F0FF;
         background: $surface;
     }
     #catalog-table {
         height: 1fr;
     }
-    #schema-panel {
+    #revisions-panel {
         height: 1fr;
-        border: solid $primary;
+        border: solid #5abfb5;
+        border-title-color: #5abfb5;
+        border-subtitle-color: #5abfb5;
     }
-    #schema-preview-table {
+    #revisions-preview-table {
         height: 1fr;
     }
     #git-log-panel {
         height: 1fr;
-        border: solid $primary;
+        border: solid #4AA8EC;
+        border-title-color: #4AA8EC;
     }
     #git-log-table {
+        height: 1fr;
+    }
+    #sql-panel {
+        height: 2fr;
+        border: solid #2BBE75;
+        border-title-color: #2BBE75;
+        border-subtitle-color: #2BBE75;
+    }
+    #sql-panel:focus-within {
+        border: double #2BBE75;
+    }
+    #sql-preview {
+        height: auto;
+        padding: 1 2;
+    }
+    DataTable:focus {
+        border: none;
+    }
+    #info-panel {
+        height: auto;
+        max-height: 6;
+        border: solid #5abfb5;
+        border-title-color: #5abfb5;
+        padding: 0 1;
+    }
+    #info-content {
+        height: auto;
+    }
+    #schema-panel {
+        height: 1fr;
+        border: solid #4AA8EC;
+        border-title-color: #4AA8EC;
+        border-subtitle-color: #4AA8EC;
+    }
+    #schema-split {
+        height: 1fr;
+    }
+    #schema-in-half {
+        width: 1fr;
+    }
+    #schema-out-half {
+        width: 1fr;
+    }
+    #schema-in-table {
+        height: 1fr;
+    }
+    #schema-preview-table {
+        height: 1fr;
+    }
+    #data-preview-panel {
+        height: 2fr;
+        border: solid #C1F0FF;
+        border-title-color: #C1F0FF;
+        border-subtitle-color: #C1F0FF;
+    }
+    #data-preview-status {
+        height: 1;
+        padding: 0 2;
+    }
+    #data-preview-table {
+        height: 1fr;
+    }
+    #profiles-panel {
+        height: 1fr;
+        border: solid #2BBE75;
+        border-title-color: #2BBE75;
+    }
+    #profiles-table {
         height: 1fr;
     }
     #status-bar {
         dock: bottom;
         height: 1;
         padding: 0 2;
-    }
-    #breadcrumb {
-        height: 1;
-        text-style: bold;
-        padding: 0 2;
-    }
-    #explore-tabs {
-        height: 1fr;
-    }
-    #schema-table {
-        height: 1fr;
-    }
-    #data-status {
-        height: 1;
-        padding: 0 2;
-    }
-    #data-table {
-        height: 1fr;
-    }
-    #revisions-status {
-        height: 1;
-        padding: 0 2;
-    }
-    #revisions-table {
-        height: 1fr;
-    }
-    #info-scroll {
-        height: 1fr;
-    }
-    .info-section {
-        height: auto;
-        margin: 0 1 1 1;
-        padding: 1 2;
-    }
-    .info-section Static {
-        height: auto;
-    }
-    #aliases-table {
-        height: 1fr;
-    }
-    #profiles-table {
-        height: 1fr;
+        background: $surface;
     }
     """
 
