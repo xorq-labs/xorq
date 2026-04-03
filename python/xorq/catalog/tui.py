@@ -303,8 +303,12 @@ def _populate_lineage_tree(tree_widget: Tree, dag: dict) -> None:
     relation.  Each relation node is expandable to show its schema columns.
     """
     tree_widget.clear()
-    nodes_by_id = {n["id"]: n for n in dag.get("nodes", ())}
-    relation_ids = {n["id"] for n in dag.get("nodes", ()) if "schema" in n}
+    nodes_by_id: dict[str, dict] = {}
+    relation_ids: set[str] = set()
+    for n in dag.get("nodes", ()):
+        nodes_by_id[n["id"]] = n
+        if "schema" in n:
+            relation_ids.add(n["id"])
 
     inputs_map: dict[str, list[str]] = {}
     for edge in dag.get("edges", ()):
@@ -366,16 +370,14 @@ def _populate_lineage_tree(tree_widget: Tree, dag: dict) -> None:
         for inp in rel_inputs:
             _build(inp, branch)
 
-    # Set root label.
     if root_id in relation_ids:
         root_node = nodes_by_id[root_id]
         tree_widget.root.set_label(_label(root_node))
         _add_schema_leaves(tree_widget.root, root_node)
         visited.add(root_id)
-        start_inputs = _relation_inputs(root_id, set())
     else:
         tree_widget.root.set_label("[dim](expression)[/dim]")
-        start_inputs = _relation_inputs(root_id, set())
+    start_inputs = _relation_inputs(root_id, set())
 
     for inp in start_inputs:
         _build(inp, tree_widget.root)
@@ -585,16 +587,11 @@ class CatalogScreen(Screen):
         rev_table = self.query_one("#revisions-preview-table", DataTable)
         rev_table.clear()
 
-        if event.row_key is None:
-            sql_preview.update("")
-            lineage_tree.clear()
-            lineage_tree.root.set_label("Lineage")
-            self.query_one("#schema-in-half").display = False
-            self.query_one("#revisions-panel").border_title = "Revisions"
-            self._reset_toggle_panels()
-            return
-
-        row_data = self._row_cache.get(str(event.row_key.value))
+        row_data = (
+            self._row_cache.get(str(event.row_key.value))
+            if event.row_key is not None
+            else None
+        )
         if row_data is None:
             sql_preview.update("")
             lineage_tree.clear()
