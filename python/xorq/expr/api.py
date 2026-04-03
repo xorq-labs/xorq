@@ -283,7 +283,7 @@ def _register_and_transform_cache_tables(expr):
             node = node.__recreate__(kwargs)
         if isinstance(node, CachedNode):
             uncached, cache = node.parent, node.cache
-            storage_kwargs = {}
+            parquet_metadata = None
             # Only stamp provenance on the root CachedNode: inner cached nodes
             # are independently keyed and will get their own provenance when
             # they are the root of a separate execute() call.
@@ -294,10 +294,12 @@ def _register_and_transform_cache_tables(expr):
                     build_provenance_metadata,
                 )
 
-                storage_kwargs["parquet_metadata"] = build_provenance_metadata(
+                parquet_metadata = build_provenance_metadata(
                     expr, cache.strategy, cache.storage
                 )
-            node = cache.set_default(uncached, uncached.op(), **storage_kwargs)
+            node = cache.set_default(
+                uncached, uncached.op(), parquet_metadata=parquet_metadata
+            )
         return node
 
     out = op.replace(fn)

@@ -60,7 +60,7 @@ def _write_parquet(path, batch_reader, parquet_metadata=None):
         )
 
         schema = inject_metadata_into_schema(schema, parquet_metadata)
-    with pq.ParquetWriter(path, schema) as writer:
+    with pq.ParquetWriter(str(path), schema) as writer:
         for batch in batch_reader:
             writer.write_batch(batch)
 
