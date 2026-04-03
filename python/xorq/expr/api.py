@@ -283,18 +283,21 @@ def _register_and_transform_cache_tables(expr):
             node = node.__recreate__(kwargs)
         if isinstance(node, CachedNode):
             uncached, cache = node.parent, node.cache
-            parquet_metadata = None
-            if is_root:
+            storage_kwargs = {}
+            # Only stamp provenance on the root CachedNode: inner cached nodes
+            # are independently keyed and will get their own provenance when
+            # they are the root of a separate execute() call.
+            # We use `expr` (the original full expression from the closure) so
+            # that the embedded hash matches what build_expr produces.
+            if is_root and hasattr(cache.storage, "get_path"):
                 from xorq.common.utils.provenance_utils import (  # noqa: PLC0415
                     build_provenance_metadata,
                 )
 
-                parquet_metadata = build_provenance_metadata(
+                storage_kwargs["parquet_metadata"] = build_provenance_metadata(
                     expr, cache.strategy, cache.storage
                 )
-            node = cache.set_default(
-                uncached, uncached.op(), parquet_metadata=parquet_metadata
-            )
+            node = cache.set_default(uncached, uncached.op(), **storage_kwargs)
         return node
 
     out = op.replace(fn)

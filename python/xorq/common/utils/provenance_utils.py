@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import datetime
-from pathlib import Path
-
 import pyarrow.parquet as pq
 
 
@@ -51,24 +48,3 @@ def read_parquet_provenance(path, fs=None):
     prefix = XORQ_METADATA_PREFIX.encode()
     filtered = {k.decode(): v.decode() for k, v in raw.items() if k.startswith(prefix)}
     return filtered or None
-
-
-def check_cache_valid(path, fs=None):
-    provenance = read_parquet_provenance(path, fs=fs)
-    if provenance is None:
-        return True
-    ttl_str = provenance.get("xorq:cache_ttl_seconds")
-    if not ttl_str:
-        return True
-    ttl = datetime.timedelta(seconds=int(ttl_str))
-    mtime = datetime.datetime.fromtimestamp(Path(path).stat().st_mtime)
-    return (datetime.datetime.now() - mtime) < ttl
-
-
-def cache_to_entry_map(directory):
-    result = {}
-    for p in Path(directory).glob("*.parquet"):
-        provenance = read_parquet_provenance(p)
-        if provenance and "xorq:expr_hash" in provenance:
-            result[p.name] = provenance["xorq:expr_hash"]
-    return result

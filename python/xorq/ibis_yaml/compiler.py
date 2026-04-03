@@ -161,10 +161,11 @@ class ArtifactStore:
 
     @staticmethod
     def get_expr_hash(expr) -> str:
-        expr = canonicalize_expr(expr)
-        with SnapshotStrategy().normalization_context(expr):
-            expr_hash = dask.base.tokenize(expr)[: config.hash_length]
-            return expr_hash
+        from xorq.common.utils.provenance_utils import (  # noqa: PLC0415
+            get_expr_hash,
+        )
+
+        return get_expr_hash(expr)
 
     @classmethod
     def from_path_and_expr(cls, builds_dir, expr):

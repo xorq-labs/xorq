@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import datetime
-import os
-import tempfile
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -12,8 +10,6 @@ from xorq.caching.storage import ParquetStorage, ParquetTTLStorage
 from xorq.caching.strategy import ModificationTimeStrategy, SnapshotStrategy
 from xorq.common.utils.provenance_utils import (
     build_provenance_metadata,
-    cache_to_entry_map,
-    check_cache_valid,
     get_expr_hash,
     inject_metadata_into_schema,
     read_parquet_provenance,
@@ -73,98 +69,27 @@ def test_inject_metadata_preserves_existing():
 
 def _write_test_parquet(path, metadata_dict=None):
     schema = pa.schema([("x", pa.int64())])
-    if metadata_dict:
+    if metadata_dict is not None:
         schema = inject_metadata_into_schema(schema, metadata_dict)
     table = pa.table({"x": [1, 2, 3]}, schema=schema)
     pq.write_table(table, path)
 
 
-def test_read_parquet_provenance():
-    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
-        path = f.name
-    try:
-        meta = {b"xorq:expr_hash": b"abc", b"xorq:cache_strategy": b"Snapshot"}
-        _write_test_parquet(path, meta)
-        prov = read_parquet_provenance(path)
-        assert prov == {
-            "xorq:expr_hash": "abc",
-            "xorq:cache_strategy": "Snapshot",
-        }
-    finally:
-        os.unlink(path)
+def test_read_parquet_provenance(tmp_path):
+    path = tmp_path / "test.parquet"
+    meta = {b"xorq:expr_hash": b"abc", b"xorq:cache_strategy": b"Snapshot"}
+    _write_test_parquet(path, meta)
+    prov = read_parquet_provenance(path)
+    assert prov == {
+        "xorq:expr_hash": "abc",
+        "xorq:cache_strategy": "Snapshot",
+    }
 
 
-def test_read_parquet_provenance_none_without_metadata():
-    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
-        path = f.name
-    try:
-        _write_test_parquet(path)
-        assert read_parquet_provenance(path) is None
-    finally:
-        os.unlink(path)
-
-
-def test_check_cache_valid_no_ttl():
-    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
-        path = f.name
-    try:
-        meta = {b"xorq:expr_hash": b"abc"}
-        _write_test_parquet(path, meta)
-        assert check_cache_valid(path) is True
-    finally:
-        os.unlink(path)
-
-
-def test_check_cache_valid_no_metadata():
-    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
-        path = f.name
-    try:
-        _write_test_parquet(path)
-        assert check_cache_valid(path) is True
-    finally:
-        os.unlink(path)
-
-
-def test_check_cache_valid_ttl_not_expired():
-    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
-        path = f.name
-    try:
-        meta = {b"xorq:expr_hash": b"abc", b"xorq:cache_ttl_seconds": b"3600"}
-        _write_test_parquet(path, meta)
-        # file was just written, so mtime is now — well within 3600s TTL
-        assert check_cache_valid(path) is True
-    finally:
-        os.unlink(path)
-
-
-def test_check_cache_valid_ttl_expired():
-    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
-        path = f.name
-    try:
-        meta = {b"xorq:expr_hash": b"abc", b"xorq:cache_ttl_seconds": b"1"}
-        _write_test_parquet(path, meta)
-        # backdate the file mtime by 10 seconds
-        old_time = (
-            datetime.datetime.now() - datetime.timedelta(seconds=10)
-        ).timestamp()
-        os.utime(path, (old_time, old_time))
-        assert check_cache_valid(path) is False
-    finally:
-        os.unlink(path)
-
-
-def test_cache_to_entry_map():
-    with tempfile.TemporaryDirectory() as tmpdir:
-        for name, expr_hash in [("a.parquet", "hash_a"), ("b.parquet", "hash_b")]:
-            path = os.path.join(tmpdir, name)
-            meta = {b"xorq:expr_hash": expr_hash.encode()}
-            _write_test_parquet(path, meta)
-
-        # file without provenance
-        _write_test_parquet(os.path.join(tmpdir, "c.parquet"))
-
-        result = cache_to_entry_map(tmpdir)
-        assert result == {"a.parquet": "hash_a", "b.parquet": "hash_b"}
+def test_read_parquet_provenance_none_without_metadata(tmp_path):
+    path = tmp_path / "test.parquet"
+    _write_test_parquet(path)
+    assert read_parquet_provenance(path) is None
 
 
 def test_parquet_storage_embeds_metadata():

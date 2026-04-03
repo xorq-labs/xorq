@@ -42,7 +42,7 @@ class CacheStorage:
         pass
 
     @abstractmethod
-    def put(self, key, value, parquet_metadata=None):
+    def put(self, key, value):
         pass
 
     @abstractmethod
@@ -50,19 +50,19 @@ class CacheStorage:
         pass
 
 
-def _write_parquet_with_metadata(expr, path, metadata_dict):
+def _write_parquet(path, batch_reader, parquet_metadata=None):
     import pyarrow.parquet as pq  # noqa: PLC0415
 
-    from xorq.common.utils.provenance_utils import (  # noqa: PLC0415
-        inject_metadata_into_schema,
-    )
-    from xorq.expr.api import to_pyarrow_batches  # noqa: PLC0415
+    schema = batch_reader.schema
+    if parquet_metadata is not None:
+        from xorq.common.utils.provenance_utils import (  # noqa: PLC0415
+            inject_metadata_into_schema,
+        )
 
-    with to_pyarrow_batches(expr) as batch_reader:
-        schema = inject_metadata_into_schema(batch_reader.schema, metadata_dict)
-        with pq.ParquetWriter(path, schema) as writer:
-            for batch in batch_reader:
-                writer.write_batch(batch)
+        schema = inject_metadata_into_schema(schema, parquet_metadata)
+    with pq.ParquetWriter(path, schema) as writer:
+        for batch in batch_reader:
+            writer.write_batch(batch)
 
 
 @frozen
@@ -119,10 +119,8 @@ class ParquetStorage(CacheStorage):
         path = self.get_path(key)
         # move from temp location upon success to prevent empty files on failure
         tmp_path = path.with_name(path.name + ".tmp")
-        if parquet_metadata is not None:
-            _write_parquet_with_metadata(value.to_expr(), tmp_path, parquet_metadata)
-        else:
-            value.to_expr().to_parquet(tmp_path)
+        with value.to_expr().to_pyarrow_batches() as batch_reader:
+            _write_parquet(tmp_path, batch_reader, parquet_metadata=parquet_metadata)
         tmp_path.rename(path)
         return self.get(key)
 
@@ -181,7 +179,7 @@ class SourceStorage(CacheStorage):
     def get(self, key):
         return self.source.table(key).op()
 
-    def put(self, key, value, parquet_metadata=None):
+    def put(self, key, value):
         def is_remote(value):
             name = value.to_expr()._find_backend().name
             # FIXME: add pyiceberg, trino
