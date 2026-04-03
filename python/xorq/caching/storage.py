@@ -42,7 +42,7 @@ class CacheStorage:
         pass
 
     @abstractmethod
-    def put(self, key, value):
+    def put(self, key, value, parquet_metadata=None):
         pass
 
     @abstractmethod
@@ -179,7 +179,7 @@ class SourceStorage(CacheStorage):
     def get(self, key):
         return self.source.table(key).op()
 
-    def put(self, key, value):
+    def put(self, key, value, parquet_metadata=None):
         def is_remote(value):
             name = value.to_expr()._find_backend().name
             # FIXME: add pyiceberg, trino
