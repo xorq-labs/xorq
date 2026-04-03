@@ -23,6 +23,7 @@ __all__ = [
     "build_column_trees",
     "build_tree",
     "extract_lineage_chain",
+    "extract_lineage_dag",
 ]
 
 
@@ -232,3 +233,76 @@ def build_tree(
         return TextTree(label, children=children)
 
     return _to_tree(node, 0)
+
+
+def extract_lineage_dag(expr: Any) -> dict:
+    """Extract a full DAG representation of expression lineage.
+
+    Uses ``bfs`` and ``gen_children_of`` from :mod:`graph_utils` for a
+    complete traversal that correctly follows opaque sub-expressions
+    (RemoteTable, CachedNode, FlightExpr, ExprScalarUDF, etc.).
+
+    Returns
+    -------
+    dict
+        ``{"nodes": [...], "edges": [...], "root": "node_0"}``
+
+        Each node dict has keys: ``id``, ``op``, ``name``, ``label`` (the
+        rich ``format_node`` string), and optionally ``schema`` (a mapping
+        of column name to ``{"dtype": str, "nullable": bool}``).
+
+        Each edge dict has keys: ``source`` (upstream node id) and ``target``
+        (downstream node id).
+    """
+    from xorq.vendor.ibis.expr.operations.relations import Relation  # noqa: PLC0415
+
+    root_node = to_node(expr)
+    graph = bfs(root_node)
+
+    # Assign stable IDs in BFS insertion order.
+    node_to_id: dict[Node, str] = {}
+    for i, node in enumerate(graph):
+        node_to_id[node] = f"node_{i}"
+
+    nodes: list[dict] = []
+    edges: list[dict] = []
+
+    for node, children in graph.items():
+        node_id = node_to_id[node]
+        op_name = node.__class__.__name__
+        name = getattr(node, "name", "") or ""
+
+        node_data: dict[str, Any] = {
+            "id": node_id,
+            "op": op_name,
+            "name": name,
+            "label": format_node(node),
+        }
+
+        # Attach per-column schema for relation nodes.
+        if isinstance(node, Relation):
+            try:
+                schema = node.schema
+                node_data["schema"] = {
+                    col_name: {
+                        "dtype": str(dtype),
+                        "nullable": dtype.nullable,
+                    }
+                    for col_name, dtype in schema.items()
+                }
+            except Exception:
+                pass
+
+        nodes.append(node_data)
+
+        # Edges point from upstream (child/source) to downstream (current node).
+        for child in children:
+            child_id = node_to_id.get(child)
+            if child_id is not None:
+                edges.append({"source": child_id, "target": node_id})
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "root": node_to_id.get(root_node),
+    }

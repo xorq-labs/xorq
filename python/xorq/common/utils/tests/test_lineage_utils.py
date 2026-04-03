@@ -2,6 +2,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from attrs import evolve
 
 import xorq.api as xo
 import xorq.expr.datatypes as dt
@@ -13,10 +14,12 @@ from xorq.common.utils.lineage_utils import (
     _build_column_tree,
     build_column_trees,
     build_tree,
+    extract_lineage_dag,
 )
 from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.vendor.ibis.expr.operations.core import Node
 from xorq.vendor.ibis.expr.operations.reductions import Sum
+from xorq.vendor.ibis.expr.types.core import ExprMetadata
 
 
 @xo.udf.make_pandas_udf(
@@ -312,3 +315,72 @@ def test_build_column_tree_output_size_bounded(multi_join_expression):
         f"Output DAG has {unique_output} unique GenericNodes for {unique_input} "
         f"unique input nodes — suggests repeated construction"
     )
+
+
+class TestExtractLineageDag:
+    def test_basic_structure(self, sample_expression):
+        dag = extract_lineage_dag(sample_expression)
+
+        assert "nodes" in dag
+        assert "edges" in dag
+        assert "root" in dag
+        assert isinstance(dag["nodes"], list)
+        assert isinstance(dag["edges"], list)
+        assert dag["root"] is not None
+
+    def test_nodes_have_required_fields(self, sample_expression):
+        dag = extract_lineage_dag(sample_expression)
+
+        for node in dag["nodes"]:
+            assert "id" in node
+            assert "op" in node
+            assert "name" in node
+            assert node["id"].startswith("node_")
+
+    def test_relation_nodes_have_schema(self, sample_expression):
+        dag = extract_lineage_dag(sample_expression)
+
+        schema_nodes = [n for n in dag["nodes"] if "schema" in n]
+        assert len(schema_nodes) > 0, "At least one relation node should have schema"
+
+        for node in schema_nodes:
+            for _col_name, col_info in node["schema"].items():
+                assert "dtype" in col_info
+                assert "nullable" in col_info
+
+    def test_edges_reference_valid_nodes(self, sample_expression):
+        dag = extract_lineage_dag(sample_expression)
+        node_ids = {n["id"] for n in dag["nodes"]}
+
+        for edge in dag["edges"]:
+            assert "source" in edge
+            assert "target" in edge
+            assert edge["source"] in node_ids
+            assert edge["target"] in node_ids
+
+    def test_root_is_a_valid_node(self, sample_expression):
+        dag = extract_lineage_dag(sample_expression)
+        node_ids = {n["id"] for n in dag["nodes"]}
+        assert dag["root"] in node_ids
+
+    def test_multi_join(self, multi_join_expression):
+        dag = extract_lineage_dag(multi_join_expression)
+
+        assert len(dag["nodes"]) > 1
+        assert len(dag["edges"]) > 0
+
+        # Should contain JoinChain nodes
+        op_types = {n["op"] for n in dag["nodes"]}
+        assert "JoinChain" in op_types
+
+    def test_round_trip_via_expr_metadata(self, sample_expression):
+        """Verify lineage survives ExprMetadata to_dict/from_dict."""
+        dag = extract_lineage_dag(sample_expression)
+
+        metadata = ExprMetadata.from_expr(sample_expression)
+        metadata_with_lineage = evolve(metadata, lineage=dag)
+        serialized = metadata_with_lineage.to_dict()
+        assert "lineage" in serialized
+
+        restored = ExprMetadata.from_dict(serialized)
+        assert restored.lineage == dag
