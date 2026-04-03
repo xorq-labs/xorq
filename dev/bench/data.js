@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775216378237,
+  "lastUpdate": 1775237476347,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -3432,6 +3432,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.022943579088369796",
             "extra": "mean: 218.45987620000642 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8163ae83f183279e42bd1c57b20ab1fa7014df45",
+          "message": "feat: parquet embedded provenance (#1777)\n\ndepends on #1776\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-04-03T13:27:41-04:00",
+          "tree_id": "4f132815ce709987dae4b3dfb81f6de7ad929304",
+          "url": "https://github.com/xorq-labs/xorq/commit/8163ae83f183279e42bd1c57b20ab1fa7014df45"
+        },
+        "date": 1775237474327,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.182663392836165,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01466635141092103",
+            "extra": "mean: 139.22412137500118 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.829134953105196,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007433598864618276",
+            "extra": "mean: 207.07642460001807 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.631431385974437,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17557853519619715",
+            "extra": "mean: 1.583703348000006 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.208536911551343,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03308791807139567",
+            "extra": "mean: 311.66853539998556 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.9690709227517025,
+            "unit": "iter/sec",
+            "range": "stddev: 0.033387902243576746",
+            "extra": "mean: 251.9481308000195 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.224072219983098,
+            "unit": "iter/sec",
+            "range": "stddev: 0.051656689617794495",
+            "extra": "mean: 236.73837660001027 msec\nrounds: 5"
           }
         ]
       }
