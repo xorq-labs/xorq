@@ -695,7 +695,17 @@ def compose(ctx, entries, code, alias, cache_dir, dry_run, raw_rename_params):
     help="Rename a parameter: entry,old_name,new_name (repeatable).",
 )
 @click.pass_context
-def run(ctx, entries, code, output_path, output_format, limit, instream, fuse, raw_rename_params):
+def run(
+    ctx,
+    entries,
+    code,
+    output_path,
+    output_format,
+    limit,
+    instream,
+    fuse,
+    raw_rename_params,
+):
     """Compose and execute catalog entries.
 
     One entry runs it directly; multiple entries compose source + transforms:
@@ -712,8 +722,12 @@ def run(ctx, entries, code, output_path, output_format, limit, instream, fuse, r
 
     To persist composed results, use 'compose'.
     """
+    from opentelemetry.trace import StatusCode
+
     from xorq.cli import arbitrate_output_format
+    from xorq.common.utils.logging_utils import RunLogger
     from xorq.common.utils.otel_utils import tracer
+    from xorq.common.utils.profile_utils import timed
 
     with tracer.start_as_current_span("catalog.run") as span:
         span.set_attributes({"entries": entries, "has_code": code is not None})
@@ -721,38 +735,92 @@ def run(ctx, entries, code, output_path, output_format, limit, instream, fuse, r
             if not entries:
                 raise click.UsageError("At least one entry is required.")
 
-            catalog = ctx.obj.make_catalog(init=False)
-            rename_map = (
-                _parse_rename_params(raw_rename_params) if raw_rename_params else None
+            expr_hash = "+".join(entries)
+            run_params = (
+                ("expr_hash", expr_hash),
+                ("entries", ",".join(entries)),
+                ("has_code", str(code is not None)),
+                ("output_format", str(output_format)),
+                ("output_path", str(output_path)),
+                ("fuse", str(fuse)),
+                ("limit", limit),
             )
 
-            if len(entries) > 1:
-                expr = _compose_expr(catalog, entries, code, rename_map=rename_map)
-            else:
-                (entry,) = entries
-                try:
-                    catalog_entry = catalog.get_catalog_entry(entry, maybe_alias=True)
-                except (ValueError, AssertionError) as err:
-                    raise click.ClickException(
-                        f"Entry {entry!r} not found — run 'xorq catalog list' "
-                        f"or 'xorq catalog list-aliases' to see available entries."
-                    ) from err
-                from xorq.ibis_yaml.enums import ExprKind
+            span.add_event(
+                "catalog_run.params",
+                {k: v for k, v in run_params if v is not None},
+            )
 
-                span.set_attribute("kind", str(catalog_entry.kind))
-                expr = _eval_entry(catalog_entry, code, instream)
-                if rename_map and entry in rename_map:
-                    from xorq.common.utils.graph_utils import (
-                        rename_params,  # noqa: PLC0415
+            try:
+                with RunLogger.from_expr_hash(expr_hash, params_tuple=run_params) as rl:
+                    rl.log_event("catalog_run.start", dict(run_params))
+
+                    catalog = ctx.obj.make_catalog(init=False)
+                    rename_map = (
+                        _parse_rename_params(raw_rename_params)
+                        if raw_rename_params
+                        else None
                     )
 
-                    expr = rename_params(expr, rename_map[entry])
-                if catalog_entry.kind is ExprKind.UnboundExpr:
-                    span.set_attribute("piped_stdin", True)
+                    with timed() as get_elapsed:
+                        if len(entries) > 1:
+                            expr = _compose_expr(
+                                catalog, entries, code, rename_map=rename_map
+                            )
+                        else:
+                            (entry,) = entries
+                            try:
+                                catalog_entry = catalog.get_catalog_entry(
+                                    entry, maybe_alias=True
+                                )
+                            except (ValueError, AssertionError) as err:
+                                raise click.ClickException(
+                                    f"Entry {entry!r} not found — run 'xorq catalog list' "
+                                    f"or 'xorq catalog list-aliases' to see available entries."
+                                ) from err
+                            from xorq.ibis_yaml.enums import ExprKind
 
-            if fuse:
-                expr = expr.ls.fused
+                            span.set_attribute("kind", str(catalog_entry.kind))
+                            expr = _eval_entry(catalog_entry, code, instream)
+                            if rename_map and entry in rename_map:
+                                from xorq.common.utils.graph_utils import (
+                                    rename_params,  # noqa: PLC0415
+                                )
 
-            if limit is not None:
-                expr = expr.limit(limit)
-            arbitrate_output_format(expr, output_path, output_format)
+                                expr = rename_params(expr, rename_map[entry])
+                            if catalog_entry.kind is ExprKind.UnboundExpr:
+                                span.set_attribute("piped_stdin", True)
+
+                        load_metrics = {"elapsed_s": round(get_elapsed(), 3)}
+                        span.add_event("catalog_run.expr_loaded", load_metrics)
+                        rl.log_event("catalog_run.expr_loaded", load_metrics)
+
+                    if fuse:
+                        expr = expr.ls.fused
+
+                    if limit is not None:
+                        expr = expr.limit(limit)
+
+                    with timed() as get_elapsed:
+                        arbitrate_output_format(expr, output_path, output_format)
+                        execute_metrics = {
+                            "elapsed_s": round(get_elapsed(), 3),
+                            "output_format": str(output_format),
+                        }
+                        span.add_event("catalog_run.done", execute_metrics)
+                        rl.log_event("catalog_run.done", execute_metrics)
+
+                    file_metrics = RunLogger._compute_file_metrics(
+                        output_format, output_path
+                    )
+                    if file_metrics:
+                        span.add_event("catalog_run.output_written", file_metrics)
+                        rl.log_event("catalog_run.output_written", file_metrics)
+
+                    span.set_status(StatusCode.OK)
+                    rl.finalize(status="ok", span_context=span.get_span_context())
+
+            except Exception as e:
+                span.set_status(StatusCode.ERROR, str(e))
+                span.record_exception(e)
+                raise
