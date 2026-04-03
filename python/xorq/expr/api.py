@@ -289,9 +289,8 @@ def _register_and_transform_cache_tables(expr):
                     build_provenance_metadata,
                 )
 
-                key = cache.calc_key(uncached)
                 parquet_metadata = build_provenance_metadata(
-                    key, cache.strategy, cache.storage
+                    expr, cache.strategy, cache.storage
                 )
             node = cache.set_default(
                 uncached, uncached.op(), parquet_metadata=parquet_metadata

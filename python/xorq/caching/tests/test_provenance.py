@@ -14,6 +14,7 @@ from xorq.common.utils.provenance_utils import (
     build_provenance_metadata,
     cache_to_entry_map,
     check_cache_valid,
+    get_expr_hash,
     inject_metadata_into_schema,
     read_parquet_provenance,
 )
@@ -22,9 +23,11 @@ from xorq.common.utils.provenance_utils import (
 def test_build_provenance_metadata():
     strategy = SnapshotStrategy()
     storage = ParquetStorage()
-    meta = build_provenance_metadata("abc123", strategy, storage)
+    t = xo.memtable({"x": [1, 2, 3]})
+    meta = build_provenance_metadata(t, strategy, storage)
 
-    assert meta[b"xorq:expr_hash"] == b"abc123"
+    assert b"xorq:expr_hash" in meta
+    assert meta[b"xorq:expr_hash"] == get_expr_hash(t).encode()
     assert meta[b"xorq:cache_strategy"] == b"SnapshotStrategy"
     assert meta[b"xorq:cache_storage"] == b"ParquetStorage"
     assert b"xorq:cache_ttl_seconds" not in meta
@@ -33,9 +36,10 @@ def test_build_provenance_metadata():
 def test_build_provenance_metadata_with_ttl():
     strategy = SnapshotStrategy()
     storage = ParquetTTLStorage(ttl=datetime.timedelta(hours=2))
-    meta = build_provenance_metadata("key456", strategy, storage)
+    t = xo.memtable({"y": [10, 20]})
+    meta = build_provenance_metadata(t, strategy, storage)
 
-    assert meta[b"xorq:expr_hash"] == b"key456"
+    assert meta[b"xorq:expr_hash"] == get_expr_hash(t).encode()
     assert meta[b"xorq:cache_strategy"] == b"SnapshotStrategy"
     assert meta[b"xorq:cache_storage"] == b"ParquetTTLStorage"
     assert meta[b"xorq:cache_ttl_seconds"] == b"7200"
@@ -44,7 +48,8 @@ def test_build_provenance_metadata_with_ttl():
 def test_build_provenance_metadata_modification_time():
     strategy = ModificationTimeStrategy()
     storage = ParquetStorage()
-    meta = build_provenance_metadata("hash789", strategy, storage)
+    t = xo.memtable({"z": [1]})
+    meta = build_provenance_metadata(t, strategy, storage)
 
     assert meta[b"xorq:cache_strategy"] == b"ModificationTimeStrategy"
 
@@ -178,7 +183,7 @@ def test_parquet_storage_embeds_metadata():
 
     prov = read_parquet_provenance(path)
     assert prov is not None
-    assert prov["xorq:expr_hash"] == key
+    assert prov["xorq:expr_hash"] == get_expr_hash(expr)
     assert prov["xorq:cache_strategy"] == "SnapshotStrategy"
     assert prov["xorq:cache_storage"] == "ParquetStorage"
 
