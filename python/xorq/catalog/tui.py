@@ -656,7 +656,8 @@ class CatalogScreen(Screen):
                 sql_preview.write("(SQL unavailable)")
                 sql_panel.border_subtitle = ""
             case _ if entry_hash in self._sql_cache:
-                sql_preview.write(self._sql_cache[entry_hash])
+                syntax, truncated, total_lines = self._sql_cache[entry_hash]
+                self._write_sql_to_widget(syntax, truncated, total_lines)
                 match row_data.sqls:
                     case ((_, engine, _),):
                         sql_panel.border_subtitle = engine
@@ -1097,20 +1098,36 @@ class CatalogScreen(Screen):
 
     # --- SQL Rendering (off main thread) ---
 
+    _SQL_MAX_LINES = 1000
+
     @work(thread=True, exit_on_error=False)
     def _render_sql_async(self, entry_hash: str, sql_text: str) -> None:
         self._sql_rendering_hash = entry_hash
+        lines = sql_text.split("\n")
+        truncated = len(lines) > self._SQL_MAX_LINES
+        if truncated:
+            sql_text = "\n".join(lines[: self._SQL_MAX_LINES])
         syntax = Syntax(sql_text, "sql", theme=XorqSQLStyle, word_wrap=True)
-        self.app.call_from_thread(self._render_sql_done, entry_hash, syntax)
+        self.app.call_from_thread(
+            self._render_sql_done, entry_hash, syntax, truncated, len(lines)
+        )
 
-    def _render_sql_done(self, entry_hash: str, syntax) -> None:
-        self._sql_cache[entry_hash] = syntax
-        # Only update the widget if user is still viewing this entry.
+    def _render_sql_done(
+        self, entry_hash: str, syntax, truncated: bool, total_lines: int
+    ) -> None:
+        self._sql_cache[entry_hash] = (syntax, truncated, total_lines)
         if self._sql_rendering_hash == entry_hash:
-            sql_preview = self.query_one("#sql-preview", RichLog)
-            sql_preview.clear()
-            sql_preview.write(syntax)
-            sql_preview.loading = False
+            self._write_sql_to_widget(syntax, truncated, total_lines)
+
+    def _write_sql_to_widget(self, syntax, truncated, total_lines) -> None:
+        sql_preview = self.query_one("#sql-preview", RichLog)
+        sql_preview.clear()
+        sql_preview.write(syntax)
+        if truncated:
+            sql_preview.write(
+                f"\n[dim]… truncated ({self._SQL_MAX_LINES}/{total_lines} lines)[/dim]"
+            )
+        sql_preview.loading = False
 
     # --- Revisions Preview ---
 
