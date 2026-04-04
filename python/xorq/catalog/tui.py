@@ -502,13 +502,14 @@ class CatalogScreen(Screen):
         ("1", "show_view('sql')", "SQL"),
         ("2", "show_view('lineage')", "Lineage"),
         ("3", "show_view('data')", "Data"),
-        ("p", "toggle_profiles", "Profiles"),
+        ("4", "show_view('profiles')", "Profiles"),
     )
 
     VIEW_PANELS = {
         "lineage": "#lineage-panel",
         "sql": "#sql-panel",
         "data": "#data-preview-panel",
+        "profiles": "#profiles-panel",
     }
 
     FOCUS_CYCLE = (
@@ -550,14 +551,14 @@ class CatalogScreen(Screen):
                     with Vertical(id="data-preview-panel"):
                         yield Static("", id="data-preview-status")
                         yield DataTable(id="data-preview-table")
+                    with Vertical(id="profiles-panel"):
+                        yield DataTable(id="profiles-table")
                 with Vertical(id="schema-panel"):
                     with Horizontal(id="schema-split"):
                         with Vertical(id="schema-in-half"):
                             yield DataTable(id="schema-in-table")
                         with Vertical(id="schema-out-half"):
                             yield DataTable(id="schema-preview-table")
-                with Vertical(id="profiles-panel"):
-                    yield DataTable(id="profiles-table")
         yield Static("", id="status-bar")
         yield Footer()
 
@@ -619,9 +620,7 @@ class CatalogScreen(Screen):
         git_log_panel = self.query_one("#git-log-panel")
         git_log_panel.border_title = "Git Log"
         git_log_panel.display = False
-        profiles_panel = self.query_one("#profiles-panel")
-        profiles_panel.border_title = "Profiles"
-        profiles_panel.display = False
+        self.query_one("#profiles-panel").border_title = "Profiles"
         self.query_one("#status-bar", Static).update(" Loading catalog...")
 
         self.set_interval(self._refresh_interval, self._do_refresh)
@@ -748,21 +747,9 @@ class CatalogScreen(Screen):
             dt.clear(columns=True)
             dt.loading = True
 
-        if self._profiles_state.visible:
-            self._reload_profiles_for_current(row_data, entry_hash)
-        else:
+        if self._active_view == "profiles":
             self._profiles_state = _TogglePanelState()
-            self.query_one("#profiles-panel").display = False
-            self.query_one("#profiles-table", DataTable).clear()
-
-    def _reload_profiles_for_current(self, row_data, entry_hash) -> None:
-        """Reload profiles panel content for a new row while keeping it visible."""
-        self._profiles_state = _TogglePanelState(
-            visible=True,
-            loaded=True,
-            entry_hash=entry_hash,
-        )
-        self._load_profiles(row_data.entry)
+            self._ensure_profiles_loaded()
 
     def _apply_view(self, name: str) -> None:
         """Show the named detail view, hiding the others."""
@@ -779,7 +766,6 @@ class CatalogScreen(Screen):
         dt.loading = True
 
         self._profiles_state = _TogglePanelState()
-        self.query_one("#profiles-panel").display = False
         self.query_one("#profiles-table", DataTable).clear()
 
     @work(thread=True, exit_on_error=False)
@@ -937,6 +923,8 @@ class CatalogScreen(Screen):
         self._apply_view(name)
         if name == "data":
             self._ensure_data_loaded()
+        elif name == "profiles":
+            self._ensure_profiles_loaded()
 
     def _ensure_data_loaded(self) -> None:
         table = self.query_one("#catalog-table", DataTable)
@@ -1002,9 +990,9 @@ class CatalogScreen(Screen):
         self.query_one("#data-preview-status", Static).update(f" Error: {message}")
         self.query_one("#data-preview-table", DataTable).loading = False
 
-    # --- Toggle: Profiles ---
+    # --- View: Profiles (4) ---
 
-    def action_toggle_profiles(self) -> None:
+    def _ensure_profiles_loaded(self) -> None:
         table = self.query_one("#catalog-table", DataTable)
         if table.row_count == 0:
             return
@@ -1013,25 +1001,17 @@ class CatalogScreen(Screen):
         row_data = self._row_cache.get(entry_hash)
         if row_data is None:
             return
-
-        toggled = not self._profiles_state.visible
-        self._profiles_state = _TogglePanelState(
-            visible=toggled,
-            loaded=self._profiles_state.loaded,
-            entry_hash=self._profiles_state.entry_hash,
-        )
-        self.query_one("#profiles-panel").display = toggled
-
-        if toggled and (
-            not self._profiles_state.loaded
-            or self._profiles_state.entry_hash != entry_hash
+        if (
+            self._profiles_state.loaded
+            and self._profiles_state.entry_hash == entry_hash
         ):
-            self._profiles_state = _TogglePanelState(
-                visible=True,
-                loaded=True,
-                entry_hash=entry_hash,
-            )
-            self._load_profiles(row_data.entry)
+            return
+        self._profiles_state = _TogglePanelState(
+            visible=True,
+            loaded=True,
+            entry_hash=entry_hash,
+        )
+        self._load_profiles(row_data.entry)
 
     @work(thread=True, exit_on_error=False)
     def _load_profiles(self, entry) -> None:
