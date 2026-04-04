@@ -235,6 +235,7 @@ def extract_lineage_dag(expr: Any) -> dict:
         Each edge dict has keys: ``source`` (upstream node id) and ``target``
         (downstream node id).
     """
+    from xorq.expr.relations import Tag  # noqa: PLC0415
     from xorq.vendor.ibis.expr.operations.relations import Relation  # noqa: PLC0415
 
     root_node = to_node(expr)
@@ -266,6 +267,10 @@ def extract_lineage_dag(expr: Any) -> dict:
                 }
             except (AttributeError, TypeError):
                 pass
+
+            if isinstance(node, Tag):
+                meta = dict(node.metadata) if node.metadata else {}
+                node_data["tag"] = meta
 
         nodes.append(node_data)
 

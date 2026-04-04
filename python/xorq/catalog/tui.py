@@ -21,6 +21,8 @@ from pygments.token import (
     Token,
 )
 from rich.syntax import Syntax
+from rich.table import Table as RichTable
+from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -295,20 +297,28 @@ def _build_git_log_rows(repo, max_count=100) -> tuple[GitLogRowData, ...]:
     )
 
 
-def _populate_lineage_tree(tree_widget: Tree, dag: dict) -> None:
-    """Populate a Textual Tree widget with relation nodes from a lineage DAG.
+_TAG_OPS = frozenset({"Tag", "HashingTag"})
 
-    Non-relation ops (Field, Sum, Greater, Literal, …) are skipped;
-    their upstream relation inputs are promoted to the nearest downstream
-    relation.  Each relation node is expandable to show its schema columns.
+
+def _populate_lineage_tree(tree_widget: Tree, tags_widget: Static, dag: dict) -> None:
+    """Populate lineage tree and tags display from a lineage DAG.
+
+    The lineage tree shows only non-tag relation nodes (tables, joins,
+    caches, etc.).  Tag and HashingTag nodes are rendered as a compact
+    vertical table in the tags Static widget.
     """
     tree_widget.clear()
+
     nodes_by_id: dict[str, dict] = {}
     relation_ids: set[str] = set()
+    tag_nodes: list[dict] = []
     for n in dag.get("nodes", ()):
         nodes_by_id[n["id"]] = n
         if "schema" in n:
-            relation_ids.add(n["id"])
+            if n.get("op") in _TAG_OPS:
+                tag_nodes.append(n)
+            else:
+                relation_ids.add(n["id"])
 
     inputs_map: dict[str, list[str]] = {}
     for edge in dag.get("edges", ()):
@@ -317,6 +327,7 @@ def _populate_lineage_tree(tree_widget: Tree, dag: dict) -> None:
     root_id = dag.get("root")
     if not root_id or root_id not in nodes_by_id:
         tree_widget.root.set_label("(empty)")
+        tags_widget.root.set_label("Tags")
         return
 
     def _relation_inputs(node_id: str, seen: set[str]) -> list[str]:
@@ -334,17 +345,16 @@ def _populate_lineage_tree(tree_widget: Tree, dag: dict) -> None:
     def _label(node: dict) -> str:
         op = node.get("op", "?")
         name = node.get("name", "")
-        label = node.get("label") or op
+        text = node.get("label") or op
         ncols = len(node.get("schema", {}))
-        if name and name not in label:
-            label = f"{label} ({name})"
+        if name and name not in text:
+            text = f"{text} ({name})"
         if ncols:
-            label = f"{label}  [dim]{ncols} cols[/dim]"
-        return label
+            text = f"{text}  [dim]{ncols} cols[/dim]"
+        return text
 
     def _add_schema_leaves(branch, node: dict) -> None:
-        schema = node.get("schema", {})
-        for col_name, col_info in schema.items():
+        for col_name, col_info in node.get("schema", {}).items():
             dtype = col_info.get("dtype", "?")
             nullable = col_info.get("nullable", True)
             null_tag = "" if nullable else " [dim]NOT NULL[/dim]"
@@ -362,14 +372,12 @@ def _populate_lineage_tree(tree_widget: Tree, dag: dict) -> None:
             return
         visited.add(node_id)
         rel_inputs = _relation_inputs(node_id, set())
-        if rel_inputs:
-            branch = parent.add(label, expand=True)
-        else:
-            branch = parent.add(label, expand=False)
+        branch = parent.add(label, expand=bool(rel_inputs))
         _add_schema_leaves(branch, node)
         for inp in rel_inputs:
             _build(inp, branch)
 
+    # Lineage tree — relation nodes only, no tags.
     if root_id in relation_ids:
         root_node = nodes_by_id[root_id]
         tree_widget.root.set_label(_label(root_node))
@@ -377,11 +385,48 @@ def _populate_lineage_tree(tree_widget: Tree, dag: dict) -> None:
         visited.add(root_id)
     else:
         tree_widget.root.set_label("[dim](expression)[/dim]")
-    start_inputs = _relation_inputs(root_id, set())
-
-    for inp in start_inputs:
+    for inp in _relation_inputs(root_id, set()):
         _build(inp, tree_widget.root)
     tree_widget.root.expand()
+
+    # Tags — compact vertical display.
+    _render_tags(tags_widget, tag_nodes)
+
+
+def _render_tags(widget: Static, tag_nodes: list[dict]) -> None:
+    """Render tag nodes as a compact Rich table in a Static widget."""
+    if not tag_nodes:
+        widget.update("")
+        return
+
+    table = RichTable(
+        show_header=False,
+        show_edge=False,
+        pad_edge=False,
+        box=None,
+        padding=(0, 1),
+        expand=True,
+    )
+    table.add_column("label", ratio=1, no_wrap=True)
+    table.add_column("value", ratio=2)
+
+    for tn in tag_nodes:
+        tag_meta = tn.get("tag", {})
+        tag_value = tag_meta.get("tag", "")
+        op = tn.get("op", "Tag")
+
+        # Header row: tag name with type indicator.
+        name = Text(tag_value or op, style="bold")
+        kind = Text("hashing", style="dim italic") if op == "HashingTag" else Text("")
+        table.add_row(name, kind)
+
+        # Metadata rows.
+        for k, v in tag_meta.items():
+            if k == "tag":
+                continue
+            table.add_row(Text(f"  {k}", style="dim"), Text(str(v)))
+
+    widget.update(table)
 
 
 def _render_sql_dag(sqls: tuple[tuple[str, str, str], ...]) -> str:
@@ -452,6 +497,7 @@ class CatalogScreen(Screen):
         ("l", "scroll_right", "Right"),
         ("tab", "focus_next_panel", "Next"),
         ("shift+tab", "focus_prev_panel", "Prev"),
+        ("v", "toggle_revisions", "Revisions"),
         ("g", "toggle_git_log", "Git Log"),
         ("1", "show_view('sql')", "SQL"),
         ("2", "show_view('lineage')", "Lineage"),
@@ -476,6 +522,7 @@ class CatalogScreen(Screen):
         super().__init__()
         self._refresh_interval = refresh_interval
         self._row_cache: dict[str, CatalogRowData] = {}
+        self._revisions_visible = False
         self._git_log_visible = False
         self._git_log_loaded = False
         self._refresh_lock = threading.Lock()
@@ -497,6 +544,7 @@ class CatalogScreen(Screen):
                 with Vertical(id="detail-view"):
                     with Vertical(id="lineage-panel"):
                         yield Tree("Lineage", id="lineage-tree")
+                        yield Static("", id="tags-content")
                     with VerticalScroll(id="sql-panel"):
                         yield Static("", id="sql-preview")
                     with Vertical(id="data-preview-panel"):
@@ -565,7 +613,9 @@ class CatalogScreen(Screen):
         data_panel = self.query_one("#data-preview-panel")
         data_panel.border_title = "Data Preview"
         self._apply_view("sql")
-        self.query_one("#revisions-panel").border_title = "Revisions"
+        rev_panel = self.query_one("#revisions-panel")
+        rev_panel.border_title = "Revisions"
+        rev_panel.display = False
         git_log_panel = self.query_one("#git-log-panel")
         git_log_panel.border_title = "Git Log"
         git_log_panel.display = False
@@ -584,6 +634,7 @@ class CatalogScreen(Screen):
         schema_out_table.clear()
         sql_preview = self.query_one("#sql-preview", Static)
         lineage_tree = self.query_one("#lineage-tree", Tree)
+        tags_content = self.query_one("#tags-content", Static)
         rev_table = self.query_one("#revisions-preview-table", DataTable)
         rev_table.clear()
 
@@ -596,6 +647,7 @@ class CatalogScreen(Screen):
             sql_preview.update("")
             lineage_tree.clear()
             lineage_tree.root.set_label("Lineage")
+            tags_content.update("")
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
             self._reset_toggle_panels()
@@ -629,10 +681,11 @@ class CatalogScreen(Screen):
         lineage_panel = self.query_one("#lineage-panel")
         dag = row_data.lineage_dag
         if dag:
-            _populate_lineage_tree(lineage_tree, dag)
+            _populate_lineage_tree(lineage_tree, tags_content, dag)
         else:
             lineage_tree.clear()
             lineage_tree.root.set_label("(no lineage)")
+            tags_content.update("")
         lineage_panel.border_subtitle = row_data.cache_info_text
 
         # SQL preview (sync — in-memory AST compilation)
@@ -660,27 +713,9 @@ class CatalogScreen(Screen):
                     f"{len(sqls)} queries \u00b7 {', '.join(engines)}"
                 )
 
-        # Revisions preview (async — requires git I/O)
-        match row_data.aliases:
-            case (first_alias, *_):
-                catalog_alias = next(
-                    (ca for ca in self.catalog_aliases if ca.alias == first_alias),
-                    None,
-                )
-                match catalog_alias:
-                    case None:
-                        self.query_one(
-                            "#revisions-panel"
-                        ).border_title = "Revisions — (alias not found)"
-                    case _:
-                        self.query_one(
-                            "#revisions-panel"
-                        ).border_title = f"Revisions — {first_alias}"
-                        self._load_revisions_preview(catalog_alias)
-            case _:
-                self.query_one(
-                    "#revisions-panel"
-                ).border_title = "Revisions — (no alias)"
+        # Revisions preview (async — only when panel visible)
+        if self._revisions_visible:
+            self._update_revisions(row_data)
 
         # Update toggle panels for new row (preserve visibility)
         self._update_toggle_panels(row_data, str(event.row_key.value))
@@ -857,6 +892,44 @@ class CatalogScreen(Screen):
             table.clear()
             for i, row_data in enumerate(rows):
                 table.add_row(*row_data.row, key=str(i))
+
+    # --- Toggle: Revisions ---
+
+    def action_toggle_revisions(self) -> None:
+        self._revisions_visible = not self._revisions_visible
+        self.query_one("#revisions-panel").display = self._revisions_visible
+        if self._revisions_visible:
+            table = self.query_one("#catalog-table", DataTable)
+            if table.row_count == 0:
+                return
+            row_key, _ = table.coordinate_to_cell_key(table.cursor_coordinate)
+            row_data = self._row_cache.get(str(row_key.value))
+            if row_data is not None:
+                self._update_revisions(row_data)
+
+    def _update_revisions(self, row_data) -> None:
+        rev_table = self.query_one("#revisions-preview-table", DataTable)
+        rev_table.clear()
+        match row_data.aliases:
+            case (first_alias, *_):
+                catalog_alias = next(
+                    (ca for ca in self.catalog_aliases if ca.alias == first_alias),
+                    None,
+                )
+                match catalog_alias:
+                    case None:
+                        self.query_one(
+                            "#revisions-panel"
+                        ).border_title = "Revisions — (alias not found)"
+                    case _:
+                        self.query_one(
+                            "#revisions-panel"
+                        ).border_title = f"Revisions — {first_alias}"
+                        self._load_revisions_preview(catalog_alias)
+            case _:
+                self.query_one(
+                    "#revisions-panel"
+                ).border_title = "Revisions — (no alias)"
 
     # --- View switching (1/2/3) ---
 
@@ -1157,8 +1230,15 @@ class CatalogTUI(App):
         border: double #5abfb5;
     }
     #lineage-tree {
-        height: 1fr;
+        height: auto;
+        max-height: 70%;
         padding: 0 1;
+    }
+    #tags-content {
+        height: auto;
+        max-height: 6;
+        padding: 0 1;
+        color: #5abfb5;
     }
     #sql-panel {
         height: 1fr;
