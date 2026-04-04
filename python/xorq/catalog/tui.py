@@ -513,7 +513,7 @@ class CatalogScreen(Screen):
 
     FOCUS_CYCLE = (
         "#catalog-table",
-        "#detail-view",
+        "#lineage-tree",
         "#schema-preview-table",
         "#revisions-preview-table",
     )
@@ -1106,9 +1106,9 @@ class CatalogScreen(Screen):
 
     # --- Navigation ---
 
-    def _focused_widget(self) -> DataTable | VerticalScroll:
+    def _focused_widget(self) -> DataTable | VerticalScroll | Tree:
         focused = self.app.focused
-        if isinstance(focused, (DataTable, VerticalScroll)):
+        if isinstance(focused, (DataTable, VerticalScroll, Tree)):
             return focused
         return self.query_one("#catalog-table", DataTable)
 
@@ -1116,6 +1116,8 @@ class CatalogScreen(Screen):
         w = self._focused_widget()
         match w:
             case DataTable():
+                w.action_scroll_left()
+            case Tree():
                 w.action_scroll_left()
             case VerticalScroll():
                 pass
@@ -1125,6 +1127,8 @@ class CatalogScreen(Screen):
         match w:
             case DataTable():
                 w.action_cursor_down()
+            case Tree():
+                w.action_cursor_down()
             case VerticalScroll():
                 w.scroll_down()
 
@@ -1133,6 +1137,8 @@ class CatalogScreen(Screen):
         match w:
             case DataTable():
                 w.action_cursor_up()
+            case Tree():
+                w.action_cursor_up()
             case VerticalScroll():
                 w.scroll_up()
 
@@ -1140,6 +1146,8 @@ class CatalogScreen(Screen):
         w = self._focused_widget()
         match w:
             case DataTable():
+                w.action_scroll_right()
+            case Tree():
                 w.action_scroll_right()
             case VerticalScroll():
                 pass
@@ -1157,16 +1165,23 @@ class CatalogScreen(Screen):
         if not visible:
             return
         current = self.app.focused
+
+        def _matches(widget, target) -> bool:
+            """Check if the focused widget is, or is inside, the cycle target."""
+            if widget is target:
+                return True
+            node = widget
+            while node is not None:
+                if node is target:
+                    return True
+                node = node.parent
+            return False
+
         current_idx = next(
             (
                 i
                 for i, sel in enumerate(visible)
-                if current is self.query_one(sel)
-                or (
-                    isinstance(current, DataTable)
-                    and current.parent is not None
-                    and current.parent is self.query_one(sel).parent
-                )
+                if _matches(current, self.query_one(sel))
             ),
             0,
         )
