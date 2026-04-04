@@ -21,7 +21,6 @@ from pygments.token import (
     Token,
 )
 from rich.syntax import Syntax
-from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -383,42 +382,6 @@ def _populate_lineage_tree(tree_widget: Tree, dag: dict) -> None:
     tree_widget.root.expand()
 
 
-def _render_tags_from_metadata(widget: Static, metadata) -> None:
-    """Render tag info from ExprMetadata sidecar as a compact display."""
-    parts: list[Text] = []
-
-    root_tag = metadata.root_tag
-    if root_tag:
-        parts.append(Text(root_tag, style="bold"))
-
-    kind = str(metadata.kind) if metadata.kind else None
-    if kind and kind != root_tag:
-        parts.append(Text(f"  kind: {kind}", style="dim"))
-
-    composed = metadata.composed_from
-    if composed:
-        chain = []
-        for entry in composed:
-            alias = entry.get("alias") or entry.get("entry_name", "?")
-            tag = entry.get("tag", "")
-            if tag:
-                chain.append(f"{alias} [{tag}]")
-            else:
-                chain.append(alias)
-        parts.append(Text("  " + " → ".join(chain), style="dim"))
-
-    if not parts:
-        widget.update("")
-        return
-
-    combined = Text()
-    for i, part in enumerate(parts):
-        if i > 0:
-            combined.append("\n")
-        combined.append(part)
-    widget.update(combined)
-
-
 def _render_sql_dag(sqls: tuple[tuple[str, str, str], ...]) -> str:
     """Render multiple SQL queries as a topologically-sorted DAG."""
     name_to_sql = {name: (engine, sql) for name, engine, sql in sqls}
@@ -536,7 +499,6 @@ class CatalogScreen(Screen):
                 with Vertical(id="detail-view"):
                     with Vertical(id="lineage-panel"):
                         yield Tree("Lineage", id="lineage-tree")
-                        yield Static("", id="tags-content")
                     with VerticalScroll(id="sql-panel"):
                         yield Static("", id="sql-preview")
                     with Vertical(id="data-preview-panel"):
@@ -624,7 +586,7 @@ class CatalogScreen(Screen):
         schema_out_table.clear()
         sql_preview = self.query_one("#sql-preview", Static)
         lineage_tree = self.query_one("#lineage-tree", Tree)
-        tags_content = self.query_one("#tags-content", Static)
+
         rev_table = self.query_one("#revisions-preview-table", DataTable)
         rev_table.clear()
 
@@ -637,7 +599,6 @@ class CatalogScreen(Screen):
             sql_preview.update("")
             lineage_tree.clear()
             lineage_tree.root.set_label("Lineage")
-            tags_content.update("")
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
             self._reset_toggle_panels()
@@ -675,7 +636,6 @@ class CatalogScreen(Screen):
         else:
             lineage_tree.clear()
             lineage_tree.root.set_label("(no lineage)")
-        _render_tags_from_metadata(tags_content, row_data.entry.metadata)
         lineage_panel.border_subtitle = row_data.cache_info_text
 
         # SQL preview (sync — in-memory AST compilation)
@@ -1229,12 +1189,6 @@ class CatalogTUI(App):
         height: auto;
         max-height: 70%;
         padding: 0 1;
-    }
-    #tags-content {
-        height: auto;
-        max-height: 6;
-        padding: 0 1;
-        color: #5abfb5;
     }
     #sql-panel {
         height: 1fr;
