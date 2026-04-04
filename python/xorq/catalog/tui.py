@@ -1207,6 +1207,20 @@ class CatalogScreen(Screen):
 class CatalogTUI(App):
     TITLE = "xorq catalog"
     CSS = """
+    * {
+        scrollbar-size-vertical: 0;
+        scrollbar-size-horizontal: 0;
+    }
+    *:hover {
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 1;
+        scrollbar-color: #3b4261;
+        scrollbar-color-hover: #565f89;
+        scrollbar-color-active: #7aa2f7;
+        scrollbar-background: transparent;
+        scrollbar-background-hover: transparent;
+        scrollbar-background-active: transparent;
+    }
     #main-split {
         height: 1fr;
     }
