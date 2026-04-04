@@ -1053,7 +1053,7 @@ class CatalogScreen(Screen):
             member_path = f"{entry.name}/profiles.yaml"
             if member_path not in zf.namelist():
                 return
-            data = yaml12.parse_yaml(zf.read(member_path))
+            data = yaml12.parse_yaml(zf.read(member_path).decode())
         match data:
             case dict():
                 pass
