@@ -507,7 +507,7 @@ class CatalogScreen(Screen):
                     with Vertical(id="lineage-panel"):
                         yield Tree("Lineage", id="lineage-tree")
                     with Vertical(id="sql-panel"):
-                        yield RichLog(id="sql-preview", wrap=True)
+                        yield RichLog(id="sql-preview", wrap=True, auto_scroll=False)
                     with Vertical(id="data-preview-panel"):
                         yield Static("", id="data-preview-status")
                         yield DataTable(id="data-preview-table")
@@ -645,7 +645,7 @@ class CatalogScreen(Screen):
             lineage_tree.root.set_label("(no lineage)")
         lineage_panel.border_subtitle = row_data.cache_info_text
 
-        # SQL preview (sync — in-memory AST compilation)
+        # SQL preview (async — Syntax highlighting can be slow for large queries)
         sql_panel = self.query_one("#sql-panel")
         sql_preview.clear()
         match row_data.sqls:
@@ -653,23 +653,16 @@ class CatalogScreen(Screen):
                 sql_preview.write("(SQL unavailable)")
                 sql_panel.border_subtitle = ""
             case ((_, engine, sql),):
-                sql_preview.write(
-                    Syntax(sql, "sql", theme=XorqSQLStyle, word_wrap=True)
-                )
+                sql_preview.loading = True
                 sql_panel.border_subtitle = engine
+                self._render_sql_async(sql)
             case sqls:
-                sql_preview.write(
-                    Syntax(
-                        _render_sql_dag(sqls),
-                        "sql",
-                        theme=XorqSQLStyle,
-                        word_wrap=True,
-                    )
-                )
+                sql_preview.loading = True
                 engines = sorted({engine for _, engine, _ in sqls})
                 sql_panel.border_subtitle = (
                     f"{len(sqls)} queries \u00b7 {', '.join(engines)}"
                 )
+                self._render_sql_async(_render_sql_dag(sqls))
 
         # Revisions preview (async — only when panel visible)
         if self._revisions_visible:
@@ -1088,6 +1081,19 @@ class CatalogScreen(Screen):
             table.clear()
             for i, (name, backend, params, env_vars) in enumerate(rows):
                 table.add_row(name, backend, params, env_vars, key=str(i))
+
+    # --- SQL Rendering (off main thread) ---
+
+    @work(thread=True, exit_on_error=False)
+    def _render_sql_async(self, sql_text: str) -> None:
+        syntax = Syntax(sql_text, "sql", theme=XorqSQLStyle, word_wrap=True)
+        self.app.call_from_thread(self._render_sql_done, syntax)
+
+    def _render_sql_done(self, syntax) -> None:
+        sql_preview = self.query_one("#sql-preview", RichLog)
+        sql_preview.clear()
+        sql_preview.write(syntax)
+        sql_preview.loading = False
 
     # --- Revisions Preview ---
 
