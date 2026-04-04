@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775258198105,
+  "lastUpdate": 1775301242665,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -3564,6 +3564,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.03896003962636287",
             "extra": "mean: 229.00248750000665 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "07348355edac8562007fecf5e4fef2c008c8a1d7",
+          "message": "feat(catalog): replay, annex target support, and enableremote fixes (#1774)\n\n## Summary\n\n- **enableremote fix**: `from_repo_path` now auto-detects annex via\n`_has_annex_branch()` instead of checking `.git/annex` (fixes submodule\ndetection), calls `Annex.init_repo_path` before reading `remote.log`,\nand ensures the special remote is enabled after clone. Adds missing\n`enableremote` implementations for `DirectoryRemoteConfig` and\n`RsyncRemoteConfig`.\n\n- **`from_dict` kwargs fix**: `RemoteConfig.from_dict` now filters\n`kwargs` to valid attrs fields (previously only filtered the dict),\npreventing `TypeError` when remote.log contains unexpected keys. Catalog\ninit uses `_try_resolve_annex_remote` for graceful degradation when\ncredentials are unavailable instead of failing hard.\n\n- **Constants extraction**: `MAIN_BRANCH`, `ANNEX_BRANCH`,\n`DEFAULT_REMOTE` pulled into `catalog/constants.py`. All `Repo.init`\ncalls use `initial_branch=MAIN_BRANCH`.\n\n- **Replay module** (`catalog/replay.py`): Parses a catalog's git log\ninto typed `CatalogOp` objects (`AddEntry`, `AddAlias`, `RemoveEntry`,\n`RemoveAlias`, etc.) and replays them into a target catalog. Each op\nverifies the source commit's diff at parse time. Unrecognized commits\nfall through to `UnknownOp` (replayed via `git format-patch`/`am`).\n\n- **CLI commands**: `xorq catalog log` (inspect history, `--json`) and\n`xorq catalog replay` (replay into a new catalog with `--dry-run`,\n`--preserve-commits`/`--no-preserve-commits`, `--force`).\n\n- **Annex target support**: `xorq catalog init` and `xorq catalog\nreplay` accept `--env-file`, `--env-prefix`, `--gcs`, and `--remote-url`\nto create annex-backed catalogs and push to a git remote. Enables\ngit-to-annex catalog migration.\n\n## Test plan\n\n- [ ] `python -m pytest python/xorq/catalog/tests/test_cli.py -x -q` —\nlog, replay, init tests\n- [ ] `python -m pytest python/xorq/catalog/tests/test_catalog.py -x -q`\n— enableremote tests\n- [ ] `python -m pytest python/xorq/catalog/tests/test_catalog_ctor.py\n-x -q` — constructor tests\n- [ ] Manual: `xorq catalog --path <git-catalog> replay /tmp/new\n--env-file .env.catalog.s3 --gcs --remote-url <url>`\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-04T07:10:33-04:00",
+          "tree_id": "ddf7877d047ecefc1e4b416f4a4f3b6665e02b1c",
+          "url": "https://github.com/xorq-labs/xorq/commit/07348355edac8562007fecf5e4fef2c008c8a1d7"
+        },
+        "date": 1775301240338,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.42789970418584,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017052742734817748",
+            "extra": "mean: 106.06816272727376 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.6409849943014447,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04533060180897935",
+            "extra": "mean: 274.650953400004 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6917471192258712,
+            "unit": "iter/sec",
+            "range": "stddev: 0.20836044579387433",
+            "extra": "mean: 1.4456149829999903 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.1477665663606675,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011969334020878658",
+            "extra": "mean: 194.2590028333342 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.133559716186939,
+            "unit": "iter/sec",
+            "range": "stddev: 0.002783514082420139",
+            "extra": "mean: 194.79660416666414 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.210971966055474,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05044982474602417",
+            "extra": "mean: 237.47486519999939 msec\nrounds: 5"
           }
         ]
       }
