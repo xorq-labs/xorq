@@ -21,7 +21,6 @@ from pygments.token import (
     Token,
 )
 from rich.syntax import Syntax
-from rich.table import Table as RichTable
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -300,25 +299,20 @@ def _build_git_log_rows(repo, max_count=100) -> tuple[GitLogRowData, ...]:
 _TAG_OPS = frozenset({"Tag", "HashingTag"})
 
 
-def _populate_lineage_tree(tree_widget: Tree, tags_widget: Static, dag: dict) -> None:
-    """Populate lineage tree and tags display from a lineage DAG.
+def _populate_lineage_tree(tree_widget: Tree, dag: dict) -> None:
+    """Populate lineage tree from a lineage DAG, showing only relation nodes.
 
-    The lineage tree shows only non-tag relation nodes (tables, joins,
-    caches, etc.).  Tag and HashingTag nodes are rendered as a compact
-    vertical table in the tags Static widget.
+    Tag and HashingTag nodes are filtered out (they're displayed separately
+    from sidecar metadata).
     """
     tree_widget.clear()
 
     nodes_by_id: dict[str, dict] = {}
     relation_ids: set[str] = set()
-    tag_nodes: list[dict] = []
     for n in dag.get("nodes", ()):
         nodes_by_id[n["id"]] = n
-        if "schema" in n:
-            if n.get("op") in _TAG_OPS:
-                tag_nodes.append(n)
-            else:
-                relation_ids.add(n["id"])
+        if "schema" in n and n.get("op") not in _TAG_OPS:
+            relation_ids.add(n["id"])
 
     inputs_map: dict[str, list[str]] = {}
     for edge in dag.get("edges", ()):
@@ -327,7 +321,6 @@ def _populate_lineage_tree(tree_widget: Tree, tags_widget: Static, dag: dict) ->
     root_id = dag.get("root")
     if not root_id or root_id not in nodes_by_id:
         tree_widget.root.set_label("(empty)")
-        tags_widget.root.set_label("Tags")
         return
 
     def _relation_inputs(node_id: str, seen: set[str]) -> list[str]:
@@ -389,51 +382,41 @@ def _populate_lineage_tree(tree_widget: Tree, tags_widget: Static, dag: dict) ->
         _build(inp, tree_widget.root)
     tree_widget.root.expand()
 
-    # Tags — compact vertical display.
-    _render_tags(tags_widget, tag_nodes)
 
+def _render_tags_from_metadata(widget: Static, metadata) -> None:
+    """Render tag info from ExprMetadata sidecar as a compact display."""
+    parts: list[Text] = []
 
-def _render_tags(widget: Static, tag_nodes: list[dict]) -> None:
-    """Render tag nodes as a compact Rich table in a Static widget."""
-    # Only show tags that have actual metadata; bare "Tag" nodes aren't useful.
-    tag_nodes = [n for n in tag_nodes if n.get("tag")]
-    if not tag_nodes:
+    root_tag = metadata.root_tag
+    if root_tag:
+        parts.append(Text(root_tag, style="bold"))
+
+    kind = str(metadata.kind) if metadata.kind else None
+    if kind and kind != root_tag:
+        parts.append(Text(f"  kind: {kind}", style="dim"))
+
+    composed = metadata.composed_from
+    if composed:
+        chain = []
+        for entry in composed:
+            alias = entry.get("alias") or entry.get("entry_name", "?")
+            tag = entry.get("tag", "")
+            if tag:
+                chain.append(f"{alias} [{tag}]")
+            else:
+                chain.append(alias)
+        parts.append(Text("  " + " → ".join(chain), style="dim"))
+
+    if not parts:
         widget.update("")
         return
 
-    table = RichTable(
-        show_header=False,
-        show_edge=False,
-        pad_edge=False,
-        box=None,
-        padding=(0, 1),
-        expand=True,
-    )
-    table.add_column("label", ratio=1, no_wrap=True)
-    table.add_column("value", ratio=2)
-
-    for tn in tag_nodes:
-        tag_meta = tn.get("tag") or {}
-        tag_value = tag_meta.get("tag", "")
-        op = tn.get("op", "Tag")
-        node_name = tn.get("name", "")
-
-        # Header: tag value, or node name, or op type.
-        display_name = tag_value or node_name or op
-        is_hashing = op == "HashingTag"
-        suffix = "  hashing" if is_hashing else ""
-        table.add_row(
-            Text(display_name, style="bold"),
-            Text(suffix, style="dim italic"),
-        )
-
-        # Metadata key/value pairs.
-        for k, v in tag_meta.items():
-            if k == "tag":
-                continue
-            table.add_row(Text(f"  {k}", style="dim"), Text(str(v)))
-
-    widget.update(table)
+    combined = Text()
+    for i, part in enumerate(parts):
+        if i > 0:
+            combined.append("\n")
+        combined.append(part)
+    widget.update(combined)
 
 
 def _render_sql_dag(sqls: tuple[tuple[str, str, str], ...]) -> str:
@@ -688,11 +671,11 @@ class CatalogScreen(Screen):
         lineage_panel = self.query_one("#lineage-panel")
         dag = row_data.lineage_dag
         if dag:
-            _populate_lineage_tree(lineage_tree, tags_content, dag)
+            _populate_lineage_tree(lineage_tree, dag)
         else:
             lineage_tree.clear()
             lineage_tree.root.set_label("(no lineage)")
-            tags_content.update("")
+        _render_tags_from_metadata(tags_content, row_data.entry.metadata)
         lineage_panel.border_subtitle = row_data.cache_info_text
 
         # SQL preview (sync — in-memory AST compilation)
