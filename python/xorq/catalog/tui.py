@@ -488,6 +488,8 @@ class CatalogScreen(Screen):
         self._data_preview = _TogglePanelState()
         self._profiles_state = _TogglePanelState()
         self._search_query = ""
+        self._sql_cache: dict[str, object] = {}
+        self._sql_rendering_hash: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -645,24 +647,35 @@ class CatalogScreen(Screen):
             lineage_tree.root.set_label("(no lineage)")
         lineage_panel.border_subtitle = row_data.cache_info_text
 
-        # SQL preview (async — Syntax highlighting can be slow for large queries)
+        # SQL preview — serve from cache or render async
+        entry_hash = row_data.hash
         sql_panel = self.query_one("#sql-panel")
         sql_preview.clear()
         match row_data.sqls:
             case ():
                 sql_preview.write("(SQL unavailable)")
                 sql_panel.border_subtitle = ""
+            case _ if entry_hash in self._sql_cache:
+                sql_preview.write(self._sql_cache[entry_hash])
+                match row_data.sqls:
+                    case ((_, engine, _),):
+                        sql_panel.border_subtitle = engine
+                    case sqls:
+                        engines = sorted({engine for _, engine, _ in sqls})
+                        sql_panel.border_subtitle = (
+                            f"{len(sqls)} queries \u00b7 {', '.join(engines)}"
+                        )
             case ((_, engine, sql),):
                 sql_preview.loading = True
                 sql_panel.border_subtitle = engine
-                self._render_sql_async(sql)
+                self._render_sql_async(entry_hash, sql)
             case sqls:
                 sql_preview.loading = True
                 engines = sorted({engine for _, engine, _ in sqls})
                 sql_panel.border_subtitle = (
                     f"{len(sqls)} queries \u00b7 {', '.join(engines)}"
                 )
-                self._render_sql_async(_render_sql_dag(sqls))
+                self._render_sql_async(entry_hash, _render_sql_dag(sqls))
 
         # Revisions preview (async — only when panel visible)
         if self._revisions_visible:
@@ -1085,15 +1098,19 @@ class CatalogScreen(Screen):
     # --- SQL Rendering (off main thread) ---
 
     @work(thread=True, exit_on_error=False)
-    def _render_sql_async(self, sql_text: str) -> None:
+    def _render_sql_async(self, entry_hash: str, sql_text: str) -> None:
+        self._sql_rendering_hash = entry_hash
         syntax = Syntax(sql_text, "sql", theme=XorqSQLStyle, word_wrap=True)
-        self.app.call_from_thread(self._render_sql_done, syntax)
+        self.app.call_from_thread(self._render_sql_done, entry_hash, syntax)
 
-    def _render_sql_done(self, syntax) -> None:
-        sql_preview = self.query_one("#sql-preview", RichLog)
-        sql_preview.clear()
-        sql_preview.write(syntax)
-        sql_preview.loading = False
+    def _render_sql_done(self, entry_hash: str, syntax) -> None:
+        self._sql_cache[entry_hash] = syntax
+        # Only update the widget if user is still viewing this entry.
+        if self._sql_rendering_hash == entry_hash:
+            sql_preview = self.query_one("#sql-preview", RichLog)
+            sql_preview.clear()
+            sql_preview.write(syntax)
+            sql_preview.loading = False
 
     # --- Revisions Preview ---
 
