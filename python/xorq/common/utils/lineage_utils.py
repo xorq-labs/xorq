@@ -216,6 +216,22 @@ def build_tree(
     return _to_tree(node, 0)
 
 
+def _serialize_value(v: Any) -> Any:
+    """Convert a value to a JSON-safe representation."""
+    if isinstance(v, type):
+        return f"{v.__module__}.{v.__qualname__}"
+    if isinstance(v, (str, int, float, bool)) or v is None:
+        return v
+    return str(v)
+
+
+def _serialize_tag_metadata(metadata) -> dict:
+    """Serialize tag metadata to a JSON-safe dict."""
+    if not metadata:
+        return {}
+    return {str(k): _serialize_value(v) for k, v in metadata.items()}
+
+
 def extract_lineage_dag(expr: Any) -> dict:
     """Extract a full DAG representation of expression lineage.
 
@@ -269,8 +285,7 @@ def extract_lineage_dag(expr: Any) -> dict:
                 pass
 
             if isinstance(node, Tag):
-                meta = dict(node.metadata) if node.metadata else {}
-                node_data["tag"] = meta
+                node_data["tag"] = _serialize_tag_metadata(node.metadata)
 
         nodes.append(node_data)
 
