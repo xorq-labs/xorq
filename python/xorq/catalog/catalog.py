@@ -38,7 +38,9 @@ from xorq.catalog.annex import (
 )
 from xorq.catalog.backend import CatalogBackend, GitAnnexBackend, GitBackend
 from xorq.catalog.constants import (
+    ANNEX_BRANCH,
     CATALOG_YAML_NAME,
+    MAIN_BRANCH,
     METADATA_APPEND,
     PREFERRED_SUFFIX,
     CatalogInfix,
@@ -62,7 +64,7 @@ popen_shell = partial(Popen, shell=True)
 
 def _has_annex_branch(repo):
     """Check whether a Repo has a git-annex branch (local or remote-tracking)."""
-    return any(ref.name.endswith("git-annex") for ref in repo.refs)
+    return any(ref.name.endswith(ANNEX_BRANCH) for ref in repo.refs)
 
 
 def _try_resolve_annex_remote(repo_path, **remote_kwargs):
@@ -236,7 +238,7 @@ class Catalog:
         self.assert_consistency()
         results = tuple(map(Remote.push, self._git_remotes))
         for remote in self._git_remotes:
-            remote.push("git-annex")
+            remote.push(ANNEX_BRANCH)
         return results
 
     def pull(self):
@@ -490,9 +492,9 @@ class Catalog:
                 catalog.assert_consistency()
             return catalog
 
-        # annex=None → auto-detect from .git/annex (existing repos only)
+        # annex=None → auto-detect from git-annex branch (existing repos only)
         if annex is None:
-            if not init and Path(repo_path).joinpath(".git", "annex").exists():
+            if not init and _has_annex_branch(repo):
                 annex = LOCAL_ANNEX
             else:
                 backend = GitBackend(repo=repo)
@@ -507,12 +509,19 @@ class Catalog:
             )
 
         if not init:
-            # temporary Annex without env to read remote.log and resolve
-            # remote_config before we know what env should be
-            annex_obj = Annex(repo_path=Path(repo.working_dir))
-            disk_config = annex_obj.resolve_remote_config(**remote_kwargs)
+            # ensure annex is initialized locally (e.g. after
+            # git submodule update --init, which clones but doesn't annex init)
+            Annex.init_repo_path(repo_path)
             if remote_config is None:
-                remote_config = disk_config
+                # try to resolve remote config from remote.log + env vars;
+                # gracefully degrade to None when credentials/fields are
+                # unavailable (e.g. directory remote without env vars set)
+                remote_config = _try_resolve_annex_remote(repo_path, **remote_kwargs)
+            else:
+                # ensure the special remote is enabled locally (e.g. after
+                # git submodule add, which clones but doesn't enableremote)
+                remote_config.enableremote(repo_path)
+
         env = getattr(remote_config, "env", None)
         annex_obj = Annex(repo_path=Path(repo.working_dir), env=env)
         backend = GitAnnexBackend(repo=repo, annex=annex_obj)
@@ -652,7 +661,7 @@ class Catalog:
         assert not (repo_path := Path(repo_path)).exists(), (
             f"Catalog repo already exists at {repo_path}"
         )
-        repo = Repo.init(repo_path, mkdir=True, bare=bare)
+        repo = Repo.init(repo_path, mkdir=True, bare=bare, initial_branch=MAIN_BRANCH)
         repo.index.commit("initial commit")
         if isinstance(annex, AnnexConfig):
             remote_config = annex if isinstance(annex, RemoteConfig) else None
