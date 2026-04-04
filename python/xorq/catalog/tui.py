@@ -1286,8 +1286,7 @@ class CatalogTUI(App):
         border: double #5abfb5;
     }
     #lineage-tree {
-        height: auto;
-        max-height: 70%;
+        height: 1fr;
         padding: 0 1;
     }
     #sql-panel {
