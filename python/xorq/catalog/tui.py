@@ -847,14 +847,9 @@ class CatalogScreen(Screen):
     def _on_search_submitted(self, event: Input.Submitted) -> None:
         self._finish_search(keep_filter=True)
 
-    def on_key(self, event) -> None:
-        if (
-            event.key == "escape"
-            and self.query_one("#search-input", Input).display
-            and self.app.focused is self.query_one("#search-input", Input)
-        ):
-            event.prevent_default()
-            event.stop()
+    def key_escape(self) -> None:
+        search_input = self.query_one("#search-input", Input)
+        if not search_input.disabled and search_input.has_focus:
             self._finish_search(keep_filter=False)
 
     def _apply_search_filter(self, query: str) -> None:
