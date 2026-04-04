@@ -31,7 +31,6 @@ from textual.widgets import (
     Footer,
     Header,
     Input,
-    RichLog,
     Static,
     Tree,
 )
@@ -506,8 +505,8 @@ class CatalogScreen(Screen):
                 with Vertical(id="detail-view"):
                     with Vertical(id="lineage-panel"):
                         yield Tree("Lineage", id="lineage-tree")
-                    with Vertical(id="sql-panel"):
-                        yield RichLog(id="sql-preview", wrap=True, auto_scroll=False)
+                    with VerticalScroll(id="sql-panel"):
+                        yield Static("", id="sql-preview")
                     with Vertical(id="data-preview-panel"):
                         yield Static("", id="data-preview-status")
                         yield DataTable(id="data-preview-table")
@@ -591,7 +590,7 @@ class CatalogScreen(Screen):
         schema_in_table.clear()
         schema_out_table = self.query_one("#schema-preview-table", DataTable)
         schema_out_table.clear()
-        sql_preview = self.query_one("#sql-preview", RichLog)
+        sql_preview = self.query_one("#sql-preview", Static)
         lineage_tree = self.query_one("#lineage-tree", Tree)
 
         rev_table = self.query_one("#revisions-preview-table", DataTable)
@@ -603,7 +602,7 @@ class CatalogScreen(Screen):
             else None
         )
         if row_data is None:
-            sql_preview.clear()
+            sql_preview.update("")
             lineage_tree.clear()
             lineage_tree.root.set_label("Lineage")
             self.query_one("#schema-in-half").display = False
@@ -647,17 +646,17 @@ class CatalogScreen(Screen):
 
         # SQL preview (async — Syntax highlighting can be slow for large queries)
         sql_panel = self.query_one("#sql-panel")
-        sql_preview.clear()
+        sql_preview.update("")
         match row_data.sqls:
             case ():
-                sql_preview.write("(SQL unavailable)")
+                sql_preview.update("(SQL unavailable)")
                 sql_panel.border_subtitle = ""
             case ((_, engine, sql),):
-                sql_preview.loading = True
+                sql_panel.loading = True
                 sql_panel.border_subtitle = engine
                 self._render_sql_async(sql)
             case sqls:
-                sql_preview.loading = True
+                sql_panel.loading = True
                 engines = sorted({engine for _, engine, _ in sqls})
                 sql_panel.border_subtitle = (
                     f"{len(sqls)} queries \u00b7 {', '.join(engines)}"
@@ -1090,10 +1089,8 @@ class CatalogScreen(Screen):
         self.app.call_from_thread(self._render_sql_done, syntax)
 
     def _render_sql_done(self, syntax) -> None:
-        sql_preview = self.query_one("#sql-preview", RichLog)
-        sql_preview.clear()
-        sql_preview.write(syntax)
-        sql_preview.loading = False
+        self.query_one("#sql-panel").loading = False
+        self.query_one("#sql-preview", Static).update(syntax)
 
     # --- Revisions Preview ---
 
@@ -1300,8 +1297,8 @@ class CatalogTUI(App):
         border: double #2BBE75;
     }
     #sql-preview {
-        height: 1fr;
-        padding: 0 1;
+        height: auto;
+        padding: 1 2;
     }
     #data-preview-panel {
         height: 1fr;
