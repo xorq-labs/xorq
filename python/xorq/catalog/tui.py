@@ -502,7 +502,7 @@ class CatalogScreen(Screen):
         ("1", "show_view('sql')", "SQL"),
         ("2", "show_view('lineage')", "Lineage"),
         ("3", "show_view('data')", "Data"),
-        ("i", "toggle_info", "Info"),
+        ("p", "toggle_profiles", "Profiles"),
     )
 
     VIEW_PANELS = {
@@ -528,7 +528,7 @@ class CatalogScreen(Screen):
         self._refresh_lock = threading.Lock()
         self._active_view = "sql"
         self._data_preview = _TogglePanelState()
-        self._info_state = _TogglePanelState()
+        self._profiles_state = _TogglePanelState()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -556,8 +556,8 @@ class CatalogScreen(Screen):
                             yield DataTable(id="schema-in-table")
                         with Vertical(id="schema-out-half"):
                             yield DataTable(id="schema-preview-table")
-                with Vertical(id="info-panel"):
-                    yield DataTable(id="info-table")
+                with Vertical(id="profiles-panel"):
+                    yield DataTable(id="profiles-table")
         yield Static("", id="status-bar")
         yield Footer()
 
@@ -597,7 +597,7 @@ class CatalogScreen(Screen):
         data_table.zebra_stripes = True
         data_table.loading = True
 
-        info_table = self.query_one("#info-table", DataTable)
+        info_table = self.query_one("#profiles-table", DataTable)
         info_table.cursor_type = "row"
         info_table.zebra_stripes = True
         info_table.add_column("NAME", key="name")
@@ -619,9 +619,9 @@ class CatalogScreen(Screen):
         git_log_panel = self.query_one("#git-log-panel")
         git_log_panel.border_title = "Git Log"
         git_log_panel.display = False
-        info_panel = self.query_one("#info-panel")
-        info_panel.border_title = "Info"
-        info_panel.display = False
+        profiles_panel = self.query_one("#profiles-panel")
+        profiles_panel.border_title = "Profiles"
+        profiles_panel.display = False
         self.query_one("#status-bar", Static).update(" Loading catalog...")
 
         self.set_interval(self._refresh_interval, self._do_refresh)
@@ -748,21 +748,21 @@ class CatalogScreen(Screen):
             dt.clear(columns=True)
             dt.loading = True
 
-        if self._info_state.visible:
-            self._reload_info_for_current(row_data, entry_hash)
+        if self._profiles_state.visible:
+            self._reload_profiles_for_current(row_data, entry_hash)
         else:
-            self._info_state = _TogglePanelState()
-            self.query_one("#info-panel").display = False
-            self.query_one("#info-table", DataTable).clear()
+            self._profiles_state = _TogglePanelState()
+            self.query_one("#profiles-panel").display = False
+            self.query_one("#profiles-table", DataTable).clear()
 
-    def _reload_info_for_current(self, row_data, entry_hash) -> None:
+    def _reload_profiles_for_current(self, row_data, entry_hash) -> None:
         """Reload profiles panel content for a new row while keeping it visible."""
-        self._info_state = _TogglePanelState(
+        self._profiles_state = _TogglePanelState(
             visible=True,
             loaded=True,
             entry_hash=entry_hash,
         )
-        self._load_info(row_data.entry)
+        self._load_profiles(row_data.entry)
 
     def _apply_view(self, name: str) -> None:
         """Show the named detail view, hiding the others."""
@@ -778,9 +778,9 @@ class CatalogScreen(Screen):
         dt.clear(columns=True)
         dt.loading = True
 
-        self._info_state = _TogglePanelState()
-        self.query_one("#info-panel").display = False
-        self.query_one("#info-table", DataTable).clear()
+        self._profiles_state = _TogglePanelState()
+        self.query_one("#profiles-panel").display = False
+        self.query_one("#profiles-table", DataTable).clear()
 
     @work(thread=True, exit_on_error=False)
     def _do_refresh(self) -> None:
@@ -1004,7 +1004,7 @@ class CatalogScreen(Screen):
 
     # --- Toggle: Profiles ---
 
-    def action_toggle_info(self) -> None:
+    def action_toggle_profiles(self) -> None:
         table = self.query_one("#catalog-table", DataTable)
         if table.row_count == 0:
             return
@@ -1014,26 +1014,27 @@ class CatalogScreen(Screen):
         if row_data is None:
             return
 
-        toggled = not self._info_state.visible
-        self._info_state = _TogglePanelState(
+        toggled = not self._profiles_state.visible
+        self._profiles_state = _TogglePanelState(
             visible=toggled,
-            loaded=self._info_state.loaded,
-            entry_hash=self._info_state.entry_hash,
+            loaded=self._profiles_state.loaded,
+            entry_hash=self._profiles_state.entry_hash,
         )
-        self.query_one("#info-panel").display = toggled
+        self.query_one("#profiles-panel").display = toggled
 
         if toggled and (
-            not self._info_state.loaded or self._info_state.entry_hash != entry_hash
+            not self._profiles_state.loaded
+            or self._profiles_state.entry_hash != entry_hash
         ):
-            self._info_state = _TogglePanelState(
+            self._profiles_state = _TogglePanelState(
                 visible=True,
                 loaded=True,
                 entry_hash=entry_hash,
             )
-            self._load_info(row_data.entry)
+            self._load_profiles(row_data.entry)
 
     @work(thread=True, exit_on_error=False)
-    def _load_info(self, entry) -> None:
+    def _load_profiles(self, entry) -> None:
         if not entry.catalog_path.exists() or not zipfile.is_zipfile(
             entry.catalog_path
         ):
@@ -1071,11 +1072,11 @@ class CatalogScreen(Screen):
             )
             for pname, pdata in data.items()
         )
-        self.app.call_from_thread(self._render_info, rows)
+        self.app.call_from_thread(self._render_profiles, rows)
 
-    def _render_info(self, rows) -> None:
+    def _render_profiles(self, rows) -> None:
         with self.app.batch_update():
-            table = self.query_one("#info-table", DataTable)
+            table = self.query_one("#profiles-table", DataTable)
             table.clear()
             for i, (name, backend, params, env_vars) in enumerate(rows):
                 table.add_row(name, backend, params, env_vars, key=str(i))
@@ -1310,12 +1311,12 @@ class CatalogTUI(App):
     #data-preview-table {
         height: 1fr;
     }
-    #info-panel {
+    #profiles-panel {
         height: 1fr;
         border: solid #2BBE75;
         border-title-color: #2BBE75;
     }
-    #info-table {
+    #profiles-table {
         height: 1fr;
     }
     #status-bar {

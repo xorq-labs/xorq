@@ -312,12 +312,12 @@ def test_data_preview_hidden_by_default(catalog):
     _run(_test())
 
 
-def test_info_hidden_by_default(catalog):
+def test_profiles_hidden_by_default(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
             await settle(pilot)
-            panel = app.screen.query_one("#info-panel")
+            panel = app.screen.query_one("#profiles-panel")
             assert panel.display is False
 
     _run(_test())
