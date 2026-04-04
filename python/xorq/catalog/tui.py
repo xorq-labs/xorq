@@ -31,6 +31,7 @@ from textual.widgets import (
     Footer,
     Header,
     Input,
+    RichLog,
     Static,
     Tree,
 )
@@ -505,8 +506,8 @@ class CatalogScreen(Screen):
                 with Vertical(id="detail-view"):
                     with Vertical(id="lineage-panel"):
                         yield Tree("Lineage", id="lineage-tree")
-                    with VerticalScroll(id="sql-panel"):
-                        yield Static("", id="sql-preview")
+                    with Vertical(id="sql-panel"):
+                        yield RichLog(id="sql-preview", wrap=True)
                     with Vertical(id="data-preview-panel"):
                         yield Static("", id="data-preview-status")
                         yield DataTable(id="data-preview-table")
@@ -590,7 +591,7 @@ class CatalogScreen(Screen):
         schema_in_table.clear()
         schema_out_table = self.query_one("#schema-preview-table", DataTable)
         schema_out_table.clear()
-        sql_preview = self.query_one("#sql-preview", Static)
+        sql_preview = self.query_one("#sql-preview", RichLog)
         lineage_tree = self.query_one("#lineage-tree", Tree)
 
         rev_table = self.query_one("#revisions-preview-table", DataTable)
@@ -602,7 +603,7 @@ class CatalogScreen(Screen):
             else None
         )
         if row_data is None:
-            sql_preview.update("")
+            sql_preview.clear()
             lineage_tree.clear()
             lineage_tree.root.set_label("Lineage")
             self.query_one("#schema-in-half").display = False
@@ -646,17 +647,18 @@ class CatalogScreen(Screen):
 
         # SQL preview (sync — in-memory AST compilation)
         sql_panel = self.query_one("#sql-panel")
+        sql_preview.clear()
         match row_data.sqls:
             case ():
-                sql_preview.update("(SQL unavailable)")
+                sql_preview.write("(SQL unavailable)")
                 sql_panel.border_subtitle = ""
             case ((_, engine, sql),):
-                sql_preview.update(
+                sql_preview.write(
                     Syntax(sql, "sql", theme=XorqSQLStyle, word_wrap=True)
                 )
                 sql_panel.border_subtitle = engine
             case sqls:
-                sql_preview.update(
+                sql_preview.write(
                     Syntax(
                         _render_sql_dag(sqls),
                         "sql",
@@ -1278,8 +1280,8 @@ class CatalogTUI(App):
         border: double #2BBE75;
     }
     #sql-preview {
-        height: auto;
-        padding: 1 2;
+        height: 1fr;
+        padding: 0 1;
     }
     #data-preview-panel {
         height: 1fr;
