@@ -515,6 +515,7 @@ class CatalogScreen(Screen):
     FOCUS_CYCLE = (
         "#catalog-table",
         "#lineage-tree",
+        "#schema-in-table",
         "#schema-preview-table",
         "#revisions-preview-table",
     )
@@ -1139,9 +1140,18 @@ class CatalogScreen(Screen):
     def action_focus_prev_panel(self) -> None:
         self._cycle_focus(-1)
 
+    def _is_visible(self, widget) -> bool:
+        """Check widget and all ancestors are visible."""
+        node = widget
+        while node is not None:
+            if node.display is False:
+                return False
+            node = node.parent
+        return True
+
     def _cycle_focus(self, direction: int) -> None:
         visible = tuple(
-            sel for sel in self.FOCUS_CYCLE if self.query_one(sel).display is not False
+            sel for sel in self.FOCUS_CYCLE if self._is_visible(self.query_one(sel))
         )
         if not visible:
             return
