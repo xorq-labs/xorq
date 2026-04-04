@@ -395,6 +395,8 @@ def _populate_lineage_tree(tree_widget: Tree, tags_widget: Static, dag: dict) ->
 
 def _render_tags(widget: Static, tag_nodes: list[dict]) -> None:
     """Render tag nodes as a compact Rich table in a Static widget."""
+    # Only show tags that have actual metadata; bare "Tag" nodes aren't useful.
+    tag_nodes = [n for n in tag_nodes if n.get("tag")]
     if not tag_nodes:
         widget.update("")
         return
@@ -411,16 +413,21 @@ def _render_tags(widget: Static, tag_nodes: list[dict]) -> None:
     table.add_column("value", ratio=2)
 
     for tn in tag_nodes:
-        tag_meta = tn.get("tag", {})
+        tag_meta = tn.get("tag") or {}
         tag_value = tag_meta.get("tag", "")
         op = tn.get("op", "Tag")
+        node_name = tn.get("name", "")
 
-        # Header row: tag name with type indicator.
-        name = Text(tag_value or op, style="bold")
-        kind = Text("hashing", style="dim italic") if op == "HashingTag" else Text("")
-        table.add_row(name, kind)
+        # Header: tag value, or node name, or op type.
+        display_name = tag_value or node_name or op
+        is_hashing = op == "HashingTag"
+        suffix = "  hashing" if is_hashing else ""
+        table.add_row(
+            Text(display_name, style="bold"),
+            Text(suffix, style="dim italic"),
+        )
 
-        # Metadata rows.
+        # Metadata key/value pairs.
         for k, v in tag_meta.items():
             if k == "tag":
                 continue
