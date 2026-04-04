@@ -12,6 +12,7 @@ from pathlib import Path
 from subprocess import Popen
 from urllib.parse import urlparse
 
+import attr
 import toolz
 import yaml12
 from attr import (
@@ -149,6 +150,18 @@ class Catalog:
         git-annex branch.  Use ``catalog.remote_config`` to read it back.
         """
         remote_config.enableremote(self.repo_path)
+
+    def embed_readonly(self, readonly_config):
+        """Embed read-only credentials into the git-annex branch.
+
+        Verifies that *readonly_config* cannot write to the bucket, then
+        sets ``embedcreds=yes`` and writes the config to remote.log.
+
+        Raises ``ValueError`` if the credentials have write access.
+        """
+        readonly_config.assert_readonly()
+        embed_config = attr.evolve(readonly_config, embedcreds="yes")
+        self.set_remote_config(embed_config)
 
     def _add_zip(self, path, sync=True, aliases=(), exist_ok=False):
         # should we enable not syncing?

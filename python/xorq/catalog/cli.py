@@ -568,6 +568,37 @@ def replay(
             click.echo(f"Pushed to {remote_url}")
 
 
+@cli.command("embed-readonly")
+@click.option(
+    "--env-file",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Env file for read-only credentials to embed.",
+)
+@click.option(
+    "--env-prefix",
+    default=None,
+    help="Env var prefix for read-only credentials (e.g. XORQ_CATALOG_S3_).",
+)
+@click.option("--gcs", is_flag=True, help="Apply GCS defaults to S3 remote config.")
+@click.pass_context
+def embed_readonly(ctx, env_file, env_prefix, gcs):
+    """Embed read-only S3 credentials into the catalog's git-annex branch.
+
+    Verifies that the provided credentials cannot write to the bucket
+    before embedding them.
+    """
+    with click_context_catalog(ctx):
+        ro_config = _resolve_annex_option(env_file, env_prefix, gcs)
+        if ro_config is None:
+            raise click.UsageError(
+                "Provide --env-file or --env-prefix for the read-only credentials."
+            )
+        catalog = ctx.obj.make_catalog(init=False)
+        catalog.embed_readonly(ro_config)
+        click.echo(f"Embedded read-only credentials into {catalog.repo_path}")
+
+
 def _eval_entry(catalog_entry, code, instream=None):
     """Evaluate a single catalog entry to an expression."""
     from xorq.catalog.bind import _eval_code, _make_source_expr
