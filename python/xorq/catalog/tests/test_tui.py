@@ -98,6 +98,8 @@ async def _populate_table(pilot, catalog, *entries):
     await settle(pilot)
     screen = pilot.app.screen
     rows = tuple(CatalogRowData(entry=e) for e in entries)
+    for row_data in rows:
+        screen._row_cache[row_data.row_key] = row_data
     screen._render_refresh(catalog.repo.working_dir, rows)
     await settle(pilot)
     return screen, rows

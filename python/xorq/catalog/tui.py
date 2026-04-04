@@ -30,6 +30,7 @@ from textual.widgets import (
     DataTable,
     Footer,
     Header,
+    Input,
     Static,
     Tree,
 )
@@ -456,6 +457,7 @@ class CatalogScreen(Screen):
         ("2", "show_view('lineage')", "Lineage"),
         ("3", "show_view('data')", "Data"),
         ("4", "show_view('profiles')", "Profiles"),
+        ("slash", "start_search", "Search"),
     )
 
     VIEW_PANELS = {
@@ -484,12 +486,16 @@ class CatalogScreen(Screen):
         self._active_view = "sql"
         self._data_preview = _TogglePanelState()
         self._profiles_state = _TogglePanelState()
+        self._search_query = ""
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Horizontal(id="main-split"):
             with Vertical(id="left-column"):
                 with Vertical(id="catalog-panel"):
+                    yield Input(
+                        placeholder="search...", id="search-input", disabled=True
+                    )
                     yield DataTable(id="catalog-table")
                 with Vertical(id="revisions-panel"):
                     yield DataTable(id="revisions-preview-table")
@@ -787,13 +793,20 @@ class CatalogScreen(Screen):
             table = self.query_one("#catalog-table", DataTable)
             saved_cursor = table.cursor_row
             table.clear()
+            query_lower = self._search_query.lower()
             for row_data in cached_rows:
+                if query_lower and not self._matches_search(row_data, query_lower):
+                    continue
                 table.add_row(*row_data.row, key=row_data.row_key)
             count = table.row_count
             if saved_cursor is not None and count > 0:
                 table.move_cursor(row=min(saved_cursor, count - 1))
 
     def _render_catalog_row(self, row_data) -> None:
+        if self._search_query and not self._matches_search(
+            row_data, self._search_query.lower()
+        ):
+            return
         with self.app.batch_update():
             table = self.query_one("#catalog-table", DataTable)
             if len(table.columns) < len(COLUMNS):
@@ -804,6 +817,73 @@ class CatalogScreen(Screen):
         count = self.query_one("#catalog-table", DataTable).row_count
         self.query_one("#status-bar", Static).update(
             f" {count} entries \u00b7 {repo_path} \u00b7 {stamp}"
+        )
+
+    # --- Search ---
+
+    def action_start_search(self) -> None:
+        search_input = self.query_one("#search-input", Input)
+        search_input.disabled = False
+        search_input.display = True
+        search_input.value = self._search_query
+        search_input.focus()
+
+    def _finish_search(self, keep_filter: bool) -> None:
+        search_input = self.query_one("#search-input", Input)
+        if not keep_filter:
+            self._search_query = ""
+            search_input.value = ""
+            self._apply_search_filter("")
+        search_input.display = False
+        search_input.disabled = True
+        self.query_one("#catalog-table", DataTable).focus()
+
+    @on(Input.Changed, "#search-input")
+    def _on_search_changed(self, event: Input.Changed) -> None:
+        self._search_query = event.value
+        self._apply_search_filter(event.value)
+
+    @on(Input.Submitted, "#search-input")
+    def _on_search_submitted(self, event: Input.Submitted) -> None:
+        self._finish_search(keep_filter=True)
+
+    def on_key(self, event) -> None:
+        if (
+            event.key == "escape"
+            and self.query_one("#search-input", Input).display
+            and self.app.focused is self.query_one("#search-input", Input)
+        ):
+            event.prevent_default()
+            event.stop()
+            self._finish_search(keep_filter=False)
+
+    def _apply_search_filter(self, query: str) -> None:
+        table = self.query_one("#catalog-table", DataTable)
+        saved_cursor = table.cursor_row
+        table.clear()
+
+        query_lower = query.lower()
+        for row_data in sorted(self._row_cache.values(), key=lambda r: r.sort_key):
+            if query_lower and not self._matches_search(row_data, query_lower):
+                continue
+            table.add_row(*row_data.row, key=row_data.row_key)
+
+        count = table.row_count
+        total = len(self._row_cache)
+        panel = self.query_one("#catalog-panel")
+        if query_lower:
+            panel.border_subtitle = f"{count}/{total}"
+        else:
+            panel.border_subtitle = ""
+        if saved_cursor is not None and count > 0:
+            table.move_cursor(row=min(saved_cursor, count - 1))
+
+    def _matches_search(self, row_data: CatalogRowData, query: str) -> bool:
+        return (
+            query in row_data.aliases_display.lower()
+            or query in row_data.hash.lower()
+            or query in row_data.kind.lower()
+            or query in (row_data.entry.metadata.root_tag or "").lower()
         )
 
     # --- Toggle: Git Log ---
@@ -1038,51 +1118,45 @@ class CatalogScreen(Screen):
 
     # --- Navigation ---
 
-    def _focused_widget(self) -> DataTable | VerticalScroll | Tree:
+    def _focused_widget(self) -> DataTable | VerticalScroll | Tree | None:
         focused = self.app.focused
+        if isinstance(focused, Input):
+            return None
         if isinstance(focused, (DataTable, VerticalScroll, Tree)):
             return focused
         return self.query_one("#catalog-table", DataTable)
 
     def action_scroll_left(self) -> None:
-        w = self._focused_widget()
-        match w:
-            case DataTable():
+        match self._focused_widget():
+            case DataTable() as w:
                 w.action_scroll_left()
-            case Tree():
+            case Tree() as w:
                 w.action_scroll_left()
-            case VerticalScroll():
-                pass
 
     def action_cursor_down(self) -> None:
-        w = self._focused_widget()
-        match w:
-            case DataTable():
+        match self._focused_widget():
+            case DataTable() as w:
                 w.action_cursor_down()
-            case Tree():
+            case Tree() as w:
                 w.action_cursor_down()
-            case VerticalScroll():
+            case VerticalScroll() as w:
                 w.scroll_down()
 
     def action_cursor_up(self) -> None:
-        w = self._focused_widget()
-        match w:
-            case DataTable():
+        match self._focused_widget():
+            case DataTable() as w:
                 w.action_cursor_up()
-            case Tree():
+            case Tree() as w:
                 w.action_cursor_up()
-            case VerticalScroll():
+            case VerticalScroll() as w:
                 w.scroll_up()
 
     def action_scroll_right(self) -> None:
-        w = self._focused_widget()
-        match w:
-            case DataTable():
+        match self._focused_widget():
+            case DataTable() as w:
                 w.action_scroll_right()
-            case Tree():
+            case Tree() as w:
                 w.action_scroll_right()
-            case VerticalScroll():
-                pass
 
     def action_focus_next_panel(self) -> None:
         self._cycle_focus(1)
@@ -1150,6 +1224,15 @@ class CatalogTUI(App):
         height: 1fr;
         border: solid #C1F0FF;
         border-title-color: #C1F0FF;
+        background: $surface;
+    }
+    #search-input {
+        display: none;
+        height: 1;
+        dock: top;
+        margin: 0;
+        border: none;
+        padding: 0 1;
         background: $surface;
     }
     #catalog-table {
