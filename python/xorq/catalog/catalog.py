@@ -513,13 +513,13 @@ class Catalog:
             # git submodule update --init, which clones but doesn't annex init)
             Annex.init_repo_path(repo_path)
             if remote_config is None:
-                # temporary Annex without env to read remote.log and resolve
-                # remote_config before we know what env should be
-                annex_obj = Annex(repo_path=Path(repo.working_dir))
-                remote_config = annex_obj.resolve_remote_config(**remote_kwargs)
-            # ensure the special remote is enabled locally (e.g. after
-            # git submodule add, which clones but doesn't enableremote)
-            if remote_config is not None:
+                # try to resolve remote config from remote.log + env vars;
+                # gracefully degrade to None when credentials/fields are
+                # unavailable (e.g. directory remote without env vars set)
+                remote_config = _try_resolve_annex_remote(repo_path, **remote_kwargs)
+            else:
+                # ensure the special remote is enabled locally (e.g. after
+                # git submodule add, which clones but doesn't enableremote)
                 remote_config.enableremote(repo_path)
 
         env = getattr(remote_config, "env", None)

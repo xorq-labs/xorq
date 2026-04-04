@@ -326,6 +326,7 @@ class RemoteConfig(AnnexConfig, abc.ABC):
     def from_dict(cls, d, **kwargs):
         valid_keys = {a.name for a in attr.fields(cls)}
         d = {k: v for k, v in d.items() if k in valid_keys}
+        kwargs = {k: v for k, v in kwargs.items() if k in valid_keys}
         return cls(**{**d, **kwargs})
 
     @classmethod
