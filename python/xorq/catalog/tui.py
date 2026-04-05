@@ -24,7 +24,7 @@ from rich.syntax import Syntax
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.screen import Screen
+from textual.screen import ModalScreen, Screen
 from textual.theme import Theme
 from textual.widgets import (
     DataTable,
@@ -398,6 +398,136 @@ def _populate_lineage_tree(tree_widget: Tree, dag: dict) -> None:
     tree_widget.root.expand()
 
 
+def _populate_tags_tree(tree_widget: Tree, dag: dict) -> None:
+    """Populate a tree showing all Tag/HashingTag nodes grouped by tag name."""
+    tree_widget.clear()
+
+    if not dag:
+        tree_widget.root.set_label("(no tags)")
+        return
+
+    tag_nodes = [
+        n
+        for n in dag.get("nodes", ())
+        if n.get("op") in _TAG_OPS and isinstance(n.get("tag"), dict)
+    ]
+
+    if not tag_nodes:
+        tree_widget.root.set_label("(no tags)")
+        return
+
+    tree_widget.root.set_label(f"Tags ({len(tag_nodes)})")
+    for n in tag_nodes:
+        tag_meta = n["tag"]
+        tag_name = tag_meta.get("tag", n.get("op", "?"))
+        op = n.get("op", "Tag")
+        ncols = len(n.get("schema", {}))
+        label = f"[bold]{tag_name}[/bold]"
+        if op == "HashingTag":
+            label = f"[#5abfb5]{label}[/]"
+        if ncols:
+            label = f"{label}  [dim]{ncols} cols[/dim]"
+        branch = tree_widget.root.add(label, expand=True)
+        for k, v in tag_meta.items():
+            if k == "tag":
+                continue
+            branch.add_leaf(f"[dim]{k}:[/dim] {v}")
+    tree_widget.root.expand()
+
+
+def _populate_full_lineage_tree(tree_widget: Tree, dag: dict) -> None:
+    """Populate lineage tree showing ALL nodes including Tag/HashingTag."""
+    tree_widget.clear()
+
+    nodes_by_id: dict[str, dict] = {}
+    schema_ids: set[str] = set()
+    for n in dag.get("nodes", ()):
+        nodes_by_id[n["id"]] = n
+        if "schema" in n:
+            schema_ids.add(n["id"])
+
+    inputs_map: dict[str, list[str]] = {}
+    for edge in dag.get("edges", ()):
+        inputs_map.setdefault(edge["target"], []).append(edge["source"])
+
+    root_id = dag.get("root")
+    if not root_id or root_id not in nodes_by_id:
+        tree_widget.root.set_label("(empty)")
+        return
+
+    def _label(node: dict) -> str:
+        op = node.get("op", "?")
+        name = node.get("name", "")
+        ncols = len(node.get("schema", {}))
+
+        if op in _TAG_OPS and isinstance(node.get("tag"), dict):
+            tag_name = node["tag"].get("tag", "")
+            alias = node["tag"].get("alias", "")
+            text = f"[#5abfb5]{op}[/] ({tag_name}"
+            if alias:
+                text = f"{text}: {alias}"
+            text = f"{text})"
+        else:
+            text = node.get("label") or op
+            if name and name not in text:
+                text = f"{text} ({name})"
+
+        if ncols:
+            text = f"{text}  [dim]{ncols} cols[/dim]"
+        return text
+
+    def _schema_inputs(node_id: str, seen: set[str]) -> list[str]:
+        result: list[str] = []
+        for inp in inputs_map.get(node_id, []):
+            if inp in seen:
+                continue
+            seen.add(inp)
+            if inp in schema_ids:
+                result.append(inp)
+            else:
+                result.extend(_schema_inputs(inp, seen))
+        return result
+
+    visited: set[str] = set()
+
+    def _build(node_id: str, parent) -> None:
+        node = nodes_by_id.get(node_id)
+        if node is None:
+            return
+        label = _label(node)
+        if node_id in visited:
+            parent.add_leaf(f"[dim]\u21bb {label}[/dim]")
+            return
+        visited.add(node_id)
+        children = _schema_inputs(node_id, set())
+        branch = parent.add(label, expand=bool(children))
+        # Add schema leaves for non-tag nodes
+        if node.get("op") not in _TAG_OPS:
+            for col_name, col_info in node.get("schema", {}).items():
+                dtype = col_info.get("dtype", "?")
+                nullable = col_info.get("nullable", True)
+                null_tag = "" if nullable else " [dim]NOT NULL[/dim]"
+                branch.add_leaf(f"[dim]{col_name}[/dim]  {dtype}{null_tag}")
+        # Add tag metadata as leaves for tag nodes
+        elif isinstance(node.get("tag"), dict):
+            for k, v in node["tag"].items():
+                if k == "tag":
+                    continue
+                branch.add_leaf(f"[dim]{k}:[/dim] {v}")
+        for inp in children:
+            _build(inp, branch)
+
+    if root_id in schema_ids:
+        root_node = nodes_by_id[root_id]
+        tree_widget.root.set_label(_label(root_node))
+        visited.add(root_id)
+    else:
+        tree_widget.root.set_label("[dim](expression)[/dim]")
+    for inp in _schema_inputs(root_id, set()):
+        _build(inp, tree_widget.root)
+    tree_widget.root.expand()
+
+
 def _render_sql_dag(sqls: tuple[tuple[str, str, str], ...]) -> str:
     """Render multiple SQL queries as a topologically-sorted DAG."""
     name_to_sql = {name: (engine, sql) for name, engine, sql in sqls}
@@ -456,6 +586,642 @@ class _TogglePanelState:
     entry_hash: str | None = field(default=None, validator=optional(instance_of(str)))
 
 
+def _is_bindable(
+    source_schema_out: tuple[tuple[str, str], ...],
+    transform_schema_in: tuple[tuple[str, str], ...] | None,
+) -> bool:
+    """Check if transform's schema_in is a subset of source's schema_out."""
+    if transform_schema_in is None:
+        return False
+    source_cols = dict(source_schema_out)
+    return all(source_cols.get(col) == dtype for col, dtype in transform_schema_in)
+
+
+class ComposeScreen(ModalScreen):
+    """Chain-building compose modal: Enter adds entries, Backspace removes, ctrl+r builds.
+
+    Left pane: all catalog entries. Enter appends the highlighted entry to
+    the chain. First entry = source, rest = transforms.
+
+    Right pane: the ordered chain with schema validation (checkmarks / X).
+    Backspace removes the last entry.
+
+    ctrl+r to build & catalog, Escape to cancel.
+    """
+
+    BINDINGS = (
+        ("escape", "cancel", "Cancel"),
+        ("ctrl+r", "confirm", "Compose"),
+        ("backspace", "remove_last", "Remove"),
+        ("j", "cursor_down", "\u2193"),
+        ("k", "cursor_up", "\u2191"),
+    )
+
+    def __init__(
+        self,
+        row_cache: dict[str, CatalogRowData],
+        initial_source: CatalogRowData | None = None,
+    ) -> None:
+        super().__init__()
+        self._row_cache = row_cache
+        self._initial_source = initial_source
+        self._chain: list[CatalogRowData] = []
+        self._chain_valid = False
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="compose-dialog"):
+            yield Static(
+                " compose  [dim]Enter=add  Backspace=remove"
+                "  ctrl+r=build  esc=cancel[/]",
+                id="compose-title",
+            )
+            with Horizontal(id="compose-split"):
+                with Vertical(id="compose-source-panel"):
+                    yield DataTable(id="compose-entries-table")
+                with Vertical(id="compose-transform-panel"):
+                    yield DataTable(id="compose-chain-table")
+                    yield Static("", id="compose-validation")
+            yield Static("", id="compose-status")
+
+    def on_mount(self) -> None:
+        entries_table = self.query_one("#compose-entries-table", DataTable)
+        entries_table.cursor_type = "row"
+        entries_table.zebra_stripes = True
+        entries_table.add_column("NAME", key="name")
+        entries_table.add_column("KIND", key="kind")
+
+        for rd in sorted(self._row_cache.values(), key=lambda r: r.sort_key):
+            entries_table.add_row(
+                rd.aliases_display or rd.hash[:12],
+                rd.kind,
+                key=rd.row_key,
+            )
+
+        chain_table = self.query_one("#compose-chain-table", DataTable)
+        chain_table.cursor_type = "row"
+        chain_table.zebra_stripes = True
+        chain_table.add_column("", key="status")
+        chain_table.add_column("#", key="idx")
+        chain_table.add_column("ROLE", key="role")
+        chain_table.add_column("NAME", key="name")
+
+        self.query_one("#compose-source-panel").border_title = "Catalog Entries"
+        self.query_one("#compose-transform-panel").border_title = "Chain"
+
+        if self._initial_source is not None:
+            self._chain.append(self._initial_source)
+            self._render_chain()
+
+        self._update_status()
+        entries_table.focus()
+
+    # --- Add / Remove entries ---
+
+    @on(DataTable.RowSelected, "#compose-entries-table")
+    def _on_entry_selected(self, event: DataTable.RowSelected) -> None:
+        if event.row_key is None:
+            return
+        rd = self._row_cache.get(str(event.row_key.value))
+        if rd is not None:
+            self._chain.append(rd)
+            self._render_chain()
+
+    def action_remove_last(self) -> None:
+        if self._chain:
+            self._chain.pop()
+            self._render_chain()
+
+    # --- Validation ---
+
+    def _validate_chain(self) -> tuple[tuple[str, ...], str]:
+        if not self._chain:
+            return (), ""
+
+        statuses = ["\u2713"]
+        errors: list[str] = []
+        current_schema = dict(self._chain[0].schema_out)
+
+        for _i, rd in enumerate(self._chain[1:], start=1):
+            if rd.schema_in is None:
+                statuses.append("\u2717")
+                errors.append(
+                    f"  {rd.aliases_display or rd.hash[:12]}: not a transform"
+                )
+                current_schema = dict(rd.schema_out)
+                continue
+
+            missing = [c for c, t in rd.schema_in if c not in current_schema]
+            mismatched = [
+                c
+                for c, t in rd.schema_in
+                if c in current_schema and current_schema[c] != t
+            ]
+
+            if missing or mismatched:
+                statuses.append("\u2717")
+                for c in missing:
+                    errors.append(
+                        f"  {rd.aliases_display or rd.hash[:12]}: missing '{c}'"
+                    )
+                for c in mismatched:
+                    errors.append(
+                        f"  {rd.aliases_display or rd.hash[:12]}: type mismatch '{c}'"
+                    )
+            else:
+                statuses.append("\u2713")
+
+            current_schema = dict(rd.schema_out)
+
+        self._chain_valid = all(s == "\u2713" for s in statuses)
+        return tuple(statuses), "\n".join(errors)
+
+    def _render_chain(self) -> None:
+        statuses, validation_msg = self._validate_chain()
+
+        chain_table = self.query_one("#compose-chain-table", DataTable)
+        chain_table.clear()
+        for i, rd in enumerate(self._chain):
+            role = "source" if i == 0 else "transform"
+            icon = statuses[i] if i < len(statuses) else "?"
+            chain_table.add_row(
+                icon,
+                str(i + 1),
+                role,
+                rd.aliases_display or rd.hash[:12],
+                key=str(i),
+            )
+
+        validation = self.query_one("#compose-validation", Static)
+        if not self._chain:
+            validation.update(" [dim](empty chain)[/]")
+            self._chain_valid = False
+        elif validation_msg:
+            validation.update(f" [red]\u2717 schema errors:[/]\n{validation_msg}")
+        else:
+            names = " \u2192 ".join(
+                rd.aliases_display or rd.hash[:12] for rd in self._chain
+            )
+            validation.update(f" [green]\u2713[/] {names}")
+
+        self._update_status()
+
+    def _update_status(self) -> None:
+        n = len(self._chain)
+        label = "empty" if n == 0 else f"{n} step{'s' if n != 1 else ''}"
+        self.query_one("#compose-status", Static).update(f" Chain: {label}")
+
+    # --- Navigation ---
+
+    def _focused_table(self) -> DataTable | None:
+        focused = self.app.focused
+        return focused if isinstance(focused, DataTable) else None
+
+    def action_cursor_down(self) -> None:
+        t = self._focused_table()
+        if t:
+            t.action_cursor_down()
+
+    def action_cursor_up(self) -> None:
+        t = self._focused_table()
+        if t:
+            t.action_cursor_up()
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    # --- Confirm ---
+
+    def action_confirm(self) -> None:
+        if not self._chain:
+            return
+        if not self._chain_valid:
+            self.query_one("#compose-validation", Static).update(
+                " [red]fix schema errors before composing[/]"
+            )
+            return
+        entry_names = tuple(rd.aliases_display or rd.hash for rd in self._chain)
+        self.dismiss(entry_names)
+
+
+class DataViewScreen(Screen):
+    """VisiData + Vim inspired spreadsheet view for a catalog entry."""
+
+    BINDINGS = (
+        ("q", "go_back", "Back"),
+        ("h", "cursor_left", "\u2190"),
+        ("j", "cursor_down", "\u2193"),
+        ("k", "cursor_up", "\u2191"),
+        ("l", "cursor_right", "\u2192"),
+        ("g", "go_top", "Top"),
+        ("G", "go_bottom", "Bottom"),
+        ("s", "toggle_stats", "Stats"),
+        ("c", "open_compose", "Compose"),
+        ("left_square_bracket", "sort_asc", "Sort \u2191"),
+        ("right_square_bracket", "sort_desc", "Sort \u2193"),
+        ("colon", "command_mode", "Cmd"),
+        ("slash", "search_mode", "Search"),
+    )
+
+    def __init__(
+        self,
+        row_data: CatalogRowData,
+        composed_expr=None,
+        label: str | None = None,
+    ) -> None:
+        super().__init__()
+        self._row_data = row_data
+        self._entry = row_data.entry
+        self._current_expr = composed_expr
+        self._current_label = label or row_data.aliases_display or row_data.hash[:12]
+        self._tracking_alias: str | None = (
+            row_data.aliases[0] if row_data.aliases else None
+        )
+        self._head_limit = 50
+        self._sort_column: str | None = None
+        self._sort_ascending = True
+        self._stats_visible = False
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=False)
+        with Vertical(id="dv-data-panel"):
+            yield DataTable(id="dv-data-table")
+        with Vertical(id="dv-stats-panel"):
+            yield DataTable(id="dv-stats-table")
+        yield Input(placeholder=":", id="dv-command-input", disabled=True)
+        yield Static("", id="dv-status-bar")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        data_table = self.query_one("#dv-data-table", DataTable)
+        data_table.cursor_type = "cell"
+        data_table.zebra_stripes = True
+        data_table.loading = True
+
+        stats_table = self.query_one("#dv-stats-table", DataTable)
+        stats_table.cursor_type = "row"
+        stats_table.zebra_stripes = True
+
+        self.query_one(
+            "#dv-data-panel"
+        ).border_title = f"Data \u2014 {self._current_label}"
+        stats_panel = self.query_one("#dv-stats-panel")
+        stats_panel.border_title = "Summary Statistics"
+        stats_panel.display = False
+
+        self._update_status("Loading\u2026")
+        self._load_initial_data()
+
+    def _update_status(self, text: str) -> None:
+        self.query_one("#dv-status-bar", Static).update(f" {text}")
+
+    def _update_status_detail(self, row_count: int, col_count: int) -> None:
+        sort_info = ""
+        if self._sort_column:
+            direction = "ASC" if self._sort_ascending else "DESC"
+            sort_info = f" \u00b7 sort: {self._sort_column} {direction}"
+        self._update_status(
+            f"{self._current_label} \u00b7 {row_count} rows \u00d7 {col_count} cols"
+            f" \u00b7 head({self._head_limit}){sort_info}"
+        )
+
+    # --- Data Loading ---
+
+    @work(thread=True, exit_on_error=False)
+    def _load_initial_data(self) -> None:
+        try:
+            if self._current_expr is None:
+                self._current_expr = self._entry.expr
+            self._execute_and_render(self._current_expr)
+        except Exception as e:
+            self.app.call_from_thread(self._render_error, str(e))
+
+    def _execute_and_render(self, expr) -> None:
+        """Execute expr.head() and send results to the main thread for rendering."""
+        if self._sort_column:
+            from xorq.vendor import ibis  # noqa: PLC0415
+
+            sort_key = (
+                ibis.asc(self._sort_column)
+                if self._sort_ascending
+                else ibis.desc(self._sort_column)
+            )
+            expr = expr.order_by(sort_key)
+        df = expr.head(self._head_limit).execute()
+        columns = tuple(str(c) for c in df.columns)
+        rows = tuple(
+            tuple(str(round(v, 4)) if isinstance(v, float) else str(v) for v in row)
+            for row in df.itertuples(index=False)
+        )
+        self.app.call_from_thread(self._render_data, columns, rows, len(df))
+
+    def _render_data(self, columns: tuple, rows: tuple, total_rows: int) -> None:
+        with self.app.batch_update():
+            data_table = self.query_one("#dv-data-table", DataTable)
+            data_table.clear(columns=True)
+            data_table.loading = False
+            for col in columns:
+                data_table.add_column(col, key=col)
+            for i, row in enumerate(rows):
+                data_table.add_row(*row, key=str(i))
+            self._update_status_detail(total_rows, len(columns))
+            self.query_one(
+                "#dv-data-panel"
+            ).border_subtitle = f"{total_rows} rows \u00d7 {len(columns)} cols"
+
+    def _render_error(self, message: str) -> None:
+        self.query_one("#dv-data-table", DataTable).loading = False
+        self._update_status(f"Error: {message}")
+
+    # --- Navigation ---
+
+    def action_cursor_left(self) -> None:
+        self.query_one("#dv-data-table", DataTable).action_cursor_left()
+
+    def action_cursor_down(self) -> None:
+        self.query_one("#dv-data-table", DataTable).action_cursor_down()
+
+    def action_cursor_up(self) -> None:
+        self.query_one("#dv-data-table", DataTable).action_cursor_up()
+
+    def action_cursor_right(self) -> None:
+        self.query_one("#dv-data-table", DataTable).action_cursor_right()
+
+    def action_go_top(self) -> None:
+        dt = self.query_one("#dv-data-table", DataTable)
+        if dt.row_count:
+            dt.move_cursor(row=0)
+
+    def action_go_bottom(self) -> None:
+        dt = self.query_one("#dv-data-table", DataTable)
+        if dt.row_count:
+            dt.move_cursor(row=dt.row_count - 1)
+
+    def action_go_back(self) -> None:
+        self.app.pop_screen()
+
+    def key_escape(self) -> None:
+        cmd_input = self.query_one("#dv-command-input", Input)
+        if not cmd_input.disabled and cmd_input.has_focus:
+            self._dismiss_command()
+            return
+        self.action_go_back()
+
+    # --- Sort ---
+
+    def _get_current_column_name(self) -> str | None:
+        dt = self.query_one("#dv-data-table", DataTable)
+        if not dt.columns:
+            return None
+        col_keys = list(dt.columns.keys())
+        idx = dt.cursor_column
+        if 0 <= idx < len(col_keys):
+            return str(col_keys[idx])
+        return None
+
+    def action_sort_asc(self) -> None:
+        col = self._get_current_column_name()
+        if col and self._current_expr is not None:
+            self._sort_column = col
+            self._sort_ascending = True
+            self._reload_data()
+
+    def action_sort_desc(self) -> None:
+        col = self._get_current_column_name()
+        if col and self._current_expr is not None:
+            self._sort_column = col
+            self._sort_ascending = False
+            self._reload_data()
+
+    def _reload_data(self) -> None:
+        self.query_one("#dv-data-table", DataTable).loading = True
+        self._update_status("Loading\u2026")
+        self._do_reload()
+
+    @work(thread=True, exit_on_error=False)
+    def _do_reload(self) -> None:
+        try:
+            self._execute_and_render(self._current_expr)
+        except Exception as e:
+            self.app.call_from_thread(self._render_error, str(e))
+
+    # --- Stats ---
+
+    def action_toggle_stats(self) -> None:
+        self._stats_visible = not self._stats_visible
+        self.query_one("#dv-stats-panel").display = self._stats_visible
+        if self._stats_visible and self._current_expr is not None:
+            self._load_describe()
+
+    @work(thread=True, exit_on_error=False)
+    def _load_describe(self) -> None:
+        try:
+            df = self._current_expr.describe().execute()
+            columns = tuple(str(c) for c in df.columns)
+            rows = tuple(
+                tuple(str(round(v, 4)) if isinstance(v, float) else str(v) for v in row)
+                for row in df.itertuples(index=False)
+            )
+            self.app.call_from_thread(self._render_stats, columns, rows)
+        except Exception as e:
+            self.app.call_from_thread(self._render_stats_error, str(e))
+
+    def _render_stats(self, columns: tuple, rows: tuple) -> None:
+        with self.app.batch_update():
+            stats_table = self.query_one("#dv-stats-table", DataTable)
+            stats_table.clear(columns=True)
+            for col in columns:
+                stats_table.add_column(col, key=col)
+            for i, row in enumerate(rows):
+                stats_table.add_row(*row, key=str(i))
+            self.query_one("#dv-stats-panel").border_subtitle = f"{len(rows)} columns"
+
+    def _render_stats_error(self, message: str) -> None:
+        self.query_one("#dv-stats-panel").border_subtitle = f"Error: {message}"
+
+    # --- Command Mode ---
+
+    def action_command_mode(self) -> None:
+        cmd_input = self.query_one("#dv-command-input", Input)
+        cmd_input.disabled = False
+        cmd_input.display = True
+        cmd_input.value = ""
+        cmd_input.focus()
+
+    def action_search_mode(self) -> None:
+        cmd_input = self.query_one("#dv-command-input", Input)
+        cmd_input.disabled = False
+        cmd_input.display = True
+        cmd_input.value = "/"
+        cmd_input.focus()
+
+    def _dismiss_command(self) -> None:
+        cmd_input = self.query_one("#dv-command-input", Input)
+        cmd_input.display = False
+        cmd_input.disabled = True
+        self.query_one("#dv-data-table", DataTable).focus()
+
+    @on(Input.Submitted, "#dv-command-input")
+    def _on_command_submitted(self, event: Input.Submitted) -> None:
+        text = event.value.strip()
+        self._dismiss_command()
+        if text.startswith("/"):
+            self._do_search(text[1:])
+        elif text:
+            self._execute_command(text)
+
+    def _execute_command(self, text: str) -> None:
+        parts = text.split(None, 1)
+        cmd = parts[0].lower()
+        arg = parts[1] if len(parts) > 1 else ""
+
+        match cmd:
+            case "compose":
+                self.action_open_compose()
+            case "code":
+                self._cmd_code(arg.strip())
+            case "head":
+                self._cmd_head(arg.strip())
+            case "describe":
+                self._cmd_describe()
+            case "q" | "quit":
+                self.action_go_back()
+            case _:
+                self._update_status(f"Unknown command: {cmd}")
+
+    # --- Compose ---
+
+    def action_open_compose(self) -> None:
+        row_cache: dict[str, CatalogRowData] = {}
+        for screen in self.app.screen_stack:
+            if isinstance(screen, CatalogScreen):
+                row_cache = screen._row_cache
+                break
+        if not row_cache:
+            self._update_status("No catalog entries loaded")
+            return
+        self.app.push_screen(
+            ComposeScreen(row_cache, initial_source=self._row_data),
+            callback=self._on_compose_dismissed,
+        )
+
+    def _on_compose_dismissed(self, result: tuple[str, ...] | None) -> None:
+        if result is None:
+            return
+        self._update_status("Composing\u2026")
+        self.query_one("#dv-data-table", DataTable).loading = True
+        self._do_compose(result)
+
+    @work(thread=True, exit_on_error=False)
+    def _do_compose(self, entry_names: tuple[str, ...]) -> None:
+        from xorq.catalog.composer import ExprComposer  # noqa: PLC0415
+        from xorq.ibis_yaml.compiler import build_expr  # noqa: PLC0415
+
+        catalog = self.app._catalog
+        if catalog is None:
+            self.app.call_from_thread(self._render_error, "No catalog")
+            return
+        try:
+            resolved = tuple(
+                catalog.get_catalog_entry(name, maybe_alias=True)
+                for name in entry_names
+            )
+            new_expr = ExprComposer(
+                source=resolved[0],
+                transforms=resolved[1:],
+            ).expr
+
+            # Build and catalog
+            build_path = build_expr(new_expr)
+            aliases = (self._tracking_alias,) if self._tracking_alias else ()
+            catalog.add(build_path, aliases=aliases, exist_ok=True)
+
+            # Refresh state
+            _catalog_list_cached.cache_clear()
+            entry_name = build_path.name
+            new_entry = catalog.get_catalog_entry(entry_name)
+            self._entry = new_entry
+            self._current_expr = new_expr
+            self._sort_column = None
+            label = " \u2192 ".join(entry_names)
+            self._current_label = label
+
+            self._execute_and_render(new_expr)
+            self.app.call_from_thread(self._update_panel_title, label)
+        except Exception as e:
+            self.app.call_from_thread(self._render_error, f"Compose failed: {e}")
+
+    def _update_panel_title(self, label: str) -> None:
+        self.query_one("#dv-data-panel").border_title = f"Data \u2014 {label}"
+
+    # --- :code ---
+
+    def _cmd_code(self, code: str) -> None:
+        if not code:
+            self._update_status("Usage: code <ibis_expression>")
+            return
+        self.query_one("#dv-data-table", DataTable).loading = True
+        self._update_status("Evaluating\u2026")
+        self._do_code(code)
+
+    @work(thread=True, exit_on_error=False)
+    def _do_code(self, code: str) -> None:
+        try:
+            from xorq.catalog.bind import _eval_code  # noqa: PLC0415
+
+            if self._current_expr is None:
+                self.app.call_from_thread(self._render_error, "No expression loaded")
+                return
+            new_expr = _eval_code(code, self._current_expr)
+            self._current_expr = new_expr
+            self._sort_column = None
+            new_label = f"{self._current_label} | code"
+            self._current_label = new_label
+            self._execute_and_render(new_expr)
+            self.app.call_from_thread(self._update_panel_title, new_label)
+        except Exception as e:
+            self.app.call_from_thread(self._render_error, f"Code error: {e}")
+
+    # --- :head ---
+
+    def _cmd_head(self, n_str: str) -> None:
+        try:
+            n = int(n_str) if n_str else 50
+            if n < 1:
+                raise ValueError
+        except ValueError:
+            self._update_status("Usage: head <positive_integer>")
+            return
+        self._head_limit = n
+        self._reload_data()
+
+    # --- :describe ---
+
+    def _cmd_describe(self) -> None:
+        self._stats_visible = True
+        self.query_one("#dv-stats-panel").display = True
+        self._load_describe()
+
+    # --- /search ---
+
+    def _do_search(self, query: str) -> None:
+        if not query:
+            return
+        dt = self.query_one("#dv-data-table", DataTable)
+        query_lower = query.lower()
+        found = 0
+        first_found = False
+        for row_idx in range(dt.row_count):
+            for col_idx in range(len(dt.columns)):
+                cell_value = str(dt.get_cell_at((row_idx, col_idx)))
+                if query_lower in cell_value.lower():
+                    if not first_found:
+                        dt.move_cursor(row=row_idx, column=col_idx)
+                        first_found = True
+                    found += 1
+        suffix = "es" if found != 1 else ""
+        self._update_status(f"/{query} \u2014 {found} match{suffix}")
+
+
 class CatalogScreen(Screen):
     BINDINGS = (
         ("q", "quit_app", "Quit"),
@@ -472,6 +1238,9 @@ class CatalogScreen(Screen):
         ("2", "show_view('lineage')", "Lineage"),
         ("3", "show_view('data')", "Data"),
         ("4", "show_view('profiles')", "Profiles"),
+        ("5", "show_view('tags')", "Tags"),
+        ("6", "show_view('full_lineage')", "Full Lineage"),
+        ("e", "open_data_view", "Data View"),
         ("slash", "start_search", "Search"),
     )
 
@@ -480,6 +1249,8 @@ class CatalogScreen(Screen):
         "sql": "#sql-panel",
         "data": "#data-preview-panel",
         "profiles": "#profiles-panel",
+        "tags": "#tags-panel",
+        "full_lineage": "#full-lineage-panel",
     }
 
     FOCUS_CYCLE = (
@@ -533,6 +1304,10 @@ class CatalogScreen(Screen):
                         yield DataTable(id="data-preview-table")
                     with Vertical(id="profiles-panel"):
                         yield DataTable(id="profiles-table")
+                    with Vertical(id="tags-panel"):
+                        yield Tree("Tags", id="tags-tree")
+                    with Vertical(id="full-lineage-panel"):
+                        yield Tree("Full Lineage", id="full-lineage-tree")
                 with Vertical(id="schema-panel"):
                     with Horizontal(id="schema-split"):
                         with Vertical(id="schema-in-half"):
@@ -591,6 +1366,8 @@ class CatalogScreen(Screen):
         self.query_one("#sql-panel").border_title = "SQL"
         data_panel = self.query_one("#data-preview-panel")
         data_panel.border_title = "Data Preview"
+        self.query_one("#tags-panel").border_title = "Tags"
+        self.query_one("#full-lineage-panel").border_title = "Full Lineage"
         self._apply_view("sql")
         rev_panel = self.query_one("#revisions-panel")
         rev_panel.border_title = "Revisions"
@@ -662,6 +1439,14 @@ class CatalogScreen(Screen):
             if node is not None and rd is not None:
                 node.set_label(self._entry_label_related(rd))
 
+    def action_open_data_view(self) -> None:
+        entry_hash = self._selected_entry_hash()
+        if entry_hash is None:
+            return
+        row_data = self._row_cache.get(entry_hash)
+        if row_data is not None:
+            self.app.push_screen(DataViewScreen(row_data))
+
     @on(Tree.NodeHighlighted, "#catalog-tree")
     def _on_catalog_node_highlighted(self, event: Tree.NodeHighlighted) -> None:
         entry_hash = self._get_entry_hash_from_node(event.node)
@@ -723,6 +1508,22 @@ class CatalogScreen(Screen):
             lineage_tree.clear()
             lineage_tree.root.set_label("(no lineage)")
         lineage_panel.border_subtitle = row_data.cache_info_text
+
+        # Tags panel (sync)
+        tags_tree = self.query_one("#tags-tree", Tree)
+        if dag:
+            _populate_tags_tree(tags_tree, dag)
+        else:
+            tags_tree.clear()
+            tags_tree.root.set_label("(no tags)")
+
+        # Full lineage panel (sync)
+        full_lineage_tree = self.query_one("#full-lineage-tree", Tree)
+        if dag:
+            _populate_full_lineage_tree(full_lineage_tree, dag)
+        else:
+            full_lineage_tree.clear()
+            full_lineage_tree.root.set_label("(no lineage)")
 
         # SQL preview — serve from cache or render async
         entry_hash = row_data.hash
@@ -1476,7 +2277,116 @@ class CatalogTUI(App):
     #profiles-table {
         height: 1fr;
     }
+    #tags-panel {
+        height: 1fr;
+        border: solid #F5CA2C;
+        border-title-color: #F5CA2C;
+        padding: 0 1;
+    }
+    #tags-tree {
+        height: 1fr;
+        padding: 0 1;
+    }
+    #full-lineage-panel {
+        height: 1fr;
+        border: solid #C1F0FF;
+        border-title-color: #C1F0FF;
+        padding: 0 1;
+    }
+    #full-lineage-panel:focus-within {
+        border: double #C1F0FF;
+    }
+    #full-lineage-tree {
+        height: 1fr;
+        padding: 0 1;
+    }
     #status-bar {
+        dock: bottom;
+        height: 1;
+        padding: 0 2;
+        background: $surface;
+    }
+    /* ComposeScreen (modal overlay) */
+    ComposeScreen {
+        align: center middle;
+        background: rgba(5, 24, 26, 0.85);
+    }
+    #compose-dialog {
+        width: 90%;
+        height: 80%;
+        max-width: 100;
+        max-height: 34;
+        border: solid #2BBE75;
+        border-title-color: #2BBE75;
+        background: $surface;
+        padding: 0 1;
+    }
+    #compose-title {
+        height: 1;
+        color: #2BBE75;
+    }
+    #compose-split {
+        height: 1fr;
+    }
+    #compose-source-panel {
+        width: 2fr;
+        border: solid #C1F0FF 50%;
+        border-title-color: #C1F0FF;
+    }
+    #compose-source-panel:focus-within {
+        border: double #C1F0FF;
+    }
+    #compose-entries-table {
+        height: 1fr;
+    }
+    #compose-transform-panel {
+        width: 3fr;
+        border: solid #5abfb5 50%;
+        border-title-color: #5abfb5;
+    }
+    #compose-chain-table {
+        height: auto;
+        max-height: 10;
+    }
+    #compose-validation {
+        height: auto;
+        max-height: 4;
+        padding: 0 1;
+    }
+    #compose-status {
+        height: 1;
+        padding: 0 1;
+    }
+    /* DataViewScreen */
+    #dv-data-panel {
+        height: 3fr;
+        border: solid #C1F0FF;
+        border-title-color: #C1F0FF;
+        border-subtitle-color: #C1F0FF;
+    }
+    #dv-data-table {
+        height: 1fr;
+    }
+    #dv-stats-panel {
+        height: 1fr;
+        border: solid #F5CA2C;
+        border-title-color: #F5CA2C;
+        border-subtitle-color: #F5CA2C;
+    }
+    #dv-stats-table {
+        height: 1fr;
+    }
+    #dv-command-input {
+        display: none;
+        dock: bottom;
+        height: 3;
+        margin: 0;
+        border: tall #5abfb5;
+        padding: 0 1;
+        background: $surface;
+        color: #C1F0FF;
+    }
+    #dv-status-bar {
         dock: bottom;
         height: 1;
         padding: 0 2;

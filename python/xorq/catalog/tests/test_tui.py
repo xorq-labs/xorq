@@ -35,11 +35,14 @@ from xorq.catalog.tui import (
     CatalogRowData,
     CatalogScreen,
     CatalogTUI,
+    ComposeScreen,
+    DataViewScreen,
     GitLogRowData,
     RevisionRowData,
     _build_git_log_rows,
     _entry_info,
     _format_cached,
+    _is_bindable,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
 
@@ -338,6 +341,57 @@ def test_lineage_panel_exists(catalog):
             await settle(pilot)
             lineage = app.screen.query_one("#lineage-panel")
             assert lineage.border_title == "Lineage"
+
+    _run(_test())
+
+
+def test_tags_panel_exists(catalog):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            tags = app.screen.query_one("#tags-panel")
+            assert tags.border_title == "Tags"
+            # Hidden by default (SQL is the initial view)
+            assert tags.display is False
+
+    _run(_test())
+
+
+def test_full_lineage_panel_exists(catalog):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            fl = app.screen.query_one("#full-lineage-panel")
+            assert fl.border_title == "Full Lineage"
+            assert fl.display is False
+
+    _run(_test())
+
+
+def test_key_5_shows_tags_panel(catalog):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            await pilot.press("5")
+            await settle(pilot)
+            assert app.screen.query_one("#tags-panel").display is True
+            assert app.screen.query_one("#sql-panel").display is False
+
+    _run(_test())
+
+
+def test_key_6_shows_full_lineage_panel(catalog):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            await pilot.press("6")
+            await settle(pilot)
+            assert app.screen.query_one("#full-lineage-panel").display is True
+            assert app.screen.query_one("#sql-panel").display is False
 
     _run(_test())
 
@@ -719,3 +773,171 @@ def test_memtable_cached_lifecycle(catalog, tmp_path):
 
     entry.expr.execute()
     assert CatalogRowData(entry=entry).cached is True
+
+
+# ---------------------------------------------------------------------------
+# DataViewScreen tests
+# ---------------------------------------------------------------------------
+
+
+def test_dataview_screen_constructs(entry_a):
+    row = CatalogRowData(entry=entry_a)
+    screen = DataViewScreen(row)
+    assert screen._head_limit == 50
+    assert screen._current_expr is None
+
+
+def test_enter_opens_dataview_screen(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_table(pilot, catalog, entry_a)
+            tree = screen.query_one("#catalog-tree", Tree)
+            tree.focus()
+            await settle(pilot)
+            # Navigate to the first entry node (past the kind group)
+            await pilot.press("j")
+            await settle(pilot)
+            # Open data view (e)
+            await pilot.press("e")
+            await settle(pilot)
+            assert isinstance(app.screen, DataViewScreen)
+
+    _run(_test())
+
+
+def test_q_pops_dataview_screen(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_table(pilot, catalog, entry_a)
+            tree = screen.query_one("#catalog-tree", Tree)
+            tree.focus()
+            await settle(pilot)
+            await pilot.press("j")
+            await settle(pilot)
+            await pilot.press("e")
+            await settle(pilot)
+            assert isinstance(app.screen, DataViewScreen)
+            await pilot.press("q")
+            await settle(pilot)
+            assert isinstance(app.screen, CatalogScreen)
+
+    _run(_test())
+
+
+def test_dataview_stats_hidden_by_default(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_table(pilot, catalog, entry_a)
+            tree = screen.query_one("#catalog-tree", Tree)
+            tree.focus()
+            await settle(pilot)
+            await pilot.press("j")
+            await settle(pilot)
+            await pilot.press("e")
+            await settle(pilot)
+            dv = app.screen
+            assert isinstance(dv, DataViewScreen)
+            stats_panel = dv.query_one("#dv-stats-panel")
+            assert stats_panel.display is False
+
+    _run(_test())
+
+
+# ---------------------------------------------------------------------------
+# ComposeScreen tests
+# ---------------------------------------------------------------------------
+
+
+def test_is_bindable_compatible():
+    source_out = (("id", "int64"), ("name", "string"))
+    transform_in = (("id", "int64"), ("name", "string"))
+    assert _is_bindable(source_out, transform_in) is True
+
+
+def test_is_bindable_missing_column():
+    source_out = (("id", "int64"),)
+    transform_in = (("id", "int64"), ("name", "string"))
+    assert _is_bindable(source_out, transform_in) is False
+
+
+def test_is_bindable_type_mismatch():
+    source_out = (("id", "int64"), ("name", "string"))
+    transform_in = (("id", "float64"), ("name", "string"))
+    assert _is_bindable(source_out, transform_in) is False
+
+
+def test_is_bindable_none_schema_in():
+    source_out = (("id", "int64"),)
+    assert _is_bindable(source_out, None) is False
+
+
+def test_c_opens_compose_from_dataview(catalog, entry_a, entry_b):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_table(pilot, catalog, entry_a, entry_b)
+            tree = screen.query_one("#catalog-tree", Tree)
+            tree.focus()
+            await settle(pilot)
+            await pilot.press("j")
+            await settle(pilot)
+            await pilot.press("e")
+            await settle(pilot)
+            assert isinstance(app.screen, DataViewScreen)
+            await pilot.press("c")
+            await settle(pilot)
+            assert isinstance(app.screen, ComposeScreen)
+
+    _run(_test())
+
+
+def test_compose_screen_escape_goes_back(catalog, entry_a, entry_b):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_table(pilot, catalog, entry_a, entry_b)
+            tree = screen.query_one("#catalog-tree", Tree)
+            tree.focus()
+            await settle(pilot)
+            await pilot.press("j")
+            await settle(pilot)
+            await pilot.press("e")
+            await settle(pilot)
+            assert isinstance(app.screen, DataViewScreen)
+            await pilot.press("c")
+            await settle(pilot)
+            assert isinstance(app.screen, ComposeScreen)
+            await pilot.press("escape")
+            await settle(pilot)
+            # Back to DataViewScreen after dismiss
+            assert isinstance(app.screen, DataViewScreen)
+
+    _run(_test())
+
+
+def test_compose_pre_populates_source(catalog, entry_a, entry_b):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_table(pilot, catalog, entry_a, entry_b)
+            tree = screen.query_one("#catalog-tree", Tree)
+            tree.focus()
+            await settle(pilot)
+            await pilot.press("j")
+            await settle(pilot)
+            await pilot.press("e")
+            await settle(pilot)
+            dv = app.screen
+            assert isinstance(dv, DataViewScreen)
+            await pilot.press("c")
+            await settle(pilot)
+            compose = app.screen
+            assert isinstance(compose, ComposeScreen)
+            # Chain should have 1 entry (the pre-populated source)
+            assert len(compose._chain) == 1
+            assert compose._chain[0].hash == entry_a.name
+
+    _run(_test())
