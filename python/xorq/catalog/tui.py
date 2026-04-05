@@ -170,17 +170,31 @@ class CatalogRowData:
             case _:
                 return "○ uncached"
 
+    @cached_property
+    def tags(self) -> tuple[str, ...]:
+        """Extract tag labels from the lineage DAG."""
+        dag = self.lineage_dag
+        if not dag:
+            return ()
+        return tuple(
+            tag_name
+            for n in dag.get("nodes", ())
+            if n.get("op") in _TAG_OPS
+            and isinstance(n.get("tag"), dict)
+            and (tag_name := n["tag"].get("tag", ""))
+        )
+
+    @cached_property
+    def composed_from_hashes(self) -> frozenset[str]:
+        return frozenset(
+            d["entry_name"]
+            for d in self.entry.metadata.composed_from
+            if "entry_name" in d
+        )
+
     @property
     def row_key(self) -> str:
         return self.hash
-
-    @property
-    def row(self) -> tuple[str, ...]:
-        return (
-            self.kind,
-            self.aliases_display,
-            self.hash,
-        )
 
 
 @frozen
@@ -469,7 +483,7 @@ class CatalogScreen(Screen):
     }
 
     FOCUS_CYCLE = (
-        "#catalog-table",
+        "#catalog-tree",
         "#lineage-tree",
         "#schema-in-table",
         "#schema-preview-table",
@@ -480,6 +494,10 @@ class CatalogScreen(Screen):
         super().__init__()
         self._refresh_interval = refresh_interval
         self._row_cache: dict[str, CatalogRowData] = {}
+        self._kind_nodes: dict[str, object] = {}
+        self._node_by_hash: dict[str, object] = {}
+        self._highlighted_related: set[str] = set()
+        self._last_highlighted_hash: str | None = None
         self._revisions_visible = False
         self._git_log_visible = False
         self._git_log_loaded = False
@@ -499,7 +517,7 @@ class CatalogScreen(Screen):
                     yield Input(
                         placeholder="search...", id="search-input", disabled=True
                     )
-                    yield DataTable(id="catalog-table")
+                    yield Tree("Expressions", id="catalog-tree")
                 with Vertical(id="revisions-panel"):
                     yield DataTable(id="revisions-preview-table")
                 with Vertical(id="git-log-panel"):
@@ -525,11 +543,9 @@ class CatalogScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
-        table = self.query_one("#catalog-table", DataTable)
-        table.cursor_type = "row"
-        table.zebra_stripes = True
-        for col in COLUMNS:
-            table.add_column(col, key=col)
+        tree = self.query_one("#catalog-tree", Tree)
+        tree.show_root = False
+        tree.guide_depth = 3
 
         schema_in_table = self.query_one("#schema-in-table", DataTable)
         schema_in_table.cursor_type = "row"
@@ -587,8 +603,73 @@ class CatalogScreen(Screen):
 
         self.set_interval(self._refresh_interval, self._do_refresh)
 
-    @on(DataTable.RowHighlighted, "#catalog-table")
-    def _on_catalog_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+    def _get_entry_hash_from_node(self, node) -> str | None:
+        """Walk up from node to find an entry hash stored as node data."""
+        current = node
+        while current is not None:
+            if isinstance(current.data, str):
+                return current.data
+            current = current.parent
+        return None
+
+    def _selected_entry_hash(self) -> str | None:
+        """Return the entry hash of the currently highlighted catalog tree node."""
+        tree = self.query_one("#catalog-tree", Tree)
+        node = tree.cursor_node
+        if node is None:
+            return None
+        return self._get_entry_hash_from_node(node)
+
+    @staticmethod
+    def _entry_label(row_data: CatalogRowData) -> str:
+        return row_data.aliases_display or f"[dim]{row_data.hash[:12]}[/dim]"
+
+    @staticmethod
+    def _entry_label_related(row_data: CatalogRowData) -> str:
+        name = row_data.aliases_display or row_data.hash[:12]
+        return f"[#5abfb5]› {name}[/]"
+
+    def _compute_related_hashes(self, entry_hash: str) -> set[str]:
+        """Find entries related to entry_hash (both upstream and downstream)."""
+        row_data = self._row_cache.get(entry_hash)
+        if row_data is None:
+            return set()
+        # Upstream: entries this one is composed from
+        related = set(row_data.composed_from_hashes & self._row_cache.keys())
+        # Downstream: entries that are composed from this one
+        for other_hash, other_data in self._row_cache.items():
+            if (
+                other_hash != entry_hash
+                and entry_hash in other_data.composed_from_hashes
+            ):
+                related.add(other_hash)
+        return related
+
+    def _update_related_highlights(self, entry_hash: str) -> None:
+        """Highlight tree nodes related to the selected entry."""
+        # Clear previous highlights
+        for h in self._highlighted_related:
+            node = self._node_by_hash.get(h)
+            rd = self._row_cache.get(h)
+            if node is not None and rd is not None:
+                node.set_label(self._entry_label(rd))
+        # Compute and apply new highlights
+        related = self._compute_related_hashes(entry_hash)
+        self._highlighted_related = related
+        for h in related:
+            node = self._node_by_hash.get(h)
+            rd = self._row_cache.get(h)
+            if node is not None and rd is not None:
+                node.set_label(self._entry_label_related(rd))
+
+    @on(Tree.NodeHighlighted, "#catalog-tree")
+    def _on_catalog_node_highlighted(self, event: Tree.NodeHighlighted) -> None:
+        entry_hash = self._get_entry_hash_from_node(event.node)
+        if entry_hash is None or entry_hash == self._last_highlighted_hash:
+            return
+        self._last_highlighted_hash = entry_hash
+        self._update_related_highlights(entry_hash)
+
         schema_in_table = self.query_one("#schema-in-table", DataTable)
         schema_in_table.clear()
         schema_out_table = self.query_one("#schema-preview-table", DataTable)
@@ -599,11 +680,7 @@ class CatalogScreen(Screen):
         rev_table = self.query_one("#revisions-preview-table", DataTable)
         rev_table.clear()
 
-        row_data = (
-            self._row_cache.get(str(event.row_key.value))
-            if event.row_key is not None
-            else None
-        )
+        row_data = self._row_cache.get(entry_hash)
         if row_data is None:
             sql_preview.clear()
             lineage_tree.clear()
@@ -683,7 +760,7 @@ class CatalogScreen(Screen):
             self._update_revisions(row_data)
 
         # Update toggle panels for new row (preserve visibility)
-        self._update_toggle_panels(row_data, str(event.row_key.value))
+        self._update_toggle_panels(row_data, entry_hash)
 
     def _update_toggle_panels(self, row_data, entry_hash) -> None:
         """Update toggle panels for a new row, preserving visibility."""
@@ -792,24 +869,46 @@ class CatalogScreen(Screen):
         stamp = datetime.now().strftime("%H:%M:%S")
         self.app.call_from_thread(self._render_status, stamp, repo_path)
 
+    def _rebuild_catalog_tree(self, entries=None, query: str = "") -> None:
+        """Rebuild the catalog tree from entries, grouped by kind."""
+        tree = self.query_one("#catalog-tree", Tree)
+        tree.clear()
+        self._kind_nodes.clear()
+        self._node_by_hash.clear()
+        self._highlighted_related.clear()
+
+        if entries is None:
+            entries = self._row_cache.values()
+
+        query_lower = query.lower()
+        sorted_entries = sorted(entries, key=lambda r: r.sort_key)
+        if query_lower:
+            sorted_entries = [
+                r for r in sorted_entries if self._matches_search(r, query_lower)
+            ]
+
+        for row_data in sorted_entries:
+            self._add_entry_to_tree(tree, row_data)
+
     def _render_refresh(self, repo_path, cached_rows) -> None:
         with self.app.batch_update():
             catalog_name = Path(repo_path).name
             self.query_one(
                 "#catalog-panel"
             ).border_title = f"Expressions — {catalog_name}"
+            self._rebuild_catalog_tree(entries=cached_rows, query=self._search_query)
 
-            table = self.query_one("#catalog-table", DataTable)
-            saved_cursor = table.cursor_row
-            table.clear()
-            query_lower = self._search_query.lower()
-            for row_data in cached_rows:
-                if query_lower and not self._matches_search(row_data, query_lower):
-                    continue
-                table.add_row(*row_data.row, key=row_data.row_key)
-            count = table.row_count
-            if saved_cursor is not None and count > 0:
-                table.move_cursor(row=min(saved_cursor, count - 1))
+    def _add_entry_to_tree(self, tree, row_data) -> None:
+        """Add a single entry node to the catalog tree under its kind group."""
+        kind = row_data.kind
+        if kind not in self._kind_nodes:
+            self._kind_nodes[kind] = tree.root.add(f"[bold]{kind}[/bold]", expand=True)
+        kind_node = self._kind_nodes[kind]
+        entry_node = kind_node.add(self._entry_label(row_data), data=row_data.row_key)
+        self._node_by_hash[row_data.row_key] = entry_node
+        entry_node.add_leaf(f"[dim]{row_data.hash[:12]}[/dim]")
+        for tag in row_data.tags:
+            entry_node.add_leaf(f"[#5abfb5]{tag}[/]")
 
     def _render_catalog_row(self, row_data) -> None:
         if self._search_query and not self._matches_search(
@@ -817,13 +916,11 @@ class CatalogScreen(Screen):
         ):
             return
         with self.app.batch_update():
-            table = self.query_one("#catalog-table", DataTable)
-            if len(table.columns) < len(COLUMNS):
-                return
-            table.add_row(*row_data.row, key=row_data.row_key)
+            tree = self.query_one("#catalog-tree", Tree)
+            self._add_entry_to_tree(tree, row_data)
 
     def _render_status(self, stamp, repo_path) -> None:
-        count = self.query_one("#catalog-table", DataTable).row_count
+        count = len(self._row_cache)
         self.query_one("#status-bar", Static).update(
             f" {count} entries \u00b7 {repo_path} \u00b7 {stamp}"
         )
@@ -845,7 +942,7 @@ class CatalogScreen(Screen):
             self._apply_search_filter("")
         search_input.display = False
         search_input.disabled = True
-        self.query_one("#catalog-table", DataTable).focus()
+        self.query_one("#catalog-tree", Tree).focus()
 
     @on(Input.Changed, "#search-input")
     def _on_search_changed(self, event: Input.Changed) -> None:
@@ -862,25 +959,19 @@ class CatalogScreen(Screen):
             self._finish_search(keep_filter=False)
 
     def _apply_search_filter(self, query: str) -> None:
-        table = self.query_one("#catalog-table", DataTable)
-        saved_cursor = table.cursor_row
-        table.clear()
+        self._rebuild_catalog_tree(query=query)
 
         query_lower = query.lower()
-        for row_data in sorted(self._row_cache.values(), key=lambda r: r.sort_key):
-            if query_lower and not self._matches_search(row_data, query_lower):
-                continue
-            table.add_row(*row_data.row, key=row_data.row_key)
-
-        count = table.row_count
         total = len(self._row_cache)
-        panel = self.query_one("#catalog-panel")
         if query_lower:
-            panel.border_subtitle = f"{count}/{total}"
+            count = sum(
+                1
+                for r in self._row_cache.values()
+                if self._matches_search(r, query_lower)
+            )
+            self.query_one("#catalog-panel").border_subtitle = f"{count}/{total}"
         else:
-            panel.border_subtitle = ""
-        if saved_cursor is not None and count > 0:
-            table.move_cursor(row=min(saved_cursor, count - 1))
+            self.query_one("#catalog-panel").border_subtitle = ""
 
     def _matches_search(self, row_data: CatalogRowData, query: str) -> bool:
         return (
@@ -920,11 +1011,10 @@ class CatalogScreen(Screen):
         self._revisions_visible = not self._revisions_visible
         self.query_one("#revisions-panel").display = self._revisions_visible
         if self._revisions_visible:
-            table = self.query_one("#catalog-table", DataTable)
-            if table.row_count == 0:
+            entry_hash = self._selected_entry_hash()
+            if entry_hash is None:
                 return
-            row_key, _ = table.coordinate_to_cell_key(table.cursor_coordinate)
-            row_data = self._row_cache.get(str(row_key.value))
+            row_data = self._row_cache.get(entry_hash)
             if row_data is not None:
                 self._update_revisions(row_data)
 
@@ -962,11 +1052,9 @@ class CatalogScreen(Screen):
             self._ensure_profiles_loaded()
 
     def _ensure_data_loaded(self) -> None:
-        table = self.query_one("#catalog-table", DataTable)
-        if table.row_count == 0:
+        entry_hash = self._selected_entry_hash()
+        if entry_hash is None:
             return
-        row_key, _ = table.coordinate_to_cell_key(table.cursor_coordinate)
-        entry_hash = str(row_key.value)
         row_data = self._row_cache.get(entry_hash)
         if row_data is None:
             return
@@ -1028,11 +1116,9 @@ class CatalogScreen(Screen):
     # --- View: Profiles (4) ---
 
     def _ensure_profiles_loaded(self) -> None:
-        table = self.query_one("#catalog-table", DataTable)
-        if table.row_count == 0:
+        entry_hash = self._selected_entry_hash()
+        if entry_hash is None:
             return
-        row_key, _ = table.coordinate_to_cell_key(table.cursor_coordinate)
-        entry_hash = str(row_key.value)
         row_data = self._row_cache.get(entry_hash)
         if row_data is None:
             return
@@ -1161,7 +1247,7 @@ class CatalogScreen(Screen):
             return None
         if isinstance(focused, (DataTable, VerticalScroll, Tree)):
             return focused
-        return self.query_one("#catalog-table", DataTable)
+        return self.query_one("#catalog-tree", Tree)
 
     def action_scroll_left(self) -> None:
         match self._focused_widget():
@@ -1286,8 +1372,12 @@ class CatalogTUI(App):
         padding: 0 1;
         background: $surface;
     }
-    #catalog-table {
+    #catalog-panel:focus-within {
+        border: double #C1F0FF;
+    }
+    #catalog-tree {
         height: 1fr;
+        padding: 0 1;
     }
     #revisions-panel {
         height: 1fr;
