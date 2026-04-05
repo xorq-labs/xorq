@@ -32,25 +32,31 @@ jobs:
         backend:
           - name: datafusion
             services: false
+            coverage: true
             extras:
               - --extra datafusion
           - name: duckdb
             services: false
+            coverage: true
             extras:
               - --extra duckdb
           - name: xorq
             services: false
+            coverage: true
             extras: []
           - name: xorq
             python-version: "3.10"
             services: false
+            coverage: true
             extras: []
           - name: pyiceberg
             services: false
+            coverage: true
             extras:
               - --extra pyiceberg
           - name: postgres
             services: postgres
+            coverage: true
             extras:
               - --extra postgres
               - --extra examples
@@ -58,10 +64,22 @@ jobs:
               - libpq5
           - name: pandas
             services: false
+            coverage: true
             extras: []
           - name: core
             services: postgres
             parallel: true
+            coverage: false
+            extras:
+              - --extra examples
+              - --extra postgres
+              - --extra pyiceberg
+              - --extra sqlite
+              - --extra ibis
+          - name: core-coverage
+            marker: core
+            services: postgres
+            coverage: true
             extras:
               - --extra examples
               - --extra postgres
@@ -70,16 +88,19 @@ jobs:
               - --extra ibis
           - name: sqlite
             services: false
+            coverage: true
             extras:
               - --extra sqlite
               - --extra duckdb
           - name: gizmosql
             services: gizmosql
+            coverage: true
             extras:
               - --extra gizmosql
               - --extra duckdb
           - name: trino
             services: trino
+            coverage: true
             extras:
               - --extra trino
               - --extra duckdb
@@ -139,7 +160,7 @@ jobs:
         run: just up-ci ${{ matrix.backend.services }}
 
       - name: pytest
-        run: uv run --no-sync pytest --import-mode=importlib --cov --cov-report=xml -m ${{ matrix.backend.name }} -k 'not script_execution and not slow'${{ matrix.backend.parallel && ' -n auto --dist=loadfile' || '' }}
+        run: uv run --no-sync pytest --import-mode=importlib ${{ matrix.backend.coverage && '--cov --cov-report=xml' || '' }} -m ${{ matrix.backend.marker || matrix.backend.name }} -k 'not script_execution and not slow'${{ matrix.backend.parallel && ' -n auto --dist=loadfile' || '' }}
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres
@@ -149,6 +170,7 @@ jobs:
           POSTGRES_DATABASE: ibis_testing
 
       - name: Upload coverage reports to Codecov
+        if: ${{ matrix.backend.coverage }}
         uses: codecov/codecov-action@v5.5.2
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
