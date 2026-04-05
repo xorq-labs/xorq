@@ -154,18 +154,14 @@ class SdistPackager:
         return self._uv_build_popened
 
     @functools.cached_property
-    def _tgz_sdist_path(self):
+    def _sdist_path(self):
         self._uv_build_popened.wait()  # block until build completes
         tgz_paths = list(self.tmpdir.glob("*.tar.gz"))
         if len(tgz_paths) != 1:
             raise RuntimeError(
                 f"expected exactly one .tar.gz in {self.tmpdir}, found {len(tgz_paths)}"
             )
-        return tgz_paths[0]
-
-    @functools.cached_property
-    def _sdist_path(self):
-        tgz_path = self._tgz_sdist_path
+        tgz_path = tgz_paths[0]
         zip_path = tgz_to_zip(tgz_path)
         tgz_path.unlink()
         return zip_path

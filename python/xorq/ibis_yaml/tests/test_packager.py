@@ -60,7 +60,7 @@ def prep_template_tmpdir(template, tmpdir):
 @pytest.mark.parametrize("template", tuple(InitTemplates))
 def test_sdist_path_hexdigest(template, tmpdir, snapshot):
     zip_path, project_path = prep_template_tmpdir(template, tmpdir)
-    packager = SdistPackager(project_path)
+    packager = SdistPackager(project_path, overwrite_requirements=True)
     actual = packager.sdist_path_hexdigest
     snapshot.assert_match(actual, f"test_sdist_path_hexdigest-{template}")
 
@@ -86,7 +86,7 @@ def test_sdist_builder(template, tmpdir):
 def test_catalog_sdist_validation(template, tmpdir):
     # test that SdistArchive validates a well-formed sdist
     zip_path, project_path = prep_template_tmpdir(template, tmpdir)
-    packager = SdistPackager(project_path=project_path)
+    packager = SdistPackager(project_path=project_path, overwrite_requirements=True)
     sdist_archive = SdistArchive(packager.sdist_path)
     assert sdist_archive.python_version
 
@@ -99,12 +99,24 @@ def test_catalog_sdist_validation(template, tmpdir):
 def test_catalog_sdist_rejects_incomplete(template, tmpdir):
     # test that SdistArchive raises when required members are missing
     zip_path, project_path = prep_template_tmpdir(template, tmpdir)
-    packager = SdistPackager(project_path=project_path)
-    # _sdist_path is the zip before ensure members run — missing uv.lock/requirements.txt
+    packager = SdistPackager(project_path=project_path, overwrite_requirements=True)
     sdist_incomplete = Path(tmpdir).joinpath("sdist_incomplete.zip")
+    # Copy the raw sdist and strip uv.lock + requirements.txt so validation fails
     shutil.copy2(packager._sdist_path, sdist_incomplete)
+    with zipfile.ZipFile(sdist_incomplete, "r") as zf_in:
+        stripped = Path(tmpdir).joinpath("sdist_stripped.zip")
+        with zipfile.ZipFile(stripped, "w") as zf_out:
+            for item in zf_in.infolist():
+                name = (
+                    item.filename.split("/", 1)[-1]
+                    if "/" in item.filename
+                    else item.filename
+                )
+                if name in (UVLOCK_NAME, REQUIREMENTS_NAME):
+                    continue
+                zf_out.writestr(item, zf_in.read(item.filename))
     with pytest.raises(FileNotFoundError):
-        SdistArchive(sdist_incomplete)
+        SdistArchive(stripped)
 
 
 @pytest.mark.slow(level=2)
