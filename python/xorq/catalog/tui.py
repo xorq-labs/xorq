@@ -641,6 +641,12 @@ class ComposeScreen(ModalScreen):
                 with Vertical(id="compose-transform-panel"):
                     yield DataTable(id="compose-chain-table")
                     yield Static("", id="compose-validation")
+                    with Horizontal(id="compose-alias-row"):
+                        yield Static(" alias:", id="compose-alias-label")
+                        yield Input(
+                            placeholder="optional",
+                            id="compose-alias-input",
+                        )
             yield Static("", id="compose-status")
 
     def on_mount(self) -> None:
@@ -800,7 +806,9 @@ class ComposeScreen(ModalScreen):
             )
             return
         entry_names = tuple(rd.aliases_display or rd.hash for rd in self._chain)
-        self.dismiss(entry_names)
+        alias_text = self.query_one("#compose-alias-input", Input).value.strip()
+        alias = alias_text if alias_text else None
+        self.dismiss((entry_names, alias))
 
 
 class DataViewScreen(Screen):
@@ -1104,15 +1112,18 @@ class DataViewScreen(Screen):
             callback=self._on_compose_dismissed,
         )
 
-    def _on_compose_dismissed(self, result: tuple[str, ...] | None) -> None:
+    def _on_compose_dismissed(
+        self, result: tuple[tuple[str, ...], str | None] | None
+    ) -> None:
         if result is None:
             return
+        entry_names, alias = result
         self._update_status("Composing\u2026")
         self.query_one("#dv-data-table", DataTable).loading = True
-        self._do_compose(result)
+        self._do_compose(entry_names, alias)
 
     @work(thread=True, exit_on_error=False)
-    def _do_compose(self, entry_names: tuple[str, ...]) -> None:
+    def _do_compose(self, entry_names: tuple[str, ...], alias: str | None) -> None:
         from xorq.catalog.composer import ExprComposer  # noqa: PLC0415
         from xorq.ibis_yaml.compiler import build_expr  # noqa: PLC0415
 
@@ -1132,7 +1143,7 @@ class DataViewScreen(Screen):
 
             # Build and catalog
             build_path = build_expr(new_expr)
-            aliases = (self._tracking_alias,) if self._tracking_alias else ()
+            aliases = (alias,) if alias else ()
             catalog.add(build_path, aliases=aliases, exist_ok=True)
 
             # Refresh state
@@ -1143,6 +1154,9 @@ class DataViewScreen(Screen):
             self._current_expr = new_expr
             self._sort_column = None
             label = " \u2192 ".join(entry_names)
+            if alias:
+                label = f"{label} as {alias}"
+                self._tracking_alias = alias
             self._current_label = label
 
             self._execute_and_render(new_expr)
@@ -2352,6 +2366,17 @@ class CatalogTUI(App):
         height: auto;
         max-height: 4;
         padding: 0 1;
+    }
+    #compose-alias-row {
+        height: 3;
+        padding: 0 1;
+    }
+    #compose-alias-label {
+        width: auto;
+        padding: 1 1 0 0;
+    }
+    #compose-alias-input {
+        width: 1fr;
     }
     #compose-status {
         height: 1;
