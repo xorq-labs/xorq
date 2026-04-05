@@ -20,6 +20,7 @@ __all__ = [
     "ZipProxy",
     "append_toplevel",
     "calc_zip_content_hexdigest",
+    "replace_toplevel",
     "tgz_to_zip",
 ]
 
@@ -132,6 +133,27 @@ def append_toplevel(zip_path, append_path):
     arcname = str(ZipProxy(zip_path).root_dir.joinpath(append_path.name))
     with zipfile.ZipFile(zip_path, "a") as zf:
         zf.write(append_path, arcname=arcname)
+    return zip_path
+
+
+def replace_toplevel(zip_path, replace_path):
+    """Replace an existing toplevel member in a zip archive.
+
+    Rewrites the zip, substituting the member whose name matches
+    replace_path.name with the contents of replace_path.
+    """
+    zip_path = Path(zip_path)
+    replace_path = Path(replace_path)
+    arcname = str(ZipProxy(zip_path).root_dir.joinpath(replace_path.name))
+    tmp_path = zip_path.with_suffix(".tmp.zip")
+    with zipfile.ZipFile(zip_path, "r") as zf_in:
+        with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as zf_out:
+            for item in zf_in.namelist():
+                if item == arcname:
+                    continue
+                zf_out.writestr(item, zf_in.read(item))
+            zf_out.write(replace_path, arcname=arcname)
+    tmp_path.replace(zip_path)
     return zip_path
 
 

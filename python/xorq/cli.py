@@ -147,6 +147,7 @@ def uv_build_command(
     sdist_builder = PackagedBuilder.from_script_path(
         script_path,
         project_path=project_path,
+        overwrite_requirements=True,
         expr_name=expr_name,
         builds_dir=builds_dir,
         cache_dir=cache_dir,

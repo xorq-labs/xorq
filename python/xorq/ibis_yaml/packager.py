@@ -46,6 +46,7 @@ from xorq.common.utils.zip_utils import (
     ZipProxy,
     append_toplevel,
     calc_zip_content_hexdigest,
+    replace_toplevel,
     tgz_to_zip,
 )
 
@@ -107,6 +108,7 @@ class SdistArchive:
 class SdistPackager:
     project_path = field(validator=instance_of(Path), converter=Path)
     python_version = field(validator=_validate_python_version, default=None)
+    overwrite_requirements = field(validator=instance_of(bool), default=False)
 
     def __attrs_post_init__(self):
         if not self.project_path.exists():
@@ -187,17 +189,19 @@ class SdistPackager:
         sdist_path = self._sdist_path
         zp = ZipProxy(sdist_path)
         requirements_text = uv_export_requirements_from_sdist(sdist_path, self.tmpdir)
+        requirements_path = self.tmpdir.joinpath(REQUIREMENTS_NAME)
+        requirements_path.write_text(requirements_text)
         if zp.toplevel_name_exists(REQUIREMENTS_NAME):
             with zp.open_toplevel_member(REQUIREMENTS_NAME) as fh:
                 existing = fh.read().decode()
             if existing != requirements_text:
-                raise ValueError(
-                    f"existing {REQUIREMENTS_NAME} in sdist does not match "
-                    f"what uv export generates from uv.lock"
-                )
+                if not self.overwrite_requirements:
+                    raise ValueError(
+                        f"existing {REQUIREMENTS_NAME} in sdist does not match "
+                        f"what uv export generates from uv.lock"
+                    )
+                replace_toplevel(sdist_path, requirements_path)
         else:
-            requirements_path = self.tmpdir.joinpath(REQUIREMENTS_NAME)
-            requirements_path.write_text(requirements_text)
             append_toplevel(sdist_path, requirements_path)
 
     @functools.cached_property
@@ -211,9 +215,9 @@ class SdistPackager:
         return calc_zip_content_hexdigest(self.sdist_path)
 
     @classmethod
-    def from_script_path(cls, script_path):
+    def from_script_path(cls, script_path, **kwargs):
         pyproject_path = find_file_upwards(script_path, PYPROJECT_NAME)
-        return cls(pyproject_path.parent)
+        return cls(pyproject_path.parent, **kwargs)
 
     @classmethod
     def from_script_and_requirements(
@@ -317,11 +321,15 @@ class PackagedBuilder:
         return self.get_build_path()
 
     @classmethod
-    def from_script_path(cls, script_path, project_path=None, **kwargs):
+    def from_script_path(
+        cls, script_path, project_path=None, overwrite_requirements=False, **kwargs
+    ):
         packager = (
-            SdistPackager(project_path)
+            SdistPackager(project_path, overwrite_requirements=overwrite_requirements)
             if project_path
-            else SdistPackager.from_script_path(script_path)
+            else SdistPackager.from_script_path(
+                script_path, overwrite_requirements=overwrite_requirements
+            )
         )
         return cls(
             script_path=script_path,
