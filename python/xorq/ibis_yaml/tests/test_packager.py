@@ -102,7 +102,7 @@ def test_sdist_builder_no_requirements_fails(template, tmpdir):
     sdist_no_reqs = Path(tmpdir).joinpath("sdist_no_reqs.zip")
     shutil.copy2(sdister._sdist_path, sdist_no_reqs)
     #
-    with pytest.raises(AssertionError):
+    with pytest.raises(FileNotFoundError):
         sdist_builder = SdistBuilder(
             script_path=script_path,
             sdist_path=sdist_no_reqs,
@@ -122,14 +122,7 @@ def test_sdist_runner(template, tmpdir):
     zip_path, project_path = prep_template_tmpdir(template, tmpdir)
     script_path = project_path.joinpath("expr.py")
     sdist_builder = SdistBuilder(script_path=script_path, sdist_path=zip_path)
-    args = (
-        "xorq",
-        "run",
-        "--output-path",
-        str(output_path),
-        str(sdist_builder.build_path),
-    )
-    sdist_runner = SdistRunner(sdist_builder.build_path, args=args)
+    sdist_runner = SdistRunner(sdist_builder.build_path, output_path=str(output_path))
     assert not sdist_runner.popened.popen.wait()
     assert sdist_runner.popened.returncode == 0
     assert output_path.exists()

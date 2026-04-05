@@ -1,21 +1,32 @@
+"""
+Sdist-based build and run pipeline for xorq expressions.
+
+Pipeline: Sdister → SdistBuilder → SdistRunner
+
+Sdister      project directory → sdist zip (via `uv build --sdist`),
+             with requirements.txt embedded.
+
+SdistBuilder sdist zip + script → build directory (via `uv tool run xorq build`),
+             containing the serialized expression and a copy of the sdist.
+
+SdistRunner  build directory → execution output (via `uv tool run xorq run`),
+             in the sdist's isolated environment.
+"""
+
 import functools
+import subprocess
 from pathlib import Path
 from subprocess import PIPE
 from tempfile import TemporaryDirectory
 from typing import Iterable
 
-
-try:
-    import tomllib
-except ImportError:
-    import tomli as tomllib
+import tomlkit
 import toolz
 from attr import (
     field,
     frozen,
 )
 from attr.validators import (
-    deep_iterable,
     instance_of,
     optional,
 )
@@ -40,13 +51,36 @@ PYPROJECT_NAME = "pyproject.toml"
 BUILD_SDIST_NAME = "sdist.zip"
 
 
+def _validate_python_version(instance, attribute, value):
+    if value is None:
+        return
+    try:
+        Version(value)
+    except Exception as e:
+        raise ValueError(f"invalid python version: {value!r}") from e
+
+
+def resolve_python_version(path):
+    """Return the highest Python version acceptable per requires-python in pyproject.toml."""
+    return get_acceptable_python_versions(path)[-1]
+
+
 @frozen
 class Sdister:
     project_path = field(validator=instance_of(Path), converter=Path)
+    python_version = field(validator=_validate_python_version, default=None)
 
     def __attrs_post_init__(self):
-        assert self.project_path.exists()
-        assert self.pyproject_path.exists()
+        if not self.project_path.exists():
+            raise FileNotFoundError(f"project path does not exist: {self.project_path}")
+        if not self.pyproject_path.exists():
+            raise FileNotFoundError(
+                f"pyproject.toml not found at: {self.pyproject_path}"
+            )
+        if self.python_version is None:
+            object.__setattr__(
+                self, "python_version", resolve_python_version(self.pyproject_path)
+            )
 
     @property
     def pyproject_path(self):
@@ -66,6 +100,8 @@ class Sdister:
             "uv",
             "build",
             "--sdist",
+            "--python",
+            self.python_version,
             "--out-dir",
             str(self.tmpdir),
             str(self.pyproject_path.parent),
@@ -79,11 +115,13 @@ class Sdister:
 
     @functools.cached_property
     def _tgz_sdist_path(self):
-        prefix = "Successfully built "
-        (_, line) = self._uv_build_popened.stderr.strip().rsplit("\n", 1)
-        (first, rest) = (line[: len(prefix)], line[len(prefix) :])
-        assert first == prefix
-        return Path(rest)
+        self._uv_build_popened.wait()  # block until build completes
+        tgz_paths = list(self.tmpdir.glob("*.tar.gz"))
+        if len(tgz_paths) != 1:
+            raise RuntimeError(
+                f"expected exactly one .tar.gz in {self.tmpdir}, found {len(tgz_paths)}"
+            )
+        return tgz_paths[0]
 
     @functools.cached_property
     def _sdist_path(self):
@@ -119,9 +157,10 @@ class Sdister:
 class SdistBuilder:
     script_path = field(validator=instance_of(Path), converter=Path)
     sdist_path = field(validator=instance_of(Path), converter=Path)
-    args = field(
-        validator=deep_iterable(instance_of(str), instance_of(tuple)), default=()
-    )
+    expr_name = field(validator=instance_of(str), default="expr")
+    builds_dir = field(validator=instance_of(str), default="builds")
+    cache_dir = field(validator=optional(instance_of(str)), default=None)
+    python_version = field(validator=_validate_python_version, default=None)
     maybe_packager = field(
         validator=optional(instance_of(Sdister)),
         default=None,
@@ -129,10 +168,20 @@ class SdistBuilder:
     require_requirements = field(validator=instance_of(bool), default=True)
 
     def __attrs_post_init__(self):
+        if self.python_version is None:
+            object.__setattr__(
+                self, "python_version", resolve_python_version(self.sdist_path)
+            )
         if self.require_requirements:
-            assert ZipProxy(self.sdist_path).toplevel_name_exists(REQUIREMENTS_NAME)
+            if not ZipProxy(self.sdist_path).toplevel_name_exists(REQUIREMENTS_NAME):
+                raise FileNotFoundError(
+                    f"requirements.txt not found in sdist: {self.sdist_path}"
+                )
         self.ensure_requirements_path()
-        assert self.requirements_path.exists()
+        if not self.requirements_path.exists():
+            raise FileNotFoundError(
+                f"requirements.txt could not be created at: {self.requirements_path}"
+            )
 
     @functools.cached_property
     def _tmpdir(self):
@@ -166,9 +215,19 @@ class SdistBuilder:
 
     @functools.cached_property
     def _uv_tool_run_xorq_build(self):
-        args = self.args or ("xorq", "build", str(self.script_path))
+        args = (
+            "xorq",
+            "build",
+            str(self.script_path),
+            "-e",
+            self.expr_name,
+            "--builds-dir",
+            self.builds_dir,
+            *(("--cache-dir", self.cache_dir) if self.cache_dir else ()),
+        )
         popened = uv_tool_run(
             *args,
+            python_version=self.python_version,
             with_=self.sdist_path,
             with_requirements=self.requirements_path,
         )
@@ -203,6 +262,7 @@ class SdistBuilder:
         return cls(
             script_path=script_path,
             sdist_path=packager.sdist_path,
+            python_version=packager.python_version,
             maybe_packager=packager,
             **kwargs,
         )
@@ -211,15 +271,24 @@ class SdistBuilder:
 @frozen
 class SdistRunner:
     build_path = field(validator=instance_of(Path), converter=Path)
-    args = field(
-        validator=deep_iterable(instance_of(str), instance_of(tuple)), default=()
-    )
+    cache_dir = field(validator=optional(instance_of(str)), default=None)
+    output_path = field(validator=optional(instance_of(str)), default=None)
+    output_format = field(validator=instance_of(str), default="parquet")
+    python_version = field(validator=_validate_python_version, default=None)
 
     def __attrs_post_init__(self):
-        assert self.build_path.exists()
-        assert self.sdist_path.exists()
-        # we ALWAYS require requirements.txt to run
-        assert ZipProxy(self.sdist_path).toplevel_name_exists(REQUIREMENTS_NAME)
+        if not self.build_path.exists():
+            raise FileNotFoundError(f"build path does not exist: {self.build_path}")
+        if not self.sdist_path.exists():
+            raise FileNotFoundError(f"sdist not found at: {self.sdist_path}")
+        if not ZipProxy(self.sdist_path).toplevel_name_exists(REQUIREMENTS_NAME):
+            raise FileNotFoundError(
+                f"requirements.txt not found in sdist: {self.sdist_path}"
+            )
+        if self.python_version is None:
+            object.__setattr__(
+                self, "python_version", resolve_python_version(self.sdist_path)
+            )
 
     @property
     def sdist_path(self):
@@ -252,10 +321,19 @@ class SdistRunner:
     @functools.cached_property
     def _uv_tool_run_xorq_run(self):
         self.ensure_requirements_path()
-        args = self.args or ("xorq", "run", str(self.build_path))
+        args = (
+            "xorq",
+            "run",
+            str(self.build_path),
+            *(("--cache-dir", self.cache_dir) if self.cache_dir else ()),
+            *(("--output-path", self.output_path) if self.output_path else ()),
+            "--format",
+            self.output_format,
+        )
         # FIXME: enable streaming output
         popened = uv_tool_run(
             *args,
+            python_version=self.python_version,
             with_=self.sdist_path,
             with_requirements=self.requirements_path,
             capturing=False,
@@ -291,9 +369,6 @@ def uv_tool_run(
 ):
     command_v_xorq = Popened.check_output("command -v xorq", shell=True).strip()
     args = tuple(el if el != command_v_xorq else "xorq" for el in args)
-    python_version = python_version or (
-        get_acceptable_python_versions(with_)[-1] if with_ else None
-    )
     popened_args = (
         "uv",
         "tool",
@@ -319,19 +394,11 @@ def uv_tool_run(
     popened = Popened(popened_args, kwargs_tuple=kwargs_tuple)
     if check:
         popened.wait()
-        assert not popened.returncode, popened.stderr
+        if popened.returncode:
+            raise subprocess.CalledProcessError(
+                popened.returncode, popened_args, popened.stdout, popened.stderr
+            )
     return popened
-
-
-def get_uv_python_version(directory):
-    if not Path(directory).is_dir():
-        td = TemporaryDirectory()
-        ZipProxy(directory).extract_toplevel(td.name)
-        directory = str(td.name)
-    cmd = "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
-    args = f'uv run --directory {str(directory)} python -c "{cmd}"'
-    python_version = Popened.check_output(args)
-    return python_version.strip()
 
 
 def get_acceptable_python_versions(
@@ -351,7 +418,7 @@ def get_acceptable_python_versions(
         raise ValueError(
             f"can only handle {PYPROJECT_NAME} or {PYPROJECT_NAME} containing dir / .zip"
         )
-    data = tomllib.loads(Path(path).read_text())
+    data = tomlkit.loads(Path(path).read_text())
     requires_python = toolz.get_in(("project", "requires-python"), data)
     spec = SpecifierSet(requires_python)
     acceptable_python_versions = tuple(
