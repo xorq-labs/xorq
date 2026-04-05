@@ -135,7 +135,7 @@ class SdistPackager:
         return Path(self._tmpdir.name)
 
     @functools.cached_property
-    def _uv_build_popened(self):
+    def _sdist_path(self):
         args = (
             "uv",
             "build",
@@ -146,16 +146,7 @@ class SdistPackager:
             str(self.tmpdir),
             str(self.pyproject_path.parent),
         )
-        popened = Popened(args)
-        return popened
-
-    @property
-    def popened(self):
-        return self._uv_build_popened
-
-    @functools.cached_property
-    def _sdist_path(self):
-        self._uv_build_popened.wait()  # block until build completes
+        subprocess.run(args, check=True, capture_output=True)
         tgz_paths = list(self.tmpdir.glob("*.tar.gz"))
         if len(tgz_paths) != 1:
             raise RuntimeError(
