@@ -13,9 +13,10 @@ from xorq.common.utils.download_utils import (
     download_xorq_template,
 )
 from xorq.ibis_yaml.packager import (
-    SdistBuilder,
-    Sdister,
-    SdistRunner,
+    PackagedBuilder,
+    PackagedRunner,
+    SdistArchive,
+    SdistPackager,
 )
 from xorq.init_templates import InitTemplates
 
@@ -48,8 +49,8 @@ def prep_template_tmpdir(template, tmpdir):
 @pytest.mark.parametrize("template", tuple(InitTemplates))
 def test_sdist_path_hexdigest(template, tmpdir, snapshot):
     zip_path, project_path = prep_template_tmpdir(template, tmpdir)
-    sdister = Sdister(project_path)
-    actual = sdister.sdist_path_hexdigest
+    packager = SdistPackager(project_path)
+    actual = packager.sdist_path_hexdigest
     snapshot.assert_match(actual, f"test_sdist_path_hexdigest-{template}")
 
 
@@ -62,26 +63,8 @@ def test_sdist_builder(template, tmpdir):
     # test that we build and inject the requirements.txt
     zip_path, project_path = prep_template_tmpdir(template, tmpdir)
     script_path = project_path.joinpath("expr.py")
-    sdist_builder = SdistBuilder(script_path=script_path, sdist_path=zip_path)
-    assert sdist_builder.build_path, sdist_builder._uv_tool_run_xorq_build.stderr
-
-
-@pytest.mark.xfail(reason="depends on release with unique_key optional")
-@pytest.mark.slow(level=1)
-@pytest.mark.skipif(
-    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
-)
-@pytest.mark.parametrize("template", tuple(InitTemplates))
-def test_sdist_builder_no_requirements(template, tmpdir):
-    # test that we build and inject the requirements.txt
-    zip_path, project_path = prep_template_tmpdir(template, tmpdir)
-    script_path = project_path.joinpath("expr.py")
-    requirements_path = project_path.joinpath("requirements.txt")
-    requirements_path.unlink()
-    sdist_builder = SdistBuilder.from_script_path(
-        script_path=script_path, project_path=project_path, require_requirements=False
-    )
-    assert sdist_builder.build_path, sdist_builder._uv_tool_run_xorq_build.stderr
+    packaged_builder = PackagedBuilder(script_path=script_path, sdist_path=zip_path)
+    assert packaged_builder.build_path, packaged_builder._uv_tool_run_xorq_build.stderr
 
 
 @pytest.mark.slow(level=1)
@@ -89,26 +72,28 @@ def test_sdist_builder_no_requirements(template, tmpdir):
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
 )
 @pytest.mark.parametrize("template", tuple(InitTemplates))
-def test_sdist_builder_no_requirements_fails(template, tmpdir):
-    # test that SdistBuilder raises when requirements.txt is missing from sdist
+def test_catalog_sdist_validation(template, tmpdir):
+    # test that SdistArchive validates a well-formed sdist
     zip_path, project_path = prep_template_tmpdir(template, tmpdir)
-    script_path = project_path.joinpath("expr.py")
-    requirements_path = project_path.joinpath("requirements.txt")
-    requirements_path.unlink()
-    #
-    sdister = Sdister(project_path=project_path)
-    # _sdist_path is the zip before ensure_requirements_member runs;
-    # copy it so we have a zip without requirements.txt
-    sdist_no_reqs = Path(tmpdir).joinpath("sdist_no_reqs.zip")
-    shutil.copy2(sdister._sdist_path, sdist_no_reqs)
-    #
+    packager = SdistPackager(project_path=project_path)
+    sdist_archive = SdistArchive(packager.sdist_path)
+    assert sdist_archive.python_version
+
+
+@pytest.mark.slow(level=1)
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
+)
+@pytest.mark.parametrize("template", tuple(InitTemplates))
+def test_catalog_sdist_rejects_incomplete(template, tmpdir):
+    # test that SdistArchive raises when required members are missing
+    zip_path, project_path = prep_template_tmpdir(template, tmpdir)
+    packager = SdistPackager(project_path=project_path)
+    # _sdist_path is the zip before ensure members run — missing uv.lock/requirements.txt
+    sdist_incomplete = Path(tmpdir).joinpath("sdist_incomplete.zip")
+    shutil.copy2(packager._sdist_path, sdist_incomplete)
     with pytest.raises(FileNotFoundError):
-        sdist_builder = SdistBuilder(
-            script_path=script_path,
-            sdist_path=sdist_no_reqs,
-            require_requirements=True,
-        )
-        sdist_builder
+        SdistArchive(sdist_incomplete)
 
 
 @pytest.mark.slow(level=2)
@@ -121,8 +106,10 @@ def test_sdist_runner(template, tmpdir):
     output_path = tmpdir.joinpath("output")
     zip_path, project_path = prep_template_tmpdir(template, tmpdir)
     script_path = project_path.joinpath("expr.py")
-    sdist_builder = SdistBuilder(script_path=script_path, sdist_path=zip_path)
-    sdist_runner = SdistRunner(sdist_builder.build_path, output_path=str(output_path))
-    assert not sdist_runner.popened.popen.wait()
-    assert sdist_runner.popened.returncode == 0
+    packaged_builder = PackagedBuilder(script_path=script_path, sdist_path=zip_path)
+    packaged_runner = PackagedRunner(
+        packaged_builder.build_path, output_path=str(output_path)
+    )
+    assert not packaged_runner.popened.popen.wait()
+    assert packaged_runner.popened.returncode == 0
     assert output_path.exists()

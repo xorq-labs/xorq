@@ -142,9 +142,9 @@ def uv_build_command(
     cache_dir=None,
     project_path=None,
 ):
-    from xorq.ibis_yaml.packager import SdistBuilder
+    from xorq.ibis_yaml.packager import PackagedBuilder
 
-    sdist_builder = SdistBuilder.from_script_path(
+    sdist_builder = PackagedBuilder.from_script_path(
         script_path,
         project_path=project_path,
         expr_name=expr_name,
@@ -167,9 +167,9 @@ def uv_run_command(
     output_path=None,
     output_format="parquet",
 ):
-    from xorq.ibis_yaml.packager import SdistRunner
+    from xorq.ibis_yaml.packager import PackagedRunner
 
-    sdist_runner = SdistRunner(
+    sdist_runner = PackagedRunner(
         expr_path,
         cache_dir=cache_dir,
         output_path=output_path,

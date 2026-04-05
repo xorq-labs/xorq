@@ -1,16 +1,19 @@
 """
 Sdist-based build and run pipeline for xorq expressions.
 
-Pipeline: Sdister → SdistBuilder → SdistRunner
+Pipeline: SdistPackager → SdistArchive → PackagedBuilder → PackagedRunner
 
-Sdister      project directory → sdist zip (via `uv build --sdist`),
-             guaranteeing uv.lock and requirements.txt are embedded.
+SdistPackager   project directory → sdist zip (via `uv build --sdist`),
+                guaranteeing uv.lock and requirements.txt are embedded.
 
-SdistBuilder sdist zip + script → build directory (via `uv tool run xorq build`),
-             containing the serialized expression and a copy of the sdist.
+SdistArchive    validated handle to an sdist zip with pyproject.toml,
+                uv.lock, and requirements.txt.
 
-SdistRunner  build directory → execution output (via `uv tool run xorq run`),
-             in the sdist's isolated environment.
+PackagedBuilder sdist zip + script → build directory (via `uv tool run xorq build`),
+                containing the serialized expression and a copy of the sdist.
+
+PackagedRunner  build directory → execution output (via `uv tool run xorq run`),
+                in the sdist's isolated environment.
 """
 
 import functools
@@ -68,7 +71,40 @@ def resolve_python_version(path):
 
 
 @frozen
-class Sdister:
+class SdistArchive:
+    """Validated path to an sdist .zip with pyproject.toml, uv.lock, requirements.txt."""
+
+    path = field(validator=instance_of(Path), converter=Path)
+
+    def __attrs_post_init__(self):
+        if not self.path.exists():
+            raise FileNotFoundError(f"sdist not found: {self.path}")
+        zp = ZipProxy(self.path)
+        required = (PYPROJECT_NAME, UVLOCK_NAME, REQUIREMENTS_NAME)
+        missing = [name for name in required if not zp.toplevel_name_exists(name)]
+        if missing:
+            raise FileNotFoundError(
+                f"{', '.join(missing)} not found in sdist: {self.path}"
+            )
+
+    @functools.cached_property
+    def zip_proxy(self):
+        return ZipProxy(self.path)
+
+    @functools.cached_property
+    def python_version(self):
+        return resolve_python_version(self.path)
+
+    def extract_requirements_to(self, tmpdir):
+        """Extract requirements.txt from the sdist to tmpdir."""
+        dest = Path(tmpdir) / REQUIREMENTS_NAME
+        if not dest.exists():
+            self.zip_proxy.extract_toplevel_name(REQUIREMENTS_NAME, dest)
+        return dest
+
+
+@frozen
+class SdistPackager:
     project_path = field(validator=instance_of(Path), converter=Path)
     python_version = field(validator=_validate_python_version, default=None)
 
@@ -183,7 +219,7 @@ class Sdister:
     def from_script_and_requirements(
         cls, script_path, requirements_path, requires_python=">=3.10", **kwargs
     ):
-        """Create an Sdister from a bare script and requirements.txt.
+        """Create an SdistPackager from a bare script and requirements.txt.
 
         Generates a temporary project in a staging dir, then constructs
         normally. The staging dir content is moved into self.tmpdir afterward
@@ -205,7 +241,7 @@ class Sdister:
 
 
 @frozen
-class SdistBuilder:
+class PackagedBuilder:
     script_path = field(validator=instance_of(Path), converter=Path)
     sdist_path = field(validator=instance_of(Path), converter=Path)
     expr_name = field(validator=instance_of(str), default="expr")
@@ -213,30 +249,15 @@ class SdistBuilder:
     cache_dir = field(validator=optional(instance_of(str)), default=None)
     python_version = field(validator=_validate_python_version, default=None)
     maybe_packager = field(
-        validator=optional(instance_of(Sdister)),
+        validator=optional(instance_of(SdistPackager)),
         default=None,
     )
-    require_requirements = field(validator=instance_of(bool), default=True)
 
     def __attrs_post_init__(self):
+        sdist_archive = SdistArchive(self.sdist_path)
         if self.python_version is None:
-            object.__setattr__(
-                self, "python_version", resolve_python_version(self.sdist_path)
-            )
-        if self.require_requirements:
-            zp = ZipProxy(self.sdist_path)
-            if not (
-                zp.toplevel_name_exists(UVLOCK_NAME)
-                or zp.toplevel_name_exists(REQUIREMENTS_NAME)
-            ):
-                raise FileNotFoundError(
-                    f"neither {UVLOCK_NAME} nor {REQUIREMENTS_NAME} found in sdist: {self.sdist_path}"
-                )
-        self.ensure_requirements_path()
-        if not self.requirements_path.exists():
-            raise FileNotFoundError(
-                f"requirements.txt could not be created at: {self.requirements_path}"
-            )
+            object.__setattr__(self, "python_version", sdist_archive.python_version)
+        sdist_archive.extract_requirements_to(self.tmpdir)
 
     @functools.cached_property
     def _tmpdir(self):
@@ -255,23 +276,6 @@ class SdistBuilder:
         zp = ZipProxy(self.sdist_path)
         unzipped_path = zp.extract_toplevel(self.tmpdir)
         return unzipped_path
-
-    def ensure_requirements_path(self):
-        if not self.requirements_path.exists():
-            if ZipProxy(self.sdist_path).toplevel_name_exists(UVLOCK_NAME):
-                requirements_text = uv_export_requirements_from_sdist(
-                    self.sdist_path, self.tmpdir
-                )
-                self.requirements_path.write_text(requirements_text)
-            elif ZipProxy(self.sdist_path).toplevel_name_exists(REQUIREMENTS_NAME):
-                ZipProxy(self.sdist_path).extract_toplevel_name(
-                    REQUIREMENTS_NAME, self.requirements_path
-                )
-            else:
-                requirements_text = uv_tool_run_uv_pip_freeze_package_path(
-                    self.sdist_path
-                )
-                self.requirements_path.write_text(requirements_text)
 
     @functools.cached_property
     def _uv_tool_run_xorq_build(self):
@@ -315,9 +319,9 @@ class SdistBuilder:
     @classmethod
     def from_script_path(cls, script_path, project_path=None, **kwargs):
         packager = (
-            Sdister(project_path)
+            SdistPackager(project_path)
             if project_path
-            else Sdister.from_script_path(script_path)
+            else SdistPackager.from_script_path(script_path)
         )
         return cls(
             script_path=script_path,
@@ -329,7 +333,7 @@ class SdistBuilder:
 
 
 @frozen
-class SdistRunner:
+class PackagedRunner:
     build_path = field(validator=instance_of(Path), converter=Path)
     cache_dir = field(validator=optional(instance_of(str)), default=None)
     output_path = field(validator=optional(instance_of(str)), default=None)
@@ -341,18 +345,10 @@ class SdistRunner:
             raise FileNotFoundError(f"build path does not exist: {self.build_path}")
         if not self.sdist_path.exists():
             raise FileNotFoundError(f"sdist not found at: {self.sdist_path}")
-        zp = ZipProxy(self.sdist_path)
-        if not (
-            zp.toplevel_name_exists(UVLOCK_NAME)
-            or zp.toplevel_name_exists(REQUIREMENTS_NAME)
-        ):
-            raise FileNotFoundError(
-                f"neither {UVLOCK_NAME} nor {REQUIREMENTS_NAME} found in sdist: {self.sdist_path}"
-            )
+        sdist_archive = SdistArchive(self.sdist_path)
         if self.python_version is None:
-            object.__setattr__(
-                self, "python_version", resolve_python_version(self.sdist_path)
-            )
+            object.__setattr__(self, "python_version", sdist_archive.python_version)
+        sdist_archive.extract_requirements_to(self.tmpdir)
 
     @property
     def sdist_path(self):
@@ -370,26 +366,8 @@ class SdistRunner:
     def requirements_path(self):
         return self.tmpdir.joinpath(REQUIREMENTS_NAME)
 
-    def ensure_requirements_path(self):
-        if not self.requirements_path.exists():
-            if ZipProxy(self.sdist_path).toplevel_name_exists(UVLOCK_NAME):
-                requirements_text = uv_export_requirements_from_sdist(
-                    self.sdist_path, self.tmpdir
-                )
-                self.requirements_path.write_text(requirements_text)
-            elif ZipProxy(self.sdist_path).toplevel_name_exists(REQUIREMENTS_NAME):
-                ZipProxy(self.sdist_path).extract_toplevel_name(
-                    REQUIREMENTS_NAME, self.requirements_path
-                )
-            else:
-                requirements_text = uv_tool_run_uv_pip_freeze_package_path(
-                    self.sdist_path
-                )
-                self.requirements_path.write_text(requirements_text)
-
     @functools.cached_property
     def _uv_tool_run_xorq_run(self):
-        self.ensure_requirements_path()
         args = (
             "xorq",
             "run",
@@ -496,21 +474,6 @@ def get_acceptable_python_versions(
     if not acceptable_python_versions:
         raise ValueError("No acceptable python versions found")
     return acceptable_python_versions
-
-
-def uv_tool_run_uv_pip_freeze(sdist_path):
-    # don't use "uv pip freeze": causes issues with nix and enclosing venv
-    popened = uv_tool_run("pip", "freeze", with_=sdist_path)
-    stdout = popened.stdout
-    return stdout
-
-
-def uv_tool_run_uv_pip_freeze_package_path(package_path):
-    stdout = uv_tool_run_uv_pip_freeze(package_path)
-    splat = stdout.split("\n")
-    filtered = (el for el in splat if "file:///" not in el)
-    joined = "\n".join(filtered)
-    return joined
 
 
 def uv_export_requirements(project_dir):
