@@ -38,10 +38,7 @@ from attr.validators import (
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
-from xorq.common.utils.process_utils import (
-    Popened,
-    in_nix_shell,
-)
+from xorq.common.utils.process_utils import in_nix_shell
 from xorq.common.utils.zip_utils import (
     ZipProxy,
     append_toplevel,
@@ -166,8 +163,10 @@ class SdistPackager:
             staging = self.tmpdir / "_uvlock_staging"
             staging.mkdir(exist_ok=True)
             shutil.copy2(self.pyproject_path, staging / PYPROJECT_NAME)
-            Popened.check_output(
-                ("uv", "lock", "--directory", str(staging)), shell=False
+            subprocess.run(
+                ("uv", "lock", "--directory", str(staging)),
+                check=True,
+                capture_output=True,
             )
             uvlock_path = staging / UVLOCK_NAME
         append_toplevel(sdist_path, uvlock_path)
@@ -409,7 +408,11 @@ def uv_tool_run(
     check=True,
     capturing=True,
 ):
-    command_v_xorq = Popened.check_output("command -v xorq", shell=True).strip()
+    from xorq.common.utils.process_utils import Popened  # noqa: PLC0415
+
+    command_v_xorq = subprocess.check_output(
+        "command -v xorq", shell=True, text=True
+    ).strip()
     args = tuple(el if el != command_v_xorq else "xorq" for el in args)
     popened_args = (
         "uv",
@@ -484,7 +487,7 @@ def uv_export_requirements(project_dir):
         "--directory",
         str(project_dir),
     )
-    return Popened.check_output(args, shell=False)
+    return subprocess.check_output(args, text=True)
 
 
 def uv_export_requirements_from_sdist(sdist_path, tmpdir):
@@ -572,5 +575,7 @@ def generate_project_from_requirements(
     output_dir.joinpath(PYPROJECT_NAME).write_text(pyproject_text)
     shutil.copy2(script_path, output_dir / script_path.name)
     shutil.copy2(requirements_path, output_dir / REQUIREMENTS_NAME)
-    Popened.check_output(("uv", "lock", "--directory", str(output_dir)), shell=False)
+    subprocess.run(
+        ("uv", "lock", "--directory", str(output_dir)), check=True, capture_output=True
+    )
     return output_dir
