@@ -2,6 +2,7 @@ import contextlib
 import functools
 import hashlib
 import shutil
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -15,31 +16,32 @@ from attr.validators import (
 )
 
 
+__all__ = [
+    "ZipProxy",
+    "append_toplevel",
+    "calc_zip_content_hexdigest",
+    "tgz_to_zip",
+]
+
+
 # paths that uv build injects that don't impact package functionality
-uv_sdist_omit_suffixes = ("PKG-INFO", ".gitignore")
-
-
-def copy_path(from_, to_):
-    with from_.open("rb") as from_fh:
-        with to_.open("wb") as to_fh:
-            shutil.copyfileobj(from_fh, to_fh)
-
-
-@toolz.curried.excepts(ValueError)
-def try_path_relative_to(from_, to_):
-    return Path(from_).relative_to(to_)
+uv_sdist_omit_names = ("PKG-INFO", ".gitignore")
 
 
 def uv_sdist_member_filter(name):
-    return not name.endswith(uv_sdist_omit_suffixes)
+    return Path(name).name not in uv_sdist_omit_names
 
 
 def get_root_dir(zip_path):
     with zipfile.ZipFile(zip_path, "r") as zf:
         (name, *rest) = zf.namelist()
         (root_dir, *_) = Path(name).parts
-        assert root_dir
-        assert all(n.startswith(root_dir) for n in rest)
+        if not root_dir:
+            raise ValueError(f"zip archive has no root directory: {zip_path}")
+        if not all(n.startswith(root_dir) for n in rest):
+            raise ValueError(
+                f"zip archive has members outside root directory {root_dir!r}: {zip_path}"
+            )
         return Path(root_dir)
 
 
@@ -54,7 +56,7 @@ def calc_zip_content_hexdigest(path, member_filter=uv_sdist_member_filter):
             for name in zf.namelist()
             if not name.endswith("/") and member_filter(name)
         )
-        md5 = hashlib.md5()
+        md5 = hashlib.md5(usedforsecurity=False)
         for name in names:
             md5.update(file_digest(zf.open(name), hashlib.md5).encode("ascii"))
         return md5.hexdigest()
@@ -65,7 +67,10 @@ class ZipProxy:
     zip_path = field(validator=instance_of(Path), converter=Path)
 
     def __attrs_post_init__(self):
-        assert self.zip_path.suffix == ".zip"
+        if self.zip_path.suffix != ".zip":
+            raise ValueError(
+                f"expected .zip file, got {self.zip_path.suffix!r}: {self.zip_path}"
+            )
 
     @functools.cached_property
     def root_dir(self):
@@ -74,10 +79,10 @@ class ZipProxy:
     def toplevel_name_exists(self, name):
         with self.open() as zf:
             return any(
-                other and str(other) == name
-                for other in (
-                    try_path_relative_to(other, self.root_dir)
-                    for other in zf.namelist()
+                relpath and str(relpath) == name
+                for relpath in (
+                    try_path_relative_to(member, self.root_dir)
+                    for member in zf.namelist()
                 )
             )
 
@@ -100,7 +105,7 @@ class ZipProxy:
         dest = Path(dest)
         with dest.open("wb") as ofh:
             with self.open_toplevel_member(name) as ifh:
-                ofh.write(ifh.read())
+                shutil.copyfileobj(ifh, ofh)
         return dest
 
     @property
@@ -117,30 +122,21 @@ class ZipProxy:
                 relpath = Path(name).relative_to(self.root_dir)
                 destpath = dest.joinpath(relpath)
                 destpath.parent.mkdir(exist_ok=True, parents=True)
-                destpath.write_bytes(zf.read(name))
+                with zf.open(name) as src, destpath.open("wb") as dst:
+                    shutil.copyfileobj(src, dst)
         return dest
 
 
-@frozen
-class ZipAppender:
-    zip_path = field(validator=instance_of(Path), converter=Path)
-    append_path = field(validator=instance_of(Path), converter=Path)
-    arcname = field(validator=instance_of(str))
-
-    @classmethod
-    def append_toplevel(cls, zip_path, append_path, **kwargs):
-        append_path = Path(append_path)
-        arcname = str(ZipProxy(zip_path).root_dir.joinpath(append_path.name))
-        self = cls(zip_path, append_path, arcname=arcname)
-        with zipfile.ZipFile(self.zip_path, "a") as zf:
-            zf.write(self.append_path, arcname=self.arcname)
-        return zip_path
+def append_toplevel(zip_path, append_path):
+    append_path = Path(append_path)
+    arcname = str(ZipProxy(zip_path).root_dir.joinpath(append_path.name))
+    with zipfile.ZipFile(zip_path, "a") as zf:
+        zf.write(append_path, arcname=arcname)
+    return zip_path
 
 
 def tgz_to_zip(tgz_path, zip_path=None):
     """Convert a .tar.gz archive to a .zip archive."""
-    import tarfile  # noqa: PLC0415
-
     tgz_path = Path(tgz_path)
     if zip_path is None:
         zip_path = tgz_path.with_suffix("").with_suffix(".zip")
@@ -159,11 +155,6 @@ def tgz_to_zip(tgz_path, zip_path=None):
     return zip_path
 
 
-__all__ = [
-    "ZipAppender",
-    "ZipProxy",
-    "calc_zip_content_hexdigest",
-    "copy_path",
-    "get_root_dir",
-    "tgz_to_zip",
-]
+@toolz.curried.excepts(ValueError)
+def try_path_relative_to(from_, to_):
+    return Path(from_).relative_to(to_)

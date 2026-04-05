@@ -40,10 +40,9 @@ from xorq.common.utils.process_utils import (
     in_nix_shell,
 )
 from xorq.common.utils.zip_utils import (
-    ZipAppender,
     ZipProxy,
+    append_toplevel,
     calc_zip_content_hexdigest,
-    copy_path,
     tgz_to_zip,
 )
 
@@ -146,7 +145,7 @@ class Sdister:
                 ("uv", "lock", "--directory", str(staging)), shell=False
             )
             uvlock_path = staging / UVLOCK_NAME
-        ZipAppender.append_toplevel(sdist_path, uvlock_path)
+        append_toplevel(sdist_path, uvlock_path)
 
     def ensure_requirements_member(self):
         sdist_path = self._sdist_path
@@ -163,7 +162,7 @@ class Sdister:
         else:
             requirements_path = self.tmpdir.joinpath(REQUIREMENTS_NAME)
             requirements_path.write_text(requirements_text)
-            ZipAppender.append_toplevel(sdist_path, requirements_path)
+            append_toplevel(sdist_path, requirements_path)
 
     @functools.cached_property
     def sdist_path(self):
@@ -305,7 +304,7 @@ class SdistBuilder:
     @functools.cached_property
     def copy_sdist(self):
         target = self.get_build_path().joinpath(BUILD_SDIST_NAME)
-        copy_path(self.sdist_path, target)
+        shutil.copy2(self.sdist_path, target)
         return target
 
     @property
