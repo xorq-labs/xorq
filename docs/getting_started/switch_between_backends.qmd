@@ -1,0 +1,403 @@
+---
+title: 'Switch between backends'
+icon: "arrow-left-right"
+headline: "Run expressions on any backend"
+---
+
+This tutorial shows you how to run the same expression on different execution engines. You'll learn when to choose each backend, see how Xorq moves data between them using Apache Arrow, and compare backend performance to find the best fit for your workload.
+
+After completing this tutorial, you'll know how to pick the right backend and understand the performance trade-offs.
+
+:::{.callout-important}
+This tutorial requires DuckDB support. Install with `pip install "xorq[duckdb]"` or `pip install "xorq[examples]"` for all tutorial dependencies.
+:::
+
+## How to follow along
+
+Each code example includes complete setup, so you can run any section independently. For best learning, run them in sequence.
+
+**Run the code using:**
+
+- **Python interactive shell**: Open a terminal, run `python`, then copy and paste each code block
+- **Jupyter notebook**: Run each code block in a separate cell
+- **Python script**: Create `switch_backends.py` and replace the file content with each code block for testing
+
+Each section demonstrates a different concept. You can run sections independently, or run them all in sequence to see the complete workflow.
+
+## Why switch backends?
+
+Each backend has specific capabilities. DuckDB supports temporal joins like AsOf joins and handles analytical queries on larger datasets. Pandas works well for small datasets and interactive prototyping. The embedded backend (DataFusion) supports custom UDFs and works without external dependencies.
+
+Xorq lets you write your expression once and run it anywhere. Same code, different engines.
+
+:::{.callout-tip}
+Xorq uses Apache Arrow to move data between backends without serialization overhead. This makes backend switching fast and memory-efficient.
+:::
+
+To see this in practice, you'll run the same expression on the iris dataset across three backends: embedded, DuckDB, and Pandas.
+
+## Run on the embedded backend
+
+You'll start with Xorq's default embedded backend. This uses DataFusion, an in-memory query engine optimized for Arrow operations.
+```{python}
+import xorq.api as xo
+
+# <1>
+con = xo.connect()
+
+# <2>
+iris = xo.examples.iris.fetch(backend=con)
+
+# <3>
+expr = (
+    iris
+    .filter(xo._.sepal_length > 6)
+    .group_by("species")
+    .agg(avg_width=xo._.sepal_width.mean())
+)
+
+# <4>
+result = expr.execute()
+print(f"Backend: {con}")
+print(result)
+```
+1. Connect to the embedded backend (uses DataFusion).
+2. Load the iris dataset into this backend.
+3. Build a filter and aggregation expression.
+4. Execute on the embedded backend.
+
+Example output:
+
+```
+Backend: <xorq.backends.xorq.Backend object at 0x000002A89D527CA0>
+      species  avg_width
+0  Versicolor   2.890000
+1   Virginica   3.036585
+```
+
+The embedded backend is the default. It supports all Xorq features and doesn't require external setup.
+
+## Switch to DuckDB
+
+Now you'll run the same expression on DuckDB. DuckDB excels at analytical queries and works well with larger datasets.
+```{python}
+import xorq.api as xo
+
+# <1>
+duckdb_con = xo.duckdb.connect()
+
+# <2>
+iris_duck = xo.examples.iris.fetch(backend=duckdb_con)
+
+# <3>
+duck_expr = (
+    iris_duck
+    .filter(xo._.sepal_length > 6)
+    .group_by("species")
+    .agg(avg_width=xo._.sepal_width.mean())
+)
+
+# <4>
+duck_result = duck_expr.execute()
+print(f"\nBackend: {duckdb_con}")
+print(duck_result)
+```
+1. Connect to DuckDB (in-memory by default).
+2. Load iris data into DuckDB.
+3. Build the same expression as before.
+4. Execute on DuckDB.
+
+Example output:
+
+```
+Backend: <xorq.backends.duckdb.Backend object at 0x000002A89D527CA0>
+      species  avg_width
+0  Versicolor   2.890000
+1   Virginica   3.036585
+```
+
+Notice how the expression code is identical. Only the backend connection changed. The results are the same across backends.
+
+:::{.callout-note}
+This DuckDB connection is in-memory. To use a persistent database file, pass `database="my_db.duckdb"` to `connect()`.
+:::
+
+## Switch to Pandas
+
+Now you'll run the same expression on Pandas. Pandas is great for small datasets and interactive analysis, making it perfect for prototyping and working with data that fits in memory.
+```{python}
+import xorq.api as xo
+
+# <1>
+pandas_con = xo.pandas.connect()
+
+# <2>
+iris_pandas = xo.examples.iris.fetch(backend=pandas_con)
+
+# <3>
+pandas_expr = (
+    iris_pandas
+    .filter(xo._.sepal_length > 6)
+    .group_by("species")
+    .agg(avg_width=xo._.sepal_width.mean())
+)
+
+# <4>
+pandas_result = pandas_expr.execute()
+print(f"\nBackend: {pandas_con}")
+print(pandas_result)
+```
+1. Connect to Pandas backend.
+2. Load data into Pandas.
+3. Same expression, different backend.
+4. Execute on Pandas.
+
+Example output:
+
+```
+Backend: <xorq.backends.pandas.Backend object at 0x000002A89D527CA0>
+      species  avg_width
+0  Versicolor   2.890000
+1   Virginica   3.036585
+```
+
+So far, you've loaded data separately into each backend. In practice, you might start analysis in one backend and need to switch mid-workflow. For example, you might load data in the embedded backend, then move it to DuckDB for an AsOf join that the embedded backend doesn't support. That's where data transfer comes in.
+
+## Move data between backends
+
+Sometimes you need to move data from one backend to another. Xorq makes this easy with `.into_backend()`. This section shows a new example using the iris dataset to demonstrate data transfer.
+
+First, see what you can do on the embedded backend:
+
+```{python}
+import xorq.api as xo
+
+# <1>
+con = xo.connect()
+iris = xo.examples.iris.fetch(backend=con)
+
+# <2>
+result = (
+    iris
+    .filter(xo._.sepal_length > 6)
+    .select("species", "sepal_length", "petal_length")
+    .group_by("species")
+    .agg(
+        avg_sepal=xo._.sepal_length.mean(),
+        count=xo._.species.count()
+    )
+    .execute()
+)
+
+print("Processing on embedded backend:")
+print(result)
+```
+1. Load data into embedded backend.
+2. Chain operations: filter, select columns, group, and aggregate.
+
+Example output:
+
+```
+Processing on embedded backend:
+      species  avg_sepal  count
+0  Versicolor   6.616667     30
+1   Virginica   6.588889     36
+```
+
+This works well for most queries. But sometimes you need features that only certain backends provide. That's when you move data.
+
+Now see why you'd move to DuckDB for temporal joins (AsOf joins). This example uses stock price data to demonstrate a DuckDB-specific feature:
+
+```{python}
+import xorq.api as xo
+
+# <1>
+stock_prices = xo.memtable({
+    "symbol": ["AAPL", "AAPL", "AAPL", "GOOGL", "GOOGL"],
+    "time": [10, 20, 30, 15, 25],
+    "price": [150.0, 151.5, 149.8, 2800.0, 2805.0]
+})
+
+trades = xo.memtable({
+    "symbol": ["AAPL", "AAPL", "GOOGL"],
+    "trade_time": [12, 28, 18],
+    "volume": [100, 50, 200]
+})
+
+# <2>
+duckdb_con = xo.duckdb.connect()
+prices_db = stock_prices.into_backend(duckdb_con)
+trades_db = trades.into_backend(duckdb_con)
+
+# <3>
+result = trades_db.asof_join(
+    prices_db,
+    on=trades_db.trade_time >= prices_db.time,
+    predicates="symbol"
+).execute()
+
+print("\nAsOf join (matches each trade to most recent price):")
+print(result[["symbol", "trade_time", "time", "price", "volume"]])
+```
+1. Create sample stock prices and trades with timestamps.
+2. Move both tables to DuckDB using `.into_backend()`.
+3. AsOf join on the temporal condition (trade_time >= time), matching by symbol.
+
+The output shows each trade matched with the most recent price before the trade time:
+
+```
+  symbol  trade_time  time   price  volume
+0  GOOGL          18    15  2800.0     200
+1   AAPL          12    10   150.0     100
+2   AAPL          28    20   151.5      50
+```
+
+**What happened?** The trade at time 12 gets the price from time 10 (most recent before 12). The trade at time 28 gets the price from time 20 (most recent before 28). This is an "as-of" temporal join, a DuckDB feature not available in the embedded backend.
+
+`.into_backend()` transfers data between backends using Apache Arrow, which minimizes serialization overhead.
+
+:::{.callout-tip}
+Move data to a different backend when you need specific features (like DuckDB's AsOf joins for temporal data) or better performance for your query type.
+:::
+
+## Compare backend performance
+
+You'll time the same query on different backends to see performance characteristics. This example uses a slightly different filter condition (`> 5` instead of `> 6`) to include more rows for a more meaningful performance comparison.
+```{python}
+import time
+import xorq.api as xo
+
+def time_query(backend, name):
+    """Time a query execution."""
+    iris = xo.examples.iris.fetch(backend=backend)
+    expr = (
+        iris
+        .filter(xo._.sepal_length > 5)
+        .group_by("species")
+        .agg(
+            count=xo._.species.count(),
+            avg_width=xo._.sepal_width.mean()
+        )
+    )
+    
+    start = time.time()
+    result = expr.execute()
+    elapsed = time.time() - start
+    
+    return elapsed, len(result)
+
+# <1>
+con = xo.connect()
+duck = xo.duckdb.connect()
+pandas = xo.pandas.connect()
+
+# <2>
+print("Timing comparison:")
+print("-" * 50)
+
+# <3>
+t1, rows1 = time_query(con, "Embedded")
+print(f"Embedded:  {t1:.4f}s - {rows1} rows")
+
+t2, rows2 = time_query(duck, "DuckDB")
+print(f"DuckDB:    {t2:.4f}s - {rows2} rows")
+
+t3, rows3 = time_query(pandas, "Pandas")
+print(f"Pandas:    {t3:.4f}s - {rows3} rows")
+```
+1. Connect to all three backends.
+2. Print a comparison header.
+3. Time the same query on each backend.
+
+Example output (timing will vary):
+
+```
+Timing comparison:
+--------------------------------------------------
+Embedded:  0.0123s - 3 rows
+DuckDB:    0.0089s - 3 rows
+Pandas:    0.0156s - 3 rows
+```
+
+For small datasets like iris, performance differences are minimal. Performance characteristics vary with dataset size and query complexity.
+
+## What you learned
+
+You've seen how to run the same expression on different backends and move data between them. In the examples above, you:
+
+- Ran identical expressions on embedded, DuckDB, and Pandas backends
+- Moved data from memtables to DuckDB using `.into_backend()` for AsOf joins
+- Compared performance across backends
+
+The key takeaway: switch backends when you need features that only specific backends provide (like DuckDB's AsOf joins) or when you want to compare performance. Moving data between backends has minimal overhead because Xorq uses Apache Arrow for efficient data transfer.
+
+:::{.callout-warning}
+Not all backends support every operation. For example, some complex window functions might work in DuckDB but not in Pandas. If you hit an unsupported operation error, check the backend documentation or switch to a backend that supports the operation.
+:::
+
+Now that you understand when to use each backend, here's a complete workflow that ties everything together.
+
+## Complete example
+
+This demonstrates Xorq's multi-engine capability. Load data once, then run the same expression on different backends without rewriting code. This lets you compare results across engines or use backend-specific features.
+
+```{python}
+import xorq.api as xo
+
+# Connect to all backends
+embedded = xo.connect()
+duckdb = xo.duckdb.connect()
+pandas = xo.pandas.connect()
+
+# Load data once in embedded backend
+data = xo.examples.iris.fetch(backend=embedded)
+
+# Build expression
+expr = (
+    data
+    .filter(xo._.sepal_length > 6)
+    .group_by("species")
+    .agg(avg_width=xo._.sepal_width.mean())
+)
+
+# Execute on embedded backend
+result1 = expr.execute()
+print("Embedded result:")
+print(result1)
+
+# Move data to DuckDB and execute there
+data_in_duck = data.into_backend(duckdb)
+expr_duck = (
+    data_in_duck
+    .filter(xo._.sepal_length > 6)
+    .group_by("species")
+    .agg(avg_width=xo._.sepal_width.mean())
+)
+result2 = expr_duck.execute()
+print("\nDuckDB result:")
+print(result2)
+
+# Move data to Pandas and execute there
+data_in_pandas = data.into_backend(pandas)
+expr_pandas = (
+    data_in_pandas
+    .filter(xo._.sepal_length > 6)
+    .group_by("species")
+    .agg(avg_width=xo._.sepal_width.mean())
+)
+result3 = expr_pandas.execute()
+print("\nPandas result:")
+print(result3)
+```
+
+All three backends produce the same results. The difference is where the computation happens and which engine performs it.
+
+## Next steps
+
+Now you know how to switch backends. Continue learning:
+
+- [Split data for training](../tutorials/ml_tutorials/split_data_for_training.qmd) — Learn how to split datasets for machine learning workflows
+- [Train your first model](../tutorials/ml_tutorials/train_your_first_model.qmd) — Build and train a classification model with Xorq
+- [Multi-engine execution](../concepts/understanding_xorq/multi_engine_execution.qmd) — Understand detailed backend selection guidance and performance characteristics
+
+
