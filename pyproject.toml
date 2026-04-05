@@ -8,6 +8,9 @@ sources = ["python"]
 [tool.hatch.build.targets.sdist]
 only-include = ["python"]
 
+[tool.hatch.build.targets.sdist.force-include]
+"uv.lock" = "uv.lock"
+
 [project]
 name = "xorq"
 version = "0.3.17"
