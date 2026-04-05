@@ -18,10 +18,10 @@ PackagedRunner  build directory → execution output (via `uv tool run xorq run`
 
 import functools
 import operator
+import os
 import shutil
 import subprocess
 from pathlib import Path
-from subprocess import PIPE
 from tempfile import TemporaryDirectory
 from typing import Iterable
 
@@ -408,13 +408,11 @@ def uv_tool_run(
     check=True,
     capturing=True,
 ):
-    from xorq.common.utils.process_utils import Popened  # noqa: PLC0415
-
     command_v_xorq = subprocess.check_output(
         "command -v xorq", shell=True, text=True
     ).strip()
     args = tuple(el if el != command_v_xorq else "xorq" for el in args)
-    popened_args = (
+    run_args = (
         "uv",
         "tool",
         "run",
@@ -424,26 +422,22 @@ def uv_tool_run(
         *(("--with-requirements", str(with_requirements)) if with_requirements else ()),
         *args,
     )
-    kwargs_tuple = (
-        (("stdout", PIPE), ("stderr", PIPE))
-        if capturing
-        else (("stdout", None), ("stderr", None))
-    )
-    if in_nix_shell():
-        import os  # noqa: PLC0415
-
-        env = os.environ | {
-            "LD_LIBRARY_PATH": os.environ["UV_TOOL_RUN_LD_LIBRARY_PATH"]
+    capturing_kwargs = {"capture_output": True, "text": True} if capturing else {}
+    nix_shell_kwargs = (
+        {
+            "env": os.environ
+            | {"LD_LIBRARY_PATH": os.environ.get("UV_TOOL_RUN_LD_LIBRARY_PATH", "")},
         }
-        kwargs_tuple = kwargs_tuple + (("env", env),)
-    popened = Popened(popened_args, kwargs_tuple=kwargs_tuple)
-    if check:
-        popened.wait()
-        if popened.returncode:
-            raise subprocess.CalledProcessError(
-                popened.returncode, popened_args, popened.stdout, popened.stderr
-            )
-    return popened
+        if in_nix_shell()
+        else {}
+    )
+    kwargs = capturing_kwargs | nix_shell_kwargs
+    result = subprocess.run(run_args, **kwargs)
+    if check and result.returncode:
+        raise subprocess.CalledProcessError(
+            result.returncode, run_args, result.stdout, result.stderr
+        )
+    return result
 
 
 def get_acceptable_python_versions(

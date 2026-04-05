@@ -133,7 +133,6 @@ def test_sdist_runner(template, tmpdir):
     packaged_runner = PackagedRunner(
         packaged_builder.build_path, output_path=str(output_path)
     )
-    assert not packaged_runner.popened.popen.wait()
     assert packaged_runner.popened.returncode == 0
     assert output_path.exists()
 
