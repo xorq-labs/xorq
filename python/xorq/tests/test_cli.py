@@ -753,7 +753,7 @@ def test_init_uv_build_uv_run(template, tmpdir):
         "uv-build",
         str(path.joinpath("expr.py")),
     )
-    (returncode, stdout, stderr) = subprocess_run(build_args, do_decode=True)
+    (returncode, stdout, stderr) = subprocess_run(build_args, text=True)
     assert returncode == 0, stderr
     build_path = Path(stdout.strip().split("\n")[-1])
     assert build_path.exists()
@@ -766,7 +766,7 @@ def test_init_uv_build_uv_run(template, tmpdir):
         str(output_path),
         str(build_path),
     )
-    (returncode, stdout, stderr) = subprocess_run(run_args, do_decode=True)
+    (returncode, stdout, stderr) = subprocess_run(run_args, text=True)
     assert returncode == 0, stderr
     assert output_path.exists()
 
@@ -793,7 +793,7 @@ def pipeline_https_build(tmp_path_factory, fixture_dir):
         "--builds-dir",
         str(builds_dir),
     ]
-    (returncode, stdout, stderr) = subprocess_run(build_args, do_decode=True)
+    (returncode, stdout, stderr) = subprocess_run(build_args, text=True)
 
     assert "Building expr" in stderr
     assert returncode == 0, stderr

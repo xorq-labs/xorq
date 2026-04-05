@@ -1,6 +1,8 @@
 import functools
 import operator
+import os
 import re
+import subprocess
 from subprocess import (
     PIPE,
     Popen,
@@ -20,17 +22,12 @@ from attr.validators import (
 
 @functools.cache
 def in_nix_shell():
-    return bool(Popened.check_output("echo $IN_NIX_SHELL").strip())
+    return bool(os.environ.get("IN_NIX_SHELL"))
 
 
 def assert_not_in_nix_shell():
     if in_nix_shell():
         raise ValueError("in nix shell")
-
-
-try_decode_ascii = toolz.excepts(
-    AttributeError, operator.methodcaller("decode", "ascii")
-)
 
 
 try_decode_utf8 = toolz.excepts(
@@ -50,7 +47,8 @@ class Popened:
 
     def __attrs_post_init__(self):
         if isinstance(self.args, str):
-            assert self.kwargs.get("shell")
+            if not self.kwargs.get("shell"):
+                raise ValueError("string args require shell=True")
         if not self.deferred:
             self.popen
 
@@ -111,20 +109,24 @@ class Popened:
     @classmethod
     def check_output(cls, args, shell=True, **kwargs):
         self = cls(args, tuple(({"shell": shell} | kwargs).items()))
-        assert not self.returncode
+        if self.returncode:
+            raise subprocess.CalledProcessError(
+                self.returncode, args, self._stdout, self._stderr
+            )
         return self.stdout
 
 
-def non_blocking_subprocess_run(args, stdout=PIPE, stderr=PIPE, **kwargs):
-    return Popen(args, stdout=stdout, stderr=stderr, **kwargs)
+non_blocking_subprocess_run = functools.partial(Popen, stdout=PIPE, stderr=PIPE)
 
 
-def subprocess_run(args, do_decode=False, **kwargs):
-    popened = non_blocking_subprocess_run(args, **kwargs)
-    (stdout, stderr) = popened.communicate()
-    if do_decode:
-        (stdout, stderr) = (try_decode_utf8(el) for el in popened.communicate())
-    return (popened.returncode, stdout, stderr)
+def subprocess_run(args, text=False, **kwargs):
+    result = subprocess.run(
+        args,
+        capture_output=True,
+        encoding="utf-8" if text else None,
+        **kwargs,
+    )
+    return (result.returncode, result.stdout, result.stderr)
 
 
 # https://stackoverflow.com/a/14693789
