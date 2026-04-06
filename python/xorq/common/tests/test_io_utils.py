@@ -1,40 +1,57 @@
+import subprocess
+
 import pytest
 import toolz
 
-from xorq.common.utils.process_utils import Popened
+from xorq.common.utils.io_utils import Peeker
 
 
 make_bytes_contains = toolz.flip(bytes.__contains__)
 
 
 def test_peek_line_until():
-    popened = Popened(
+    proc = subprocess.Popen(
         "sleep 1 && echo marker-text0 && sleep 1 && echo marker-text1",
-        kwargs_tuple=(("shell", True),),
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
+    peeker = Peeker(proc.stdout)
 
     condition = make_bytes_contains(b"marker-text1")
-    popened.stdout_peeker.peek_line_until(condition)
+    peeker.peek_line_until(condition)
+    proc.terminate()
+    proc.wait()
 
 
 def test_peek_line_until_with_timeout():
-    popened = Popened(
+    proc = subprocess.Popen(
         "sleep 1 && echo marker-text0 && sleep 1 && echo marker-text1",
-        kwargs_tuple=(("shell", True),),
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
+    peeker = Peeker(proc.stdout)
 
     marker_text = b"marker-text1"
     condition = toolz.flip(bytes.__contains__)(marker_text)
-    popened.stdout_peeker.peek_line_until(condition, timeout=3)
+    peeker.peek_line_until(condition, timeout=3)
+    proc.terminate()
+    proc.wait()
 
 
 def test_peek_line_until_with_timeout_raises():
-    popened = Popened(
+    proc = subprocess.Popen(
         "sleep 1 && echo marker-text0 && sleep 1 && echo marker-text1",
-        kwargs_tuple=(("shell", True),),
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
+    peeker = Peeker(proc.stdout)
 
     with pytest.raises(TimeoutError):
         marker_text = b"marker-text1"
         condition = toolz.flip(bytes.__contains__)(marker_text)
-        popened.stdout_peeker.peek_line_until(condition, timeout=1)
+        peeker.peek_line_until(condition, timeout=1)
+    proc.terminate()
+    proc.wait()
