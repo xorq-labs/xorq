@@ -7,18 +7,18 @@ Strategy:
   backends, and column info loaded from the zip archive.
 - Git log: use the real repo that backs the catalog fixture.
 
-IMPORTANT — populating the catalog table in pilot tests:
+IMPORTANT — populating the catalog tree in pilot tests:
     Never wait for the async _do_refresh worker to populate rows.  It runs in
     a background thread on a timer and is inherently racy under test.  Instead,
     build CatalogRowData objects and call _render_refresh() directly — see the
-    _populate_table() helper below.
+    _populate_tree() helper below.
 """
 
 import asyncio
 from pathlib import Path
 
 import pytest
-from textual.widgets import DataTable, Static
+from textual.widgets import DataTable, Static, Tree
 
 import xorq.api as xo
 from xorq.caching import ParquetSnapshotCache
@@ -30,9 +30,7 @@ from xorq.catalog.tests.testing import (
     wait_until,
 )
 from xorq.catalog.tui import (
-    COLUMNS,
     GIT_LOG_COLUMNS,
-    SCHEMA_PREVIEW_COLUMNS,
     CatalogRowData,
     CatalogScreen,
     CatalogTUI,
@@ -89,8 +87,8 @@ def _make_tui(catalog):
     return CatalogTUI(lambda: catalog)
 
 
-async def _populate_table(pilot, catalog, *entries):
-    """Deterministically populate the catalog table with the given entries.
+async def _populate_tree(pilot, catalog, *entries):
+    """Deterministically populate the catalog tree with the given entries.
 
     Use this instead of waiting for the async _do_refresh worker, which is
     racy under test.  Returns the CatalogScreen and the list of CatalogRowData.
@@ -98,6 +96,7 @@ async def _populate_table(pilot, catalog, *entries):
     await settle(pilot)
     screen = pilot.app.screen
     rows = tuple(CatalogRowData(entry=e) for e in entries)
+    screen._row_cache = {r.row_key: r for r in rows}
     screen._render_refresh(catalog.repo.working_dir, rows)
     await settle(pilot)
     return screen, rows
@@ -139,12 +138,10 @@ def test_revision_row_columns_display_zero():
 
 def test_row_shape(entry_a, alias_for_a):
     row = CatalogRowData(entry=entry_a, aliases=(alias_for_a,))
-    kind, alias, hash_, backends, cached = row.row
+    kind, alias, hash_ = row.row
     assert kind == "source"
     assert alias == alias_for_a
     assert hash_ == entry_a.name
-    assert isinstance(backends, str)
-    assert cached == "—"  # simple memtable has no ParquetSnapshotCache
 
 
 def test_cached_is_none_for_plain_memtable(entry_a):
@@ -176,8 +173,16 @@ def test_cached_with_parquet_snapshot(entry_cached):
     assert row_after.cached is True
     assert row_after.cached_display == "●"
 
-    _, _, _, _, cached_field = row_after.row
-    assert cached_field == "●"
+
+def test_tree_label_with_alias(entry_a, alias_for_a):
+    row = CatalogRowData(entry=entry_a, aliases=(alias_for_a,))
+    assert alias_for_a in row.tree_label
+    assert entry_a.name[:12] in row.tree_label
+
+
+def test_tree_label_without_alias(entry_a):
+    row = CatalogRowData(entry=entry_a)
+    assert row.tree_label == entry_a.name[:12]
 
 
 def test_catalog_row_data_is_frozen(entry_a):
@@ -228,22 +233,14 @@ def test_app_has_custom_theme(catalog):
     _run(_test())
 
 
-def test_tables_have_correct_columns(catalog):
+def test_catalog_tree_exists(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
             await settle(pilot)
-            catalog_table = app.screen.query_one("#catalog-table", DataTable)
-            assert (
-                tuple(col.label.plain for col in catalog_table.columns.values())
-                == COLUMNS
-            )
-
-            schema_table = app.screen.query_one("#schema-preview-table", DataTable)
-            assert (
-                tuple(col.label.plain for col in schema_table.columns.values())
-                == SCHEMA_PREVIEW_COLUMNS
-            )
+            tree = app.screen.query_one("#catalog-tree", Tree)
+            assert tree is not None
+            assert tree.show_root is False
 
     _run(_test())
 
@@ -287,17 +284,21 @@ def test_j_k_moves_cursor(catalog, entry_a, entry_b):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            screen, _ = await _populate_table(pilot, catalog, entry_a, entry_b)
-            table = screen.query_one("#catalog-table", DataTable)
+            screen, _ = await _populate_tree(pilot, catalog, entry_a, entry_b)
+            tree = screen.query_one("#catalog-tree", Tree)
 
+            # Tree structure: source (2) > entry_a, entry_b
+            # Initial cursor on "source" branch (data=None)
             await run_script(
                 pilot,
-                Assert(lambda p: table.row_count == 2),
-                Assert(lambda p: table.cursor_row == 0),
+                Assert(lambda p: tree.cursor_node is not None),
+                Assert(lambda p: tree.cursor_node.data is None),  # on branch
                 Press(("j",)),
-                Assert(lambda p: table.cursor_row == 1),
+                Assert(lambda p: tree.cursor_node.data == entry_a.name),
+                Press(("j",)),
+                Assert(lambda p: tree.cursor_node.data == entry_b.name),
                 Press(("k",)),
-                Assert(lambda p: table.cursor_row == 0),
+                Assert(lambda p: tree.cursor_node.data == entry_a.name),
             )
 
     _run(_test())
@@ -314,17 +315,6 @@ def test_data_preview_hidden_by_default(catalog):
     _run(_test())
 
 
-def test_profiles_hidden_by_default(catalog):
-    async def _test():
-        app = _make_tui(catalog)
-        async with app.run_test(size=(120, 40)) as pilot:
-            await settle(pilot)
-            panel = app.screen.query_one("#profiles-panel")
-            assert panel.display is False
-
-    _run(_test())
-
-
 def test_info_panel_exists(catalog):
     async def _test():
         app = _make_tui(catalog)
@@ -336,7 +326,7 @@ def test_info_panel_exists(catalog):
     _run(_test())
 
 
-def test_render_refresh_populates_table(catalog, entry_a, entry_b):
+def test_render_refresh_populates_tree(catalog, entry_a, entry_b):
     async def _test():
         app = _make_tui(catalog)
         rows = (CatalogRowData(entry=entry_a), CatalogRowData(entry=entry_b))
@@ -348,13 +338,17 @@ def test_render_refresh_populates_table(catalog, entry_a, entry_b):
             screen._render_refresh(catalog.repo.working_dir, rows)
             await settle(pilot)
 
-            catalog_table = screen.query_one("#catalog-table", DataTable)
-            assert catalog_table.row_count == 2
+            tree = screen.query_one("#catalog-tree", Tree)
+            # Both entries are "source" kind → one branch with 2 leaves
+            assert len(tree.root.children) == 1
+            branch = tree.root.children[0]
+            assert "source" in str(branch.label)
+            assert len(branch.children) == 2
 
     _run(_test())
 
 
-def test_render_refresh_uses_entry_name_as_row_key(catalog, entry_a, entry_b):
+def test_render_refresh_uses_entry_name_as_node_data(catalog, entry_a, entry_b):
     async def _test():
         app = _make_tui(catalog)
         rows = (CatalogRowData(entry=entry_a), CatalogRowData(entry=entry_b))
@@ -365,10 +359,9 @@ def test_render_refresh_uses_entry_name_as_row_key(catalog, entry_a, entry_b):
             screen._render_refresh(catalog.repo.working_dir, rows)
             await settle(pilot)
 
-            table = screen.query_one("#catalog-table", DataTable)
-            keys = [str(k.value) for k in table.rows.keys()]
-            assert entry_a.name in keys
-            assert entry_b.name in keys
+            hashes = screen._tree_entry_hashes()
+            assert entry_a.name in hashes
+            assert entry_b.name in hashes
 
     _run(_test())
 
@@ -391,7 +384,7 @@ def test_render_status_updates_status_bar(catalog):
     _run(_test())
 
 
-def test_two_aliases_same_entry_produce_one_row(catalog, entry_a):
+def test_two_aliases_same_entry_produce_one_leaf(catalog, entry_a):
     async def _test():
         catalog.add_alias(entry_a.name, "latest")
         catalog.add_alias(entry_a.name, "v1")
@@ -405,15 +398,14 @@ def test_two_aliases_same_entry_produce_one_row(catalog, entry_a):
             screen._render_refresh(catalog.repo.working_dir, (row,))
             await settle(pilot)
 
-            table = screen.query_one("#catalog-table", DataTable)
-            assert table.row_count == 1
-            keys = [str(k.value) for k in table.rows.keys()]
-            assert entry_a.name in keys
+            hashes = screen._tree_entry_hashes()
+            assert entry_a.name in hashes
+            assert len(hashes) == 1
 
     _run(_test())
 
 
-def test_unaliased_entry_uses_name_as_key(catalog, entry_a):
+def test_unaliased_entry_uses_name_in_tree(catalog, entry_a):
     async def _test():
         app = _make_tui(catalog)
         row = CatalogRowData(entry=entry_a, aliases=())
@@ -424,10 +416,9 @@ def test_unaliased_entry_uses_name_as_key(catalog, entry_a):
             screen._render_refresh(catalog.repo.working_dir, (row,))
             await settle(pilot)
 
-            table = screen.query_one("#catalog-table", DataTable)
-            assert table.row_count == 1
-            keys = [str(k.value) for k in table.rows.keys()]
-            assert entry_a.name in keys
+            hashes = screen._tree_entry_hashes()
+            assert entry_a.name in hashes
+            assert len(hashes) == 1
 
     _run(_test())
 
@@ -444,20 +435,16 @@ def test_cursor_move_updates_schema_preview(catalog, entry_a, entry_b):
             screen = app.screen
             assert isinstance(screen, CatalogScreen)
 
-            screen._render_refresh(catalog.repo.working_dir, rows)
             screen._row_cache = {r.row_key: r for r in rows}
+            screen._render_refresh(catalog.repo.working_dir, rows)
             await settle(pilot)
 
             schema_table = screen.query_one("#schema-preview-table", DataTable)
 
             await run_script(
                 pilot,
-                # Move to second row (entry_b: value)
+                # Move past branch to first leaf (entry_a: id, name, score)
                 Press(("j",)),
-                Assert(lambda p: schema_table.row_count == 1),
-                Assert(lambda p: schema_table.get_cell_at((0, 0)) == "value"),
-                # Move back to first row (entry_a: id, name, score)
-                Press(("k",)),
                 Assert(lambda p: schema_table.row_count == 3),
                 Assert(
                     lambda p: "id"
@@ -471,6 +458,13 @@ def test_cursor_move_updates_schema_preview(catalog, entry_a, entry_b):
                     lambda p: "score"
                     in [schema_table.get_cell_at((i, 0)) for i in range(3)]
                 ),
+                # Move to second leaf (entry_b: value)
+                Press(("j",)),
+                Assert(lambda p: schema_table.row_count == 1),
+                Assert(lambda p: schema_table.get_cell_at((0, 0)) == "value"),
+                # Move back to first leaf (entry_a: id, name, score)
+                Press(("k",)),
+                Assert(lambda p: schema_table.row_count == 3),
             )
 
     _run(_test())
@@ -483,6 +477,75 @@ def test_schema_preview_empty_before_selection(catalog):
             await settle(pilot)
             schema_table = app.screen.query_one("#schema-preview-table", DataTable)
             assert schema_table.row_count == 0
+
+    _run(_test())
+
+
+def test_view_switching_1_2_3(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            screen = app.screen
+
+            sql_panel = screen.query_one("#sql-panel")
+            lineage_panel = screen.query_one("#lineage-panel")
+            data_panel = screen.query_one("#data-preview-panel")
+
+            await run_script(
+                pilot,
+                # Default: SQL visible, others hidden
+                Assert(lambda p: sql_panel.display is not False),
+                Assert(lambda p: lineage_panel.display is False),
+                Assert(lambda p: data_panel.display is False),
+                # Switch to lineage
+                Press(("2",)),
+                Assert(lambda p: sql_panel.display is False),
+                Assert(lambda p: lineage_panel.display is not False),
+                Assert(lambda p: data_panel.display is False),
+                # Switch to data
+                Press(("3",)),
+                Assert(lambda p: sql_panel.display is False),
+                Assert(lambda p: lineage_panel.display is False),
+                Assert(lambda p: data_panel.display is not False),
+                # Switch back to SQL
+                Press(("1",)),
+                Assert(lambda p: sql_panel.display is not False),
+                Assert(lambda p: lineage_panel.display is False),
+                Assert(lambda p: data_panel.display is False),
+            )
+
+    _run(_test())
+
+
+def test_v_toggles_revisions(catalog):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            panel = app.screen.query_one("#revisions-panel")
+
+            await run_script(
+                pilot,
+                Assert(lambda p: panel.display is False),
+                Press(("v",)),
+                Assert(lambda p: panel.display is not False),
+                Press(("v",)),
+                Assert(lambda p: panel.display is False),
+            )
+
+    _run(_test())
+
+
+def test_tree_entry_hashes_helper(catalog, entry_a, entry_b):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a, entry_b)
+            hashes = screen._tree_entry_hashes()
+            assert entry_a.name in hashes
+            assert entry_b.name in hashes
+            assert len(hashes) == 2
 
     _run(_test())
 
