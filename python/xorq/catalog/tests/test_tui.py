@@ -481,7 +481,7 @@ def test_schema_preview_empty_before_selection(catalog):
     _run(_test())
 
 
-def test_view_switching_1_2_3(catalog, entry_a):
+def test_view_switching_1_2(catalog, entry_a):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
@@ -489,29 +489,20 @@ def test_view_switching_1_2_3(catalog, entry_a):
             screen = app.screen
 
             sql_panel = screen.query_one("#sql-panel")
-            lineage_panel = screen.query_one("#lineage-panel")
             data_panel = screen.query_one("#data-preview-panel")
 
             await run_script(
                 pilot,
-                # Default: SQL visible, others hidden
+                # Default: SQL visible, data hidden
                 Assert(lambda p: sql_panel.display is not False),
-                Assert(lambda p: lineage_panel.display is False),
-                Assert(lambda p: data_panel.display is False),
-                # Switch to lineage
-                Press(("2",)),
-                Assert(lambda p: sql_panel.display is False),
-                Assert(lambda p: lineage_panel.display is not False),
                 Assert(lambda p: data_panel.display is False),
                 # Switch to data
-                Press(("3",)),
+                Press(("2",)),
                 Assert(lambda p: sql_panel.display is False),
-                Assert(lambda p: lineage_panel.display is False),
                 Assert(lambda p: data_panel.display is not False),
                 # Switch back to SQL
                 Press(("1",)),
                 Assert(lambda p: sql_panel.display is not False),
-                Assert(lambda p: lineage_panel.display is False),
                 Assert(lambda p: data_panel.display is False),
             )
 
