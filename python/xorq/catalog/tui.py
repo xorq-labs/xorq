@@ -85,14 +85,6 @@ REVISION_COLUMNS = ("STATUS", "HASH", "COLUMNS", "CACHED", "DATE")
 GIT_LOG_COLUMNS = ("HASH", "DATE", "MESSAGE")
 
 
-def _cache_key_to_path(key: str) -> Path:
-    from xorq.common.utils.caching_utils import get_xorq_cache_dir  # noqa: PLC0415
-    from xorq.config import options  # noqa: PLC0415
-
-    relative_path = options.get("cache.default_relative_path")
-    return get_xorq_cache_dir().joinpath(relative_path).joinpath(key + ".parquet")
-
-
 def _format_cached(value: bool | None) -> str:
     match value:
         case True:
@@ -110,9 +102,9 @@ class CatalogRowData:
 
     @property
     def cached(self) -> bool | None:
-        cache_keys = self.entry.cache_keys
-        if cache_keys:
-            return all(_cache_key_to_path(k).exists() for k in cache_keys)
+        storage = self.entry.storage
+        if storage is not None:
+            return all(storage.get_path(k).exists() for k in self.entry.cache_keys)
         parquet_cache_paths = self.entry.parquet_cache_paths
         if parquet_cache_paths:
             return all(Path(p).exists() for p in parquet_cache_paths)
@@ -170,9 +162,9 @@ class CatalogRowData:
 
     @cached_property
     def cache_info_text(self) -> str:
-        cache_keys = self.entry.cache_keys
-        if cache_keys:
-            key_paths = tuple(_cache_key_to_path(k) for k in cache_keys)
+        storage = self.entry.storage
+        if storage is not None:
+            key_paths = tuple(storage.get_path(k) for k in self.entry.cache_keys)
             if all(p.exists() for p in key_paths):
                 return f"● cached  {key_paths[0]}"
             return "○ uncached"
@@ -255,9 +247,9 @@ class RevisionRowData:
 
 
 def _entry_info(entry) -> tuple[int | None, bool | None]:
-    cache_keys = entry.cache_keys
-    if cache_keys:
-        cached = all(_cache_key_to_path(k).exists() for k in cache_keys)
+    storage = entry.storage
+    if storage is not None:
+        cached = all(storage.get_path(k).exists() for k in entry.cache_keys)
     else:
         parquet_cache_paths = entry.parquet_cache_paths
         cached = (
