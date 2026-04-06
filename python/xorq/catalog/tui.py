@@ -6,9 +6,21 @@ from functools import cached_property, lru_cache
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 
+import networkx as nx
+import rich.box
 import yaml12
 from attr import field, frozen
 from attr.validators import instance_of, optional
+from netext import (
+    ArrowTip,
+    Box,
+    EdgeProperties,
+    EdgeRoutingMode,
+    EdgeSegmentDrawingMode,
+    NodeProperties,
+    ZoomSpec,
+)
+from netext.textual_widget.widget import GraphView
 from pygments.style import Style as PygmentsStyle
 from pygments.token import (
     Comment,
@@ -20,11 +32,15 @@ from pygments.token import (
     String,
     Token,
 )
+from rich.segment import Segment
+from rich.style import Style as RichStyle
 from rich.syntax import Syntax
+from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
+from textual.strip import Strip
 from textual.theme import Theme
 from textual.widgets import (
     DataTable,
@@ -312,6 +328,175 @@ def _build_git_log_rows(repo, max_count=100) -> tuple[GitLogRowData, ...]:
 
 
 _TAG_OPS = frozenset({"Tag", "HashingTag"})
+
+# Semantic colors for lineage graph nodes by operation type
+_OP_COLORS: dict[str, str] = {
+    "DatabaseTable": "#4AA8EC",
+    "UnboundTable": "#4AA8EC",
+    "InMemoryTable": "#4AA8EC",
+    "SQLStringView": "#4AA8EC",
+    "SelfReference": "#4AA8EC",
+    "JoinChain": "#F5CA2C",
+    "JoinLink": "#F5CA2C",
+    "JoinTable": "#F5CA2C",
+    "Aggregation": "#C1F0FF",
+    "Filter": "#2BBE75",
+    "Selection": "#2BBE75",
+    "Project": "#2BBE75",
+    "Tag": "#5abfb5",
+    "HashingTag": "#5abfb5",
+}
+_OP_ICONS: dict[str, str] = {
+    "DatabaseTable": "⊞",
+    "UnboundTable": "⊞",
+    "InMemoryTable": "⊞",
+    "SQLStringView": "⊞",
+    "SelfReference": "⊞",
+    "JoinChain": "⋈",
+    "JoinLink": "⋈",
+    "JoinTable": "⋈",
+    "Aggregation": "Σ",
+    "Filter": "⊳",
+    "Selection": "⊳",
+    "Project": "⊳",
+    "Tag": "#",
+    "HashingTag": "#",
+}
+_DEFAULT_NODE_COLOR = "#C1F0FF"
+_EDGE_COLOR = "#5abfb5"
+_BORDER_COLOR = "#5abfb5"
+
+
+def _render_node_label(node_str: str, data: dict, content_style: RichStyle):
+    """Custom content renderer that displays the stored label instead of the node ID."""
+    return Text(data.get("_label", node_str), style=content_style)
+
+
+class _ThemedGraphView(GraphView):
+    """GraphView that fills empty space with the widget's background color.
+
+    netext renders spacers as unstyled segments (no bgcolor), which shows
+    through as the terminal default. This override applies the widget's
+    Rich style to every segment that lacks a background, so it blends
+    with the Textual theme.
+    """
+
+    def render_line(self, y: int) -> Strip:
+        strip = super().render_line(y)
+        bg_style = self.rich_style
+        if not bg_style.bgcolor:
+            return strip
+
+        patched = []
+        for seg in strip:
+            if seg.style is None or seg.style.bgcolor is None:
+                patched.append(
+                    Segment(
+                        seg.text, style=bg_style + seg.style if seg.style else bg_style
+                    )
+                )
+            else:
+                patched.append(seg)
+        return Strip(patched)
+
+
+def _dag_to_graph(dag: dict, include_tags: bool = False) -> nx.DiGraph:
+    """Convert a lineage DAG dict to a styled networkx DiGraph for netext.
+
+    Uses DAG node IDs as graph keys (avoids collisions when multiple nodes
+    share the same op type) and renders pretty labels via content_renderer.
+    """
+    G = nx.DiGraph()
+    if not dag:
+        return G
+
+    nodes_by_id: dict[str, dict] = {}
+    relation_ids: set[str] = set()
+    for n in dag.get("nodes", ()):
+        nodes_by_id[n["id"]] = n
+        if "schema" in n:
+            if include_tags or n.get("op") not in _TAG_OPS:
+                relation_ids.add(n["id"])
+
+    inputs_map: dict[str, list[str]] = {}
+    for edge in dag.get("edges", ()):
+        inputs_map.setdefault(edge["target"], []).append(edge["source"])
+
+    root_id = dag.get("root")
+    if not root_id or root_id not in nodes_by_id:
+        return G
+
+    edge_style = {
+        "$properties": EdgeProperties(
+            routing_mode=EdgeRoutingMode.ORTHOGONAL,
+            segment_drawing_mode=EdgeSegmentDrawingMode.BOX_ROUNDED,
+            end_arrow_tip=ArrowTip.ARROW,
+            style=RichStyle(color=_EDGE_COLOR, dim=True),
+        )
+    }
+
+    def _relevant_inputs(node_id: str, seen: set[str]) -> list[str]:
+        result: list[str] = []
+        for inp in inputs_map.get(node_id, []):
+            if inp in seen:
+                continue
+            seen.add(inp)
+            if inp in relation_ids:
+                result.append(inp)
+            else:
+                result.extend(_relevant_inputs(inp, seen))
+        return result
+
+    def _node_label(node: dict) -> str:
+        op = node.get("op", "?")
+        icon = _OP_ICONS.get(op, "·")
+        name = node.get("name", "")
+        if name:
+            text = name
+        else:
+            text = node.get("label") or op
+        if len(text) > 20:
+            text = text[:18] + ".."
+        return f"{icon} {text}"
+
+    def _add_node(node_id: str) -> None:
+        node = nodes_by_id.get(node_id)
+        if node is None:
+            return
+        op = node.get("op", "?")
+        color = _OP_COLORS.get(op, _DEFAULT_NODE_COLOR)
+        G.add_node(
+            node_id,
+            _label=_node_label(node),
+            **{
+                "$properties": NodeProperties(
+                    style=RichStyle(color=_BORDER_COLOR, dim=True),
+                    content_style=RichStyle(color=color, bold=True),
+                    shape=Box(box_type=rich.box.ROUNDED),
+                    padding=(0, 1),
+                    margin=0,
+                    content_renderer=_render_node_label,
+                )
+            },
+        )
+
+    visited: set[str] = set()
+
+    def _walk(node_id: str) -> None:
+        if node_id in visited:
+            return
+        visited.add(node_id)
+        _add_node(node_id)
+        for inp_id in _relevant_inputs(node_id, set()):
+            _walk(inp_id)
+            G.add_edge(inp_id, node_id, **edge_style)
+
+    if root_id in relation_ids:
+        _walk(root_id)
+    for inp in _relevant_inputs(root_id, set()):
+        _walk(inp)
+
+    return G
 
 
 def _populate_lineage_tree(tree_widget: Tree, dag: dict) -> None:
@@ -1269,7 +1454,7 @@ class CatalogScreen(Screen):
 
     FOCUS_CYCLE = (
         "#catalog-tree",
-        "#lineage-tree",
+        "#lineage-graph",
         "#schema-in-table",
         "#schema-preview-table",
         "#revisions-preview-table",
@@ -1310,7 +1495,11 @@ class CatalogScreen(Screen):
             with Vertical(id="right-column"):
                 with Vertical(id="detail-view"):
                     with Vertical(id="lineage-panel"):
-                        yield Tree("Lineage", id="lineage-tree")
+                        yield _ThemedGraphView(
+                            nx.DiGraph(),
+                            id="lineage-graph",
+                            zoom=ZoomSpec(1.0, 0.7),
+                        )
                     with Vertical(id="sql-panel"):
                         yield RichLog(id="sql-preview", wrap=True, auto_scroll=False)
                     with Vertical(id="data-preview-panel"):
@@ -1373,23 +1562,23 @@ class CatalogScreen(Screen):
         info_table.add_column("PARAMETERS", key="params")
         info_table.add_column("ENV VARS", key="env_vars")
 
-        self.query_one("#catalog-panel").border_title = "Expressions"
-        self.query_one("#schema-panel").border_title = "Schema"
+        self.query_one("#catalog-panel").border_title = " Expressions "
+        self.query_one("#schema-panel").border_title = " Schema "
         self.query_one("#schema-in-half").display = False
-        self.query_one("#lineage-panel").border_title = "Lineage"
-        self.query_one("#sql-panel").border_title = "SQL"
+        self.query_one("#lineage-panel").border_title = " ❷ Lineage "
+        self.query_one("#sql-panel").border_title = " ❶ SQL "
         data_panel = self.query_one("#data-preview-panel")
-        data_panel.border_title = "Data Preview"
-        self.query_one("#tags-panel").border_title = "Tags"
-        self.query_one("#full-lineage-panel").border_title = "Full Lineage"
+        data_panel.border_title = " ❸ Data "
+        self.query_one("#tags-panel").border_title = " ❺ Tags "
+        self.query_one("#full-lineage-panel").border_title = " ❻ Full Lineage "
         self._apply_view("sql")
         rev_panel = self.query_one("#revisions-panel")
-        rev_panel.border_title = "Revisions"
+        rev_panel.border_title = " Revisions "
         rev_panel.display = False
         git_log_panel = self.query_one("#git-log-panel")
-        git_log_panel.border_title = "Git Log"
+        git_log_panel.border_title = " Git Log "
         git_log_panel.display = False
-        self.query_one("#profiles-panel").border_title = "Profiles"
+        self.query_one("#profiles-panel").border_title = " ❹ Profiles "
         self.query_one("#status-bar", Static).update(" Loading catalog...")
 
         self.set_interval(self._refresh_interval, self._do_refresh)
@@ -1413,12 +1602,15 @@ class CatalogScreen(Screen):
 
     @staticmethod
     def _entry_label(row_data: CatalogRowData) -> str:
-        return row_data.aliases_display or f"[dim]{row_data.hash[:12]}[/dim]"
+        cache = row_data.cached_display
+        name = row_data.aliases_display or f"[dim]{row_data.hash[:12]}[/dim]"
+        return f"{cache} {name}"
 
     @staticmethod
     def _entry_label_related(row_data: CatalogRowData) -> str:
+        cache = row_data.cached_display
         name = row_data.aliases_display or row_data.hash[:12]
-        return f"[#5abfb5]› {name}[/]"
+        return f"{cache} [#5abfb5]› {name}[/]"
 
     def _compute_related_hashes(self, entry_hash: str) -> set[str]:
         """Find entries related to entry_hash (both upstream and downstream)."""
@@ -1474,7 +1666,7 @@ class CatalogScreen(Screen):
         schema_out_table = self.query_one("#schema-preview-table", DataTable)
         schema_out_table.clear()
         sql_preview = self.query_one("#sql-preview", RichLog)
-        lineage_tree = self.query_one("#lineage-tree", Tree)
+        lineage_graph = self.query_one("#lineage-graph", _ThemedGraphView)
 
         rev_table = self.query_one("#revisions-preview-table", DataTable)
         rev_table.clear()
@@ -1482,8 +1674,7 @@ class CatalogScreen(Screen):
         row_data = self._row_cache.get(entry_hash)
         if row_data is None:
             sql_preview.clear()
-            lineage_tree.clear()
-            lineage_tree.root.set_label("Lineage")
+            lineage_graph.graph = nx.DiGraph()
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
             self._reset_toggle_panels()
@@ -1513,14 +1704,13 @@ class CatalogScreen(Screen):
         for name, dtype in row_data.schema_out:
             schema_out_table.add_row(name, dtype)
 
-        # Lineage panel (sync)
+        # Lineage graph (sync)
         lineage_panel = self.query_one("#lineage-panel")
         dag = row_data.lineage_dag
         if dag:
-            _populate_lineage_tree(lineage_tree, dag)
+            lineage_graph.graph = _dag_to_graph(dag)
         else:
-            lineage_tree.clear()
-            lineage_tree.root.set_label("(no lineage)")
+            lineage_graph.graph = nx.DiGraph()
         lineage_panel.border_subtitle = row_data.cache_info_text
 
         # Tags panel (sync)
@@ -1710,20 +1900,27 @@ class CatalogScreen(Screen):
             catalog_name = Path(repo_path).name
             self.query_one(
                 "#catalog-panel"
-            ).border_title = f"Expressions — {catalog_name}"
+            ).border_title = f" Expressions · {catalog_name} "
             self._rebuild_catalog_tree(entries=cached_rows, query=self._search_query)
 
     def _add_entry_to_tree(self, tree, row_data) -> None:
         """Add a single entry node to the catalog tree under its kind group."""
         kind = row_data.kind
         if kind not in self._kind_nodes:
-            self._kind_nodes[kind] = tree.root.add(f"[bold]{kind}[/bold]", expand=True)
+            self._kind_nodes[kind] = tree.root.add(
+                f"[bold #C1F0FF]{kind}[/]", expand=True
+            )
         kind_node = self._kind_nodes[kind]
         entry_node = kind_node.add(self._entry_label(row_data), data=row_data.row_key)
         self._node_by_hash[row_data.row_key] = entry_node
-        entry_node.add_leaf(f"[dim]{row_data.hash[:12]}[/dim]")
+        # Hash + backend info on one leaf
+        backends = row_data.backends_display
+        hash_leaf = f"[dim]{row_data.hash[:12]}[/dim]"
+        if backends:
+            hash_leaf += f"  [dim italic]{backends}[/]"
+        entry_node.add_leaf(hash_leaf)
         for tag in row_data.tags:
-            entry_node.add_leaf(f"[#5abfb5]{tag}[/]")
+            entry_node.add_leaf(f"[#5abfb5]⏵ {tag}[/]")
 
     def _render_catalog_row(self, row_data) -> None:
         if self._search_query and not self._matches_search(
@@ -1736,8 +1933,9 @@ class CatalogScreen(Screen):
 
     def _render_status(self, stamp, repo_path) -> None:
         count = len(self._row_cache)
+        repo_name = Path(repo_path).name
         self.query_one("#status-bar", Static).update(
-            f" {count} entries \u00b7 {repo_path} \u00b7 {stamp}"
+            f" [bold]{count}[/bold] entries  ·  {repo_name}  ·  {stamp}"
         )
 
     # --- Search ---
@@ -2162,21 +2360,31 @@ class CatalogTUI(App):
         scrollbar-background-hover: transparent;
         scrollbar-background-active: transparent;
     }
+
+    /* ── Layout scaffold ── */
     #main-split {
         height: 1fr;
     }
     #left-column {
-        width: 2fr;
-        max-width: 60;
+        width: 1fr;
+        min-width: 30;
+        max-width: 52;
     }
     #right-column {
         width: 3fr;
+        margin-left: 1;
     }
+
+    /* ── Left column ── */
     #catalog-panel {
         height: 1fr;
-        border: solid #C1F0FF;
+        border: round #C1F0FF 30%;
         border-title-color: #C1F0FF;
+        border-title-style: bold;
         background: $surface;
+    }
+    #catalog-panel:focus-within {
+        border: round #C1F0FF;
     }
     #search-input {
         display: none;
@@ -2185,90 +2393,72 @@ class CatalogTUI(App):
         margin: 0;
         border: none;
         padding: 0 1;
-        background: $surface;
-    }
-    #catalog-panel:focus-within {
-        border: double #C1F0FF;
+        background: $panel;
+        color: $text;
     }
     #catalog-tree {
         height: 1fr;
         padding: 0 1;
     }
     #revisions-panel {
-        height: 1fr;
-        border: solid #5abfb5;
+        height: auto;
+        max-height: 12;
+        border: round #5abfb5 30%;
         border-title-color: #5abfb5;
-        border-subtitle-color: #5abfb5;
+        border-title-style: bold;
+        border-subtitle-color: #5abfb5 50%;
+    }
+    #revisions-panel:focus-within {
+        border: round #5abfb5;
     }
     #revisions-preview-table {
-        height: 1fr;
+        height: auto;
+        max-height: 10;
     }
     #git-log-panel {
-        height: 1fr;
-        border: solid #4AA8EC;
+        height: auto;
+        max-height: 12;
+        border: round #4AA8EC 30%;
         border-title-color: #4AA8EC;
+        border-title-style: bold;
+    }
+    #git-log-panel:focus-within {
+        border: round #4AA8EC;
     }
     #git-log-table {
-        height: 1fr;
+        height: auto;
+        max-height: 10;
     }
+
+    /* ── Right column ── */
     #detail-view {
-        height: 2fr;
-    }
-    #lineage-panel {
-        height: 1fr;
-        border: solid #5abfb5;
-        border-title-color: #5abfb5;
-        border-subtitle-color: #5abfb5;
-        padding: 0 1;
-    }
-    #lineage-panel:focus-within {
-        border: double #5abfb5;
-    }
-    #lineage-tree {
-        height: 1fr;
-        padding: 0 1;
-    }
-    #sql-panel {
-        height: 1fr;
-        border: solid #2BBE75;
-        border-title-color: #2BBE75;
-        border-subtitle-color: #2BBE75;
-    }
-    #sql-panel:focus-within {
-        border: double #2BBE75;
-    }
-    #sql-preview {
-        height: 1fr;
-        padding: 0 1;
-    }
-    #data-preview-panel {
-        height: 1fr;
-        border: solid #F5CA2C;
-        border-title-color: #F5CA2C;
-    }
-    DataTable:focus {
-        border: none;
+        height: 3fr;
     }
     #schema-panel {
         height: 1fr;
-        border: solid #4AA8EC;
+        max-height: 14;
+        border: round #4AA8EC 30%;
         border-title-color: #4AA8EC;
-        border-subtitle-color: #4AA8EC;
+        border-title-style: bold;
+        border-subtitle-color: #4AA8EC 50%;
+    }
+    #schema-panel:focus-within {
+        border: round #4AA8EC;
     }
     #schema-split {
         height: 1fr;
     }
     #schema-in-half {
         width: 1fr;
-        border: solid #4AA8EC 50%;
-        border-title-color: #4AA8EC;
-        border-subtitle-color: #4AA8EC;
+        border: round #4AA8EC 20%;
+        border-title-color: #4AA8EC 70%;
+        border-subtitle-color: #4AA8EC 50%;
     }
     #schema-out-half {
         width: 1fr;
-        border: solid #4AA8EC 50%;
-        border-title-color: #4AA8EC;
-        border-subtitle-color: #4AA8EC;
+        border: round #4AA8EC 20%;
+        border-title-color: #4AA8EC 70%;
+        border-subtitle-color: #4AA8EC 50%;
     }
     #schema-in-table {
         height: 1fr;
@@ -2276,26 +2466,78 @@ class CatalogTUI(App):
     #schema-preview-table {
         height: 1fr;
     }
+
+    /* ── Detail panels (only one visible at a time) ── */
+    #lineage-panel {
+        height: 1fr;
+        border: round #5abfb5 30%;
+        border-title-color: #5abfb5;
+        border-title-style: bold;
+        border-subtitle-color: #5abfb5 50%;
+        padding: 0 1;
+    }
+    #lineage-panel:focus-within {
+        border: round #5abfb5;
+    }
+    #lineage-graph {
+        height: 1fr;
+        background: $surface;
+    }
+    #sql-panel {
+        height: 1fr;
+        border: round #2BBE75 30%;
+        border-title-color: #2BBE75;
+        border-title-style: bold;
+        border-subtitle-color: #2BBE75 50%;
+        padding: 0 1;
+    }
+    #sql-panel:focus-within {
+        border: round #2BBE75;
+    }
+    #sql-preview {
+        height: 1fr;
+        padding: 0 1;
+    }
+    #data-preview-panel {
+        height: 1fr;
+        border: round #F5CA2C 30%;
+        border-title-color: #F5CA2C;
+        border-title-style: bold;
+        padding: 0 1;
+    }
+    #data-preview-panel:focus-within {
+        border: round #F5CA2C;
+    }
     #data-preview-status {
         height: 1;
-        padding: 0 2;
+        padding: 0 1;
+        color: #C1F0FF 60%;
     }
     #data-preview-table {
         height: 1fr;
     }
     #profiles-panel {
         height: 1fr;
-        border: solid #2BBE75;
+        border: round #2BBE75 30%;
         border-title-color: #2BBE75;
+        border-title-style: bold;
+        padding: 0 1;
+    }
+    #profiles-panel:focus-within {
+        border: round #2BBE75;
     }
     #profiles-table {
         height: 1fr;
     }
     #tags-panel {
         height: 1fr;
-        border: solid #F5CA2C;
+        border: round #F5CA2C 30%;
         border-title-color: #F5CA2C;
+        border-title-style: bold;
         padding: 0 1;
+    }
+    #tags-panel:focus-within {
+        border: round #F5CA2C;
     }
     #tags-tree {
         height: 1fr;
@@ -2303,22 +2545,29 @@ class CatalogTUI(App):
     }
     #full-lineage-panel {
         height: 1fr;
-        border: solid #C1F0FF;
+        border: round #C1F0FF 30%;
         border-title-color: #C1F0FF;
+        border-title-style: bold;
         padding: 0 1;
     }
     #full-lineage-panel:focus-within {
-        border: double #C1F0FF;
+        border: round #C1F0FF;
     }
     #full-lineage-tree {
         height: 1fr;
         padding: 0 1;
     }
+
+    /* ── Chrome ── */
+    DataTable:focus {
+        border: none;
+    }
     #status-bar {
         dock: bottom;
         height: 1;
         padding: 0 2;
-        background: $surface;
+        background: $panel;
+        color: #C1F0FF 70%;
     }
     /* ComposeScreen (modal overlay) */
     ComposeScreen {

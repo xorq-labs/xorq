@@ -2941,6 +2941,54 @@ wheels = [
 ]
 
 [[package]]
+name = "netext"
+version = "0.4.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cachetools" },
+    { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "rich" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6d/85/5693a1ce91d550d3237db7052241318e0faa1bdfdf8cdcb96c34b0a9290a/netext-0.4.1.tar.gz", hash = "sha256:4e819b09feac0af162362da97896afe33893f9c1776d72a997a48f756e98041e", size = 279547, upload-time = "2026-04-02T10:56:53.999Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/df/88/0e4e3e018f0c6890147a9d790bc89664b83ef7cf158a9afc5a4e9852e9cb/netext-0.4.1-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:d8e0911ace7650d6099d6d49fd96b04c4ee0945a1bfc17f1de220781db30cef3", size = 570146, upload-time = "2026-04-02T10:56:42.617Z" },
+    { url = "https://files.pythonhosted.org/packages/6b/5c/60591ca2a475e555c4c8585ffb0a313c85deb92d780cf8bca5c13b129b55/netext-0.4.1-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:696f98c938fb3dae0ac80c38b75f718a8e1cd7c01955f1f74580a575d3818435", size = 556070, upload-time = "2026-04-02T10:56:44.239Z" },
+    { url = "https://files.pythonhosted.org/packages/4d/18/564045beeea4dc3cf6a62b118e6ce076c03aeb5957a337b2c450ba747a64/netext-0.4.1-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:534435e2750f1afd1acd4e056fb8b2d7b3b1007f2c1169b4ecd5cd92c4bd9e84", size = 597000, upload-time = "2026-04-02T10:56:45.626Z" },
+    { url = "https://files.pythonhosted.org/packages/bc/6a/1bb2fa726256e551153624c182a4fd0aa018edbfcc7d9b388884caaef897/netext-0.4.1-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f0919904e1c4909b1e91d2b7402121c05af8dd040e78f192a0ea9f38efe12a13", size = 605833, upload-time = "2026-04-02T10:56:47.089Z" },
+    { url = "https://files.pythonhosted.org/packages/75/f5/d3ff794fb8688f789e4fa09da632312bb299f284dd24449cb2d30a13bda5/netext-0.4.1-cp310-abi3-musllinux_1_1_aarch64.whl", hash = "sha256:1732d9d137cf3729c1c45134bbe1936ebc756989d503b08feba127f37f59b2dd", size = 772753, upload-time = "2026-04-02T10:56:48.757Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/c7/e1c221a964f74c5d7427f9a31bab81b780c3efcd3a5b56672fa2bd00a69f/netext-0.4.1-cp310-abi3-musllinux_1_1_x86_64.whl", hash = "sha256:f8f1e16e159f59e185ab4fc8b26397c64e9be7551a95f0be8edb3ecb177321d3", size = 814215, upload-time = "2026-04-02T10:56:50.497Z" },
+    { url = "https://files.pythonhosted.org/packages/9e/77/05285343136fc97e82b7aba1488fdfcf0b6b4792a0c11843d9f0428247cc/netext-0.4.1-cp310-abi3-win_amd64.whl", hash = "sha256:3b122a3fa448cdd7dec0db073d410333c4531f4a0cc645e292851fa3a97801ed", size = 442702, upload-time = "2026-04-02T10:56:52.277Z" },
+]
+
+[[package]]
+name = "networkx"
+version = "3.4.2"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.11'",
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fd/1d/06475e1cd5264c0b870ea2cc6fdb3e37177c1e565c43f56ff17a10e3937f/networkx-3.4.2.tar.gz", hash = "sha256:307c3669428c5362aab27c8a1260aa8f47c4e91d3891f48be0141738d8d053e1", size = 2151368, upload-time = "2024-10-21T12:39:38.695Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b9/54/dd730b32ea14ea797530a4479b2ed46a6fb250f682a9cfb997e968bf0261/networkx-3.4.2-py3-none-any.whl", hash = "sha256:df5d4365b724cf81b8c6a7312509d0c22386097011ad1abe274afd5e9d3bbc5f", size = 1723263, upload-time = "2024-10-21T12:39:36.247Z" },
+]
+
+[[package]]
+name = "networkx"
+version = "3.6.1"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.13'",
+    "python_full_version == '3.12.*'",
+    "python_full_version == '3.11.*'",
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6a/51/63fe664f3908c97be9d2e4f1158eb633317598cfa6e1fc14af5383f17512/networkx-3.6.1.tar.gz", hash = "sha256:26b7c357accc0c8cde558ad486283728b65b6a95d85ee1cd66bafab4c8168509", size = 2517025, upload-time = "2025-12-08T17:02:39.908Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl", hash = "sha256:d47fbf302e7d9cbbb9e2555a0d267983d2aa476bac30e90dfbe5669bd57f3762", size = 2068504, upload-time = "2025-12-08T17:02:38.159Z" },
+]
+
+[[package]]
 name = "nodeenv"
 version = "1.9.1"
 source = { registry = "https://pypi.org/simple" }
@@ -5807,6 +5855,9 @@ dependencies = [
     { name = "geoarrow-types" },
     { name = "git-annex" },
     { name = "gitpython" },
+    { name = "netext" },
+    { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "opentelemetry-exporter-otlp" },
     { name = "opentelemetry-exporter-otlp-proto-grpc" },
     { name = "opentelemetry-exporter-prometheus" },
@@ -5951,6 +6002,8 @@ requires-dist = [
     { name = "ibis-framework", marker = "extra == 'ibis'", specifier = ">=10.5.0" },
     { name = "matplotlib", marker = "extra == 'examples'", specifier = ">=3.8.0" },
     { name = "mcp", marker = "extra == 'examples'", specifier = ">=1.5.0" },
+    { name = "netext", specifier = ">=0.4.1" },
+    { name = "networkx", specifier = ">=3.4.2" },
     { name = "openai", marker = "extra == 'examples'", specifier = ">=1.65.4" },
     { name = "opentelemetry-exporter-otlp", specifier = ">=1.32.1" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.32.1" },
