@@ -85,6 +85,14 @@ REVISION_COLUMNS = ("STATUS", "HASH", "COLUMNS", "CACHED", "DATE")
 GIT_LOG_COLUMNS = ("HASH", "DATE", "MESSAGE")
 
 
+def _cache_key_to_path(key: str) -> Path:
+    from xorq.common.utils.caching_utils import get_xorq_cache_dir  # noqa: PLC0415
+    from xorq.config import options  # noqa: PLC0415
+
+    relative_path = options.get("cache.default_relative_path")
+    return get_xorq_cache_dir().joinpath(relative_path).joinpath(key + ".parquet")
+
+
 def _format_cached(value: bool | None) -> str:
     match value:
         case True:
@@ -102,6 +110,9 @@ class CatalogRowData:
 
     @property
     def cached(self) -> bool | None:
+        cache_keys = self.entry.cache_keys
+        if cache_keys:
+            return all(_cache_key_to_path(k).exists() for k in cache_keys)
         parquet_cache_paths = self.entry.parquet_cache_paths
         if parquet_cache_paths:
             return all(Path(p).exists() for p in parquet_cache_paths)
@@ -159,14 +170,18 @@ class CatalogRowData:
 
     @cached_property
     def cache_info_text(self) -> str:
-        paths = self.entry.parquet_cache_paths
-        match paths:
-            case () | None:
-                return "— unknown"
-            case _ if all(Path(p).exists() for p in paths):
-                return f"● cached  {paths[0]}"
-            case _:
-                return "○ uncached"
+        cache_keys = self.entry.cache_keys
+        if cache_keys:
+            key_paths = tuple(_cache_key_to_path(k) for k in cache_keys)
+            if all(p.exists() for p in key_paths):
+                return f"● cached  {key_paths[0]}"
+            return "○ uncached"
+        parquet_paths = self.entry.parquet_cache_paths
+        if parquet_paths:
+            if all(Path(p).exists() for p in parquet_paths):
+                return f"● cached  {parquet_paths[0]}"
+            return "○ uncached"
+        return "— unknown"
 
     @cached_property
     def info_text(self) -> str:
@@ -240,12 +255,16 @@ class RevisionRowData:
 
 
 def _entry_info(entry) -> tuple[int | None, bool | None]:
-    parquet_cache_paths = entry.parquet_cache_paths
-    cached = (
-        all(Path(p).exists() for p in parquet_cache_paths)
-        if parquet_cache_paths
-        else None
-    )
+    cache_keys = entry.cache_keys
+    if cache_keys:
+        cached = all(_cache_key_to_path(k).exists() for k in cache_keys)
+    else:
+        parquet_cache_paths = entry.parquet_cache_paths
+        cached = (
+            all(Path(p).exists() for p in parquet_cache_paths)
+            if parquet_cache_paths
+            else None
+        )
     return len(entry.columns), cached
 
 
