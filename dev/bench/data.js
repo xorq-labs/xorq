@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775477935512,
+  "lastUpdate": 1775502853338,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -3762,6 +3762,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.04216663414426505",
             "extra": "mean: 261.0074843999939 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5d3c0ce6173e4c628bf230e47c1f697b3139c702",
+          "message": "perf(ibis_yaml): defer sklearn import in translate.py (#1792)\n\n## Summary\n- Defers the `sklearn.base.BaseEstimator` singledispatch registration in\n`translate.py` from module-load time to first use via\n`_ensure_sklearn_to_yaml_registered()` (guarded by `functools.cache`)\n- sklearn import pulls in scipy/joblib/numpy transitively, costing\n~0.48s — this removes that penalty from CLI cold-start and any codepath\nthat doesn't serialize sklearn estimators\n- The registration is triggered in `ExprDumper.dump_expr()`, the single\nentrypoint for YAML serialization\n\n## Test plan\n- [x] Existing `test_benchmark.py` and ibis_yaml tests pass\n- [x] Verify sklearn estimator round-trip still works (e.g.\n`test_sklearn_estimator_yaml`)\n- [x] Measure CLI cold-start improvement (~0.48s reduction)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-06T15:10:30-04:00",
+          "tree_id": "fbb0cba8ece8e2a1758fc3387820569054d62cac",
+          "url": "https://github.com/xorq-labs/xorq/commit/5d3c0ce6173e4c628bf230e47c1f697b3139c702"
+        },
+        "date": 1775502850037,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.470237801977433,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004984151757353388",
+            "extra": "mean: 95.50881450000475 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.520798731216718,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02698380142032177",
+            "extra": "mean: 284.02646000000686 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7004968470447087,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16307296541216312",
+            "extra": "mean: 1.4275581741999985 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.0287554756578645,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013051349736234834",
+            "extra": "mean: 198.85635816666536 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.9581431030590855,
+            "unit": "iter/sec",
+            "range": "stddev: 0.021718658458617892",
+            "extra": "mean: 201.68841019998354 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.9806727035134117,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03971636348677435",
+            "extra": "mean: 251.2138209999989 msec\nrounds: 5"
           }
         ]
       }
