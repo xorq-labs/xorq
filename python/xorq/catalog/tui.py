@@ -546,12 +546,12 @@ class CatalogScreen(Screen):
         # SQL preview (async — highlighting runs off main thread)
         sql_panel = self.query_one("#sql-panel")
         sql_preview.clear()
+        sql_panel.border_subtitle = ""
         self._sql_generation += 1
         match row_data.sqls:
             case ():
                 sql_preview.loading = False
                 sql_preview.write("(SQL unavailable)")
-                sql_panel.border_subtitle = ""
             case ((_, engine, sql),):
                 sql_preview.loading = True
                 self._highlight_sql(sql, engine, self._sql_generation)
@@ -561,7 +561,7 @@ class CatalogScreen(Screen):
                 sql_panel.border_subtitle = (
                     f"{len(sqls)} queries \u00b7 {', '.join(engines)}"
                 )
-                self._highlight_sql(_render_sql_dag(sqls), None, self._sql_generation)
+                self._highlight_sql_dag(sqls, self._sql_generation)
 
         # Info panel (sync)
         info_content.update(row_data.info_text)
@@ -648,13 +648,25 @@ class CatalogScreen(Screen):
 
     @work(thread=True, exit_on_error=False, group="sql-highlight")
     def _highlight_sql(self, raw_sql: str, engine: str | None, generation: int) -> None:
-        lines = raw_sql.split("\n")
-        truncated = len(lines) > _SQL_MAX_LINES
+        truncated = raw_sql.count("\n") > _SQL_MAX_LINES
         if truncated:
-            raw_sql = "\n".join(lines[:_SQL_MAX_LINES])
+            raw_sql = "\n".join(raw_sql.split("\n")[:_SQL_MAX_LINES])
         highlighted = Syntax(raw_sql, "sql", theme=XorqSQLStyle, word_wrap=True)
         self.app.call_from_thread(
             self._render_sql_preview, highlighted, engine, truncated, generation
+        )
+
+    @work(thread=True, exit_on_error=False, group="sql-highlight")
+    def _highlight_sql_dag(
+        self, sqls: tuple[tuple[str, str, str], ...], generation: int
+    ) -> None:
+        raw_sql = _render_sql_dag(sqls)
+        truncated = raw_sql.count("\n") > _SQL_MAX_LINES
+        if truncated:
+            raw_sql = "\n".join(raw_sql.split("\n")[:_SQL_MAX_LINES])
+        highlighted = Syntax(raw_sql, "sql", theme=XorqSQLStyle, word_wrap=True)
+        self.app.call_from_thread(
+            self._render_sql_preview, highlighted, None, truncated, generation
         )
 
     def _render_sql_preview(
@@ -667,10 +679,9 @@ class CatalogScreen(Screen):
         if generation != self._sql_generation:
             return
         sql_preview = self.query_one("#sql-preview", RichLog)
-        sql_preview.clear()
         sql_preview.write(highlighted)
         if truncated:
-            sql_preview.write(f"\n... truncated to {_SQL_MAX_LINES} lines")
+            sql_preview.write(f"... truncated to {_SQL_MAX_LINES} lines")
         sql_preview.loading = False
         if engine is not None:
             self.query_one("#sql-panel").border_subtitle = engine
@@ -968,9 +979,9 @@ class CatalogScreen(Screen):
 
     # --- Navigation ---
 
-    def _focused_widget(self) -> DataTable | VerticalScroll:
+    def _focused_widget(self) -> DataTable | VerticalScroll | RichLog:
         focused = self.app.focused
-        if isinstance(focused, (DataTable, VerticalScroll)):
+        if isinstance(focused, (DataTable, VerticalScroll, RichLog)):
             return focused
         return self.query_one("#catalog-table", DataTable)
 
@@ -979,7 +990,7 @@ class CatalogScreen(Screen):
         match w:
             case DataTable():
                 w.action_scroll_left()
-            case VerticalScroll():
+            case VerticalScroll() | RichLog():
                 pass
 
     def action_cursor_down(self) -> None:
@@ -987,7 +998,7 @@ class CatalogScreen(Screen):
         match w:
             case DataTable():
                 w.action_cursor_down()
-            case VerticalScroll():
+            case VerticalScroll() | RichLog():
                 w.scroll_down()
 
     def action_cursor_up(self) -> None:
@@ -995,7 +1006,7 @@ class CatalogScreen(Screen):
         match w:
             case DataTable():
                 w.action_cursor_up()
-            case VerticalScroll():
+            case VerticalScroll() | RichLog():
                 w.scroll_up()
 
     def action_scroll_right(self) -> None:
@@ -1003,7 +1014,7 @@ class CatalogScreen(Screen):
         match w:
             case DataTable():
                 w.action_scroll_right()
-            case VerticalScroll():
+            case VerticalScroll() | RichLog():
                 pass
 
     def action_focus_next_panel(self) -> None:
