@@ -81,7 +81,7 @@ class SnapshotStrategy(CacheStrategy):
     @staticmethod
     @functools.cache
     def cached_replace_remote_table(op):
-        def rename_remote_table(node, _, **kwargs):
+        def rename_remote_table(node, kwargs):
             if isinstance(node, RemoteTable):
                 # FIXME: how to verify that we're always within a self.normalization_context?
                 name = dask.base.tokenize(node)
