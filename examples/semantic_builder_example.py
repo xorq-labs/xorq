@@ -82,7 +82,7 @@ print(f"Builder metadata: {entry.metadata.builders}")
 # 5. Recover the full SemanticModel from the cataloged expression
 # ---------------------------------------------------------------------------
 
-recovered_model = catalog.get_builder_from_expr(entry.expr)
+recovered_model = entry.expr.ls.builder
 print(f"\nRecovered model type: {type(recovered_model).__name__}")
 print(f"Recovered dimensions: {tuple(recovered_model.dimensions)}")
 print(f"Recovered measures: {tuple(recovered_model.measures)}")
