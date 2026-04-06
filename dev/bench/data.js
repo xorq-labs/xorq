@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775301242665,
+  "lastUpdate": 1775477330964,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -3630,6 +3630,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.05044982474602417",
             "extra": "mean: 237.47486519999939 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0f68f22acce13711b4f60e19aebddb0982c9eca8",
+          "message": "feat(catalog): add embed-readonly command to verify and embed read-on… (#1779)\n\n…ly S3 creds\n\nAdds S3RemoteConfig.assert_readonly(), Catalog.embed_readonly(), and the\n`xorq catalog embed-readonly` CLI command. The command verifies\ncredentials cannot write before embedding them into the git-annex\nbranch.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-06T08:05:20-04:00",
+          "tree_id": "230a8c99f1e840fb108dcbdce24c49e2301ed151",
+          "url": "https://github.com/xorq-labs/xorq/commit/0f68f22acce13711b4f60e19aebddb0982c9eca8"
+        },
+        "date": 1775477327878,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.864868033565207,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018088838019226557",
+            "extra": "mean: 112.80483772727155 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.7916104679217972,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05790016676510867",
+            "extra": "mean: 263.7401728000043 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7058958799657897,
+            "unit": "iter/sec",
+            "range": "stddev: 0.20304668394603947",
+            "extra": "mean: 1.4166395192000039 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.022340504777172,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009682449137356483",
+            "extra": "mean: 199.1103548333323 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.097701016875436,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006251293243990253",
+            "extra": "mean: 196.16685966666125 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.522247988564179,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04600452722423799",
+            "extra": "mean: 221.128961200003 msec\nrounds: 5"
           }
         ]
       }
