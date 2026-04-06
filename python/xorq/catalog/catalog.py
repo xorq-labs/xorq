@@ -30,7 +30,6 @@ from git import (
     Repo,
 )
 
-from xorq.caching import ParquetSnapshotCache
 from xorq.catalog.annex import (
     LOCAL_ANNEX,
     Annex,
@@ -838,22 +837,13 @@ class CatalogEntry:
         return self.metadata.cache_keys
 
     @cached_property
-    def parquet_snapshot_storage(self):
-        """ParquetStorage for the root CachedNode, or None if not applicable.
-
-        Only populated when cache_keys is non-empty (i.e. the root node uses
-        ParquetSnapshotCache).  Loads via lazy_expr to avoid eager annex fetch.
-        """
-
-        if not self.cache_keys:
-            return None
-        expr = self.lazy_expr
-        if not expr.ls.is_cached:
-            return None
-        cache = expr.op().cache
-        if not isinstance(cache, ParquetSnapshotCache):
-            return None
-        return cache.storage
+    def cache_keys_paths(self) -> tuple[str, ...]:
+        if (
+            self.cache_keys
+            and (cache_path := self.lazy_expr.ls.get_cache_path()) is not None
+        ):
+            return (str(cache_path),)
+        return ()
 
     @cached_property
     def sidecar_metadata(self) -> dict:

@@ -102,10 +102,9 @@ class CatalogRowData:
 
     @property
     def cached(self) -> bool | None:
-        storage = self.entry.parquet_snapshot_storage
-        if storage is not None:
-            return all(storage.get_path(k).exists() for k in self.entry.cache_keys)
-        parquet_cache_paths = self.entry.parquet_cache_paths
+        parquet_cache_paths = tuple(
+            self.entry.cache_keys_paths or self.entry.parquet_cache_paths
+        )
         if parquet_cache_paths:
             return all(Path(p).exists() for p in parquet_cache_paths)
         return None
@@ -162,18 +161,14 @@ class CatalogRowData:
 
     @cached_property
     def cache_info_text(self) -> str:
-        storage = self.entry.parquet_snapshot_storage
-        if storage is not None:
-            key_paths = tuple(storage.get_path(k) for k in self.entry.cache_keys)
-            if all(p.exists() for p in key_paths):
-                return f"● cached  {key_paths[0]}"
-            return "○ uncached"
-        parquet_paths = self.entry.parquet_cache_paths
-        if parquet_paths:
-            if all(Path(p).exists() for p in parquet_paths):
-                return f"● cached  {parquet_paths[0]}"
-            return "○ uncached"
-        return "— unknown"
+        paths = tuple(self.entry.cache_keys_paths or self.entry.parquet_cache_paths)
+        match paths:
+            case () | None:
+                return "— unknown"
+            case _ if all(Path(p).exists() for p in paths):
+                return f"● cached  {paths[0]}"
+            case _:
+                return "○ uncached"
 
     @cached_property
     def info_text(self) -> str:
@@ -246,17 +241,13 @@ class RevisionRowData:
         )
 
 
-def _entry_info(entry) -> tuple[int | None, bool | None]:
-    storage = entry.parquet_snapshot_storage
-    if storage is not None:
-        cached = all(storage.get_path(k).exists() for k in entry.cache_keys)
-    else:
-        parquet_cache_paths = entry.parquet_cache_paths
-        cached = (
-            all(Path(p).exists() for p in parquet_cache_paths)
-            if parquet_cache_paths
-            else None
-        )
+def _entry_info(entry: CatalogEntry) -> tuple[int | None, bool | None]:
+    parquet_cache_paths = tuple(entry.cache_keys_paths or entry.parquet_cache_paths)
+    cached = (
+        all(Path(p).exists() for p in parquet_cache_paths)
+        if parquet_cache_paths
+        else None
+    )
     return len(entry.columns), cached
 
 
