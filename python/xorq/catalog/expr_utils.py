@@ -9,10 +9,12 @@ from xorq.catalog.zip_utils import (
 
 @contextmanager
 def build_expr_context(expr):
+    from xorq.catalog.catalog import _ensure_wheel_artifacts  # noqa: PLC0415
     from xorq.ibis_yaml.compiler import build_expr  # noqa: PLC0415
 
     with tempfile.TemporaryDirectory() as td:
         build_dir = build_expr(expr, builds_dir=td)
+        _ensure_wheel_artifacts(build_dir)
         yield build_dir
 
 

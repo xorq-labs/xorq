@@ -144,18 +144,17 @@ def uv_build_command(
 ):
     from xorq.ibis_yaml.packager import PackagedBuilder
 
-    sdist_builder = PackagedBuilder.from_script_path(
+    builder = PackagedBuilder.from_script_path(
         script_path,
         project_path=project_path,
-        overwrite_requirements=True,
         expr_name=expr_name,
         builds_dir=builds_dir,
         cache_dir=cache_dir,
     )
     # should we execv here instead?
-    # ensure we do copy_sdist
-    sdist_builder.build_path
-    popened = sdist_builder._uv_tool_run_xorq_build
+    # ensure we copy artifacts into build dir
+    builder.build_path
+    popened = builder._uv_tool_run_xorq_build
     print(popened.stderr, file=sys.stderr, end="")
     print(popened.stdout, file=sys.stdout, end="")
     return popened
