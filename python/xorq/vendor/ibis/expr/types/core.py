@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from rich.console import Console, RenderableType
 
     import xorq.vendor.ibis.expr.types as ir
+    from xorq.common.utils.lineage_utils import LineageDAG
     from xorq.vendor.ibis import Schema
     from xorq.vendor.ibis.backends import BaseBackend
     from xorq.vendor.ibis.expr.visualize import (
@@ -740,14 +741,15 @@ def _extract_kind(unbound_node, catalog_tag_nodes, is_source):
 def _validate_lineage(instance, attribute, value):
     """optional(instance_of(LineageDAG)) but with a deferred import to break
     the cycle: core.py → lineage_utils → rel → backends → … → core.py"""
-    if value is None:
-        return
     from xorq.common.utils.lineage_utils import LineageDAG  # noqa: PLC0415
 
-    if not isinstance(value, LineageDAG):
-        raise TypeError(
-            f"'lineage' must be a LineageDAG or None, got {type(value).__name__}"
-        )
+    match value:
+        case None | LineageDAG():
+            return
+        case _:
+            raise TypeError(
+                f"'lineage' must be a LineageDAG or None, got {type(value).__name__}"
+            )
 
 
 def _parse_lineage(raw):
@@ -781,7 +783,7 @@ class ExprMetadata:
     )
     params: tuple = field(factory=tuple)
     sql_queries: tuple[tuple[str, str, str], ...] = field(factory=tuple)
-    lineage: Optional[Any] = field(default=None, validator=_validate_lineage)
+    lineage: Optional[LineageDAG] = field(default=None, validator=_validate_lineage)
 
     @classmethod
     def from_dict(cls, data):

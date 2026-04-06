@@ -174,8 +174,8 @@ def _(node: ops.Literal) -> str:
 class LineageDAG:
     """Typed container for a serialisable lineage DAG."""
 
-    nodes: tuple = field(validator=instance_of(tuple))
-    edges: tuple = field(validator=instance_of(tuple))
+    nodes: tuple[dict, ...] = field(validator=instance_of(tuple))
+    edges: tuple[tuple[str, str], ...] = field(validator=instance_of(tuple))
     root: str = field(validator=instance_of(str))
 
     def to_dict(self) -> dict:
@@ -186,12 +186,31 @@ class LineageDAG:
         }
 
     @classmethod
-    def from_dict(cls, raw: dict) -> "LineageDAG":
+    def from_dict(cls, raw: dict) -> LineageDAG:
+        if "root" not in raw:
+            raise KeyError("lineage dict missing required key 'root'")
         return cls(
             nodes=tuple(raw.get("nodes", ())),
             edges=tuple(tuple(e) for e in raw.get("edges", ())),
             root=raw["root"],
         )
+
+
+def _node_dict(node: Node, node_ids: dict[Node, str]) -> dict:
+    d: dict[str, Any] = {
+        "id": node_ids[node],
+        "type": type(node).__name__,
+        "label": format_node(node),
+    }
+    schema = getattr(node, "schema", None)
+    if schema is not None:
+        d["schema"] = {k: str(v) for k, v in schema.items()}
+    if isinstance(node, rel.Tag):
+        d["tag_metadata"] = {
+            k: v if isinstance(v, (str, int, float, bool)) else str(v)
+            for k, v in node.metadata.items()
+        }
+    return d
 
 
 def extract_lineage_dag(expr: Any) -> LineageDAG:
@@ -210,23 +229,7 @@ def extract_lineage_dag(expr: Any) -> LineageDAG:
     # Deterministic IDs based on BFS insertion order.
     node_ids = {node: str(i) for i, node in enumerate(graph)}
 
-    def _node_dict(node: Node) -> dict:
-        d: dict[str, Any] = {
-            "id": node_ids[node],
-            "type": type(node).__name__,
-            "label": format_node(node),
-        }
-        schema = getattr(node, "schema", None)
-        if schema is not None:
-            d["schema"] = {k: str(v) for k, v in schema.items()}
-        if isinstance(node, rel.Tag):
-            d["tag_metadata"] = {
-                k: v if isinstance(v, (str, int, float, bool)) else str(v)
-                for k, v in node.metadata.items()
-            }
-        return d
-
-    nodes = tuple(_node_dict(n) for n in graph)
+    nodes = tuple(_node_dict(n, node_ids) for n in graph)
     edges = tuple(
         (node_ids[n], node_ids[c]) for n, children in graph.items() for c in children
     )
