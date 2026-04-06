@@ -267,6 +267,18 @@ markers = [
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"
 
+[tool.coverage.run]
+source = ["xorq"]
+omit = [
+    "python/xorq/vendor/*",
+    "*/tests/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+]
 
 [tool.git-cliff.changelog]
 header = """
