@@ -834,10 +834,11 @@ class ExprMetadata:
             if isinstance(cn.cache, ParquetSnapshotCache)
         )
 
-        if expr.ls.is_cached and isinstance(expr.op().cache, ParquetSnapshotCache):
-            cache_keys = (expr.ls.get_key(),)
-        else:
-            cache_keys = ()
+        cache_keys = (
+            (expr.ls.get_key(),)
+            if expr.ls.is_cached and isinstance(expr.op().cache, ParquetSnapshotCache)
+            else ()
+        )
 
         named_params = tuple(
             {
