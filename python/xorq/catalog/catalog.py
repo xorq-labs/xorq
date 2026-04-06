@@ -306,15 +306,6 @@ class Catalog:
 
         return bind(source_entry, *transforms, con=con)
 
-    def get_builder_from_expr(self, expr):
-        """Recover a domain object from builder tags on a cataloged expression.
-
-        Delegates to the from_tagged registry (BSL, ML pipeline, third-party).
-        """
-        from xorq.expr.builders import from_tagged_dispatch  # noqa: PLC0415
-
-        return from_tagged_dispatch(expr)
-
     def get_zip(self, name, dir_path=None):
         """Export an entry's archive to *dir_path* (default: cwd).  Returns the output path."""
         catalog_entry = self.get_catalog_entry(name)

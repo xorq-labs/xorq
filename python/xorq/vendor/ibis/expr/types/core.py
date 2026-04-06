@@ -929,6 +929,12 @@ class LETSQLAccessor:
         return ExprMetadata.from_expr(self.expr)
 
     @property
+    def builder(self):
+        from xorq.expr.builders import from_tagged_dispatch
+
+        return from_tagged_dispatch(self.expr)
+
+    @property
     def kind(self) -> ExprKind:
         return self.metadata.kind
 
