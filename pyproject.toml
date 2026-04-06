@@ -5,6 +5,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 sources = ["python"]
 
+# .gitignore contains `.env.*` which hatchling treats as an exclusion pattern
+# in non-VCS contexts (sdist rebuilds, staging dirs, uv tool run).
+# force-include overrides this so env_templates/ is always in the wheel.
 [tool.hatch.build.targets.wheel.force-include]
 "python/xorq/env_templates" = "xorq/env_templates"
 
