@@ -22,7 +22,7 @@ from xorq.vendor.ibis.expr.operations.core import Node
 __all__ = [
     "build_column_trees",
     "build_tree",
-    "extract_lineage_chain",
+    "extract_lineage_dag",
 ]
 
 
@@ -169,22 +169,44 @@ def _(node: ops.Literal) -> str:
     return f"Literal: {node.value}"
 
 
-def extract_lineage_chain(expr: Any) -> tuple[str, ...]:
-    """Extract the primary lineage chain from an expression.
+def extract_lineage_dag(expr: Any) -> dict:
+    """Extract a full lineage DAG from an expression via BFS.
 
-    Walks the first child at each level, returning formatted node names
-    from root to leaf.
+    Traverses all children at each level (not just the first),
+    including opaque sub-expressions like ExprScalarUDF.computed_kwargs_expr
+    and RemoteTable.remote_expr.
+
+    Returns ``{"nodes": (...), "edges": (...), "root": "<root_node_id>"}``
+    where each edge is a ``(source, target)`` tuple.
     """
+    root = to_node(expr)
+    graph = bfs(root)
 
-    def _walk(node):
-        yield format_node(node)
-        match tuple(gen_children_of(node)):
-            case (first, *_):
-                yield from _walk(first)
-            case _:
-                pass
+    nodes = []
+    edges = []
+    for node, children in graph.items():
+        nid = str(id(node))
+        node_dict: dict[str, Any] = {
+            "id": nid,
+            "type": type(node).__name__,
+            "label": format_node(node),
+        }
 
-    return tuple(reversed(tuple(_walk(to_node(expr)))))
+        schema = getattr(node, "schema", None)
+        if schema is not None:
+            node_dict["schema"] = {k: str(v) for k, v in schema.items()}
+
+        if isinstance(node, rel.Tag):
+            node_dict["tag_metadata"] = {
+                k: v if isinstance(v, (str, int, float, bool)) else str(v)
+                for k, v in node.metadata.items()
+            }
+
+        nodes.append(node_dict)
+        for child in children:
+            edges.append((nid, str(id(child))))
+
+    return {"nodes": tuple(nodes), "edges": tuple(edges), "root": str(id(root))}
 
 
 def build_tree(

@@ -151,8 +151,11 @@ class CatalogRowData:
 
     @cached_property
     def lineage_text(self) -> str:
-        chain = self.entry.metadata.lineage
-        return " → ".join(chain) if chain else "(empty)"
+        lineage = self.entry.metadata.lineage
+        if not lineage:
+            return "(empty)"
+        labels = [n["label"] for n in lineage.get("nodes", ())]
+        return " → ".join(labels) if labels else "(empty)"
 
     @cached_property
     def cache_info_text(self) -> str:

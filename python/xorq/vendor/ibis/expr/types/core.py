@@ -751,7 +751,20 @@ class ExprMetadata:
     )
     params: tuple = field(factory=tuple)
     sql_queries: tuple[tuple[str, str, str], ...] = field(factory=tuple)
-    lineage: tuple[str, ...] = field(factory=tuple)
+    lineage: Optional[dict] = field(default=None)
+
+    @staticmethod
+    def _parse_lineage(raw):
+        """Convert JSON-deserialized lineage (lists) back to tuples."""
+        if raw is None:
+            return None
+        if isinstance(raw, dict):
+            return {
+                "nodes": tuple(raw.get("nodes", ())),
+                "edges": tuple(tuple(e) for e in raw.get("edges", ())),
+                "root": raw["root"],
+            }
+        return None
 
     @classmethod
     def from_dict(cls, data):
@@ -771,7 +784,7 @@ class ExprMetadata:
             composed_from=tuple(data.get("composed_from") or data.get("sources") or ()),
             params=tuple(data.get("params") or ()),
             sql_queries=tuple(tuple(q) for q in data.get("sql_queries", ())),
-            lineage=tuple(data.get("lineage", ())),
+            lineage=cls._parse_lineage(data.get("lineage")),
         )
 
     @classmethod
@@ -840,7 +853,16 @@ class ExprMetadata:
                     "sql_queries",
                     [list(q) for q in self.sql_queries] if self.sql_queries else None,
                 ),
-                ("lineage", list(self.lineage) if self.lineage else None),
+                (
+                    "lineage",
+                    {
+                        "nodes": list(self.lineage["nodes"]),
+                        "edges": [list(e) for e in self.lineage["edges"]],
+                        "root": self.lineage["root"],
+                    }
+                    if self.lineage
+                    else None,
+                ),
             )
             if value is not None
         }
