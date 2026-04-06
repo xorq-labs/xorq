@@ -356,10 +356,12 @@ def _extract_sql_queries(expr, kind) -> tuple[tuple[str, str, str], ...]:
     # Bind named params to their defaults so SQL generation doesn't see them
     named = {n.label: n for n in clean.op().find(NamedScalarParameter)}
     if named:
+        from xorq.expr.operations import _MISSING  # noqa: PLC0415
+
         defaults = {
             label: node.default
             for label, node in named.items()
-            if node.default is not None
+            if node.default is not _MISSING and node.default is not None
         }
         clean = bind_params(clean, defaults)
     match kind:
