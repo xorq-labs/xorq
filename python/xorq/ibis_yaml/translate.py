@@ -1138,26 +1138,33 @@ def _schema_from_yaml(yaml_dict: dict, context: TranslationContext) -> Schema:
 
 
 # sklearn estimator YAML translation
-# Registration happens at module import time if sklearn is available
-try:
-    from sklearn.base import BaseEstimator
+# to_yaml registration is deferred to avoid importing sklearn at module load time
+# (sklearn import costs ~0.48s due to scipy/joblib/numpy transitive deps)
 
-    @translate_to_yaml.register(BaseEstimator)
-    def _sklearn_estimator_to_yaml(
-        obj: BaseEstimator, context: TranslationContext
-    ) -> dict:
-        params = freeze(obj.get_params(deep=False))
-        return freeze(
-            {
-                "op": "SklearnEstimator",
-                "estimator_module": type(obj).__module__,
-                "estimator_class": type(obj).__name__,
-                "params": {k: context.translate_to_yaml(v) for k, v in params.items()},
-            }
-        )
 
-except ImportError:
-    pass
+@functools.cache
+def _ensure_sklearn_to_yaml_registered():
+    try:
+        from sklearn.base import BaseEstimator  # noqa: PLC0415
+
+        @translate_to_yaml.register(BaseEstimator)
+        def _sklearn_estimator_to_yaml(
+            obj: BaseEstimator, context: TranslationContext
+        ) -> dict:
+            params = freeze(obj.get_params(deep=False))
+            return freeze(
+                {
+                    "op": "SklearnEstimator",
+                    "estimator_module": type(obj).__module__,
+                    "estimator_class": type(obj).__name__,
+                    "params": {
+                        k: context.translate_to_yaml(v) for k, v in params.items()
+                    },
+                }
+            )
+
+    except ImportError:
+        pass
 
 
 def _import_estimator_class(module: str, classname: str):
