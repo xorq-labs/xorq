@@ -793,11 +793,11 @@ def run(
                             catalog, entry, code, instream, rename_map, span
                         )
 
-                rl.log_span_event(
-                    span,
-                    "catalog_run.expr_loaded",
-                    {"elapsed_s": round(get_elapsed(), 3)},
-                )
+                    rl.log_span_event(
+                        span,
+                        "catalog_run.expr_loaded",
+                        {"elapsed_s": round(get_elapsed(), 3)},
+                    )
 
                 if fuse:
                     expr = expr.ls.fused
@@ -807,14 +807,14 @@ def run(
                 with timed() as get_elapsed:
                     arbitrate_output_format(expr, output_path, output_format)
 
-                rl.log_span_event(
-                    span,
-                    "catalog_run.done",
-                    {
-                        "elapsed_s": round(get_elapsed(), 3),
-                        "output_format": str(output_format),
-                    },
-                )
+                    rl.log_span_event(
+                        span,
+                        "catalog_run.done",
+                        {
+                            "elapsed_s": round(get_elapsed(), 3),
+                            "output_format": str(output_format),
+                        },
+                    )
 
                 file_metrics = RunLogger._compute_file_metrics(
                     output_format, output_path
