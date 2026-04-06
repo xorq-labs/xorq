@@ -3,7 +3,6 @@ import pytest
 import xorq.api as xo
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.caching import ParquetSnapshotCache
 from xorq.expr.relations import CachedNode, FlightUDXF, HashingTag, Tag
 from xorq.ibis_yaml.enums import ExprKind
 from xorq.vendor.ibis.expr.types.core import ExprMetadata
@@ -68,7 +67,6 @@ def test_kind_cached_node_is_source():
         schema=dt.schema,
         source=dt.source,
         parent=table_expr,
-        cache=ParquetSnapshotCache.from_kwargs(),
     )
     assert ExprMetadata.from_expr(cached.to_expr()).kind == ExprKind.Source
 
