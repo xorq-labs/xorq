@@ -2,7 +2,7 @@ import re
 import threading
 import zipfile
 from datetime import datetime
-from functools import cache, cached_property
+from functools import cached_property, lru_cache
 from pathlib import Path
 
 import yaml12
@@ -29,6 +29,7 @@ from textual.widgets import (
     DataTable,
     Footer,
     Header,
+    RichLog,
     Static,
 )
 
@@ -36,6 +37,7 @@ from xorq.catalog.catalog import CatalogEntry
 
 
 DEFAULT_REFRESH_INTERVAL = 10
+_SQL_MAX_LINES = 1000
 
 
 class XorqSQLStyle(PygmentsStyle):
@@ -250,7 +252,7 @@ def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
     return CatalogRowData(entry=entry, aliases=aliases)
 
 
-@cache
+@lru_cache(maxsize=1)
 def _catalog_list_cached(catalog, yaml_mtime: float) -> tuple:
     """Compute catalog entry list; auto-invalidates when yaml mtime changes."""
     return tuple(catalog.list())
@@ -262,7 +264,7 @@ def _get_catalog_list(catalog) -> tuple:
     return _catalog_list_cached(catalog, yaml_mtime)
 
 
-@cache
+@lru_cache(maxsize=1)
 def _catalog_aliases_cached(catalog, yaml_mtime: float) -> tuple:
     """Compute catalog aliases; auto-invalidates when yaml mtime changes."""
     return tuple(catalog.catalog_aliases)
@@ -274,7 +276,7 @@ def _get_catalog_aliases(catalog) -> tuple:
     return _catalog_aliases_cached(catalog, yaml_mtime)
 
 
-@cache
+@lru_cache(maxsize=1)
 def _build_alias_multimap(
     catalog_aliases,
 ) -> dict[str, tuple[str, ...]]:
@@ -401,6 +403,7 @@ class CatalogScreen(Screen):
         self._refresh_lock = threading.Lock()
         self._data_preview = _TogglePanelState()
         self._profiles = _TogglePanelState()
+        self._sql_generation = 0
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -413,8 +416,8 @@ class CatalogScreen(Screen):
                 with Vertical(id="git-log-panel"):
                     yield DataTable(id="git-log-table")
             with Vertical(id="right-column"):
-                with VerticalScroll(id="sql-panel"):
-                    yield Static("", id="sql-preview")
+                with Vertical(id="sql-panel"):
+                    yield RichLog(id="sql-preview", wrap=True, markup=False)
                 with Vertical(id="info-panel"):
                     yield Static("", id="info-content")
                 with Vertical(id="schema-panel"):
@@ -500,13 +503,13 @@ class CatalogScreen(Screen):
         schema_in_table.clear()
         schema_out_table = self.query_one("#schema-preview-table", DataTable)
         schema_out_table.clear()
-        sql_preview = self.query_one("#sql-preview", Static)
+        sql_preview = self.query_one("#sql-preview", RichLog)
         info_content = self.query_one("#info-content", Static)
         rev_table = self.query_one("#revisions-preview-table", DataTable)
         rev_table.clear()
 
         if event.row_key is None:
-            sql_preview.update("")
+            sql_preview.clear()
             info_content.update("")
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
@@ -515,7 +518,7 @@ class CatalogScreen(Screen):
 
         row_data = self._row_cache.get(str(event.row_key.value))
         if row_data is None:
-            sql_preview.update("")
+            sql_preview.clear()
             info_content.update("")
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
@@ -540,30 +543,25 @@ class CatalogScreen(Screen):
         for name, dtype in row_data.schema_out:
             schema_out_table.add_row(name, dtype)
 
-        # SQL preview (sync — in-memory AST compilation)
+        # SQL preview (async — highlighting runs off main thread)
         sql_panel = self.query_one("#sql-panel")
+        sql_preview.clear()
+        self._sql_generation += 1
         match row_data.sqls:
             case ():
-                sql_preview.update("(SQL unavailable)")
+                sql_preview.loading = False
+                sql_preview.write("(SQL unavailable)")
                 sql_panel.border_subtitle = ""
             case ((_, engine, sql),):
-                sql_preview.update(
-                    Syntax(sql, "sql", theme=XorqSQLStyle, word_wrap=True)
-                )
-                sql_panel.border_subtitle = engine
+                sql_preview.loading = True
+                self._highlight_sql(sql, engine, self._sql_generation)
             case sqls:
-                sql_preview.update(
-                    Syntax(
-                        _render_sql_dag(sqls),
-                        "sql",
-                        theme=XorqSQLStyle,
-                        word_wrap=True,
-                    )
-                )
                 engines = sorted({engine for _, engine, _ in sqls})
+                sql_preview.loading = True
                 sql_panel.border_subtitle = (
                     f"{len(sqls)} queries \u00b7 {', '.join(engines)}"
                 )
+                self._highlight_sql(_render_sql_dag(sqls), None, self._sql_generation)
 
         # Info panel (sync)
         info_content.update(row_data.info_text)
@@ -647,6 +645,35 @@ class CatalogScreen(Screen):
         self._profiles = _TogglePanelState()
         self.query_one("#profiles-panel").display = False
         self.query_one("#profiles-table", DataTable).clear()
+
+    @work(thread=True, exit_on_error=False, group="sql-highlight")
+    def _highlight_sql(self, raw_sql: str, engine: str | None, generation: int) -> None:
+        lines = raw_sql.split("\n")
+        truncated = len(lines) > _SQL_MAX_LINES
+        if truncated:
+            raw_sql = "\n".join(lines[:_SQL_MAX_LINES])
+        highlighted = Syntax(raw_sql, "sql", theme=XorqSQLStyle, word_wrap=True)
+        self.app.call_from_thread(
+            self._render_sql_preview, highlighted, engine, truncated, generation
+        )
+
+    def _render_sql_preview(
+        self,
+        highlighted: Syntax,
+        engine: str | None,
+        truncated: bool,
+        generation: int,
+    ) -> None:
+        if generation != self._sql_generation:
+            return
+        sql_preview = self.query_one("#sql-preview", RichLog)
+        sql_preview.clear()
+        sql_preview.write(highlighted)
+        if truncated:
+            sql_preview.write(f"\n... truncated to {_SQL_MAX_LINES} lines")
+        sql_preview.loading = False
+        if engine is not None:
+            self.query_one("#sql-panel").border_subtitle = engine
 
     @work(thread=True, exit_on_error=False)
     def _do_refresh(self) -> None:
@@ -1060,7 +1087,7 @@ class CatalogTUI(App):
         border: double #2BBE75;
     }
     #sql-preview {
-        height: auto;
+        height: 1fr;
         padding: 1 2;
     }
     DataTable:focus {
