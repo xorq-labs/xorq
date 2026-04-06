@@ -376,8 +376,7 @@ class CatalogScreen(Screen):
         ("tab", "focus_next_panel", "Next"),
         ("shift+tab", "focus_prev_panel", "Prev"),
         ("1", "view_sql", "SQL"),
-        ("2", "view_lineage", "Lineage"),
-        ("3", "view_data", "Data"),
+        ("2", "view_data", "Data"),
         ("v", "toggle_revisions", "Revisions"),
         ("g", "toggle_git_log", "Git Log"),
     )
@@ -385,7 +384,6 @@ class CatalogScreen(Screen):
     FOCUS_CYCLE = (
         "#catalog-tree",
         "#sql-panel",
-        "#lineage-panel",
         "#data-preview-panel",
         "#schema-preview-table",
     )
@@ -413,8 +411,6 @@ class CatalogScreen(Screen):
             with Vertical(id="right-column"):
                 with VerticalScroll(id="sql-panel"):
                     yield Static("", id="sql-preview")
-                with VerticalScroll(id="lineage-panel"):
-                    yield Static("", id="lineage-content")
                 with Vertical(id="data-preview-panel"):
                     yield Static("", id="data-preview-status")
                     yield DataTable(id="data-preview-table")
@@ -471,10 +467,6 @@ class CatalogScreen(Screen):
         self.query_one("#revisions-panel").border_title = "Revisions"
         self.query_one("#revisions-panel").display = False
 
-        lineage_panel = self.query_one("#lineage-panel")
-        lineage_panel.border_title = "Lineage"
-        lineage_panel.display = False
-
         git_log_panel = self.query_one("#git-log-panel")
         git_log_panel.border_title = "Git Log"
         git_log_panel.display = False
@@ -497,7 +489,6 @@ class CatalogScreen(Screen):
         schema_out_table.clear()
         sql_preview = self.query_one("#sql-preview", Static)
         info_content = self.query_one("#info-content", Static)
-        lineage_content = self.query_one("#lineage-content", Static)
         rev_table = self.query_one("#revisions-preview-table", DataTable)
         rev_table.clear()
 
@@ -505,7 +496,6 @@ class CatalogScreen(Screen):
         if entry_hash is None:
             sql_preview.update("")
             info_content.update("")
-            lineage_content.update("")
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
             return
@@ -514,7 +504,6 @@ class CatalogScreen(Screen):
         if row_data is None:
             sql_preview.update("")
             info_content.update("")
-            lineage_content.update("")
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
             return
@@ -561,9 +550,6 @@ class CatalogScreen(Screen):
                 sql_panel.border_subtitle = (
                     f"{len(sqls)} queries \u00b7 {', '.join(engines)}"
                 )
-
-        # Lineage
-        lineage_content.update(row_data.lineage_text)
 
         # Info panel
         info_content.update(row_data.info_text)
@@ -748,12 +734,11 @@ class CatalogScreen(Screen):
             for i, row_data in enumerate(rows):
                 table.add_row(*row_data.row, key=str(i))
 
-    # --- View switching (1/2/3) ---
+    # --- View switching (1/2) ---
 
     def _set_active_view(self, view: str) -> None:
         self._active_view = view
         self.query_one("#sql-panel").display = view == "sql"
-        self.query_one("#lineage-panel").display = view == "lineage"
         self.query_one("#data-preview-panel").display = view == "data"
 
         if view != "data":
@@ -769,9 +754,6 @@ class CatalogScreen(Screen):
 
     def action_view_sql(self) -> None:
         self._set_active_view("sql")
-
-    def action_view_lineage(self) -> None:
-        self._set_active_view("lineage")
 
     def action_view_data(self) -> None:
         self._set_active_view("data")
@@ -994,19 +976,6 @@ class CatalogTUI(App):
         border: double #2BBE75;
     }
     #sql-preview {
-        height: auto;
-        padding: 1 2;
-    }
-    #lineage-panel {
-        height: 2fr;
-        border: solid #5abfb5;
-        border-title-color: #5abfb5;
-        border-subtitle-color: #5abfb5;
-    }
-    #lineage-panel:focus-within {
-        border: double #5abfb5;
-    }
-    #lineage-content {
         height: auto;
         padding: 1 2;
     }
