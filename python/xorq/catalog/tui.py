@@ -332,22 +332,22 @@ def _build_git_log_rows(repo, max_count=100) -> tuple[GitLogRowData, ...]:
 
 _TAG_OPS = frozenset({"Tag", "HashingTag"})
 
-# Semantic colors for lineage graph nodes by operation type
+# Tokyo Night colors for graph nodes by operation type
 _OP_COLORS: dict[str, str] = {
-    "DatabaseTable": "#4AA8EC",
-    "UnboundTable": "#4AA8EC",
-    "InMemoryTable": "#4AA8EC",
-    "SQLStringView": "#4AA8EC",
-    "SelfReference": "#4AA8EC",
-    "JoinChain": "#F5CA2C",
-    "JoinLink": "#F5CA2C",
-    "JoinTable": "#F5CA2C",
-    "Aggregation": "#C1F0FF",
-    "Filter": "#2BBE75",
-    "Selection": "#2BBE75",
-    "Project": "#2BBE75",
-    "Tag": "#5abfb5",
-    "HashingTag": "#5abfb5",
+    "DatabaseTable": "#7aa2f7",  # blue
+    "UnboundTable": "#7aa2f7",
+    "InMemoryTable": "#7aa2f7",
+    "SQLStringView": "#7aa2f7",
+    "SelfReference": "#7aa2f7",
+    "JoinChain": "#e0af68",  # yellow
+    "JoinLink": "#e0af68",
+    "JoinTable": "#e0af68",
+    "Aggregation": "#bb9af7",  # purple
+    "Filter": "#9ece6a",  # green
+    "Selection": "#9ece6a",
+    "Project": "#9ece6a",
+    "Tag": "#7dcfff",  # cyan
+    "HashingTag": "#7dcfff",
 }
 _OP_ICONS: dict[str, str] = {
     "DatabaseTable": "⊞",
@@ -362,12 +362,12 @@ _OP_ICONS: dict[str, str] = {
     "Filter": "⊳",
     "Selection": "⊳",
     "Project": "⊳",
-    "Tag": "#",
-    "HashingTag": "#",
+    "Tag": "⏵",
+    "HashingTag": "⏵",
 }
-_DEFAULT_NODE_COLOR = "#C1F0FF"
-_EDGE_COLOR = "#5abfb5"
-_BORDER_COLOR = "#5abfb5"
+_DEFAULT_NODE_COLOR = "#c0caf5"  # Tokyo Night foreground
+_EDGE_COLOR = "#565f89"  # Tokyo Night comment
+_BORDER_COLOR = "#565f89"
 
 
 def _render_node_label(node_str: str, data: dict, content_style: RichStyle):
@@ -431,7 +431,7 @@ def _dag_to_graph(dag: dict, include_tags: bool = False) -> nx.DiGraph:
 
     edge_style = {
         "$properties": EdgeProperties(
-            routing_mode=EdgeRoutingMode.ORTHOGONAL,
+            routing_mode=EdgeRoutingMode.STRAIGHT,
             segment_drawing_mode=EdgeSegmentDrawingMode.BOX_ROUNDED,
             end_arrow_tip=ArrowTip.ARROW,
             style=RichStyle(color=_EDGE_COLOR, dim=True),
@@ -1437,7 +1437,7 @@ class CatalogScreen(Screen):
         ("v", "toggle_revisions", "Revisions"),
         ("g", "toggle_git_log", "Git Log"),
         ("1", "show_view('sql')", "SQL"),
-        ("2", "show_view('lineage')", "Lineage"),
+        ("2", "show_view('lineage')", "Graph"),
         ("3", "show_view('data')", "Data"),
         ("e", "open_data_view", "Data View"),
         ("slash", "start_search", "Search"),
@@ -1548,7 +1548,7 @@ class CatalogScreen(Screen):
         self.query_one("#schema-panel").border_title = " Schema "
         self.query_one("#schema-in-half").display = False
         self.query_one("#sql-panel").border_title = " ❶ SQL "
-        self.query_one("#lineage-panel").border_title = " ❷ Lineage "
+        self.query_one("#lineage-panel").border_title = " ❷ Graph "
         self.query_one("#data-preview-panel").border_title = " ❸ Data "
         self._apply_view("sql")
         rev_panel = self.query_one("#revisions-panel")
@@ -2363,14 +2363,14 @@ class CatalogTUI(App):
     /* ── Detail panels (only one visible at a time) ── */
     #lineage-panel {
         height: 1fr;
-        border: round #5abfb5 30%;
-        border-title-color: #5abfb5;
+        border: round #7aa2f7 30%;
+        border-title-color: #7aa2f7;
         border-title-style: bold;
-        border-subtitle-color: #5abfb5 50%;
+        border-subtitle-color: #7aa2f7 50%;
         padding: 0 1;
     }
     #lineage-panel:focus-within {
-        border: round #5abfb5;
+        border: round #7aa2f7;
     }
     #lineage-graph {
         height: 1fr;
