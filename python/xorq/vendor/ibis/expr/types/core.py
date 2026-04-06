@@ -835,8 +835,7 @@ class ExprMetadata:
         )
 
         if expr.ls.is_cached and isinstance(expr.op().cache, ParquetSnapshotCache):
-            root_cn = expr.op()
-            cache_keys = (root_cn.cache.calc_key(root_cn.parent),)
+            cache_keys = (expr.ls.get_key(),)
         else:
             cache_keys = ()
 

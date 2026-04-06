@@ -838,10 +838,7 @@ class CatalogEntry:
 
     @cached_property
     def cache_keys_paths(self) -> tuple[str, ...]:
-        if (
-            self.cache_keys
-            and (cache_path := self.lazy_expr.ls.get_cache_path()) is not None
-        ):
+        if self.cache_keys and (cache_path := self.lazy_expr.ls.cache_path) is not None:
             return (str(cache_path),)
         return ()
 
