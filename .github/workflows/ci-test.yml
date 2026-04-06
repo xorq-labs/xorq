@@ -66,6 +66,7 @@ jobs:
             services: false
             coverage: true
             extras: []
+          # core: fast pass/fail signal without coverage overhead (~5 min)
           - name: core
             services: postgres
             parallel: true
@@ -76,6 +77,7 @@ jobs:
               - --extra pyiceberg
               - --extra sqlite
               - --extra ibis
+          # core-coverage: same tests with coverage, uploads to Codecov
           - name: core-coverage
             marker: core
             services: postgres
