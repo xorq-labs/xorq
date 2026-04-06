@@ -587,6 +587,15 @@ class S3RemoteConfig(RemoteConfig):
                 return False
             raise
 
+    def assert_readonly(self):
+        """Raise ``ValueError`` if these credentials can write to the bucket."""
+        result = self.check_bucket(check_write=True)
+        if result["writable"]:
+            raise ValueError(
+                f"Credentials for bucket {self.bucket!r} have write access; "
+                f"expected read-only credentials."
+            )
+
     @property
     def initremote_params(self):
         params = [
