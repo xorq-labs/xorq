@@ -70,17 +70,9 @@ def entry_b(catalog):
 
 
 @pytest.fixture
-def default_cache_path(tmp_path, monkeypatch):
-    """Redirect the default cache dir to a temp path for test isolation."""
-    cache_path = tmp_path / "cache"
-    monkeypatch.setattr(xo.options.cache, "default_relative_path", cache_path)
-    return cache_path
-
-
-@pytest.fixture
-def entry_cached(catalog, default_cache_path):
+def entry_cached(catalog, tmp_path):
     """A memtable expression wrapped with ParquetSnapshotCache."""
-    cache = ParquetSnapshotCache.from_kwargs()
+    cache = ParquetSnapshotCache.from_kwargs(relative_path=tmp_path / "cache")
     expr = xo.memtable({"x": [1, 2, 3], "y": [4, 5, 6]}).cache(cache=cache)
     return catalog.add(expr)
 
@@ -661,12 +653,12 @@ def test_entry_info_scalar_expression_wraps_as_table(catalog):
     assert cached is None
 
 
-def test_cached_false_before_execution(catalog, default_cache_path, parquet_dir):
+def test_cached_false_before_execution(catalog, tmp_path, parquet_dir):
     con = xo.duckdb.connect()
     t = deferred_read_parquet(
         parquet_dir / "astronauts.parquet", con, table_name="astronauts"
     )
-    cache = ParquetSnapshotCache.from_kwargs()
+    cache = ParquetSnapshotCache.from_kwargs(relative_path=tmp_path / "cache")
     expr = t.cache(cache=cache)
     entry = catalog.add(expr)
 
@@ -678,12 +670,12 @@ def test_cached_false_before_execution(catalog, default_cache_path, parquet_dir)
     assert cached is False
 
 
-def test_cached_true_after_execution(catalog, default_cache_path, parquet_dir):
+def test_cached_true_after_execution(catalog, tmp_path, parquet_dir):
     con = xo.duckdb.connect()
     t = deferred_read_parquet(
         parquet_dir / "astronauts.parquet", con, table_name="astronauts"
     )
-    cache = ParquetSnapshotCache.from_kwargs()
+    cache = ParquetSnapshotCache.from_kwargs(relative_path=tmp_path / "cache")
     expr = t.cache(cache=cache)
     entry = catalog.add(expr)
     entry.expr.execute()
@@ -695,14 +687,12 @@ def test_cached_true_after_execution(catalog, default_cache_path, parquet_dir):
     assert cached is True
 
 
-def test_cached_display_reflects_execution_state(
-    catalog, default_cache_path, parquet_dir
-):
+def test_cached_display_reflects_execution_state(catalog, tmp_path, parquet_dir):
     con = xo.duckdb.connect()
     t = deferred_read_parquet(
         parquet_dir / "astronauts.parquet", con, table_name="astronauts"
     )
-    cache = ParquetSnapshotCache.from_kwargs()
+    cache = ParquetSnapshotCache.from_kwargs(relative_path=tmp_path / "cache")
     expr = t.cache(cache=cache)
     entry = catalog.add(expr)
 
@@ -711,8 +701,8 @@ def test_cached_display_reflects_execution_state(
     assert CatalogRowData(entry=entry).cached_display == "●"
 
 
-def test_memtable_cached_lifecycle(catalog, default_cache_path):
-    cache = ParquetSnapshotCache.from_kwargs()
+def test_memtable_cached_lifecycle(catalog, tmp_path):
+    cache = ParquetSnapshotCache.from_kwargs(relative_path=tmp_path / "cache")
     expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
     entry = catalog.add(expr)
 

@@ -30,6 +30,7 @@ from git import (
     Repo,
 )
 
+from xorq.caching import ParquetSnapshotCache
 from xorq.catalog.annex import (
     LOCAL_ANNEX,
     Annex,
@@ -837,13 +838,12 @@ class CatalogEntry:
         return self.metadata.cache_keys
 
     @cached_property
-    def storage(self):
+    def parquet_snapshot_storage(self):
         """ParquetStorage for the root CachedNode, or None if not applicable.
 
         Only populated when cache_keys is non-empty (i.e. the root node uses
         ParquetSnapshotCache).  Loads via lazy_expr to avoid eager annex fetch.
         """
-        from xorq.caching import ParquetSnapshotCache  # noqa: PLC0415
 
         if not self.cache_keys:
             return None

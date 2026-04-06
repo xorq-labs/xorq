@@ -102,7 +102,7 @@ class CatalogRowData:
 
     @property
     def cached(self) -> bool | None:
-        storage = self.entry.storage
+        storage = self.entry.parquet_snapshot_storage
         if storage is not None:
             return all(storage.get_path(k).exists() for k in self.entry.cache_keys)
         parquet_cache_paths = self.entry.parquet_cache_paths
@@ -162,7 +162,7 @@ class CatalogRowData:
 
     @cached_property
     def cache_info_text(self) -> str:
-        storage = self.entry.storage
+        storage = self.entry.parquet_snapshot_storage
         if storage is not None:
             key_paths = tuple(storage.get_path(k) for k in self.entry.cache_keys)
             if all(p.exists() for p in key_paths):
@@ -247,7 +247,7 @@ class RevisionRowData:
 
 
 def _entry_info(entry) -> tuple[int | None, bool | None]:
-    storage = entry.storage
+    storage = entry.parquet_snapshot_storage
     if storage is not None:
         cached = all(storage.get_path(k).exists() for k in entry.cache_keys)
     else:
