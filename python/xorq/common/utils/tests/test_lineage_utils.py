@@ -10,6 +10,7 @@ import xorq.vendor.ibis.expr.operations as ops
 from xorq.common.utils.graph_utils import gen_children_of, to_node
 from xorq.common.utils.lineage_utils import (
     GenericNode,
+    LineageDAG,
     TextTree,
     _build_column_tree,
     build_column_trees,
@@ -324,24 +325,21 @@ def test_lineage_dag_basic_structure(sample_expression):
     """DAG must have nodes, edges, and root keys with correct types."""
     dag = extract_lineage_dag(sample_expression)
 
-    assert isinstance(dag, dict)
-    assert "nodes" in dag
-    assert "edges" in dag
-    assert "root" in dag
+    assert isinstance(dag, LineageDAG)
 
-    assert isinstance(dag["nodes"], tuple)
-    assert isinstance(dag["edges"], tuple)
-    assert isinstance(dag["root"], str)
+    assert isinstance(dag.nodes, tuple)
+    assert isinstance(dag.edges, tuple)
+    assert isinstance(dag.root, str)
 
-    assert len(dag["nodes"]) > 0
-    assert len(dag["edges"]) > 0
+    assert len(dag.nodes) > 0
+    assert len(dag.edges) > 0
 
 
 def test_lineage_dag_node_fields(sample_expression):
     """Every node must have id, type, and label fields."""
     dag = extract_lineage_dag(sample_expression)
 
-    for node in dag["nodes"]:
+    for node in dag.nodes:
         assert "id" in node, f"Node missing 'id': {node}"
         assert "type" in node, f"Node missing 'type': {node}"
         assert "label" in node, f"Node missing 'label': {node}"
@@ -354,7 +352,7 @@ def test_lineage_dag_relation_schema(sample_expression):
     """Relation nodes (tables) should carry a schema dict."""
     dag = extract_lineage_dag(sample_expression)
 
-    nodes_with_schema = [n for n in dag["nodes"] if "schema" in n]
+    nodes_with_schema = [n for n in dag.nodes if "schema" in n]
     assert len(nodes_with_schema) > 0, "Expected at least one node with schema"
 
     for node in nodes_with_schema:
@@ -368,8 +366,8 @@ def test_lineage_dag_edge_validity(sample_expression):
     """Every edge (source, target) must reference existing node ids."""
     dag = extract_lineage_dag(sample_expression)
 
-    node_ids = {n["id"] for n in dag["nodes"]}
-    for source, target in dag["edges"]:
+    node_ids = {n["id"] for n in dag.nodes}
+    for source, target in dag.edges:
         assert source in node_ids, f"Edge source {source} not in node ids"
         assert target in node_ids, f"Edge target {target} not in node ids"
 
@@ -378,24 +376,24 @@ def test_lineage_dag_root_validity(sample_expression):
     """Root must be a valid node id, and no edge should target the root."""
     dag = extract_lineage_dag(sample_expression)
 
-    node_ids = {n["id"] for n in dag["nodes"]}
-    assert dag["root"] in node_ids, "Root id not found in nodes"
+    node_ids = {n["id"] for n in dag.nodes}
+    assert dag.root in node_ids, "Root id not found in nodes"
 
-    target_ids = {target for _, target in dag["edges"]}
-    assert dag["root"] not in target_ids, "Root node should not be targeted by any edge"
+    target_ids = {target for _, target in dag.edges}
+    assert dag.root not in target_ids, "Root node should not be targeted by any edge"
 
 
 def test_lineage_dag_multi_join(multi_join_expression):
     """Multi-join DAG should have multiple nodes and no duplicate node ids."""
     dag = extract_lineage_dag(multi_join_expression)
 
-    assert len(dag["nodes"]) > 5, "Multi-join should produce many nodes"
+    assert len(dag.nodes) > 5, "Multi-join should produce many nodes"
 
-    node_ids = [n["id"] for n in dag["nodes"]]
+    node_ids = [n["id"] for n in dag.nodes]
     assert len(node_ids) == len(set(node_ids)), "Node ids must be unique"
 
     # Should contain RemoteTable nodes (from into_backend)
-    type_set = {n["type"] for n in dag["nodes"]}
+    type_set = {n["type"] for n in dag.nodes}
     assert "RemoteTable" in type_set, (
         f"Multi-join should include RemoteTable nodes, found types: {type_set}"
     )
@@ -415,22 +413,20 @@ def test_lineage_dag_round_trip_via_expr_metadata(sample_expression):
     assert isinstance(serialized["lineage"]["edges"][0], list)
 
     restored = ExprMetadata.from_dict(serialized)
-    assert restored.lineage["root"] == dag["root"]
-    assert len(restored.lineage["nodes"]) == len(dag["nodes"])
-    assert len(restored.lineage["edges"]) == len(dag["edges"])
+    assert isinstance(restored.lineage, LineageDAG)
+    assert restored.lineage.root == dag.root
+    assert len(restored.lineage.nodes) == len(dag.nodes)
+    assert len(restored.lineage.edges) == len(dag.edges)
     # Restored edges should be tuples again
-    assert isinstance(restored.lineage["edges"], tuple)
-    assert isinstance(restored.lineage["edges"][0], tuple)
+    assert isinstance(restored.lineage.edges, tuple)
+    assert isinstance(restored.lineage.edges[0], tuple)
 
 
-def test_lineage_dag_backward_compat_parse_lineage():
-    """_parse_lineage should convert JSON-deserialized lists back to tuples."""
-    # JSON-deserialized dict: lists get converted to tuples
+def test_lineage_dag_backward_compat_from_dict():
+    """LineageDAG.from_dict should convert JSON-deserialized lists back to tuples."""
     json_lineage = {"nodes": [{"id": "1"}], "edges": [["a", "b"]], "root": "1"}
-    result = ExprMetadata._parse_lineage(json_lineage)
-    assert isinstance(result["nodes"], tuple)
-    assert isinstance(result["edges"], tuple)
-    assert result["edges"][0] == ("a", "b")
-
-    # None stays None
-    assert ExprMetadata._parse_lineage(None) is None
+    result = LineageDAG.from_dict(json_lineage)
+    assert isinstance(result, LineageDAG)
+    assert isinstance(result.nodes, tuple)
+    assert isinstance(result.edges, tuple)
+    assert result.edges[0] == ("a", "b")

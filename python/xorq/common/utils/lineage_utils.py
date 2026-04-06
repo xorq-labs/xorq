@@ -20,6 +20,7 @@ from xorq.vendor.ibis.expr.operations.core import Node
 
 
 __all__ = [
+    "LineageDAG",
     "build_column_trees",
     "build_tree",
     "extract_lineage_dag",
@@ -169,54 +170,68 @@ def _(node: ops.Literal) -> str:
     return f"Literal: {node.value}"
 
 
-def extract_lineage_dag(expr: Any) -> dict:
+@frozen
+class LineageDAG:
+    """Typed container for a serialisable lineage DAG."""
+
+    nodes: tuple = field(validator=instance_of(tuple))
+    edges: tuple = field(validator=instance_of(tuple))
+    root: str = field(validator=instance_of(str))
+
+    def to_dict(self) -> dict:
+        return {
+            "nodes": list(self.nodes),
+            "edges": [list(e) for e in self.edges],
+            "root": self.root,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> "LineageDAG":
+        return cls(
+            nodes=tuple(raw.get("nodes", ())),
+            edges=tuple(tuple(e) for e in raw.get("edges", ())),
+            root=raw["root"],
+        )
+
+
+def extract_lineage_dag(expr: Any) -> LineageDAG:
     """Extract a full lineage DAG from an expression via BFS.
 
     Traverses all children at each level (not just the first),
     including opaque sub-expressions like ExprScalarUDF.computed_kwargs_expr
     and RemoteTable.remote_expr.
 
-    Returns ``{"nodes": (...), "edges": (...), "root": "<root_node_id>"}``
-    where each edge is a ``(source, target)`` tuple.  Node IDs are
-    deterministic sequential integers (BFS order) so that the serialised
-    DAG is stable across runs.
+    Node IDs are deterministic sequential integers (BFS order) so that
+    the serialised DAG is stable across runs.
     """
     root = to_node(expr)
     graph = bfs(root)
 
-    # Assign deterministic IDs based on BFS insertion order.
-    # Use node equality (not object identity) so that children that are
-    # equal to a key but are different objects still resolve correctly.
-    node_ids: dict[Node, str] = {}
-    seq = count()
-    for node in graph:
-        node_ids[node] = str(next(seq))
+    # Deterministic IDs based on BFS insertion order.
+    node_ids = {node: str(i) for i, node in enumerate(graph)}
 
-    nodes = []
-    edges = []
-    for node, children in graph.items():
-        nid = node_ids[node]
-        node_dict: dict[str, Any] = {
-            "id": nid,
+    def _node_dict(node: Node) -> dict:
+        d: dict[str, Any] = {
+            "id": node_ids[node],
             "type": type(node).__name__,
             "label": format_node(node),
         }
-
         schema = getattr(node, "schema", None)
         if schema is not None:
-            node_dict["schema"] = {k: str(v) for k, v in schema.items()}
-
+            d["schema"] = {k: str(v) for k, v in schema.items()}
         if isinstance(node, rel.Tag):
-            node_dict["tag_metadata"] = {
+            d["tag_metadata"] = {
                 k: v if isinstance(v, (str, int, float, bool)) else str(v)
                 for k, v in node.metadata.items()
             }
+        return d
 
-        nodes.append(node_dict)
-        for child in children:
-            edges.append((nid, node_ids[child]))
+    nodes = tuple(_node_dict(n) for n in graph)
+    edges = tuple(
+        (node_ids[n], node_ids[c]) for n, children in graph.items() for c in children
+    )
 
-    return {"nodes": tuple(nodes), "edges": tuple(edges), "root": node_ids[root]}
+    return LineageDAG(nodes=nodes, edges=edges, root=node_ids[root])
 
 
 def build_tree(

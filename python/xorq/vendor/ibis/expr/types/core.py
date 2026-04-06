@@ -737,6 +737,36 @@ def _extract_kind(unbound_node, catalog_tag_nodes, is_source):
             return ExprKind.Expr
 
 
+def _validate_lineage(instance, attribute, value):
+    """optional(instance_of(LineageDAG)) but with a deferred import to break
+    the cycle: core.py → lineage_utils → rel → backends → … → core.py"""
+    if value is None:
+        return
+    from xorq.common.utils.lineage_utils import LineageDAG  # noqa: PLC0415
+
+    if not isinstance(value, LineageDAG):
+        raise TypeError(
+            f"'lineage' must be a LineageDAG or None, got {type(value).__name__}"
+        )
+
+
+def _parse_lineage(raw):
+    """Convert JSON-deserialized lineage dict into a LineageDAG, or None."""
+    from xorq.common.utils.lineage_utils import LineageDAG  # noqa: PLC0415
+
+    match raw:
+        case None:
+            return None
+        case LineageDAG():
+            return raw
+        case dict():
+            return LineageDAG.from_dict(raw)
+        case _:
+            raise TypeError(
+                f"Expected dict, LineageDAG, or None for lineage, got {type(raw).__name__}"
+            )
+
+
 @frozen
 class ExprMetadata:
     kind: ExprKind = field(validator=instance_of(ExprKind))
@@ -751,20 +781,7 @@ class ExprMetadata:
     )
     params: tuple = field(factory=tuple)
     sql_queries: tuple[tuple[str, str, str], ...] = field(factory=tuple)
-    lineage: Optional[dict] = field(default=None)
-
-    @staticmethod
-    def _parse_lineage(raw):
-        """Convert JSON-deserialized lineage (lists) back to tuples."""
-        if raw is None:
-            return None
-        if isinstance(raw, dict):
-            return {
-                "nodes": tuple(raw.get("nodes", ())),
-                "edges": tuple(tuple(e) for e in raw.get("edges", ())),
-                "root": raw["root"],
-            }
-        return None
+    lineage: Optional[Any] = field(default=None, validator=_validate_lineage)
 
     @classmethod
     def from_dict(cls, data):
@@ -784,7 +801,7 @@ class ExprMetadata:
             composed_from=tuple(data.get("composed_from") or data.get("sources") or ()),
             params=tuple(data.get("params") or ()),
             sql_queries=tuple(tuple(q) for q in data.get("sql_queries", ())),
-            lineage=cls._parse_lineage(data.get("lineage")),
+            lineage=_parse_lineage(data.get("lineage")),
         )
 
     @classmethod
@@ -855,13 +872,7 @@ class ExprMetadata:
                 ),
                 (
                     "lineage",
-                    {
-                        "nodes": list(self.lineage["nodes"]),
-                        "edges": [list(e) for e in self.lineage["edges"]],
-                        "root": self.lineage["root"],
-                    }
-                    if self.lineage
-                    else None,
+                    self.lineage.to_dict() if self.lineage else None,
                 ),
             )
             if value is not None

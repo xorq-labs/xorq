@@ -154,7 +154,7 @@ class CatalogRowData:
         lineage = self.entry.metadata.lineage
         if not lineage:
             return "(empty)"
-        labels = [n["label"] for n in lineage.get("nodes", ())]
+        labels = [n["label"] for n in lineage.nodes]
         return " → ".join(labels) if labels else "(empty)"
 
     @cached_property
