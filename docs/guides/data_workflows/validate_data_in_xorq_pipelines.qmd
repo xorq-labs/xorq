@@ -1,0 +1,437 @@
+---
+title: 'Validate data in Xorq pipelines'
+description: "Catch schema errors at expression creation and filter bad data at runtime"
+---
+
+This guide shows you how to validate data quality before it breaks your pipeline. You'll use schema validation to catch errors at expression creation and runtime validation to catch issues during execution.
+
+## Prerequisites
+
+- Xorq installed (see [Install Xorq](../../getting_started/installation.qmd))
+- Completed [Quickstart](../../getting_started/quickstart.qmd)
+
+## Validate schemas at expression creation
+
+Data validation happens at two stages: when you create expressions and when you execute them. Start with schema validation, which catches type and column mismatches immediately when you build your pipeline, before any data processing begins.
+
+Define required columns and types using `xo.schema()`. Create `schema_validation.py`:
+
+```{python}
+#| eval: true
+# schema_validation.py
+import xorq.api as xo
+import pandas as pd
+
+# <1>
+input_schema = xo.schema({
+    "customer_id": "int64",
+    "email": "string",
+    "status": "string"
+})
+
+# <2>
+def validate_schema(df: pd.DataFrame) -> pd.DataFrame:
+    """Add validation flag to each row."""
+    df = df.copy()
+    df["validated"] = True
+    return df
+
+# <3>
+con = xo.connect()
+data = xo.memtable({
+    "customer_id": [1, 2, 3],
+    "email": ["a@b.com", "c@d.com", "e@f.com"],
+    "status": ["active", "inactive", "pending"]
+}, schema=input_schema, name="customers")
+
+# <4>
+actual_input_schema = data.schema()
+actual_output_schema = xo.schema(actual_input_schema | {"validated": "bool"})
+
+# <5>
+validated = xo.expr.relations.flight_udxf(
+    data,
+    process_df=validate_schema,
+    maybe_schema_in=actual_input_schema,
+    maybe_schema_out=actual_output_schema,
+    con=con,
+    make_udxf_kwargs={"name": "SchemaValidator"}
+)
+
+# <6>
+df = validated.execute()
+print(f"Validated schema for {len(df)} rows")
+print(df)
+```
+1. Define the expected input schema using `xo.schema()`. The schema specifies required column names and their data types. Schema validation catches type and column mismatches at expression creation time, before any data processing begins.
+2. Define a processing function that validates and transforms data. The function receives a pandas DataFrame, adds a validation flag, and returns the modified DataFrame. This function runs during execution to perform runtime validation.
+3. Connect to the default backend and create an in-memory table with the expected schema. The `schema` parameter ensures the data matches the expected structure. If columns or types don't match, validation fails immediately.
+4. Extract the actual schema from the data expression and create the output schema. The output schema includes the original columns plus the new `validated` column. Using `data.schema()` ensures exact matching of the input schema.
+5. Create a UDXF with schema validation. Schema validation happens when creating the expression (not during execution). If the input schema doesn't match `maybe_schema_in`, a `ValueError` is raised immediately, preventing invalid expressions from being created.
+6. Execute the validated expression to process data. Runtime validation (the `validate_schema` function) runs during execution, while schema validation already occurred at expression creation.
+
+If you create data with a missing column, then you'll see a schema validation error:
+
+```{python}
+#| eval: false
+# <1>
+data = xo.memtable({
+    "email": ["a@b.com"],
+    "status": ["active"]
+}, name="customers")
+
+# <2>
+validated = xo.expr.relations.flight_udxf(
+    data,
+    process_df=validate_schema,
+    maybe_schema_in=input_schema,
+    maybe_schema_out=actual_output_schema,
+    con=con,
+    make_udxf_kwargs={"name": "SchemaValidator"}
+)
+```
+1. Create data with a missing required column (`customer_id`). This demonstrates schema validation failure: the data doesn't match the expected schema.
+2. Attempt to create the UDXF with schema validation. This raises a `ValueError` immediately at expression creation because the input schema is missing the `customer_id` column. The error message shows the expected schema vs. the actual schema, making it easy to identify missing columns or type mismatches. Once schemas match, you still need to catch bad values when the pipeline runs.
+
+## Validate data at runtime
+
+Runtime validation catches data quality issues during execution. These checks run when you call `.execute()` and fail before downstream processing continues.
+
+### Check for null values
+
+Remove rows with missing values in critical columns. Create `check_nulls.py`:
+
+```{python}
+#| eval: true
+# check_nulls.py
+import xorq.api as xo
+
+# <1>
+con = xo.connect()
+
+# <2>
+data = xo.memtable({
+    "customer_id": [1, 2, None, 4],
+    "email": ["a@b.com", None, "c@d.com", "e@f.com"],
+    "status": ["active", "inactive", None, "pending"]
+}, name="customers")
+
+# <3>
+valid_data = data.filter(
+    xo._.customer_id.notnull(),
+    xo._.email.notnull(),
+    xo._.status.notnull()
+)
+
+# <4>
+original = data.execute()
+df = valid_data.execute()
+print(f"Original rows: {len(original)}")
+print(f"Valid rows (no nulls): {len(df)}")
+print(f"Removed rows: {len(original) - len(df)}")
+```
+1. Connect to the default backend for data processing.
+2. Create test data with null values in multiple columns. Null values represent missing or invalid data that needs to be filtered out before downstream processing.
+3. Filter out rows where any critical column is null using `.filter()` with `.notnull()` predicates. Multiple predicates are combined with AND logic, so rows are kept only if all specified columns are non-null. This validation runs at execution time.
+4. Execute both the original and filtered data to compare row counts. This shows how many rows were removed by validation, helping you understand data quality and the impact of validation filters.
+
+### Stop processing on validation failure
+
+Raise exceptions when validation fails to prevent processing invalid data. Create `fail_fast_validation.py`:
+
+```{python}
+#| eval: true
+# fail_fast_validation.py
+import xorq.api as xo
+
+# <1>
+def validate_and_process(data_expr, required_columns):
+    """Validate data and fail fast if invalid."""
+    # <2>
+    schema = data_expr.schema()
+    missing = [col for col in required_columns if col not in schema.names]
+    if missing:
+        raise ValueError(f"Missing required columns: {missing}")
+    
+    # <3>
+    validated = data_expr.filter(
+        *[data_expr[col].notnull() for col in required_columns]
+    )
+    
+    # <4>
+    result = validated.execute()
+    if len(result) == 0:
+        raise ValueError("No valid rows after validation")
+    
+    return result
+
+# <5>
+con = xo.connect()
+data = xo.memtable({
+    "customer_id": [1, 2, None, 4],
+    "email": ["a@b.com", None, "c@d.com", "e@f.com"],
+    "status": ["active", "inactive", None, "pending"]
+}, name="customers")
+
+# <6>
+df = validate_and_process(data, ["customer_id", "email", "status"])
+print(f"Processed {len(df)} valid rows")
+```
+1. Define a validation function that checks schema and data quality, raising exceptions on failure. This "fail fast" approach prevents processing invalid data and provides clear error messages.
+2. Check that all required columns exist in the schema. Extract the schema from the expression and compare required columns to actual columns. If any are absent, then raise a `ValueError` with missing column names.
+3. Apply validation filters to remove rows with null values in required columns. Use a list comprehension to create `.notnull()` predicates for each required column, then unpack them as arguments to `.filter()`. This creates an AND condition across all columns.
+4. Execute the filtered expression and check if any rows remain. If all rows were filtered out (empty result), then raise a `ValueError` to indicate complete validation failure. This prevents downstream processing from running on empty data.
+5. Create test data with null values to demonstrate validation behavior. The data includes some valid rows and some with nulls that will be filtered out.
+6. Call the validation function with required columns. The function checks schema, filters nulls, and if validation fails, then raises exceptions, ensuring only valid data proceeds to processing.
+
+If validation fails, then you'll see specific error messages. The examples below show the missing-column error and the no-valid-rows error so you can recognize them in your own pipelines.
+
+**Missing columns**:
+
+The following code uses data that is missing a required column (`status`). Running it triggers a clear error listing the missing columns:
+
+```{python}
+#| eval: false
+# <1>
+data = xo.memtable({
+    "customer_id": [1, 2],
+    "email": ["a@b.com", "c@d.com"]
+}, name="customers")
+
+# <2>
+df = validate_and_process(data, ["customer_id", "email", "status"])
+```
+1. Create data with a missing required column (`status`). This demonstrates schema validation failure when required columns are absent.
+2. Call the validation function with a required column that doesn't exist. This raises a `ValueError` immediately with a clear message listing the missing columns, preventing the pipeline from processing incomplete data.
+
+**No valid rows after filtering**:
+
+This example uses data where every row has nulls in the required columns. Running it shows the error you get when validation filters out all rows:
+
+```{python}
+#| eval: false
+# <1>
+data = xo.memtable({
+    "customer_id": [None, None],
+    "email": [None, None],
+    "status": [None, None]
+}, name="customers")
+
+# <2>
+df = validate_and_process(data, ["customer_id", "email", "status"])
+```
+1. Create data where all rows have null values in all required columns. This demonstrates validation failure when all data is invalid.
+2. Call the validation function on data with all nulls. After filtering out null rows, no valid rows remain, causing the function to raise a `ValueError` with the message "No valid rows after validation".
+
+### Remove null rows
+
+Drop rows with null values using `.drop_null()`. Create `drop_nulls.py`:
+
+```{python}
+#| eval: true
+# drop_nulls.py
+import xorq.api as xo
+
+# <1>
+con = xo.connect()
+
+# <2>
+data = xo.memtable({
+    "customer_id": [1, 2, None, 4],
+    "email": ["a@b.com", None, "c@d.com", "e@f.com"]
+}, name="customers")
+
+# <3>
+clean_data = data.drop_null(how="any")
+
+# <4>
+df = clean_data.execute()
+print(f"Clean rows: {len(df)}")
+```
+1. Connect to the default backend for data processing.
+2. Create test data with null values in multiple columns. This data will be cleaned by removing rows with nulls.
+3. Remove rows where any column is null using `.drop_null(how="any")`. The `how="any"` parameter removes rows that have at least one null value. Alternative options: `how="all"` removes only rows where every column is null, or use `subset=["col1", "col2"]` to check only specific columns.
+4. Execute the cleaned data to see how many rows remain after removing nulls. This shows the impact of null removal on your dataset size.
+
+The `how` parameter controls which rows to remove:
+
+- `how="any"` removes rows with any null in any column
+- `how="all"` removes only rows where every column is null
+- `subset=["col1", "col2"]` removes rows where only specified columns are null
+
+Beyond nulls, values can be out of range. Filter so numbers and dates stay within expected bounds.
+
+## Validate data ranges
+
+Filter data to ensure values fall within expected ranges. Create `validate_ranges.py`:
+
+```{python}
+#| eval: true
+# validate_ranges.py
+import xorq.api as xo
+
+# <1>
+con = xo.connect()
+
+# <2>
+data = xo.memtable({
+    "age": [25, 150, 18, 10, 120],
+    "revenue": [100.0, -10.0, 50.0, 200.0, 0.0]
+}, name="customers")
+
+# <3>
+valid_data = data.filter(
+    (xo._.age >= 18) & (xo._.age <= 120),
+    xo._.revenue > 0
+)
+
+# <4>
+df = valid_data.execute()
+print(f"Rows within valid range: {len(df)}")
+```
+1. Connect to the default backend for data processing.
+2. Create test data with values outside expected ranges. Some ages are too high (150) or too low (10), and some revenue values are negative or zero, which will be filtered out.
+3. Filter data to ensure values fall within expected bounds. Use comparison operators (`>=`, `<=`, `>`) to create range predicates. Multiple predicates are combined with AND logic, so rows must satisfy all conditions. The `&` operator combines conditions within a single predicate.
+4. Execute the filtered expression to see how many rows pass range validation. This shows the impact of range filtering on your dataset and helps identify data quality issues.
+
+Range validation removes rows that don't meet the criteria. To verify, check that the output contains only values within the specified ranges and test edge cases such as age=18 or age=120. For text fields, validate format with string methods.
+
+## Validate string patterns
+
+Check string formats using string methods. Create `validate_strings.py`:
+
+```{python}
+#| eval: true
+# validate_strings.py
+import xorq.api as xo
+
+# <1>
+con = xo.connect()
+
+# <2>
+data = xo.memtable({
+    "email": ["valid@test.com", "invalid", "missing.dot@com", "bad@", "good@test.com"]
+}, name="customers")
+
+# <3>
+valid_emails = data.filter(
+    xo._.email.contains("@"),
+    xo._.email.contains(".")
+)
+
+# <4>
+df = valid_emails.execute()
+print(f"Rows with valid email format: {len(df)}")
+```
+1. Connect to the default backend for data processing.
+2. Create test data with various email formats, including invalid ones. Some emails lack "@" or "." characters, which will be filtered out by validation.
+3. Filter data to check for valid email patterns using string methods. The `.contains()` method checks if a substring exists in each string value. Multiple predicates ensure emails have both "@" and "." characters. For production, use more comprehensive validation, for example regex patterns or email validation libraries.
+4. Execute the filtered expression to count rows with valid email formats. This shows how many emails pass basic format validation and helps identify data quality issues.
+
+The script filters out emails that lack an "@" or a "." character. For production, use more comprehensive email validation rules. To enforce business rules that go beyond format, use a custom validation function in a UDXF.
+
+## Create custom validation functions
+
+Combine expression creation schema validation with runtime business rule validation using UDXFs. The schema check catches errors when creating the expression, and the function catches data quality issues during execution.
+
+Create `custom_validation.py`:
+
+```{python}
+#| eval: true
+# custom_validation.py
+import pandas as pd
+import xorq.api as xo
+
+# <1>
+input_schema = xo.schema({
+    "customer_id": "int64",
+    "email": "string",
+    "status": "string"
+})
+
+# <2>
+def validate_customer_data(df: pd.DataFrame) -> pd.DataFrame:
+    """Validate customer data and filter invalid rows."""
+    # <3>
+    valid_statuses = ["active", "inactive", "pending"]
+    valid_df = df[df["status"].isin(valid_statuses)]
+    
+    # <4>
+    if len(valid_df) == 0:
+        raise ValueError("No valid rows after validation")
+    
+    return valid_df
+
+# <5>
+con = xo.connect()
+data = xo.memtable({
+    "customer_id": [1, 2, 3, 4],
+    "email": ["a@b.com", "c@d.com", "e@f.com", "g@h.com"],
+    "status": ["active", "inactive", "invalid", "pending"]
+}, schema=input_schema, name="customers")
+
+# <6>
+actual_schema = data.schema()
+
+# <7>
+validated_data = xo.expr.relations.flight_udxf(
+    data,
+    process_df=validate_customer_data,
+    maybe_schema_in=actual_schema,
+    maybe_schema_out=actual_schema,
+    con=con,
+    make_udxf_kwargs={"name": "CustomerValidator"}
+)
+
+# <8>
+df = validated_data.execute()
+print(f"Validated {len(df)} rows with custom rules")
+print(df)
+```
+1. Define the expected input schema for compile-time validation. The schema specifies required columns and types, which are validated when creating the UDXF expression, before any data processing begins.
+2. Define a validation function that implements runtime business rule validation. The function receives a pandas DataFrame, applies business logic, and returns filtered data. This runs during execution to catch data quality issues.
+3. Validate business rules using pandas operations. Filter rows where the `status` column contains valid values using `.isin()`. Rows with invalid statuses, for example "invalid", are removed from the result.
+4. If all rows are filtered out, then raise an error. If no valid rows remain after validation, then raise a `ValueError` to prevent downstream processing from running on empty data.
+5. Create test data with the expected schema. The data includes one row with an invalid status ("invalid") that will be filtered out by the validation function.
+6. Extract the actual schema from the data expression for exact matching. Using `data.schema()` ensures the input schema matches exactly, preventing schema validation errors.
+7. Create a UDXF with schema validation. Schema validation happens at expression creation: if the input schema doesn't match `maybe_schema_in`, then a `ValueError` is raised immediately. The output schema is the same as input (just filtered rows), so `maybe_schema_out=actual_schema`.
+8. Execute the validated expression to apply business rule validation. Runtime validation (the `validate_customer_data` function) runs during execution, filtering out rows with invalid status values. Schema validation already occurred at expression creation. Choosing when to validate and what to monitor matters for production.
+
+## Production considerations
+
+Choose the right validation strategy based on when you need to catch errors and how much data you're processing.
+
+### Choose validation timing
+
+**Validation at expression creation**: Schema checks catch critical schema mismatches that would break your pipeline when you create the UDXF expression, before any data processing starts.
+
+**Validation at runtime**: Filters and assertions handle null checks, range validation, and business rules that filter rows. These catch data quality issues when you call `.execute()`.
+
+For large datasets: Use schema validation in UDXFs for expression creation checks and filter-based validation for runtime data quality checks.
+
+### Performance
+
+Choosing the right validation timing affects performance. Understanding the overhead of each approach helps you optimize your pipeline.
+
+**Expression creation validation** adds minimal overhead because it checks types once when you create the UDXF, not during execution.
+
+**Runtime validation** processes every row during execution, so filter early in your pipeline to reduce data volume for downstream operations.
+
+### Monitoring
+
+Performance optimization helps, but monitoring tells you when validation fails in production. Track validation metrics to identify data quality issues before they break your pipeline.
+
+| Metric | What to monitor |
+|--------|-----------------|
+| Validation failure rate | Percentage of rows filtered out |
+| Schema mismatch frequency | How often schema validation fails |
+| Null value percentage | Percentage of nulls in critical columns |
+
+Log validation failures to identify data quality trends and upstream issues.
+
+## Next steps
+
+You now have expression creation schema validation to catch errors before execution and runtime validation to filter bad data during execution. For troubleshooting validation errors, see [Troubleshoot common errors](../../troubleshooting/common_errors.qmd).
+
+- [Transform data with custom UDFs](transform_data_custom_udfs.qmd) - Create reusable transformations
+- [Build feature pipelines](build_feature_pipelines.qmd) - Create production feature pipelines
