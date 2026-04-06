@@ -372,7 +372,6 @@ def run_cached_command(
     import datetime
 
     from opentelemetry import trace
-    from opentelemetry.trace import StatusCode
 
     from xorq.caching import ParquetCache, ParquetSnapshotCache, ParquetTTLSnapshotCache
     from xorq.common.utils.logging_utils import RunLogger
@@ -394,68 +393,57 @@ def run_cached_command(
         ("limit", limit),
     )
 
-    span.add_event(
-        "run_cached.params",
-        {k: v for k, v in run_params if v is not None},
-    )
+    with RunLogger.from_expr_hash(expr_hash, params_tuple=run_params, span=span) as rl:
+        rl.log_span_event(span, "run_cached.start", dict(run_params))
 
-    try:
-        with RunLogger.from_expr_hash(expr_hash, params_tuple=run_params) as rl:
-            rl.log_event("run_cached.start", dict(run_params))
+        with timed() as get_elapsed:
+            expr = load_expr(expr_path, cache_dir=cache_dir)
+            param_dict = _parse_cli_params(expr, raw_params)
+            if param_dict:
+                from xorq.expr.api import bind_params  # noqa: PLC0415
 
-            with timed() as get_elapsed:
-                expr = load_expr(expr_path, cache_dir=cache_dir)
-                param_dict = _parse_cli_params(expr, raw_params)
-                if param_dict:
-                    from xorq.expr.api import bind_params  # noqa: PLC0415
+                expr = bind_params(expr, param_dict)
 
-                    expr = bind_params(expr, param_dict)
-                load_metrics = {"elapsed_s": round(get_elapsed(), 3)}
-                span.add_event("run_cached.expr_loaded", load_metrics)
-                rl.log_event("run_cached.expr_loaded", load_metrics)
+        rl.log_span_event(
+            span, "run_cached.expr_loaded", {"elapsed_s": round(get_elapsed(), 3)}
+        )
 
-            match (cache_type, ttl):
-                case ("modification-time", None):
-                    cache = ParquetCache.from_kwargs(base_path=cache_dir)
-                case (_, int(seconds)):
-                    ttl_delta = datetime.timedelta(seconds=seconds)
-                    cache = ParquetTTLSnapshotCache.from_kwargs(
-                        base_path=cache_dir, ttl=ttl_delta
-                    )
-                case ("snapshot", None):
-                    cache = ParquetSnapshotCache.from_kwargs(base_path=cache_dir)
-                case _:
-                    raise click.BadParameter(
-                        f"Unknown cache type: {cache_type!r}. "
-                        "Must be 'modification-time' or 'snapshot'."
-                    )
+        match (cache_type, ttl):
+            case ("modification-time", None):
+                cache = ParquetCache.from_kwargs(base_path=cache_dir)
+            case (_, int(seconds)):
+                ttl_delta = datetime.timedelta(seconds=seconds)
+                cache = ParquetTTLSnapshotCache.from_kwargs(
+                    base_path=cache_dir, ttl=ttl_delta
+                )
+            case ("snapshot", None):
+                cache = ParquetSnapshotCache.from_kwargs(base_path=cache_dir)
+            case _:
+                raise click.BadParameter(
+                    f"Unknown cache type: {cache_type!r}. "
+                    "Must be 'modification-time' or 'snapshot'."
+                )
 
-            expr = expr.cache(cache=cache)
+        expr = expr.cache(cache=cache)
 
-            if limit is not None:
-                expr = expr.limit(limit)
+        if limit is not None:
+            expr = expr.limit(limit)
 
-            with timed() as get_elapsed:
-                arbitrate_output_format(expr, output_path, output_format)
-                execute_metrics = {
-                    "elapsed_s": round(get_elapsed(), 3),
-                    "output_format": str(output_format),
-                }
-                span.add_event("run_cached.done", execute_metrics)
-                rl.log_event("run_cached.done", execute_metrics)
+        with timed() as get_elapsed:
+            arbitrate_output_format(expr, output_path, output_format)
 
-            file_metrics = RunLogger._compute_file_metrics(output_format, output_path)
-            if file_metrics:
-                span.add_event("run_cached.output_written", file_metrics)
-                rl.log_event("run_cached.output_written", file_metrics)
+        rl.log_span_event(
+            span,
+            "run_cached.done",
+            {
+                "elapsed_s": round(get_elapsed(), 3),
+                "output_format": str(output_format),
+            },
+        )
 
-            span.set_status(StatusCode.OK)
-            rl.finalize(status="ok", span_context=span.get_span_context())
-
-    except Exception as e:
-        span.set_status(StatusCode.ERROR, str(e))
-        span.record_exception(e)
-        raise
+        file_metrics = RunLogger._compute_file_metrics(output_format, output_path)
+        if file_metrics:
+            rl.log_span_event(span, "run_cached.output_written", file_metrics)
 
 
 def arbitrate_output_format(expr, output_path, output_format):

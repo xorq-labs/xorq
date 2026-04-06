@@ -10,7 +10,7 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from opentelemetry.trace import SpanContext
+from opentelemetry.trace import SpanContext, StatusCode
 
 
 try:
@@ -180,10 +180,16 @@ class RunLogger:
         record = {
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "event": event,
-            **fields,
+            **(fields or {}),
         }
         self._fh.write(json.dumps(record) + "\n")
         self._fh.flush()
+
+    def log_span_event(self, span, event: str, fields: dict = None):
+        """Log to both the run log and an OTel span."""
+        self.log_event(event, fields)
+        if span is not None:
+            span.add_event(event, fields or {})
 
     def finalize(
         self,
@@ -247,18 +253,15 @@ class RunLogger:
     @classmethod
     @contextmanager
     def from_expr_hash(
-        cls, expr_hash: str, *, params_tuple: tuple = None, runs_dir=None
+        cls, expr_hash: str, *, params_tuple: tuple = None, runs_dir=None, span=None
     ):
         """Context manager that creates a :class:`RunLogger` and finalizes it on exit.
 
         If the run store directory cannot be created (e.g. permission error), a
         no-op :class:`_NullRunLogger` is yielded so the actual run is not affected.
 
-        On successful exit the caller is expected to call
-        ``rl.finalize(status="ok", otel_trace_id=...)`` explicitly so the OTel
-        trace ID can be recorded.  The context manager's ``finally`` block calls
-        ``finalize`` only if it has not already been called (idempotent guard on
-        ``_finalized``).
+        When *span* is provided, sets its status on exit and records exceptions,
+        so callers don't need a separate try/except for span bookkeeping.
         """
         try:
             runs_dir_path = (
@@ -279,11 +282,19 @@ class RunLogger:
             yield rl
         except Exception as exc:
             error_msg = str(exc)
+            if span is not None:
+                span.set_status(StatusCode.ERROR, str(exc))
+                span.record_exception(exc)
             raise
+        else:
+            if span is not None:
+                span.set_status(StatusCode.OK)
         finally:
+            span_context = span.get_span_context() if span is not None else None
             rl.finalize(
                 status="error" if error_msg else "ok",
                 error=error_msg,
+                span_context=span_context,
             )
 
 
@@ -293,12 +304,13 @@ class _NullRunLogger:
     run_id = None
     run_dir = None
 
-    def log_event(self, event: str, **fields):
+    def log_event(self, event: str, fields: dict = None):
         pass
 
-    def finalize(
-        self, status: str = "ok", otel_trace_id: str = None, error: str = None
-    ):
+    def log_span_event(self, span, event: str, fields: dict = None):
+        pass
+
+    def finalize(self, **kwargs):
         pass
 
 
