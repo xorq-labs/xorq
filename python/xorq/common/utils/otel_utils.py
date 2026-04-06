@@ -32,6 +32,9 @@ def localhost_and_listening(uri):
     return None
 
 
+# This is the only template loaded unconditionally at import time
+# (cli.py → _lazy_span → otel_utils), so it needs a fallback for
+# isolated build environments where env_templates/ may be absent.
 _otel_template = env_templates_dir.joinpath(".env.otel.template")
 if _otel_template.exists():
     OTELConfig = EnvConfigable.subclass_from_env_file(_otel_template)
