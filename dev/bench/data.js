@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775477330964,
+  "lastUpdate": 1775477935512,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -3696,6 +3696,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.04600452722423799",
             "extra": "mean: 221.128961200003 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "32166bea32a8d015b86a8e7e3dc879eb1b4466e5",
+          "message": "ref(packager): overhaul sdist build pipeline (#1781)\n\n## Summary\n\n- **Structured args**: Replace opaque `sys.argv` passthrough with\nexplicit typed fields on\n`SdistPackager`/`PackagedBuilder`/`PackagedRunner`, add validated\n`python_version` resolved from `requires-python`, consolidate on\n`tomlkit`\n- **Guaranteed lockfile + requirements**: `SdistPackager` always embeds\n`uv.lock` and derives `requirements.txt` via `uv export`; if a\npre-existing `requirements.txt` doesn't match the lockfile, the build\nerrors out (or overwrites it when `overwrite_requirements=True`)\n- **Hardened zip_utils**: Replace asserts with proper exceptions, add\nFIPS-safe hashing, simplify `ZipAppender` → `append_toplevel`\n- **SdistArchive**: Validated-path type that guarantees the sdist\ncontains `pyproject.toml`, `uv.lock`, and `requirements.txt`; replaces\nduplicated validation\n- **Rename classes**: `Sdister` → `SdistPackager`, `SdistBuilder` →\n`PackagedBuilder`, `SdistRunner` → `PackagedRunner` for clarity\n- **ADR-0004**: Records the decision to use uv as the sole packaging and\nexecution runtime — covers build, lock/export, isolated execution,\nPython version selection, hash-pinned requirements, and\n`--with`/`--with-requirements` resolution semantics\n- **Tests**: Unit tests for pure helpers, validation paths, archive\nrejection, and `ZipProxy` error handling\n\n## Test plan\n\n- [x] `python -m pytest python/xorq/ibis_yaml/tests/test_packager.py -x\n-q -m \"not slow\"` — unit tests pass\n- [x] `python -m pytest python/xorq/ibis_yaml/tests/test_packager.py -x\n-q` — full suite including slow integration tests\n- [x] `python -m pytest python/xorq/tests/test_cli.py -x -q -m \"not\nslow\"` — CLI tests unaffected by renames\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-06T08:15:24-04:00",
+          "tree_id": "637554572da400bc542735995cb4f4c6febb36dc",
+          "url": "https://github.com/xorq-labs/xorq/commit/32166bea32a8d015b86a8e7e3dc879eb1b4466e5"
+        },
+        "date": 1775477933267,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.145789900302,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0064151303577945845",
+            "extra": "mean: 98.56305027272779 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.799502291492403,
+            "unit": "iter/sec",
+            "range": "stddev: 0.036247550517032934",
+            "extra": "mean: 263.19236659999774 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6785180837462401,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19595168967876087",
+            "extra": "mean: 1.4738000710000108 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.9697915815770415,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006637198282629187",
+            "extra": "mean: 201.21568150000257 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.856003142105943,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02177839411080985",
+            "extra": "mean: 205.9306740000011 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.8313077584683364,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04216663414426505",
+            "extra": "mean: 261.0074843999939 msec\nrounds: 5"
           }
         ]
       }
