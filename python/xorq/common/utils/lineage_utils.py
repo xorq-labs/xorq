@@ -177,15 +177,25 @@ def extract_lineage_dag(expr: Any) -> dict:
     and RemoteTable.remote_expr.
 
     Returns ``{"nodes": (...), "edges": (...), "root": "<root_node_id>"}``
-    where each edge is a ``(source, target)`` tuple.
+    where each edge is a ``(source, target)`` tuple.  Node IDs are
+    deterministic sequential integers (BFS order) so that the serialised
+    DAG is stable across runs.
     """
     root = to_node(expr)
     graph = bfs(root)
 
+    # Assign deterministic IDs based on BFS insertion order.
+    # Use node equality (not object identity) so that children that are
+    # equal to a key but are different objects still resolve correctly.
+    node_ids: dict[Node, str] = {}
+    seq = count()
+    for node in graph:
+        node_ids[node] = str(next(seq))
+
     nodes = []
     edges = []
     for node, children in graph.items():
-        nid = str(id(node))
+        nid = node_ids[node]
         node_dict: dict[str, Any] = {
             "id": nid,
             "type": type(node).__name__,
@@ -204,9 +214,9 @@ def extract_lineage_dag(expr: Any) -> dict:
 
         nodes.append(node_dict)
         for child in children:
-            edges.append((nid, str(id(child))))
+            edges.append((nid, node_ids[child]))
 
-    return {"nodes": tuple(nodes), "edges": tuple(edges), "root": str(id(root))}
+    return {"nodes": tuple(nodes), "edges": tuple(edges), "root": node_ids[root]}
 
 
 def build_tree(
