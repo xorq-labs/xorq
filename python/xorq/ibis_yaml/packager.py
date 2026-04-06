@@ -206,7 +206,7 @@ class PackagedBuilder:
             object.__setattr__(
                 self,
                 "python_version",
-                resolve_python_version(self.wheel_path.parent),
+                resolve_python_version(self.wheel_path),
             )
 
     @functools.cached_property
@@ -249,7 +249,7 @@ class PackagedBuilder:
     def _copy_artifacts(self):
         with tracer.start_as_current_span("packager.copy_artifacts"):
             build_path = self.get_build_path()
-            wheel_target = build_path / DumpFiles.wheel
+            wheel_target = build_path / self.wheel_path.name
             reqs_target = build_path / DumpFiles.requirements
             shutil.copy2(self.wheel_path, wheel_target)
             shutil.copy2(self.requirements_path, reqs_target)
@@ -297,12 +297,12 @@ class PackagedRunner:
             object.__setattr__(
                 self,
                 "python_version",
-                resolve_python_version(self.wheel_path.parent),
+                resolve_python_version(self.wheel_path),
             )
 
-    @property
+    @functools.cached_property
     def wheel_path(self):
-        return self.build_path / DumpFiles.wheel
+        return _find_single_glob(self.build_path, "*.whl")
 
     @property
     def requirements_path(self):
@@ -406,6 +406,29 @@ def get_acceptable_python_versions(
         pass
     elif path.is_dir() and path.joinpath(PYPROJECT_NAME).exists():
         path = path.joinpath(PYPROJECT_NAME)
+    elif path.suffix == ".whl":
+        import zipfile  # noqa: PLC0415
+
+        with zipfile.ZipFile(path) as zf:
+            metadata_names = [
+                n for n in zf.namelist() if n.endswith(".dist-info/METADATA")
+            ]
+            if not metadata_names:
+                raise ValueError(f"no .dist-info/METADATA found in {path}")
+            metadata_text = zf.read(metadata_names[0]).decode()
+            for line in metadata_text.splitlines():
+                if line.startswith("Requires-Python:"):
+                    requires_python = line.split(":", 1)[1].strip()
+                    spec = SpecifierSet(requires_python)
+                    acceptable_python_versions = tuple(
+                        str(v)
+                        for v in (Version(f"3.{minor}") for minor in known_minors)
+                        if v in spec
+                    )
+                    if not acceptable_python_versions:
+                        raise ValueError("No acceptable python versions found")
+                    return acceptable_python_versions
+            raise ValueError(f"no Requires-Python in wheel metadata: {path}")
     elif path.suffix == ".zip":
         from xorq.common.utils.zip_utils import ZipProxy  # noqa: PLC0415
 
