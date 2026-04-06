@@ -79,6 +79,7 @@ jobs:
           - name: core-coverage
             marker: core
             services: postgres
+            parallel: true
             coverage: true
             extras:
               - --extra examples
