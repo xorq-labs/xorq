@@ -177,6 +177,12 @@ class ParquetTTLStorage(ParquetStorage):
 
 
 @frozen
+class ParquetDummyStorage(ParquetStorage):
+    def __attrs_post_init__(self):
+        pass  # intentionally skips self.path.mkdir(…) from ParquetStorage
+
+
+@frozen
 class SourceStorage(CacheStorage):
     source = field(
         validator=instance_of(ibis.backends.BaseBackend),

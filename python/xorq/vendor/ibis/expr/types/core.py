@@ -905,7 +905,10 @@ class ExprMetadata:
 
     @classmethod
     def from_expr(cls, expr):
-        from xorq.caching import ParquetSnapshotCache  # noqa: PLC0415
+        from xorq.caching import (  # noqa: PLC0415
+            ParquetDummySnapshotCache,
+            ParquetSnapshotCache,
+        )
         from xorq.common.utils.caching_utils import CacheKey  # noqa: PLC0415
         from xorq.common.utils.graph_utils import (  # noqa: PLC0415
             validate_params,
@@ -922,16 +925,18 @@ class ExprMetadata:
         tags = expr.ls.tags
         root_tag = tags[0].tag if tags else None
 
-        op = expr.op()
-        parquet_snapshot_cache_keys = (
-            (
-                CacheKey(
-                    key=expr.ls.get_key(),
-                    relative_path=str(op.cache.storage.relative_path),
-                ),
+        cached_expr = (
+            expr
+            if expr.ls.is_cached and isinstance(expr.op().cache, ParquetSnapshotCache)
+            else expr.as_table().ls.uncached_one.cache(
+                cache=ParquetDummySnapshotCache.from_kwargs()
             )
-            if expr.ls.is_cached and isinstance(op.cache, ParquetSnapshotCache)
-            else ()
+        )
+        parquet_snapshot_cache_keys = (
+            CacheKey(
+                key=cached_expr.ls.get_key(),
+                relative_path=str(cached_expr.op().cache.storage.relative_path),
+            ),
         )
 
         named_params = tuple(
