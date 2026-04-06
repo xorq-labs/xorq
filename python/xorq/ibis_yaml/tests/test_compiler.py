@@ -34,6 +34,7 @@ from xorq.ibis_yaml.compiler import (
     DumpFiles,
     ExprKind,
     RefEnum,
+    _extract_sql_queries,
     _sanitize_generated_names,
     build_expr,
     load_expr,
@@ -890,3 +891,13 @@ def test_build_expr_kind_partial(tmp_path):
     assert "schema_out" in entry
     assert "schema_in" in entry
     assert entry["schema_in"] == {"a": "int64"}
+
+
+def test_extract_sql_queries_binds_default_params():
+    """Params with defaults are bound; _MISSING sentinels are skipped."""
+    threshold = xo.param("threshold", "float64", default=1.0)
+    t = xo.table(schema={"x": "float64"})
+    expr = t.filter(t.x > threshold)
+    result = _extract_sql_queries(expr, ExprKind.UnboundExpr)
+    assert len(result) == 1
+    assert "1.0" in result[0][2]  # default value appears in SQL

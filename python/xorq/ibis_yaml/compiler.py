@@ -363,7 +363,8 @@ def _extract_sql_queries(expr, kind) -> tuple[tuple[str, str, str], ...]:
             for label, node in named.items()
             if node.default is not _MISSING and node.default is not None
         }
-        clean = bind_params(clean, defaults)
+        if defaults:
+            clean = bind_params(clean, defaults)
     match kind:
         case ExprKind.UnboundExpr:
             sql = str(xorq_to_sql(clean)).strip()
