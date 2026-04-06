@@ -137,13 +137,20 @@ def ensure_build_dir(expr_path):
 @_lazy_span("cli.uv_build_command")
 def uv_build_command(
     script_path,
+    expr_name="expr",
+    builds_dir="builds",
+    cache_dir=None,
     project_path=None,
-    sys_argv=(),
 ):
-    from xorq.ibis_yaml.packager import SdistBuilder
+    from xorq.ibis_yaml.packager import PackagedBuilder
 
-    sdist_builder = SdistBuilder.from_script_path(
-        script_path, project_path=project_path, args=sys_argv
+    sdist_builder = PackagedBuilder.from_script_path(
+        script_path,
+        project_path=project_path,
+        overwrite_requirements=True,
+        expr_name=expr_name,
+        builds_dir=builds_dir,
+        cache_dir=cache_dir,
     )
     # should we execv here instead?
     # ensure we do copy_sdist
@@ -157,11 +164,18 @@ def uv_build_command(
 @_lazy_span("cli.uv_run_command")
 def uv_run_command(
     expr_path,
-    sys_argv=(),
+    cache_dir=None,
+    output_path=None,
+    output_format="parquet",
 ):
-    from xorq.ibis_yaml.packager import SdistRunner
+    from xorq.ibis_yaml.packager import PackagedRunner
 
-    sdist_runner = SdistRunner(expr_path, args=sys_argv)
+    sdist_runner = PackagedRunner(
+        expr_path,
+        cache_dir=cache_dir,
+        output_path=output_path,
+        output_format=output_format,
+    )
     popened = sdist_runner._uv_tool_run_xorq_run
     return popened
 
@@ -726,8 +740,7 @@ def cli(use_pdb, pdb_runcall):
 )
 def uv_build(script_path, expr_name, builds_dir, cache_dir):
     """Build an expression with a custom Python environment."""
-    sys_argv = tuple(el if el != "uv-build" else "build" for el in sys.argv)
-    uv_build_command(script_path, None, sys_argv)
+    uv_build_command(script_path, expr_name, builds_dir, cache_dir)
 
 
 @cli.command("uv-run")
@@ -753,8 +766,7 @@ def uv_build(script_path, expr_name, builds_dir, cache_dir):
 )
 def uv_run(build_path, cache_dir, output_path, output_format):
     """Run an expression with a custom Python environment."""
-    sys_argv = tuple(el if el != "uv-run" else "run" for el in sys.argv)
-    uv_run_command(build_path, sys_argv)
+    uv_run_command(build_path, cache_dir, output_path, output_format)
 
 
 @cli.command("build")

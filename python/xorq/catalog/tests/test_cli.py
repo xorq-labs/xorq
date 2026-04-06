@@ -551,15 +551,15 @@ def test_check_command(runner, catalog_path):
 
 def test_check_catches_inconsistency(runner, catalog_path, tmpdir):
     catalog = Catalog.from_kwargs(path=catalog_path, init=False)
-    tgz_path = write_zip(
+    zip_path = write_zip(
         Path(tmpdir).joinpath("build.zip"),
         dict.fromkeys(REQUIRED_ARCHIVE_NAMES, b""),
     )
-    catalog_addition = CatalogAddition(BuildZip(tgz_path), catalog)
+    catalog_addition = CatalogAddition(BuildZip(zip_path), catalog)
     catalog_addition.ensure_dirs()
     entry_path = catalog_addition.catalog_entry.catalog_path
     with catalog.commit_context("bad commit"):
-        shutil.copy(tgz_path, entry_path)
+        shutil.copy(zip_path, entry_path)
         catalog.repo.index.add((entry_path,))
 
     result = runner.invoke(cli, ["--path", catalog_path, "check"])

@@ -2,6 +2,7 @@ import contextlib
 import io
 import re
 import shutil
+import subprocess as _subprocess
 import sys
 import uuid
 from itertools import chain
@@ -18,12 +19,12 @@ from xorq.cli import (
     build_command,
     run_command,
 )
+from xorq.common.utils.io_utils import Peeker
 from xorq.common.utils.logging_utils import Run, Runs
 from xorq.common.utils.node_utils import (
     find_node,
 )
 from xorq.common.utils.process_utils import (
-    Popened,
     remove_ansi_escape,
     subprocess_run,
 )
@@ -396,15 +397,14 @@ def test_serve_command(tmp_path, fixture_dir, cache_dir, host, port):
 
         serve_args = ("xorq", "serve-flight-udxf", str(expression_path), *optional_args)
 
-        serve_process = Popened(serve_args)
-        port = peek_port(serve_process)
+        with serve_process(serve_args) as (proc, peeker):
+            port = peek_port(proc, peeker)
 
-        flight_con = xo.flight.connect(host=host, port=int(port))
-        assert (
-            serve_process.popen.poll() is None
-            and "diamonds_exchange_command" in flight_con.list_exchanges()
-        )
-        serve_process.popen.terminate()
+            flight_con = xo.flight.connect(host=host, port=int(port))
+            assert (
+                proc.poll() is None
+                and "diamonds_exchange_command" in flight_con.list_exchanges()
+            )
 
     else:
         raise AssertionError("No expression hash")
@@ -753,7 +753,7 @@ def test_init_uv_build_uv_run(template, tmpdir):
         "uv-build",
         str(path.joinpath("expr.py")),
     )
-    (returncode, stdout, stderr) = subprocess_run(build_args, do_decode=True)
+    (returncode, stdout, stderr) = subprocess_run(build_args, text=True)
     assert returncode == 0, stderr
     build_path = Path(stdout.strip().split("\n")[-1])
     assert build_path.exists()
@@ -766,7 +766,7 @@ def test_init_uv_build_uv_run(template, tmpdir):
         str(output_path),
         str(build_path),
     )
-    (returncode, stdout, stderr) = subprocess_run(run_args, do_decode=True)
+    (returncode, stdout, stderr) = subprocess_run(run_args, text=True)
     assert returncode == 0, stderr
     assert output_path.exists()
 
@@ -793,7 +793,7 @@ def pipeline_https_build(tmp_path_factory, fixture_dir):
         "--builds-dir",
         str(builds_dir),
     ]
-    (returncode, stdout, stderr) = subprocess_run(build_args, do_decode=True)
+    (returncode, stdout, stderr) = subprocess_run(build_args, text=True)
 
     assert "Building expr" in stderr
     assert returncode == 0, stderr
@@ -802,20 +802,31 @@ def pipeline_https_build(tmp_path_factory, fixture_dir):
     return serve_dir
 
 
-def peek_port(popened, timeout=60):
+@contextlib.contextmanager
+def serve_process(args):
+    proc = _subprocess.Popen(args, stdout=_subprocess.PIPE, stderr=_subprocess.PIPE)
+    peeker = Peeker(proc.stdout)
+    try:
+        yield proc, peeker
+    finally:
+        proc.terminate()
+        proc.wait()
+
+
+def peek_port(proc, peeker, timeout=60):
     def do_match(buf):
         (*_, line) = remove_ansi_escape(buf.decode("ascii").strip()).rsplit("\n", 1)
         match = re.match(".*on grpc://localhost:(\\d+)$", line)
         return match
 
-    popened.popen.poll()
-    if popened.popen.returncode:
-        raise Exception(popened.stderr)
+    proc.poll()
+    if proc.returncode:
+        raise Exception(proc.stderr.read())
     try:
-        buf = popened.stdout_peeker.peek_line_until(do_match, timeout=timeout)
+        buf = peeker.peek_line_until(do_match, timeout=timeout)
     except TimeoutError as e:
-        popened.popen.terminate()
-        raise Exception(popened.stderr) from e
+        proc.terminate()
+        raise Exception(proc.stderr.read()) from e
     (as_string,) = do_match(buf).groups()
     port = int(as_string)
     return port
@@ -846,16 +857,15 @@ def test_serve_unbound_hash(serve_hash, pipeline_https_build):
         "--to_unbind_hash",
         serve_hash,
     ) + (("--typ", typ) if typ else ())
-    serve_popened = Popened(serve_args, deferred=False)
-    port = peek_port(serve_popened)
-    actual = hit_server(port=port, expr=subexpr)
-    expected = expr.execute()
-    (actual, expected) = (
-        df.sort_values(list(df.columns), ignore_index=True) for df in (actual, expected)
-    )
-    assert actual.equals(expected)
-
-    serve_popened.popen.terminate()
+    with serve_process(serve_args) as (proc, peeker):
+        port = peek_port(proc, peeker)
+        actual = hit_server(port=port, expr=subexpr)
+        expected = expr.execute()
+        (actual, expected) = (
+            df.sort_values(list(df.columns), ignore_index=True)
+            for df in (actual, expected)
+        )
+        assert actual.equals(expected)
 
 
 serve_tags = (
@@ -881,16 +891,15 @@ def test_serve_unbound_tag(serve_tag, pipeline_https_build):
         "--to_unbind_tag",
         serve_tag,
     )
-    serve_popened = Popened(serve_args, deferred=False)
-    port = peek_port(serve_popened)
-    actual = hit_server(port=port, expr=subexpr)
-    expected = expr.execute()
-    (actual, expected) = (
-        df.sort_values(list(df.columns), ignore_index=True) for df in (actual, expected)
-    )
-    assert actual.equals(expected)
-
-    serve_popened.popen.terminate()
+    with serve_process(serve_args) as (proc, peeker):
+        port = peek_port(proc, peeker)
+        actual = hit_server(port=port, expr=subexpr)
+        expected = expr.execute()
+        (actual, expected) = (
+            df.sort_values(list(df.columns), ignore_index=True)
+            for df in (actual, expected)
+        )
+        assert actual.equals(expected)
 
 
 @pytest.mark.slow(level=1)
@@ -906,20 +915,19 @@ def test_serve_unbound_tag_get_exchange(pipeline_https_build, parquet_dir):
         "--to_unbind_tag",
         serve_tag,
     )
-    serve_popened = Popened(serve_args, deferred=False)
-    port = peek_port(serve_popened)
+    with serve_process(serve_args) as (proc, peeker):
+        port = peek_port(proc, peeker)
 
-    flight_backend = xo.flight.connect(port=port)
-    f = flight_backend.get_exchange("default")
-    actual = xo.deferred_read_parquet(batting_url).pipe(f).execute()
+        flight_backend = xo.flight.connect(port=port)
+        f = flight_backend.get_exchange("default")
+        actual = xo.deferred_read_parquet(batting_url).pipe(f).execute()
 
-    expected = expr.execute()
-    (actual, expected) = (
-        df.sort_values(list(df.columns), ignore_index=True) for df in (actual, expected)
-    )
-    assert actual.equals(expected)
-
-    serve_popened.popen.terminate()
+        expected = expr.execute()
+        (actual, expected) = (
+            df.sort_values(list(df.columns), ignore_index=True)
+            for df in (actual, expected)
+        )
+        assert actual.equals(expected)
 
 
 @pytest.mark.slow(level=1)
@@ -944,16 +952,14 @@ def test_serve_unbound_tag_get_exchange_udf(fixture_dir, tmp_path):
         "--to_unbind_tag",
         serve_tag,
     )
-    serve_popened = Popened(serve_args, deferred=False)
-    port = peek_port(serve_popened)
+    with serve_process(serve_args) as (proc, peeker):
+        port = peek_port(proc, peeker)
 
-    flight_backend = xo.flight.connect(port=port)
-    f = flight_backend.get_exchange("default")
-    actual = xo.connect().register(df).select("x").pipe(f).execute()
+        flight_backend = xo.flight.connect(port=port)
+        f = flight_backend.get_exchange("default")
+        actual = xo.connect().register(df).select("x").pipe(f).execute()
 
-    assert not actual.empty
-
-    serve_popened.popen.terminate()
+        assert not actual.empty
 
 
 @pytest.mark.slow(level=3)
@@ -999,56 +1005,56 @@ def test_serve_penguins_template(tmpdir, tmp_path):
             "--to_unbind_hash",
             serve_hash,
         )
-        serve_popened = Popened(serve_args, deferred=False)
-        port = peek_port(serve_popened)
+        with serve_process(serve_args) as (proc, peeker):
+            port = peek_port(proc, peeker)
 
-        # Create sample penguin data using memtable instead of reading from URL
-        sample_data = pd.DataFrame(
-            {
-                "bill_length_mm": [
-                    39.1,
-                    39.5,
-                    40.3,
-                    36.7,
-                    39.3,
-                    38.9,
-                    39.2,
-                    34.1,
-                    42.0,
-                    37.8,
-                ],
-                "bill_depth_mm": [
-                    18.7,
-                    17.4,
-                    18.0,
-                    19.3,
-                    20.6,
-                    17.8,
-                    19.6,
-                    18.1,
-                    20.2,
-                    17.1,
-                ],
-                "species": [
-                    "Adelie",
-                    "Adelie",
-                    "Adelie",
-                    "Adelie",
-                    "Adelie",
-                    "Chinstrap",
-                    "Chinstrap",
-                    "Chinstrap",
-                    "Gentoo",
-                    "Gentoo",
-                ],
-            }
-        )
+            # Create sample penguin data using memtable instead of reading from URL
+            sample_data = pd.DataFrame(
+                {
+                    "bill_length_mm": [
+                        39.1,
+                        39.5,
+                        40.3,
+                        36.7,
+                        39.3,
+                        38.9,
+                        39.2,
+                        34.1,
+                        42.0,
+                        37.8,
+                    ],
+                    "bill_depth_mm": [
+                        18.7,
+                        17.4,
+                        18.0,
+                        19.3,
+                        20.6,
+                        17.8,
+                        19.6,
+                        18.1,
+                        20.2,
+                        17.1,
+                    ],
+                    "species": [
+                        "Adelie",
+                        "Adelie",
+                        "Adelie",
+                        "Adelie",
+                        "Adelie",
+                        "Chinstrap",
+                        "Chinstrap",
+                        "Chinstrap",
+                        "Gentoo",
+                        "Gentoo",
+                    ],
+                }
+            )
 
-        expr = xo.memtable(sample_data, name="penguins")
+            expr = xo.memtable(sample_data, name="penguins")
 
-        actual = hit_server(port=port, expr=expr)
-        assert not actual.empty
-        assert actual["predict"].isin(("Adelie", "Chinstrap", "Gentoo")).all()
-        assert len(actual) == len(sample_data)
+            actual = hit_server(port=port, expr=expr)
+            assert not actual.empty
+            assert actual["predict"].isin(("Adelie", "Chinstrap", "Gentoo")).all()
+            assert len(actual) == len(sample_data)
     else:
         raise AssertionError("No expression hash")

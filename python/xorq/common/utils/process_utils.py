@@ -1,26 +1,12 @@
 import functools
-import operator
+import os
 import re
-from subprocess import (
-    PIPE,
-    Popen,
-)
-
-import toolz
-from attr import (
-    field,
-    frozen,
-)
-from attr.validators import (
-    deep_iterable,
-    instance_of,
-    or_,
-)
+import subprocess
 
 
 @functools.cache
 def in_nix_shell():
-    return bool(Popened.check_output("echo $IN_NIX_SHELL").strip())
+    return bool(os.environ.get("IN_NIX_SHELL"))
 
 
 def assert_not_in_nix_shell():
@@ -28,103 +14,14 @@ def assert_not_in_nix_shell():
         raise ValueError("in nix shell")
 
 
-try_decode_ascii = toolz.excepts(
-    AttributeError, operator.methodcaller("decode", "ascii")
-)
-
-
-try_decode_utf8 = toolz.excepts(
-    AttributeError, operator.methodcaller("decode", "utf-8")
-)
-
-
-@frozen(eq=False)
-class Popened:
-    args = field(
-        validator=or_(
-            deep_iterable(instance_of(str), instance_of(tuple)), instance_of(str)
-        ),
+def subprocess_run(args, text=False, **kwargs):
+    result = subprocess.run(
+        args,
+        capture_output=True,
+        encoding="utf-8" if text else None,
+        **kwargs,
     )
-    kwargs_tuple = field(validator=instance_of(tuple), default=())
-    deferred = field(validator=instance_of(bool), default=True)
-
-    def __attrs_post_init__(self):
-        if isinstance(self.args, str):
-            assert self.kwargs.get("shell")
-        if not self.deferred:
-            self.popen
-
-    @property
-    def kwargs(self):
-        return dict(self.kwargs_tuple)
-
-    @functools.cached_property
-    def popen(self):
-        popen = non_blocking_subprocess_run(self.args, **self.kwargs)
-        return popen
-
-    @functools.cached_property
-    def stdout_peeker(self):
-        from xorq.common.utils.io_utils import Peeker  # noqa: PLC0415
-
-        return Peeker(self.popen.stdout) if self.popen.stdout else None
-
-    def peek_stdout(self, size):
-        return self.stdout_peeker.peek(size)
-
-    @functools.cached_property
-    def communicated(self):
-        # Read already-peeked bytes from the BytesIO buffer (non-blocking)
-        peeked = self.stdout_peeker.buf.read() if self.stdout_peeker else b""
-        # Always drain both pipes concurrently to avoid deadlock
-        (_stdout, _stderr) = self.popen.communicate()
-        if peeked:
-            _stdout = peeked + (_stdout or b"")
-        return (_stdout, _stderr)
-
-    def wait(self):
-        self.communicated
-        self.popen.wait()
-
-    @property
-    def _stdout(self):
-        return self.communicated[0]
-
-    @property
-    def _stderr(self):
-        return self.communicated[1]
-
-    @property
-    def stdout(self):
-        return try_decode_utf8(self._stdout)
-
-    @property
-    def stderr(self):
-        return try_decode_utf8(self._stderr)
-
-    @property
-    def returncode(self):
-        # ensure we have executed
-        self.communicated
-        return self.popen.returncode
-
-    @classmethod
-    def check_output(cls, args, shell=True, **kwargs):
-        self = cls(args, tuple(({"shell": shell} | kwargs).items()))
-        assert not self.returncode
-        return self.stdout
-
-
-def non_blocking_subprocess_run(args, stdout=PIPE, stderr=PIPE, **kwargs):
-    return Popen(args, stdout=stdout, stderr=stderr, **kwargs)
-
-
-def subprocess_run(args, do_decode=False, **kwargs):
-    popened = non_blocking_subprocess_run(args, **kwargs)
-    (stdout, stderr) = popened.communicate()
-    if do_decode:
-        (stdout, stderr) = (try_decode_utf8(el) for el in popened.communicate())
-    return (popened.returncode, stdout, stderr)
+    return (result.returncode, result.stdout, result.stderr)
 
 
 # https://stackoverflow.com/a/14693789
