@@ -1,6 +1,5 @@
 import re
 import threading
-import zipfile
 from datetime import datetime
 from functools import cached_property, lru_cache
 from graphlib import CycleError, TopologicalSorter
@@ -8,7 +7,6 @@ from pathlib import Path
 
 import networkx as nx
 import rich.box
-import yaml12
 from attr import field, frozen
 from attr.validators import instance_of, optional
 from netext import (
@@ -189,15 +187,20 @@ class CatalogRowData:
     @cached_property
     def tags(self) -> tuple[str, ...]:
         """Extract tag labels from the lineage DAG."""
+        return tuple(
+            t["tag"].get("tag", "") for t in self.tag_nodes if t["tag"].get("tag")
+        )
+
+    @cached_property
+    def tag_nodes(self) -> tuple[dict, ...]:
+        """Extract full Tag/HashingTag node dicts from the lineage DAG."""
         dag = self.lineage_dag
         if not dag:
             return ()
         return tuple(
-            tag_name
+            n
             for n in dag.get("nodes", ())
-            if n.get("op") in _TAG_OPS
-            and isinstance(n.get("tag"), dict)
-            and (tag_name := n["tag"].get("tag", ""))
+            if n.get("op") in _TAG_OPS and isinstance(n.get("tag"), dict)
         )
 
     @cached_property
@@ -1436,20 +1439,14 @@ class CatalogScreen(Screen):
         ("1", "show_view('sql')", "SQL"),
         ("2", "show_view('lineage')", "Lineage"),
         ("3", "show_view('data')", "Data"),
-        ("4", "show_view('profiles')", "Profiles"),
-        ("5", "show_view('tags')", "Tags"),
-        ("6", "show_view('full_lineage')", "Full Lineage"),
         ("e", "open_data_view", "Data View"),
         ("slash", "start_search", "Search"),
     )
 
     VIEW_PANELS = {
-        "lineage": "#lineage-panel",
         "sql": "#sql-panel",
+        "lineage": "#lineage-panel",
         "data": "#data-preview-panel",
-        "profiles": "#profiles-panel",
-        "tags": "#tags-panel",
-        "full_lineage": "#full-lineage-panel",
     }
 
     FOCUS_CYCLE = (
@@ -1474,7 +1471,6 @@ class CatalogScreen(Screen):
         self._refresh_lock = threading.Lock()
         self._active_view = "sql"
         self._data_preview = _TogglePanelState()
-        self._profiles_state = _TogglePanelState()
         self._search_query = ""
         self._sql_cache: dict[str, object] = {}
         self._sql_rendering_hash: str | None = None
@@ -1505,12 +1501,6 @@ class CatalogScreen(Screen):
                     with Vertical(id="data-preview-panel"):
                         yield Static("", id="data-preview-status")
                         yield DataTable(id="data-preview-table")
-                    with Vertical(id="profiles-panel"):
-                        yield DataTable(id="profiles-table")
-                    with Vertical(id="tags-panel"):
-                        yield Tree("Tags", id="tags-tree")
-                    with Vertical(id="full-lineage-panel"):
-                        yield Tree("Full Lineage", id="full-lineage-tree")
                 with Vertical(id="schema-panel"):
                     with Horizontal(id="schema-split"):
                         with Vertical(id="schema-in-half"):
@@ -1554,23 +1544,12 @@ class CatalogScreen(Screen):
         data_table.zebra_stripes = True
         data_table.loading = True
 
-        info_table = self.query_one("#profiles-table", DataTable)
-        info_table.cursor_type = "row"
-        info_table.zebra_stripes = True
-        info_table.add_column("NAME", key="name")
-        info_table.add_column("BACKEND", key="backend")
-        info_table.add_column("PARAMETERS", key="params")
-        info_table.add_column("ENV VARS", key="env_vars")
-
         self.query_one("#catalog-panel").border_title = " Expressions "
         self.query_one("#schema-panel").border_title = " Schema "
         self.query_one("#schema-in-half").display = False
-        self.query_one("#lineage-panel").border_title = " ❷ Lineage "
         self.query_one("#sql-panel").border_title = " ❶ SQL "
-        data_panel = self.query_one("#data-preview-panel")
-        data_panel.border_title = " ❸ Data "
-        self.query_one("#tags-panel").border_title = " ❺ Tags "
-        self.query_one("#full-lineage-panel").border_title = " ❻ Full Lineage "
+        self.query_one("#lineage-panel").border_title = " ❷ Lineage "
+        self.query_one("#data-preview-panel").border_title = " ❸ Data "
         self._apply_view("sql")
         rev_panel = self.query_one("#revisions-panel")
         rev_panel.border_title = " Revisions "
@@ -1578,7 +1557,6 @@ class CatalogScreen(Screen):
         git_log_panel = self.query_one("#git-log-panel")
         git_log_panel.border_title = " Git Log "
         git_log_panel.display = False
-        self.query_one("#profiles-panel").border_title = " ❹ Profiles "
         self.query_one("#status-bar", Static).update(" Loading catalog...")
 
         self.set_interval(self._refresh_interval, self._do_refresh)
@@ -1708,26 +1686,10 @@ class CatalogScreen(Screen):
         lineage_panel = self.query_one("#lineage-panel")
         dag = row_data.lineage_dag
         if dag:
-            lineage_graph.graph = _dag_to_graph(dag)
+            lineage_graph.graph = _dag_to_graph(dag, include_tags=True)
         else:
             lineage_graph.graph = nx.DiGraph()
         lineage_panel.border_subtitle = row_data.cache_info_text
-
-        # Tags panel (sync)
-        tags_tree = self.query_one("#tags-tree", Tree)
-        if dag:
-            _populate_tags_tree(tags_tree, dag)
-        else:
-            tags_tree.clear()
-            tags_tree.root.set_label("(no tags)")
-
-        # Full lineage panel (sync)
-        full_lineage_tree = self.query_one("#full-lineage-tree", Tree)
-        if dag:
-            _populate_full_lineage_tree(full_lineage_tree, dag)
-        else:
-            full_lineage_tree.clear()
-            full_lineage_tree.root.set_label("(no lineage)")
 
         # SQL preview — serve from cache or render async
         entry_hash = row_data.hash
@@ -1795,10 +1757,6 @@ class CatalogScreen(Screen):
             dt.clear(columns=True)
             dt.loading = True
 
-        if self._active_view == "profiles":
-            self._profiles_state = _TogglePanelState()
-            self._ensure_profiles_loaded()
-
     def _apply_view(self, name: str) -> None:
         """Show the named detail view, hiding the others."""
         self._active_view = name
@@ -1812,9 +1770,6 @@ class CatalogScreen(Screen):
         dt = self.query_one("#data-preview-table", DataTable)
         dt.clear(columns=True)
         dt.loading = True
-
-        self._profiles_state = _TogglePanelState()
-        self.query_one("#profiles-table", DataTable).clear()
 
     @work(thread=True, exit_on_error=False)
     def _do_refresh(self) -> None:
@@ -1913,14 +1868,23 @@ class CatalogScreen(Screen):
         kind_node = self._kind_nodes[kind]
         entry_node = kind_node.add(self._entry_label(row_data), data=row_data.row_key)
         self._node_by_hash[row_data.row_key] = entry_node
-        # Hash + backend info on one leaf
+        # Hash + backend info
         backends = row_data.backends_display
         hash_leaf = f"[dim]{row_data.hash[:12]}[/dim]"
         if backends:
             hash_leaf += f"  [dim italic]{backends}[/]"
         entry_node.add_leaf(hash_leaf)
-        for tag in row_data.tags:
-            entry_node.add_leaf(f"[#5abfb5]⏵ {tag}[/]")
+        # Tags as a sub-tree with metadata
+        for tag_node in row_data.tag_nodes:
+            tag_meta = tag_node["tag"]
+            tag_name = tag_meta.get("tag", "?")
+            op = tag_node.get("op", "Tag")
+            color = "#5abfb5" if op == "HashingTag" else "#C1F0FF"
+            tag_branch = entry_node.add(f"[{color}]⏵ {tag_name}[/]")
+            for k, v in tag_meta.items():
+                if k == "tag":
+                    continue
+                tag_branch.add_leaf(f"[dim]{k}:[/dim] {v}")
 
     def _render_catalog_row(self, row_data) -> None:
         if self._search_query and not self._matches_search(
@@ -2061,8 +2025,6 @@ class CatalogScreen(Screen):
         self._apply_view(name)
         if name == "data":
             self._ensure_data_loaded()
-        elif name == "profiles":
-            self._ensure_profiles_loaded()
 
     def _ensure_data_loaded(self) -> None:
         entry_hash = self._selected_entry_hash()
@@ -2125,75 +2087,6 @@ class CatalogScreen(Screen):
     def _render_data_preview_error(self, message) -> None:
         self.query_one("#data-preview-status", Static).update(f" Error: {message}")
         self.query_one("#data-preview-table", DataTable).loading = False
-
-    # --- View: Profiles (4) ---
-
-    def _ensure_profiles_loaded(self) -> None:
-        entry_hash = self._selected_entry_hash()
-        if entry_hash is None:
-            return
-        row_data = self._row_cache.get(entry_hash)
-        if row_data is None:
-            return
-        if (
-            self._profiles_state.loaded
-            and self._profiles_state.entry_hash == entry_hash
-        ):
-            return
-        self._profiles_state = _TogglePanelState(
-            visible=True,
-            loaded=True,
-            entry_hash=entry_hash,
-        )
-        self._load_profiles(row_data.entry)
-
-    @work(thread=True, exit_on_error=False)
-    def _load_profiles(self, entry) -> None:
-        if not entry.catalog_path.exists() or not zipfile.is_zipfile(
-            entry.catalog_path
-        ):
-            return
-
-        env_re = re.compile(r"^\$\{(.+)\}$|^\$(.+)$")
-
-        def _extract_env_vars(kwargs):
-            return tuple(
-                m.group(1) or m.group(2)
-                for v in kwargs.values()
-                if isinstance(v, str) and (m := env_re.match(v))
-            )
-
-        with zipfile.ZipFile(entry.catalog_path, "r") as zf:
-            member_path = f"{entry.name}/profiles.yaml"
-            if member_path not in zf.namelist():
-                return
-            data = yaml12.parse_yaml(zf.read(member_path).decode())
-        match data:
-            case dict():
-                pass
-            case _:
-                return
-        rows = tuple(
-            (
-                pname,
-                pdata.get("con_name", "?"),
-                ", ".join(
-                    f"{k}={v}"
-                    for k, v in (pdata.get("kwargs_tuple") or {}).items()
-                    if v is not None
-                ),
-                ", ".join(_extract_env_vars(pdata.get("kwargs_tuple") or {})),
-            )
-            for pname, pdata in data.items()
-        )
-        self.app.call_from_thread(self._render_profiles, rows)
-
-    def _render_profiles(self, rows) -> None:
-        with self.app.batch_update():
-            table = self.query_one("#profiles-table", DataTable)
-            table.clear()
-            for i, (name, backend, params, env_vars) in enumerate(rows):
-                table.add_row(name, backend, params, env_vars, key=str(i))
 
     # --- SQL Rendering (off main thread) ---
 
@@ -2516,48 +2409,6 @@ class CatalogTUI(App):
     #data-preview-table {
         height: 1fr;
     }
-    #profiles-panel {
-        height: 1fr;
-        border: round #2BBE75 30%;
-        border-title-color: #2BBE75;
-        border-title-style: bold;
-        padding: 0 1;
-    }
-    #profiles-panel:focus-within {
-        border: round #2BBE75;
-    }
-    #profiles-table {
-        height: 1fr;
-    }
-    #tags-panel {
-        height: 1fr;
-        border: round #F5CA2C 30%;
-        border-title-color: #F5CA2C;
-        border-title-style: bold;
-        padding: 0 1;
-    }
-    #tags-panel:focus-within {
-        border: round #F5CA2C;
-    }
-    #tags-tree {
-        height: 1fr;
-        padding: 0 1;
-    }
-    #full-lineage-panel {
-        height: 1fr;
-        border: round #C1F0FF 30%;
-        border-title-color: #C1F0FF;
-        border-title-style: bold;
-        padding: 0 1;
-    }
-    #full-lineage-panel:focus-within {
-        border: round #C1F0FF;
-    }
-    #full-lineage-tree {
-        height: 1fr;
-        padding: 0 1;
-    }
-
     /* ── Chrome ── */
     DataTable:focus {
         border: none;
