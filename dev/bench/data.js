@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775502853338,
+  "lastUpdate": 1775539849382,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -3828,6 +3828,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.03971636348677435",
             "extra": "mean: 251.2138209999989 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "58d6245cd6a317148bcc030d0e5c48e87b7599de",
+          "message": "feat(cli): add RunLogger to run_cached_command and catalog run (#1778)\n\n## Summary\n- Add `RunLogger` instrumentation to `run_cached_command` in `cli.py`\nand `catalog run` in `catalog/cli.py` so all execution paths produce\nstructured run logs to `~/.local/share/xorq/runs/`\n- Refactor: push span status handling into\n`RunLogger.from_expr_hash(span=...)` to eliminate redundant try/except\nblocks in callers\n- Refactor: add `log_span_event` to log to both RunLogger and OTel span\nin one call\n- Refactor: extract `_resolve_single_entry` in `catalog/cli.py` to\nflatten deeply nested logic\n- Add unit tests for `log_span_event`, `from_expr_hash` span\nintegration, and `_NullRunLogger`\n\n## Changes\n\n### `logging_utils.py`\n- `RunLogger.from_expr_hash` accepts optional `span` — sets\n`StatusCode.OK`/`ERROR` and calls `finalize(span_context=...)`\nautomatically\n- `RunLogger.log_span_event` logs to both run.jsonl and the OTel span\n- `_NullRunLogger` updated to match `RunLogger` interface\n\n### `cli.py` / `catalog/cli.py`\n- Removed outer try/except for span status (now handled by context\nmanager)\n- Removed explicit `rl.finalize()` calls (now handled by context\nmanager)\n- Replaced paired `span.add_event` / `rl.log_event` with single\n`rl.log_span_event`\n- Extracted `_resolve_single_entry` to reduce nesting in catalog `run`\n\n### `test_logging.py`\n- 8 new unit tests covering span ok/error paths, None span, None fields,\nspan_context finalization, NullRunLogger\n\n## Test plan\n- [x] `python -m pytest python/xorq/common/utils/tests/test_logging.py`\n— 11 passed\n- [x] Pre-commit hooks pass (ruff check, ruff format, codespell)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-07T07:27:07+02:00",
+          "tree_id": "78c50b34fbdadedd72e34866bfd071bd21beb463",
+          "url": "https://github.com/xorq-labs/xorq/commit/58d6245cd6a317148bcc030d0e5c48e87b7599de"
+        },
+        "date": 1775539846033,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.986273377008065,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010656316411354184",
+            "extra": "mean: 100.1374549090909 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.613434405699524,
+            "unit": "iter/sec",
+            "range": "stddev: 0.050928678043376814",
+            "extra": "mean: 276.7450264000047 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6862945376279076,
+            "unit": "iter/sec",
+            "range": "stddev: 0.22831427547100375",
+            "extra": "mean: 1.4571003340000004 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.089537968146676,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005878384649283062",
+            "extra": "mean: 196.48148933333212 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.044939276453855,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009530771064576548",
+            "extra": "mean: 198.2184413333338 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.327941974755586,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05669208124846778",
+            "extra": "mean: 231.05670220000434 msec\nrounds: 5"
           }
         ]
       }
