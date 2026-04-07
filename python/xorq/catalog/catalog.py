@@ -3,7 +3,6 @@ import json
 import shutil
 import subprocess
 import tempfile
-import zipfile
 from contextlib import (
     contextmanager,
     nullcontext,
@@ -842,14 +841,11 @@ class CatalogEntry:
     def metadata(self):
         from xorq.vendor.ibis.expr.types.core import ExprMetadata  # noqa: PLC0415
 
-        try:
-            return ExprMetadata.from_dict(self.sidecar_metadata["expr_metadata"])
-        except (KeyError, TypeError):
-            return None
+        return ExprMetadata.from_dict(self.sidecar_metadata["expr_metadata"])
 
     @property
-    def kind(self) -> ExprKind | None:
-        return self.metadata.kind if self.metadata is not None else None
+    def kind(self) -> ExprKind:
+        return self.metadata.kind
 
     @property
     def columns(self) -> tuple[str]:
@@ -922,18 +918,6 @@ class CatalogEntry:
     def exists(self):
         """True when the entry is registered in the catalog (content may not be local)."""
         return all(self._exists_components.values())
-
-    def _read_zip_member(self, filename, read_f):
-        with zipfile.ZipFile(self.catalog_path, "r") as zf:
-            member_path = f"{self.name}/{filename}"
-            if member_path not in zf.namelist():
-                raise ValueError(f"{filename} not found in archive")
-            return read_f(zf.read(member_path))
-
-    @property
-    def is_expr_builder(self) -> bool:
-        """True when this entry's kind is ExprBuilder."""
-        return self.kind == ExprKind.ExprBuilder
 
 
 @frozen

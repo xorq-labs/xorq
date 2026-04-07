@@ -299,14 +299,8 @@ def remove_alias(ctx, aliases, sync):
 
 @cli.command("list")
 @click.option("--kind/--no-kind", default=False, help="Show the kind column.")
-@click.option(
-    "--filter-kind",
-    type=click.Choice(["expression", "builder"]),
-    default=None,
-    help="Filter by entry category (expression or builder).",
-)
 @click.pass_context
-def list_entries(ctx, kind, filter_kind):
+def list_entries(ctx, kind):
     """List all entries."""
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
@@ -316,17 +310,7 @@ def list_entries(ctx, kind, filter_kind):
             return
 
         for entry in entries:
-            category = "builder" if entry.is_builder else "expression"
-            if filter_kind and category != filter_kind:
-                continue
-            match (kind, entry.is_builder):
-                case (True, True):
-                    builder_type = (entry.builder_meta or {}).get("type", "unknown")
-                    click.echo(f"{entry.name}\tbuilder\t{builder_type}")
-                case (True, False):
-                    click.echo(f"{entry.name}\texpression\t{entry.kind}")
-                case _:
-                    click.echo(entry.name)
+            click.echo(f"{entry.name}\t{entry.kind}" if kind else entry.name)
 
 
 @cli.command("list-aliases")
@@ -453,36 +437,6 @@ def schema(ctx, name, as_json):
                 f"Entry {name!r} not found — run 'xorq catalog list' or 'xorq catalog list-aliases' to see available entries and aliases."
             ) from err
 
-        # Builder entries: show builder_meta.json content
-        if entry.is_builder:
-            bmeta = entry.builder_meta
-            if as_json:
-                click.echo(json_mod.dumps(bmeta, indent=2))
-                return
-
-            builder_type = bmeta.get("type", "unknown")
-            click.echo(f"Kind: builder ({builder_type})")
-            if desc := bmeta.get("description"):
-                click.echo(f"Description: {desc}")
-
-            if dims := bmeta.get("available_dimensions"):
-                click.echo()
-                click.echo("Available Dimensions:")
-                click.echo(f"  {', '.join(dims)}")
-            if measures := bmeta.get("available_measures"):
-                click.echo()
-                click.echo("Available Measures:")
-                click.echo(f"  {', '.join(measures)}")
-            if steps := bmeta.get("steps"):
-                click.echo()
-                click.echo("Pipeline Steps:")
-                for step in steps:
-                    click.echo(
-                        f"  {step.get('name', '?'):<20} {step.get('estimator', '?')}"
-                    )
-            return
-
-        # Expression entries
         if as_json:
             click.echo(json_mod.dumps(entry.metadata.to_dict(), indent=2))
             return
