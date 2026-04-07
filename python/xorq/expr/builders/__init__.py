@@ -60,8 +60,10 @@ class TagHandler:
 _FROM_TAGGED_REGISTRY: dict[str, TagHandler] = {}
 
 
-def register_tag_handler(tag_name, tag_handler):
+def register_tag_handler(tag_name, tag_handler, *, override=False):
     """Register a ``TagHandler`` for *tag_name*."""
+    if not override and tag_name in _FROM_TAGGED_REGISTRY:
+        raise ValueError(f"tag handler already registered for {tag_name!r}")
     _FROM_TAGGED_REGISTRY[tag_name] = tag_handler
 
 
@@ -172,22 +174,16 @@ def _ml_pipeline_extract_metadata(tag_node):
     from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: PLC0415
 
     all_steps_raw = tag_node.metadata.get(str(FittedPipelineTagKey.ALL_STEPS), ())
-    steps = []
-    target = None
-    features = ()
-    for step_items in all_steps_raw:
-        d = dict(step_items)
-        steps.append(d.get("name", "unknown"))
-        if d.get("target"):
-            target = d["target"]
-        if d.get("features"):
-            features = d["features"]
+    dicts = tuple(dict(step_items) for step_items in all_steps_raw)
+    steps = tuple(d.get("name", "unknown") for d in dicts)
+    targets = tuple(d["target"] for d in dicts if d.get("target"))
+    features_all = tuple(d["features"] for d in dicts if d.get("features"))
     return {
         "type": "fitted_pipeline",
         "description": f"{len(steps)} steps",
-        "steps": tuple(steps),
-        "features": features,
-        "target": target,
+        "steps": steps,
+        "features": features_all[-1] if features_all else (),
+        "target": targets[-1] if targets else None,
     }
 
 
@@ -202,11 +198,14 @@ def _ml_from_tagged(tag_node):
     pipeline = expr.ls.pipeline
 
     # 2. Find training data tag in expression tree
-    training_tag = None
-    for node in walk_nodes((Tag,), expr):
-        if node.metadata.get("tag") == str(FittedPipelineTagKey.TRAINING):
-            training_tag = node
-            break
+    training_tag = next(
+        (
+            node
+            for node in walk_nodes((Tag,), expr)
+            if node.metadata.get("tag") == str(FittedPipelineTagKey.TRAINING)
+        ),
+        None,
+    )
     if training_tag is None:
         raise ValueError("No FittedPipeline-training tag found in expression")
 
