@@ -1,7 +1,7 @@
 # ADR-0004: uv as the sole packaging and execution runtime for the wheel pipeline
 
 - **Status:** Accepted
-- **Date:** 2026-04-05 (updated 2026-04-06)
+- **Date:** 2026-04-05 (updated 2026-04-07)
 - **Context area:** `python/xorq/ibis_yaml/packager.py`
 
 ## Context
@@ -134,3 +134,4 @@ This approach is simpler than the previous sdist-based design, which embedded `u
 - **uv-specific lock format.** `uv.lock` is not consumable by pip-tools or poetry. Users who need to integrate with non-uv workflows must use the exported `requirements.txt`, which preserves version pins and hashes but loses uv-specific lock metadata (source URLs, resolution markers).
 - **Version coupling.** The pipeline implicitly depends on uv's CLI interface (`uv build`, `uv lock`, `uv export`, `uv tool run`). A breaking change in uv's CLI would require updating the pipeline. This risk is mitigated by uv's stability guarantees and by pinning the uv version in CI.
 - **Nix friction.** The `LD_LIBRARY_PATH` workaround for Nix shells is fragile and specific to how uv manages Python interpreters. Changes to either uv's interpreter discovery or Nix's library isolation could break this workaround.
+- **Per-invocation latency of `uv tool run`.** Each `uv tool run --isolated` invocation pays ~0.5s of overhead for environment resolution and Python interpreter startup, even when the tool cache is warm. This cost is additive with the inner `xorq run` startup (~0.55s for CLI framework + `load_expr` import chain), giving a total fixed overhead of ~1.2s before any expression evaluation begins. For interactive workflows where `xorq uv-run` is called repeatedly, this overhead dominates wall time for fast expressions. A potential mitigation is switching to `uv tool install` with a persistent, cached tool environment — trading hermeticity (the environment persists between runs) for lower per-invocation cost. See `plans/cached-venv-for-uv-tool-run.md`.
