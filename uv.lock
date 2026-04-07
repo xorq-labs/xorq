@@ -5817,7 +5817,6 @@ dependencies = [
     { name = "py-yaml12" },
     { name = "pyarrow" },
     { name = "pyarrow-hotfix" },
-    { name = "pytest-mock" },
     { name = "python-dateutil" },
     { name = "pythran", marker = "sys_platform == 'darwin'" },
     { name = "pytz" },
@@ -5920,6 +5919,7 @@ test = [
     { name = "pytest-benchmark" },
     { name = "pytest-codspeed" },
     { name = "pytest-cov" },
+    { name = "pytest-mock" },
     { name = "pytest-snapshot" },
     { name = "pytest-xdist" },
 ]
@@ -5967,7 +5967,6 @@ requires-dist = [
     { name = "pyarrow-hotfix", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.4,<1" },
     { name = "pyiceberg", extras = ["sql-sqlite", "sql-postgres"], marker = "extra == 'examples'", specifier = ">=0.9.0" },
     { name = "pyiceberg", extras = ["sql-sqlite", "sql-postgres"], marker = "extra == 'pyiceberg'", specifier = ">=0.9.0" },
-    { name = "pytest-mock", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=3.14.0,<4" },
     { name = "python-dateutil", specifier = ">=2.8.2" },
     { name = "pythran", marker = "sys_platform == 'darwin'", specifier = ">=0.17.0" },
     { name = "pytz", specifier = ">=2022.7" },
@@ -6027,6 +6026,7 @@ test = [
     { name = "pytest-benchmark", specifier = ">=5.1.0" },
     { name = "pytest-codspeed", specifier = ">=3.0.0,<4.3.1" },
     { name = "pytest-cov", specifier = "==6.3.0" },
+    { name = "pytest-mock", specifier = ">=3.14.0,<4" },
     { name = "pytest-snapshot", specifier = ">=0.9.0,<1.0.0" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
 ]
