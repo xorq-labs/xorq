@@ -73,6 +73,7 @@ def _find_single_glob(directory, pattern):
 class WheelPackager:
     project_path = field(validator=instance_of(Path), converter=Path)
     python_version = field(validator=_validate_python_version, default=None)
+    extras = field(factory=tuple, converter=tuple)
 
     def __attrs_post_init__(self):
         if not self.project_path.exists():
@@ -140,7 +141,7 @@ class WheelPackager:
             export_dir.mkdir(exist_ok=True)
             shutil.copy2(self.pyproject_path, export_dir / PYPROJECT_NAME)
             shutil.copy2(uvlock_path, export_dir / UVLOCK_NAME)
-            requirements_text = uv_export_requirements(export_dir)
+            requirements_text = uv_export_requirements(export_dir, extras=self.extras)
             requirements_path = self.tmpdir / REQUIREMENTS_NAME
             requirements_path.write_text(requirements_text)
             return requirements_path
@@ -260,11 +261,12 @@ class PackagedBuilder:
         return self._copy_artifacts
 
     @classmethod
-    def from_script_path(cls, script_path, project_path=None, **kwargs):
+    def from_script_path(cls, script_path, project_path=None, extras=(), **kwargs):
+        packager_kwargs = {"extras": extras} if extras else {}
         packager = (
-            WheelPackager(project_path)
+            WheelPackager(project_path, **packager_kwargs)
             if project_path
-            else WheelPackager.from_script_path(script_path)
+            else WheelPackager.from_script_path(script_path, **packager_kwargs)
         )
         return cls(
             script_path=script_path,
@@ -451,7 +453,7 @@ def get_acceptable_python_versions(
     return acceptable_python_versions
 
 
-def uv_export_requirements(project_dir):
+def uv_export_requirements(project_dir, extras=()):
     """Run uv export in a directory with pyproject.toml + uv.lock."""
     args = (
         "uv",
@@ -463,6 +465,7 @@ def uv_export_requirements(project_dir):
         "--no-annotate",
         "--directory",
         str(project_dir),
+        *(arg for extra in extras for arg in ("--extra", extra)),
     )
     return subprocess.check_output(args, text=True)
 
