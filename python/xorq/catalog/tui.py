@@ -950,6 +950,7 @@ class DataViewScreen(Screen):
         super().__init__()
         self._entry = entry
         self._row_data = row_data
+        self._ibis_expr = None
         self._df = None
         self._sort_column_index = -1
 
@@ -1053,6 +1054,7 @@ class DataViewScreen(Screen):
 
     def action_go_back(self) -> None:
         self._df = None
+        self._ibis_expr = None
         self.app.pop_screen()
 
     def action_cursor_down(self) -> None:
