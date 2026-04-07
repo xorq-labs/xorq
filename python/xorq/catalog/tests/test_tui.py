@@ -750,6 +750,7 @@ def _mock_catalog_run(monkeypatch):
     )
 
 
+
 def test_data_view_screen_construction(entry_a):
     row_data = CatalogRowData(entry=entry_a)
     screen = DataViewScreen(entry=entry_a, row_data=row_data)
