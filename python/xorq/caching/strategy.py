@@ -94,7 +94,8 @@ class SnapshotStrategy(CacheStrategy):
                 )
                 return rt
             else:
-                return node.__recreate__(kwargs)
+                # kwargs is None when no children were rewritten (graph.py convention)
+                return node.__recreate__(kwargs) if kwargs else node
 
         return op.replace(rename_remote_table)
 
