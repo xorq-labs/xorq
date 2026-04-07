@@ -933,7 +933,6 @@ class ExprMetadata:
                     "composed_from",
                     list(self.composed_from) if self.composed_from else None,
                 ),
-<<<<<<< HEAD
                 (
                     "sql_queries",
                     [list(q) for q in self.sql_queries] if self.sql_queries else None,
