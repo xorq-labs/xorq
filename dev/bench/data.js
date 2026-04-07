@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775564977998,
+  "lastUpdate": 1775596113292,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -4686,6 +4686,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.007521764569362756",
             "extra": "mean: 208.23148140000285 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f2751317df8af9850fe28a850a074ec76c831a9a",
+          "message": "fix(deps): clean up dependency declarations (#1796)\n\n## Summary\n- Move `pytest-mock` from core dependencies to the `test` dependency\ngroup — it's only used in test files, not runtime code\n- Remove duplicate `quickgrove` entry in the `dev` dependency group\n- Remove redundant `fsspec` from `examples` extra — already pulled in\ntransitively via `pins[gcs]` → `gcsfs` → `fsspec`\n\n## Test plan\n- [ ] `uv sync --group test` installs pytest-mock\n- [ ] `uv pip install xorq[examples]` still pulls in fsspec transitively\n- [ ] CI passes\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-07T23:04:53+02:00",
+          "tree_id": "5b4461df3e17fd239980576f69fa547fb33182c2",
+          "url": "https://github.com/xorq-labs/xorq/commit/f2751317df8af9850fe28a850a074ec76c831a9a"
+        },
+        "date": 1775596111037,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.868215355430124,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01988981497471974",
+            "extra": "mean: 127.09362350000575 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.530349384522294,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006968418338233802",
+            "extra": "mean: 220.7335273999945 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7230784729900656,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16924237561837802",
+            "extra": "mean: 1.3829757590000042 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.721937721975994,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027572365821935566",
+            "extra": "mean: 268.6772521999899 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.361774541283775,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016235383375013922",
+            "extra": "mean: 229.26448639999535 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.749257935808745,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007005611258143117",
+            "extra": "mean: 210.55921020000596 msec\nrounds: 5"
           }
         ]
       }
