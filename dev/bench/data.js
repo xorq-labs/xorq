@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775541163441,
+  "lastUpdate": 1775543381947,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -4224,6 +4224,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.019410247005686852",
             "extra": "mean: 207.4320720000003 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b576703404d3a75d58d4b721eb1c6e456b58a192",
+          "message": "chore(deps): update pre-commit hook rhysd/actionlint to v1.7.12 (#1772)\n\nThis PR contains the following updates:\n\n| Package | Type | Update | Change |\n|---|---|---|---|\n| [rhysd/actionlint](https://redirect.github.com/rhysd/actionlint) |\nrepository | patch | `v1.7.11` → `v1.7.12` |\n\nNote: The `pre-commit` manager in Renovate is not supported by the\n`pre-commit` maintainers or community. Please do not report any problems\nthere, instead [create a Discussion in the Renovate\nrepository](https://redirect.github.com/renovatebot/renovate/discussions/new)\nif you have any questions.\n\n---\n\n- [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check\nthis box\n\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0My4xMDAuMCIsInVwZGF0ZWRJblZlciI6IjQzLjEwMC4wIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6W119-->\n\nCo-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
+          "timestamp": "2026-04-07T08:26:10+02:00",
+          "tree_id": "daef22acdc458224504aebb273645a2b5a848162",
+          "url": "https://github.com/xorq-labs/xorq/commit/b576703404d3a75d58d4b721eb1c6e456b58a192"
+        },
+        "date": 1775543379169,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.969189022962794,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020630069760218927",
+            "extra": "mean: 125.48328281818303 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.278220184866928,
+            "unit": "iter/sec",
+            "range": "stddev: 0.050379920327602676",
+            "extra": "mean: 233.7420601999952 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6422499665007922,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19082336122476307",
+            "extra": "mean: 1.557026161399989 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.4943009286676356,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02951170765338569",
+            "extra": "mean: 286.18027480000023 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.034607461993266,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04318565326432592",
+            "extra": "mean: 247.85558680000008 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.761494402712952,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018692707246758162",
+            "extra": "mean: 210.01809839999623 msec\nrounds: 5"
           }
         ]
       }
