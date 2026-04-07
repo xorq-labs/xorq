@@ -160,6 +160,33 @@ class WheelPackager:
         return cls(pyproject_path.parent, **kwargs)
 
     @classmethod
+    def from_environment(
+        cls, script_path, python=None, requires_python=">=3.10", **kwargs
+    ):
+        """Create a WheelPackager by freezing the current Python environment.
+
+        Runs ``uv pip freeze`` against the given (or current) interpreter to
+        discover installed packages, writes the result to a temporary
+        requirements file, then delegates to :meth:`from_script_and_requirements`.
+        """
+        import sys  # noqa: PLC0415
+
+        python = python or sys.executable
+        freeze_output = subprocess.check_output(
+            ("uv", "pip", "freeze", "--python", str(python)),
+            text=True,
+        )
+        with TemporaryDirectory() as tmpdir:
+            requirements_path = Path(tmpdir) / REQUIREMENTS_NAME
+            requirements_path.write_text(freeze_output)
+            return cls.from_script_and_requirements(
+                script_path,
+                requirements_path,
+                requires_python=requires_python,
+                **kwargs,
+            )
+
+    @classmethod
     def from_script_and_requirements(
         cls, script_path, requirements_path, requires_python=">=3.10", **kwargs
     ):
