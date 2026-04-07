@@ -388,49 +388,76 @@ def run_cached_command(
     from opentelemetry import trace
 
     from xorq.caching import ParquetCache, ParquetSnapshotCache, ParquetTTLSnapshotCache
+    from xorq.common.utils.logging_utils import RunLogger
+    from xorq.common.utils.profile_utils import timed
     from xorq.ibis_yaml.compiler import load_expr
 
     cache_dir = _get_cache_dir(cache_dir)
 
     span = trace.get_current_span()
-    span.add_event(
-        "run_cached.params",
-        {
-            "expr_path": str(expr_path),
-            "output_path": str(output_path),
-            "output_format": output_format,
-            "cache_type": cache_type,
-        },
+
+    expr_hash = Path(expr_path).name
+    run_params = (
+        ("expr_hash", expr_hash),
+        ("expr_path", str(expr_path)),
+        ("output_path", str(output_path)),
+        ("output_format", str(output_format)),
+        ("cache_type", cache_type),
+        ("ttl", ttl),
+        ("limit", limit),
     )
 
-    expr = load_expr(expr_path, cache_dir=cache_dir)
-    param_dict = _parse_cli_params(expr, raw_params)
-    if param_dict:
-        from xorq.expr.api import bind_params  # noqa: PLC0415
+    with RunLogger.from_expr_hash(expr_hash, params_tuple=run_params, span=span) as rl:
+        rl.log_span_event(span, "run_cached.start", dict(run_params))
 
-        expr = bind_params(expr, param_dict)
+        with timed() as get_elapsed:
+            expr = load_expr(expr_path, cache_dir=cache_dir)
+            param_dict = _parse_cli_params(expr, raw_params)
+            if param_dict:
+                from xorq.expr.api import bind_params  # noqa: PLC0415
 
-    match (cache_type, ttl):
-        case ("modification-time", None):
-            cache = ParquetCache.from_kwargs(base_path=cache_dir)
-        case (_, int(seconds)):
-            ttl_delta = datetime.timedelta(seconds=seconds)
-            cache = ParquetTTLSnapshotCache.from_kwargs(
-                base_path=cache_dir, ttl=ttl_delta
-            )
-        case ("snapshot", None):
-            cache = ParquetSnapshotCache.from_kwargs(base_path=cache_dir)
-        case _:
-            raise click.BadParameter(
-                f"Unknown cache type: {cache_type!r}. "
-                "Must be 'modification-time' or 'snapshot'."
-            )
+                expr = bind_params(expr, param_dict)
 
-    expr = expr.cache(cache=cache)
+        rl.log_span_event(
+            span, "run_cached.expr_loaded", {"elapsed_s": round(get_elapsed(), 3)}
+        )
 
-    if limit is not None:
-        expr = expr.limit(limit)
-    arbitrate_output_format(expr, output_path, output_format)
+        match (cache_type, ttl):
+            case ("modification-time", None):
+                cache = ParquetCache.from_kwargs(base_path=cache_dir)
+            case (_, int(seconds)):
+                ttl_delta = datetime.timedelta(seconds=seconds)
+                cache = ParquetTTLSnapshotCache.from_kwargs(
+                    base_path=cache_dir, ttl=ttl_delta
+                )
+            case ("snapshot", None):
+                cache = ParquetSnapshotCache.from_kwargs(base_path=cache_dir)
+            case _:
+                raise click.BadParameter(
+                    f"Unknown cache type: {cache_type!r}. "
+                    "Must be 'modification-time' or 'snapshot'."
+                )
+
+        expr = expr.cache(cache=cache)
+
+        if limit is not None:
+            expr = expr.limit(limit)
+
+        with timed() as get_elapsed:
+            arbitrate_output_format(expr, output_path, output_format)
+
+        rl.log_span_event(
+            span,
+            "run_cached.done",
+            {
+                "elapsed_s": round(get_elapsed(), 3),
+                "output_format": str(output_format),
+            },
+        )
+
+        file_metrics = RunLogger._compute_file_metrics(output_format, output_path)
+        if file_metrics:
+            rl.log_span_event(span, "run_cached.output_written", file_metrics)
 
 
 def arbitrate_output_format(expr, output_path, output_format):
