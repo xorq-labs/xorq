@@ -5,14 +5,11 @@ here=$(git rev-parse --show-toplevel)
 main=$(git worktree list --porcelain | head -1 | cut -d' ' -f2)
 manifest="$here/.envrcs/.worktree-manifest"
 
-if [ ! -f "$manifest" ]; then
-    echo "No manifest found at $manifest" >&2
-    exit 1
+if [ -f "$manifest" ]; then
+    cd "$here"
+    xargs rm -v < "$manifest"
+    rm -v "$manifest"
 fi
-
-cd "$here"
-xargs rm -v < "$manifest"
-rm -v "$manifest"
 
 cd "$main"
 git worktree remove "$here"
