@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775540494636,
+  "lastUpdate": 1775540543418,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -3960,6 +3960,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.010112869834852375",
             "extra": "mean: 196.38883483333322 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4ba2bcb647c3ab495bdf40b1ad1ed1bc2d44ee0d",
+          "message": "chore(deps): update codecov/codecov-action action to v5.5.4 (#1767)\n\nThis PR contains the following updates:\n\n| Package | Type | Update | Change |\n|---|---|---|---|\n|\n[codecov/codecov-action](https://redirect.github.com/codecov/codecov-action)\n| action | patch | `v5.5.2` → `v5.5.4` |\n\n---\n\n- [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check\nthis box\n\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0My4xMDAuMCIsInVwZGF0ZWRJblZlciI6IjQzLjEwMC4wIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6W119-->\n\nCo-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
+          "timestamp": "2026-04-07T07:39:02+02:00",
+          "tree_id": "b8234733074b0e41dc35dd5676c6a984ff17538c",
+          "url": "https://github.com/xorq-labs/xorq/commit/4ba2bcb647c3ab495bdf40b1ad1ed1bc2d44ee0d"
+        },
+        "date": 1775540540755,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.75335938219891,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00784574980635983",
+            "extra": "mean: 128.97635085714197 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.769758651042155,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01143348925765395",
+            "extra": "mean: 209.6542138000018 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7279588251300445,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17852436251612833",
+            "extra": "mean: 1.3737040687999866 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.131134047934475,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010969233388096605",
+            "extra": "mean: 194.8886914000127 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.172859889837985,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0104746862610809",
+            "extra": "mean: 193.31666066666267 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.611533502472723,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04431042532988916",
+            "extra": "mean: 216.8476059999989 msec\nrounds: 5"
           }
         ]
       }
