@@ -32,9 +32,31 @@ def localhost_and_listening(uri):
     return None
 
 
-OTELConfig = EnvConfigable.subclass_from_env_file(
-    env_templates_dir.joinpath(".env.otel.template")
-)
+# This is the only template loaded unconditionally at import time
+# (cli.py → _lazy_span → otel_utils), so it needs a fallback for
+# isolated build environments where env_templates/ may be absent.
+_otel_template = env_templates_dir.joinpath(".env.otel.template")
+if _otel_template.exists():
+    OTELConfig = EnvConfigable.subclass_from_env_file(_otel_template)
+else:
+    OTELConfig = EnvConfigable.subclass_from_kwargs(
+        "OTEL_LOG_FILE_NAME",
+        "OTEL_HOST_LOG_DIR",
+        "OTEL_COLLECTOR_CONTAINER_LOG_DIR",
+        "OTEL_COLLECTOR_PORT_GRPC",
+        "OTEL_COLLECTOR_PORT_HTTP",
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+        "OTEL_SERVICE_NAME",
+        "OTEL_EXPORTER_OTLP_PROTOCOL",
+        "OTEL_EXPORTER_CONSOLE_FALLBACK",
+        "OTEL_EXECUTION_ID",
+        "GRAFANA_CLOUD_OTLP_ENDPOINT",
+        "GRAFANA_CLOUD_INSTANCE_ID",
+        "GRAFANA_CLOUD_API_KEY",
+        "PROMETHEUS_SCRAPE_URL",
+        "PROMETHEUS_GRAFANA_ENDPOINT",
+        "PROMETHEUS_GRAFANA_USERNAME",
+    )
 otel_config = OTELConfig.from_env()
 
 
