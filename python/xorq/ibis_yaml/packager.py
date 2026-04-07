@@ -18,6 +18,7 @@ import operator
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Iterable
@@ -160,22 +161,36 @@ class WheelPackager:
         return cls(pyproject_path.parent, **kwargs)
 
     @classmethod
-    def from_environment(
-        cls, script_path, python=None, requires_python=">=3.10", **kwargs
-    ):
+    def from_environment(cls, script_path, python=None, requires_python=None, **kwargs):
         """Create a WheelPackager by freezing the current Python environment.
 
         Runs ``uv pip freeze`` against the given (or current) interpreter to
         discover installed packages, writes the result to a temporary
         requirements file, then delegates to :meth:`from_script_and_requirements`.
-        """
-        import sys  # noqa: PLC0415
 
+        If *requires_python* is not given, it is derived from the target
+        interpreter's version (e.g. ``>=3.12``).
+        """
         python = python or sys.executable
-        freeze_output = subprocess.check_output(
-            ("uv", "pip", "freeze", "--python", str(python)),
-            text=True,
-        )
+        try:
+            if requires_python is None:
+                version = subprocess.check_output(
+                    (
+                        str(python),
+                        "-c",
+                        "import sys; print(*sys.version_info[:2], sep='.')",
+                    ),
+                    text=True,
+                ).strip()
+                requires_python = f">={version}"
+            freeze_output = subprocess.check_output(
+                ("uv", "pip", "freeze", "--python", str(python)),
+                text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            raise ValueError(
+                f"failed to inspect python at {python!r}: {e.stderr or e}"
+            ) from e
         with TemporaryDirectory() as tmpdir:
             requirements_path = Path(tmpdir) / REQUIREMENTS_NAME
             requirements_path.write_text(freeze_output)
