@@ -8,7 +8,7 @@ default_stages:
   - pre-commit
 repos:
   - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.11
+    rev: v1.7.12
     hooks:
       - id: actionlint
   - repo: https://github.com/codespell-project/codespell
