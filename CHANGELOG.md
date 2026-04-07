@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.18] - 2026-04-07
+### Details
+#### Added
+- Add embed-readonly command to verify and embed read-on… by @dlovell in [#1779](https://github.com/xorq-labs/xorq/pull/1779)
+- Add RunLogger to run_cached_command and catalog run by @hussainsultan in [#1778](https://github.com/xorq-labs/xorq/pull/1778)
+
+#### Changed
+- CatalogBackend abstraction with optional git-annex by @dlovell in [#1752](https://github.com/xorq-labs/xorq/pull/1752)
+- Parquet embedded provenance by @hussainsultan in [#1777](https://github.com/xorq-labs/xorq/pull/1777)
+- Lazygit-style horizontal layout with SQL, info, and inline panels by @hussainsultan in [#1755](https://github.com/xorq-labs/xorq/pull/1755)
+- Replay, annex target support, and enableremote fixes by @dlovell in [#1774](https://github.com/xorq-labs/xorq/pull/1774)
+- Overhaul sdist build pipeline by @dlovell in [#1781](https://github.com/xorq-labs/xorq/pull/1781)
+- Defer sklearn import in translate.py by @dlovell in [#1792](https://github.com/xorq-labs/xorq/pull/1792)
+- Update actions/create-github-app-token action to v2.2.2 by @renovate[bot] in [#1766](https://github.com/xorq-labs/xorq/pull/1766)
+- Update codecov/codecov-action action to v5.5.4 by @renovate[bot] in [#1767](https://github.com/xorq-labs/xorq/pull/1767)
+- Update dependency codespell to v2.4.2 by @renovate[bot] in [#1768](https://github.com/xorq-labs/xorq/pull/1768)
+- Update dependency requests to v2.33.0 [security] by @renovate[bot] in [#1751](https://github.com/xorq-labs/xorq/pull/1751)
+- Update pre-commit hook codespell-project/codespell to v2.4.2 by @renovate[bot] in [#1771](https://github.com/xorq-labs/xorq/pull/1771)
+- Update dependency ruff to v0.15.9 by @renovate[bot] in [#1770](https://github.com/xorq-labs/xorq/pull/1770)
+- Update pre-commit hook rhysd/actionlint to v1.7.12 by @renovate[bot] in [#1772](https://github.com/xorq-labs/xorq/pull/1772)
+
+#### Fixed
+- Use namespace-aware table lookup in cross-database expr building by @dlovell in [#1773](https://github.com/xorq-labs/xorq/pull/1773)
+- Git-annex on darwin by @hussainsultan in [#1776](https://github.com/xorq-labs/xorq/pull/1776)
+
 ## [0.3.17] - 2026-03-31
 ### Details
 #### Added
