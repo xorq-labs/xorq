@@ -55,6 +55,7 @@ from xorq.common.utils.node_utils import (
 )
 from xorq.config import _backend_init
 from xorq.expr.api import deferred_read_parquet, read_parquet
+from xorq.expr.operations import _MISSING
 from xorq.expr.relations import (
     CachedNode,
     Read,
@@ -356,8 +357,6 @@ def _extract_sql_queries(expr, kind) -> tuple[tuple[str, str, str], ...]:
     # Bind named params to their defaults so SQL generation doesn't see them
     named = {n.label: n for n in clean.op().find(NamedScalarParameter)}
     if named:
-        from xorq.expr.operations import _MISSING  # noqa: PLC0415
-
         defaults = {
             label: node.default
             for label, node in named.items()
