@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775564050389,
+  "lastUpdate": 1775564381926,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -4488,6 +4488,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.02747042815882527",
             "extra": "mean: 217.40649866666692 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8975c28ce6db26ef68bc6ece99cc4f5ccc8bbc8e",
+          "message": "fix(packager): include env_templates in wheel, fallback in otel_utils (#1785)\n\n## Summary\n- **Packaging**: add `[tool.hatch.build.targets.wheel.force-include]`\nfor `env_templates/` — `.gitignore` contains `.env.*` which hatchling\ntreats as an exclusion pattern in non-VCS contexts (sdist rebuilds,\nstaging dirs, `uv tool run`). Inside a git repo hatchling uses `git\nls-files` so tracked files override `.gitignore`, but outside one (e.g.\nthe staging dirs created by\n`WheelPackager.from_script_and_requirements`) the pattern excludes the\ndotfiles. `force-include` overrides this unconditionally.\n- **Resilience**: `otel_utils.py` now falls back to\n`subclass_from_kwargs` with the same env var names if the template file\nis missing. This is the only template loaded unconditionally at import\ntime (via `cli.py → _lazy_span → otel_utils`), so it's the only one that\nneeds a fallback.\n\n## Test plan\n- [x] `uv build --sdist` succeeds and the resulting sdist contains\n`xorq/env_templates/.env.otel.template`\n- [x] `uv build --wheel` succeeds and the wheel contains\n`xorq/env_templates/.env.otel.template`\n- [x] `python -c \"from xorq.common.utils.otel_utils import tracer\"`\nworks in a fresh venv installed from the wheel\n- [x] Temporarily rename `env_templates/` and verify the import still\nsucceeds via the fallback path\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-07T14:16:12+02:00",
+          "tree_id": "8f532a105067363696b9a062fe13007975a03372",
+          "url": "https://github.com/xorq-labs/xorq/commit/8975c28ce6db26ef68bc6ece99cc4f5ccc8bbc8e"
+        },
+        "date": 1775564379367,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.122937485153102,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01755294881874706",
+            "extra": "mean: 109.61381699999865 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.4821096338374966,
+            "unit": "iter/sec",
+            "range": "stddev: 0.039034936854609764",
+            "extra": "mean: 287.18222719999176 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7090190320854285,
+            "unit": "iter/sec",
+            "range": "stddev: 0.22436934808263032",
+            "extra": "mean: 1.4103993753999986 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.1274559981190375,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01221065513414093",
+            "extra": "mean: 195.0284898333289 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.095909968642264,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00985058436583444",
+            "extra": "mean: 196.23580600000992 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.924453451630118,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04425374301209538",
+            "extra": "mean: 254.81255220000776 msec\nrounds: 5"
           }
         ]
       }
