@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775558306390,
+  "lastUpdate": 1775564050389,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -4422,6 +4422,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.04956358684645827",
             "extra": "mean: 246.97906219998913 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "be0f1d827f1d151303d489558707f3f6727106a4",
+          "message": "feat(lineage): replace flat chain with full DAG data model (#1788)\n\n## Summary\n\n- Replace `extract_lineage_chain()` (flat first-child walk) with\n`extract_lineage_dag()` (full BFS via `graph_utils.bfs()`) producing\n`{\"nodes\": (...), \"edges\": (...), \"root\": \"...\"}`\n- Change `ExprMetadata.lineage` from `tuple[str, ...]` to\n`Optional[dict]` with backward-compat `_parse_lineage()` shim for old\nlist format\n- Edges stored as `(source, target)` tuples internally, serialized to\nlists for JSON\n- BFS traverses all children including opaque sub-expressions\n(`ExprScalarUDF.computed_kwargs_expr`, `RemoteTable.remote_expr`)\n- Each node carries `id`, `type`, `label`, and optionally `schema` and\n`tag_metadata`\n\n## Files changed\n\n| File | Change |\n|------|--------|\n| `lineage_utils.py` | Replace `extract_lineage_chain` with\n`extract_lineage_dag` using `bfs()` |\n| `core.py` | `ExprMetadata.lineage` type change + `_parse_lineage()` +\n`to_dict()`/`from_dict()` |\n| `compiler.py` | Call `extract_lineage_dag` with try/except fallback |\n| `tui.py` | Render DAG node labels in `lineage_text` |\n| `test_lineage_utils.py` | 8 new tests: structure, fields, schema,\nedges, root, multi-join, round-trip, backward-compat |\n\n## Test plan\n\n- [x] `python -m pytest\npython/xorq/common/utils/tests/test_lineage_utils.py -x -q` — 14 pass\n- [x] `python -m pytest python/xorq/ibis_yaml/tests/ -x -q` — compiler\ntests pass (pre-existing failures unrelated)\n- [x] `python -m pytest python/xorq/catalog/tests/test_tui.py -x -q` —\n81/82 TUI tests pass (pre-existing failure unrelated)\n- [x] `pre-commit run --files` on all changed files — clean\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-04-07T08:10:57-04:00",
+          "tree_id": "a9dd67d87f5755f85e85aa3b1451ea7abf5121af",
+          "url": "https://github.com/xorq-labs/xorq/commit/be0f1d827f1d151303d489558707f3f6727106a4"
+        },
+        "date": 1775564047969,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.845427178903892,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018421901756984837",
+            "extra": "mean: 101.56999608333213 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.404835179824316,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05654387435130491",
+            "extra": "mean: 227.02325040000346 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7385715699359257,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13602701861279543",
+            "extra": "mean: 1.353964924600001 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.517542495577312,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006849779951099782",
+            "extra": "mean: 181.240108399993 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.17065100426388,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02897972080154252",
+            "extra": "mean: 239.7707214000036 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.59967851068346,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02747042815882527",
+            "extra": "mean: 217.40649866666692 msec\nrounds: 6"
           }
         ]
       }
