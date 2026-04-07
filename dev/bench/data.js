@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775539849382,
+  "lastUpdate": 1775540494636,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -3894,6 +3894,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.05669208124846778",
             "extra": "mean: 231.05670220000434 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "628f6fa8bd29c3be45215fa4f898d693efcc548f",
+          "message": "chore(deps): update actions/create-github-app-token action to v2.2.2 (#1766)\n\nThis PR contains the following updates:\n\n| Package | Type | Update | Change |\n|---|---|---|---|\n|\n[actions/create-github-app-token](https://redirect.github.com/actions/create-github-app-token)\n| action | patch | `v2.2.1` → `v2.2.2` |\n\n---\n\n- [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check\nthis box\n\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0My4xMDAuMCIsInVwZGF0ZWRJblZlciI6IjQzLjEwMC4wIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6W119-->\n\nCo-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
+          "timestamp": "2026-04-07T07:38:05+02:00",
+          "tree_id": "2550ffbe01a290c96bbfecf3045756598ad2a945",
+          "url": "https://github.com/xorq-labs/xorq/commit/628f6fa8bd29c3be45215fa4f898d693efcc548f"
+        },
+        "date": 1775540492275,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.877528948720654,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01807384793379261",
+            "extra": "mean: 126.94336085713839 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.765650808530698,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011335738786099326",
+            "extra": "mean: 209.834929200008 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6951308256004185,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19762236841587053",
+            "extra": "mean: 1.4385781253999936 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.1194530997588235,
+            "unit": "iter/sec",
+            "range": "stddev: 0.043835810021137504",
+            "extra": "mean: 242.7506699999924 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.8885534950106795,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016191087656153198",
+            "extra": "mean: 204.559488000001 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.091939166748747,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010112869834852375",
+            "extra": "mean: 196.38883483333322 msec\nrounds: 6"
           }
         ]
       }
