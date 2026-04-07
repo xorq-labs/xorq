@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775543381947,
+  "lastUpdate": 1775543384733,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -4290,6 +4290,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.018692707246758162",
             "extra": "mean: 210.01809839999623 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "17ae7b1e40183ca9ebb05731f29ce9b08542f8d4",
+          "message": "chore(deps): update dependency ruff to v0.15.9 (#1770)\n\nThis PR contains the following updates:\n\n| Package | Change |\n[Age](https://docs.renovatebot.com/merge-confidence/) |\n[Confidence](https://docs.renovatebot.com/merge-confidence/) |\n|---|---|---|---|\n| [ruff](https://docs.astral.sh/ruff)\n([source](https://redirect.github.com/astral-sh/ruff),\n[changelog](https://redirect.github.com/astral-sh/ruff/blob/main/CHANGELOG.md))\n| `==0.15.4` → `==0.15.9` |\n![age](https://developer.mend.io/api/mc/badges/age/pypi/ruff/0.15.9?slim=true)\n|\n![confidence](https://developer.mend.io/api/mc/badges/confidence/pypi/ruff/0.15.4/0.15.9?slim=true)\n|\n\n---\n\n- [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check\nthis box\n\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0My4xMDAuMCIsInVwZGF0ZWRJblZlciI6IjQzLjEwMi4xMSIsInRhcmdldEJyYW5jaCI6Im1haW4iLCJsYWJlbHMiOltdfQ==-->\n\nCo-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
+          "timestamp": "2026-04-07T08:25:42+02:00",
+          "tree_id": "818a2b954d02af2e4559f96de9fc37b75fe16c74",
+          "url": "https://github.com/xorq-labs/xorq/commit/17ae7b1e40183ca9ebb05731f29ce9b08542f8d4"
+        },
+        "date": 1775543382187,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.9648454899434,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012225650016572102",
+            "extra": "mean: 100.35278530000369 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.5728451228547664,
+            "unit": "iter/sec",
+            "range": "stddev: 0.029854285985119543",
+            "extra": "mean: 279.8889863999989 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6860779345254294,
+            "unit": "iter/sec",
+            "range": "stddev: 0.21755226893739874",
+            "extra": "mean: 1.4575603581999985 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.1705985100762755,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003946847493794763",
+            "extra": "mean: 193.40120840000168 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.711937931571576,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03943597771001374",
+            "extra": "mean: 212.22690420000276 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.8050122622911835,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05752735332536402",
+            "extra": "mean: 262.8112424000051 msec\nrounds: 5"
           }
         ]
       }
