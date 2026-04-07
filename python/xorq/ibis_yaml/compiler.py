@@ -699,16 +699,10 @@ class ExprLoader:
             path = expr_path.joinpath(raw)
             if path.exists():
                 return path
-            # Absolute path from a previous build dir — find the file by
-            # its relative suffix (e.g. database_tables/hash.parquet) in
-            # the current extraction directory.
-            raw = pathlib.Path(raw)
-            for d in restorable_dirs:
-                parts = raw.parts
-                if d in parts:
-                    idx = parts.index(d)
-                    return expr_path.joinpath(*parts[idx:])
-            return path
+            # Absolute path from a previous build dir — glob for the
+            # content-hashed filename in the current extraction directory.
+            matched_paths = tuple(expr_path.rglob(pathlib.Path(raw).name))
+            return matched_paths[0] if matched_paths else path
 
         def deferred_read_to_memtable(dr):
             path = _resolve_read_path(dr)
@@ -720,9 +714,7 @@ class ExprLoader:
             mt = ibis.memtable(df, schema=dr.schema, name=dr.name)
             return mt.op()
 
-        drs = tuple(
-            dr for dr in walk_nodes(Read, loaded) if _is_restorable(dr)
-        )
+        drs = tuple(dr for dr in walk_nodes(Read, loaded) if _is_restorable(dr))
         replacements = {dr: deferred_read_to_memtable(dr) for dr in drs}
         op = loaded.op()
         if replacements:
