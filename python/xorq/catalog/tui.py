@@ -370,6 +370,7 @@ class CatalogScreen(Screen):
         ("shift+tab", "focus_prev_panel", "Prev"),
         ("1", "view_sql", "SQL"),
         ("2", "view_data", "Data"),
+        ("e", "open_data_view", "Explore"),
         ("v", "toggle_revisions", "Revisions"),
         ("g", "toggle_git_log", "Git Log"),
     )
@@ -912,8 +913,198 @@ class CatalogScreen(Screen):
         next_idx = (current_idx + direction) % len(visible)
         self.query_one(visible[next_idx]).focus()
 
+    def action_open_data_view(self) -> None:
+        tree = self.query_one("#catalog-tree", Tree)
+        node = tree.cursor_node
+        if node is None or node.children:
+            return
+        row_data = self._row_cache.get(node.data)
+        if row_data is None or row_data.kind == "unbound_expr":
+            return
+        self.app.push_screen(DataViewScreen(entry=row_data.entry, row_data=row_data))
+
     def action_quit_app(self) -> None:
         self.app.exit()
+
+
+class DataViewScreen(Screen):
+    """Full-screen data viewer for a single catalog entry."""
+
+    BINDINGS = (
+        ("escape", "go_back", "Back"),
+        ("q", "go_back", "Back"),
+        ("h", "scroll_left", "Left"),
+        ("j", "cursor_down", "Down"),
+        ("k", "cursor_up", "Up"),
+        ("l", "scroll_right", "Right"),
+        ("g", "scroll_top", "Top"),
+        ("shift+g", "scroll_bottom", "Bottom"),
+        ("[", "sort_prev", "Sort ←"),
+        ("]", "sort_next", "Sort →"),
+        ("s", "toggle_stats", "Stats"),
+    )
+
+    def __init__(self, entry, row_data):
+        super().__init__()
+        self._entry = entry
+        self._row_data = row_data
+        self._df = None
+        self._sort_column_index = -1
+        self._stats_visible = False
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=False)
+        yield Static("", id="data-view-status")
+        yield DataTable(id="data-view-table")
+        with Vertical(id="stats-panel"):
+            yield DataTable(id="stats-table")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        table = self.query_one("#data-view-table", DataTable)
+        table.cursor_type = "row"
+        table.zebra_stripes = True
+        table.loading = True
+
+        stats_panel = self.query_one("#stats-panel")
+        stats_panel.border_title = "Stats"
+        stats_panel.display = False
+
+        stats_table = self.query_one("#stats-table", DataTable)
+        stats_table.cursor_type = "none"
+        stats_table.zebra_stripes = True
+
+        label = self._row_data.aliases_display or self._row_data.hash[:12]
+        self.query_one("#data-view-status", Static).update(f" Loading {label}...")
+        self._load_data()
+
+    @work(thread=True, exit_on_error=False)
+    def _load_data(self) -> None:
+        try:
+            df = self._entry.expr.limit(50_000).execute()
+            self.app.call_from_thread(self._on_data_loaded, df)
+        except Exception as e:
+            self.app.call_from_thread(self._render_error, str(e))
+
+    def _on_data_loaded(self, df) -> None:
+        self._df = df
+        self._render_table()
+
+    def _render_table(self) -> None:
+        df = self._df
+        if df is None:
+            return
+        with self.app.batch_update():
+            table = self.query_one("#data-view-table", DataTable)
+            table.clear(columns=True)
+            table.loading = False
+            for col in df.columns:
+                table.add_column(str(col), key=str(col))
+            for i, row in enumerate(df.itertuples(index=False)):
+                table.add_row(
+                    *(
+                        str(round(v, 2)) if isinstance(v, float) else str(v)
+                        for v in row
+                    ),
+                    key=str(i),
+                )
+            table.cursor_type = "row"
+            label = self._row_data.aliases_display or self._row_data.hash[:12]
+            sort_info = ""
+            if self._sort_column_index >= 0:
+                col_name = df.columns[self._sort_column_index]
+                sort_info = f" | sorted by {col_name}"
+            self.query_one("#data-view-status", Static).update(
+                f" {label} \u2014 {len(df)} rows \u00d7 {len(df.columns)} cols{sort_info}"
+            )
+
+    def _render_error(self, message) -> None:
+        self.query_one("#data-view-status", Static).update(f" Error: {message}")
+        self.query_one("#data-view-table", DataTable).loading = False
+
+    # --- Navigation ---
+
+    def action_go_back(self) -> None:
+        self._df = None
+        self.app.pop_screen()
+
+    def action_cursor_down(self) -> None:
+        self.query_one("#data-view-table", DataTable).action_cursor_down()
+
+    def action_cursor_up(self) -> None:
+        self.query_one("#data-view-table", DataTable).action_cursor_up()
+
+    def action_scroll_left(self) -> None:
+        self.query_one("#data-view-table", DataTable).action_scroll_left()
+
+    def action_scroll_right(self) -> None:
+        self.query_one("#data-view-table", DataTable).action_scroll_right()
+
+    def action_scroll_top(self) -> None:
+        table = self.query_one("#data-view-table", DataTable)
+        table.move_cursor(row=0)
+
+    def action_scroll_bottom(self) -> None:
+        table = self.query_one("#data-view-table", DataTable)
+        if table.row_count > 0:
+            table.move_cursor(row=table.row_count - 1)
+
+    # --- Sorting ---
+
+    def action_sort_prev(self) -> None:
+        if self._df is None:
+            return
+        ncols = len(self._df.columns)
+        if self._sort_column_index <= 0:
+            self._sort_column_index = ncols - 1
+        else:
+            self._sort_column_index -= 1
+        self._apply_sort()
+
+    def action_sort_next(self) -> None:
+        if self._df is None:
+            return
+        ncols = len(self._df.columns)
+        self._sort_column_index = (self._sort_column_index + 1) % ncols
+        self._apply_sort()
+
+    def _apply_sort(self) -> None:
+        col = self._df.columns[self._sort_column_index]
+        self._df = self._df.sort_values(by=col, na_position="last")
+        self._render_table()
+
+    # --- Stats ---
+
+    def action_toggle_stats(self) -> None:
+        panel = self.query_one("#stats-panel")
+        self._stats_visible = not self._stats_visible
+        panel.display = self._stats_visible
+        if self._stats_visible and self._df is not None:
+            self._render_stats()
+
+    def _render_stats(self) -> None:
+        try:
+            stats_df = self._df.describe(include="all")
+        except Exception as e:
+            self.query_one("#stats-panel").border_subtitle = f"Error: {e}"
+            return
+        with self.app.batch_update():
+            table = self.query_one("#stats-table", DataTable)
+            table.clear(columns=True)
+            table.add_column("STAT", key="STAT")
+            for col in stats_df.columns:
+                table.add_column(str(col), key=str(col))
+            for i, (idx, row) in enumerate(
+                zip(stats_df.index, stats_df.itertuples(index=False))
+            ):
+                table.add_row(
+                    str(idx),
+                    *(
+                        str(round(v, 2)) if isinstance(v, float) else str(v)
+                        for v in row
+                    ),
+                    key=str(i),
+                )
 
 
 class CatalogTUI(App):
@@ -1022,6 +1213,23 @@ class CatalogTUI(App):
         height: 1;
         padding: 0 2;
         background: $surface;
+    }
+    DataViewScreen #data-view-status {
+        height: 1;
+        padding: 0 2;
+        background: $surface;
+    }
+    DataViewScreen #data-view-table {
+        height: 1fr;
+    }
+    DataViewScreen #stats-panel {
+        height: auto;
+        max-height: 12;
+        border: solid #4AA8EC;
+        border-title-color: #4AA8EC;
+    }
+    DataViewScreen #stats-table {
+        height: auto;
     }
     """
 

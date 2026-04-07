@@ -34,6 +34,7 @@ from xorq.catalog.tui import (
     CatalogRowData,
     CatalogScreen,
     CatalogTUI,
+    DataViewScreen,
     GitLogRowData,
     RevisionRowData,
     _build_git_log_rows,
@@ -732,6 +733,116 @@ def test_cached_true_after_execution(catalog, tmp_path, parquet_dir):
     assert CatalogRowData(entry=entry).cached is True
     _, cached = _entry_info(entry)
     assert cached is True
+
+
+# ---------------------------------------------------------------------------
+# 11. DataViewScreen: pilot tests
+# ---------------------------------------------------------------------------
+
+
+def test_data_view_screen_construction(entry_a):
+    row_data = CatalogRowData(entry=entry_a)
+    screen = DataViewScreen(entry=entry_a, row_data=row_data)
+    assert screen._entry is entry_a
+    assert screen._row_data is row_data
+    assert screen._df is None
+
+
+def test_e_pushes_data_view_screen(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+            tree = screen.query_one("#catalog-tree", Tree)
+
+            await run_script(
+                pilot,
+                Press(("j",)),  # move to first leaf
+                Assert(lambda p: tree.cursor_node.data == entry_a.name),
+                Press(("e",)),
+            )
+            await settle(pilot)
+            assert isinstance(app.screen, DataViewScreen)
+
+    _run(_test())
+
+
+def test_e_on_branch_does_nothing(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+            tree = screen.query_one("#catalog-tree", Tree)
+
+            # Cursor starts on branch node ("source")
+            assert tree.cursor_node.data == "source"
+            await pilot.press("e")
+            await settle(pilot)
+            assert isinstance(app.screen, CatalogScreen)
+
+    _run(_test())
+
+
+def test_data_view_escape_returns(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+
+            await run_script(
+                pilot,
+                Press(("j",)),
+                Press(("e",)),
+            )
+            await settle(pilot)
+            assert isinstance(app.screen, DataViewScreen)
+            await pilot.press("escape")
+            await settle(pilot)
+            assert isinstance(app.screen, CatalogScreen)
+
+    _run(_test())
+
+
+def test_data_view_loads_data(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+
+            await run_script(
+                pilot,
+                Press(("j",)),
+                Press(("e",)),
+            )
+            await settle(pilot)
+            data_screen = app.screen
+            assert isinstance(data_screen, DataViewScreen)
+
+            data_table = data_screen.query_one("#data-view-table", DataTable)
+            await wait_until(pilot, lambda: data_table.row_count > 0)
+            # entry_a has 2 rows: alice, bob
+            assert data_table.row_count == 2
+
+    _run(_test())
+
+
+def test_data_view_stats_hidden_by_default(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+
+            await run_script(
+                pilot,
+                Press(("j",)),
+                Press(("e",)),
+            )
+            await settle(pilot)
+            assert isinstance(app.screen, DataViewScreen)
+            stats_panel = app.screen.query_one("#stats-panel")
+            assert stats_panel.display is False
+
+    _run(_test())
 
 
 def test_cached_display_reflects_execution_state(catalog, tmp_path, parquet_dir):
