@@ -948,9 +948,11 @@ class DataViewScreen(Screen):
         super().__init__()
         self._entry = entry
         self._row_data = row_data
+        self._ibis_expr = None
         self._df = None
         self._sort_column_index = -1
         self._stats_visible = False
+        self._stats_loaded = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -981,7 +983,8 @@ class DataViewScreen(Screen):
     @work(thread=True, exit_on_error=False)
     def _load_data(self) -> None:
         try:
-            df = self._entry.expr.limit(50_000).execute()
+            self._ibis_expr = self._entry.expr
+            df = self._ibis_expr.limit(50_000).execute()
             self.app.call_from_thread(self._on_data_loaded, df)
         except Exception as e:
             self.app.call_from_thread(self._render_error, str(e))
@@ -1026,6 +1029,7 @@ class DataViewScreen(Screen):
 
     def action_go_back(self) -> None:
         self._df = None
+        self._ibis_expr = None
         self.app.pop_screen()
 
     def action_cursor_down(self) -> None:
@@ -1079,32 +1083,111 @@ class DataViewScreen(Screen):
         panel = self.query_one("#stats-panel")
         self._stats_visible = not self._stats_visible
         panel.display = self._stats_visible
-        if self._stats_visible and self._df is not None:
-            self._render_stats()
+        if self._stats_visible and not self._stats_loaded:
+            panel.border_subtitle = "loading..."
+            self._load_stats()
 
-    def _render_stats(self) -> None:
+    @work(thread=True, exit_on_error=False)
+    def _load_stats(self) -> None:
         try:
-            stats_df = self._df.describe(include="all")
+            from xorq.vendor import ibis  # noqa: PLC0415
+            from xorq.vendor.ibis import literal as lit  # noqa: PLC0415
+            from xorq.vendor.ibis.expr import datatypes as dt  # noqa: PLC0415
+
+            expr = self._ibis_expr
+            aggs = []
+            string_cols = []
+            for pos, colname in enumerate(expr.columns):
+                col = expr[colname]
+                typ = col.type()
+
+                col_mean = lit(None).cast(float)
+                col_std = lit(None).cast(float)
+                col_min = lit(None).cast(float)
+                col_max = lit(None).cast(float)
+                col_p25 = lit(None).cast(float)
+                col_p50 = lit(None).cast(float)
+                col_p75 = lit(None).cast(float)
+
+                if typ.is_numeric():
+                    col_mean = col.mean()
+                    col_std = col.std()
+                    col_min = col.min().cast(float)
+                    col_max = col.max().cast(float)
+                    col_p25 = col.quantile(0.25).cast(float)
+                    col_p50 = col.quantile(0.50).cast(float)
+                    col_p75 = col.quantile(0.75).cast(float)
+                elif typ.is_boolean():
+                    col_mean = col.mean()
+
+                if typ.is_string():
+                    string_cols.append(colname)
+
+                aggs.append(
+                    expr.agg(
+                        name=lit(colname),
+                        pos=lit(pos, type=dt.int16),
+                        type=lit(str(typ)),
+                        count=col.count(),
+                        nulls=col.isnull().sum(),
+                        unique=col.nunique(),
+                        mean=col_mean,
+                        std=col_std,
+                        min=col_min,
+                        p25=col_p25,
+                        p50=col_p50,
+                        p75=col_p75,
+                        max=col_max,
+                    )
+                )
+
+            stats_df = ibis.union(*aggs).execute()
+
+            # Compute mode for string columns in a single batched query
+            # (avoids unsupported Mode operation)
+            if string_cols:
+                mode_exprs = []
+                for colname in string_cols:
+                    mode_exprs.append(
+                        expr.group_by(colname)
+                        .agg(_cnt=expr[colname].count())
+                        .order_by(ibis.desc("_cnt"))
+                        .limit(1)
+                        .select(
+                            _col_name=lit(colname),
+                            _mode_val=expr[colname].cast(str),
+                        )
+                    )
+                modes_df = ibis.union(*mode_exprs).execute()
+                modes = dict(zip(modes_df["_col_name"], modes_df["_mode_val"]))
+                stats_df["mode"] = stats_df["name"].map(modes).fillna("")
+
+            self.app.call_from_thread(self._render_stats, stats_df)
         except Exception as e:
-            self.query_one("#stats-panel").border_subtitle = f"Error: {e}"
-            return
+            self.app.call_from_thread(
+                self._render_stats_error, f"{type(e).__name__}: {e}"
+            )
+
+    def _render_stats(self, stats_df) -> None:
+        self._stats_loaded = True
         with self.app.batch_update():
+            panel = self.query_one("#stats-panel")
+            panel.border_subtitle = ""
             table = self.query_one("#stats-table", DataTable)
             table.clear(columns=True)
-            table.add_column("STAT", key="STAT")
             for col in stats_df.columns:
                 table.add_column(str(col), key=str(col))
-            for i, (idx, row) in enumerate(
-                zip(stats_df.index, stats_df.itertuples(index=False))
-            ):
+            for i, row in enumerate(stats_df.itertuples(index=False)):
                 table.add_row(
-                    str(idx),
                     *(
                         str(round(v, 2)) if isinstance(v, float) else str(v)
                         for v in row
                     ),
                     key=str(i),
                 )
+
+    def _render_stats_error(self, message) -> None:
+        self.query_one("#stats-panel").border_subtitle = f"Error: {message}"
 
 
 class CatalogTUI(App):
