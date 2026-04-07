@@ -136,14 +136,6 @@ def test_revision_row_columns_display_zero():
 # ---------------------------------------------------------------------------
 
 
-def test_row_shape(entry_a, alias_for_a):
-    row = CatalogRowData(entry=entry_a, aliases=(alias_for_a,))
-    kind, alias, hash_ = row.row
-    assert kind == "source"
-    assert alias == alias_for_a
-    assert hash_ == entry_a.name
-
-
 def test_cached_is_none_for_plain_memtable(entry_a):
     row = CatalogRowData(entry=entry_a)
     assert row.cached is None
@@ -288,11 +280,11 @@ def test_j_k_moves_cursor(catalog, entry_a, entry_b):
             tree = screen.query_one("#catalog-tree", Tree)
 
             # Tree structure: source (2) > entry_a, entry_b
-            # Initial cursor on "source" branch (data=None)
+            # Initial cursor on "source" branch (data=kind string)
             await run_script(
                 pilot,
                 Assert(lambda p: tree.cursor_node is not None),
-                Assert(lambda p: tree.cursor_node.data is None),  # on branch
+                Assert(lambda p: tree.cursor_node.data == "source"),  # on branch
                 Press(("j",)),
                 Assert(lambda p: tree.cursor_node.data == entry_a.name),
                 Press(("j",)),

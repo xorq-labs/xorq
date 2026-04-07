@@ -3,6 +3,7 @@ import threading
 from datetime import datetime
 from functools import cache, cached_property
 from pathlib import Path
+from typing import Literal
 
 from attr import field, frozen
 from attr.validators import instance_of, optional
@@ -75,9 +76,7 @@ XORQ_DARK = Theme(
     dark=True,
 )
 
-COLUMNS = ("KIND", "ALIAS", "HASH")
-
-KIND_ORDER = ("source", "transform", "analytic")
+KIND_ORDER = ("source", "expr", "unbound_expr", "composed")
 
 SCHEMA_PREVIEW_COLUMNS = ("NAME", "TYPE")
 
@@ -180,14 +179,6 @@ class CatalogRowData:
     @property
     def row_key(self) -> str:
         return self.hash
-
-    @property
-    def row(self) -> tuple[str, ...]:
-        return (
-            self.kind,
-            self.aliases_display,
-            self.hash,
-        )
 
 
 @frozen
@@ -395,7 +386,7 @@ class CatalogScreen(Screen):
         self._git_log_visible = False
         self._git_log_loaded = False
         self._refresh_lock = threading.Lock()
-        self._active_view = "sql"
+        self._active_view: Literal["sql", "data"] = "sql"
         self._data_preview_hash: str | None = None
 
     def compose(self) -> ComposeResult:
@@ -492,14 +483,15 @@ class CatalogScreen(Screen):
         rev_table = self.query_one("#revisions-preview-table", DataTable)
         rev_table.clear()
 
-        entry_hash = event.node.data
-        if entry_hash is None:
+        # Branch nodes (kind groupings) have children; only leaf nodes are entries
+        if event.node.children:
             sql_preview.update("")
             info_content.update("")
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
             return
 
+        entry_hash = event.node.data
         row_data = self._row_cache.get(entry_hash)
         if row_data is None:
             sql_preview.update("")
@@ -671,7 +663,7 @@ class CatalogScreen(Screen):
                 if kind not in groups:
                     continue
                 entries = groups[kind]
-                branch = tree.root.add(f"{kind} ({len(entries)})", data=None)
+                branch = tree.root.add(f"{kind} ({len(entries)})", data=kind)
                 branch.expand()
                 for row_data in entries:
                     branch.add_leaf(row_data.tree_label, data=row_data.row_key)
@@ -689,13 +681,12 @@ class CatalogScreen(Screen):
             # Find or create the kind branch
             branch = None
             for child in tree.root.children:
-                label_str = str(child.label)
-                if label_str.startswith(f"{kind} ("):
+                if child.data == kind:
                     branch = child
                     break
 
             if branch is None:
-                branch = tree.root.add(f"{kind} (1)", data=None)
+                branch = tree.root.add(f"{kind} (1)", data=kind)
                 branch.expand()
             else:
                 count = len(branch.children) + 1
@@ -704,8 +695,7 @@ class CatalogScreen(Screen):
             branch.add_leaf(row_data.tree_label, data=row_data.row_key)
 
     def _render_status(self, stamp, repo_path) -> None:
-        tree = self.query_one("#catalog-tree", Tree)
-        count = sum(len(branch.children) for branch in tree.root.children)
+        count = len(self._row_cache)
         self.query_one("#status-bar", Static).update(
             f" {count} entries \u00b7 {repo_path} \u00b7 {stamp}"
         )
