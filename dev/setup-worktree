@@ -20,7 +20,7 @@ for f in "$main"/.envrcs/.envrc.secrets "$main"/.envrcs/.envrc.user "$main"/.env
 done
 
 # Symlink shared dotfiles from main worktree
-for target in .gitignore; do
+for target in .gitignore ci/ibis-testing-data; do
     if [ -e "$main/$target" ] && [ ! -e "$here/$target" ]; then
         ln -sv "$main/$target" "$here/$target"
         echo "$target" >> "$manifest"
