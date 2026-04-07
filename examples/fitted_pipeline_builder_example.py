@@ -71,8 +71,7 @@ dev_inference = con.create_table(
 )
 
 predictions = fitted.predict(dev_inference)
-print("\nDev predictions:")
-print(predictions.execute())
+print("\nDev predictions expression built.")
 
 # ---------------------------------------------------------------------------
 # 4. Catalog the prediction expression (it becomes an ExprBuilder entry)
@@ -92,7 +91,15 @@ print(f"\nEntry kind: {entry.kind}")
 print(f"Builder metadata: {entry.metadata.builders}")
 
 # ---------------------------------------------------------------------------
-# 5. Build predictions on production data — same fitted model, different input
+# 5. Recover the FittedPipeline from the catalog entry via from_tagged
+# ---------------------------------------------------------------------------
+
+recovered_fitted = entry.expr.ls.builder
+print(f"\nRecovered type: {type(recovered_fitted).__name__}")
+print(f"Recovered pipeline: {recovered_fitted.pipeline}")
+
+# ---------------------------------------------------------------------------
+# 6. Use the recovered FittedPipeline on production data
 # ---------------------------------------------------------------------------
 
 prd_inference = con.create_table(
@@ -105,18 +112,13 @@ prd_inference = con.create_table(
     },
 )
 
-prd_predictions = fitted.predict(prd_inference)
-catalog.add(prd_predictions, aliases=("iris-predictions-prd",), sync=False)
+prd_transform = recovered_fitted.transform(prd_inference)
+print("\nProd transform:")
+print(prd_transform.execute())
 
+prd_predictions = recovered_fitted.predict(prd_inference)
 print("\nProd predictions:")
 print(prd_predictions.execute())
-
-# ---------------------------------------------------------------------------
-# 6. Final catalog state
-# ---------------------------------------------------------------------------
-
-print("\nFinal catalog entries:", catalog.list())
-print("Final catalog aliases:", catalog.list_aliases())
 
 
 if __name__ == "__pytest_main__":

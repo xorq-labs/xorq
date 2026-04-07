@@ -591,6 +591,7 @@ class FittedStep:
             "tag": str(which),
             **self.step.tag_kwargs,
             "features": self.features,
+            "target": self.target,
         }
 
     def transform(self, expr, retain_others=True):
@@ -854,6 +855,11 @@ class Pipeline:
             if not isinstance(self.predict_step.instance, ClusterMixin):
                 raise ValueError("Can't infer target for a prediction step")
         features = features or tuple(col for col in expr.columns if col != target)
+        expr = expr.tag(
+            str(FittedPipelineTagKey.TRAINING),
+            target=target,
+            features=features,
+        )
         fitted_steps = ()
         transformed = expr
         # During fit, other (non-feature) columns are only needed if a predict
