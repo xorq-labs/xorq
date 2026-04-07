@@ -20,9 +20,10 @@ from xorq.vendor.ibis.expr.operations.core import Node
 
 
 __all__ = [
+    "LineageDAG",
     "build_column_trees",
     "build_tree",
-    "extract_lineage_chain",
+    "extract_lineage_dag",
 ]
 
 
@@ -169,22 +170,71 @@ def _(node: ops.Literal) -> str:
     return f"Literal: {node.value}"
 
 
-def extract_lineage_chain(expr: Any) -> tuple[str, ...]:
-    """Extract the primary lineage chain from an expression.
+@frozen
+class LineageDAG:
+    """Typed container for a serialisable lineage DAG."""
 
-    Walks the first child at each level, returning formatted node names
-    from root to leaf.
+    nodes: tuple[dict, ...] = field(validator=instance_of(tuple))
+    edges: tuple[tuple[str, str], ...] = field(validator=instance_of(tuple))
+    root: str = field(validator=instance_of(str))
+
+    def to_dict(self) -> dict:
+        return {
+            "nodes": list(self.nodes),
+            "edges": [list(e) for e in self.edges],
+            "root": self.root,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> LineageDAG:
+        if "root" not in raw:
+            raise KeyError("lineage dict missing required key 'root'")
+        return cls(
+            nodes=tuple(raw.get("nodes", ())),
+            edges=tuple(tuple(e) for e in raw.get("edges", ())),
+            root=raw["root"],
+        )
+
+
+def _node_dict(node: Node, node_ids: dict[Node, str]) -> dict:
+    d: dict[str, Any] = {
+        "id": node_ids[node],
+        "type": type(node).__name__,
+        "label": format_node(node),
+    }
+    schema = getattr(node, "schema", None)
+    if schema is not None:
+        d["schema"] = {k: str(v) for k, v in schema.items()}
+    if isinstance(node, rel.Tag):
+        d["tag_metadata"] = {
+            k: v if isinstance(v, (str, int, float, bool)) else str(v)
+            for k, v in node.metadata.items()
+        }
+    return d
+
+
+def extract_lineage_dag(expr: Any) -> LineageDAG:
+    """Extract a full lineage DAG from an expression via BFS.
+
+    Traverses all children at each level (not just the first),
+    including opaque sub-expressions like ExprScalarUDF.computed_kwargs_expr
+    and RemoteTable.remote_expr.
+
+    Node IDs are deterministic sequential integers (BFS order) so that
+    the serialised DAG is stable across runs.
     """
+    root = to_node(expr)
+    graph = bfs(root)
 
-    def _walk(node):
-        yield format_node(node)
-        match tuple(gen_children_of(node)):
-            case (first, *_):
-                yield from _walk(first)
-            case _:
-                pass
+    # Deterministic IDs based on BFS insertion order.
+    node_ids = {node: str(i) for i, node in enumerate(graph)}
 
-    return tuple(reversed(tuple(_walk(to_node(expr)))))
+    nodes = tuple(_node_dict(n, node_ids) for n in graph)
+    edges = tuple(
+        (node_ids[n], node_ids[c]) for n, children in graph.items() for c in children
+    )
+
+    return LineageDAG(nodes=nodes, edges=edges, root=node_ids[root])
 
 
 def build_tree(
