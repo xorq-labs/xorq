@@ -170,6 +170,14 @@ class WheelPackager:
 
         If *requires_python* is not given, it is derived from the target
         interpreter's version (e.g. ``>=3.12``).
+
+        .. note::
+
+            ``uv pip freeze`` captures *all* installed packages, not just the
+            project's declared dependencies.  Unrelated packages in the
+            environment will end up in the runner's requirements.  Use
+            :meth:`from_script_path` (which runs ``uv export``) when you want
+            only the dependencies declared in pyproject.toml.
         """
         python = python or sys.executable
         try:
