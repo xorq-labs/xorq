@@ -81,7 +81,7 @@ class SnapshotStrategy(CacheStrategy):
     @staticmethod
     @functools.cache
     def cached_replace_remote_table(op):
-        def rename_remote_table(node, _, **kwargs):
+        def rename_remote_table(node, kwargs):
             if isinstance(node, RemoteTable):
                 # FIXME: how to verify that we're always within a self.normalization_context?
                 name = dask.base.tokenize(node)
@@ -94,7 +94,8 @@ class SnapshotStrategy(CacheStrategy):
                 )
                 return rt
             else:
-                return node.__recreate__(kwargs)
+                # kwargs is None when no children were rewritten (graph.py convention)
+                return node.__recreate__(kwargs) if kwargs else node
 
         return op.replace(rename_remote_table)
 

@@ -2,6 +2,8 @@ import pytest
 
 import xorq.api as xo
 from xorq.caching import ParquetCache
+from xorq.caching.strategy import SnapshotStrategy
+from xorq.expr.relations import RemoteTable
 
 
 def test_put_get_drop(tmp_path, parquet_dir):
@@ -36,3 +38,14 @@ def test_default_connection(tmp_path, parquet_dir):
     assert get_node is not None
     assert get_node.source.name == con.name
     assert get_node.to_expr().execute is not None
+
+
+def test_snapshot_strategy_calc_key_with_hashing_tag_over_remote_table():
+    t = xo.memtable({"a": [1, 2, 3]})
+    con = t._find_backend()
+    rt = RemoteTable.from_expr(con, t).to_expr()
+    tagged = rt.hashing_tag("my-source", entry_name="test-source", kind="source")
+
+    strategy = SnapshotStrategy()
+    key = strategy.calc_key(tagged)
+    assert key.startswith("snapshot-")
