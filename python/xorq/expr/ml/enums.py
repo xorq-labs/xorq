@@ -28,6 +28,7 @@ class FittedStepTagKey(StrEnum):
 
 class FittedPipelineTagKey(StrEnum):
     ALL_STEPS = "FittedPipeline-all_steps"
+    TRAINING = "FittedPipeline-training"
     TRANSFORM = "FittedPipeline-transform"
     PREDICT = "FittedPipeline-predict"
     PREDICT_PROBA = "FittedPipeline-predict_proba"

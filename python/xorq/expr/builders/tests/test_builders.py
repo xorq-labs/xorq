@@ -332,3 +332,74 @@ def test_zip_rejects_invalid():
             zf.writestr("random.txt", "nope")
         with pytest.raises(AssertionError, match="not a valid expression"):
             validate_zip(zip_path)
+
+
+# ---------------------------------------------------------------------------
+# Integration tests — ML pipeline from_tagged
+# ---------------------------------------------------------------------------
+
+sklearn = pytest.importorskip("sklearn")
+
+from sklearn.linear_model import LinearRegression  # noqa: E402
+from sklearn.preprocessing import StandardScaler  # noqa: E402
+
+from xorq.common.utils.graph_utils import walk_nodes  # noqa: E402
+from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: E402
+from xorq.expr.ml.pipeline_lib import FittedPipeline, Pipeline  # noqa: E402
+
+
+@pytest.fixture
+def ml_train_expr(con):
+    return con.create_table(
+        "ml_train",
+        {
+            "feature_0": [1.0, 2.0, 3.0],
+            "feature_1": [4.0, 5.0, 6.0],
+            "target": [0, 1, 0],
+        },
+    )
+
+
+@pytest.fixture
+def ml_fitted(ml_train_expr):
+    sk_pipe = sklearn.pipeline.make_pipeline(StandardScaler(), LinearRegression())
+    pipeline = Pipeline.from_instance(sk_pipe)
+    return pipeline.fit(ml_train_expr, target="target")
+
+
+def test_ml_training_tag_present(ml_train_expr, ml_fitted):
+    """Verify FittedPipeline-training tag is discoverable via walk_nodes."""
+    predict_expr = ml_fitted.predict(ml_train_expr)
+    tags = walk_nodes((Tag,), predict_expr)
+    training_tags = [
+        t for t in tags if t.metadata.get("tag") == str(FittedPipelineTagKey.TRAINING)
+    ]
+    assert len(training_tags) == 1
+    meta = training_tags[0].metadata
+    assert meta["target"] == "target"
+    assert set(meta["features"]) == {"feature_0", "feature_1"}
+
+
+def test_ml_extract_metadata(ml_train_expr, ml_fitted):
+    """Verify extract_builder_metadata returns steps, features, target."""
+    predict_expr = ml_fitted.predict(ml_train_expr)
+    tags = walk_nodes((Tag,), predict_expr)
+    predict_tag = next(
+        t for t in tags if t.metadata.get("tag") == str(FittedPipelineTagKey.PREDICT)
+    )
+    meta = extract_builder_metadata(str(FittedPipelineTagKey.PREDICT), predict_tag)
+    assert meta is not None
+    assert meta["type"] == "fitted_pipeline"
+    assert len(meta["steps"]) == 2
+    assert meta["target"] == "target"
+    assert set(meta["features"]) >= {"feature_0", "feature_1"}
+
+
+def test_ml_from_tagged_returns_fitted_pipeline(ml_train_expr, ml_fitted):
+    """Verify from_tagged_dispatch on a predict expr returns a FittedPipeline."""
+    predict_expr = ml_fitted.predict(ml_train_expr)
+    recovered = from_tagged_dispatch(predict_expr)
+    assert isinstance(recovered, FittedPipeline)
+    result = recovered.predict(ml_train_expr)
+    assert result is not None
+    assert "prediction" in result.columns or len(result.columns) > 0

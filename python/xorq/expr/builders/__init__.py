@@ -150,15 +150,76 @@ def _bsl_extract_metadata(tag_node):
 
 
 def _bsl_from_tagged(tag_node):
-    from boring_semantic_layer import from_tagged  # noqa: PLC0415
+    # TODO: BSL's from_tagged returns the full query chain (SemanticAggregate),
+    # not the SemanticModel. We reconstruct only the base SemanticTableOp to
+    # get the SemanticModel back so callers can issue new .query() calls.
+    from boring_semantic_layer.serialization import (  # noqa: PLC0415
+        BSLSerializationContext,
+        extract_xorq_metadata,
+        reconstruct_bsl_operation,
+    )
 
-    return from_tagged(tag_node.to_expr())
+    expr = tag_node.to_expr()
+    ctx = BSLSerializationContext()
+    metadata = extract_xorq_metadata(expr)
+    # Walk to innermost source (SemanticTableOp)
+    while src := ctx.parse_field(metadata, "source"):
+        metadata = src
+    return reconstruct_bsl_operation(metadata, expr, ctx)
 
 
-def _ml_pipeline_extract_metadata(tag_node): ...
+def _ml_pipeline_extract_metadata(tag_node):
+    from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: PLC0415
+
+    all_steps_raw = tag_node.metadata.get(str(FittedPipelineTagKey.ALL_STEPS), ())
+    steps = []
+    target = None
+    features = ()
+    for step_items in all_steps_raw:
+        d = dict(step_items)
+        steps.append(d.get("name", "unknown"))
+        if d.get("target"):
+            target = d["target"]
+        if d.get("features"):
+            features = d["features"]
+    return {
+        "type": "fitted_pipeline",
+        "description": f"{len(steps)} steps",
+        "steps": tuple(steps),
+        "features": features,
+        "target": target,
+    }
 
 
-def _ml_from_tagged(tag_node): ...
+def _ml_from_tagged(tag_node):
+    from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+    from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: PLC0415
+    from xorq.expr.relations import CachedNode, Tag  # noqa: PLC0415
+
+    expr = tag_node.to_expr()
+
+    # 1. Reconstruct Pipeline via expr.ls.pipeline
+    pipeline = expr.ls.pipeline
+
+    # 2. Find training data tag in expression tree
+    training_tag = None
+    for node in walk_nodes((Tag,), expr):
+        if node.metadata.get("tag") == str(FittedPipelineTagKey.TRAINING):
+            training_tag = node
+            break
+    if training_tag is None:
+        raise ValueError("No FittedPipeline-training tag found in expression")
+
+    train_expr = training_tag.parent.to_expr()
+    features = training_tag.metadata.get("features")
+    target = training_tag.metadata.get("target")
+
+    # 3. Find cache from CachedNode in expression tree
+    cached_nodes = walk_nodes((CachedNode,), expr)
+    cache = cached_nodes[0].cache if cached_nodes else None
+
+    # 4. Reconstruct FittedPipeline (deferred — no actual fitting)
+    return pipeline.fit(train_expr, features=features, target=target, cache=cache)
 
 
 def _register_builtins():
@@ -175,5 +236,5 @@ def _register_builtins():
         from_tagged=_ml_from_tagged,
     )
     for key in FittedPipelineTagKey:
-        if key != FittedPipelineTagKey.ALL_STEPS:
+        if key not in (FittedPipelineTagKey.ALL_STEPS, FittedPipelineTagKey.TRAINING):
             _FROM_TAGGED_REGISTRY[str(key)] = ml_handler
