@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 
 import xorq.api as xo
+from xorq.caching import ParquetCache
+from xorq.catalog.catalog import Catalog
 from xorq.catalog.zip_utils import test_zip as validate_zip
 from xorq.expr.builders import (
     _FROM_TAGGED_REGISTRY,
@@ -18,9 +20,10 @@ from xorq.expr.builders import (
     get_from_tagged_registry,
     register_tag_handler,
 )
-from xorq.expr.relations import Tag
+from xorq.expr.relations import Read, Tag
 from xorq.ibis_yaml.enums import ExprKind
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
+from xorq.vendor.ibis.expr.operations.relations import InMemoryTable
 from xorq.vendor.ibis.expr.types.core import (
     ExprMetadata,
     _extract_builders,
@@ -403,3 +406,160 @@ def test_ml_from_tagged_returns_fitted_pipeline(ml_train_expr, ml_fitted):
     result = recovered.predict(ml_train_expr)
     assert result is not None
     assert "prediction" in result.columns or len(result.columns) > 0
+
+
+# ---------------------------------------------------------------------------
+# register_tag_handler duplicate key guard
+# ---------------------------------------------------------------------------
+
+
+def test_register_duplicate_raises(saved_registry):
+    handler = TagHandler(from_tagged=lambda tag_node: "first")
+    register_tag_handler("dup_test", handler)
+    with pytest.raises(ValueError, match="already registered"):
+        register_tag_handler("dup_test", handler)
+
+
+def test_register_duplicate_override(saved_registry):
+    first = TagHandler(from_tagged=lambda tag_node: "first")
+    second = TagHandler(from_tagged=lambda tag_node: "second")
+    register_tag_handler("dup_test", first)
+    register_tag_handler("dup_test", second, override=True)
+    assert _FROM_TAGGED_REGISTRY["dup_test"] is second
+
+
+# ---------------------------------------------------------------------------
+# _register_builtins excludes TRAINING key from handler dispatch
+# ---------------------------------------------------------------------------
+
+
+def test_training_key_not_registered():
+    registry = get_from_tagged_registry()
+    assert str(FittedPipelineTagKey.TRAINING) not in registry
+    assert str(FittedPipelineTagKey.ALL_STEPS) not in registry
+    assert str(FittedPipelineTagKey.PREDICT) in registry
+    assert str(FittedPipelineTagKey.TRANSFORM) in registry
+
+
+# ---------------------------------------------------------------------------
+# FittedStep.get_tag_kwargs includes target
+# ---------------------------------------------------------------------------
+
+
+def test_fitted_step_tag_kwargs_include_target(ml_train_expr, ml_fitted):
+    for step in ml_fitted.fitted_steps:
+        kwargs = step.get_tag_kwargs()
+        assert "target" in kwargs
+        assert kwargs["target"] == "target"
+
+
+# ---------------------------------------------------------------------------
+# ML from_tagged on transform expression
+# ---------------------------------------------------------------------------
+
+
+def test_ml_from_tagged_on_transform_expr(ml_train_expr, ml_fitted):
+    transform_expr = ml_fitted.transform(ml_train_expr)
+    recovered = from_tagged_dispatch(transform_expr)
+    assert isinstance(recovered, FittedPipeline)
+    result = recovered.transform(ml_train_expr)
+    assert result is not None
+
+
+# ---------------------------------------------------------------------------
+# ML from_tagged without cache
+# ---------------------------------------------------------------------------
+
+
+def test_ml_from_tagged_without_cache(con):
+    train = con.create_table(
+        "ml_nocache",
+        {"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0], "target": [0, 1, 0]},
+    )
+    sk_pipe = sklearn.pipeline.make_pipeline(StandardScaler(), LinearRegression())
+    pipeline = Pipeline.from_instance(sk_pipe)
+    fitted = pipeline.fit(train, target="target")
+    predict_expr = fitted.predict(train)
+    recovered = from_tagged_dispatch(predict_expr)
+    assert isinstance(recovered, FittedPipeline)
+
+
+# ---------------------------------------------------------------------------
+# ML catalog roundtrip — zip → load → from_tagged → execute
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def ml_catalog_entry(con, ml_train_expr, ml_fitted):
+    predictions = ml_fitted.predict(ml_train_expr)
+    with tempfile.TemporaryDirectory() as tmp:
+        catalog = Catalog.from_repo_path(Path(tmp) / "cat", init=True)
+        catalog.add(predictions, aliases=("ml-roundtrip",), sync=False)
+        entry = catalog.get_catalog_entry("ml-roundtrip", maybe_alias=True)
+        yield entry
+
+
+def test_ml_catalog_entry_kind(ml_catalog_entry):
+    assert ml_catalog_entry.kind == ExprKind.ExprBuilder
+
+
+def test_ml_catalog_entry_sidecar_metadata(ml_catalog_entry):
+    builders = ml_catalog_entry.metadata.builders
+    assert len(builders) == 1
+    b = builders[0]
+    assert b["type"] == "fitted_pipeline"
+    assert b["target"] == "target"
+    assert len(b["steps"]) == 2
+
+
+def test_ml_catalog_roundtrip_recover_and_predict(ml_catalog_entry, con):
+    recovered = ml_catalog_entry.expr.ls.builder
+    assert isinstance(recovered, FittedPipeline)
+    prd = con.create_table(
+        "ml_prd",
+        {"feature_0": [5.0, 6.0], "feature_1": [7.0, 8.0]},
+    )
+    result = recovered.predict(prd)
+    df = result.execute()
+    assert len(df) == 2
+
+
+def test_ml_catalog_roundtrip_recover_and_transform(ml_catalog_entry, con):
+    recovered = ml_catalog_entry.expr.ls.builder
+    prd = con.create_table(
+        "ml_prd_t",
+        {"feature_0": [5.0, 6.0], "feature_1": [7.0, 8.0]},
+    )
+    result = recovered.transform(prd)
+    df = result.execute()
+    assert len(df) == 2
+
+
+# ---------------------------------------------------------------------------
+# deferred_reads_to_memtables restores database_table Read nodes
+# ---------------------------------------------------------------------------
+
+
+def test_deferred_reads_restores_database_tables(con):
+    """Verify database_table Read nodes are restored to InMemoryTable after zip roundtrip."""
+    train = con.create_table(
+        "ml_dr_test",
+        {"a": [1.0, 2.0], "b": [3.0, 4.0], "target": [0, 1]},
+    )
+    sk_pipe = sklearn.pipeline.make_pipeline(StandardScaler(), LinearRegression())
+    pipeline = Pipeline.from_instance(sk_pipe)
+    cache = ParquetCache.from_kwargs(source=con)
+    fitted = pipeline.fit(train, features=("a", "b"), target="target", cache=cache)
+    predictions = fitted.predict(train)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        catalog = Catalog.from_repo_path(Path(tmp) / "cat", init=True)
+        catalog.add(predictions, aliases=("dr-test",), sync=False)
+        entry = catalog.get_catalog_entry("dr-test", maybe_alias=True)
+        loaded_expr = entry.expr
+        remaining_reads = walk_nodes(Read, loaded_expr)
+        assert len(remaining_reads) == 0
+
+        mems = walk_nodes((InMemoryTable,), loaded_expr)
+        assert len(mems) > 0
+        assert all(len(m.data.to_frame()) > 0 for m in mems)
