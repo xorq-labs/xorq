@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775540605760,
+  "lastUpdate": 1775541163441,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -4158,6 +4158,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.03610071140148381",
             "extra": "mean: 206.6643985999974 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5d28a6071d9d68004519058f5163c8d08c97add4",
+          "message": "chore(deps): update pre-commit hook codespell-project/codespell to v2.4.2 (#1771)\n\nThis PR contains the following updates:\n\n| Package | Type | Update | Change |\n|---|---|---|---|\n|\n[codespell-project/codespell](https://redirect.github.com/codespell-project/codespell)\n| repository | patch | `v2.4.1` → `v2.4.2` |\n\nNote: The `pre-commit` manager in Renovate is not supported by the\n`pre-commit` maintainers or community. Please do not report any problems\nthere, instead [create a Discussion in the Renovate\nrepository](https://redirect.github.com/renovatebot/renovate/discussions/new)\nif you have any questions.\n\n---\n\n- [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check\nthis box\n\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0My4xMDAuMCIsInVwZGF0ZWRJblZlciI6IjQzLjEwMC4wIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6W119-->\n\nCo-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
+          "timestamp": "2026-04-07T07:49:13+02:00",
+          "tree_id": "a80b160a2eb6119f958f12175c31b3ed58d25854",
+          "url": "https://github.com/xorq-labs/xorq/commit/5d28a6071d9d68004519058f5163c8d08c97add4"
+        },
+        "date": 1775541160943,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.599869095763912,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015699235971250645",
+            "extra": "mean: 116.280839727267 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.697046626907585,
+            "unit": "iter/sec",
+            "range": "stddev: 0.021340492960230963",
+            "extra": "mean: 212.89973879999025 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7306799065951429,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16256993168980688",
+            "extra": "mean: 1.3685883394000087 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.156986672806688,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008292110360927996",
+            "extra": "mean: 193.9116897999952 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.142524884324338,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011548946585695162",
+            "extra": "mean: 194.45700750000108 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.820855282205341,
+            "unit": "iter/sec",
+            "range": "stddev: 0.019410247005686852",
+            "extra": "mean: 207.4320720000003 msec\nrounds: 5"
           }
         ]
       }
