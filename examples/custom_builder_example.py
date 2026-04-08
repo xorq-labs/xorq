@@ -81,9 +81,7 @@ register_tag_handler(
 # 3. Create data and a FeatureStore
 # ---------------------------------------------------------------------------
 
-con = xo.connect()
-table = con.create_table(
-    "sensor_data",
+table = xo.memtable(
     {
         "timestamp": [1, 2, 3, 4, 5],
         "temperature": [20.1, 21.3, 19.8, 22.0, 20.5],
@@ -91,6 +89,7 @@ table = con.create_table(
         "pressure": [1013.0, 1012.5, 1014.0, 1011.8, 1013.2],
         "wind_speed": [5.2, 3.1, 7.8, 2.4, 6.1],
     },
+    name="sensor_data",
 )
 
 store = FeatureStore(
