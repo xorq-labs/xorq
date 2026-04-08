@@ -829,10 +829,6 @@ class CatalogEntry:
         return load_expr_from_zip(self.catalog_path, lazy=True)
 
     @property
-    def parquet_cache_paths(self) -> tuple[str]:
-        return self.metadata.parquet_cache_paths
-
-    @property
     def cache_keys(self) -> tuple[str, ...]:
         return self.metadata.cache_keys
 

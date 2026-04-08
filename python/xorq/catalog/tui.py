@@ -102,11 +102,9 @@ class CatalogRowData:
 
     @property
     def cached(self) -> bool | None:
-        parquet_cache_paths = tuple(
-            self.entry.cache_keys_paths or self.entry.parquet_cache_paths
-        )
-        if parquet_cache_paths:
-            return all(Path(p).exists() for p in parquet_cache_paths)
+        cache_keys_paths = self.entry.cache_keys_paths
+        if cache_keys_paths:
+            return all(Path(p).exists() for p in cache_keys_paths)
         return None
 
     @property
@@ -149,7 +147,7 @@ class CatalogRowData:
 
     @cached_property
     def cache_info_text(self) -> str:
-        paths = tuple(self.entry.cache_keys_paths or self.entry.parquet_cache_paths)
+        paths = self.entry.cache_keys_paths
         match paths:
             case () | None:
                 return "— unknown"
@@ -227,11 +225,9 @@ class RevisionRowData:
 
 
 def _entry_info(entry: CatalogEntry) -> tuple[int | None, bool | None]:
-    parquet_cache_paths = tuple(entry.cache_keys_paths or entry.parquet_cache_paths)
+    cache_keys_paths = entry.cache_keys_paths
     cached = (
-        all(Path(p).exists() for p in parquet_cache_paths)
-        if parquet_cache_paths
-        else None
+        all(Path(p).exists() for p in cache_keys_paths) if cache_keys_paths else None
     )
     return len(entry.columns), cached
 

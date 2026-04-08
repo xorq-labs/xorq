@@ -777,7 +777,6 @@ class ExprMetadata:
         default=None, validator=optional(instance_of(ibis.expr.schema.Schema))
     )
     root_tag: Optional[str] = field(default=None)
-    parquet_cache_paths: tuple[str, ...] = field(factory=tuple)
     cache_keys: tuple[str, ...] = field(factory=tuple)
     composed_from: tuple = field(
         factory=tuple, validator=deep_iterable(instance_of(dict))
@@ -800,7 +799,6 @@ class ExprMetadata:
                 else None
             ),
             root_tag=data.get("root_tag"),
-            parquet_cache_paths=tuple(data.get("parquet_cache_paths") or ()),
             cache_keys=tuple(data.get("cache_keys") or ()),
             composed_from=tuple(data.get("composed_from") or data.get("sources") or ()),
             params=tuple(data.get("params") or ()),
@@ -816,7 +814,6 @@ class ExprMetadata:
             walk_nodes,
         )
         from xorq.expr.operations import _MISSING, NamedScalarParameter  # noqa: PLC0415
-        from xorq.expr.relations import CachedNode  # noqa: PLC0415
 
         validate_params(expr)
 
@@ -826,13 +823,6 @@ class ExprMetadata:
 
         tags = expr.ls.tags
         root_tag = tags[0].tag if tags else None
-
-        cached_nodes = walk_nodes((CachedNode,), expr)
-        parquet_cache_paths = tuple(
-            str(cn.cache.storage.get_path(cn.cache.calc_key(cn.parent)))
-            for cn in cached_nodes
-            if isinstance(cn.cache, ParquetSnapshotCache)
-        )
 
         cache_keys = (
             (expr.ls.get_key(),)
@@ -854,7 +844,6 @@ class ExprMetadata:
             schema_in=unbound_node.schema if unbound_node else None,
             schema_out=expr.as_table().schema(),
             root_tag=root_tag,
-            parquet_cache_paths=parquet_cache_paths,
             cache_keys=cache_keys,
             composed_from=_extract_sources(catalog_tag_nodes),
             params=named_params,
@@ -871,7 +860,6 @@ class ExprMetadata:
                 ),
                 ("schema_out", toolz.valmap(str, self.schema_out)),
                 ("root_tag", self.root_tag),
-                ("parquet_cache_paths", list(self.parquet_cache_paths) or None),
                 ("cache_keys", list(self.cache_keys) or None),
                 ("params", self.params or None),
                 (

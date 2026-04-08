@@ -16,12 +16,14 @@ IMPORTANT — populating the catalog tree in pilot tests:
 
 import asyncio
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from textual.widgets import DataTable, Static, Tree
 
 import xorq.api as xo
 from xorq.caching import ParquetSnapshotCache
+from xorq.catalog.catalog import CatalogEntry
 from xorq.catalog.tests.testing import (
     Assert,
     Press,
@@ -708,9 +710,9 @@ def test_cached_false_before_execution(catalog, tmp_path, parquet_dir):
     expr = t.cache(cache=cache)
     entry = catalog.add(expr)
 
-    parquet_paths = entry.parquet_cache_paths
-    assert parquet_paths, "entry must have parquet_cache_paths"
-    assert not any(Path(p).exists() for p in parquet_paths)
+    cache_keys_paths = entry.cache_keys_paths
+    assert cache_keys_paths, "entry must have cache_keys_paths"
+    assert not any(Path(p).exists() for p in cache_keys_paths)
     assert CatalogRowData(entry=entry).cached is False
     _, cached = _entry_info(entry)
     assert cached is False
@@ -726,8 +728,8 @@ def test_cached_true_after_execution(catalog, tmp_path, parquet_dir):
     entry = catalog.add(expr)
     entry.expr.execute()
 
-    parquet_paths = entry.parquet_cache_paths
-    assert all(Path(p).exists() for p in parquet_paths)
+    cache_keys_paths = entry.cache_keys_paths
+    assert all(Path(p).exists() for p in cache_keys_paths)
     assert CatalogRowData(entry=entry).cached is True
     _, cached = _entry_info(entry)
     assert cached is True
@@ -752,9 +754,43 @@ def test_memtable_cached_lifecycle(catalog, tmp_path):
     expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
     entry = catalog.add(expr)
 
-    parquet_paths = entry.parquet_cache_paths
-    assert parquet_paths, "entry must have parquet_cache_paths"
+    cache_keys_paths = entry.cache_keys_paths
+    assert cache_keys_paths, "entry must have cache_keys_paths"
     assert CatalogRowData(entry=entry).cached is False
 
     entry.expr.execute()
     assert CatalogRowData(entry=entry).cached is True
+
+
+def test_cache_keys_paths_relocatable(catalog, tmp_path):
+    """cache_keys_paths resolves against the current cache dir at access time, not the
+    absolute path recorded at catalog-add time, making entries portable across machines."""
+    cache_dir_A = tmp_path / "cache_A"
+    cache_dir_B = tmp_path / "cache_B"
+    relative = "my_relocatable_cache"
+
+    # Add entry while xorq cache dir is cache_dir_A
+    with patch("xorq.caching.storage.get_xorq_cache_dir", return_value=cache_dir_A):
+        cache = ParquetSnapshotCache.from_kwargs(relative_path=relative)
+        expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
+        entry = catalog.add(expr)
+
+    assert entry.cache_keys, "cache_keys must be stored in sidecar"
+
+    # Paths under original dir
+    with patch("xorq.caching.storage.get_xorq_cache_dir", return_value=cache_dir_A):
+        entry_at_A = CatalogEntry(name=entry.name, catalog=catalog)
+        paths_at_A = entry_at_A.cache_keys_paths
+    assert paths_at_A
+    assert str(cache_dir_A) in paths_at_A[0]
+
+    # After relocation to cache_dir_B, paths shift to the new dir
+    with patch("xorq.caching.storage.get_xorq_cache_dir", return_value=cache_dir_B):
+        entry_at_B = CatalogEntry(name=entry.name, catalog=catalog)
+        paths_at_B = entry_at_B.cache_keys_paths
+    assert paths_at_B
+    assert str(cache_dir_B) in paths_at_B[0]
+    assert str(cache_dir_A) not in paths_at_B[0]
+
+    # Same cache key filename in both locations
+    assert Path(paths_at_A[0]).name == Path(paths_at_B[0]).name
