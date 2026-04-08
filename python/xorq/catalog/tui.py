@@ -328,7 +328,7 @@ def _render_sql_dag(sqls: tuple[tuple[str, str, str], ...]) -> str:
         for engine, sql in (name_to_sql[name],)
         for label in (("main" if name == "main" else name[:12]),)
         for segment in (
-            (f"-- [{label}] ({engine})\n{sql}", "  \u2193")
+            (f"-- [{label}] ({engine})\n{sql}", "  ↓")
             if i < len(order) - 1
             else (f"-- [{label}] ({engine})\n{sql}",)
         )
@@ -484,15 +484,12 @@ class CatalogScreen(Screen):
         rev_table.clear()
 
         # Branch nodes (kind groupings) have children; only leaf nodes are entries
-        if event.node.children:
-            sql_preview.update("")
-            info_content.update("")
-            self.query_one("#schema-in-half").display = False
-            self.query_one("#revisions-panel").border_title = "Revisions"
-            return
-
         entry_hash = event.node.data
-        row_data = self._row_cache.get(entry_hash)
+        row_data = (
+            self._row_cache.get(entry_hash)
+            if not event.node.children and entry_hash is not None
+            else None
+        )
         if row_data is None:
             sql_preview.update("")
             info_content.update("")
@@ -511,7 +508,7 @@ class CatalogScreen(Screen):
                 self.query_one("#schema-in-half").display = True
                 schema_panel.border_title = "Schemas"
                 schema_panel.border_subtitle = (
-                    f"{len(schema_in)} in \u00b7 {len(row_data.schema_out)} out"
+                    f"{len(schema_in)} in · {len(row_data.schema_out)} out"
                 )
                 for name, dtype in schema_in:
                     schema_in_table.add_row(name, dtype)
@@ -540,7 +537,7 @@ class CatalogScreen(Screen):
                 )
                 engines = sorted({engine for _, engine, _ in sqls})
                 sql_panel.border_subtitle = (
-                    f"{len(sqls)} queries \u00b7 {', '.join(engines)}"
+                    f"{len(sqls)} queries · {', '.join(engines)}"
                 )
 
         # Info panel
@@ -557,16 +554,16 @@ class CatalogScreen(Screen):
                     case None:
                         self.query_one(
                             "#revisions-panel"
-                        ).border_title = "Revisions \u2014 (alias not found)"
+                        ).border_title = "Revisions — (alias not found)"
                     case _:
                         self.query_one(
                             "#revisions-panel"
-                        ).border_title = f"Revisions \u2014 {first_alias}"
+                        ).border_title = f"Revisions — {first_alias}"
                         self._load_revisions_preview(catalog_alias)
             case _:
                 self.query_one(
                     "#revisions-panel"
-                ).border_title = "Revisions \u2014 (no alias)"
+                ).border_title = "Revisions — (no alias)"
 
         # Update data preview if data view is active
         if self._active_view == "data":
@@ -647,7 +644,7 @@ class CatalogScreen(Screen):
             catalog_name = Path(repo_path).name
             self.query_one(
                 "#catalog-panel"
-            ).border_title = f"Expressions \u2014 {catalog_name}"
+            ).border_title = f"Expressions — {catalog_name}"
 
             tree = self.query_one("#catalog-tree", Tree)
             saved_line = tree.cursor_line
@@ -697,7 +694,7 @@ class CatalogScreen(Screen):
     def _render_status(self, stamp, repo_path) -> None:
         count = len(self._row_cache)
         self.query_one("#status-bar", Static).update(
-            f" {count} entries \u00b7 {repo_path} \u00b7 {stamp}"
+            f" {count} entries · {repo_path} · {stamp}"
         )
 
     # --- Toggle: Git Log ---
@@ -726,13 +723,10 @@ class CatalogScreen(Screen):
 
     # --- View switching (1/2) ---
 
-    def _set_active_view(self, view: str) -> None:
+    def _set_active_view(self, view: Literal["sql", "data"]) -> None:
         self._active_view = view
         self.query_one("#sql-panel").display = view == "sql"
         self.query_one("#data-preview-panel").display = view == "data"
-
-        if view != "data":
-            self._data_preview_hash = None
 
         if view == "data":
             tree = self.query_one("#catalog-tree", Tree)
@@ -741,6 +735,8 @@ class CatalogScreen(Screen):
                 row_data = self._row_cache.get(node.data)
                 if row_data is not None:
                     self._refresh_data_preview(row_data)
+        else:
+            self._data_preview_hash = None
 
     def action_view_sql(self) -> None:
         self._set_active_view("sql")
@@ -761,7 +757,7 @@ class CatalogScreen(Screen):
             self._load_data_preview(row_data.entry)
         else:
             self.query_one("#data-preview-status", Static).update(
-                " uncached \u2014 run to materialize"
+                " uncached — run to materialize"
             )
             dt = self.query_one("#data-preview-table", DataTable)
             dt.clear(columns=True)
@@ -794,7 +790,7 @@ class CatalogScreen(Screen):
     def _render_data_preview(self, columns, rows, total_rows) -> None:
         with self.app.batch_update():
             self.query_one("#data-preview-status", Static).update(
-                f" Data Preview \u2014 {total_rows} rows (max 50)"
+                f" Data Preview — {total_rows} rows (max 50)"
             )
             data_table = self.query_one("#data-preview-table", DataTable)
             data_table.clear(columns=True)

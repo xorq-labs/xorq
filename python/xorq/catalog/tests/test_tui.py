@@ -201,7 +201,7 @@ def test_revision_row_data_not_current():
 
 
 # ---------------------------------------------------------------------------
-# 3. Pilot tests: CatalogTUI app
+# 3. Pilot tests: app setup
 # ---------------------------------------------------------------------------
 
 
@@ -473,7 +473,7 @@ def test_schema_preview_empty_before_selection(catalog):
     _run(_test())
 
 
-def test_view_switching_1_2(catalog, entry_a):
+def test_view_switching_1_2(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
@@ -534,7 +534,7 @@ def test_tree_entry_hashes_helper(catalog, entry_a, entry_b):
 
 
 # ---------------------------------------------------------------------------
-# 8. Git Log: unit tests
+# 4. Git Log: unit tests
 # ---------------------------------------------------------------------------
 
 
@@ -577,7 +577,7 @@ def test_empty_catalog_has_initial_commit(catalog):
 
 
 # ---------------------------------------------------------------------------
-# 9. Git Log: pilot tests
+# 5. Git Log: pilot tests
 # ---------------------------------------------------------------------------
 
 
@@ -671,7 +671,7 @@ def test_toggle_triggers_load_from_real_repo(catalog, entry_a):
 
 
 # ---------------------------------------------------------------------------
-# 10. _entry_info: reads from real CatalogEntry
+# 6. _entry_info: reads from real CatalogEntry
 # ---------------------------------------------------------------------------
 
 
