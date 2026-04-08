@@ -970,11 +970,13 @@ class FittedPipeline:
 
         pipeline = expr.ls.pipeline
 
+        nodes = walk_nodes((Tag, CachedNode), expr)
         training_tag = next(
             (
-                node
-                for node in walk_nodes((Tag,), expr)
-                if node.metadata.get("tag") == str(FittedPipelineTagKey.TRAINING)
+                n
+                for n in nodes
+                if isinstance(n, Tag)
+                and n.metadata.get("tag") == str(FittedPipelineTagKey.TRAINING)
             ),
             None,
         )
@@ -985,8 +987,7 @@ class FittedPipeline:
         features = training_tag.metadata.get("features")
         target = training_tag.metadata.get("target")
 
-        cached_nodes = walk_nodes((CachedNode,), expr)
-        cache = cached_nodes[0].cache if cached_nodes else None
+        cache = next((n.cache for n in nodes if isinstance(n, CachedNode)), None)
 
         return pipeline.fit(source_expr, features=features, target=target, cache=cache)
 

@@ -31,29 +31,21 @@ Handler example::
 from __future__ import annotations
 
 import importlib.metadata
+from collections.abc import Callable
 from typing import Optional
 
 from attr import field, frozen
+from attr.validators import is_callable
 from attr.validators import optional as optional_v
 
 
 @frozen
 class TagHandler:
-    """Handler for a tagged expression builder.
-
-    Attributes
-    ----------
-    extract_metadata : callable, optional
-        ``(tag_node) → dict`` — produce sidecar metadata for the catalog.
-    from_tagged : callable, optional
-        ``(tag_node) → object`` — recover a live domain object from the tag.
-    """
-
-    extract_metadata: Optional[callable] = field(
-        default=None, validator=optional_v(lambda inst, attr, val: callable(val))
+    extract_metadata: Optional[Callable] = field(
+        default=None, validator=optional_v(is_callable())
     )
-    from_tagged: Optional[callable] = field(
-        default=None, validator=optional_v(lambda inst, attr, val: callable(val))
+    from_tagged: Optional[Callable] = field(
+        default=None, validator=optional_v(is_callable())
     )
 
 
