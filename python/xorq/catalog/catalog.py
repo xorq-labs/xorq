@@ -832,6 +832,16 @@ class CatalogEntry:
     def parquet_cache_paths(self) -> tuple[str]:
         return self.metadata.parquet_cache_paths
 
+    @property
+    def cache_keys(self) -> tuple[str, ...]:
+        return self.metadata.cache_keys
+
+    @cached_property
+    def cache_keys_paths(self) -> tuple[str, ...]:
+        if self.cache_keys and (cache_path := self.lazy_expr.ls.cache_path) is not None:
+            return (str(cache_path),)
+        return ()
+
     @cached_property
     def sidecar_metadata(self) -> dict:
         """Always-available metadata from the git-tracked sidecar file."""
