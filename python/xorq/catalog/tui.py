@@ -1,11 +1,10 @@
 import re
 import threading
-import zipfile
 from datetime import datetime
 from functools import cache, cached_property
 from pathlib import Path
+from typing import Literal
 
-import yaml12
 from attr import field, frozen
 from attr.validators import instance_of, optional
 from pygments.style import Style as PygmentsStyle
@@ -30,6 +29,7 @@ from textual.widgets import (
     Footer,
     Header,
     Static,
+    Tree,
 )
 
 from xorq.catalog.catalog import CatalogEntry
@@ -76,7 +76,7 @@ XORQ_DARK = Theme(
     dark=True,
 )
 
-COLUMNS = ("KIND", "ALIAS", "HASH", "BACKEND", "CACHED")
+KIND_ORDER = ("source", "expr", "unbound_expr", "composed")
 
 SCHEMA_PREVIEW_COLUMNS = ("NAME", "TYPE")
 
@@ -116,10 +116,6 @@ class CatalogRowData:
         return self.entry.name
 
     @property
-    def backends(self) -> tuple[str, ...]:
-        return self.entry.backends
-
-    @property
     def schema_in(self) -> tuple[tuple[str, str], ...] | None:
         si = self.entry.metadata.schema_in
         return tuple(si.items()) if si is not None else None
@@ -132,17 +128,9 @@ class CatalogRowData:
     def aliases_display(self) -> str:
         return ", ".join(self.aliases) if self.aliases else ""
 
-    @cached_property
-    def backends_display(self) -> str:
-        return ", ".join(sorted(set(self.backends))) if self.backends else ""
-
     @property
     def cached_display(self) -> str:
         return _format_cached(self.cached)
-
-    @property
-    def sort_key(self) -> tuple[str, str]:
-        return (self.aliases_display, self.hash)
 
     @cached_property
     def sqls(self) -> tuple[tuple[str, str, str], ...]:
@@ -176,19 +164,16 @@ class CatalogRowData:
         ]
         return "\n".join(parts)
 
+    @cached_property
+    def tree_label(self) -> str:
+        """Label for tree leaf node: 'alias — hash[:12]' or 'hash[:12]'."""
+        if self.aliases_display:
+            return f"{self.aliases_display} — {self.hash[:12]}"
+        return self.hash[:12]
+
     @property
     def row_key(self) -> str:
         return self.hash
-
-    @property
-    def row(self) -> tuple[str, ...]:
-        return (
-            self.kind,
-            self.aliases_display,
-            self.hash,
-            self.backends_display,
-            self.cached_display,
-        )
 
 
 @frozen
@@ -366,33 +351,27 @@ def _revision_pair(i, rev_entry, commit):
 # ---------------------------------------------------------------------------
 
 
-@frozen
-class _TogglePanelState:
-    visible: bool = field(default=False, validator=instance_of(bool))
-    loaded: bool = field(default=False, validator=instance_of(bool))
-    entry_hash: str | None = field(default=None, validator=optional(instance_of(str)))
-
-
 class CatalogScreen(Screen):
     BINDINGS = (
         ("q", "quit_app", "Quit"),
         ("ctrl+c", "quit_app", "Quit"),
-        ("h", "scroll_left", "Left"),
+        ("h", "tree_collapse", "Collapse"),
         ("j", "cursor_down", "Down"),
         ("k", "cursor_up", "Up"),
-        ("l", "scroll_right", "Right"),
+        ("l", "tree_expand", "Expand"),
         ("tab", "focus_next_panel", "Next"),
         ("shift+tab", "focus_prev_panel", "Prev"),
+        ("1", "view_sql", "SQL"),
+        ("2", "view_data", "Data"),
+        ("v", "toggle_revisions", "Revisions"),
         ("g", "toggle_git_log", "Git Log"),
-        ("d", "toggle_data_preview", "Data"),
-        ("p", "toggle_profiles", "Profiles"),
     )
 
     FOCUS_CYCLE = (
-        "#catalog-table",
+        "#catalog-tree",
         "#sql-panel",
+        "#data-preview-panel",
         "#schema-preview-table",
-        "#revisions-preview-table",
     )
 
     def __init__(self, refresh_interval=DEFAULT_REFRESH_INTERVAL):
@@ -402,15 +381,15 @@ class CatalogScreen(Screen):
         self._git_log_visible = False
         self._git_log_loaded = False
         self._refresh_lock = threading.Lock()
-        self._data_preview = _TogglePanelState()
-        self._profiles = _TogglePanelState()
+        self._active_view: Literal["sql", "data"] = "sql"
+        self._data_preview_hash: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Horizontal(id="main-split"):
             with Vertical(id="left-column"):
                 with Vertical(id="catalog-panel"):
-                    yield DataTable(id="catalog-table")
+                    yield Tree("Catalog", id="catalog-tree")
                 with Vertical(id="revisions-panel"):
                     yield DataTable(id="revisions-preview-table")
                 with Vertical(id="git-log-panel"):
@@ -418,6 +397,9 @@ class CatalogScreen(Screen):
             with Vertical(id="right-column"):
                 with VerticalScroll(id="sql-panel"):
                     yield Static("", id="sql-preview")
+                with Vertical(id="data-preview-panel"):
+                    yield Static("", id="data-preview-status")
+                    yield DataTable(id="data-preview-table")
                 with Vertical(id="info-panel"):
                     yield Static("", id="info-content")
                 with Vertical(id="schema-panel"):
@@ -426,20 +408,13 @@ class CatalogScreen(Screen):
                             yield DataTable(id="schema-in-table")
                         with Vertical(id="schema-out-half"):
                             yield DataTable(id="schema-preview-table")
-                with Vertical(id="data-preview-panel"):
-                    yield Static("", id="data-preview-status")
-                    yield DataTable(id="data-preview-table")
-                with Vertical(id="profiles-panel"):
-                    yield DataTable(id="profiles-table")
         yield Static("", id="status-bar")
         yield Footer()
 
     def on_mount(self) -> None:
-        table = self.query_one("#catalog-table", DataTable)
-        table.cursor_type = "row"
-        table.zebra_stripes = True
-        for col in COLUMNS:
-            table.add_column(col, key=col)
+        tree = self.query_one("#catalog-tree", Tree)
+        tree.show_root = False
+        tree.guide_depth = 3
 
         schema_in_table = self.query_one("#schema-in-table", DataTable)
         schema_in_table.cursor_type = "row"
@@ -470,35 +445,30 @@ class CatalogScreen(Screen):
         data_table.zebra_stripes = True
         data_table.loading = True
 
-        profiles_table = self.query_one("#profiles-table", DataTable)
-        profiles_table.cursor_type = "row"
-        profiles_table.zebra_stripes = True
-        profiles_table.add_column("NAME", key="name")
-        profiles_table.add_column("BACKEND", key="backend")
-        profiles_table.add_column("PARAMETERS", key="params")
-        profiles_table.add_column("ENV VARS", key="env_vars")
-
         self.query_one("#catalog-panel").border_title = "Expressions"
         self.query_one("#schema-panel").border_title = "Schema"
         self.query_one("#schema-in-half").display = False
         self.query_one("#sql-panel").border_title = "SQL"
         self.query_one("#info-panel").border_title = "Info"
         self.query_one("#revisions-panel").border_title = "Revisions"
+        self.query_one("#revisions-panel").display = False
+
         git_log_panel = self.query_one("#git-log-panel")
         git_log_panel.border_title = "Git Log"
         git_log_panel.display = False
+
         data_panel = self.query_one("#data-preview-panel")
         data_panel.border_title = "Data Preview"
         data_panel.display = False
-        profiles_panel = self.query_one("#profiles-panel")
-        profiles_panel.border_title = "Profiles"
-        profiles_panel.display = False
+
         self.query_one("#status-bar", Static).update(" Loading catalog...")
 
         self.set_interval(self._refresh_interval, self._do_refresh)
 
-    @on(DataTable.RowHighlighted, "#catalog-table")
-    def _on_catalog_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+    # --- Tree node selection ---
+
+    @on(Tree.NodeHighlighted, "#catalog-tree")
+    def _on_tree_node_highlighted(self, event: Tree.NodeHighlighted) -> None:
         schema_in_table = self.query_one("#schema-in-table", DataTable)
         schema_in_table.clear()
         schema_out_table = self.query_one("#schema-preview-table", DataTable)
@@ -508,21 +478,18 @@ class CatalogScreen(Screen):
         rev_table = self.query_one("#revisions-preview-table", DataTable)
         rev_table.clear()
 
-        if event.row_key is None:
-            sql_preview.update("")
-            info_content.update("")
-            self.query_one("#schema-in-half").display = False
-            self.query_one("#revisions-panel").border_title = "Revisions"
-            self._reset_toggle_panels()
-            return
-
-        row_data = self._row_cache.get(str(event.row_key.value))
+        # Branch nodes (kind groupings) have children; only leaf nodes are entries
+        entry_hash = event.node.data
+        row_data = (
+            self._row_cache.get(entry_hash)
+            if not event.node.children and entry_hash is not None
+            else None
+        )
         if row_data is None:
             sql_preview.update("")
             info_content.update("")
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
-            self._reset_toggle_panels()
             return
 
         # Schema
@@ -543,7 +510,7 @@ class CatalogScreen(Screen):
         for name, dtype in row_data.schema_out:
             schema_out_table.add_row(name, dtype)
 
-        # SQL preview (sync — in-memory AST compilation)
+        # SQL preview
         sql_panel = self.query_one("#sql-panel")
         match row_data.sqls:
             case ():
@@ -565,13 +532,13 @@ class CatalogScreen(Screen):
                 )
                 engines = sorted({engine for _, engine, _ in sqls})
                 sql_panel.border_subtitle = (
-                    f"{len(sqls)} queries \u00b7 {', '.join(engines)}"
+                    f"{len(sqls)} queries · {', '.join(engines)}"
                 )
 
-        # Info panel (sync)
+        # Info panel
         info_content.update(row_data.info_text)
 
-        # Revisions preview (async — requires git I/O)
+        # Revisions preview
         match row_data.aliases:
             case (first_alias, *_):
                 catalog_alias = next(
@@ -593,63 +560,21 @@ class CatalogScreen(Screen):
                     "#revisions-panel"
                 ).border_title = "Revisions — (no alias)"
 
-        # Update toggle panels for new row (preserve visibility)
-        self._update_toggle_panels(row_data, str(event.row_key.value))
+        # Update data preview if data view is active
+        if self._active_view == "data":
+            self._refresh_data_preview(row_data)
 
-    def _update_toggle_panels(self, row_data, entry_hash) -> None:
-        """Update toggle panels for a new row, preserving visibility."""
-        if self._data_preview.visible:
-            dt = self.query_one("#data-preview-table", DataTable)
-            if row_data.cached:
-                self._data_preview = _TogglePanelState(
-                    visible=True,
-                    loaded=True,
-                    entry_hash=entry_hash,
-                )
-                dt.loading = True
-                self.query_one("#data-preview-status", Static).update(
-                    " Loading data preview..."
-                )
-                self._load_data_preview(row_data.entry)
-            else:
-                self._data_preview = _TogglePanelState(visible=True)
-                self.query_one("#data-preview-status", Static).update(
-                    " uncached — run to materialize"
-                )
-                dt.clear(columns=True)
-                dt.loading = False
-        else:
-            self._data_preview = _TogglePanelState()
-            dt = self.query_one("#data-preview-table", DataTable)
-            dt.clear(columns=True)
-            dt.loading = True
+    def _tree_entry_hashes(self) -> set[str]:
+        """Return set of entry hashes currently in the tree."""
+        tree = self.query_one("#catalog-tree", Tree)
+        return {
+            node.data
+            for branch in tree.root.children
+            for node in branch.children
+            if node.data is not None
+        }
 
-        if self._profiles.visible:
-            self._reload_profiles_for_current(row_data, entry_hash)
-        else:
-            self._profiles = _TogglePanelState()
-            self.query_one("#profiles-panel").display = False
-            self.query_one("#profiles-table", DataTable).clear()
-
-    def _reload_profiles_for_current(self, row_data, entry_hash) -> None:
-        """Reload profiles panel content for a new row while keeping it visible."""
-        self._profiles = _TogglePanelState(
-            visible=True,
-            loaded=True,
-            entry_hash=entry_hash,
-        )
-        self._load_profiles(row_data.entry)
-
-    def _reset_toggle_panels(self) -> None:
-        self._data_preview = _TogglePanelState()
-        self.query_one("#data-preview-panel").display = False
-        dt = self.query_one("#data-preview-table", DataTable)
-        dt.clear(columns=True)
-        dt.loading = True
-
-        self._profiles = _TogglePanelState()
-        self.query_one("#profiles-panel").display = False
-        self.query_one("#profiles-table", DataTable).clear()
+    # --- Refresh ---
 
     @work(thread=True, exit_on_error=False)
     def _do_refresh(self) -> None:
@@ -716,26 +641,55 @@ class CatalogScreen(Screen):
                 "#catalog-panel"
             ).border_title = f"Expressions — {catalog_name}"
 
-            table = self.query_one("#catalog-table", DataTable)
-            saved_cursor = table.cursor_row
-            table.clear()
+            tree = self.query_one("#catalog-tree", Tree)
+            saved_line = tree.cursor_line
+            tree.clear()
+
+            # Group rows by kind
+            groups: dict[str, list[CatalogRowData]] = {}
             for row_data in cached_rows:
-                table.add_row(*row_data.row, key=row_data.row_key)
-            count = table.row_count
-            if saved_cursor is not None and count > 0:
-                table.move_cursor(row=min(saved_cursor, count - 1))
+                groups.setdefault(row_data.kind, []).append(row_data)
+
+            # Add branches in KIND_ORDER, then any remaining kinds
+            for kind in (*KIND_ORDER, *(k for k in groups if k not in KIND_ORDER)):
+                if kind not in groups:
+                    continue
+                entries = groups[kind]
+                branch = tree.root.add(f"{kind} ({len(entries)})", data=kind)
+                branch.expand()
+                for row_data in entries:
+                    branch.add_leaf(row_data.tree_label, data=row_data.row_key)
+
+            # Restore approximate cursor position
+            total = sum(1 + len(b.children) for b in tree.root.children)
+            if total > 0:
+                tree.cursor_line = min(saved_line, total - 1)
 
     def _render_catalog_row(self, row_data) -> None:
         with self.app.batch_update():
-            table = self.query_one("#catalog-table", DataTable)
-            if len(table.columns) < len(COLUMNS):
-                return
-            table.add_row(*row_data.row, key=row_data.row_key)
+            tree = self.query_one("#catalog-tree", Tree)
+            kind = row_data.kind
+
+            # Find or create the kind branch
+            branch = None
+            for child in tree.root.children:
+                if child.data == kind:
+                    branch = child
+                    break
+
+            if branch is None:
+                branch = tree.root.add(f"{kind} (1)", data=kind)
+                branch.expand()
+            else:
+                count = len(branch.children) + 1
+                branch.set_label(f"{kind} ({count})")
+
+            branch.add_leaf(row_data.tree_label, data=row_data.row_key)
 
     def _render_status(self, stamp, repo_path) -> None:
-        count = self.query_one("#catalog-table", DataTable).row_count
+        count = len(self._row_cache)
         self.query_one("#status-bar", Static).update(
-            f" {count} entries \u00b7 {repo_path} \u00b7 {stamp}"
+            f" {count} entries · {repo_path} · {stamp}"
         )
 
     # --- Toggle: Git Log ---
@@ -762,49 +716,55 @@ class CatalogScreen(Screen):
             for i, row_data in enumerate(rows):
                 table.add_row(*row_data.row, key=str(i))
 
-    # --- Toggle: Data Preview ---
+    # --- View switching (1/2) ---
 
-    def action_toggle_data_preview(self) -> None:
-        table = self.query_one("#catalog-table", DataTable)
-        if table.row_count == 0:
+    def _set_active_view(self, view: Literal["sql", "data"]) -> None:
+        self._active_view = view
+        self.query_one("#sql-panel").display = view == "sql"
+        self.query_one("#data-preview-panel").display = view == "data"
+
+        if view == "data":
+            tree = self.query_one("#catalog-tree", Tree)
+            node = tree.cursor_node
+            if node is not None and node.data is not None:
+                row_data = self._row_cache.get(node.data)
+                if row_data is not None:
+                    self._refresh_data_preview(row_data)
+        else:
+            self._data_preview_hash = None
+
+    def action_view_sql(self) -> None:
+        self._set_active_view("sql")
+
+    def action_view_data(self) -> None:
+        self._set_active_view("data")
+
+    def _refresh_data_preview(self, row_data) -> None:
+        entry_hash = row_data.row_key
+        if self._data_preview_hash == entry_hash:
             return
-        row_key, _ = table.coordinate_to_cell_key(table.cursor_coordinate)
-        entry_hash = str(row_key.value)
-        row_data = self._row_cache.get(entry_hash)
-        if row_data is None:
-            return
+        self._data_preview_hash = entry_hash
+        if row_data.cached is True:
+            self.query_one("#data-preview-status", Static).update(
+                " Loading data preview..."
+            )
+            self.query_one("#data-preview-table", DataTable).loading = True
+            self._load_data_preview(row_data.entry)
+        else:
+            self.query_one("#data-preview-status", Static).update(
+                " uncached — run to materialize"
+            )
+            dt = self.query_one("#data-preview-table", DataTable)
+            dt.clear(columns=True)
+            dt.loading = False
 
-        toggled = not self._data_preview.visible
-        self._data_preview = _TogglePanelState(
-            visible=toggled,
-            loaded=self._data_preview.loaded,
-            entry_hash=self._data_preview.entry_hash,
-        )
-        self.query_one("#data-preview-panel").display = toggled
+    # --- Toggle: Revisions (v) ---
 
-        if not toggled:
-            return
+    def action_toggle_revisions(self) -> None:
+        panel = self.query_one("#revisions-panel")
+        panel.display = not panel.display
 
-        match row_data.cached:
-            case True:
-                if (
-                    not self._data_preview.loaded
-                    or self._data_preview.entry_hash != entry_hash
-                ):
-                    self._data_preview = _TogglePanelState(
-                        visible=True,
-                        loaded=True,
-                        entry_hash=entry_hash,
-                    )
-                    self.query_one("#data-preview-status", Static).update(
-                        " Loading data preview..."
-                    )
-                    self._load_data_preview(row_data.entry)
-            case _:
-                self.query_one("#data-preview-status", Static).update(
-                    " uncached — run to materialize"
-                )
-                self.query_one("#data-preview-table", DataTable).loading = False
+    # --- Data Preview (worker) ---
 
     @work(thread=True, exit_on_error=False)
     def _load_data_preview(self, entry) -> None:
@@ -840,84 +800,6 @@ class CatalogScreen(Screen):
         self.query_one("#data-preview-status", Static).update(f" Error: {message}")
         self.query_one("#data-preview-table", DataTable).loading = False
 
-    # --- Toggle: Profiles ---
-
-    def action_toggle_profiles(self) -> None:
-        table = self.query_one("#catalog-table", DataTable)
-        if table.row_count == 0:
-            return
-        row_key, _ = table.coordinate_to_cell_key(table.cursor_coordinate)
-        entry_hash = str(row_key.value)
-        row_data = self._row_cache.get(entry_hash)
-        if row_data is None:
-            return
-
-        toggled = not self._profiles.visible
-        self._profiles = _TogglePanelState(
-            visible=toggled,
-            loaded=self._profiles.loaded,
-            entry_hash=self._profiles.entry_hash,
-        )
-        self.query_one("#profiles-panel").display = toggled
-
-        if toggled and (
-            not self._profiles.loaded or self._profiles.entry_hash != entry_hash
-        ):
-            self._profiles = _TogglePanelState(
-                visible=True,
-                loaded=True,
-                entry_hash=entry_hash,
-            )
-            self._load_profiles(row_data.entry)
-
-    @work(thread=True, exit_on_error=False)
-    def _load_profiles(self, entry) -> None:
-        if not entry.catalog_path.exists() or not zipfile.is_zipfile(
-            entry.catalog_path
-        ):
-            return
-
-        env_re = re.compile(r"^\$\{(.+)\}$|^\$(.+)$")
-
-        def _extract_env_vars(kwargs):
-            return tuple(
-                m.group(1) or m.group(2)
-                for v in kwargs.values()
-                if isinstance(v, str) and (m := env_re.match(v))
-            )
-
-        with zipfile.ZipFile(entry.catalog_path, "r") as zf:
-            member_path = f"{entry.name}/profiles.yaml"
-            if member_path not in zf.namelist():
-                return
-            data = yaml12.parse_yaml(zf.read(member_path))
-        match data:
-            case dict():
-                pass
-            case _:
-                return
-        rows = tuple(
-            (
-                pname,
-                pdata.get("con_name", "?"),
-                ", ".join(
-                    f"{k}={v}"
-                    for k, v in (pdata.get("kwargs_tuple") or {}).items()
-                    if v is not None
-                ),
-                ", ".join(_extract_env_vars(pdata.get("kwargs_tuple") or {})),
-            )
-            for pname, pdata in data.items()
-        )
-        self.app.call_from_thread(self._render_profiles, rows)
-
-    def _render_profiles(self, rows) -> None:
-        with self.app.batch_update():
-            table = self.query_one("#profiles-table", DataTable)
-            table.clear()
-            for i, (name, backend, params, env_vars) in enumerate(rows):
-                table.add_row(name, backend, params, env_vars, key=str(i))
-
     # --- Revisions Preview ---
 
     @work(thread=True, exit_on_error=False)
@@ -944,43 +826,55 @@ class CatalogScreen(Screen):
 
     # --- Navigation ---
 
-    def _focused_widget(self) -> DataTable | VerticalScroll:
+    def action_tree_collapse(self) -> None:
+        """h: collapse branch in tree, scroll left in DataTable."""
         focused = self.app.focused
-        if isinstance(focused, (DataTable, VerticalScroll)):
-            return focused
-        return self.query_one("#catalog-table", DataTable)
-
-    def action_scroll_left(self) -> None:
-        w = self._focused_widget()
-        match w:
-            case DataTable():
-                w.action_scroll_left()
-            case VerticalScroll():
-                pass
+        tree = self.query_one("#catalog-tree", Tree)
+        if focused is tree:
+            node = tree.cursor_node
+            if node is not None:
+                if node.children and node.is_expanded:
+                    node.collapse()
+                elif node.parent is not None and node.parent is not tree.root:
+                    tree.select_node(node.parent)
+                    node.parent.collapse()
+        elif isinstance(focused, DataTable):
+            focused.action_scroll_left()
 
     def action_cursor_down(self) -> None:
-        w = self._focused_widget()
-        match w:
-            case DataTable():
-                w.action_cursor_down()
-            case VerticalScroll():
-                w.scroll_down()
+        focused = self.app.focused
+        tree = self.query_one("#catalog-tree", Tree)
+        if focused is tree:
+            tree.action_cursor_down()
+        elif isinstance(focused, DataTable):
+            focused.action_cursor_down()
+        elif isinstance(focused, VerticalScroll):
+            focused.scroll_down()
 
     def action_cursor_up(self) -> None:
-        w = self._focused_widget()
-        match w:
-            case DataTable():
-                w.action_cursor_up()
-            case VerticalScroll():
-                w.scroll_up()
+        focused = self.app.focused
+        tree = self.query_one("#catalog-tree", Tree)
+        if focused is tree:
+            tree.action_cursor_up()
+        elif isinstance(focused, DataTable):
+            focused.action_cursor_up()
+        elif isinstance(focused, VerticalScroll):
+            focused.scroll_up()
 
-    def action_scroll_right(self) -> None:
-        w = self._focused_widget()
-        match w:
-            case DataTable():
-                w.action_scroll_right()
-            case VerticalScroll():
-                pass
+    def action_tree_expand(self) -> None:
+        """l: expand branch in tree, scroll right in DataTable."""
+        focused = self.app.focused
+        tree = self.query_one("#catalog-tree", Tree)
+        if focused is tree:
+            node = tree.cursor_node
+            if node is not None:
+                if node.children and not node.is_expanded:
+                    node.expand()
+                elif node.children and node.is_expanded:
+                    first_child = node.children[0]
+                    tree.select_node(first_child)
+        elif isinstance(focused, DataTable):
+            focused.action_scroll_right()
 
     def action_focus_next_panel(self) -> None:
         self._cycle_focus(1)
@@ -1001,7 +895,7 @@ class CatalogScreen(Screen):
                 for i, sel in enumerate(visible)
                 if current is self.query_one(sel)
                 or (
-                    isinstance(current, DataTable)
+                    isinstance(current, (DataTable, Tree))
                     and current.parent is not None
                     and current.parent is self.query_one(sel).parent
                 )
@@ -1033,7 +927,7 @@ class CatalogTUI(App):
         border-title-color: #C1F0FF;
         background: $surface;
     }
-    #catalog-table {
+    #catalog-tree {
         height: 1fr;
     }
     #revisions-panel {
@@ -1067,6 +961,9 @@ class CatalogTUI(App):
         padding: 1 2;
     }
     DataTable:focus {
+        border: none;
+    }
+    Tree:focus {
         border: none;
     }
     #info-panel {
@@ -1111,14 +1008,6 @@ class CatalogTUI(App):
         padding: 0 2;
     }
     #data-preview-table {
-        height: 1fr;
-    }
-    #profiles-panel {
-        height: 1fr;
-        border: solid #2BBE75;
-        border-title-color: #2BBE75;
-    }
-    #profiles-table {
         height: 1fr;
     }
     #status-bar {
