@@ -29,6 +29,10 @@ from xorq.tests.util import assert_frame_equal
 
 
 duckdb = pytest.importorskip("duckdb")
+try:
+    CatalogException = duckdb.CatalogException
+except AttributeError:
+    CatalogException = duckdb.duckdb.CatalogException
 ProgrammingError = pytest.importorskip("adbc_driver_manager").ProgrammingError
 
 
@@ -223,7 +227,7 @@ def test_cached_deferred_read(get_con, pins_resource, filter_, request, tmp_path
     # we read from cache even if the table disappears
     try:
         con.drop_table(t.op().name, force=True)
-    except duckdb.duckdb.CatalogException:
+    except CatalogException:
         con.drop_view(t.op().name)
 
     assert xo.execute(expr).equals(df)

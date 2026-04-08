@@ -1,5 +1,10 @@
 import pytest
-from duckdb import CatalogException
+
+
+try:
+    from duckdb import CatalogException
+except ImportError:
+    from duckdb.duckdb import CatalogException
 
 import xorq.api as xo
 
