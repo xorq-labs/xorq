@@ -738,6 +738,20 @@ def _extract_kind(unbound_node, catalog_tag_nodes, is_source):
             return ExprKind.Expr
 
 
+def _validate_cache_keys(instance, attribute, value):
+    """deep_iterable(instance_of(CacheKey)) but with a deferred import to break
+    the cycle: core.py → caching_utils → relations → … → core.py"""
+    from xorq.common.utils.caching_utils import CacheKey  # noqa: PLC0415
+
+    if not isinstance(value, tuple):
+        raise TypeError(f"'cache_keys' must be a tuple, got {type(value).__name__}")
+    for ck in value:
+        if not isinstance(ck, CacheKey):
+            raise TypeError(
+                f"'cache_keys' items must be CacheKey, got {type(ck).__name__}"
+            )
+
+
 def _validate_lineage(instance, attribute, value):
     """optional(instance_of(LineageDAG)) but with a deferred import to break
     the cycle: core.py → lineage_utils → rel → backends → … → core.py"""
@@ -750,17 +764,6 @@ def _validate_lineage(instance, attribute, value):
             raise TypeError(
                 f"'lineage' must be a LineageDAG or None, got {type(value).__name__}"
             )
-
-
-def _parse_cache_keys(raw):
-    """Convert a list of ``{key, relative_path}`` dicts into a tuple of CacheKey."""
-    from xorq.common.utils.caching_utils import CacheKey
-
-    if not raw:
-        return ()
-    return tuple(
-        CacheKey(key=ck["key"], relative_path=ck["relative_path"]) for ck in raw
-    )
 
 
 def _parse_lineage(raw):
@@ -788,13 +791,24 @@ class ExprMetadata:
         default=None, validator=optional(instance_of(ibis.expr.schema.Schema))
     )
     root_tag: Optional[str] = field(default=None)
-    cache_keys: tuple = field(factory=tuple)  # tuple[CacheKey, ...]
+    cache_keys: tuple = field(factory=tuple, validator=_validate_cache_keys)
     composed_from: tuple = field(
         factory=tuple, validator=deep_iterable(instance_of(dict))
     )
     params: tuple = field(factory=tuple)
     sql_queries: tuple[tuple[str, str, str], ...] = field(factory=tuple)
     lineage: Optional[LineageDAG] = field(default=None, validator=_validate_lineage)
+
+    @staticmethod
+    def _parse_cache_keys(raw):
+        """Convert a list of ``{key, relative_path}`` dicts into a tuple of CacheKey."""
+        from xorq.common.utils.caching_utils import CacheKey  # noqa: PLC0415
+
+        if not raw:
+            return ()
+        return tuple(
+            CacheKey(key=ck["key"], relative_path=ck["relative_path"]) for ck in raw
+        )
 
     @classmethod
     def from_dict(cls, data):
@@ -810,7 +824,7 @@ class ExprMetadata:
                 else None
             ),
             root_tag=data.get("root_tag"),
-            cache_keys=_parse_cache_keys(data.get("cache_keys")),
+            cache_keys=cls._parse_cache_keys(data.get("cache_keys")),
             composed_from=tuple(data.get("composed_from") or data.get("sources") or ()),
             params=tuple(data.get("params") or ()),
             sql_queries=tuple(tuple(q) for q in data.get("sql_queries", ())),
