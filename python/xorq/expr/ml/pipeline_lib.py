@@ -957,6 +957,39 @@ class FittedPipeline:
     def __attrs_post_init__(self):
         assert self.fitted_steps
 
+    @classmethod
+    def from_expr(cls, expr):
+        """Recover a FittedPipeline from a tagged expression.
+
+        Walks tags to find the pipeline definition, training data, and cache,
+        then replays ``pipeline.fit()``.
+        """
+        from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+        from xorq.expr.relations import CachedNode, Tag  # noqa: PLC0415
+
+        pipeline = expr.ls.pipeline
+
+        nodes = walk_nodes((Tag, CachedNode), expr)
+        training_tag = next(
+            (
+                n
+                for n in nodes
+                if isinstance(n, Tag)
+                and n.metadata.get("tag") == str(FittedPipelineTagKey.TRAINING)
+            ),
+            None,
+        )
+        if training_tag is None:
+            raise ValueError("No FittedPipeline-training tag found in expression")
+
+        source_expr = training_tag.parent.to_expr()
+        features = training_tag.metadata.get("features")
+        target = training_tag.metadata.get("target")
+
+        cache = next((n.cache for n in nodes if isinstance(n, CachedNode)), None)
+
+        return pipeline.fit(source_expr, features=features, target=target, cache=cache)
+
     @property
     def pipeline(self):
         steps = tuple(fitted_step.step for fitted_step in self.fitted_steps)
