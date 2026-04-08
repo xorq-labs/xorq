@@ -836,7 +836,11 @@ class Pipeline:
 
             if not isinstance(self.predict_step.instance, ClusterMixin):
                 raise ValueError("Can't infer target for a prediction step")
-        features = features or tuple(col for col in expr.columns if col != target)
+        features = (
+            tuple(features)
+            if features
+            else tuple(col for col in expr.columns if col != target)
+        )
         expr = expr.tag(
             str(FittedPipelineTagKey.TRAINING),
             target=target,
