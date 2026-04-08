@@ -188,37 +188,9 @@ def _ml_pipeline_extract_metadata(tag_node):
 
 
 def _ml_from_tagged(tag_node):
-    from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
-    from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: PLC0415
-    from xorq.expr.relations import CachedNode, Tag  # noqa: PLC0415
+    from xorq.expr.ml.pipeline_lib import FittedPipeline  # noqa: PLC0415
 
-    expr = tag_node.to_expr()
-
-    # 1. Reconstruct Pipeline via expr.ls.pipeline
-    pipeline = expr.ls.pipeline
-
-    # 2. Find training data tag in expression tree
-    training_tag = next(
-        (
-            node
-            for node in walk_nodes((Tag,), expr)
-            if node.metadata.get("tag") == str(FittedPipelineTagKey.TRAINING)
-        ),
-        None,
-    )
-    if training_tag is None:
-        raise ValueError("No FittedPipeline-training tag found in expression")
-
-    train_expr = training_tag.parent.to_expr()
-    features = training_tag.metadata.get("features")
-    target = training_tag.metadata.get("target")
-
-    # 3. Find cache from CachedNode in expression tree
-    cached_nodes = walk_nodes((CachedNode,), expr)
-    cache = cached_nodes[0].cache if cached_nodes else None
-
-    # 4. Reconstruct FittedPipeline (deferred — no actual fitting)
-    return pipeline.fit(train_expr, features=features, target=target, cache=cache)
+    return FittedPipeline.from_expr(tag_node.to_expr())
 
 
 def _register_builtins():

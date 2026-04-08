@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 import xorq.api as xo
-from xorq.caching import ParquetCache
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.zip_utils import test_zip as validate_zip
 from xorq.expr.builders import (
@@ -20,10 +19,9 @@ from xorq.expr.builders import (
     get_from_tagged_registry,
     register_tag_handler,
 )
-from xorq.expr.relations import Read, Tag
+from xorq.expr.relations import Tag
 from xorq.ibis_yaml.enums import ExprKind
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
-from xorq.vendor.ibis.expr.operations.relations import InMemoryTable
 from xorq.vendor.ibis.expr.types.core import (
     ExprMetadata,
     _extract_builders,
@@ -352,14 +350,14 @@ from xorq.expr.ml.pipeline_lib import FittedPipeline, Pipeline  # noqa: E402
 
 
 @pytest.fixture
-def ml_train_expr(con):
-    return con.create_table(
-        "ml_train",
+def ml_train_expr():
+    return xo.memtable(
         {
             "feature_0": [1.0, 2.0, 3.0],
             "feature_1": [4.0, 5.0, 6.0],
             "target": [0, 1, 0],
         },
+        name="ml_train",
     )
 
 
@@ -490,7 +488,7 @@ def test_ml_from_tagged_without_cache(con):
 
 
 @pytest.fixture
-def ml_catalog_entry(con, ml_train_expr, ml_fitted):
+def ml_catalog_entry(ml_train_expr, ml_fitted):
     predictions = ml_fitted.predict(ml_train_expr)
     with tempfile.TemporaryDirectory() as tmp:
         catalog = Catalog.from_repo_path(Path(tmp) / "cat", init=True)
@@ -533,33 +531,3 @@ def test_ml_catalog_roundtrip_recover_and_transform(ml_catalog_entry, con):
     result = recovered.transform(prd)
     df = result.execute()
     assert len(df) == 2
-
-
-# ---------------------------------------------------------------------------
-# deferred_reads_to_memtables restores database_table Read nodes
-# ---------------------------------------------------------------------------
-
-
-def test_deferred_reads_restores_database_tables(con):
-    """Verify database_table Read nodes are restored to InMemoryTable after zip roundtrip."""
-    train = con.create_table(
-        "ml_dr_test",
-        {"a": [1.0, 2.0], "b": [3.0, 4.0], "target": [0, 1]},
-    )
-    sk_pipe = sklearn.pipeline.make_pipeline(StandardScaler(), LinearRegression())
-    pipeline = Pipeline.from_instance(sk_pipe)
-    cache = ParquetCache.from_kwargs(source=con)
-    fitted = pipeline.fit(train, features=("a", "b"), target="target", cache=cache)
-    predictions = fitted.predict(train)
-
-    with tempfile.TemporaryDirectory() as tmp:
-        catalog = Catalog.from_repo_path(Path(tmp) / "cat", init=True)
-        catalog.add(predictions, aliases=("dr-test",), sync=False)
-        entry = catalog.get_catalog_entry("dr-test", maybe_alias=True)
-        loaded_expr = entry.expr
-        remaining_reads = walk_nodes(Read, loaded_expr)
-        assert len(remaining_reads) == 0
-
-        mems = walk_nodes((InMemoryTable,), loaded_expr)
-        assert len(mems) > 0
-        assert all(len(m.data.to_frame()) > 0 for m in mems)

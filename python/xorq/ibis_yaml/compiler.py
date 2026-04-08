@@ -685,27 +685,9 @@ class ExprLoader:
     def deferred_reads_to_memtables(
         loaded, expr_path, read_only_parquet_metadata=False
     ):
-        restorable_dirs = (
-            str(MemtableTypes.inmemory),
-            str(MemtableTypes.database_table),
-        )
-
-        def _is_restorable(dr):
-            path = dict(dr.read_kwargs).get("path", "")
-            return any(d in str(path) for d in restorable_dirs)
-
-        def _resolve_read_path(dr):
-            raw = next(v for k, v in dr.read_kwargs if k == "path")
-            path = expr_path.joinpath(raw)
-            if path.exists():
-                return path
-            # Absolute path from a previous build dir — glob for the
-            # content-hashed filename in the current extraction directory.
-            matched_paths = tuple(expr_path.rglob(pathlib.Path(raw).name))
-            return matched_paths[0] if matched_paths else path
-
         def deferred_read_to_memtable(dr):
-            path = _resolve_read_path(dr)
+            assert any(key == MemtableTypes.inmemory for key, _ in dr.read_kwargs)
+            path = expr_path.joinpath(next(v for k, v in dr.read_kwargs if k == "path"))
             df = (
                 pq.read_schema(path).empty_table().to_pandas()
                 if read_only_parquet_metadata
@@ -714,7 +696,11 @@ class ExprLoader:
             mt = ibis.memtable(df, schema=dr.schema, name=dr.name)
             return mt.op()
 
-        drs = tuple(dr for dr in walk_nodes(Read, loaded) if _is_restorable(dr))
+        drs = tuple(
+            dr
+            for dr in walk_nodes(Read, loaded)
+            if MemtableTypes.inmemory in dict(dr.read_kwargs)
+        )
         replacements = {dr: deferred_read_to_memtable(dr) for dr in drs}
         op = loaded.op()
         if replacements:
