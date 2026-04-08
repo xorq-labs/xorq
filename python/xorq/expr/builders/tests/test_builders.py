@@ -427,6 +427,43 @@ def test_register_duplicate_override(saved_registry):
 
 
 # ---------------------------------------------------------------------------
+# _ensure_initialized — builtins present even when third-party registers first
+# ---------------------------------------------------------------------------
+
+
+def test_register_before_get_preserves_builtins():
+    """Third-party register_tag_handler before any get still has builtins."""
+    saved = dict(_FROM_TAGGED_REGISTRY)
+    _FROM_TAGGED_REGISTRY.clear()
+    try:
+        register_tag_handler("third_party", TagHandler(from_tagged=lambda n: "tp"))
+        registry = _get_from_tagged_registry()
+        assert "third_party" in registry
+        assert str(FittedPipelineTagKey.PREDICT) in registry
+        assert str(FittedPipelineTagKey.TRANSFORM) in registry
+    finally:
+        _FROM_TAGGED_REGISTRY.clear()
+        _FROM_TAGGED_REGISTRY.update(saved)
+
+
+def test_builtins_not_clobbered_by_third_party():
+    """Registering a third-party handler doesn't overwrite builtins."""
+    saved = dict(_FROM_TAGGED_REGISTRY)
+    _FROM_TAGGED_REGISTRY.clear()
+    try:
+        register_tag_handler("custom", TagHandler(from_tagged=lambda n: "custom"))
+        register_tag_handler("custom2", TagHandler(from_tagged=lambda n: "custom2"))
+        registry = _get_from_tagged_registry()
+        assert "custom" in registry
+        assert "custom2" in registry
+        assert str(FittedPipelineTagKey.PREDICT) in registry
+        assert "bsl" in registry
+    finally:
+        _FROM_TAGGED_REGISTRY.clear()
+        _FROM_TAGGED_REGISTRY.update(saved)
+
+
+# ---------------------------------------------------------------------------
 # _register_builtins excludes TRAINING key from handler dispatch
 # ---------------------------------------------------------------------------
 
