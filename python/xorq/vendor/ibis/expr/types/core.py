@@ -799,17 +799,6 @@ class ExprMetadata:
     sql_queries: tuple[tuple[str, str, str], ...] = field(factory=tuple)
     lineage: Optional[LineageDAG] = field(default=None, validator=_validate_lineage)
 
-    @staticmethod
-    def _parse_cache_keys(raw):
-        """Convert a list of ``{key, relative_path}`` dicts into a tuple of CacheKey."""
-        from xorq.common.utils.caching_utils import CacheKey  # noqa: PLC0415
-
-        if not raw:
-            return ()
-        return tuple(
-            CacheKey(key=ck["key"], relative_path=ck["relative_path"]) for ck in raw
-        )
-
     @classmethod
     def from_dict(cls, data):
         schema_in_raw = data.get("schema_in")
@@ -916,6 +905,17 @@ class ExprMetadata:
             )
             if value is not None
         }
+
+    @staticmethod
+    def _parse_cache_keys(raw):
+        """Convert a list of ``{key, relative_path}`` dicts into a tuple of CacheKey."""
+        from xorq.common.utils.caching_utils import CacheKey  # noqa: PLC0415
+
+        if not raw:
+            return ()
+        return tuple(
+            CacheKey(key=ck["key"], relative_path=ck["relative_path"]) for ck in raw
+        )
 
 
 @frozen
