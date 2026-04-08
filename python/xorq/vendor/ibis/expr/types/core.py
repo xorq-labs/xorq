@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from rich.console import Console, RenderableType
 
     import xorq.vendor.ibis.expr.types as ir
+    from xorq.common.utils.caching_utils import CacheKey
     from xorq.common.utils.lineage_utils import LineageDAG
     from xorq.vendor.ibis import Schema
     from xorq.vendor.ibis.backends import BaseBackend
@@ -791,13 +792,26 @@ class ExprMetadata:
         default=None, validator=optional(instance_of(ibis.expr.schema.Schema))
     )
     root_tag: Optional[str] = field(default=None)
-    cache_keys: tuple = field(factory=tuple, validator=_validate_cache_keys)
+    cache_keys: tuple[CacheKey, ...] = field(
+        factory=tuple, validator=_validate_cache_keys
+    )
     composed_from: tuple = field(
         factory=tuple, validator=deep_iterable(instance_of(dict))
     )
     params: tuple = field(factory=tuple)
     sql_queries: tuple[tuple[str, str, str], ...] = field(factory=tuple)
     lineage: Optional[LineageDAG] = field(default=None, validator=_validate_lineage)
+
+    @staticmethod
+    def _parse_cache_keys(raw):
+        """Convert a list of ``{key, relative_path}`` dicts into a tuple of CacheKey."""
+        from xorq.common.utils.caching_utils import CacheKey  # noqa: PLC0415
+
+        if not raw:
+            return ()
+        return tuple(
+            CacheKey(key=ck["key"], relative_path=ck["relative_path"]) for ck in raw
+        )
 
     @classmethod
     def from_dict(cls, data):
@@ -823,7 +837,7 @@ class ExprMetadata:
     @classmethod
     def from_expr(cls, expr):
         from xorq.caching import ParquetSnapshotCache  # noqa: PLC0415
-        from xorq.common.utils.caching_utils import CacheKey
+        from xorq.common.utils.caching_utils import CacheKey  # noqa: PLC0415
         from xorq.common.utils.graph_utils import (  # noqa: PLC0415
             validate_params,
             walk_nodes,
@@ -905,17 +919,6 @@ class ExprMetadata:
             )
             if value is not None
         }
-
-    @staticmethod
-    def _parse_cache_keys(raw):
-        """Convert a list of ``{key, relative_path}`` dicts into a tuple of CacheKey."""
-        from xorq.common.utils.caching_utils import CacheKey  # noqa: PLC0415
-
-        if not raw:
-            return ()
-        return tuple(
-            CacheKey(key=ck["key"], relative_path=ck["relative_path"]) for ck in raw
-        )
 
 
 @frozen
