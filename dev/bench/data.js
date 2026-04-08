@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775596113292,
+  "lastUpdate": 1775662364657,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -4752,6 +4752,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.007005611258143117",
             "extra": "mean: 210.55921020000596 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d8a4b2bc864893d3d50e3da8f4f0d16f032c7ae9",
+          "message": "feat(tui): replace catalog DataTable with Tree widget and add view switching (#1791)\n\n## Summary\n- Replace flat `#catalog-table` (DataTable) with `#catalog-tree` (Tree)\nwidget grouped by kind (source/transform/analytic)\n- Add `1`/`2`/`3` keys to switch detail pane between SQL, Lineage, and\nData views\n- Add `v` key to toggle revisions panel; `h`/`l` collapse/expand tree\nbranches\n- Add `netext>=0.4.1` and `networkx>=3.4.2` dependencies for upcoming\nlineage graph\n- Remove profiles panel (superseded by consolidated view switching)\n\n## Test plan\n- [x] All 97 existing TUI tests pass (`python -m pytest\npython/xorq/catalog/tests/test_tui.py -x -q`)\n- [x] New tests: `test_catalog_tree_exists`, `test_j_k_moves_cursor`\n(tree), `test_render_refresh_populates_tree`,\n`test_view_switching_1_2_3`, `test_v_toggles_revisions`,\n`test_tree_entry_hashes_helper`, `test_tree_label_with_alias`,\n`test_tree_label_without_alias`\n- [x] Pre-commit passes on all changed files\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-04-08T11:27:47-04:00",
+          "tree_id": "0c0e0e9115fc1db8fb799b01804dbb1c2e27fa86",
+          "url": "https://github.com/xorq-labs/xorq/commit/d8a4b2bc864893d3d50e3da8f4f0d16f032c7ae9"
+        },
+        "date": 1775662362002,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.197985033910728,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017046433290242347",
+            "extra": "mean: 138.92776871428023 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.01349163145806,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013781051136172574",
+            "extra": "mean: 249.15960760000644 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.5710430794326917,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2565931781590035",
+            "extra": "mean: 1.7511813662000066 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.9855710244661156,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0576514125992782",
+            "extra": "mean: 250.90507580001142 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.8230278185961293,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0468434467768532",
+            "extra": "mean: 261.5727761999949 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.3717430000273367,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05172182260372362",
+            "extra": "mean: 296.58250940000244 msec\nrounds: 5"
           }
         ]
       }
