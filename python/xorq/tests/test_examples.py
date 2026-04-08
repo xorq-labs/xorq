@@ -11,7 +11,6 @@ KEY_PREFIX = xo.config.options.cache.key_prefix
 LIBRARY_SCRIPTS = (
     "pandas_example",
     "flight_dummy_exchanger",
-    "semantic_builder_example",
 )
 GCS_SCRIPTS = ("gcstorage_example",)
 NON_TESTABLE = (
@@ -21,6 +20,7 @@ NON_TESTABLE = (
     "xorq_build_and_run.py",
     "weather_flight.py",
     "gizmosql_demo.py",
+    "semantic_builder_example.py",
 )
 
 file_path = pathlib.Path(__file__).absolute()
