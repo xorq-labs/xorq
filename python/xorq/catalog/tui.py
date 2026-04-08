@@ -116,10 +116,6 @@ class CatalogRowData:
         return self.entry.name
 
     @property
-    def backends(self) -> tuple[str, ...]:
-        return self.entry.backends
-
-    @property
     def schema_in(self) -> tuple[tuple[str, str], ...] | None:
         si = self.entry.metadata.schema_in
         return tuple(si.items()) if si is not None else None
@@ -135,10 +131,6 @@ class CatalogRowData:
     @property
     def cached_display(self) -> str:
         return _format_cached(self.cached)
-
-    @property
-    def sort_key(self) -> tuple[str, str]:
-        return (self.aliases_display, self.hash)
 
     @cached_property
     def sqls(self) -> tuple[tuple[str, str, str], ...]:

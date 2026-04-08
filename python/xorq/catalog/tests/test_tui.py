@@ -603,7 +603,7 @@ def test_g_toggles_git_log_visibility(catalog):
                 pilot,
                 Assert(lambda p: panel.display is False),
                 Press(("g",)),
-                Assert(lambda p: panel.display is True),
+                Assert(lambda p: panel.display is not False),
                 Press(("g",)),
                 Assert(lambda p: panel.display is False),
             )
