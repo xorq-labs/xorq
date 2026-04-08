@@ -52,18 +52,22 @@ class TagHandler:
 _FROM_TAGGED_REGISTRY: dict[str, TagHandler] = {}
 
 
+def _ensure_initialized():
+    if not _FROM_TAGGED_REGISTRY:
+        _register_builtins()
+        _discover_from_tagged()
+
+
 def register_tag_handler(tag_name, tag_handler, *, override=False):
     """Register a ``TagHandler`` for *tag_name*."""
+    _ensure_initialized()
     if not override and tag_name in _FROM_TAGGED_REGISTRY:
         raise ValueError(f"tag handler already registered for {tag_name!r}")
     _FROM_TAGGED_REGISTRY[tag_name] = tag_handler
 
 
-def get_from_tagged_registry():
-    """Return the handler registry, discovering entry points on first call."""
-    if not _FROM_TAGGED_REGISTRY:
-        _register_builtins()
-        _discover_from_tagged()
+def _get_from_tagged_registry():
+    _ensure_initialized()
     return _FROM_TAGGED_REGISTRY
 
 
@@ -90,7 +94,7 @@ def _discover_from_tagged():
 
 def extract_builder_metadata(tag_name, tag_node):
     """Look up *tag_name* in the registry and return sidecar metadata dict, or None."""
-    registry = get_from_tagged_registry()
+    registry = _get_from_tagged_registry()
     handler = registry.get(tag_name)
     if handler is None:
         return None
@@ -99,7 +103,7 @@ def extract_builder_metadata(tag_name, tag_node):
     return {"type": tag_name}
 
 
-def from_tagged_dispatch(expr):
+def _resolve_builder_from_tag(expr):
     """Walk tags on *expr*, dispatch to registry, return the first domain object.
 
     Raises ``ValueError`` if no handler with ``from_tagged`` matches.
@@ -107,7 +111,7 @@ def from_tagged_dispatch(expr):
     from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
     from xorq.expr.relations import HashingTag, Tag  # noqa: PLC0415
 
-    registry = get_from_tagged_registry()
+    registry = _get_from_tagged_registry()
     tag_nodes = walk_nodes((Tag, HashingTag), expr)
 
     for tag_node in tag_nodes:

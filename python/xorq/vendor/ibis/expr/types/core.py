@@ -962,9 +962,9 @@ class LETSQLAccessor:
 
     @property
     def builder(self):
-        from xorq.expr.builders import from_tagged_dispatch
+        from xorq.expr.builders import _resolve_builder_from_tag
 
-        return from_tagged_dispatch(self.expr)
+        return _resolve_builder_from_tag(self.expr)
 
     @property
     def kind(self) -> ExprKind:

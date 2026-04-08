@@ -14,9 +14,9 @@ from xorq.catalog.zip_utils import test_zip as validate_zip
 from xorq.expr.builders import (
     _FROM_TAGGED_REGISTRY,
     TagHandler,
+    _get_from_tagged_registry,
+    _resolve_builder_from_tag,
     extract_builder_metadata,
-    from_tagged_dispatch,
-    get_from_tagged_registry,
     register_tag_handler,
 )
 from xorq.expr.relations import Tag
@@ -115,7 +115,7 @@ def test_register_and_retrieve(saved_registry):
 
 
 def test_get_registry_returns_dict():
-    registry = get_from_tagged_registry()
+    registry = _get_from_tagged_registry()
     assert isinstance(registry, dict)
 
 
@@ -159,8 +159,8 @@ def test_third_party_handler_roundtrip(saved_registry, con):
     assert meta["type"] == "weather_model"
     assert meta["features"] == ("temp", "wind", "humidity")
 
-    # from_tagged_dispatch recovers the domain object
-    recovered = from_tagged_dispatch(tagged_expr)
+    # _resolve_builder_from_tag recovers the domain object
+    recovered = _resolve_builder_from_tag(tagged_expr)
     assert recovered["recovered"] is True
     assert recovered["features"] == ("temp", "wind", "humidity")
 
@@ -298,12 +298,12 @@ def test_catalog_add_tagged_expr():
 
 
 # ---------------------------------------------------------------------------
-# Integration tests — from_tagged_dispatch BSL recovery
+# Integration tests — _resolve_builder_from_tag BSL recovery
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.library
-def test_from_tagged_dispatch_bsl():
+def test__resolve_builder_from_tag_bsl():
     bsl = pytest.importorskip("boring_semantic_layer")
     xo = pytest.importorskip("xorq.api")
 
@@ -315,7 +315,7 @@ def test_from_tagged_dispatch_bsl():
         .with_measures(total=lambda t: t.v.sum())
     )
     expr = model.query(dimensions=("x",), measures=("total",)).to_tagged()
-    recovered = from_tagged_dispatch(expr)
+    recovered = _resolve_builder_from_tag(expr)
     # recovered should be a SemanticModel (from BSL)
     assert hasattr(recovered, "query")
     assert hasattr(recovered, "dimensions")
@@ -397,9 +397,9 @@ def test_ml_extract_metadata(ml_train_expr, ml_fitted):
 
 
 def test_ml_from_tagged_returns_fitted_pipeline(ml_train_expr, ml_fitted):
-    """Verify from_tagged_dispatch on a predict expr returns a FittedPipeline."""
+    """Verify _resolve_builder_from_tag on a predict expr returns a FittedPipeline."""
     predict_expr = ml_fitted.predict(ml_train_expr)
-    recovered = from_tagged_dispatch(predict_expr)
+    recovered = _resolve_builder_from_tag(predict_expr)
     assert isinstance(recovered, FittedPipeline)
     result = recovered.predict(ml_train_expr)
     assert result is not None
@@ -432,7 +432,7 @@ def test_register_duplicate_override(saved_registry):
 
 
 def test_training_key_not_registered():
-    registry = get_from_tagged_registry()
+    registry = _get_from_tagged_registry()
     assert str(FittedPipelineTagKey.TRAINING) not in registry
     assert str(FittedPipelineTagKey.ALL_STEPS) not in registry
     assert str(FittedPipelineTagKey.PREDICT) in registry
@@ -458,7 +458,7 @@ def test_fitted_step_tag_kwargs_include_target(ml_train_expr, ml_fitted):
 
 def test_ml_from_tagged_on_transform_expr(ml_train_expr, ml_fitted):
     transform_expr = ml_fitted.transform(ml_train_expr)
-    recovered = from_tagged_dispatch(transform_expr)
+    recovered = _resolve_builder_from_tag(transform_expr)
     assert isinstance(recovered, FittedPipeline)
     result = recovered.transform(ml_train_expr)
     assert result is not None
@@ -478,7 +478,7 @@ def test_ml_from_tagged_without_cache():
     pipeline = Pipeline.from_instance(sk_pipe)
     fitted = pipeline.fit(train, target="target")
     predict_expr = fitted.predict(train)
-    recovered = from_tagged_dispatch(predict_expr)
+    recovered = _resolve_builder_from_tag(predict_expr)
     assert isinstance(recovered, FittedPipeline)
 
 
