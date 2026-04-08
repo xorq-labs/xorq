@@ -175,28 +175,23 @@ def test_generate_pyproject_toml_empty_deps():
 
 @pytest.mark.parametrize(
     "value",
-    ["3.11", "3.10", "3.13.1"],
+    ["3.11", ">=3.10", ">=3.10,<3.14", None],
 )
 def test_validate_python_version_accepts_valid(value):
-    # should not raise — use a dummy attrs instance
     _validate_python_version(None, None, value)
 
 
 @pytest.mark.parametrize(
     "value",
-    ["not.a.version", "abc", "3.10.x"],
+    ["garbage", "abc", ">>>3.10"],
 )
 def test_validate_python_version_rejects_invalid(value):
-    with pytest.raises(ValueError, match="invalid python version"):
+    with pytest.raises(ValueError, match="invalid python version specifier"):
         _validate_python_version(None, None, value)
 
 
-def test_validate_python_version_accepts_none():
-    _validate_python_version(None, None, None)
-
-
 def test_wheel_packager_rejects_bad_python_version():
-    with pytest.raises(ValueError, match="invalid python version"):
+    with pytest.raises(ValueError, match="invalid python version specifier"):
         WheelPackager(project_path="/tmp", python_version="garbage")
 
 

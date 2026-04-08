@@ -19,9 +19,9 @@ import os
 import shutil
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Iterable
 
 import tomlkit
 import toolz
@@ -34,7 +34,6 @@ from attr.validators import (
     optional,
 )
 from packaging.specifiers import SpecifierSet
-from packaging.version import Version
 
 from xorq.common.utils.otel_utils import tracer
 from xorq.common.utils.process_utils import in_nix_shell
@@ -44,20 +43,61 @@ from xorq.ibis_yaml.enums import DumpFiles
 REQUIREMENTS_NAME = "requirements.txt"
 PYPROJECT_NAME = "pyproject.toml"
 UVLOCK_NAME = "uv.lock"
+DEFAULT_REQUIRES_PYTHON = ">=3.10"
+PYTHON_VERSION_CAP = SpecifierSet("<3.14")
 
 
 def _validate_python_version(instance, attribute, value):
     if value is None:
         return
     try:
-        Version(value)
-    except Exception as e:
-        raise ValueError(f"invalid python version: {value!r}") from e
+        SpecifierSet(value)
+    except Exception:
+        # Bare versions like "3.11" aren't valid specifiers; treat as ==3.11
+        try:
+            SpecifierSet(f"=={value}")
+        except Exception as e:
+            raise ValueError(f"invalid python version specifier: {value!r}") from e
 
 
-def resolve_python_version(path):
-    """Return the highest Python version acceptable per requires-python in pyproject.toml."""
-    return get_acceptable_python_versions(path)[-1]
+def _read_requires_python(path):
+    """Read requires-python from a project source, intersected with PYTHON_VERSION_CAP.
+
+    Accepts a pyproject.toml path, a directory containing one, a .whl file,
+    or a .zip archive.  Returns a PEP 440 specifier string.
+    """
+    path = Path(path)
+    if path.name == PYPROJECT_NAME:
+        pass
+    elif path.is_dir() and path.joinpath(PYPROJECT_NAME).exists():
+        path = path.joinpath(PYPROJECT_NAME)
+    elif path.suffix == ".whl":
+        with zipfile.ZipFile(path) as zf:
+            metadata_names = [
+                n for n in zf.namelist() if n.endswith(".dist-info/METADATA")
+            ]
+            if not metadata_names:
+                raise ValueError(f"no .dist-info/METADATA found in {path}")
+            metadata_text = zf.read(metadata_names[0]).decode()
+            for line in metadata_text.splitlines():
+                if line.startswith("Requires-Python:"):
+                    raw = line.split(":", 1)[1].strip()
+                    return str(SpecifierSet(raw) & PYTHON_VERSION_CAP)
+            raise ValueError(f"no Requires-Python in wheel metadata: {path}")
+    elif path.suffix == ".zip":
+        from xorq.common.utils.zip_utils import ZipProxy  # noqa: PLC0415
+
+        td = TemporaryDirectory()
+        path = ZipProxy(path).extract_toplevel_name(
+            PYPROJECT_NAME, Path(td.name, PYPROJECT_NAME)
+        )
+    else:
+        raise ValueError(
+            f"can only handle {PYPROJECT_NAME} or {PYPROJECT_NAME} containing dir / .zip / .whl"
+        )
+    data = tomlkit.loads(Path(path).read_text())
+    raw = toolz.get_in(("project", "requires-python"), data)
+    return str(SpecifierSet(raw or DEFAULT_REQUIRES_PYTHON) & PYTHON_VERSION_CAP)
 
 
 def _find_single_glob(directory, pattern):
@@ -85,7 +125,7 @@ class WheelPackager:
             )
         if self.python_version is None:
             object.__setattr__(
-                self, "python_version", resolve_python_version(self.pyproject_path)
+                self, "python_version", _read_requires_python(self.pyproject_path)
             )
 
     @property
@@ -211,7 +251,11 @@ class WheelPackager:
 
     @classmethod
     def from_script_and_requirements(
-        cls, script_path, requirements_path, requires_python=">=3.10", **kwargs
+        cls,
+        script_path,
+        requirements_path,
+        requires_python=DEFAULT_REQUIRES_PYTHON,
+        **kwargs,
     ):
         """Create a WheelPackager from a bare script and requirements.txt.
 
@@ -257,7 +301,7 @@ class PackagedBuilder:
             object.__setattr__(
                 self,
                 "python_version",
-                resolve_python_version(self.wheel_path),
+                _read_requires_python(self.wheel_path),
             )
 
     @functools.cached_property
@@ -349,7 +393,7 @@ class PackagedRunner:
             object.__setattr__(
                 self,
                 "python_version",
-                resolve_python_version(self.wheel_path),
+                _read_requires_python(self.wheel_path),
             )
 
     @functools.cached_property
@@ -450,59 +494,6 @@ def uv_tool_run(
         return result
 
 
-def get_acceptable_python_versions(
-    path: str | Path,
-    known_minors: Iterable[int] = range(8, 14),
-) -> tuple[Version, ...]:
-    if (path := Path(path)).name == PYPROJECT_NAME:
-        pass
-    elif path.is_dir() and path.joinpath(PYPROJECT_NAME).exists():
-        path = path.joinpath(PYPROJECT_NAME)
-    elif path.suffix == ".whl":
-        import zipfile  # noqa: PLC0415
-
-        with zipfile.ZipFile(path) as zf:
-            metadata_names = [
-                n for n in zf.namelist() if n.endswith(".dist-info/METADATA")
-            ]
-            if not metadata_names:
-                raise ValueError(f"no .dist-info/METADATA found in {path}")
-            metadata_text = zf.read(metadata_names[0]).decode()
-            for line in metadata_text.splitlines():
-                if line.startswith("Requires-Python:"):
-                    requires_python = line.split(":", 1)[1].strip()
-                    spec = SpecifierSet(requires_python)
-                    acceptable_python_versions = tuple(
-                        str(v)
-                        for v in (Version(f"3.{minor}") for minor in known_minors)
-                        if v in spec
-                    )
-                    if not acceptable_python_versions:
-                        raise ValueError("No acceptable python versions found")
-                    return acceptable_python_versions
-            raise ValueError(f"no Requires-Python in wheel metadata: {path}")
-    elif path.suffix == ".zip":
-        from xorq.common.utils.zip_utils import ZipProxy  # noqa: PLC0415
-
-        td = TemporaryDirectory()
-        path = ZipProxy(path).extract_toplevel_name(
-            PYPROJECT_NAME, Path(td.name, PYPROJECT_NAME)
-        )
-    else:
-        raise ValueError(
-            f"can only handle {PYPROJECT_NAME} or {PYPROJECT_NAME} containing dir / .zip"
-        )
-    data = tomlkit.loads(Path(path).read_text())
-    requires_python = toolz.get_in(("project", "requires-python"), data)
-    spec = SpecifierSet(requires_python)
-    acceptable_python_versions = tuple(
-        str(v) for v in (Version(f"3.{minor}") for minor in known_minors) if v in spec
-    )
-    if not acceptable_python_versions:
-        raise ValueError("No acceptable python versions found")
-    return acceptable_python_versions
-
-
 def uv_export_requirements(project_dir, extras=()):
     """Run uv export in a directory with pyproject.toml + uv.lock."""
     args = (
@@ -544,7 +535,7 @@ def parse_requirements(requirements_text):
 def generate_pyproject_toml(
     project_name,
     dependencies,
-    requires_python=">=3.10",
+    requires_python=DEFAULT_REQUIRES_PYTHON,
 ):
     """Generate a minimal pyproject.toml string from a list of dependencies."""
     doc = tomlkit.document()
@@ -580,7 +571,7 @@ def generate_project_from_requirements(
     script_path,
     requirements_path,
     output_dir,
-    requires_python=">=3.10",
+    requires_python=DEFAULT_REQUIRES_PYTHON,
 ):
     """Create a project directory with pyproject.toml, uv.lock, script, and requirements.txt.
 
