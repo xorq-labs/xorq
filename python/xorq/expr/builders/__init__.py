@@ -39,6 +39,28 @@ from attr.validators import is_callable
 from attr.validators import optional as optional_v
 
 
+try:
+    from enum import StrEnum
+except ImportError:
+    from strenum import StrEnum
+
+
+class BuiltinTagKey(StrEnum):
+    """Protected tag keys owned by xorq builtins.
+
+    Third-party handlers cannot register these names.
+    """
+
+    # BSL — will eventually move to boring_semantic_layer's own entry point
+    BSL = "bsl"
+    # ML pipeline keys
+    FITTED_PIPELINE_TRANSFORM = "FittedPipeline-transform"
+    FITTED_PIPELINE_PREDICT = "FittedPipeline-predict"
+    FITTED_PIPELINE_PREDICT_PROBA = "FittedPipeline-predict_proba"
+    FITTED_PIPELINE_DECISION_FUNCTION = "FittedPipeline-decision_function"
+    FITTED_PIPELINE_FEATURE_IMPORTANCES = "FittedPipeline-feature_importances"
+
+
 @frozen
 class TagHandler:
     extract_metadata: Optional[Callable] = field(
@@ -50,6 +72,7 @@ class TagHandler:
 
 
 _FROM_TAGGED_REGISTRY: dict[str, TagHandler] = {}
+_BUILTIN_KEYS = frozenset(str(k) for k in BuiltinTagKey)
 
 
 def _ensure_initialized():
@@ -61,6 +84,8 @@ def _ensure_initialized():
 def register_tag_handler(tag_name, tag_handler, *, override=False):
     """Register a ``TagHandler`` for *tag_name*."""
     _ensure_initialized()
+    if tag_name in _BUILTIN_KEYS:
+        raise ValueError(f"{tag_name!r} is a protected builtin tag key")
     if not override and tag_name in _FROM_TAGGED_REGISTRY:
         raise ValueError(f"tag handler already registered for {tag_name!r}")
     _FROM_TAGGED_REGISTRY[tag_name] = tag_handler

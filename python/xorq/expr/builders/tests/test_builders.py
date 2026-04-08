@@ -426,6 +426,14 @@ def test_register_duplicate_override(saved_registry):
     assert _FROM_TAGGED_REGISTRY["dup_test"] is second
 
 
+def test_register_builtin_key_raises(saved_registry):
+    handler = TagHandler(from_tagged=lambda tag_node: "hijack")
+    with pytest.raises(ValueError, match="protected builtin"):
+        register_tag_handler("bsl", handler)
+    with pytest.raises(ValueError, match="protected builtin"):
+        register_tag_handler("FittedPipeline-predict", handler)
+
+
 # ---------------------------------------------------------------------------
 # _ensure_initialized — builtins present even when third-party registers first
 # ---------------------------------------------------------------------------
