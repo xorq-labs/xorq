@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 import os
 import pathlib
 import sys
 from pathlib import Path
+
+from attrs import field, frozen
 
 from xorq.config import env_config
 from xorq.expr.relations import CachedNode, Read
@@ -49,3 +53,11 @@ def find_backend(op: ops.Node, use_default=False) -> tuple[BaseBackend, bool]:
         backends.pop(),
         has_unbound,
     )  # TODO what happens if it has more than one backend
+
+
+@frozen
+class CacheKey:
+    """A cache key paired with the storage parameters needed to locate its file."""
+
+    key: str = field()
+    relative_path: str = field()

@@ -31,6 +31,28 @@ from xorq.config import _backend_init, options
 from xorq.vendor import ibis
 
 
+def resolve_parquet_cache_dir(
+    relative_path: Path | str,
+    base_path: Path | None = None,
+) -> Path:
+    """Return the directory that holds parquet cache files for the given storage params."""
+    return (base_path or get_xorq_cache_dir()) / relative_path
+
+
+def resolve_parquet_cache_path(
+    relative_path: Path | str,
+    key: str,
+    base_path: Path | None = None,
+) -> Path:
+    """Return the full path of the parquet file for *key* under the given storage params.
+
+    This is the canonical implementation; ``ParquetStorage.get_path`` delegates here
+    so that ``CatalogEntry.cache_keys_paths`` can reconstruct paths from sidecar data
+    alone, without loading the expression.
+    """
+    return resolve_parquet_cache_dir(relative_path, base_path) / (key + ".parquet")
+
+
 @frozen
 class CacheStorage:
     @abstractmethod
@@ -99,10 +121,10 @@ class ParquetStorage(CacheStorage):
 
     @property
     def path(self):
-        return (self.base_path or get_xorq_cache_dir()).joinpath(self.relative_path)
+        return resolve_parquet_cache_dir(self.relative_path, self.base_path)
 
     def get_path(self, key):
-        return self.path.joinpath(key + ".parquet")
+        return resolve_parquet_cache_path(self.relative_path, key, self.base_path)
 
     def exists(self, key):
         return self.get_path(key).exists()

@@ -752,6 +752,17 @@ def _validate_lineage(instance, attribute, value):
             )
 
 
+def _parse_cache_keys(raw):
+    """Convert a list of ``{key, relative_path}`` dicts into a tuple of CacheKey."""
+    from xorq.common.utils.caching_utils import CacheKey
+
+    if not raw:
+        return ()
+    return tuple(
+        CacheKey(key=ck["key"], relative_path=ck["relative_path"]) for ck in raw
+    )
+
+
 def _parse_lineage(raw):
     """Convert JSON-deserialized lineage dict into a LineageDAG, or None."""
     from xorq.common.utils.lineage_utils import LineageDAG  # noqa: PLC0415
@@ -777,7 +788,7 @@ class ExprMetadata:
         default=None, validator=optional(instance_of(ibis.expr.schema.Schema))
     )
     root_tag: Optional[str] = field(default=None)
-    cache_keys: tuple[str, ...] = field(factory=tuple)
+    cache_keys: tuple = field(factory=tuple)  # tuple[CacheKey, ...]
     composed_from: tuple = field(
         factory=tuple, validator=deep_iterable(instance_of(dict))
     )
@@ -799,7 +810,7 @@ class ExprMetadata:
                 else None
             ),
             root_tag=data.get("root_tag"),
-            cache_keys=tuple(data.get("cache_keys") or ()),
+            cache_keys=_parse_cache_keys(data.get("cache_keys")),
             composed_from=tuple(data.get("composed_from") or data.get("sources") or ()),
             params=tuple(data.get("params") or ()),
             sql_queries=tuple(tuple(q) for q in data.get("sql_queries", ())),
@@ -809,6 +820,7 @@ class ExprMetadata:
     @classmethod
     def from_expr(cls, expr):
         from xorq.caching import ParquetSnapshotCache  # noqa: PLC0415
+        from xorq.common.utils.caching_utils import CacheKey
         from xorq.common.utils.graph_utils import (  # noqa: PLC0415
             validate_params,
             walk_nodes,
@@ -824,9 +836,15 @@ class ExprMetadata:
         tags = expr.ls.tags
         root_tag = tags[0].tag if tags else None
 
+        op = expr.op()
         cache_keys = (
-            (expr.ls.get_key(),)
-            if expr.ls.is_cached and isinstance(expr.op().cache, ParquetSnapshotCache)
+            (
+                CacheKey(
+                    key=expr.ls.get_key(),
+                    relative_path=str(op.cache.storage.relative_path),
+                ),
+            )
+            if expr.ls.is_cached and isinstance(op.cache, ParquetSnapshotCache)
             else ()
         )
 
@@ -860,7 +878,14 @@ class ExprMetadata:
                 ),
                 ("schema_out", toolz.valmap(str, self.schema_out)),
                 ("root_tag", self.root_tag),
-                ("cache_keys", list(self.cache_keys) or None),
+                (
+                    "cache_keys",
+                    [
+                        {"key": ck.key, "relative_path": ck.relative_path}
+                        for ck in self.cache_keys
+                    ]
+                    or None,
+                ),
                 ("params", self.params or None),
                 (
                     "composed_from",
