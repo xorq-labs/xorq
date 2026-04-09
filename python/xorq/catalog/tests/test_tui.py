@@ -22,6 +22,7 @@ from textual.widgets import DataTable, Input, Static, Tree
 
 import xorq.api as xo
 from xorq.caching import ParquetSnapshotCache
+from xorq.catalog.bind import _eval_code
 from xorq.catalog.tests.testing import (
     Assert,
     Press,
@@ -983,8 +984,35 @@ def test_expr_stack_current_code():
     )
     stack = ExprStack(base_expr=base).push(step1).push(step2)
     code = stack.current_code
-    assert "source.filter(source.x > 1)" in code
-    assert "source.mutate(y=source.x * 2)" in code
+    # Steps are chained into a single evaluable expression
+    assert code == "(source.filter(source.x > 1)).mutate(y=source.x * 2)"
+
+
+def test_expr_stack_current_code_single_step():
+    base = xo.memtable({"x": [1, 2, 3]})
+    step = ExprStep(
+        verb="filter", user_input="source.x > 1", code="source.filter(source.x > 1)"
+    )
+    stack = ExprStack(base_expr=base).push(step)
+    assert stack.current_code == "source.filter(source.x > 1)"
+
+
+def test_expr_stack_current_code_evaluable():
+    """current_code must be a single expression that _eval_code can evaluate."""
+
+    base = xo.memtable({"x": [1, 2, 3], "y": [10, 20, 30]})
+    step1 = ExprStep(
+        verb="filter", user_input="source.x > 1", code="source.filter(source.x > 1)"
+    )
+    step2 = ExprStep(
+        verb="filter", user_input="source.y < 25", code="source.filter(source.y < 25)"
+    )
+    stack = ExprStack(base_expr=base).push(step1).push(step2)
+    result = _eval_code(stack.current_code, base)
+    df = result.execute()
+    assert len(df) == 1
+    assert list(df["x"]) == [2]
+    assert list(df["y"]) == [20]
 
 
 def test_build_code_filter():

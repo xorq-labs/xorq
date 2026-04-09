@@ -307,10 +307,20 @@ class ExprStack:
 
     @property
     def current_code(self) -> str:
-        """Composable --code string for the active steps."""
+        """Single evaluable expression chaining all active steps.
+
+        Each step's code starts with ``source.verb(...)``.  For steps after
+        the first, the leading ``source`` is replaced with the accumulated
+        expression so the result is one chained call that ``_eval_code`` can
+        evaluate in a single ``eval()``.
+        """
         if self.cursor == 0:
             return ""
-        return "\n".join(step.code for step in self.steps[: self.cursor])
+        steps = self.steps[: self.cursor]
+        result = steps[0].code
+        for step in steps[1:]:
+            result = step.code.replace("source", f"({result})", 1)
+        return result
 
 def _entry_info(entry: CatalogEntry) -> tuple[int | None, bool | None]:
     cache_keys_paths = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
