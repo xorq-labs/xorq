@@ -26,13 +26,37 @@ Handlers are registered by tag name (the string in `tag_node.metadata["tag"]`). 
 
 ### ExprKind.ExprBuilder
 
-A new `ExprKind.ExprBuilder` variant identifies expressions whose tags match a registered handler. The priority order for kind detection is:
+A new `ExprKind.ExprBuilder` variant identifies expressions whose outermost tag matches a registered handler.
 
-```
-UnboundExpr > Composed > ExprBuilder > Source > Expr
+`ExprKind` describes the **outermost structural layer** of an expression, not a whole-graph property. The outermost op node (walking through any Tag/HashingTag chain) determines the kind:
+
+- If a catalog composition tag (`HashingTag` with `CatalogTag` metadata) is outermost → `Composed`
+- If a builder tag (registered in the handler registry) is outermost → `ExprBuilder`
+- Unrecognized tags are unwrapped (they're decorative and don't affect kind)
+- If the unwrapped root is a source node → `Source`
+- Otherwise → `Expr`
+
+The one exception is `UnboundExpr`, which requires a whole-graph walk because `UnboundTable` is always a leaf node, never the outermost node. It's checked first as a special case — it's a constraint ("needs binding"), not a structural kind.
+
+There are no priority conflicts: the outermost tag is structurally unambiguous. A composed expression with builder tags inside gets `Composed` because the catalog tag is outermost.
+
+### ExprTraits — whole-graph boolean properties
+
+For consumers that need to know "does X exist anywhere in this graph?" (not just the outermost layer), `ExprTraits` provides cached boolean flags:
+
+```python
+@frozen
+class ExprTraits:
+    has_unbound: bool     # UnboundTable exists somewhere
+    has_composition: bool  # catalog HashingTag nodes exist
+    has_builders: bool     # builder tags exist
+    is_source: bool        # root (after unwrapping tags) is a source node
 ```
 
-Critically, `Composed` takes priority over `ExprBuilder`. An expression that has both builder tags and catalog composition tags (HashingTag nodes from `catalog.add`) gets `kind=Composed`, not `ExprBuilder`. This preserves existing behavior for composed expressions. The `is_builder: bool` field on `ExprMetadata` is set independently, so code that needs to know "does this expression have builder recovery?" can check `is_builder` regardless of kind.
+Exposed as `expr.ls.expr_traits` (cached property). The graph walk happens once. `kind` and `expr_traits` are complementary:
+
+- `kind` — "what is this expression?" (outermost layer, cheap)
+- `expr_traits` — "what does this expression contain?" (whole-graph, cached)
 
 ### ExprMetadata.builders
 
@@ -77,14 +101,15 @@ An early iteration used a `StrEnum` subclass to declare protected builtin tag ke
 
 Deriving the protected set from what `_register_builtins` actually registers is simpler and cannot drift.
 
-### ExprBuilder priority over Composed
+### Priority-based whole-graph kind detection
 
-An early iteration gave `ExprBuilder` higher priority than `Composed` in `_extract_kind`. Rejected because:
-- Expressions that previously got `Composed` (e.g., BSL expressions used in catalog composition) would silently change kind.
-- `xorq catalog run` matches on kind and did not handle `ExprBuilder`, causing a runtime error for expressions that previously worked.
-- `ExprBuilder` and `Composed` are not mutually exclusive — an expression can have both builder tags and catalog composition tags.
+An early iteration walked the entire expression graph for all kind signals (UnboundTable, HashingTag, builder tags, source nodes), then used a priority order to pick one kind. Rejected because:
+- Inputs came from inconsistent scopes (3 whole-graph walks + 1 root-only check).
+- Priority order was policy, not structure — different consumers wanted different priorities.
+- Adding new kinds required changing every case arm in a match statement.
+- Kind depended on which handlers were registered (runtime state), not expression structure.
 
-Making them orthogonal (`Composed` wins for kind, `is_builder` flag always available) preserves existing behavior while exposing builder capability.
+Making kind outermost-only eliminates the priority conflict (the outermost tag is structurally unambiguous) and reduces kind detection from 4 graph walks to a tag-chain traversal. `ExprTraits` provides whole-graph answers for consumers that need them.
 
 ### Hash-based training source lookup
 
@@ -102,6 +127,7 @@ The hash is kept as inert provenance metadata for optional validation use cases.
 - **Catalog entries become actionable.** `entry.expr.ls.builder` recovers the domain object, enabling new queries (BSL) or predictions on new data (ML) without reconstruction.
 - **Third-party extensibility.** Any package can register a `TagHandler` via entry points — no changes to xorq core required.
 - **Sidecar richness.** Builder metadata (dimensions, measures, pipeline steps) is available from the sidecar without fetching the expression archive.
+- **Clean kind/traits split.** `kind` is a cheap outermost-only check; `expr_traits` provides cached whole-graph booleans. No priority conflicts, no lossy reduction.
 
 ### Negative
 

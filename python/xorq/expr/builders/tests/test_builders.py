@@ -55,7 +55,7 @@ def con():
 
 
 # ---------------------------------------------------------------------------
-# ExprKind.ExprBuilder detection
+# ExprKind detection — outermost-only
 # ---------------------------------------------------------------------------
 
 
@@ -63,45 +63,35 @@ def test_expr_builder_enum_value():
     assert str(ExprKind.ExprBuilder) == "expr_builder"
 
 
-def test_extract_kind_with_builders():
-    kind = _extract_kind(
-        unbound_node=None,
-        catalog_tag_nodes=[],
-        is_source=False,
-        has_builders=True,
+def test_extract_kind_outermost_builder_tag(saved_registry, con):
+    """Outermost builder tag → ExprBuilder."""
+    handler = TagHandler(
+        extract_metadata=lambda tag_node: {"type": "test_builder"},
     )
-    assert kind == ExprKind.ExprBuilder
+    register_tag_handler("test_builder", handler)
+    table = con.create_table("kind_test", {"x": [1]})
+    expr = table.tag("test_builder")
+    assert _extract_kind(expr) == ExprKind.ExprBuilder
 
 
-def test_extract_kind_unbound_takes_priority():
-    sentinel = type("FakeNode", (), {"schema": None})()
-    kind = _extract_kind(
-        unbound_node=sentinel,
-        catalog_tag_nodes=[],
-        is_source=False,
-        has_builders=True,
-    )
-    assert kind == ExprKind.UnboundExpr
+def test_extract_kind_source():
+    """Plain source table → Source."""
+    table = xo.memtable({"x": [1]}, name="kind_src")
+    assert _extract_kind(table) == ExprKind.Source
 
 
-def test_extract_kind_composed_over_builder():
-    kind = _extract_kind(
-        unbound_node=None,
-        catalog_tag_nodes=["something"],
-        is_source=False,
-        has_builders=True,
-    )
-    assert kind == ExprKind.Composed
+def test_extract_kind_expr():
+    """Projection on source → Expr."""
+    table = xo.memtable({"x": [1], "y": [2]}, name="kind_expr")
+    expr = table.select("x")
+    assert _extract_kind(expr) == ExprKind.Expr
 
 
-def test_extract_kind_no_builders_falls_through():
-    kind = _extract_kind(
-        unbound_node=None,
-        catalog_tag_nodes=[],
-        is_source=True,
-        has_builders=False,
-    )
-    assert kind == ExprKind.Source
+def test_extract_kind_unrecognized_tag_unwraps_to_source(con):
+    """Unrecognized tag on a source → Source (tag is decorative)."""
+    table = con.create_table("kind_unrec", {"x": [1]})
+    expr = table.tag("debug_info")
+    assert _extract_kind(expr) == ExprKind.Source
 
 
 # ---------------------------------------------------------------------------
