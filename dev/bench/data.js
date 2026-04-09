@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775729635190,
+  "lastUpdate": 1775758952704,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -4950,6 +4950,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0066833473393922375",
             "extra": "mean: 202.51456583333058 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ff24aeb94f1ae2430b0640d90bbcf357c7d0a8c6",
+          "message": "fix(dev): worktree setup improvements (#1795)\n\n## Summary\n- Fix `dev/cleanup-worktree` to tolerate mixed state when manifest\ncontents are removed but other files remain\n- Symlink `ci/ibis-testing-data` from the main worktree so test data is\navailable without duplication\n- Symlink `.claude/settings.json` from the main worktree so Claude Code\npermissions (e.g. `git:*`) carry over automatically\n\n## Test plan\n- [ ] Run `dev/setup-worktree` in a worktree and verify\n`ci/ibis-testing-data` and `.claude/settings.json` are symlinked\n- [ ] Run `dev/cleanup-worktree` and verify symlinks are removed\n- [ ] Confirm Claude Code does not re-prompt for permissions in the new\nworktree\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-09T14:19:00-04:00",
+          "tree_id": "316c55deb404df28017af99533951079316fe80d",
+          "url": "https://github.com/xorq-labs/xorq/commit/ff24aeb94f1ae2430b0640d90bbcf357c7d0a8c6"
+        },
+        "date": 1775758950636,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.1028778555678045,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022496197408674683",
+            "extra": "mean: 140.78800457143157 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.516408712178678,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014878232193875044",
+            "extra": "mean: 221.41485940000507 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6931101473412685,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1779841055585986",
+            "extra": "mean: 1.4427721247999954 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.7503861463206767,
+            "unit": "iter/sec",
+            "range": "stddev: 0.019698020069279284",
+            "extra": "mean: 266.63921020000885 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.086158759361147,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04270614592770122",
+            "extra": "mean: 244.72862140000302 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.591913851670013,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005938941761747018",
+            "extra": "mean: 217.77412039999717 msec\nrounds: 5"
           }
         ]
       }
