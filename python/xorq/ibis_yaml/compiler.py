@@ -55,6 +55,7 @@ from xorq.common.utils.node_utils import (
 )
 from xorq.config import _backend_init
 from xorq.expr.api import deferred_read_parquet, read_parquet
+from xorq.expr.operations import _MISSING
 from xorq.expr.relations import (
     CachedNode,
     Read,
@@ -359,9 +360,10 @@ def _extract_sql_queries(expr, kind) -> tuple[tuple[str, str, str], ...]:
         defaults = {
             label: node.default
             for label, node in named.items()
-            if node.default is not None
+            if node.default is not _MISSING and node.default is not None
         }
-        clean = bind_params(clean, defaults)
+        if defaults:
+            clean = bind_params(clean, defaults)
     match kind:
         case ExprKind.UnboundExpr:
             sql = str(xorq_to_sql(clean)).strip()
