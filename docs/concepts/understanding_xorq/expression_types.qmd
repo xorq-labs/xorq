@@ -1,0 +1,345 @@
+---
+title: Expression Types
+---
+
+Every operation in xorq produces an expression — a lazy, immutable description of a computation. Before anything executes, xorq classifies each expression into one of three kinds: **Source**, **Expr**, or **UnboundExpr**. This classification drives how expressions are hashed, cached, serialized, and executed across backends.
+
+## The three expression kinds
+
+xorq defines an `ExprKind` enum with three values:
+
+| Kind | Meaning | Has input schema? |
+|------|---------|-------------------|
+| **Source** | A leaf node — raw data with no transformations | No |
+| **Expr** | Bound data with transformations applied | No |
+| **UnboundExpr** | A template expression not tied to any backend | Yes |
+
+You can inspect the kind of any expression using the `.ls` accessor:
+
+```{python}
+#| eval: false
+import xorq.api as xo
+
+# Source — just data, no transforms
+t = xo.memtable({"a": [1, 2, 3], "b": ["x", "y", "z"]})
+print(t.ls.kind)  # ExprKind.Source
+
+# Expr — transforms applied to bound data
+filtered = t.filter(xo._.a > 1)
+print(filtered.ls.kind)  # ExprKind.Expr
+
+# UnboundExpr — schema template, no concrete data
+template = xo.table(schema={"a": "int64", "b": "string"})
+print(template.ls.kind)  # ExprKind.UnboundExpr
+```
+
+## Source expressions
+
+A **Source** is a leaf node in the expression graph — it represents data without any transformations. Sources are the starting points of every pipeline.
+
+### In-memory tables
+
+The simplest source. Data lives in the current process and is wrapped in an `InMemoryTable` operation.
+
+```{python}
+#| eval: false
+import xorq.api as xo
+
+t = xo.memtable({"name": ["alice", "bob"], "score": [95, 87]})
+print(t.ls.kind)  # ExprKind.Source
+```
+
+### Database tables
+
+A table registered in a backend (Postgres, DuckDB, DataFusion, etc.). Backed by a `DatabaseTable` operation that holds a reference to the backend connection.
+
+```{python}
+#| eval: false
+import xorq.api as xo
+
+pg = xo.postgres.connect_env()
+batting = pg.table("batting")
+print(batting.ls.kind)  # ExprKind.Source
+```
+
+### Deferred reads
+
+A lazy pointer to a file (Parquet, CSV). The file is not read until execution. Backed by a `Read` operation.
+
+```{python}
+#| eval: false
+import xorq.api as xo
+
+# Schema is required — the file isn't touched until execute()
+expr = xo.deferred_read_parquet(
+    "s3://my-bucket/events.parquet",
+    schema={"event_id": "int64", "ts": "timestamp", "payload": "string"},
+)
+print(expr.ls.kind)  # ExprKind.Source
+```
+
+### Cached nodes
+
+When you call `.cache()` on an expression, xorq wraps it in a `CachedNode`. The cache itself is a source — it acts as a materialization boundary that breaks the expression graph into independent segments.
+
+```{python}
+#| eval: false
+import xorq.api as xo
+from xorq.caching import ParquetCache
+
+con = xo.connect()
+pg = xo.postgres.connect_env()
+cache = ParquetCache.from_kwargs(source=con)
+
+# The cached expression is a Source, even though it wraps transforms
+cached = (
+    pg.table("batting")
+    .filter(xo._.yearID > 2010)
+    .cache(cache=cache)
+)
+print(cached.ls.kind)       # ExprKind.Source
+print(cached.ls.is_cached)  # True
+```
+
+This is an important property: caching resets the expression kind back to Source. Downstream transforms on a cached expression produce a new Expr that depends on the cache, not on the original upstream query.
+
+### Remote tables
+
+Created by `.into_backend()`, a `RemoteTable` transfers data between backends via Arrow record batches. Like a cache, it acts as a source boundary.
+
+```{python}
+#| eval: false
+import xorq.api as xo
+
+pg = xo.postgres.connect_env()
+con = xo.connect()  # DataFusion
+
+# Move filtered Postgres data into DataFusion
+t = pg.table("batting").filter(xo._.yearID == 2015).into_backend(con, "local_batting")
+print(t.ls.kind)  # ExprKind.Source
+```
+
+## Expr — transformed expressions
+
+An **Expr** is any expression that applies one or more transformations to bound data. It has at least one source upstream and at least one operation (filter, project, aggregate, join, etc.) on top.
+
+```{python}
+#| eval: false
+import xorq.api as xo
+
+t = xo.memtable({"a": [1, 2, 3], "b": [10, 20, 30]})
+
+# Each of these produces an Expr
+filtered = t.filter(xo._.a > 1)
+projected = t.select("a")
+aggregated = t.aggregate(total=t.b.sum())
+sorted_t = t.order_by("a")
+limited = t.limit(10)
+
+# All are ExprKind.Expr
+for expr in [filtered, projected, aggregated, sorted_t, limited]:
+    print(expr.ls.kind)  # ExprKind.Expr
+```
+
+Transforms compose naturally by chaining. Each method returns a new immutable expression:
+
+```{python}
+#| eval: false
+import xorq.api as xo
+
+pg = xo.postgres.connect_env()
+con = xo.connect()
+
+result = (
+    pg.table("batting")
+    .filter(xo._.yearID > 2010)
+    .select("playerID", "yearID", "teamID", "H", "AB")
+    .mutate(avg=xo._.H / xo._.AB)
+    .order_by(xo._.avg.desc())
+    .limit(20)
+)
+print(result.ls.kind)  # ExprKind.Expr
+```
+
+### Available transform operations
+
+| Method | Operation | Description |
+|--------|-----------|-------------|
+| `.filter()` | Filter | Select rows matching boolean predicates |
+| `.select()` | Project | Choose or compute columns |
+| `.mutate()` | Project | Add or replace columns |
+| `.aggregate()` | Aggregate | Group-by and reduce |
+| `.order_by()` | Sort | Sort rows |
+| `.limit()` | Limit | Take first N rows |
+| `.join()` | JoinChain | Combine tables |
+| `.union()` | Union | Stack rows from two tables |
+| `.distinct()` | Distinct | Deduplicate rows |
+| `.drop()` | DropColumns | Remove columns |
+| `.fillna()` | FillNull | Replace nulls |
+| `.dropna()` | DropNull | Remove rows with nulls |
+| `.sample()` | Sample | Random subset |
+| `.unnest()` | TableUnnest | Flatten array column |
+
+## UnboundExpr — template expressions
+
+An **UnboundExpr** is an expression built on an `UnboundTable` instead of a concrete data source. It defines a transformation as a reusable template — a schema in, a schema out, and the operations in between.
+
+### Creating unbound expressions
+
+Use `xo.table()` with a schema to create a template:
+
+```{python}
+#| eval: false
+import xorq.api as xo
+
+# Define a template: takes int64 column "a", filters, adds a computed column
+template = xo.table(schema={"a": "int64"})
+transform = template.filter(template.a > 0).mutate(doubled=template.a * 2)
+
+print(transform.ls.kind)  # ExprKind.UnboundExpr
+```
+
+### Unbinding bound expressions
+
+You can convert any bound expression into an unbound one with `.unbind()`. This strips the backend connection and replaces `DatabaseTable` nodes with `UnboundTable` nodes:
+
+```{python}
+#| eval: false
+import xorq.api as xo
+
+pg = xo.postgres.connect_env()
+bound = pg.table("batting").filter(xo._.yearID > 2010)
+
+unbound = bound.unbind()
+print(bound.ls.kind)    # ExprKind.Expr
+print(unbound.ls.kind)  # ExprKind.UnboundExpr
+
+# Schema is preserved
+assert unbound.schema() == bound.schema()
+```
+
+### Why unbound expressions matter
+
+Unbound expressions are the foundation of several xorq features:
+
+- **Flight UDXFs**: Define a transformation template that runs on an Arrow Flight server. The input data is streamed as record batches, and the unbound expression describes what to do with it.
+- **Serialization**: The expression YAML format stores unbound expressions so they can be loaded and bound to a different backend later.
+- **Schema validation**: `ExprMetadata` exposes `schema_in` (the UnboundTable's schema) and `schema_out` (the result schema), enabling compile-time checks before execution.
+
+```{python}
+#| eval: false
+from xorq.vendor.ibis.expr.types.core import ExprMetadata
+
+template = xo.table(schema={"a": "int64"})
+transform = template.filter(template.a > 0)
+
+metadata = ExprMetadata(transform)
+print(metadata.kind)       # ExprKind.UnboundExpr
+print(metadata.schema_in)  # Schema with column "a" (int64)
+print(metadata.schema_out) # Schema with column "a" (int64)
+```
+
+## Special node types
+
+Beyond the three kinds, xorq introduces several specialized operation nodes that extend the expression graph for multi-engine and distributed workflows.
+
+### Tag and HashingTag
+
+Metadata wrappers that annotate an expression without changing its data. `Tag` is stripped before content hashing — it's invisible to the cache. `HashingTag` contributes to the hash, so expressions with different `HashingTag` metadata produce different cache keys.
+
+```{python}
+#| eval: false
+import xorq.api as xo
+import xorq.vendor.ibis as ibis
+from xorq.expr.relations import Tag, HashingTag
+
+inner = xo.memtable({"a": [1, 2, 3]}).op()
+schema = ibis.schema({"a": "int64"})
+
+tagged = Tag(schema=schema, parent=inner)
+hashing_tagged = HashingTag(schema=schema, parent=inner)
+
+# Both are still Sources — tags are transparent to kind detection
+print(tagged.to_expr().ls.kind)          # ExprKind.Source
+print(hashing_tagged.to_expr().ls.kind)  # ExprKind.Source
+
+# .ls.unwrapped strips tags to reveal the underlying op
+print(type(tagged.to_expr().ls.unwrapped).__name__)  # InMemoryTable
+```
+
+### FlightUDXF
+
+Wraps a user-defined exchange function (UDXF) that runs in a separate process via Arrow Flight. Data flows in as record batches, gets transformed by arbitrary Python code, and flows back out.
+
+```{python}
+#| eval: false
+import xorq.api as xo
+from xorq.expr.relations import flight_udxf
+
+def add_label(df):
+    df["label"] = df["score"].apply(lambda s: "high" if s > 90 else "low")
+    return df
+
+labeled = xo.memtable({"name": ["alice", "bob"], "score": [95, 87]}).pipe(
+    flight_udxf(
+        process_df=add_label,
+        maybe_schema_in=xo.schema({"name": "string", "score": "int64"}),
+        maybe_schema_out=xo.schema({"name": "string", "score": "int64", "label": "string"}),
+    )
+)
+result = labeled.execute()
+```
+
+## Inspecting expressions with `.ls`
+
+Every expression has an `.ls` accessor (the LETSQL accessor) that exposes introspection properties:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `.ls.kind` | `ExprKind` | Source, Expr, or UnboundExpr |
+| `.ls.metadata` | `ExprMetadata` | Full metadata (kind, schema_in, schema_out) |
+| `.ls.unwrapped` | `ops.Node` | Underlying op with Tag/HashingTag layers stripped |
+| `.ls.backends` | `tuple` | All backend connections used in the expression graph |
+| `.ls.is_multiengine` | `bool` | Whether the expression spans multiple backends |
+| `.ls.is_cached` | `bool` | Whether the root op is a CachedNode |
+| `.ls.has_cached` | `bool` | Whether any CachedNode exists in the graph |
+| `.ls.cached_nodes` | `tuple` | All CachedNode operations in the graph |
+| `.ls.cache` | `Cache` | The cache object if `is_cached`, else None |
+| `.ls.uncached` | `Expr` | Expression with all cache nodes removed |
+| `.ls.tokenized` | `str` | Content hash of the expression |
+| `.ls.tags` | `tuple` | All Tag nodes in the graph |
+
+```{python}
+#| eval: false
+import xorq.api as xo
+from xorq.caching import ParquetCache
+
+pg = xo.postgres.connect_env()
+con = xo.connect()
+cache = ParquetCache.from_kwargs(source=con)
+
+expr = (
+    pg.table("batting")
+    .filter(xo._.yearID > 2010)
+    .into_backend(con, "batting_local")
+    .cache(cache=cache)
+)
+
+print(expr.ls.kind)            # ExprKind.Source (cache is a source)
+print(expr.ls.is_cached)       # True
+print(expr.ls.is_multiengine)  # True (Postgres + DataFusion)
+print(len(expr.ls.backends))   # 2
+print(expr.ls.exists())        # False (not yet executed)
+```
+
+## How kind affects the system
+
+The expression kind isn't just a label — it drives behavior across xorq:
+
+| Concern | Source | Expr | UnboundExpr |
+|---------|--------|------|-------------|
+| **Hashing** | Hash of the data reference (table name, file path, etc.) | Hash of the full operation graph | Hash includes UnboundTable schema |
+| **Serialization** | Stored as a data source reference in `expr.yaml` | Full operation tree serialized | Stored with `schema_in` for rebinding |
+| **Caching** | Can be the *result* of a cache | Can be cached (wrapping in CachedNode) | Cannot be cached (no data to materialize) |
+| **Execution** | Read data from backend | Execute operation graph | Must bind to data first |
+| **Build system** | Leaf node in the build graph | Intermediate node | Template — not directly buildable |
