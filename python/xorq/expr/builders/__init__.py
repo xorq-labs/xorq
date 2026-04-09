@@ -35,17 +35,16 @@ from collections.abc import Callable
 from typing import Optional
 
 from attr import field, frozen
-from attr.validators import is_callable
-from attr.validators import optional as optional_v
+from attr.validators import is_callable, optional
 
 
 @frozen
 class TagHandler:
     extract_metadata: Optional[Callable] = field(
-        default=None, validator=optional_v(is_callable())
+        default=None, validator=optional(is_callable())
     )
     from_tagged: Optional[Callable] = field(
-        default=None, validator=optional_v(is_callable())
+        default=None, validator=optional(is_callable())
     )
 
 

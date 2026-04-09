@@ -846,7 +846,7 @@ class Pipeline:
 
             training_hash = make_name("training", expr.op())
         except Exception:
-            training_hash = ""
+            training_hash = None
         fitted_steps = ()
         transformed = expr
         # During fit, other (non-feature) columns are only needed if a predict
@@ -958,7 +958,9 @@ class FittedPipeline:
         converter=tuple,
     )
     expr = field(validator=instance_of(Expr))
-    training_hash: str = field(default="", validator=instance_of(str))
+    training_hash: str | None = field(
+        default=None, validator=optional(instance_of(str))
+    )
 
     def __attrs_post_init__(self):
         assert self.fitted_steps
