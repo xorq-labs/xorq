@@ -14,6 +14,7 @@ from ibis.expr.datatypes import DataType as IbisDataType
 from ibis.expr.datatypes.core import Interval as IbisInterval
 from ibis.expr.operations.generic import Cast as IbisCast
 from ibis.expr.operations.relations import Namespace as IbisNamespace
+from ibis.expr.operations.sortkeys import SortKey as IbisSortKey
 from ibis.formats.pandas import PandasDataFrameProxy as IbisPandasDataFrameProxy
 from ibis.formats.pyarrow import PyArrowTableProxy as IbisPyArrowTableProxy
 
@@ -76,6 +77,18 @@ def map_builtin_dict(op, kwargs=None):
 @map_ibis.register(IbisCast)
 def map_cast(cast, kwargs=None):
     return ops.Cast(arg=map_ibis(cast.arg, None), to=map_ibis(cast.to, None))
+
+
+@map_ibis.register(IbisSortKey)
+def map_sort_key(sort_key, kwargs=None):
+    # ibis<10 uses SortKey.expr; ibis>=10 renamed it to SortKey.arg
+    # xorq vendor still uses .expr
+    key = sort_key.arg if hasattr(sort_key, "arg") else sort_key.expr
+    return ops.SortKey(
+        expr=map_ibis(key, None),
+        ascending=sort_key.ascending,
+        nulls_first=sort_key.nulls_first,
+    )
 
 
 @map_ibis.register(IbisSchema)

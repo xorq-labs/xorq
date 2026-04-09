@@ -10,6 +10,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import duckdb
+
+
+try:
+    from duckdb import CatalogException
+except ImportError:
+    from duckdb.duckdb import CatalogException
 import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
 import sqlglot as sg
@@ -314,7 +320,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
 
         try:
             result = self.con.sql(query)
-        except duckdb.CatalogException:
+        except CatalogException:
             raise exc.XorqError(f"Table not found: {table_name!r}")
         else:
             meta = result.fetch_arrow_table()
