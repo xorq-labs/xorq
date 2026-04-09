@@ -23,9 +23,8 @@ listing:
       - "tutorials/ml_tutorials/split_data_for_training.qmd"
       - "tutorials/ml_tutorials/train_your_first_model.qmd"
       - "tutorials/ml_tutorials/explore_model_evaluation.qmd"
-      - "tutorials/ml_tutorials/deploy_your_first_model.qmd"
     type: grid
-    grid-columns: 4
+    grid-columns: 3
     fields: [title, description]
 ---
 
@@ -62,7 +61,7 @@ Train models, split data, and deploy predictions with Xorq's ML workflow.
 ::: {.doc-card}
 <i class="bi bi-robot"></i>
 
-[**AI tutorials**](tutorials/ai_tutorials/)
+[**AI tutorials**](tutorials/ai_tutorials/your_first_udxf.qmd)
 
 Call LLMs, build MCP tools, and process data with AI
 :::
@@ -70,7 +69,7 @@ Call LLMs, build MCP tools, and process data with AI
 ::: {.doc-card}
 <i class="bi bi-bar-chart"></i>
 
-[**Analytics tutorials**](tutorials/analytics_tutorials/)
+[**Analytics tutorials**](tutorials/analytics_tutorials/create_your_first_udf.qmd)
 
 Query across engines, write UDFs, and build analytics workflows
 :::
@@ -78,7 +77,7 @@ Query across engines, write UDFs, and build analytics workflows
 ::: {.doc-card}
 <i class="bi bi-list-check"></i>
 
-[**Guides**](guides/)
+[**Guides**](guides/data_workflows/read_write_production_data.qmd)
 
 Production-ready patterns for deploying and scaling your pipelines
 :::
@@ -86,7 +85,7 @@ Production-ready patterns for deploying and scaling your pipelines
 ::: {.doc-card}
 <i class="bi bi-lightbulb"></i>
 
-[**Concepts**](core_concepts/)
+[**Concepts**](concepts/)
 
 Deep dives into deferred execution, caching, and architecture
 :::
