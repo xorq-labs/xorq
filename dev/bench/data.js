@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775758952704,
+  "lastUpdate": 1775765977124,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -5016,6 +5016,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.005938941761747018",
             "extra": "mean: 217.77412039999717 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9780571f7671ced0f1d2dc26d2b68cccff5168ba",
+          "message": "fix(ibis_yaml): skip _MISSING sentinel when binding default params (#1793)\n\n## Summary\n\n- Fix `InputTypeError` during `xorq build` when expressions have\nrequired named parameters (no default value)\n- `_extract_sql_queries` filtered defaults with `is not None`, but the\nsentinel for required parameters is `_MISSING`, not `None` — so\n`_MISSING` values leaked into `bind_params` which tried to\n`dt.infer(_MISSING)` and crashed\n\n## Repro\n\n```\n$ xorq build expr.py\nBuilding expr from expr.py\nTraceback (most recent call last):\n  ...\n  File \".../xorq/ibis_yaml/compiler.py\", line 364, in _extract_sql_queries\n    clean = bind_params(clean, defaults)\n  File \".../xorq/expr/api.py\", line 769, in bind_params\n    if name in named and not dt.infer(value).castable(named[name].dtype):\n  File \".../xorq/vendor/ibis/expr/datatypes/value.py\", line 35, in infer\n    raise InputTypeError(\nxorq.common.exceptions.InputTypeError: Unable to infer datatype of value _MISSING\n  with type <class 'xorq.expr.operations._MissingSentinel'>\n```\n\n## Fix\n\nAdd `_MISSING` sentinel check alongside the existing `None` check when\ncollecting defaults to bind.\n\n## Test plan\n\n- [ ] `xorq build expr.py` completes without error for expressions with\nrequired named parameters\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-09T22:15:59+02:00",
+          "tree_id": "45a84aba4ea4595b74240a94aa992be0e0b4a47f",
+          "url": "https://github.com/xorq-labs/xorq/commit/9780571f7671ced0f1d2dc26d2b68cccff5168ba"
+        },
+        "date": 1775765975213,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.228000816843041,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02184381794704515",
+            "extra": "mean: 121.53620572727225 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.946820032220511,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05445098096958616",
+            "extra": "mean: 253.36853260000115 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6387571258844313,
+            "unit": "iter/sec",
+            "range": "stddev: 0.20521390105318885",
+            "extra": "mean: 1.5655402648000005 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.50133670986744,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022713916474643454",
+            "extra": "mean: 285.6052082000019 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.799370473187879,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04182780750385856",
+            "extra": "mean: 263.2014979999951 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.025389364098686,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03335041871453176",
+            "extra": "mean: 248.4231733999991 msec\nrounds: 5"
           }
         ]
       }
