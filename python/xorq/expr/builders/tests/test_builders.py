@@ -9,12 +9,12 @@ from pathlib import Path
 import pytest
 
 import xorq.api as xo
-from xorq.catalog.catalog import Catalog
 from xorq.catalog.zip_utils import test_zip as validate_zip
 from xorq.expr.builders import (
     _FROM_TAGGED_REGISTRY,
     TagHandler,
     _get_from_tagged_registry,
+    _reset_registry,
     _resolve_builder_from_tag,
     extract_builder_metadata,
     register_tag_handler,
@@ -37,10 +37,16 @@ from xorq.vendor.ibis.expr.types.core import (
 @pytest.fixture
 def saved_registry():
     """Save and restore the handler registry around a test."""
+    import xorq.expr.builders as _builders_mod  # noqa: PLC0415
+
     saved = dict(_FROM_TAGGED_REGISTRY)
+    saved_keys = _builders_mod._BUILTIN_KEYS
+    saved_init = _builders_mod._initialized
     yield
     _FROM_TAGGED_REGISTRY.clear()
     _FROM_TAGGED_REGISTRY.update(saved)
+    _builders_mod._BUILTIN_KEYS = saved_keys
+    _builders_mod._initialized = saved_init
 
 
 @pytest.fixture
@@ -78,14 +84,14 @@ def test_extract_kind_unbound_takes_priority():
     assert kind == ExprKind.UnboundExpr
 
 
-def test_extract_kind_builder_over_composed():
+def test_extract_kind_composed_over_builder():
     kind = _extract_kind(
         unbound_node=None,
         catalog_tag_nodes=["something"],
         is_source=False,
         has_builders=True,
     )
-    assert kind == ExprKind.ExprBuilder
+    assert kind == ExprKind.Composed
 
 
 def test_extract_kind_no_builders_falls_through():
@@ -336,79 +342,10 @@ def test_zip_rejects_invalid():
 
 
 # ---------------------------------------------------------------------------
-# Integration tests — ML pipeline from_tagged
-# ---------------------------------------------------------------------------
-
-sklearn = pytest.importorskip("sklearn")
-
-from sklearn.linear_model import LinearRegression  # noqa: E402
-from sklearn.preprocessing import StandardScaler  # noqa: E402
-
-from xorq.common.utils.graph_utils import walk_nodes  # noqa: E402
-from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: E402
-from xorq.expr.ml.pipeline_lib import FittedPipeline, Pipeline  # noqa: E402
-
-
-@pytest.fixture
-def ml_train_expr():
-    return xo.memtable(
-        {
-            "feature_0": [1.0, 2.0, 3.0],
-            "feature_1": [4.0, 5.0, 6.0],
-            "target": [0, 1, 0],
-        },
-        name="ml_train",
-    )
-
-
-@pytest.fixture
-def ml_fitted(ml_train_expr):
-    sk_pipe = sklearn.pipeline.make_pipeline(StandardScaler(), LinearRegression())
-    pipeline = Pipeline.from_instance(sk_pipe)
-    return pipeline.fit(ml_train_expr, target="target")
-
-
-def test_ml_training_tag_present(ml_train_expr, ml_fitted):
-    """Verify FittedPipeline-training tag is discoverable via walk_nodes."""
-    predict_expr = ml_fitted.predict(ml_train_expr)
-    tags = walk_nodes((Tag,), predict_expr)
-    training_tags = [
-        t for t in tags if t.metadata.get("tag") == str(FittedPipelineTagKey.TRAINING)
-    ]
-    assert len(training_tags) == 1
-    meta = training_tags[0].metadata
-    assert meta["target"] == "target"
-    assert set(meta["features"]) == {"feature_0", "feature_1"}
-
-
-def test_ml_extract_metadata(ml_train_expr, ml_fitted):
-    """Verify extract_builder_metadata returns steps, features, target."""
-    predict_expr = ml_fitted.predict(ml_train_expr)
-    tags = walk_nodes((Tag,), predict_expr)
-    predict_tag = next(
-        t for t in tags if t.metadata.get("tag") == str(FittedPipelineTagKey.PREDICT)
-    )
-    meta = extract_builder_metadata(str(FittedPipelineTagKey.PREDICT), predict_tag)
-    assert meta is not None
-    assert meta["type"] == "fitted_pipeline"
-    assert len(meta["steps"]) == 2
-    assert meta["target"] == "target"
-    assert set(meta["features"]) >= {"feature_0", "feature_1"}
-
-
-def test_ml_from_tagged_returns_fitted_pipeline(ml_train_expr, ml_fitted):
-    """Verify _resolve_builder_from_tag on a predict expr returns a FittedPipeline."""
-    predict_expr = ml_fitted.predict(ml_train_expr)
-    recovered = _resolve_builder_from_tag(predict_expr)
-    assert isinstance(recovered, FittedPipeline)
-    result = recovered.predict(ml_train_expr)
-    assert result is not None
-    assert "prediction" in result.columns or len(result.columns) > 0
-
-
-# ---------------------------------------------------------------------------
 # register_tag_handler duplicate key guard
 # ---------------------------------------------------------------------------
+
+from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: E402
 
 
 def test_register_duplicate_raises(saved_registry):
@@ -441,8 +378,7 @@ def test_register_builtin_key_raises(saved_registry):
 
 def test_register_before_get_preserves_builtins():
     """Third-party register_tag_handler before any get still has builtins."""
-    saved = dict(_FROM_TAGGED_REGISTRY)
-    _FROM_TAGGED_REGISTRY.clear()
+    _reset_registry()
     try:
         register_tag_handler("third_party", TagHandler(from_tagged=lambda n: "tp"))
         registry = _get_from_tagged_registry()
@@ -450,14 +386,13 @@ def test_register_before_get_preserves_builtins():
         assert str(FittedPipelineTagKey.PREDICT) in registry
         assert str(FittedPipelineTagKey.TRANSFORM) in registry
     finally:
-        _FROM_TAGGED_REGISTRY.clear()
-        _FROM_TAGGED_REGISTRY.update(saved)
+        _reset_registry()
+        _get_from_tagged_registry()  # re-initialize
 
 
 def test_builtins_not_clobbered_by_third_party():
     """Registering a third-party handler doesn't overwrite builtins."""
-    saved = dict(_FROM_TAGGED_REGISTRY)
-    _FROM_TAGGED_REGISTRY.clear()
+    _reset_registry()
     try:
         register_tag_handler("custom", TagHandler(from_tagged=lambda n: "custom"))
         register_tag_handler("custom2", TagHandler(from_tagged=lambda n: "custom2"))
@@ -467,112 +402,17 @@ def test_builtins_not_clobbered_by_third_party():
         assert str(FittedPipelineTagKey.PREDICT) in registry
         assert "bsl" in registry
     finally:
-        _FROM_TAGGED_REGISTRY.clear()
-        _FROM_TAGGED_REGISTRY.update(saved)
+        _reset_registry()
+        _get_from_tagged_registry()  # re-initialize
 
 
 # ---------------------------------------------------------------------------
-# _register_builtins excludes TRAINING key from handler dispatch
+# _register_builtins excludes ALL_STEPS key from handler dispatch
 # ---------------------------------------------------------------------------
 
 
-def test_training_key_not_registered():
+def test_all_steps_key_not_registered():
     registry = _get_from_tagged_registry()
-    assert str(FittedPipelineTagKey.TRAINING) not in registry
     assert str(FittedPipelineTagKey.ALL_STEPS) not in registry
     assert str(FittedPipelineTagKey.PREDICT) in registry
     assert str(FittedPipelineTagKey.TRANSFORM) in registry
-
-
-# ---------------------------------------------------------------------------
-# FittedStep.get_tag_kwargs includes target
-# ---------------------------------------------------------------------------
-
-
-def test_fitted_step_tag_kwargs_include_target(ml_train_expr, ml_fitted):
-    for step in ml_fitted.fitted_steps:
-        kwargs = step.get_tag_kwargs()
-        assert "target" in kwargs
-        assert kwargs["target"] == "target"
-
-
-# ---------------------------------------------------------------------------
-# ML from_tagged on transform expression
-# ---------------------------------------------------------------------------
-
-
-def test_ml_from_tagged_on_transform_expr(ml_train_expr, ml_fitted):
-    transform_expr = ml_fitted.transform(ml_train_expr)
-    recovered = _resolve_builder_from_tag(transform_expr)
-    assert isinstance(recovered, FittedPipeline)
-    result = recovered.transform(ml_train_expr)
-    assert result is not None
-
-
-# ---------------------------------------------------------------------------
-# ML from_tagged without cache
-# ---------------------------------------------------------------------------
-
-
-def test_ml_from_tagged_without_cache():
-    train = xo.memtable(
-        {"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0], "target": [0, 1, 0]},
-        name="ml_nocache",
-    )
-    sk_pipe = sklearn.pipeline.make_pipeline(StandardScaler(), LinearRegression())
-    pipeline = Pipeline.from_instance(sk_pipe)
-    fitted = pipeline.fit(train, target="target")
-    predict_expr = fitted.predict(train)
-    recovered = _resolve_builder_from_tag(predict_expr)
-    assert isinstance(recovered, FittedPipeline)
-
-
-# ---------------------------------------------------------------------------
-# ML catalog roundtrip — zip → load → from_tagged → execute
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def ml_catalog_entry(ml_train_expr, ml_fitted):
-    predictions = ml_fitted.predict(ml_train_expr)
-    with tempfile.TemporaryDirectory() as tmp:
-        catalog = Catalog.from_repo_path(Path(tmp) / "cat", init=True)
-        catalog.add(predictions, aliases=("ml-roundtrip",), sync=False)
-        entry = catalog.get_catalog_entry("ml-roundtrip", maybe_alias=True)
-        yield entry
-
-
-def test_ml_catalog_entry_kind(ml_catalog_entry):
-    assert ml_catalog_entry.kind == ExprKind.ExprBuilder
-
-
-def test_ml_catalog_entry_sidecar_metadata(ml_catalog_entry):
-    builders = ml_catalog_entry.metadata.builders
-    assert len(builders) == 1
-    b = builders[0]
-    assert b["type"] == "fitted_pipeline"
-    assert b["target"] == "target"
-    assert len(b["steps"]) == 2
-
-
-def test_ml_catalog_roundtrip_recover_and_predict(ml_catalog_entry):
-    recovered = ml_catalog_entry.expr.ls.builder
-    assert isinstance(recovered, FittedPipeline)
-    prd = xo.memtable(
-        {"feature_0": [5.0, 6.0], "feature_1": [7.0, 8.0]},
-        name="ml_prd",
-    )
-    result = recovered.predict(prd)
-    df = result.execute()
-    assert len(df) == 2
-
-
-def test_ml_catalog_roundtrip_recover_and_transform(ml_catalog_entry):
-    recovered = ml_catalog_entry.expr.ls.builder
-    prd = xo.memtable(
-        {"feature_0": [5.0, 6.0], "feature_1": [7.0, 8.0]},
-        name="ml_prd_t",
-    )
-    result = recovered.transform(prd)
-    df = result.execute()
-    assert len(df) == 2

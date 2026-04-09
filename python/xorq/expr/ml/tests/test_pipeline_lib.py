@@ -51,17 +51,6 @@ get_metadata = operator.attrgetter("metadata")
 
 
 @pytest.fixture(scope="module")
-def t_test():
-    return xo.memtable(
-        {
-            feature0: [5, 6],
-            feature1: [7, 8],
-            TARGET: [1, 0],
-        }
-    )
-
-
-@pytest.fixture(scope="module")
 def t():
     return xo.memtable(
         {
@@ -140,7 +129,7 @@ def test_all_tags(t, fitted_xorq_pipeline, all_tags):
         ),
     ),
 )
-def test_tagging_pipeline(pairs, t_test, fitted_xorq_pipeline):
+def test_tagging_pipeline(pairs, t, fitted_xorq_pipeline):
     def contains_any_pairs(d, pairs=pairs):
         return set(pairs).intersection(d.items())
 
@@ -150,7 +139,7 @@ def test_tagging_pipeline(pairs, t_test, fitted_xorq_pipeline):
     actual = sort_and_tuplify(
         map(
             get_metadata,
-            fitted_xorq_pipeline.predict(t_test).ls.get_tags(
+            fitted_xorq_pipeline.predict(t).ls.get_tags(
                 predicate=contains_any_pairs,
             ),
         )
@@ -163,7 +152,7 @@ def test_tagging_pipeline(pairs, t_test, fitted_xorq_pipeline):
         )
         if contains_any_pairs(dct)
     )
-    assert actual and set(actual) == set(expected)
+    assert actual and actual == expected
 
 
 def test_score_expr_returns_metric(t, fitted_xorq_pipeline):

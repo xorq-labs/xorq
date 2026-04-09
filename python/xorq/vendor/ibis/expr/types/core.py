@@ -746,17 +746,17 @@ def _extract_builders(expr):
 
 
 def _extract_kind(unbound_node, catalog_tag_nodes, is_source, has_builders=False):
-    # Priority: UnboundExpr (incomplete/has placeholder) > ExprBuilder (has
-    # builder tags) > Composed (has catalog HashingTag nodes) > Source
-    # (plain table) > Expr (everything else).
-    match (unbound_node, has_builders, bool(catalog_tag_nodes), is_source):
-        case (node, _, _, _) if node is not None:
+    # Priority: UnboundExpr (incomplete/has placeholder) > Composed (has
+    # catalog HashingTag nodes) > ExprBuilder (has builder tags, no
+    # composition) > Source (plain table) > Expr (everything else).
+    match (unbound_node, bool(catalog_tag_nodes), is_source):
+        case (node, _, _) if node is not None:
             return ExprKind.UnboundExpr
-        case (_, True, _, _):
-            return ExprKind.ExprBuilder
-        case (_, _, True, _):
+        case (_, True, _):
             return ExprKind.Composed
-        case (_, _, _, True):
+        case (_, _, _) if has_builders:
+            return ExprKind.ExprBuilder
+        case (_, _, True):
             return ExprKind.Source
         case _:
             return ExprKind.Expr
@@ -822,7 +822,8 @@ class ExprMetadata:
     params: tuple = field(factory=tuple)
     sql_queries: tuple[tuple[str, str, str], ...] = field(factory=tuple)
     lineage: Optional[LineageDAG] = field(default=None, validator=_validate_lineage)
-    builders: tuple = field(factory=tuple)
+    builders: tuple[dict, ...] = field(factory=tuple)
+    is_builder: bool = field(default=False, validator=instance_of(bool))
 
     @staticmethod
     def _parse_cache_keys(raw):
@@ -853,6 +854,7 @@ class ExprMetadata:
             sql_queries=tuple(tuple(q) for q in data.get("sql_queries", ())),
             lineage=_parse_lineage(data.get("lineage")),
             builders=tuple(data.get("builders", ())),
+            is_builder=bool(data.get("is_builder", False)),
         )
 
     @classmethod
@@ -911,6 +913,7 @@ class ExprMetadata:
             composed_from=_extract_sources(catalog_tag_nodes),
             params=named_params,
             builders=builders,
+            is_builder=bool(builders),
         )
 
     def to_dict(self):
@@ -942,6 +945,7 @@ class ExprMetadata:
                     self.lineage.to_dict() if self.lineage else None,
                 ),
                 ("builders", list(self.builders) if self.builders else None),
+                ("is_builder", self.is_builder or None),
             )
             if value is not None
         }

@@ -19,9 +19,7 @@ from xorq.catalog.catalog import Catalog
 # 1. Set up a connection and base table (dev data)
 # ---------------------------------------------------------------------------
 
-con = xo.connect()
-dev_data = con.create_table(
-    "flights_dev",
+dev_data = xo.memtable(
     {
         "origin": ["JFK", "LAX", "ORD", "JFK", "LAX", "ORD", "JFK", "LAX"],
         "destination": ["LAX", "ORD", "JFK", "ORD", "JFK", "LAX", "LAX", "JFK"],
@@ -29,6 +27,7 @@ dev_data = con.create_table(
         "dep_delay": [10.0, -5.0, 30.0, 15.0, -2.0, 45.0, 5.0, 20.0],
         "distance": [2475, 1745, 740, 1300, 2475, 1745, 2475, 2475],
     },
+    name="flights_dev",
 )
 
 # ---------------------------------------------------------------------------

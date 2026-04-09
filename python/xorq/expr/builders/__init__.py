@@ -39,28 +39,6 @@ from attr.validators import is_callable
 from attr.validators import optional as optional_v
 
 
-try:
-    from enum import StrEnum
-except ImportError:
-    from strenum import StrEnum
-
-
-class BuiltinTagKey(StrEnum):
-    """Protected tag keys owned by xorq builtins.
-
-    Third-party handlers cannot register these names.
-    """
-
-    # BSL — will eventually move to boring_semantic_layer's own entry point
-    BSL = "bsl"
-    # ML pipeline keys
-    FITTED_PIPELINE_TRANSFORM = "FittedPipeline-transform"
-    FITTED_PIPELINE_PREDICT = "FittedPipeline-predict"
-    FITTED_PIPELINE_PREDICT_PROBA = "FittedPipeline-predict_proba"
-    FITTED_PIPELINE_DECISION_FUNCTION = "FittedPipeline-decision_function"
-    FITTED_PIPELINE_FEATURE_IMPORTANCES = "FittedPipeline-feature_importances"
-
-
 @frozen
 class TagHandler:
     extract_metadata: Optional[Callable] = field(
@@ -72,13 +50,26 @@ class TagHandler:
 
 
 _FROM_TAGGED_REGISTRY: dict[str, TagHandler] = {}
-_BUILTIN_KEYS = frozenset(str(k) for k in BuiltinTagKey)
+_BUILTIN_KEYS: frozenset[str] = frozenset()
+_initialized = False
 
 
 def _ensure_initialized():
-    if not _FROM_TAGGED_REGISTRY:
-        _register_builtins()
-        _discover_from_tagged()
+    global _initialized, _BUILTIN_KEYS
+    if _initialized:
+        return
+    _initialized = True
+    _register_builtins()
+    _BUILTIN_KEYS = frozenset(_FROM_TAGGED_REGISTRY)
+    _discover_from_tagged()
+
+
+def _reset_registry():
+    """For testing only. Clears and reinitializes the registry."""
+    global _initialized, _BUILTIN_KEYS
+    _FROM_TAGGED_REGISTRY.clear()
+    _BUILTIN_KEYS = frozenset()
+    _initialized = False
 
 
 def register_tag_handler(tag_name, tag_handler, *, override=False):
@@ -99,6 +90,14 @@ def _get_from_tagged_registry():
 def _discover_from_tagged():
     """Discover handlers from entry points (group "xorq.from_tagged")."""
     for ep in importlib.metadata.entry_points(group="xorq.from_tagged"):
+        if ep.name in _BUILTIN_KEYS:
+            import structlog  # noqa: PLC0415
+
+            structlog.get_logger().warning(
+                "entry point tried to override builtin tag key -- skipped",
+                entry_point=ep.name,
+            )
+            continue
         try:
             handler = ep.load()
             _FROM_TAGGED_REGISTRY[ep.name] = handler
@@ -130,6 +129,9 @@ def extract_builder_metadata(tag_name, tag_node):
 
 def _resolve_builder_from_tag(expr):
     """Walk tags on *expr*, dispatch to registry, return the first domain object.
+
+    Tags are visited in graph-walk order (outermost first). The first handler
+    that returns a non-None result wins.
 
     Raises ``ValueError`` if no handler with ``from_tagged`` matches.
     """
@@ -176,11 +178,17 @@ def _bsl_from_tagged(tag_node):
     # TODO: BSL's from_tagged returns the full query chain (SemanticAggregate),
     # not the SemanticModel. We reconstruct only the base SemanticTableOp to
     # get the SemanticModel back so callers can issue new .query() calls.
-    from boring_semantic_layer.serialization import (  # noqa: PLC0415
-        BSLSerializationContext,
-        extract_xorq_metadata,
-        reconstruct_bsl_operation,
-    )
+    try:
+        from boring_semantic_layer.serialization import (  # noqa: PLC0415
+            BSLSerializationContext,
+            extract_xorq_metadata,
+            reconstruct_bsl_operation,
+        )
+    except ImportError:
+        raise ImportError(
+            "boring-semantic-layer is required to recover BSL models -- "
+            "install it with: uv pip install boring-semantic-layer"
+        ) from None
 
     expr = tag_node.to_expr()
     ctx = BSLSerializationContext()
@@ -211,7 +219,7 @@ def _ml_pipeline_extract_metadata(tag_node):
 def _ml_from_tagged(tag_node):
     from xorq.expr.ml.pipeline_lib import FittedPipeline  # noqa: PLC0415
 
-    return FittedPipeline.from_expr(tag_node.to_expr())
+    return FittedPipeline.from_tag_node(tag_node)
 
 
 def _register_builtins():
@@ -228,5 +236,5 @@ def _register_builtins():
         from_tagged=_ml_from_tagged,
     )
     for key in FittedPipelineTagKey:
-        if key not in (FittedPipelineTagKey.ALL_STEPS, FittedPipelineTagKey.TRAINING):
+        if key != FittedPipelineTagKey.ALL_STEPS:
             _FROM_TAGGED_REGISTRY[str(key)] = ml_handler

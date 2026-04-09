@@ -622,7 +622,7 @@ def _eval_entry(catalog_entry, code, instream=None):
                     f"'xorq catalog run SOURCE {catalog_entry.name} -o - -f csv'."
                 ) from err
             expr = replace_unbound(catalog_entry.expr, input_expr.op())
-        case ExprKind.Source | ExprKind.Expr | ExprKind.Composed:
+        case ExprKind.Source | ExprKind.Expr | ExprKind.Composed | ExprKind.ExprBuilder:
             expr = _make_source_expr(catalog_entry)
         case _:
             raise click.ClickException(

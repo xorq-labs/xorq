@@ -841,11 +841,12 @@ class Pipeline:
             if features
             else tuple(col for col in expr.columns if col != target)
         )
-        expr = expr.tag(
-            str(FittedPipelineTagKey.TRAINING),
-            target=target,
-            features=features,
-        )
+        try:
+            from xorq.common.utils.name_utils import make_name  # noqa: PLC0415
+
+            training_hash = make_name("training", expr.op())
+        except Exception:
+            training_hash = ""
         fitted_steps = ()
         transformed = expr
         # During fit, other (non-feature) columns are only needed if a predict
@@ -880,7 +881,7 @@ class Pipeline:
             )
             fitted_steps += (fitted_step,)
             # transformed = fitted_step.transform(transformed)
-        return FittedPipeline(fitted_steps, expr)
+        return FittedPipeline(fitted_steps, expr, training_hash)
 
     @classmethod
     def from_instance(cls, instance, deep=False):
@@ -957,42 +958,50 @@ class FittedPipeline:
         converter=tuple,
     )
     expr = field(validator=instance_of(Expr))
+    training_hash: str = field(default="", validator=instance_of(str))
 
     def __attrs_post_init__(self):
         assert self.fitted_steps
 
     @classmethod
-    def from_expr(cls, expr):
-        """Recover a FittedPipeline from a tagged expression.
+    def from_tag_node(cls, tag_node):
+        """Recover a FittedPipeline from a specific pipeline tag node.
 
-        Walks tags to find the pipeline definition, training data, and cache,
-        then replays ``pipeline.fit()``.
+        Reads features/target from ALL_STEPS metadata on the tag and finds the
+        training source by graph structure (innermost step tag's parent).
         """
         from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
         from xorq.expr.relations import CachedNode, Tag  # noqa: PLC0415
 
+        expr = tag_node.to_expr()
         pipeline = expr.ls.pipeline
 
-        nodes = walk_nodes((Tag, CachedNode), expr)
-        training_tag = next(
-            (
-                n
-                for n in nodes
-                if isinstance(n, Tag)
-                and n.metadata.get("tag") == str(FittedPipelineTagKey.TRAINING)
-            ),
-            None,
-        )
-        if training_tag is None:
-            raise ValueError("No FittedPipeline-training tag found in expression")
+        all_steps = tag_node.metadata[str(FittedPipelineTagKey.ALL_STEPS)]
+        dicts = tuple(dict(step_items) for step_items in all_steps)
+        features = dicts[0]["features"]
+        target = next((d["target"] for d in dicts if d.get("target")), None)
 
-        source_expr = training_tag.parent.to_expr()
-        features = training_tag.metadata.get("features")
-        target = training_tag.metadata.get("target")
+        ml_tag_keys = {str(k) for k in FittedStepTagKey} | {
+            str(k) for k in FittedPipelineTagKey
+        }
+        nodes = walk_nodes((Tag, CachedNode), expr)
+        ml_tags = [
+            n
+            for n in nodes
+            if isinstance(n, Tag) and n.metadata.get("tag") in ml_tag_keys
+        ]
+        source_expr = ml_tags[-1].parent.to_expr()
 
         cache = next((n.cache for n in nodes if isinstance(n, CachedNode)), None)
-
         return pipeline.fit(source_expr, features=features, target=target, cache=cache)
+
+    @classmethod
+    def from_expr(cls, expr):
+        """Recover the outermost FittedPipeline from a tagged expression."""
+        pipeline_tags = get_sklearn_pipeline_tags(expr)
+        if not pipeline_tags:
+            raise ValueError("No FittedPipeline tag found on expr")
+        return cls.from_tag_node(pipeline_tags[0])
 
     @property
     def pipeline(self):
@@ -1031,12 +1040,15 @@ class FittedPipeline:
                     raise ValueError(f"unhandled FittedPipelineTagKey: {which}")
                 else:
                     raise ValueError(f"don't know how to deal with value: {which}")
-        return {
+        result = {
             str(which): tuple(
                 tuple(fitted_step.get_tag_kwargs().items())
                 for fitted_step in fitted_steps
             ),
         }
+        if which == FittedPipelineTagKey.ALL_STEPS and self.training_hash:
+            result["training_hash"] = self.training_hash
+        return result
 
     def transform(self, expr, tag=True):
         transformed = expr
