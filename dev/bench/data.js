@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775686442963,
+  "lastUpdate": 1775729635190,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -4884,6 +4884,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.009835860453106457",
             "extra": "mean: 201.26404259999617 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c62223c4e058e50827c171d4d2af3656e2b12e04",
+          "message": "chore: add databricks workflow (#1804)",
+          "timestamp": "2026-04-09T12:10:21+02:00",
+          "tree_id": "9d014100ef6848a76e092d5ed73effed6fa76f8a",
+          "url": "https://github.com/xorq-labs/xorq/commit/c62223c4e058e50827c171d4d2af3656e2b12e04"
+        },
+        "date": 1775729632574,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.211908953904084,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02074122341702122",
+            "extra": "mean: 108.55513281817574 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.758508953253515,
+            "unit": "iter/sec",
+            "range": "stddev: 0.057096705563135695",
+            "extra": "mean: 266.06295540000247 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6872343201341505,
+            "unit": "iter/sec",
+            "range": "stddev: 0.22471458911880735",
+            "extra": "mean: 1.455107771400003 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.310809512412448,
+            "unit": "iter/sec",
+            "range": "stddev: 0.033111898516034945",
+            "extra": "mean: 231.97499150000075 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.898212628790626,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011225213097639132",
+            "extra": "mean: 204.15610260000108 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.937916420407013,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0066833473393922375",
+            "extra": "mean: 202.51456583333058 msec\nrounds: 6"
           }
         ]
       }
