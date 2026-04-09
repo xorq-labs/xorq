@@ -7,7 +7,7 @@ from functools import cache, cached_property
 from pathlib import Path
 from typing import Literal
 
-from attr import field, frozen
+from attr import evolve, field, frozen
 from attr.validators import instance_of, optional
 from pygments.style import Style as PygmentsStyle
 from pygments.token import (
@@ -25,11 +25,13 @@ from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
+from textual.suggester import SuggestFromList
 from textual.theme import Theme
 from textual.widgets import (
     DataTable,
     Footer,
     Header,
+    Input,
     Static,
     Tree,
 )
@@ -237,6 +239,78 @@ class RevisionRowData:
 
 VIEW_LIMIT = 50_000
 
+VERB_TEMPLATES = {
+    "filter": "source.filter({input})",
+    "mutate": "source.mutate({input})",
+    "select": "source.select({input})",
+    "order_by": "source.order_by({input})",
+    "drop": "source.drop({input})",
+    "agg": "source.group_by({group}).agg({input})",
+}
+
+
+def build_code(verb: str, user_input: str, group: str = "") -> str:
+    if verb == "freeform":
+        return user_input
+    if verb == "agg":
+        return VERB_TEMPLATES[verb].format(group=group, input=user_input)
+    return VERB_TEMPLATES[verb].format(input=user_input)
+
+
+@frozen
+class ExprStep:
+    """A single user-applied Ibis operation."""
+
+    verb: str = field(validator=instance_of(str))
+    user_input: str = field(validator=instance_of(str))
+    code: str = field(validator=instance_of(str))
+
+
+@frozen
+class ExprStack:
+    """Immutable operation stack with undo/redo cursor."""
+
+    base_expr: object = field(repr=False)
+    steps: tuple[ExprStep, ...] = field(factory=tuple)
+    cursor: int = field(default=0, validator=instance_of(int))
+
+    def push(self, step: ExprStep) -> "ExprStack":
+        """Apply new step, discard any steps after cursor (fork)."""
+        return evolve(
+            self,
+            steps=self.steps[: self.cursor] + (step,),
+            cursor=self.cursor + 1,
+        )
+
+    def undo(self) -> "ExprStack":
+        return evolve(self, cursor=max(0, self.cursor - 1))
+
+    def redo(self) -> "ExprStack":
+        return evolve(self, cursor=min(len(self.steps), self.cursor + 1))
+
+    @property
+    def can_undo(self) -> bool:
+        return self.cursor > 0
+
+    @property
+    def can_redo(self) -> bool:
+        return self.cursor < len(self.steps)
+
+    def current_expr(self):
+        """Replay active steps onto base via _eval_code."""
+        from xorq.catalog.bind import _eval_code  # noqa: PLC0415
+
+        expr = self.base_expr
+        for step in self.steps[: self.cursor]:
+            expr = _eval_code(step.code, expr)
+        return expr
+
+    @property
+    def current_code(self) -> str:
+        """Composable --code string for the active steps."""
+        if self.cursor == 0:
+            return ""
+        return "\n".join(step.code for step in self.steps[: self.cursor])
 
 def _entry_info(entry: CatalogEntry) -> tuple[int | None, bool | None]:
     path = get_cache_key_path(entry.projected_cache_key)
@@ -931,33 +1005,59 @@ class CatalogScreen(Screen):
 
 
 class DataViewScreen(Screen):
-    """Full-screen data viewer for a single catalog entry."""
+    """Full-screen data viewer with interactive expression composition.
+
+    Every user action (filter, mutate, select, sort, aggregate) is a raw Ibis
+    API call pushed onto an undo/redo ExprStack.
+    """
 
     BINDINGS = (
-        ("escape", "go_back", "Back"),
-        ("q", "go_back", "Back"),
+        ("escape", "cancel_or_back", "Back"),
+        ("q", "cancel_or_back", "Back"),
         ("h", "scroll_left", "Left"),
         ("j", "cursor_down", "Down"),
         ("k", "cursor_up", "Up"),
         ("l", "scroll_right", "Right"),
         ("g", "scroll_top", "Top"),
         ("shift+g", "scroll_bottom", "Bottom"),
-        ("[", "sort_prev", "Sort ←"),
-        ("]", "sort_next", "Sort →"),
+        ("[", "sort_desc", "Sort ↓"),
+        ("]", "sort_asc", "Sort ↑"),
+        ("d", "drop_column", "Drop col"),
+        ("s", "toggle_stats", "Stats"),
+        ("u", "undo", "Undo"),
+        ("ctrl+r", "redo", "Redo"),
+        ("e", "toggle_stack_browser", "Stack"),
+        ("w", "persist", "Save"),
+        ("f", "verb_filter", "Filter"),
+        ("=", "verb_mutate", "Mutate"),
+        ("-", "verb_select", "Select"),
+        ("#", "verb_agg", "Agg"),
+        (":", "verb_freeform", "Freeform"),
     )
 
     def __init__(self, entry, row_data):
         super().__init__()
         self._entry = entry
         self._row_data = row_data
-        self._ibis_expr = None
+        self._stack = None
         self._df = None
-        self._sort_column_index = -1
+        self._cursor_column_index = 0
+        self._stats_visible = False
+        self._stats_loaded = False
+        self._stack_browser_visible = False
+        self._command_verb = None
+        self._agg_group = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         yield Static("", id="data-view-status")
-        yield DataTable(id="data-view-table")
+        with Horizontal(id="data-view-split"):
+            yield DataTable(id="data-view-table")
+            with Vertical(id="stack-browser-panel"):
+                yield Static("", id="stack-browser-content")
+        with Vertical(id="stats-panel"):
+            yield DataTable(id="stats-table")
+        yield Input(id="command-input", placeholder="")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -965,6 +1065,21 @@ class DataViewScreen(Screen):
         table.cursor_type = "row"
         table.zebra_stripes = True
         table.loading = True
+
+        stats_panel = self.query_one("#stats-panel")
+        stats_panel.border_title = "Stats"
+        stats_panel.display = False
+
+        stats_table = self.query_one("#stats-table", DataTable)
+        stats_table.cursor_type = "none"
+        stats_table.zebra_stripes = True
+
+        stack_panel = self.query_one("#stack-browser-panel")
+        stack_panel.border_title = "Expression Stack"
+        stack_panel.display = False
+
+        cmd_input = self.query_one("#command-input", Input)
+        cmd_input.display = False
 
         label = self._row_data.aliases_display or self._row_data.hash[:12]
         self.query_one("#data-view-status", Static).update(f" Loading {label}...")
@@ -1005,14 +1120,18 @@ class DataViewScreen(Screen):
     @work(thread=True, exit_on_error=False)
     def _load_data(self) -> None:
         try:
-            df = self._run_catalog_subprocess()
+            base_expr = self._entry.expr
+            self._stack = ExprStack(base_expr=base_expr)
+            df = base_expr.limit(VIEW_LIMIT).execute()
             self.app.call_from_thread(self._on_data_loaded, df)
         except Exception as e:
             self.app.call_from_thread(self._render_error, str(e))
 
     def _on_data_loaded(self, df) -> None:
         self._df = df
+        self._cursor_column_index = 0
         self._render_table()
+        self._update_command_suggester()
 
     def _render_table(self) -> None:
         df = self._df
@@ -1037,25 +1156,242 @@ class DataViewScreen(Screen):
                     key=str(i),
                 )
             table.cursor_type = "row"
-            label = self._row_data.aliases_display or self._row_data.hash[:12]
-            sort_info = ""
-            if self._sort_column_index >= 0:
-                col_name = df.columns[self._sort_column_index]
-                sort_info = f" | sorted by {col_name}"
-            self.query_one("#data-view-status", Static).update(
-                f" {label} \u2014 {len(df)} rows \u00d7 {len(df.columns)} cols{sort_info}"
-            )
+            self._update_status_bar()
+
+    def _update_status_bar(self) -> None:
+        df = self._df
+        if df is None:
+            return
+        label = self._row_data.aliases_display or self._row_data.hash[:12]
+        stack = self._stack
+        step_info = ""
+        if stack and stack.cursor > 0:
+            step = stack.steps[stack.cursor - 1]
+            step_info = f" | step {stack.cursor}/{len(stack.steps)} {step.verb}"
+        self.query_one("#data-view-status", Static).update(
+            f" {label} \u2014 {len(df)} rows \u00d7 {len(df.columns)} cols{step_info}"
+        )
 
     def _render_error(self, message) -> None:
         self.query_one("#data-view-status", Static).update(f" Error: {message}")
         self.query_one("#data-view-table", DataTable).loading = False
 
+    _IBIS_METHOD_SUGGESTIONS = (
+        "filter",
+        "mutate",
+        "select",
+        "order_by",
+        "group_by",
+        "agg",
+        "distinct",
+        "head",
+        "limit",
+        "join",
+        "drop",
+    )
+
+    def _update_command_suggester(self) -> None:
+        """Update tab-completion suggestions from current expression columns."""
+        cols = tuple(self._df.columns) if self._df is not None else ()
+        self.query_one("#command-input", Input).suggester = SuggestFromList(
+            cols + self._IBIS_METHOD_SUGGESTIONS, case_sensitive=False
+        )
+
+    # --- Stack operations ---
+
+    def _push_step(self, verb: str, user_input: str, code: str) -> None:
+        """Push a step and re-execute in background."""
+        step = ExprStep(verb=verb, user_input=user_input, code=code)
+        self._stack = self._stack.push(step)
+        self._execute_current()
+
+    @work(thread=True, exit_on_error=False)
+    def _execute_current(self) -> None:
+        """Evaluate current stack expression and update the table."""
+        try:
+            stack = self._stack
+            expr = stack.current_expr()
+            df = expr.limit(VIEW_LIMIT).execute()
+            self.app.call_from_thread(self._on_stack_executed, df)
+        except Exception as e:
+            self._stack = stack.undo()
+            self.app.call_from_thread(self._show_command_error, str(e))
+
+    def _on_stack_executed(self, df) -> None:
+        self._df = df
+        self._cursor_column_index = 0
+        self._stats_loaded = False
+        self._render_table()
+        self._update_command_suggester()
+        self._render_stack_browser()
+
+    def _show_command_error(self, message) -> None:
+        cmd = self.query_one("#command-input", Input)
+        cmd.display = True
+        cmd.value = f"Error: {message}"
+        cmd.add_class("error")
+
+    # --- Command input ---
+
+    def _open_command_input(self, verb: str) -> None:
+        """Show the command input docked at bottom with verb prompt."""
+        self._command_verb = verb
+        cmd = self.query_one("#command-input", Input)
+        cmd.remove_class("error")
+        cmd.value = ""
+        prompt = verb if verb != "freeform" else ":"
+        cmd.placeholder = (
+            f"{prompt}\u25b8 type expression, Tab to complete, Enter to apply"
+        )
+        cmd.border_title = f"{prompt}\u25b8"
+        cmd.display = True
+        cmd.focus()
+
+    @on(Input.Submitted, "#command-input")
+    def _on_command_submitted(self, event: Input.Submitted) -> None:
+        user_input = event.value.strip()
+        cmd = self.query_one("#command-input", Input)
+
+        verb = self._command_verb
+
+        # Save accepts empty input (no alias)
+        if verb == "save":
+            alias = user_input if user_input else None
+            cmd.display = False
+            self._command_verb = None
+            self.query_one("#data-view-table", DataTable).focus()
+            self._do_persist(alias)
+            return
+
+        if not user_input:
+            cmd.display = False
+            self._command_verb = None
+            self._agg_group = None
+            self.query_one("#data-view-table", DataTable).focus()
+            return
+
+        if verb is None:
+            cmd.display = False
+            self.query_one("#data-view-table", DataTable).focus()
+            return
+
+        # Two-phase aggregate: first group_by, then agg
+        if verb == "agg_group":
+            self._agg_group = user_input
+            self._command_verb = "agg"
+            cmd.value = ""
+            cmd.placeholder = (
+                "agg\u25b8 aggregation expressions (e.g. avg=source.amount.mean())"
+            )
+            cmd.border_title = "agg\u25b8"
+            return
+
+        try:
+            if verb == "agg":
+                group = self._agg_group or ""
+                code = build_code(verb, user_input, group=group)
+                display_input = f"group_by({group}).agg({user_input})"
+            else:
+                code = build_code(verb, user_input)
+                display_input = user_input
+        except Exception as e:
+            cmd.value = f"Error building code: {e}"
+            cmd.add_class("error")
+            return
+
+        cmd.display = False
+        self._command_verb = None
+        self._agg_group = None
+        self.query_one("#data-view-table", DataTable).focus()
+        self._push_step(verb, display_input, code)
+
+    # --- Verb actions ---
+
+    def action_verb_filter(self) -> None:
+        if self._stack is None:
+            return
+        self._open_command_input("filter")
+
+    def action_verb_mutate(self) -> None:
+        if self._stack is None:
+            return
+        self._open_command_input("mutate")
+
+    def action_verb_select(self) -> None:
+        if self._stack is None:
+            return
+        self._open_command_input("select")
+
+    def action_verb_agg(self) -> None:
+        if self._stack is None:
+            return
+        self._agg_group = None
+        self._command_verb = "agg_group"
+        cmd = self.query_one("#command-input", Input)
+        cmd.remove_class("error")
+        cmd.value = ""
+        cmd.placeholder = (
+            'group_by\u25b8 column names to group by (e.g. "category", "region")'
+        )
+        cmd.border_title = "group_by\u25b8"
+        cmd.display = True
+        cmd.focus()
+
+    def action_verb_freeform(self) -> None:
+        if self._stack is None:
+            return
+        self._open_command_input("freeform")
+
+    # --- Instant actions (no input required) ---
+
+    def action_sort_asc(self) -> None:
+        if self._stack is None or self._df is None:
+            return
+        col = self._df.columns[self._cursor_column_index]
+        code = f'source.order_by("{col}")'
+        self._push_step("order_by", f'"{col}"', code)
+
+    def action_sort_desc(self) -> None:
+        if self._stack is None or self._df is None:
+            return
+        col = self._df.columns[self._cursor_column_index]
+        code = f'source.order_by(ibis.desc("{col}"))'
+        self._push_step("order_by", f'ibis.desc("{col}")', code)
+
+    def action_drop_column(self) -> None:
+        if self._stack is None or self._df is None:
+            return
+        col = self._df.columns[self._cursor_column_index]
+        code = f'source.drop("{col}")'
+        self._push_step("drop", f'"{col}"', code)
+
+    # --- Undo / Redo ---
+
+    def action_undo(self) -> None:
+        if self._stack is None or not self._stack.can_undo:
+            return
+        self._stack = self._stack.undo()
+        self._execute_current()
+
+    def action_redo(self) -> None:
+        if self._stack is None or not self._stack.can_redo:
+            return
+        self._stack = self._stack.redo()
+        self._execute_current()
+
     # --- Navigation ---
 
-    def action_go_back(self) -> None:
-        self._df = None
-        self._ibis_expr = None
-        self.app.pop_screen()
+    def action_cancel_or_back(self) -> None:
+        cmd = self.query_one("#command-input", Input)
+        if cmd.display:
+            cmd.display = False
+            self._command_verb = None
+            self._agg_group = None
+            self.query_one("#data-view-table", DataTable).focus()
+        else:
+            self._df = None
+            self._stack = None
+            self.app.pop_screen()
 
     def action_cursor_down(self) -> None:
         self.query_one("#data-view-table", DataTable).action_cursor_down()
@@ -1065,9 +1401,11 @@ class DataViewScreen(Screen):
 
     def action_scroll_left(self) -> None:
         self.query_one("#data-view-table", DataTable).action_scroll_left()
+        self._track_cursor_column()
 
     def action_scroll_right(self) -> None:
         self.query_one("#data-view-table", DataTable).action_scroll_right()
+        self._track_cursor_column()
 
     def action_scroll_top(self) -> None:
         table = self.query_one("#data-view-table", DataTable)
@@ -1078,29 +1416,205 @@ class DataViewScreen(Screen):
         if table.row_count > 0:
             table.move_cursor(row=table.row_count - 1)
 
-    # --- Sorting ---
-
-    def action_sort_prev(self) -> None:
+    def _track_cursor_column(self) -> None:
+        """Update tracked column index from DataTable cursor position."""
         if self._df is None:
             return
-        ncols = len(self._df.columns)
-        if self._sort_column_index <= 0:
-            self._sort_column_index = ncols - 1
-        else:
-            self._sort_column_index -= 1
-        self._apply_sort()
+        table = self.query_one("#data-view-table", DataTable)
+        col = table.cursor_column
+        if 0 <= col < len(self._df.columns):
+            self._cursor_column_index = col
 
-    def action_sort_next(self) -> None:
-        if self._df is None:
+    # --- Stack browser ---
+
+    def action_toggle_stack_browser(self) -> None:
+        self._stack_browser_visible = not self._stack_browser_visible
+        panel = self.query_one("#stack-browser-panel")
+        panel.display = self._stack_browser_visible
+        if self._stack_browser_visible:
+            self._render_stack_browser()
+
+    def _render_stack_browser(self) -> None:
+        if not self._stack_browser_visible or self._stack is None:
             return
-        ncols = len(self._df.columns)
-        self._sort_column_index = (self._sort_column_index + 1) % ncols
-        self._apply_sort()
+        stack = self._stack
+        label = self._row_data.aliases_display or self._row_data.hash[:12]
+        base_marker = "\u2192 " if stack.cursor == 0 else "  "
+        step_lines = tuple(
+            "{}{:<3} {:<9} {}{}".format(
+                "\u2192 " if (i + 1) == stack.cursor else "  ",
+                i + 1,
+                step.verb,
+                step.user_input,
+                "  (undone)" if (i + 1) > stack.cursor else "",
+            )
+            for i, step in enumerate(stack.steps)
+        )
+        code = stack.current_code
+        code_lines = (
+            ("--code equivalent:", code) if code else ("(no transforms applied)",)
+        )
+        lines = (f"{base_marker}0  base: {label}", *step_lines, "", *code_lines)
+        self.query_one("#stack-browser-content", Static).update("\n".join(lines))
 
-    def _apply_sort(self) -> None:
-        col = self._df.columns[self._sort_column_index]
-        self._df = self._df.sort_values(by=col, na_position="last")
-        self._render_table()
+    # --- Persist to catalog ---
+
+    def action_persist(self) -> None:
+        if self._stack is None or self._stack.cursor == 0:
+            return
+        self._command_verb = "save"
+        cmd = self.query_one("#command-input", Input)
+        cmd.remove_class("error")
+        cmd.value = ""
+        cmd.placeholder = "alias name (leave empty to save without alias)"
+        cmd.border_title = "save\u25b8"
+        cmd.display = True
+        cmd.focus()
+
+    def _do_persist(self, alias=None) -> None:
+        """Persist current stack expression to catalog via ExprComposer."""
+        if self._stack is None or self._stack.cursor == 0:
+            return
+        self._persist_to_catalog(alias)
+
+    @work(thread=True, exit_on_error=False)
+    def _persist_to_catalog(self, alias) -> None:
+        try:
+            from xorq.catalog.composer import ExprComposer  # noqa: PLC0415
+
+            code = self._stack.current_code
+            composer = ExprComposer(source=self._entry, code=code, alias=alias)
+            expr = composer.expr
+            catalog = self.app._catalog
+            if catalog is None:
+                self.app.call_from_thread(
+                    self._show_command_error, "No catalog available"
+                )
+                return
+            entry = catalog.add(expr)
+            if alias:
+                catalog.add_alias(entry.name, alias)
+            msg = f"Saved as '{alias or entry.name[:12]}'"
+            self.app.call_from_thread(self._show_persist_success, msg)
+        except Exception as e:
+            self.app.call_from_thread(self._show_command_error, f"Save failed: {e}")
+
+    def _show_persist_success(self, message) -> None:
+        self.query_one("#data-view-status", Static).update(f" \u2713 {message}")
+
+    # --- Stats ---
+
+    def action_toggle_stats(self) -> None:
+        panel = self.query_one("#stats-panel")
+        self._stats_visible = not self._stats_visible
+        panel.display = self._stats_visible
+        if self._stats_visible and not self._stats_loaded:
+            panel.border_subtitle = "loading..."
+            self._load_stats()
+
+    @work(thread=True, exit_on_error=False)
+    def _load_stats(self) -> None:
+        try:
+            from xorq.vendor import ibis  # noqa: PLC0415
+            from xorq.vendor.ibis import literal as lit  # noqa: PLC0415
+            from xorq.vendor.ibis.expr import datatypes as dt  # noqa: PLC0415
+
+            expr = self._stack.current_expr() if self._stack else None
+            if expr is None:
+                return
+            aggs = []
+            string_cols = []
+            for pos, colname in enumerate(expr.columns):
+                col = expr[colname]
+                typ = col.type()
+
+                col_mean = lit(None).cast(float)
+                col_std = lit(None).cast(float)
+                col_min = lit(None).cast(float)
+                col_max = lit(None).cast(float)
+                col_p25 = lit(None).cast(float)
+                col_p50 = lit(None).cast(float)
+                col_p75 = lit(None).cast(float)
+
+                if typ.is_numeric():
+                    col_mean = col.mean()
+                    col_std = col.std()
+                    col_min = col.min().cast(float)
+                    col_max = col.max().cast(float)
+                    col_p25 = col.quantile(0.25).cast(float)
+                    col_p50 = col.quantile(0.50).cast(float)
+                    col_p75 = col.quantile(0.75).cast(float)
+                elif typ.is_boolean():
+                    col_mean = col.mean()
+
+                if typ.is_string():
+                    string_cols.append(colname)
+
+                aggs.append(
+                    expr.agg(
+                        name=lit(colname),
+                        pos=lit(pos, type=dt.int16),
+                        type=lit(str(typ)),
+                        count=col.count(),
+                        nulls=col.isnull().sum(),
+                        unique=col.nunique(),
+                        mean=col_mean,
+                        std=col_std,
+                        min=col_min,
+                        p25=col_p25,
+                        p50=col_p50,
+                        p75=col_p75,
+                        max=col_max,
+                    )
+                )
+
+            stats_df = ibis.union(*aggs).execute()
+
+            # Compute mode for string columns in a single batched query
+            # (avoids unsupported Mode operation)
+            if string_cols:
+                mode_exprs = []
+                for colname in string_cols:
+                    mode_exprs.append(
+                        expr.group_by(colname)
+                        .agg(_cnt=expr[colname].count())
+                        .order_by(ibis.desc("_cnt"))
+                        .limit(1)
+                        .select(
+                            _col_name=lit(colname),
+                            _mode_val=expr[colname].cast(str),
+                        )
+                    )
+                modes_df = ibis.union(*mode_exprs).execute()
+                modes = dict(zip(modes_df["_col_name"], modes_df["_mode_val"]))
+                stats_df["mode"] = stats_df["name"].map(modes).fillna("")
+
+            self.app.call_from_thread(self._render_stats, stats_df)
+        except Exception as e:
+            self.app.call_from_thread(
+                self._render_stats_error, f"{type(e).__name__}: {e}"
+            )
+
+    def _render_stats(self, stats_df) -> None:
+        self._stats_loaded = True
+        with self.app.batch_update():
+            panel = self.query_one("#stats-panel")
+            panel.border_subtitle = ""
+            table = self.query_one("#stats-table", DataTable)
+            table.clear(columns=True)
+            for col in stats_df.columns:
+                table.add_column(str(col), key=str(col))
+            for i, row in enumerate(stats_df.itertuples(index=False)):
+                table.add_row(
+                    *(
+                        str(round(v, 2)) if isinstance(v, float) else str(v)
+                        for v in row
+                    ),
+                    key=str(i),
+                )
+
+    def _render_stats_error(self, message) -> None:
+        self.query_one("#stats-panel").border_subtitle = f"Error: {message}"
 
 
 class CatalogTUI(App):
@@ -1215,8 +1729,41 @@ class CatalogTUI(App):
         padding: 0 2;
         background: $surface;
     }
+    DataViewScreen #data-view-split {
+        height: 1fr;
+    }
     DataViewScreen #data-view-table {
         height: 1fr;
+    }
+    DataViewScreen #stack-browser-panel {
+        width: 40;
+        border: solid #5abfb5;
+        border-title-color: #5abfb5;
+        padding: 0 1;
+    }
+    DataViewScreen #stack-browser-content {
+        height: auto;
+    }
+    DataViewScreen #stats-panel {
+        height: auto;
+        max-height: 12;
+        border: solid #4AA8EC;
+        border-title-color: #4AA8EC;
+    }
+    DataViewScreen #stats-table {
+        height: auto;
+    }
+    DataViewScreen #command-input {
+        dock: bottom;
+        height: 3;
+        border: solid #2BBE75;
+        border-title-color: #2BBE75;
+        padding: 0 1;
+    }
+    DataViewScreen #command-input.error {
+        border: solid #FF4757;
+        border-title-color: #FF4757;
+        color: #FF4757;
     }
     """
 
