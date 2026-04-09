@@ -18,7 +18,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from textual.widgets import DataTable, Static, Tree
+from textual.widgets import DataTable, Input, Static, Tree
 
 import xorq.api as xo
 from xorq.caching import ParquetSnapshotCache
@@ -35,11 +35,14 @@ from xorq.catalog.tui import (
     CatalogScreen,
     CatalogTUI,
     DataViewScreen,
+    ExprStack,
+    ExprStep,
     GitLogRowData,
     RevisionRowData,
     _build_git_log_rows,
     _entry_info,
     _format_cached,
+    build_code,
     get_cache_keys_paths,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
@@ -862,3 +865,296 @@ def test_memtable_cached_lifecycle(catalog, tmp_path):
 
     entry.expr.execute()
     assert CatalogRowData(entry=entry).cached is True
+
+
+# ---------------------------------------------------------------------------
+# 12. ExprStack: pure unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_expr_step_is_frozen():
+    step = ExprStep(
+        verb="filter", user_input="source.x > 1", code="source.filter(source.x > 1)"
+    )
+    with pytest.raises(AttributeError):
+        step.verb = "mutate"
+
+
+def test_expr_stack_initial_state():
+    base = xo.memtable({"x": [1, 2, 3]})
+    stack = ExprStack(base_expr=base)
+    assert stack.cursor == 0
+    assert stack.steps == ()
+    assert stack.current_code == ""
+    assert not stack.can_undo
+    assert not stack.can_redo
+
+
+def test_expr_stack_push():
+    base = xo.memtable({"x": [1, 2, 3]})
+    stack = ExprStack(base_expr=base)
+    step = ExprStep(
+        verb="filter", user_input="source.x > 1", code="source.filter(source.x > 1)"
+    )
+    stack2 = stack.push(step)
+    assert stack2.cursor == 1
+    assert len(stack2.steps) == 1
+    assert stack2.steps[0] is step
+    # original unchanged (immutable)
+    assert stack.cursor == 0
+    assert len(stack.steps) == 0
+
+
+def test_expr_stack_undo_redo():
+    base = xo.memtable({"x": [1, 2, 3]})
+    step = ExprStep(
+        verb="filter", user_input="source.x > 1", code="source.filter(source.x > 1)"
+    )
+    stack = ExprStack(base_expr=base).push(step)
+    assert stack.can_undo
+    assert not stack.can_redo
+
+    undone = stack.undo()
+    assert undone.cursor == 0
+    assert not undone.can_undo
+    assert undone.can_redo
+
+    redone = undone.redo()
+    assert redone.cursor == 1
+    assert redone.can_undo
+    assert not redone.can_redo
+
+
+def test_expr_stack_undo_at_zero():
+    base = xo.memtable({"x": [1, 2, 3]})
+    stack = ExprStack(base_expr=base)
+    assert stack.undo().cursor == 0
+
+
+def test_expr_stack_redo_at_end():
+    base = xo.memtable({"x": [1, 2, 3]})
+    step = ExprStep(
+        verb="filter", user_input="source.x > 1", code="source.filter(source.x > 1)"
+    )
+    stack = ExprStack(base_expr=base).push(step)
+    assert stack.redo().cursor == 1
+
+
+def test_expr_stack_fork_discards_after_cursor():
+    base = xo.memtable({"x": [1, 2, 3]})
+    step1 = ExprStep(
+        verb="filter", user_input="source.x > 1", code="source.filter(source.x > 1)"
+    )
+    step2 = ExprStep(
+        verb="mutate", user_input="y=source.x * 2", code="source.mutate(y=source.x * 2)"
+    )
+    stack = ExprStack(base_expr=base).push(step1).push(step2)
+    assert stack.cursor == 2
+
+    # Undo to step 1, then push a new step — step2 should be discarded
+    undone = stack.undo()
+    assert undone.cursor == 1
+    step3 = ExprStep(verb="select", user_input='"x"', code='source.select("x")')
+    forked = undone.push(step3)
+    assert forked.cursor == 2
+    assert len(forked.steps) == 2
+    assert forked.steps[1] is step3  # step2 was replaced
+
+
+def test_expr_stack_current_expr_evaluates():
+    base = xo.memtable({"x": [1, 2, 3]})
+    step = ExprStep(
+        verb="filter", user_input="source.x > 1", code="source.filter(source.x > 1)"
+    )
+    stack = ExprStack(base_expr=base).push(step)
+    result = stack.current_expr()
+    df = result.execute()
+    assert len(df) == 2
+    assert list(df["x"]) == [2, 3]
+
+
+def test_expr_stack_current_code():
+    base = xo.memtable({"x": [1, 2, 3]})
+    step1 = ExprStep(
+        verb="filter", user_input="source.x > 1", code="source.filter(source.x > 1)"
+    )
+    step2 = ExprStep(
+        verb="mutate", user_input="y=source.x * 2", code="source.mutate(y=source.x * 2)"
+    )
+    stack = ExprStack(base_expr=base).push(step1).push(step2)
+    code = stack.current_code
+    assert "source.filter(source.x > 1)" in code
+    assert "source.mutate(y=source.x * 2)" in code
+
+
+def test_build_code_filter():
+    assert build_code("filter", "source.x > 1") == "source.filter(source.x > 1)"
+
+
+def test_build_code_mutate():
+    assert build_code("mutate", "y=source.x * 2") == "source.mutate(y=source.x * 2)"
+
+
+def test_build_code_select():
+    assert build_code("select", '"x", "y"') == 'source.select("x", "y")'
+
+
+def test_build_code_freeform():
+    assert build_code("freeform", "source.distinct()") == "source.distinct()"
+
+
+def test_build_code_agg():
+    code = build_code("agg", "avg=source.x.mean()", group='"category"')
+    assert code == 'source.group_by("category").agg(avg=source.x.mean())'
+
+
+def test_build_code_agg_empty_group():
+    code = build_code("agg", "total=source.x.sum()", group="")
+    assert code == "source.group_by().agg(total=source.x.sum())"
+
+
+# ---------------------------------------------------------------------------
+# 13. DataViewScreen compose: pilot tests
+# ---------------------------------------------------------------------------
+
+
+def test_data_view_has_command_input_hidden(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+
+            await run_script(
+                pilot,
+                Press(("j",)),
+                Press(("e",)),
+            )
+            await settle(pilot)
+            assert isinstance(app.screen, DataViewScreen)
+
+            cmd = app.screen.query_one("#command-input", Input)
+            assert cmd.display is False
+
+    _run(_test())
+
+
+def test_data_view_f_opens_filter_input(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+
+            await run_script(
+                pilot,
+                Press(("j",)),
+                Press(("e",)),
+            )
+            await settle(pilot)
+            data_screen = app.screen
+            assert isinstance(data_screen, DataViewScreen)
+
+            # Wait for data to load first
+            data_table = data_screen.query_one("#data-view-table", DataTable)
+            await wait_until(pilot, lambda: data_table.row_count > 0)
+
+            await pilot.press("f")
+            await settle(pilot)
+
+            cmd = data_screen.query_one("#command-input", Input)
+            assert cmd.display is not False
+            assert "filter" in str(cmd.border_title)
+
+    _run(_test())
+
+
+def test_data_view_escape_closes_command_input(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+
+            await run_script(
+                pilot,
+                Press(("j",)),
+                Press(("e",)),
+            )
+            await settle(pilot)
+            data_screen = app.screen
+            data_table = data_screen.query_one("#data-view-table", DataTable)
+            await wait_until(pilot, lambda: data_table.row_count > 0)
+
+            # Open command input
+            await pilot.press("f")
+            await settle(pilot)
+
+            cmd = data_screen.query_one("#command-input", Input)
+            assert cmd.display is not False
+
+            # Escape closes it
+            await pilot.press("escape")
+            await settle(pilot)
+            assert cmd.display is False
+            # Still on DataViewScreen
+            assert isinstance(app.screen, DataViewScreen)
+
+    _run(_test())
+
+
+def test_data_view_stack_browser_toggle(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+
+            await run_script(
+                pilot,
+                Press(("j",)),
+                Press(("e",)),
+            )
+            await settle(pilot)
+            data_screen = app.screen
+            assert isinstance(data_screen, DataViewScreen)
+
+            data_table = data_screen.query_one("#data-view-table", DataTable)
+            await wait_until(pilot, lambda: data_table.row_count > 0)
+
+            panel = data_screen.query_one("#stack-browser-panel")
+            assert panel.display is False
+
+            await run_script(
+                pilot,
+                Press(("e",)),
+                Assert(lambda p: panel.display is not False),
+                Press(("e",)),
+                Assert(lambda p: panel.display is False),
+            )
+
+    _run(_test())
+
+
+def test_data_view_undo_redo_no_crash_when_empty(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+
+            await run_script(
+                pilot,
+                Press(("j",)),
+                Press(("e",)),
+            )
+            await settle(pilot)
+            data_screen = app.screen
+            assert isinstance(data_screen, DataViewScreen)
+
+            data_table = data_screen.query_one("#data-view-table", DataTable)
+            await wait_until(pilot, lambda: data_table.row_count > 0)
+
+            # Undo/redo with empty stack should not crash
+            await pilot.press("u")
+            await settle(pilot)
+            await pilot.press("ctrl+r")
+            await settle(pilot)
+            assert isinstance(app.screen, DataViewScreen)
+
+    _run(_test())
