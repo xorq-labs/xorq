@@ -535,7 +535,50 @@ def test_tree_entry_hashes_helper(catalog, entry_a, entry_b):
 
 
 # ---------------------------------------------------------------------------
-# 4. Git Log: unit tests
+# 5. Toggle keybindings: d (data preview) and p (profiles)
+# ---------------------------------------------------------------------------
+
+
+def test_d_toggles_data_preview(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_table(pilot, catalog, entry_a)
+            panel = screen.query_one("#data-preview-panel")
+
+            await run_script(
+                pilot,
+                Assert(lambda p: panel.display is False),
+                Press(("d",)),
+                Assert(lambda p: panel.display is True),
+                Press(("d",)),
+                Assert(lambda p: panel.display is False),
+            )
+
+    _run(_test())
+
+
+def test_p_toggles_profiles(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_table(pilot, catalog, entry_a)
+            panel = screen.query_one("#profiles-panel")
+
+            await run_script(
+                pilot,
+                Assert(lambda p: panel.display is False),
+                Press(("p",)),
+                Assert(lambda p: panel.display is True),
+                Press(("p",)),
+                Assert(lambda p: panel.display is False),
+            )
+
+    _run(_test())
+
+
+# ---------------------------------------------------------------------------
+# 8. Git Log: unit tests
 # ---------------------------------------------------------------------------
 
 

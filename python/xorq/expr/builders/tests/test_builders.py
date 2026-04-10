@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 import zipfile
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -13,6 +14,7 @@ from xorq.catalog.zip_utils import test_zip as validate_zip
 from xorq.expr.builders import (
     _FROM_TAGGED_REGISTRY,
     TagHandler,
+    _discover_from_tagged,
     _get_from_tagged_registry,
     _reset_registry,
     _resolve_builder_from_tag,
@@ -24,6 +26,7 @@ from xorq.ibis_yaml.enums import ExprKind
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.types.core import (
     ExprMetadata,
+    ExprTraits,
     _extract_builders,
     _extract_kind,
 )
@@ -418,3 +421,142 @@ def test_all_steps_key_not_registered():
     assert str(FittedPipelineTagKey.ALL_STEPS) not in registry
     assert str(FittedPipelineTagKey.PREDICT) in registry
     assert str(FittedPipelineTagKey.TRANSFORM) in registry
+
+
+# ---------------------------------------------------------------------------
+# register_tag_handler type guard
+# ---------------------------------------------------------------------------
+
+
+def test_register_tag_handler_rejects_non_taghandler():
+    with pytest.raises(TypeError, match="expected TagHandler"):
+        register_tag_handler("not a handler")
+
+
+# ---------------------------------------------------------------------------
+# extract_builder_metadata fallback — handler without extract_metadata
+# ---------------------------------------------------------------------------
+
+
+def test_extract_metadata_fallback_when_no_callback(saved_registry, con):
+    handler = TagHandler(
+        tag_names=("meta_fallback",),
+        from_tagged=lambda tag_node: "domain_obj",
+    )
+    register_tag_handler(handler)
+    table = con.create_table("fb_test", {"x": [1]})
+    tag_node = Tag(
+        schema=table.schema(),
+        parent=table.op(),
+        metadata=FrozenOrderedDict({"tag": "meta_fallback"}),
+    )
+    meta = extract_builder_metadata(tag_node)
+    assert meta == {"type": "meta_fallback"}
+
+
+# ---------------------------------------------------------------------------
+# _extract_kind — UnboundExpr path
+# ---------------------------------------------------------------------------
+
+
+def test_extract_kind_unbound():
+    t = xo.table(schema={"a": "int64"})
+    assert _extract_kind(t) == ExprKind.UnboundExpr
+
+
+# ---------------------------------------------------------------------------
+# ExprTraits
+# ---------------------------------------------------------------------------
+
+
+def test_expr_traits_plain_source():
+    t = xo.memtable({"x": [1]}, name="traits_src")
+    traits = t.ls.expr_traits
+    assert isinstance(traits, ExprTraits)
+    assert traits.is_source is True
+    assert traits.has_unbound is False
+    assert traits.has_composition is False
+    assert traits.has_builders is False
+
+
+def test_expr_traits_has_builders(saved_registry, con):
+    handler = TagHandler(
+        tag_names=("traits_builder",),
+        extract_metadata=lambda tag_node: {"type": "traits_builder"},
+    )
+    register_tag_handler(handler)
+    table = con.create_table("traits_bld", {"x": [1]})
+    expr = table.tag("traits_builder")
+    traits = expr.ls.expr_traits
+    assert traits.has_builders is True
+
+
+def test_expr_traits_has_unbound():
+    t = xo.table(schema={"a": "int64"})
+    traits = t.ls.expr_traits
+    assert traits.has_unbound is True
+    assert traits.is_source is False
+
+
+# ---------------------------------------------------------------------------
+# _discover_from_tagged — entry-point loading
+# ---------------------------------------------------------------------------
+
+
+def test_discover_loads_valid_entry_point(saved_registry, monkeypatch):
+    _get_from_tagged_registry()  # ensure builtins are initialized
+
+    fake_handler = TagHandler(tag_names=("ep_test",), from_tagged=lambda n: "ep")
+    ep = Mock()
+    ep.name = "my_plugin"
+    ep.load.return_value = fake_handler
+    monkeypatch.setattr(
+        "xorq.expr.builders.importlib.metadata.entry_points",
+        lambda group: [ep],
+    )
+    handlers = _discover_from_tagged()
+    assert len(handlers) == 1
+    assert handlers[0] is fake_handler
+
+
+def test_discover_skips_non_taghandler(saved_registry, monkeypatch):
+    _get_from_tagged_registry()
+
+    ep = Mock()
+    ep.name = "bad_plugin"
+    ep.load.return_value = "not a handler"
+    monkeypatch.setattr(
+        "xorq.expr.builders.importlib.metadata.entry_points",
+        lambda group: [ep],
+    )
+    handlers = _discover_from_tagged()
+    assert handlers == []
+
+
+def test_discover_skips_builtin_override(saved_registry, monkeypatch):
+    _get_from_tagged_registry()  # populates _BUILTIN_KEYS
+
+    fake_handler = TagHandler(tag_names=("bsl",), from_tagged=lambda n: "hijack")
+    ep = Mock()
+    ep.name = "hijack_plugin"
+    ep.load.return_value = fake_handler
+    monkeypatch.setattr(
+        "xorq.expr.builders.importlib.metadata.entry_points",
+        lambda group: [ep],
+    )
+    handlers = _discover_from_tagged()
+    assert handlers == []
+
+
+def test_discover_skips_broken_entry_point(saved_registry, monkeypatch):
+    _get_from_tagged_registry()
+
+    ep = Mock()
+    ep.name = "broken_plugin"
+    ep.load.side_effect = ImportError("no such module")
+    monkeypatch.setattr(
+        "xorq.expr.builders.importlib.metadata.entry_points",
+        lambda group: [ep],
+    )
+    handlers = _discover_from_tagged()
+    assert handlers == []

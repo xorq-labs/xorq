@@ -79,7 +79,7 @@ Recovery finds the training source by graph structure: the innermost ML-related 
 
 ### Builtin key protection
 
-Builtin tag keys (those registered by `_register_builtins`) are protected: `register_tag_handler` and `_discover_from_tagged` both reject attempts to overwrite them. The protected set is derived automatically by snapshotting the registry keys after `_register_builtins` runs — there is no separate enum or manifest to maintain.
+Builtin tag keys (those registered by `_builtin_handlers`) are protected: `register_tag_handler` and `_discover_from_tagged` both reject attempts to overwrite them. The protected set is derived automatically by snapshotting the registry keys after `_builtin_handlers` runs — there is no separate enum or manifest to maintain.
 
 ## Alternatives considered
 
@@ -99,7 +99,7 @@ An early iteration used a `StrEnum` subclass to declare protected builtin tag ke
 - No enum member was ever referenced — the enum was immediately flattened into a `frozenset`.
 - It required a `strenum` compatibility shim for Python < 3.11.
 
-Deriving the protected set from what `_register_builtins` actually registers is simpler and cannot drift.
+Deriving the protected set from what `_builtin_handlers` actually registers is simpler and cannot drift.
 
 ### Priority-based whole-graph kind detection
 

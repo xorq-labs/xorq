@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import tempfile
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 import sklearn.pipeline
@@ -194,3 +195,35 @@ def test_ml_catalog_roundtrip_recover_and_transform(ml_catalog_entry):
     result = recovered.transform(prd)
     df = result.execute()
     assert len(df) == 2
+
+
+# ---------------------------------------------------------------------------
+# FittedPipeline.from_expr — ValueError on non-pipeline expression
+# ---------------------------------------------------------------------------
+
+
+def test_from_expr_raises_on_non_pipeline():
+    t = xo.memtable({"x": [1]}, name="not_pipeline")
+    with pytest.raises(ValueError, match="No FittedPipeline tag found"):
+        FittedPipeline.from_expr(t)
+
+
+# ---------------------------------------------------------------------------
+# Pipeline.fit — training_hash failure graceful degradation
+# ---------------------------------------------------------------------------
+
+
+def test_fit_training_hash_failure_degrades_gracefully(monkeypatch):
+    monkeypatch.setattr(
+        "xorq.common.utils.name_utils.make_name",
+        Mock(side_effect=RuntimeError("tokenize failed")),
+    )
+    train = xo.memtable(
+        {"a": [1.0, 2.0], "b": [3.0, 4.0], "target": [0, 1]},
+        name="hash_fail",
+    )
+    pipeline = Pipeline.from_instance(
+        sklearn.pipeline.make_pipeline(StandardScaler(), LinearRegression())
+    )
+    fitted = pipeline.fit(train, target="target")
+    assert fitted.training_hash is None
