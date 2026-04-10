@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775765977124,
+  "lastUpdate": 1775834140105,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -5082,6 +5082,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.03335041871453176",
             "extra": "mean: 248.4231733999991 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7497aff64dbeaa55aa602ecaea94e4a58b09a38f",
+          "message": "feat(metadata): add cache_keys to ExprMetadata (XOR-281) (#1783)\n\nStore the cache key for the root CachedNode in ExprMetadata instead of\nonly baking in the full filesystem path. parquet_cache_paths embeds a\nmachine-specific path at build time; cache_keys are portable — the path\ncan be resolved at read time from key + local cache directory.\n\n- Add `cache_keys: tuple[str, ...]` field to ExprMetadata\n- In from_expr(), compute key only when root node is CachedNode\n(expr.ls.is_cached), not for deeply nested cached nodes\n- Serialize/deserialize via to_dict()/from_dict(); omitted when empty\n- Add CatalogEntry.cache_keys property delegating to metadata.cache_keys\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-04-10T11:12:13-04:00",
+          "tree_id": "e4558867c618b3f0c868db7e861e7343afec0f62",
+          "url": "https://github.com/xorq-labs/xorq/commit/7497aff64dbeaa55aa602ecaea94e4a58b09a38f"
+        },
+        "date": 1775834137252,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.602535843221304,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0066787195472507764",
+            "extra": "mean: 94.31705912499666 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.6306066790638,
+            "unit": "iter/sec",
+            "range": "stddev: 0.026911069607724065",
+            "extra": "mean: 215.95442439999601 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7591451554939865,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15296023034434475",
+            "extra": "mean: 1.3172711342000014 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.757707830028834,
+            "unit": "iter/sec",
+            "range": "stddev: 0.031036910172756307",
+            "extra": "mean: 266.1196786000062 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.544882162306471,
+            "unit": "iter/sec",
+            "range": "stddev: 0.031700287231004036",
+            "extra": "mean: 220.0277068333302 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.084227628212899,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017597687670114187",
+            "extra": "mean: 196.6867089999861 msec\nrounds: 6"
           }
         ]
       }
