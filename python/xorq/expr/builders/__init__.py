@@ -1,31 +1,35 @@
 """from_tagged registry — recover domain objects from expression tags.
 
 An ExprBuilder is an expression whose tags carry domain-specific metadata.
-Handlers are ``TagHandler`` instances registered by tag_name, providing:
+Handlers are ``TagHandler`` instances that declare their ``tag_names`` and
+provide:
 
 - ``extract_metadata(tag_node) → dict`` — sidecar metadata for the catalog
 - ``from_tagged(tag_node) → object``    — recover a live domain object
 
-Both are optional.  If only ``from_tagged`` is provided, a minimal metadata
-dict ``{"type": tag_name}`` is generated automatically.
+Both callbacks are optional (but at least one is required).  If only
+``from_tagged`` is provided, a minimal metadata dict ``{"type": tag_name}``
+is generated automatically.
 
-Built-in handlers (BSL, ML pipeline) are registered at import time.
+Built-in handlers (BSL, ML pipeline) are declared in ``_builtin_handlers()``.
 Third-party packages register via the ``"xorq.from_tagged"`` entry point
 group — the loaded object must be a ``TagHandler``.
 
 Entry point example (pyproject.toml)::
 
     [project.entry-points."xorq.from_tagged"]
-    my_tag = "my_package.handlers:my_handler"
+    my_plugin = "my_package.handlers:my_handler"
 
 Handler example::
 
-    from xorq.expr.builders import TagHandler
+    from xorq.expr.builders import TagHandler, register_tag_handler
 
     my_handler = TagHandler(
+        tag_names=("my_tag",),
         extract_metadata=lambda tag_node: {"type": "my_model", ...},
         from_tagged=lambda tag_node: MyModel.from_tag(tag_node),
     )
+    register_tag_handler(my_handler)
 """
 
 from __future__ import annotations
@@ -35,11 +39,15 @@ from collections.abc import Callable
 from typing import Optional
 
 from attr import field, frozen
-from attr.validators import is_callable, optional
+from attr.validators import deep_iterable, instance_of, is_callable, optional
 
 
 @frozen
 class TagHandler:
+    tag_names: tuple[str, ...] = field(
+        converter=tuple,
+        validator=deep_iterable(instance_of(str), instance_of(tuple)),
+    )
     extract_metadata: Optional[Callable] = field(
         default=None, validator=optional(is_callable())
     )
@@ -48,6 +56,8 @@ class TagHandler:
     )
 
     def __attrs_post_init__(self):
+        if not self.tag_names:
+            raise ValueError("TagHandler must declare at least one tag_name")
         if self.extract_metadata is None and self.from_tagged is None:
             raise ValueError(
                 "TagHandler must have at least one of extract_metadata or from_tagged"
@@ -59,14 +69,26 @@ _BUILTIN_KEYS: frozenset[str] = frozenset()
 _initialized = False
 
 
+def _register_handler(handler, *, builtin=False, override=False):
+    """Expand handler.tag_names into the registry."""
+    for name in handler.tag_names:
+        if not builtin and name in _BUILTIN_KEYS:
+            raise ValueError(f"{name!r} is a protected builtin tag key")
+        if not override and name in _FROM_TAGGED_REGISTRY:
+            raise ValueError(f"tag handler already registered for {name!r}")
+        _FROM_TAGGED_REGISTRY[name] = handler
+
+
 def _ensure_initialized():
     global _initialized, _BUILTIN_KEYS
     if _initialized:
         return
     _initialized = True
-    _register_builtins()
+    for handler in _builtin_handlers():
+        _register_handler(handler, builtin=True)
     _BUILTIN_KEYS = frozenset(_FROM_TAGGED_REGISTRY)
-    _discover_from_tagged()
+    for handler in _discover_from_tagged():
+        _register_handler(handler)
 
 
 def _reset_registry():
@@ -77,14 +99,12 @@ def _reset_registry():
     _initialized = False
 
 
-def register_tag_handler(tag_name, tag_handler, *, override=False):
-    """Register a ``TagHandler`` for *tag_name*."""
+def register_tag_handler(handler, *, override=False):
+    """Register a ``TagHandler``. Raises if any tag_name conflicts."""
     _ensure_initialized()
-    if tag_name in _BUILTIN_KEYS:
-        raise ValueError(f"{tag_name!r} is a protected builtin tag key")
-    if not override and tag_name in _FROM_TAGGED_REGISTRY:
-        raise ValueError(f"tag handler already registered for {tag_name!r}")
-    _FROM_TAGGED_REGISTRY[tag_name] = tag_handler
+    if not isinstance(handler, TagHandler):
+        raise TypeError(f"expected TagHandler, got {type(handler).__name__}")
+    _register_handler(handler, override=override)
 
 
 def _get_from_tagged_registry():
@@ -93,19 +113,26 @@ def _get_from_tagged_registry():
 
 
 def _discover_from_tagged():
-    """Discover handlers from entry points (group "xorq.from_tagged")."""
+    """Load handlers from entry points (group "xorq.from_tagged")."""
+    handlers = []
     for ep in importlib.metadata.entry_points(group="xorq.from_tagged"):
-        if ep.name in _BUILTIN_KEYS:
-            import structlog  # noqa: PLC0415
-
-            structlog.get_logger().warning(
-                "entry point tried to override builtin tag key -- skipped",
-                entry_point=ep.name,
-            )
-            continue
         try:
             handler = ep.load()
-            _FROM_TAGGED_REGISTRY[ep.name] = handler
+            if not isinstance(handler, TagHandler):
+                raise TypeError(
+                    f"entry point {ep.name!r} must be a TagHandler, "
+                    f"got {type(handler).__name__}"
+                )
+            if any(name in _BUILTIN_KEYS for name in handler.tag_names):
+                import structlog  # noqa: PLC0415
+
+                structlog.get_logger().warning(
+                    "entry point tried to override builtin tag key -- skipped",
+                    entry_point=ep.name,
+                    tag_names=handler.tag_names,
+                )
+                continue
+            handlers.append(handler)
         except Exception:
             import structlog  # noqa: PLC0415
 
@@ -114,6 +141,7 @@ def _discover_from_tagged():
                 entry_point=ep.name,
                 exc_info=True,
             )
+    return handlers
 
 
 # ---------------------------------------------------------------------------
@@ -228,19 +256,23 @@ def _ml_from_tagged(tag_node):
     return FittedPipeline.from_tag_node(tag_node)
 
 
-def _register_builtins():
-    """Register built-in handlers for BSL and ML pipeline tags."""
+def _builtin_handlers():
+    """Declare built-in handlers for BSL and ML pipeline tags."""
     from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: PLC0415
 
-    _FROM_TAGGED_REGISTRY["bsl"] = TagHandler(
-        extract_metadata=_bsl_extract_metadata,
-        from_tagged=_bsl_from_tagged,
+    return (
+        TagHandler(
+            tag_names=("bsl",),
+            extract_metadata=_bsl_extract_metadata,
+            from_tagged=_bsl_from_tagged,
+        ),
+        TagHandler(
+            tag_names=tuple(
+                str(k)
+                for k in FittedPipelineTagKey
+                if k != FittedPipelineTagKey.ALL_STEPS
+            ),
+            extract_metadata=_ml_pipeline_extract_metadata,
+            from_tagged=_ml_from_tagged,
+        ),
     )
-
-    ml_handler = TagHandler(
-        extract_metadata=_ml_pipeline_extract_metadata,
-        from_tagged=_ml_from_tagged,
-    )
-    for key in FittedPipelineTagKey:
-        if key != FittedPipelineTagKey.ALL_STEPS:
-            _FROM_TAGGED_REGISTRY[str(key)] = ml_handler

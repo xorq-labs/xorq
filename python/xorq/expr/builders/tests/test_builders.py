@@ -66,9 +66,10 @@ def test_expr_builder_enum_value():
 def test_extract_kind_outermost_builder_tag(saved_registry, con):
     """Outermost builder tag → ExprBuilder."""
     handler = TagHandler(
+        tag_names=("test_builder",),
         extract_metadata=lambda tag_node: {"type": "test_builder"},
     )
-    register_tag_handler("test_builder", handler)
+    register_tag_handler(handler)
     table = con.create_table("kind_test", {"x": [1]})
     expr = table.tag("test_builder")
     assert _extract_kind(expr) == ExprKind.ExprBuilder
@@ -101,10 +102,11 @@ def test_extract_kind_unrecognized_tag_unwraps_to_source(con):
 
 def test_register_and_retrieve(saved_registry):
     handler = TagHandler(
+        tag_names=("test_dummy",),
         extract_metadata=lambda tag_node: {"type": "test_dummy"},
         from_tagged=lambda tag_node: "dummy",
     )
-    register_tag_handler("test_dummy", handler)
+    register_tag_handler(handler)
 
     assert "test_dummy" in _FROM_TAGGED_REGISTRY
     assert _FROM_TAGGED_REGISTRY["test_dummy"] is handler
@@ -118,6 +120,7 @@ def test_get_registry_returns_dict():
 def test_third_party_handler_roundtrip(saved_registry, con):
     """A third-party handler can extract metadata and recover a domain object."""
     handler = TagHandler(
+        tag_names=("weather_model",),
         extract_metadata=lambda tag_node: {
             "type": "weather_model",
             "description": "3 features",
@@ -128,7 +131,7 @@ def test_third_party_handler_roundtrip(saved_registry, con):
             "features": tag_node.metadata.get("features"),
         },
     )
-    register_tag_handler("weather_model", handler)
+    register_tag_handler(handler)
 
     table = con.create_table("weather", {"temp": [72.0], "wind": [5.0]})
     tag_meta = FrozenOrderedDict(
@@ -338,26 +341,30 @@ from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: E402
 
 
 def test_register_duplicate_raises(saved_registry):
-    handler = TagHandler(from_tagged=lambda tag_node: "first")
-    register_tag_handler("dup_test", handler)
+    handler = TagHandler(tag_names=("dup_test",), from_tagged=lambda tag_node: "first")
+    register_tag_handler(handler)
     with pytest.raises(ValueError, match="already registered"):
-        register_tag_handler("dup_test", handler)
+        register_tag_handler(handler)
 
 
 def test_register_duplicate_override(saved_registry):
-    first = TagHandler(from_tagged=lambda tag_node: "first")
-    second = TagHandler(from_tagged=lambda tag_node: "second")
-    register_tag_handler("dup_test", first)
-    register_tag_handler("dup_test", second, override=True)
+    first = TagHandler(tag_names=("dup_test",), from_tagged=lambda tag_node: "first")
+    second = TagHandler(tag_names=("dup_test",), from_tagged=lambda tag_node: "second")
+    register_tag_handler(first)
+    register_tag_handler(second, override=True)
     assert _FROM_TAGGED_REGISTRY["dup_test"] is second
 
 
 def test_register_builtin_key_raises(saved_registry):
-    handler = TagHandler(from_tagged=lambda tag_node: "hijack")
+    handler_bsl = TagHandler(tag_names=("bsl",), from_tagged=lambda tag_node: "hijack")
     with pytest.raises(ValueError, match="protected builtin"):
-        register_tag_handler("bsl", handler)
+        register_tag_handler(handler_bsl)
+    handler_predict = TagHandler(
+        tag_names=("FittedPipeline-predict",),
+        from_tagged=lambda tag_node: "hijack",
+    )
     with pytest.raises(ValueError, match="protected builtin"):
-        register_tag_handler("FittedPipeline-predict", handler)
+        register_tag_handler(handler_predict)
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +376,9 @@ def test_register_before_get_preserves_builtins():
     """Third-party register_tag_handler before any get still has builtins."""
     _reset_registry()
     try:
-        register_tag_handler("third_party", TagHandler(from_tagged=lambda n: "tp"))
+        register_tag_handler(
+            TagHandler(tag_names=("third_party",), from_tagged=lambda n: "tp")
+        )
         registry = _get_from_tagged_registry()
         assert "third_party" in registry
         assert str(FittedPipelineTagKey.PREDICT) in registry
@@ -383,8 +392,12 @@ def test_builtins_not_clobbered_by_third_party():
     """Registering a third-party handler doesn't overwrite builtins."""
     _reset_registry()
     try:
-        register_tag_handler("custom", TagHandler(from_tagged=lambda n: "custom"))
-        register_tag_handler("custom2", TagHandler(from_tagged=lambda n: "custom2"))
+        register_tag_handler(
+            TagHandler(tag_names=("custom",), from_tagged=lambda n: "custom")
+        )
+        register_tag_handler(
+            TagHandler(tag_names=("custom2",), from_tagged=lambda n: "custom2")
+        )
         registry = _get_from_tagged_registry()
         assert "custom" in registry
         assert "custom2" in registry

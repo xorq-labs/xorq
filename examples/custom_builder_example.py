@@ -72,8 +72,11 @@ def _from_tagged(tag_node):
 
 
 register_tag_handler(
-    "feature_store",
-    TagHandler(extract_metadata=_extract_metadata, from_tagged=_from_tagged),
+    TagHandler(
+        tag_names=("feature_store",),
+        extract_metadata=_extract_metadata,
+        from_tagged=_from_tagged,
+    ),
 )
 
 
