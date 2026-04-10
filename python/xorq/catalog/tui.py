@@ -28,6 +28,7 @@ from textual.widgets import (
     DataTable,
     Footer,
     Header,
+    RichLog,
     Static,
     Tree,
 )
@@ -85,6 +86,8 @@ SCHEMA_PREVIEW_COLUMNS = ("NAME", "TYPE")
 REVISION_COLUMNS = ("STATUS", "HASH", "COLUMNS", "CACHED", "DATE")
 
 GIT_LOG_COLUMNS = ("HASH", "DATE", "MESSAGE")
+
+_SQL_MAX_LINES = 1000
 
 
 def _format_cached(value: bool | None) -> str:
@@ -390,6 +393,7 @@ class CatalogScreen(Screen):
         self._refresh_lock = threading.Lock()
         self._active_view: Literal["sql", "data"] = "sql"
         self._data_preview_hash: str | None = None
+        self._sql_generation: int = 0
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -402,8 +406,8 @@ class CatalogScreen(Screen):
                 with Vertical(id="git-log-panel"):
                     yield DataTable(id="git-log-table")
             with Vertical(id="right-column"):
-                with VerticalScroll(id="sql-panel"):
-                    yield Static("", id="sql-preview")
+                with Vertical(id="sql-panel"):
+                    yield RichLog(id="sql-preview", wrap=True, markup=False)
                 with Vertical(id="data-preview-panel"):
                     yield Static("", id="data-preview-status")
                     yield DataTable(id="data-preview-table")
@@ -480,7 +484,7 @@ class CatalogScreen(Screen):
         schema_in_table.clear()
         schema_out_table = self.query_one("#schema-preview-table", DataTable)
         schema_out_table.clear()
-        sql_preview = self.query_one("#sql-preview", Static)
+        sql_preview = self.query_one("#sql-preview", RichLog)
         info_content = self.query_one("#info-content", Static)
         rev_table = self.query_one("#revisions-preview-table", DataTable)
         rev_table.clear()
@@ -493,7 +497,7 @@ class CatalogScreen(Screen):
             else None
         )
         if row_data is None:
-            sql_preview.update("")
+            sql_preview.clear()
             info_content.update("")
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
@@ -517,30 +521,25 @@ class CatalogScreen(Screen):
         for name, dtype in row_data.schema_out:
             schema_out_table.add_row(name, dtype)
 
-        # SQL preview
+        # SQL preview (async -- highlighting runs off main thread)
         sql_panel = self.query_one("#sql-panel")
+        sql_preview.clear()
+        sql_panel.border_subtitle = ""
+        self._sql_generation += 1
         match row_data.sqls:
             case ():
-                sql_preview.update("(SQL unavailable)")
-                sql_panel.border_subtitle = ""
+                sql_preview.loading = False
+                sql_preview.write("(SQL unavailable)")
             case ((_, engine, sql),):
-                sql_preview.update(
-                    Syntax(sql, "sql", theme=XorqSQLStyle, word_wrap=True)
-                )
-                sql_panel.border_subtitle = engine
+                sql_preview.loading = True
+                self._highlight_sql(sql, engine, self._sql_generation)
             case sqls:
-                sql_preview.update(
-                    Syntax(
-                        _render_sql_dag(sqls),
-                        "sql",
-                        theme=XorqSQLStyle,
-                        word_wrap=True,
-                    )
-                )
                 engines = sorted({engine for _, engine, _ in sqls})
+                sql_preview.loading = True
                 sql_panel.border_subtitle = (
                     f"{len(sqls)} queries · {', '.join(engines)}"
                 )
+                self._highlight_sql_dag(sqls, self._sql_generation)
 
         # Info panel
         info_content.update(row_data.info_text)
@@ -580,6 +579,49 @@ class CatalogScreen(Screen):
             for node in branch.children
             if node.data is not None
         }
+
+    # --- SQL highlighting workers ---
+
+    @work(thread=True, exit_on_error=False, group="sql-highlight")
+    def _highlight_sql(self, raw_sql: str, engine: str | None, generation: int) -> None:
+        truncated = raw_sql.count("\n") > _SQL_MAX_LINES
+        if truncated:
+            raw_sql = "\n".join(raw_sql.split("\n")[:_SQL_MAX_LINES])
+        highlighted = Syntax(raw_sql, "sql", theme=XorqSQLStyle, word_wrap=True)
+        self.app.call_from_thread(
+            self._render_sql_preview, highlighted, engine, truncated, generation
+        )
+
+    @work(thread=True, exit_on_error=False, group="sql-highlight")
+    def _highlight_sql_dag(
+        self, sqls: tuple[tuple[str, str, str], ...], generation: int
+    ) -> None:
+        raw_sql = _render_sql_dag(sqls)
+        truncated = raw_sql.count("\n") > _SQL_MAX_LINES
+        if truncated:
+            raw_sql = "\n".join(raw_sql.split("\n")[:_SQL_MAX_LINES])
+        highlighted = Syntax(raw_sql, "sql", theme=XorqSQLStyle, word_wrap=True)
+        self.app.call_from_thread(
+            self._render_sql_preview, highlighted, None, truncated, generation
+        )
+
+    def _render_sql_preview(
+        self,
+        highlighted: Syntax,
+        engine: str | None,
+        truncated: bool,
+        generation: int,
+    ) -> None:
+        if generation != self._sql_generation:
+            return
+        sql_preview = self.query_one("#sql-preview", RichLog)
+        sql_preview.clear()
+        sql_preview.write(highlighted)
+        if truncated:
+            sql_preview.write(f"... truncated to {_SQL_MAX_LINES} lines")
+        sql_preview.loading = False
+        if engine is not None:
+            self.query_one("#sql-panel").border_subtitle = engine
 
     # --- Refresh ---
 
@@ -855,7 +897,7 @@ class CatalogScreen(Screen):
             tree.action_cursor_down()
         elif isinstance(focused, DataTable):
             focused.action_cursor_down()
-        elif isinstance(focused, VerticalScroll):
+        elif isinstance(focused, (VerticalScroll, RichLog)):
             focused.scroll_down()
 
     def action_cursor_up(self) -> None:
@@ -865,7 +907,7 @@ class CatalogScreen(Screen):
             tree.action_cursor_up()
         elif isinstance(focused, DataTable):
             focused.action_cursor_up()
-        elif isinstance(focused, VerticalScroll):
+        elif isinstance(focused, (VerticalScroll, RichLog)):
             focused.scroll_up()
 
     def action_tree_expand(self) -> None:
@@ -964,7 +1006,7 @@ class CatalogTUI(App):
         border: double #2BBE75;
     }
     #sql-preview {
-        height: auto;
+        height: 1fr;
         padding: 1 2;
     }
     DataTable:focus {
