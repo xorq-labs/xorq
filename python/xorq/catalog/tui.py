@@ -97,7 +97,7 @@ def _format_cached(value: bool | None) -> str:
             return "—"
 
 
-def get_cache_keys_paths(cache_keys: CacheKey) -> tuple[str, ...]:
+def get_cache_keys_paths(cache_keys: tuple[CacheKey, ...]) -> tuple[str, ...]:
     return tuple(
         str(resolve_parquet_cache_path(ck.relative_path, ck.key)) for ck in cache_keys
     )
