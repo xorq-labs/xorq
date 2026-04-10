@@ -228,8 +228,17 @@ def _bsl_from_tagged(tag_node):
     ctx = BSLSerializationContext()
     metadata = extract_xorq_metadata(expr)
     # Walk to innermost source (SemanticTableOp)
-    while src := ctx.parse_field(metadata, "source"):
+    _MAX_DEPTH = 100
+    for _ in range(_MAX_DEPTH):
+        src = ctx.parse_field(metadata, "source")
+        if not src:
+            break
         metadata = src
+    else:
+        raise RuntimeError(
+            f"_bsl_from_tagged exceeded {_MAX_DEPTH} nesting levels; "
+            "possible circular metadata"
+        )
     return reconstruct_bsl_operation(metadata, expr, ctx)
 
 
