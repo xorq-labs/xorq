@@ -372,40 +372,32 @@ def test_register_builtin_key_raises(saved_registry):
 # ---------------------------------------------------------------------------
 
 
-def test_register_before_get_preserves_builtins():
+def test_register_before_get_preserves_builtins(saved_registry):
     """Third-party register_tag_handler before any get still has builtins."""
     _reset_registry()
-    try:
-        register_tag_handler(
-            TagHandler(tag_names=("third_party",), from_tagged=lambda n: "tp")
-        )
-        registry = _get_from_tagged_registry()
-        assert "third_party" in registry
-        assert str(FittedPipelineTagKey.PREDICT) in registry
-        assert str(FittedPipelineTagKey.TRANSFORM) in registry
-    finally:
-        _reset_registry()
-        _get_from_tagged_registry()  # re-initialize
+    register_tag_handler(
+        TagHandler(tag_names=("third_party",), from_tagged=lambda n: "tp")
+    )
+    registry = _get_from_tagged_registry()
+    assert "third_party" in registry
+    assert str(FittedPipelineTagKey.PREDICT) in registry
+    assert str(FittedPipelineTagKey.TRANSFORM) in registry
 
 
-def test_builtins_not_clobbered_by_third_party():
+def test_builtins_not_clobbered_by_third_party(saved_registry):
     """Registering a third-party handler doesn't overwrite builtins."""
     _reset_registry()
-    try:
-        register_tag_handler(
-            TagHandler(tag_names=("custom",), from_tagged=lambda n: "custom")
-        )
-        register_tag_handler(
-            TagHandler(tag_names=("custom2",), from_tagged=lambda n: "custom2")
-        )
-        registry = _get_from_tagged_registry()
-        assert "custom" in registry
-        assert "custom2" in registry
-        assert str(FittedPipelineTagKey.PREDICT) in registry
-        assert "bsl" in registry
-    finally:
-        _reset_registry()
-        _get_from_tagged_registry()  # re-initialize
+    register_tag_handler(
+        TagHandler(tag_names=("custom",), from_tagged=lambda n: "custom")
+    )
+    register_tag_handler(
+        TagHandler(tag_names=("custom2",), from_tagged=lambda n: "custom2")
+    )
+    registry = _get_from_tagged_registry()
+    assert "custom" in registry
+    assert "custom2" in registry
+    assert str(FittedPipelineTagKey.PREDICT) in registry
+    assert "bsl" in registry
 
 
 # ---------------------------------------------------------------------------

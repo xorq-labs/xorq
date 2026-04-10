@@ -25,6 +25,7 @@ from xorq.catalog.zip_utils import (
     write_zip,
 )
 from xorq.cli import cli as top_cli
+from xorq.expr.builders import TagHandler, _reset_registry, register_tag_handler
 from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES
 from xorq.vendor.ibis.expr import operations as ops
 
@@ -1395,3 +1396,31 @@ def test_rename_params_unknown_entry(runner, catalog_with_parameterized_entries)
     )
     assert result.exit_code != 0
     assert "Unknown entry" in result.output
+
+
+# --- run with ExprBuilder entries ---
+
+
+def test_run_expr_builder_entry(runner, catalog_path):
+    """ExprBuilder entries should be runnable via `catalog run`."""
+    _reset_registry()
+    try:
+        handler = TagHandler(
+            tag_names=("test_cli_builder",),
+            extract_metadata=lambda tag_node: {"type": "test_cli_builder"},
+        )
+        register_tag_handler(handler)
+
+        catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+        source = xo.memtable({"x": [1, 2, 3], "y": [4, 5, 6]}, name="builder_src")
+        tagged = source.tag("test_cli_builder")
+        catalog.add(tagged, aliases=("bld",), sync=False)
+
+        result = runner.invoke(
+            cli,
+            ["--path", catalog_path, "run", "bld", "-o", "-", "-f", "csv"],
+        )
+        assert result.exit_code == 0, result.output
+        assert "x" in result.output
+    finally:
+        _reset_registry()
