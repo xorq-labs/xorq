@@ -8,6 +8,11 @@ manifest="$here/.envrcs/.worktree-manifest"
 if [ -f "$manifest" ]; then
     cd "$here"
     xargs rm -v < "$manifest"
+    # Remove any empty parent directories created by setup
+    while IFS= read -r entry; do
+        dir=$(dirname "$entry")
+        rmdir -p "$dir" 2>/dev/null || true
+    done < "$manifest"
     rm -v "$manifest"
 fi
 
