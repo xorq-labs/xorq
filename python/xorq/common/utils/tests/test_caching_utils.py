@@ -32,5 +32,5 @@ def test_expr_metadata_cache_keys_rejects_non_cache_key_items():
         ExprMetadata(
             kind=ExprKind.Source,
             schema_out=ibis.Schema({"x": "int64"}),
-            cache_keys=("not_a_cache_key",),
+            parquet_snapshot_cache_keys=("not_a_cache_key",),
         )

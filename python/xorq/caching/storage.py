@@ -44,12 +44,7 @@ def resolve_parquet_cache_path(
     key: str,
     base_path: Path | None = None,
 ) -> Path:
-    """Return the full path of the parquet file for *key* under the given storage params.
-
-    This is the canonical implementation; ``ParquetStorage.get_path`` delegates here
-    so that ``CatalogEntry.cache_keys_paths`` can reconstruct paths from sidecar data
-    alone, without loading the expression.
-    """
+    """Return the full path of the parquet file for *key* under the given storage params."""
     return resolve_parquet_cache_dir(relative_path, base_path) / (key + ".parquet")
 
 

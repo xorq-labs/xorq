@@ -829,17 +829,8 @@ class CatalogEntry:
         return load_expr_from_zip(self.catalog_path, lazy=True)
 
     @property
-    def cache_keys(self):
-        return self.metadata.cache_keys
-
-    @property
-    def cache_keys_paths(self) -> tuple[str, ...]:
-        from xorq.caching.storage import resolve_parquet_cache_path  # noqa: PLC0415
-
-        return tuple(
-            str(resolve_parquet_cache_path(ck.relative_path, ck.key))
-            for ck in self.cache_keys
-        )
+    def parquet_snapshot_cache_keys(self):
+        return self.metadata.parquet_snapshot_cache_keys
 
     @cached_property
     def sidecar_metadata(self) -> dict:

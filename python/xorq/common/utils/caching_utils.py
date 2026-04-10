@@ -62,3 +62,7 @@ class CacheKey:
 
     key: str = field(validator=instance_of(str))
     relative_path: str = field(validator=instance_of(str))
+
+    @classmethod
+    def from_kwargs(cls, **kwargs):
+        return cls(**kwargs)

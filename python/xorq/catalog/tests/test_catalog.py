@@ -30,6 +30,7 @@ from xorq.catalog.expr_utils import (
 from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
 )
+from xorq.catalog.tui import get_cache_keys_paths
 from xorq.catalog.zip_utils import (
     BuildZip,
     with_pure_suffix,
@@ -821,16 +822,14 @@ def test_cache_keys_stores_key_and_relative_path(catalog, tmp_path):
     expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
     entry = catalog.add(expr)
 
-    assert len(entry.cache_keys) == 1
-    ck = entry.cache_keys[0]
+    assert len(entry.parquet_snapshot_cache_keys) == 1
+    ck = entry.parquet_snapshot_cache_keys[0]
     assert isinstance(ck, CacheKey)
     assert ck.relative_path == relative
     assert ck.key  # non-empty hash string
 
 
 def test_cache_keys_paths_relocatable(catalog, tmp_path, monkeypatch):
-    """cache_keys_paths uses get_xorq_cache_dir() + relative_path at access time;
-    no expression loading is needed, so the result tracks the current cache dir."""
     cache_dir_A = tmp_path / "cache_A"
     cache_dir_B = tmp_path / "cache_B"
     relative = "my_cache"
@@ -840,11 +839,11 @@ def test_cache_keys_paths_relocatable(catalog, tmp_path, monkeypatch):
     expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
     entry = catalog.add(expr)
 
-    paths_at_A = entry.cache_keys_paths
+    paths_at_A = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
     assert str(cache_dir_A) in paths_at_A[0]
 
     monkeypatch.setattr("xorq.caching.storage.get_xorq_cache_dir", lambda: cache_dir_B)
-    paths_at_B = entry.cache_keys_paths
+    paths_at_B = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
     assert str(cache_dir_B) in paths_at_B[0]
     assert str(cache_dir_A) not in paths_at_B[0]
 
@@ -855,14 +854,6 @@ def test_cache_keys_paths_relocatable(catalog, tmp_path, monkeypatch):
 def test_base_path_is_silently_dropped_through_catalog_round_trip(
     catalog, tmp_path, monkeypatch
 ):
-    """base_path is not serialized in ibis_yaml — only relative_path survives.
-    load_cache_from_yaml always calls from_kwargs without base_path, so the
-    resulting CacheKey.relative_path is correct but base_path is always None.
-
-    Consequence (good): cache_keys_paths always uses get_xorq_cache_dir().
-    Consequence (bad): setting base_path on an expression going through catalog
-    is silently ignored — no warning is raised anywhere.
-    """
     cache_dir_explicit = tmp_path / "explicit_base"
     cache_dir_xorq = tmp_path / "xorq_cache"
 
@@ -875,7 +866,7 @@ def test_base_path_is_silently_dropped_through_catalog_round_trip(
     monkeypatch.setattr(
         "xorq.caching.storage.get_xorq_cache_dir", lambda: cache_dir_xorq
     )
-    paths = entry.cache_keys_paths
+    paths = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
 
     assert paths
     assert str(cache_dir_xorq) in paths[0]

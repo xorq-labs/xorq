@@ -39,6 +39,7 @@ from xorq.catalog.tui import (
     _build_git_log_rows,
     _entry_info,
     _format_cached,
+    get_cache_keys_paths,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
 
@@ -708,7 +709,7 @@ def test_cached_false_before_execution(catalog, tmp_path, parquet_dir):
     expr = t.cache(cache=cache)
     entry = catalog.add(expr)
 
-    cache_keys_paths = entry.cache_keys_paths
+    cache_keys_paths = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
     assert cache_keys_paths, "entry must have cache_keys_paths"
     assert not any(Path(p).exists() for p in cache_keys_paths)
     assert CatalogRowData(entry=entry).cached is False
@@ -726,7 +727,7 @@ def test_cached_true_after_execution(catalog, tmp_path, parquet_dir):
     entry = catalog.add(expr)
     entry.expr.execute()
 
-    cache_keys_paths = entry.cache_keys_paths
+    cache_keys_paths = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
     assert all(Path(p).exists() for p in cache_keys_paths)
     assert CatalogRowData(entry=entry).cached is True
     _, cached = _entry_info(entry)
@@ -752,7 +753,7 @@ def test_memtable_cached_lifecycle(catalog, tmp_path):
     expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
     entry = catalog.add(expr)
 
-    cache_keys_paths = entry.cache_keys_paths
+    cache_keys_paths = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
     assert cache_keys_paths, "entry must have cache_keys_paths"
     assert CatalogRowData(entry=entry).cached is False
 
