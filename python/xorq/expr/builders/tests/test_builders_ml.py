@@ -8,9 +8,6 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
-import sklearn.pipeline
-from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import StandardScaler
 
 import xorq.api as xo
 from xorq.catalog.catalog import Catalog
@@ -23,6 +20,13 @@ from xorq.expr.ml.enums import FittedPipelineTagKey
 from xorq.expr.ml.pipeline_lib import FittedPipeline, Pipeline
 from xorq.expr.relations import Tag
 from xorq.ibis_yaml.enums import ExprKind
+
+
+sklearn = pytest.importorskip("sklearn")
+
+from sklearn.linear_model import LinearRegression  # noqa: E402
+from sklearn.pipeline import make_pipeline  # noqa: E402
+from sklearn.preprocessing import StandardScaler  # noqa: E402
 
 
 pytestmark = pytest.mark.skipif(
@@ -50,7 +54,7 @@ def ml_train_expr():
 
 @pytest.fixture
 def ml_fitted(ml_train_expr):
-    sk_pipe = sklearn.pipeline.make_pipeline(StandardScaler(), LinearRegression())
+    sk_pipe = make_pipeline(StandardScaler(), LinearRegression())
     pipeline = Pipeline.from_instance(sk_pipe)
     return pipeline.fit(ml_train_expr, target="target")
 
@@ -120,7 +124,7 @@ def test_ml_from_tag_node_without_cache():
         {"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0], "target": [0, 1, 0]},
         name="ml_nocache",
     )
-    sk_pipe = sklearn.pipeline.make_pipeline(StandardScaler(), LinearRegression())
+    sk_pipe = make_pipeline(StandardScaler(), LinearRegression())
     pipeline = Pipeline.from_instance(sk_pipe)
     fitted = pipeline.fit(train, target="target")
     predict_expr = fitted.predict(train)
@@ -139,7 +143,7 @@ def test_fit_with_empty_features_auto_derives():
         {"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0], "target": [0, 1, 0]},
         name="ml_empty_features",
     )
-    sk_pipe = sklearn.pipeline.make_pipeline(StandardScaler(), LinearRegression())
+    sk_pipe = make_pipeline(StandardScaler(), LinearRegression())
     pipeline = Pipeline.from_instance(sk_pipe)
     fitted = pipeline.fit(train, features=(), target="target")
     # Should auto-derive features as ("a", "b") since () is falsy
@@ -223,7 +227,7 @@ def test_fit_training_hash_failure_degrades_gracefully(monkeypatch):
         name="hash_fail",
     )
     pipeline = Pipeline.from_instance(
-        sklearn.pipeline.make_pipeline(StandardScaler(), LinearRegression())
+        make_pipeline(StandardScaler(), LinearRegression())
     )
     fitted = pipeline.fit(train, target="target")
     assert fitted.training_hash is None
