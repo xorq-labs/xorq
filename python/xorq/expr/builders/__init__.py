@@ -47,6 +47,12 @@ class TagHandler:
         default=None, validator=optional(is_callable())
     )
 
+    def __attrs_post_init__(self):
+        if self.extract_metadata is None and self.from_tagged is None:
+            raise ValueError(
+                "TagHandler must have at least one of extract_metadata or from_tagged"
+            )
+
 
 _FROM_TAGGED_REGISTRY: dict[str, TagHandler] = {}
 _BUILTIN_KEYS: frozenset[str] = frozenset()
@@ -115,8 +121,9 @@ def _discover_from_tagged():
 # ---------------------------------------------------------------------------
 
 
-def extract_builder_metadata(tag_name, tag_node):
-    """Look up *tag_name* in the registry and return sidecar metadata dict, or None."""
+def extract_builder_metadata(tag_node):
+    """Look up the tag on *tag_node* in the registry and return sidecar metadata dict, or None."""
+    tag_name = tag_node.metadata.get("tag")
     registry = _get_from_tagged_registry()
     handler = registry.get(tag_name)
     if handler is None:

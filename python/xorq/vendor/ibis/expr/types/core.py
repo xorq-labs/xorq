@@ -736,13 +736,11 @@ def _extract_builders(expr):
     if not tag_nodes:
         return ()
 
-    builders = []
-    for tag_node in tag_nodes:
-        tag_name = tag_node.metadata.get("tag")
-        meta = extract_builder_metadata(tag_name, tag_node)
-        if meta is not None:
-            builders.append(FrozenOrderedDict(meta))
-    return tuple(builders)
+    return tuple(
+        FrozenOrderedDict(meta)
+        for tag_node in tag_nodes
+        if (meta := extract_builder_metadata(tag_node)) is not None
+    )
 
 
 @frozen
@@ -797,7 +795,7 @@ def _extract_kind(expr):
 
         from xorq.expr.builders import extract_builder_metadata  # noqa: PLC0415
 
-        if extract_builder_metadata(tag_name, root) is not None:
+        if extract_builder_metadata(root) is not None:
             return ExprKind.ExprBuilder
 
         # Unrecognized tag — unwrap and keep checking

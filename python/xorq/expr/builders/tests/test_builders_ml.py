@@ -66,7 +66,7 @@ def test_ml_extract_metadata(ml_train_expr, ml_fitted):
     predict_tag = next(
         t for t in tags if t.metadata.get("tag") == str(FittedPipelineTagKey.PREDICT)
     )
-    meta = extract_builder_metadata(str(FittedPipelineTagKey.PREDICT), predict_tag)
+    meta = extract_builder_metadata(predict_tag)
     assert meta is not None
     assert meta["type"] == "fitted_pipeline"
     assert len(meta["steps"]) == 2

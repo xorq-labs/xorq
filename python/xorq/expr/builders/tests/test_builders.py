@@ -145,7 +145,6 @@ def test_third_party_handler_roundtrip(saved_registry, con):
 
     # extract_builder_metadata dispatches to our handler
     meta = extract_builder_metadata(
-        "weather_model",
         Tag(
             schema=table.schema(),
             parent=table.op(),
