@@ -1,4 +1,4 @@
-"""ML pipeline integration tests for ExprBuilder from_tagged registry."""
+"""ML pipeline integration tests for ExprBuilder from_tag_node registry."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def ml_fitted(ml_train_expr):
 
 
 # ---------------------------------------------------------------------------
-# ML pipeline from_tagged
+# ML pipeline from_tag_node
 # ---------------------------------------------------------------------------
 
 
@@ -75,7 +75,7 @@ def test_ml_extract_metadata(ml_train_expr, ml_fitted):
     assert set(meta["features"]) >= {"feature_0", "feature_1"}
 
 
-def test_ml_from_tagged_returns_fitted_pipeline(ml_train_expr, ml_fitted):
+def test_ml_from_tag_node_returns_fitted_pipeline(ml_train_expr, ml_fitted):
     """Verify _resolve_builder_from_tag on a predict expr returns a FittedPipeline."""
     predict_expr = ml_fitted.predict(ml_train_expr)
     recovered = _resolve_builder_from_tag(predict_expr)
@@ -98,11 +98,11 @@ def test_fitted_step_tag_kwargs_include_target(ml_train_expr, ml_fitted):
 
 
 # ---------------------------------------------------------------------------
-# ML from_tagged on transform expression
+# ML from_tag_node on transform expression
 # ---------------------------------------------------------------------------
 
 
-def test_ml_from_tagged_on_transform_expr(ml_train_expr, ml_fitted):
+def test_ml_from_tag_node_on_transform_expr(ml_train_expr, ml_fitted):
     transform_expr = ml_fitted.transform(ml_train_expr)
     recovered = _resolve_builder_from_tag(transform_expr)
     assert isinstance(recovered, FittedPipeline)
@@ -111,11 +111,11 @@ def test_ml_from_tagged_on_transform_expr(ml_train_expr, ml_fitted):
 
 
 # ---------------------------------------------------------------------------
-# ML from_tagged without cache
+# ML from_tag_node without cache
 # ---------------------------------------------------------------------------
 
 
-def test_ml_from_tagged_without_cache():
+def test_ml_from_tag_node_without_cache():
     train = xo.memtable(
         {"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0], "target": [0, 1, 0]},
         name="ml_nocache",
@@ -147,7 +147,7 @@ def test_fit_with_empty_features_auto_derives():
 
 
 # ---------------------------------------------------------------------------
-# ML catalog roundtrip — zip -> load -> from_tagged -> execute
+# ML catalog roundtrip — zip -> load -> from_tag_node -> execute
 # ---------------------------------------------------------------------------
 
 

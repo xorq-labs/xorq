@@ -20,9 +20,9 @@ This matters for two workflows:
 Introduce a `TagHandler` registry in `python/xorq/expr/builders/__init__.py`. Each handler is an attrs `@frozen` class with two optional callbacks:
 
 - `extract_metadata(tag_node) -> dict` — produces sidecar metadata for the catalog (dimensions, measures, pipeline steps, etc.)
-- `from_tagged(tag_node) -> object` — recovers the live domain object from the tag
+- `from_tag_node(tag_node) -> object` — recovers the live domain object from the tag
 
-Handlers are registered by tag name (the string in `tag_node.metadata["tag"]`). Built-in handlers for BSL and ML pipeline tags are registered at module init time. Third-party packages register via the `"xorq.from_tagged"` entry-point group.
+Handlers are registered by tag name (the string in `tag_node.metadata["tag"]`). Built-in handlers for BSL and ML pipeline tags are registered at module init time. Third-party packages register via the `"xorq.from_tag_node"` entry-point group.
 
 ### ExprKind.ExprBuilder
 
@@ -79,7 +79,7 @@ Recovery finds the training source by graph structure: the innermost ML-related 
 
 ### Builtin key protection
 
-Builtin tag keys (those registered by `_builtin_handlers`) are protected: `register_tag_handler` and `_discover_from_tagged` both reject attempts to overwrite them. The protected set is derived automatically by snapshotting the registry keys after `_builtin_handlers` runs — there is no separate enum or manifest to maintain.
+Builtin tag keys (those registered by `_builtin_handlers`) are protected: `register_tag_handler` and `_discover_from_tag_node` both reject attempts to overwrite them. The protected set is derived automatically by snapshotting the registry keys after `_builtin_handlers` runs — there is no separate enum or manifest to maintain.
 
 ## Alternatives considered
 

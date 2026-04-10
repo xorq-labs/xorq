@@ -91,7 +91,7 @@ print(f"\nEntry kind: {entry.kind}")
 print(f"Builder metadata: {entry.metadata.builders}")
 
 # ---------------------------------------------------------------------------
-# 5. Recover the FittedPipeline from the catalog entry via from_tagged
+# 5. Recover the FittedPipeline from the catalog entry via from_tag_node
 # ---------------------------------------------------------------------------
 
 recovered_fitted = entry.expr.ls.builder

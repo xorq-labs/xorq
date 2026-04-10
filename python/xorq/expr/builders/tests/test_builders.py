@@ -1,4 +1,4 @@
-"""Tests for ExprKind.ExprBuilder detection, from_tagged registry, and sidecar roundtrip."""
+"""Tests for ExprKind.ExprBuilder detection, from_tag_node registry, and sidecar roundtrip."""
 
 from __future__ import annotations
 
@@ -12,10 +12,10 @@ import pytest
 import xorq.api as xo
 from xorq.catalog.zip_utils import test_zip as validate_zip
 from xorq.expr.builders import (
-    _FROM_TAGGED_REGISTRY,
+    _FROM_TAG_NODE_REGISTRY,
     TagHandler,
-    _discover_from_tagged,
-    _get_from_tagged_registry,
+    _discover_from_tag_node,
+    _get_from_tag_node_registry,
     _reset_registry,
     _resolve_builder_from_tag,
     extract_builder_metadata,
@@ -42,12 +42,12 @@ def saved_registry():
     """Save and restore the handler registry around a test."""
     import xorq.expr.builders as _builders_mod  # noqa: PLC0415
 
-    saved = dict(_FROM_TAGGED_REGISTRY)
+    saved = dict(_FROM_TAG_NODE_REGISTRY)
     saved_keys = _builders_mod._BUILTIN_KEYS
     saved_init = _builders_mod._initialized
     yield
-    _FROM_TAGGED_REGISTRY.clear()
-    _FROM_TAGGED_REGISTRY.update(saved)
+    _FROM_TAG_NODE_REGISTRY.clear()
+    _FROM_TAG_NODE_REGISTRY.update(saved)
     _builders_mod._BUILTIN_KEYS = saved_keys
     _builders_mod._initialized = saved_init
 
@@ -99,7 +99,7 @@ def test_extract_kind_unrecognized_tag_unwraps_to_source(con):
 
 
 # ---------------------------------------------------------------------------
-# from_tagged registry
+# from_tag_node registry
 # ---------------------------------------------------------------------------
 
 
@@ -115,16 +115,16 @@ def test_register_and_retrieve(saved_registry):
     handler = TagHandler(
         tag_names=("test_dummy",),
         extract_metadata=lambda tag_node: {"type": "test_dummy"},
-        from_tagged=lambda tag_node: "dummy",
+        from_tag_node=lambda tag_node: "dummy",
     )
     register_tag_handler(handler)
 
-    assert "test_dummy" in _FROM_TAGGED_REGISTRY
-    assert _FROM_TAGGED_REGISTRY["test_dummy"] is handler
+    assert "test_dummy" in _FROM_TAG_NODE_REGISTRY
+    assert _FROM_TAG_NODE_REGISTRY["test_dummy"] is handler
 
 
 def test_get_registry_returns_dict():
-    registry = _get_from_tagged_registry()
+    registry = _get_from_tag_node_registry()
     assert isinstance(registry, dict)
 
 
@@ -137,7 +137,7 @@ def test_third_party_handler_roundtrip(saved_registry, con):
             "description": "3 features",
             "features": tag_node.metadata.get("features", ()),
         },
-        from_tagged=lambda tag_node: {
+        from_tag_node=lambda tag_node: {
             "recovered": True,
             "features": tag_node.metadata.get("features"),
         },
@@ -352,27 +352,33 @@ from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: E402
 
 
 def test_register_duplicate_raises(saved_registry):
-    handler = TagHandler(tag_names=("dup_test",), from_tagged=lambda tag_node: "first")
+    handler = TagHandler(
+        tag_names=("dup_test",), from_tag_node=lambda tag_node: "first"
+    )
     register_tag_handler(handler)
     with pytest.raises(ValueError, match="already registered"):
         register_tag_handler(handler)
 
 
 def test_register_duplicate_override(saved_registry):
-    first = TagHandler(tag_names=("dup_test",), from_tagged=lambda tag_node: "first")
-    second = TagHandler(tag_names=("dup_test",), from_tagged=lambda tag_node: "second")
+    first = TagHandler(tag_names=("dup_test",), from_tag_node=lambda tag_node: "first")
+    second = TagHandler(
+        tag_names=("dup_test",), from_tag_node=lambda tag_node: "second"
+    )
     register_tag_handler(first)
     register_tag_handler(second, override=True)
-    assert _FROM_TAGGED_REGISTRY["dup_test"] is second
+    assert _FROM_TAG_NODE_REGISTRY["dup_test"] is second
 
 
 def test_register_builtin_key_raises(saved_registry):
-    handler_bsl = TagHandler(tag_names=("bsl",), from_tagged=lambda tag_node: "hijack")
+    handler_bsl = TagHandler(
+        tag_names=("bsl",), from_tag_node=lambda tag_node: "hijack"
+    )
     with pytest.raises(ValueError, match="protected builtin"):
         register_tag_handler(handler_bsl)
     handler_predict = TagHandler(
         tag_names=("FittedPipeline-predict",),
-        from_tagged=lambda tag_node: "hijack",
+        from_tag_node=lambda tag_node: "hijack",
     )
     with pytest.raises(ValueError, match="protected builtin"):
         register_tag_handler(handler_predict)
@@ -387,9 +393,9 @@ def test_register_before_get_preserves_builtins(saved_registry):
     """Third-party register_tag_handler before any get still has builtins."""
     _reset_registry()
     register_tag_handler(
-        TagHandler(tag_names=("third_party",), from_tagged=lambda n: "tp")
+        TagHandler(tag_names=("third_party",), from_tag_node=lambda n: "tp")
     )
-    registry = _get_from_tagged_registry()
+    registry = _get_from_tag_node_registry()
     assert "third_party" in registry
     assert str(FittedPipelineTagKey.PREDICT) in registry
     assert str(FittedPipelineTagKey.TRANSFORM) in registry
@@ -399,12 +405,12 @@ def test_builtins_not_clobbered_by_third_party(saved_registry):
     """Registering a third-party handler doesn't overwrite builtins."""
     _reset_registry()
     register_tag_handler(
-        TagHandler(tag_names=("custom",), from_tagged=lambda n: "custom")
+        TagHandler(tag_names=("custom",), from_tag_node=lambda n: "custom")
     )
     register_tag_handler(
-        TagHandler(tag_names=("custom2",), from_tagged=lambda n: "custom2")
+        TagHandler(tag_names=("custom2",), from_tag_node=lambda n: "custom2")
     )
-    registry = _get_from_tagged_registry()
+    registry = _get_from_tag_node_registry()
     assert "custom" in registry
     assert "custom2" in registry
     assert str(FittedPipelineTagKey.PREDICT) in registry
@@ -417,7 +423,7 @@ def test_builtins_not_clobbered_by_third_party(saved_registry):
 
 
 def test_all_steps_key_not_registered():
-    registry = _get_from_tagged_registry()
+    registry = _get_from_tag_node_registry()
     assert str(FittedPipelineTagKey.ALL_STEPS) not in registry
     assert str(FittedPipelineTagKey.PREDICT) in registry
     assert str(FittedPipelineTagKey.TRANSFORM) in registry
@@ -441,7 +447,7 @@ def test_register_tag_handler_rejects_non_taghandler():
 def test_extract_metadata_fallback_when_no_callback(saved_registry, con):
     handler = TagHandler(
         tag_names=("meta_fallback",),
-        from_tagged=lambda tag_node: "domain_obj",
+        from_tag_node=lambda tag_node: "domain_obj",
     )
     register_tag_handler(handler)
     table = con.create_table("fb_test", {"x": [1]})
@@ -499,14 +505,14 @@ def test_expr_traits_has_unbound():
 
 
 # ---------------------------------------------------------------------------
-# _discover_from_tagged — entry-point loading
+# _discover_from_tag_node — entry-point loading
 # ---------------------------------------------------------------------------
 
 
 def test_discover_loads_valid_entry_point(saved_registry, monkeypatch):
-    _get_from_tagged_registry()  # ensure builtins are initialized
+    _get_from_tag_node_registry()  # ensure builtins are initialized
 
-    fake_handler = TagHandler(tag_names=("ep_test",), from_tagged=lambda n: "ep")
+    fake_handler = TagHandler(tag_names=("ep_test",), from_tag_node=lambda n: "ep")
     ep = Mock()
     ep.name = "my_plugin"
     ep.load.return_value = fake_handler
@@ -514,13 +520,13 @@ def test_discover_loads_valid_entry_point(saved_registry, monkeypatch):
         "xorq.expr.builders.importlib.metadata.entry_points",
         lambda group: [ep],
     )
-    handlers = _discover_from_tagged()
+    handlers = _discover_from_tag_node()
     assert len(handlers) == 1
     assert handlers[0] is fake_handler
 
 
 def test_discover_skips_non_taghandler(saved_registry, monkeypatch):
-    _get_from_tagged_registry()
+    _get_from_tag_node_registry()
 
     ep = Mock()
     ep.name = "bad_plugin"
@@ -529,14 +535,14 @@ def test_discover_skips_non_taghandler(saved_registry, monkeypatch):
         "xorq.expr.builders.importlib.metadata.entry_points",
         lambda group: [ep],
     )
-    handlers = _discover_from_tagged()
+    handlers = _discover_from_tag_node()
     assert handlers == []
 
 
 def test_discover_skips_builtin_override(saved_registry, monkeypatch):
-    _get_from_tagged_registry()  # populates _BUILTIN_KEYS
+    _get_from_tag_node_registry()  # populates _BUILTIN_KEYS
 
-    fake_handler = TagHandler(tag_names=("bsl",), from_tagged=lambda n: "hijack")
+    fake_handler = TagHandler(tag_names=("bsl",), from_tag_node=lambda n: "hijack")
     ep = Mock()
     ep.name = "hijack_plugin"
     ep.load.return_value = fake_handler
@@ -544,12 +550,12 @@ def test_discover_skips_builtin_override(saved_registry, monkeypatch):
         "xorq.expr.builders.importlib.metadata.entry_points",
         lambda group: [ep],
     )
-    handlers = _discover_from_tagged()
+    handlers = _discover_from_tag_node()
     assert handlers == []
 
 
 def test_discover_skips_broken_entry_point(saved_registry, monkeypatch):
-    _get_from_tagged_registry()
+    _get_from_tag_node_registry()
 
     ep = Mock()
     ep.name = "broken_plugin"
@@ -558,5 +564,5 @@ def test_discover_skips_broken_entry_point(saved_registry, monkeypatch):
         "xorq.expr.builders.importlib.metadata.entry_points",
         lambda group: [ep],
     )
-    handlers = _discover_from_tagged()
+    handlers = _discover_from_tag_node()
     assert handlers == []

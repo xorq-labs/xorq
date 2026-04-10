@@ -1,7 +1,7 @@
 """Demonstrates registering a custom third-party ExprBuilder handler.
 
 Any domain object that produces tagged expressions can integrate with the
-ExprBuilder system. Register a TagHandler with extract_metadata and from_tagged
+ExprBuilder system. Register a TagHandler with extract_metadata and from_tag_node
 callbacks, tag your expressions, and the catalog + ls.builder will handle the
 rest.
 
@@ -60,7 +60,7 @@ def _extract_metadata(tag_node):
     }
 
 
-def _from_tagged(tag_node):
+def _from_tag_node(tag_node):
     # Recover the base table from the tag's parent
     base_table = tag_node.parent.to_expr()
     meta = tag_node.metadata
@@ -75,7 +75,7 @@ register_tag_handler(
     TagHandler(
         tag_names=("feature_store",),
         extract_metadata=_extract_metadata,
-        from_tagged=_from_tagged,
+        from_tag_node=_from_tag_node,
     ),
 )
 

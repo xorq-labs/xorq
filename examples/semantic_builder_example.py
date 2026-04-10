@@ -2,7 +2,7 @@
 
 With xorq: A BSL semantic model produces expressions via .query(). The result is tagged
 (to_tagged), which makes it an ExprBuilder entry when cataloged. You can recover the
-original SemanticModel from any cataloged expression via from_tagged, rebind to new
+original SemanticModel from any cataloged expression via from_tag_node, rebind to new
 data, and query with different selections — all while maintaining full provenance.
 """
 

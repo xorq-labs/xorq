@@ -1,23 +1,23 @@
-"""from_tagged registry — recover domain objects from expression tags.
+"""from_tag_node registry — recover domain objects from expression tags.
 
 An ExprBuilder is an expression whose tags carry domain-specific metadata.
 Handlers are ``TagHandler`` instances that declare their ``tag_names`` and
 provide:
 
 - ``extract_metadata(tag_node) → dict`` — sidecar metadata for the catalog
-- ``from_tagged(tag_node) → object``    — recover a live domain object
+- ``from_tag_node(tag_node) → object``  — recover a live domain object
 
 Both callbacks are optional (but at least one is required).  If only
-``from_tagged`` is provided, a minimal metadata dict ``{"type": tag_name}``
+``from_tag_node`` is provided, a minimal metadata dict ``{"type": tag_name}``
 is generated automatically.
 
 Built-in handlers (BSL, ML pipeline) are declared in ``_builtin_handlers()``.
-Third-party packages register via the ``"xorq.from_tagged"`` entry point
+Third-party packages register via the ``"xorq.from_tag_node"`` entry point
 group — the loaded object must be a ``TagHandler``.
 
 Entry point example (pyproject.toml)::
 
-    [project.entry-points."xorq.from_tagged"]
+    [project.entry-points."xorq.from_tag_node"]
     my_plugin = "my_package.handlers:my_handler"
 
 Handler example::
@@ -27,7 +27,7 @@ Handler example::
     my_handler = TagHandler(
         tag_names=("my_tag",),
         extract_metadata=lambda tag_node: {"type": "my_model", ...},
-        from_tagged=lambda tag_node: MyModel.from_tag(tag_node),
+        from_tag_node=lambda tag_node: MyModel.from_tag(tag_node),
     )
     register_tag_handler(my_handler)
 """
@@ -51,20 +51,20 @@ class TagHandler:
     extract_metadata: Optional[Callable] = field(
         default=None, validator=optional(is_callable())
     )
-    from_tagged: Optional[Callable] = field(
+    from_tag_node: Optional[Callable] = field(
         default=None, validator=optional(is_callable())
     )
 
     def __attrs_post_init__(self):
         if not self.tag_names:
             raise ValueError("TagHandler must declare at least one tag_name")
-        if self.extract_metadata is None and self.from_tagged is None:
+        if self.extract_metadata is None and self.from_tag_node is None:
             raise ValueError(
-                "TagHandler must have at least one of extract_metadata or from_tagged"
+                "TagHandler must have at least one of extract_metadata or from_tag_node"
             )
 
 
-_FROM_TAGGED_REGISTRY: dict[str, TagHandler] = {}
+_FROM_TAG_NODE_REGISTRY: dict[str, TagHandler] = {}
 _BUILTIN_KEYS: frozenset[str] = frozenset()
 _initialized = False
 
@@ -74,9 +74,9 @@ def _register_handler(handler, *, builtin=False, override=False):
     for name in handler.tag_names:
         if not builtin and name in _BUILTIN_KEYS:
             raise ValueError(f"{name!r} is a protected builtin tag key")
-        if not override and name in _FROM_TAGGED_REGISTRY:
+        if not override and name in _FROM_TAG_NODE_REGISTRY:
             raise ValueError(f"tag handler already registered for {name!r}")
-        _FROM_TAGGED_REGISTRY[name] = handler
+        _FROM_TAG_NODE_REGISTRY[name] = handler
 
 
 def _ensure_initialized():
@@ -86,15 +86,15 @@ def _ensure_initialized():
     _initialized = True
     for handler in _builtin_handlers():
         _register_handler(handler, builtin=True)
-    _BUILTIN_KEYS = frozenset(_FROM_TAGGED_REGISTRY)
-    for handler in _discover_from_tagged():
+    _BUILTIN_KEYS = frozenset(_FROM_TAG_NODE_REGISTRY)
+    for handler in _discover_from_tag_node():
         _register_handler(handler)
 
 
 def _reset_registry():
     """For testing only. Clears and reinitializes the registry."""
     global _initialized, _BUILTIN_KEYS
-    _FROM_TAGGED_REGISTRY.clear()
+    _FROM_TAG_NODE_REGISTRY.clear()
     _BUILTIN_KEYS = frozenset()
     _initialized = False
 
@@ -107,15 +107,15 @@ def register_tag_handler(handler, *, override=False):
     _register_handler(handler, override=override)
 
 
-def _get_from_tagged_registry():
+def _get_from_tag_node_registry():
     _ensure_initialized()
-    return _FROM_TAGGED_REGISTRY
+    return _FROM_TAG_NODE_REGISTRY
 
 
-def _discover_from_tagged():
-    """Load handlers from entry points (group "xorq.from_tagged")."""
+def _discover_from_tag_node():
+    """Load handlers from entry points (group "xorq.from_tag_node")."""
     handlers = []
-    for ep in importlib.metadata.entry_points(group="xorq.from_tagged"):
+    for ep in importlib.metadata.entry_points(group="xorq.from_tag_node"):
         try:
             handler = ep.load()
             if not isinstance(handler, TagHandler):
@@ -137,7 +137,7 @@ def _discover_from_tagged():
             import structlog  # noqa: PLC0415
 
             structlog.get_logger().warning(
-                "failed to load from_tagged entry point",
+                "failed to load from_tag_node entry point",
                 entry_point=ep.name,
                 exc_info=True,
             )
@@ -152,7 +152,7 @@ def _discover_from_tagged():
 def extract_builder_metadata(tag_node):
     """Look up the tag on *tag_node* in the registry and return sidecar metadata dict, or None."""
     tag_name = tag_node.metadata.get("tag")
-    registry = _get_from_tagged_registry()
+    registry = _get_from_tag_node_registry()
     handler = registry.get(tag_name)
     if handler is None:
         return None
@@ -167,19 +167,19 @@ def _resolve_builder_from_tag(expr):
     Tags are visited in graph-walk order (outermost first). The first handler
     that returns a non-None result wins.
 
-    Raises ``ValueError`` if no handler with ``from_tagged`` matches.
+    Raises ``ValueError`` if no handler with ``from_tag_node`` matches.
     """
     from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
     from xorq.expr.relations import HashingTag, Tag  # noqa: PLC0415
 
-    registry = _get_from_tagged_registry()
+    registry = _get_from_tag_node_registry()
     tag_nodes = walk_nodes((Tag, HashingTag), expr)
 
     for tag_node in tag_nodes:
         tag_name = tag_node.metadata.get("tag")
         handler = registry.get(tag_name)
-        if handler is not None and handler.from_tagged is not None:
-            result = handler.from_tagged(tag_node)
+        if handler is not None and handler.from_tag_node is not None:
+            result = handler.from_tag_node(tag_node)
             if result is not None:
                 return result
     raise ValueError("No builder tags found in expression")
@@ -208,8 +208,8 @@ def _bsl_extract_metadata(tag_node):
     }
 
 
-def _bsl_from_tagged(tag_node):
-    # TODO: BSL's from_tagged returns the full query chain (SemanticAggregate),
+def _bsl_from_tag_node(tag_node):
+    # TODO: BSL's from_tag_node returns the full query chain (SemanticAggregate),
     # not the SemanticModel. We reconstruct only the base SemanticTableOp to
     # get the SemanticModel back so callers can issue new .query() calls.
     try:
@@ -236,7 +236,7 @@ def _bsl_from_tagged(tag_node):
         metadata = src
     else:
         raise RuntimeError(
-            f"_bsl_from_tagged exceeded {_MAX_DEPTH} nesting levels; "
+            f"_bsl_from_tag_node exceeded {_MAX_DEPTH} nesting levels; "
             "possible circular metadata"
         )
     return reconstruct_bsl_operation(metadata, expr, ctx)
@@ -259,7 +259,7 @@ def _ml_pipeline_extract_metadata(tag_node):
     }
 
 
-def _ml_from_tagged(tag_node):
+def _ml_from_tag_node(tag_node):
     from xorq.expr.ml.pipeline_lib import FittedPipeline  # noqa: PLC0415
 
     return FittedPipeline.from_tag_node(tag_node)
@@ -273,7 +273,7 @@ def _builtin_handlers():
         TagHandler(
             tag_names=("bsl",),
             extract_metadata=_bsl_extract_metadata,
-            from_tagged=_bsl_from_tagged,
+            from_tag_node=_bsl_from_tag_node,
         ),
         TagHandler(
             tag_names=tuple(
@@ -282,6 +282,6 @@ def _builtin_handlers():
                 if k != FittedPipelineTagKey.ALL_STEPS
             ),
             extract_metadata=_ml_pipeline_extract_metadata,
-            from_tagged=_ml_from_tagged,
+            from_tag_node=_ml_from_tag_node,
         ),
     )
