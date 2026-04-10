@@ -1,3 +1,4 @@
+import math
 import re
 import threading
 from datetime import datetime
@@ -1006,7 +1007,11 @@ class DataViewScreen(Screen):
             for i, row in enumerate(df.itertuples(index=False)):
                 table.add_row(
                     *(
-                        str(round(v, 2)) if isinstance(v, float) else str(v)
+                        "—"
+                        if isinstance(v, float) and math.isnan(v)
+                        else str(round(v, 2))
+                        if isinstance(v, float)
+                        else str(v)
                         for v in row
                     ),
                     key=str(i),
@@ -1148,14 +1153,16 @@ class DataViewScreen(Screen):
             if string_cols:
                 mode_exprs = []
                 for colname in string_cols:
-                    mode_exprs.append(
+                    grouped = (
                         expr.group_by(colname)
                         .agg(_cnt=expr[colname].count())
                         .order_by(ibis.desc("_cnt"))
                         .limit(1)
-                        .select(
+                    )
+                    mode_exprs.append(
+                        grouped.select(
                             _col_name=lit(colname),
-                            _mode_val=expr[colname].cast(str),
+                            _mode_val=grouped[colname].cast(str),
                         )
                     )
                 modes_df = ibis.union(*mode_exprs).execute()
@@ -1180,7 +1187,11 @@ class DataViewScreen(Screen):
             for i, row in enumerate(stats_df.itertuples(index=False)):
                 table.add_row(
                     *(
-                        str(round(v, 2)) if isinstance(v, float) else str(v)
+                        "—"
+                        if isinstance(v, float) and math.isnan(v)
+                        else str(round(v, 2))
+                        if isinstance(v, float)
+                        else str(v)
                         for v in row
                     ),
                     key=str(i),
