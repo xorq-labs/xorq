@@ -1003,13 +1003,14 @@ class FittedPipeline:
         # training expression.
         innermost_tag = ml_tags[-1]
         source_node = innermost_tag.parent
-        assert not (
+        if (
             isinstance(source_node, Tag)
             and source_node.metadata.get("tag") in ml_tag_keys
-        ), (
-            f"Expected training source below innermost ML tag, "
-            f"but found another ML tag: {source_node.metadata.get('tag')}"
-        )
+        ):
+            raise RuntimeError(
+                f"Expected training source below innermost ML tag, "
+                f"but found another ML tag: {source_node.metadata.get('tag')}"
+            )
         source_expr = source_node.to_expr()
 
         cache = next((n.cache for n in nodes if isinstance(n, CachedNode)), None)
