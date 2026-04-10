@@ -7,10 +7,6 @@ import webbrowser
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, NoReturn, Optional
 
-
-if TYPE_CHECKING:
-    from xorq.vendor.ibis.common.collections import FrozenOrderedDict
-
 import toolz
 from attr import (
     field,
@@ -871,7 +867,7 @@ class ExprMetadata:
     params: tuple = field(factory=tuple)
     sql_queries: tuple[tuple[str, str, str], ...] = field(factory=tuple)
     lineage: Optional[LineageDAG] = field(default=None, validator=_validate_lineage)
-    builders: tuple[FrozenOrderedDict, ...] = field(
+    builders: tuple[dict, ...] = field(
         factory=tuple, validator=deep_iterable(instance_of(dict))
     )
 
