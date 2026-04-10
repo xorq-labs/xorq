@@ -100,6 +100,14 @@ def test_extract_kind_unrecognized_tag_unwraps_to_source(con):
 # ---------------------------------------------------------------------------
 
 
+def test_resolve_builder_no_handler_raises(con):
+    """_resolve_builder_from_tag raises ValueError when no handler matches."""
+    table = con.create_table("no_handler", {"x": [1]})
+    expr = table.tag("completely_unknown_tag_xyz")
+    with pytest.raises(ValueError, match="No builder tags found in expression"):
+        _resolve_builder_from_tag(expr)
+
+
 def test_register_and_retrieve(saved_registry):
     handler = TagHandler(
         tag_names=("test_dummy",),
