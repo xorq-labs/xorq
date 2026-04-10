@@ -808,7 +808,7 @@ class ExprMetadata:
 
         if not raw:
             return ()
-        return tuple(CacheKey.from_kwargs(**ck) for ck in raw)
+        return tuple(CacheKey(**ck) for ck in raw)
 
     @classmethod
     def from_dict(cls, data):
