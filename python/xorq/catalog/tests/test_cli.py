@@ -27,7 +27,7 @@ from xorq.catalog.zip_utils import (
 )
 from xorq.cli import cli as top_cli
 from xorq.expr.builders import (
-    _FROM_TAGGED_REGISTRY,
+    _FROM_TAG_NODE_REGISTRY,
     TagHandler,
     _reset_registry,
     register_tag_handler,
@@ -44,12 +44,12 @@ def runner():
 @pytest.fixture
 def saved_registry():
     """Save and restore the handler registry around a test."""
-    saved = dict(_FROM_TAGGED_REGISTRY)
+    saved = dict(_FROM_TAG_NODE_REGISTRY)
     saved_keys = _builders_mod._BUILTIN_KEYS
     saved_init = _builders_mod._initialized
     yield
-    _FROM_TAGGED_REGISTRY.clear()
-    _FROM_TAGGED_REGISTRY.update(saved)
+    _FROM_TAG_NODE_REGISTRY.clear()
+    _FROM_TAG_NODE_REGISTRY.update(saved)
     _builders_mod._BUILTIN_KEYS = saved_keys
     _builders_mod._initialized = saved_init
 
