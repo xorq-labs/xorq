@@ -7,7 +7,10 @@ import webbrowser
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, NoReturn, Optional
 
-import attr
+
+if TYPE_CHECKING:
+    from xorq.vendor.ibis.common.collections import FrozenOrderedDict
+
 import toolz
 from attr import (
     field,
@@ -777,6 +780,8 @@ def _extract_kind(expr):
     UnboundTable is always a leaf, never the outermost node. All other kinds
     are determined by the outermost tag/node only.
     """
+    from xorq.catalog.bind import CatalogTag  # noqa: PLC0415
+    from xorq.expr.builders import extract_builder_metadata  # noqa: PLC0415
     from xorq.expr.relations import CachedNode, HashingTag, Read, Tag  # noqa: PLC0415
 
     # UnboundExpr: whole-graph check (it's a constraint, not a structural kind)
@@ -784,16 +789,13 @@ def _extract_kind(expr):
         return ExprKind.UnboundExpr
 
     # Walk the outermost Tag/HashingTag chain
+    catalog_tags = frozenset(CatalogTag)
     root = expr.op()
     while isinstance(root, (Tag, HashingTag)):
         tag_name = root.metadata.get("tag")
 
-        from xorq.catalog.bind import CatalogTag  # noqa: PLC0415
-
-        if tag_name in frozenset(CatalogTag):
+        if tag_name in catalog_tags:
             return ExprKind.Composed
-
-        from xorq.expr.builders import extract_builder_metadata  # noqa: PLC0415
 
         if extract_builder_metadata(root) is not None:
             return ExprKind.ExprBuilder
@@ -869,7 +871,9 @@ class ExprMetadata:
     params: tuple = field(factory=tuple)
     sql_queries: tuple[tuple[str, str, str], ...] = field(factory=tuple)
     lineage: Optional[LineageDAG] = field(default=None, validator=_validate_lineage)
-    builders: tuple[dict, ...] = field(factory=tuple)
+    builders: tuple[FrozenOrderedDict, ...] = field(
+        factory=tuple, validator=deep_iterable(instance_of(dict))
+    )
 
     @staticmethod
     def _parse_cache_keys(raw):
