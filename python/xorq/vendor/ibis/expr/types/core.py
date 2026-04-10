@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, NoReturn, Optional
 
 import toolz
 from attr import (
+    asdict,
     field,
     frozen,
 )
@@ -966,7 +967,7 @@ class ExprMetadata:
                 ("root_tag", self.root_tag),
                 (
                     "cache_keys",
-                    list(map(attr.asdict, self.parquet_snapshot_cache_keys)) or None,
+                    list(map(asdict, self.parquet_snapshot_cache_keys)) or None,
                 ),
                 ("params", self.params or None),
                 (

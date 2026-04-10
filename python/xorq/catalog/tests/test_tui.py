@@ -543,7 +543,7 @@ def test_d_toggles_data_preview(catalog, entry_a):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            screen, _ = await _populate_table(pilot, catalog, entry_a)
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
             panel = screen.query_one("#data-preview-panel")
 
             await run_script(
@@ -562,7 +562,7 @@ def test_p_toggles_profiles(catalog, entry_a):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            screen, _ = await _populate_table(pilot, catalog, entry_a)
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
             panel = screen.query_one("#profiles-panel")
 
             await run_script(
