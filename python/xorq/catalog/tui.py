@@ -32,7 +32,9 @@ from textual.widgets import (
     Tree,
 )
 
+from xorq.caching.storage import resolve_parquet_cache_path
 from xorq.catalog.catalog import CatalogEntry
+from xorq.common.utils.caching_utils import CacheKey
 
 
 DEFAULT_REFRESH_INTERVAL = 10
@@ -95,6 +97,12 @@ def _format_cached(value: bool | None) -> str:
             return "—"
 
 
+def get_cache_keys_paths(cache_keys: tuple[CacheKey, ...]) -> tuple[str, ...]:
+    return tuple(
+        str(resolve_parquet_cache_path(ck.relative_path, ck.key)) for ck in cache_keys
+    )
+
+
 @frozen
 class CatalogRowData:
     entry: CatalogEntry = field(repr=False)
@@ -102,9 +110,10 @@ class CatalogRowData:
 
     @property
     def cached(self) -> bool | None:
-        parquet_cache_paths = self.entry.parquet_cache_paths
-        if parquet_cache_paths:
-            return all(Path(p).exists() for p in parquet_cache_paths)
+        if cache_keys_paths := get_cache_keys_paths(
+            self.entry.parquet_snapshot_cache_keys
+        ):
+            return all(Path(p).exists() for p in cache_keys_paths)
         return None
 
     @property
@@ -147,7 +156,7 @@ class CatalogRowData:
 
     @cached_property
     def cache_info_text(self) -> str:
-        paths = self.entry.parquet_cache_paths
+        paths = get_cache_keys_paths(self.entry.parquet_snapshot_cache_keys)
         match paths:
             case () | None:
                 return "— unknown"
@@ -224,12 +233,10 @@ class RevisionRowData:
         )
 
 
-def _entry_info(entry) -> tuple[int | None, bool | None]:
-    parquet_cache_paths = entry.parquet_cache_paths
+def _entry_info(entry: CatalogEntry) -> tuple[int | None, bool | None]:
+    cache_keys_paths = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
     cached = (
-        all(Path(p).exists() for p in parquet_cache_paths)
-        if parquet_cache_paths
-        else None
+        all(Path(p).exists() for p in cache_keys_paths) if cache_keys_paths else None
     )
     return len(entry.columns), cached
 

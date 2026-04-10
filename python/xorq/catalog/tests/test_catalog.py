@@ -8,6 +8,7 @@ from attr import evolve
 from git import Repo as GitRepo
 
 import xorq.api as xo
+from xorq.caching import ParquetSnapshotCache
 from xorq.catalog.annex import (
     LOCAL_ANNEX,
     Annex,
@@ -29,11 +30,13 @@ from xorq.catalog.expr_utils import (
 from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
 )
+from xorq.catalog.tui import get_cache_keys_paths
 from xorq.catalog.zip_utils import (
     BuildZip,
     with_pure_suffix,
     write_zip,
 )
+from xorq.common.utils.caching_utils import CacheKey
 from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES, ExprKind
 
 
@@ -809,3 +812,52 @@ def test_from_repo_path_enables_special_remote_on_clone(tmpdir):
     assert not cloned_entry.is_content_local
     cloned_entry.fetch()
     assert cloned_entry.is_content_local
+
+
+def test_cache_keys_stores_key_and_relative_path(catalog, tmp_path):
+    """CacheKey in the sidecar carries both the hash key and the relative_path
+    so paths can be reconstructed without loading the expression."""
+    relative = "my_cache"
+    cache = ParquetSnapshotCache.from_kwargs(relative_path=relative)
+    expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
+    entry = catalog.add(expr)
+
+    assert len(entry.parquet_snapshot_cache_keys) == 1
+    ck = entry.parquet_snapshot_cache_keys[0]
+    assert isinstance(ck, CacheKey)
+    assert ck.relative_path == relative
+    assert ck.key  # non-empty hash string
+
+
+def test_cache_keys_paths_relocatable(catalog, tmp_path, monkeypatch):
+    cache_dir_A = tmp_path / "cache_A"
+    cache_dir_B = tmp_path / "cache_B"
+    relative = "my_cache"
+
+    monkeypatch.setattr("xorq.caching.storage.get_xorq_cache_dir", lambda: cache_dir_A)
+    cache = ParquetSnapshotCache.from_kwargs(relative_path=relative)
+    expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
+    entry = catalog.add(expr)
+
+    ck = entry.parquet_snapshot_cache_keys[0]
+    expected_name = ck.key + ".parquet"
+
+    paths_at_A = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
+    assert paths_at_A[0] == str(cache_dir_A / relative / expected_name)
+
+    monkeypatch.setattr("xorq.caching.storage.get_xorq_cache_dir", lambda: cache_dir_B)
+    paths_at_B = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
+    assert paths_at_B[0] == str(cache_dir_B / relative / expected_name)
+
+
+def test_base_path_is_silently_dropped_through_catalog_round_trip(catalog, tmp_path):
+    cache = ParquetSnapshotCache.from_kwargs(
+        relative_path="my_cache", base_path=tmp_path / "explicit_base"
+    )
+    expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
+    entry = catalog.add(expr)
+
+    assert len(entry.parquet_snapshot_cache_keys) == 1
+    ck = entry.parquet_snapshot_cache_keys[0]
+    assert ck.relative_path == "my_cache"
+    assert ck.key

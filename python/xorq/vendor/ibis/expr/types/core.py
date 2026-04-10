@@ -7,6 +7,7 @@ import webbrowser
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, NoReturn, Optional
 
+import attr
 import toolz
 from attr import (
     field,
@@ -40,6 +41,7 @@ if TYPE_CHECKING:
     from rich.console import Console, RenderableType
 
     import xorq.vendor.ibis.expr.types as ir
+    from xorq.common.utils.caching_utils import CacheKey
     from xorq.common.utils.lineage_utils import LineageDAG
     from xorq.vendor.ibis import Schema
     from xorq.vendor.ibis.backends import BaseBackend
@@ -738,6 +740,15 @@ def _extract_kind(unbound_node, catalog_tag_nodes, is_source):
             return ExprKind.Expr
 
 
+def _validate_cache_key_item(instance, attribute, value):
+    from xorq.common.utils.caching_utils import CacheKey  # noqa: PLC0415
+
+    if not isinstance(value, CacheKey):
+        raise TypeError(
+            f"'cache_keys' items must be CacheKey, got {type(value).__name__}"
+        )
+
+
 def _validate_lineage(instance, attribute, value):
     """optional(instance_of(LineageDAG)) but with a deferred import to break
     the cycle: core.py → lineage_utils → rel → backends → … → core.py"""
@@ -777,13 +788,27 @@ class ExprMetadata:
         default=None, validator=optional(instance_of(ibis.expr.schema.Schema))
     )
     root_tag: Optional[str] = field(default=None)
-    parquet_cache_paths: tuple[str, ...] = field(factory=tuple)
+    parquet_snapshot_cache_keys: tuple[CacheKey, ...] = field(
+        factory=tuple,
+        validator=deep_iterable(
+            _validate_cache_key_item, iterable_validator=instance_of(tuple)
+        ),
+    )
     composed_from: tuple = field(
         factory=tuple, validator=deep_iterable(instance_of(dict))
     )
     params: tuple = field(factory=tuple)
     sql_queries: tuple[tuple[str, str, str], ...] = field(factory=tuple)
     lineage: Optional[LineageDAG] = field(default=None, validator=_validate_lineage)
+
+    @staticmethod
+    def _parse_cache_keys(raw):
+        """Convert a list of ``{key, relative_path}`` dicts into a tuple of CacheKey."""
+        from xorq.common.utils.caching_utils import CacheKey  # noqa: PLC0415
+
+        if not raw:
+            return ()
+        return tuple(CacheKey(**ck) for ck in raw)
 
     @classmethod
     def from_dict(cls, data):
@@ -799,7 +824,7 @@ class ExprMetadata:
                 else None
             ),
             root_tag=data.get("root_tag"),
-            parquet_cache_paths=tuple(data.get("parquet_cache_paths") or ()),
+            parquet_snapshot_cache_keys=cls._parse_cache_keys(data.get("cache_keys")),
             composed_from=tuple(data.get("composed_from") or data.get("sources") or ()),
             params=tuple(data.get("params") or ()),
             sql_queries=tuple(tuple(q) for q in data.get("sql_queries", ())),
@@ -809,12 +834,12 @@ class ExprMetadata:
     @classmethod
     def from_expr(cls, expr):
         from xorq.caching import ParquetSnapshotCache  # noqa: PLC0415
+        from xorq.common.utils.caching_utils import CacheKey  # noqa: PLC0415
         from xorq.common.utils.graph_utils import (  # noqa: PLC0415
             validate_params,
             walk_nodes,
         )
         from xorq.expr.operations import _MISSING, NamedScalarParameter  # noqa: PLC0415
-        from xorq.expr.relations import CachedNode  # noqa: PLC0415
 
         validate_params(expr)
 
@@ -825,11 +850,16 @@ class ExprMetadata:
         tags = expr.ls.tags
         root_tag = tags[0].tag if tags else None
 
-        cached_nodes = walk_nodes((CachedNode,), expr)
-        parquet_cache_paths = tuple(
-            str(cn.cache.storage.get_path(cn.cache.calc_key(cn.parent)))
-            for cn in cached_nodes
-            if isinstance(cn.cache, ParquetSnapshotCache)
+        op = expr.op()
+        parquet_snapshot_cache_keys = (
+            (
+                CacheKey(
+                    key=expr.ls.get_key(),
+                    relative_path=str(op.cache.storage.relative_path),
+                ),
+            )
+            if expr.ls.is_cached and isinstance(op.cache, ParquetSnapshotCache)
+            else ()
         )
 
         named_params = tuple(
@@ -846,7 +876,7 @@ class ExprMetadata:
             schema_in=unbound_node.schema if unbound_node else None,
             schema_out=expr.as_table().schema(),
             root_tag=root_tag,
-            parquet_cache_paths=parquet_cache_paths,
+            parquet_snapshot_cache_keys=parquet_snapshot_cache_keys,
             composed_from=_extract_sources(catalog_tag_nodes),
             params=named_params,
         )
@@ -862,7 +892,10 @@ class ExprMetadata:
                 ),
                 ("schema_out", toolz.valmap(str, self.schema_out)),
                 ("root_tag", self.root_tag),
-                ("parquet_cache_paths", list(self.parquet_cache_paths) or None),
+                (
+                    "cache_keys",
+                    list(map(attr.asdict, self.parquet_snapshot_cache_keys)) or None,
+                ),
                 ("params", self.params or None),
                 (
                     "composed_from",
