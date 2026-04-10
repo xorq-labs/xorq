@@ -846,6 +846,12 @@ class Pipeline:
 
             training_hash = make_name("training", expr.op())
         except Exception:
+            import structlog  # noqa: PLC0415
+
+            structlog.get_logger().warning(
+                "failed to compute training_hash, provenance will be unavailable",
+                exc_info=True,
+            )
             training_hash = None
         fitted_steps = ()
         transformed = expr
@@ -992,7 +998,19 @@ class FittedPipeline:
             for n in nodes
             if isinstance(n, Tag) and n.metadata.get("tag") in ml_tag_keys
         ]
-        source_expr = ml_tags[-1].parent.to_expr()
+        # The innermost ML tag's parent is the training source — structurally
+        # guaranteed by Pipeline.fit() which applies steps sequentially on the
+        # training expression.
+        innermost_tag = ml_tags[-1]
+        source_node = innermost_tag.parent
+        assert not (
+            isinstance(source_node, Tag)
+            and source_node.metadata.get("tag") in ml_tag_keys
+        ), (
+            f"Expected training source below innermost ML tag, "
+            f"but found another ML tag: {source_node.metadata.get('tag')}"
+        )
+        source_expr = source_node.to_expr()
 
         cache = next((n.cache for n in nodes if isinstance(n, CachedNode)), None)
         return pipeline.fit(source_expr, features=features, target=target, cache=cache)
