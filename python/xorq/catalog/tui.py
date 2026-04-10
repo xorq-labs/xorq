@@ -3,7 +3,6 @@ import threading
 from datetime import datetime
 from functools import cache, cached_property
 from pathlib import Path
-from typing import Literal
 
 from attr import field, frozen
 from attr.validators import instance_of, optional
@@ -236,6 +235,13 @@ class RevisionRowData:
         )
 
 
+@frozen
+class _TogglePanelState:
+    visible: bool = field(default=False, validator=instance_of(bool))
+    loaded: bool = field(default=False, validator=instance_of(bool))
+    entry_hash: str | None = field(default=None, validator=optional(instance_of(str)))
+
+
 def _entry_info(entry: CatalogEntry) -> tuple[int | None, bool | None]:
     cache_keys_paths = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
     cached = (
@@ -371,8 +377,8 @@ class CatalogScreen(Screen):
         ("l", "tree_expand", "Expand"),
         ("tab", "focus_next_panel", "Next"),
         ("shift+tab", "focus_prev_panel", "Prev"),
-        ("1", "view_sql", "SQL"),
-        ("2", "view_data", "Data"),
+        ("d", "toggle_data_preview", "Data"),
+        ("p", "toggle_profiles", "Profiles"),
         ("v", "toggle_revisions", "Revisions"),
         ("g", "toggle_git_log", "Git Log"),
     )
@@ -380,8 +386,8 @@ class CatalogScreen(Screen):
     FOCUS_CYCLE = (
         "#catalog-tree",
         "#sql-panel",
-        "#data-preview-panel",
         "#schema-preview-table",
+        "#revisions-preview-table",
     )
 
     def __init__(self, refresh_interval=DEFAULT_REFRESH_INTERVAL):
@@ -391,8 +397,8 @@ class CatalogScreen(Screen):
         self._git_log_visible = False
         self._git_log_loaded = False
         self._refresh_lock = threading.Lock()
-        self._active_view: Literal["sql", "data"] = "sql"
-        self._data_preview_hash: str | None = None
+        self._data_preview = _TogglePanelState()
+        self._profiles = _TogglePanelState()
         self._sql_generation: int = 0
 
     def compose(self) -> ComposeResult:
@@ -411,6 +417,8 @@ class CatalogScreen(Screen):
                 with Vertical(id="data-preview-panel"):
                     yield Static("", id="data-preview-status")
                     yield DataTable(id="data-preview-table")
+                with Vertical(id="profiles-panel"):
+                    yield DataTable(id="profiles-table")
                 with Vertical(id="info-panel"):
                     yield Static("", id="info-content")
                 with Vertical(id="schema-panel"):
@@ -472,6 +480,18 @@ class CatalogScreen(Screen):
         data_panel.border_title = "Data Preview"
         data_panel.display = False
 
+        profiles_table = self.query_one("#profiles-table", DataTable)
+        profiles_table.cursor_type = "row"
+        profiles_table.zebra_stripes = True
+        profiles_table.add_column("NAME", key="name")
+        profiles_table.add_column("BACKEND", key="backend")
+        profiles_table.add_column("PARAMETERS", key="params")
+        profiles_table.add_column("ENV VARS", key="env_vars")
+
+        profiles_panel = self.query_one("#profiles-panel")
+        profiles_panel.border_title = "Profiles"
+        profiles_panel.display = False
+
         self.query_one("#status-bar", Static).update(" Loading catalog...")
 
         self.set_interval(self._refresh_interval, self._do_refresh)
@@ -501,6 +521,7 @@ class CatalogScreen(Screen):
             info_content.update("")
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
+            self._reset_toggle_panels()
             return
 
         # Schema
@@ -566,9 +587,8 @@ class CatalogScreen(Screen):
                     "#revisions-panel"
                 ).border_title = "Revisions — (no alias)"
 
-        # Update data preview if data view is active
-        if self._active_view == "data":
-            self._refresh_data_preview(row_data)
+        # Update toggle panels for the new entry
+        self._update_toggle_panels(row_data, entry_hash)
 
     def _tree_entry_hashes(self) -> set[str]:
         """Return set of entry hashes currently in the tree."""
@@ -765,47 +785,166 @@ class CatalogScreen(Screen):
             for i, row_data in enumerate(rows):
                 table.add_row(*row_data.row, key=str(i))
 
-    # --- View switching (1/2) ---
+    # --- Toggle: Data Preview (d) ---
 
-    def _set_active_view(self, view: Literal["sql", "data"]) -> None:
-        self._active_view = view
-        self.query_one("#sql-panel").display = view == "sql"
-        self.query_one("#data-preview-panel").display = view == "data"
-
-        if view == "data":
-            tree = self.query_one("#catalog-tree", Tree)
-            node = tree.cursor_node
-            if node is not None and node.data is not None:
-                row_data = self._row_cache.get(node.data)
-                if row_data is not None:
-                    self._refresh_data_preview(row_data)
-        else:
-            self._data_preview_hash = None
-
-    def action_view_sql(self) -> None:
-        self._set_active_view("sql")
-
-    def action_view_data(self) -> None:
-        self._set_active_view("data")
-
-    def _refresh_data_preview(self, row_data) -> None:
-        entry_hash = row_data.row_key
-        if self._data_preview_hash == entry_hash:
+    def action_toggle_data_preview(self) -> None:
+        tree = self.query_one("#catalog-tree", Tree)
+        node = tree.cursor_node
+        if node is None or node.children or node.data is None:
             return
-        self._data_preview_hash = entry_hash
-        if row_data.cached is True:
-            self.query_one("#data-preview-status", Static).update(
-                " Loading data preview..."
+        row_data = self._row_cache.get(node.data)
+        if row_data is None:
+            return
+
+        toggled = not self._data_preview.visible
+        self._data_preview = _TogglePanelState(
+            visible=toggled,
+            loaded=self._data_preview.loaded,
+            entry_hash=self._data_preview.entry_hash,
+        )
+        self.query_one("#data-preview-panel").display = toggled
+
+        if not toggled:
+            return
+
+        match row_data.cached:
+            case True:
+                if (
+                    not self._data_preview.loaded
+                    or self._data_preview.entry_hash != node.data
+                ):
+                    self._data_preview = _TogglePanelState(
+                        visible=True, loaded=True, entry_hash=node.data
+                    )
+                    self.query_one("#data-preview-status", Static).update(
+                        " Loading data preview..."
+                    )
+                    self._load_data_preview(row_data.entry)
+            case _:
+                self.query_one("#data-preview-status", Static).update(
+                    " uncached — run to materialize"
+                )
+                self.query_one("#data-preview-table", DataTable).loading = False
+
+    # --- Toggle: Profiles (p) ---
+
+    def action_toggle_profiles(self) -> None:
+        tree = self.query_one("#catalog-tree", Tree)
+        node = tree.cursor_node
+        if node is None or node.children or node.data is None:
+            return
+        row_data = self._row_cache.get(node.data)
+        if row_data is None:
+            return
+
+        toggled = not self._profiles.visible
+        self._profiles = _TogglePanelState(
+            visible=toggled,
+            loaded=self._profiles.loaded,
+            entry_hash=self._profiles.entry_hash,
+        )
+        self.query_one("#profiles-panel").display = toggled
+
+        if toggled and (
+            not self._profiles.loaded or self._profiles.entry_hash != node.data
+        ):
+            self._profiles = _TogglePanelState(
+                visible=True, loaded=True, entry_hash=node.data
             )
-            self.query_one("#data-preview-table", DataTable).loading = True
-            self._load_data_preview(row_data.entry)
+            self._load_profiles(row_data.entry)
+
+    @work(thread=True, exit_on_error=False)
+    def _load_profiles(self, entry) -> None:
+        import re as _re  # noqa: PLC0415
+        import zipfile  # noqa: PLC0415
+
+        if not entry.catalog_path.exists() or not zipfile.is_zipfile(
+            entry.catalog_path
+        ):
+            return
+
+        env_re = _re.compile(r"^\$\{(.+)\}$|^\$(.+)$")
+
+        def _extract_env_vars(kwargs):
+            return tuple(
+                m.group(1) or m.group(2)
+                for v in kwargs.values()
+                if isinstance(v, str) and (m := env_re.match(v))
+            )
+
+        with zipfile.ZipFile(entry.catalog_path, "r") as zf:
+            member_path = f"{entry.name}/profiles.yaml"
+            if member_path not in zf.namelist():
+                return
+            import yaml12  # noqa: PLC0415
+
+            data = yaml12.parse_yaml(zf.read(member_path))
+
+        if not isinstance(data, dict):
+            return
+
+        rows = tuple(
+            (
+                pname,
+                pdata.get("con_name", "?"),
+                ", ".join(
+                    f"{k}={v}"
+                    for k, v in (pdata.get("kwargs_tuple") or {}).items()
+                    if v is not None
+                ),
+                ", ".join(_extract_env_vars(pdata.get("kwargs_tuple") or {})),
+            )
+            for pname, pdata in data.items()
+        )
+        self.app.call_from_thread(self._render_profiles, rows)
+
+    def _render_profiles(self, rows) -> None:
+        with self.app.batch_update():
+            table = self.query_one("#profiles-table", DataTable)
+            table.clear()
+            for i, (name, backend, params, env_vars) in enumerate(rows):
+                table.add_row(name, backend, params, env_vars, key=str(i))
+
+    # --- Toggle panel helpers ---
+
+    def _update_toggle_panels(self, row_data, entry_hash) -> None:
+        """Update toggle panels for a new row, preserving visibility."""
+        if self._data_preview.visible:
+            if row_data.cached:
+                self._data_preview = _TogglePanelState(
+                    visible=True, loaded=True, entry_hash=entry_hash
+                )
+                self._load_data_preview(row_data.entry)
+            else:
+                self._data_preview = _TogglePanelState(visible=True)
+                self.query_one("#data-preview-status", Static).update(
+                    " uncached — run to materialize"
+                )
+                dt = self.query_one("#data-preview-table", DataTable)
+                dt.clear(columns=True)
+                dt.loading = False
         else:
-            self.query_one("#data-preview-status", Static).update(
-                " uncached — run to materialize"
+            self._data_preview = _TogglePanelState()
+
+        if self._profiles.visible:
+            self._profiles = _TogglePanelState(
+                visible=True, loaded=True, entry_hash=entry_hash
             )
+            self._load_profiles(row_data.entry)
+        else:
+            self._profiles = _TogglePanelState()
+
+    def _reset_toggle_panels(self) -> None:
+        """Reset toggle panel state (e.g. when navigating to a branch node)."""
+        if self._data_preview.visible:
+            self._data_preview = _TogglePanelState(visible=True)
             dt = self.query_one("#data-preview-table", DataTable)
             dt.clear(columns=True)
             dt.loading = False
+            self.query_one("#data-preview-status", Static).update("")
+        if self._profiles.visible:
+            self._profiles = _TogglePanelState(visible=True)
+            self.query_one("#profiles-table", DataTable).clear()
 
     # --- Toggle: Revisions (v) ---
 
@@ -1051,6 +1190,14 @@ class CatalogTUI(App):
         border: solid #C1F0FF;
         border-title-color: #C1F0FF;
         border-subtitle-color: #C1F0FF;
+    }
+    #profiles-panel {
+        height: 1fr;
+        border: solid #2BBE75;
+        border-title-color: #2BBE75;
+    }
+    #profiles-table {
+        height: 1fr;
     }
     #data-preview-status {
         height: 1;

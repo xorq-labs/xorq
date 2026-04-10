@@ -440,16 +440,19 @@ def test_cursor_move_updates_schema_preview(catalog, entry_a, entry_b):
                 Press(("j",)),
                 Assert(lambda p: schema_table.row_count == 3),
                 Assert(
-                    lambda p: "id"
-                    in [schema_table.get_cell_at((i, 0)) for i in range(3)]
+                    lambda p: (
+                        "id" in [schema_table.get_cell_at((i, 0)) for i in range(3)]
+                    )
                 ),
                 Assert(
-                    lambda p: "name"
-                    in [schema_table.get_cell_at((i, 0)) for i in range(3)]
+                    lambda p: (
+                        "name" in [schema_table.get_cell_at((i, 0)) for i in range(3)]
+                    )
                 ),
                 Assert(
-                    lambda p: "score"
-                    in [schema_table.get_cell_at((i, 0)) for i in range(3)]
+                    lambda p: (
+                        "score" in [schema_table.get_cell_at((i, 0)) for i in range(3)]
+                    )
                 ),
                 # Move to second leaf (entry_b: value)
                 Press(("j",)),
@@ -474,29 +477,61 @@ def test_schema_preview_empty_before_selection(catalog):
     _run(_test())
 
 
-def test_view_switching_1_2(catalog):
+def test_d_toggles_data_preview(catalog, entry_a):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
-            await settle(pilot)
-            screen = app.screen
-
-            sql_panel = screen.query_one("#sql-panel")
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+            tree = screen.query_one("#catalog-tree", Tree)
             data_panel = screen.query_one("#data-preview-panel")
 
             await run_script(
                 pilot,
-                # Default: SQL visible, data hidden
-                Assert(lambda p: sql_panel.display is not False),
+                # Move cursor to a leaf node
+                Press(("j",)),
+                Assert(lambda p: tree.cursor_node.data == entry_a.name),
+                # Default: data hidden
                 Assert(lambda p: data_panel.display is False),
-                # Switch to data
-                Press(("2",)),
-                Assert(lambda p: sql_panel.display is False),
+                # Toggle on
+                Press(("d",)),
                 Assert(lambda p: data_panel.display is not False),
-                # Switch back to SQL
-                Press(("1",)),
-                Assert(lambda p: sql_panel.display is not False),
+                # Toggle off
+                Press(("d",)),
                 Assert(lambda p: data_panel.display is False),
+            )
+
+    _run(_test())
+
+
+def test_profiles_hidden_by_default(catalog):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            panel = app.screen.query_one("#profiles-panel")
+            assert panel.display is False
+
+    _run(_test())
+
+
+def test_p_toggles_profiles_visibility(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+            tree = screen.query_one("#catalog-tree", Tree)
+            panel = screen.query_one("#profiles-panel")
+
+            await run_script(
+                pilot,
+                # Move cursor to a leaf node
+                Press(("j",)),
+                Assert(lambda p: tree.cursor_node.data == entry_a.name),
+                Assert(lambda p: panel.display is False),
+                Press(("p",)),
+                Assert(lambda p: panel.display is not False),
+                Press(("p",)),
+                Assert(lambda p: panel.display is False),
             )
 
     _run(_test())
