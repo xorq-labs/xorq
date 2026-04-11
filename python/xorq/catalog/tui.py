@@ -1120,7 +1120,9 @@ class DataViewScreen(Screen):
     @work(thread=True, exit_on_error=False)
     def _load_data(self) -> None:
         try:
-            base_expr = self._entry.expr
+            from xorq.catalog.bind import _make_source_expr  # noqa: PLC0415
+
+            base_expr = _make_source_expr(self._entry)
             self._stack = ExprStack(base_expr=base_expr)
             df = base_expr.limit(VIEW_LIMIT).execute()
             self.app.call_from_thread(self._on_data_loaded, df)
