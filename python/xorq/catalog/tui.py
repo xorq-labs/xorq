@@ -23,6 +23,7 @@ from pygments.token import (
 from rich.syntax import Syntax
 from textual import on, work
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.suggester import SuggestFromList
@@ -1024,26 +1025,26 @@ class DataViewScreen(Screen):
     """
 
     BINDINGS = (
-        ("escape", "cancel_or_back", "Back"),
-        ("q", "cancel_or_back", "Back"),
-        ("h", "cursor_left", "Col ←"),
-        ("j", "cursor_down", "Down"),
-        ("k", "cursor_up", "Up"),
-        ("l", "cursor_right", "Col →"),
-        ("g", "scroll_top", "Top"),
-        ("shift+g", "scroll_bottom", "Bottom"),
-        ("[", "sort_desc", "Sort ↓"),
-        ("]", "sort_asc", "Sort ↑"),
-        ("d", "drop_column", "Drop col"),
-        ("u", "undo", "Undo"),
-        ("ctrl+r", "redo", "Redo"),
-        ("e", "toggle_stack_browser", "Stack"),
-        ("w", "persist", "Save"),
-        ("f", "verb_filter", "Filter"),
-        ("=", "verb_mutate", "Mutate"),
-        ("-", "verb_select", "Select"),
-        ("#", "verb_agg", "Agg"),
-        (":", "verb_freeform", "Freeform"),
+        Binding("escape", "cancel_or_back", "Back"),
+        Binding("q", "cancel_or_back", "Back", show=False),
+        Binding("h", "cursor_left", "Col ←", show=False),
+        Binding("j", "cursor_down", "Down", show=False),
+        Binding("k", "cursor_up", "Up", show=False),
+        Binding("l", "cursor_right", "Col →", show=False),
+        Binding("g", "scroll_top", "Top", show=False),
+        Binding("shift+g", "scroll_bottom", "Bottom", show=False),
+        Binding("[", "sort_desc", "Sort ↓", show=False),
+        Binding("]", "sort_asc", "Sort ↑", show=False),
+        Binding("d", "drop_column", "Drop"),
+        Binding("u", "undo", "Undo"),
+        Binding("ctrl+r", "redo", "Redo"),
+        Binding("e", "toggle_stack_browser", "Stack"),
+        Binding("w", "persist", "Save"),
+        Binding("f", "verb_filter", "Filter"),
+        Binding("=", "verb_mutate", "Mutate"),
+        Binding("-", "verb_select", "Select"),
+        Binding("#", "verb_agg", "Agg"),
+        Binding(":", "verb_freeform", "Free"),
     )
 
     def __init__(self, entry, row_data):
