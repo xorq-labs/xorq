@@ -4,6 +4,7 @@ from __future__ import annotations
 __all__ = [
     "BigQueryCompiler",
     "ClickHouseCompiler",
+    "DatabricksCompiler",
     "DataFusionCompiler",
     "DruidCompiler",
     "DuckDBCompiler",
@@ -23,6 +24,7 @@ __all__ = [
 
 from xorq.vendor.ibis.backends.sql.compilers.bigquery import BigQueryCompiler
 from xorq.vendor.ibis.backends.sql.compilers.clickhouse import ClickHouseCompiler
+from xorq.vendor.ibis.backends.sql.compilers.databricks import DatabricksCompiler
 from xorq.vendor.ibis.backends.sql.compilers.datafusion import DataFusionCompiler
 from xorq.vendor.ibis.backends.sql.compilers.druid import DruidCompiler
 from xorq.vendor.ibis.backends.sql.compilers.duckdb import DuckDBCompiler
