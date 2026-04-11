@@ -230,6 +230,7 @@ ignore = [
 "python/xorq/vendor/**" = ["B", "PLC0415"]
 "python/xorq/cli.py" = ["PLC0415"]
 "python/xorq/catalog/cli.py" = ["PLC0415"]
+"python/xorq/ibis_yaml/bench_packager.py" = ["PLC0415"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["xorq"]

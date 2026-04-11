@@ -141,21 +141,22 @@ def uv_build_command(
     builds_dir="builds",
     cache_dir=None,
     project_path=None,
+    extras=(),
 ):
     from xorq.ibis_yaml.packager import PackagedBuilder
 
-    sdist_builder = PackagedBuilder.from_script_path(
+    builder = PackagedBuilder.from_script_path(
         script_path,
         project_path=project_path,
-        overwrite_requirements=True,
         expr_name=expr_name,
         builds_dir=builds_dir,
         cache_dir=cache_dir,
+        extras=extras,
     )
     # should we execv here instead?
-    # ensure we do copy_sdist
-    sdist_builder.build_path
-    popened = sdist_builder._uv_tool_run_xorq_build
+    # ensure we copy artifacts into build dir
+    builder.build_path
+    popened = builder._uv_tool_run_xorq_build
     print(popened.stderr, file=sys.stderr, end="")
     print(popened.stdout, file=sys.stdout, end="")
     return popened
@@ -765,9 +766,15 @@ def cli(use_pdb, pdb_runcall):
     default=None,
     help="Directory for all generated parquet files cache",
 )
-def uv_build(script_path, expr_name, builds_dir, cache_dir):
+@click.option(
+    "--extra",
+    "extras",
+    multiple=True,
+    help="Optional dependency group to include in requirements (repeatable)",
+)
+def uv_build(script_path, expr_name, builds_dir, cache_dir, extras):
     """Build an expression with a custom Python environment."""
-    uv_build_command(script_path, expr_name, builds_dir, cache_dir)
+    uv_build_command(script_path, expr_name, builds_dir, cache_dir, extras=extras)
 
 
 @cli.command("uv-run")

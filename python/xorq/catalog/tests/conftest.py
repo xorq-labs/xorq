@@ -9,6 +9,7 @@ from git import (
 )
 
 import xorq.api as xo
+import xorq.catalog.catalog as catalog_mod
 from xorq.catalog.annex import LOCAL_ANNEX, Annex, _do_inside
 from xorq.catalog.backend import GitAnnexBackend, GitBackend
 from xorq.catalog.catalog import (
@@ -20,6 +21,33 @@ from xorq.catalog.catalog import (
 from xorq.catalog.constants import MAIN_BRANCH, CatalogInfix
 from xorq.catalog.expr_utils import build_expr_context_zip
 from xorq.catalog.zip_utils import with_pure_suffix
+from xorq.ibis_yaml.enums import DumpFiles
+from xorq.ibis_yaml.packager import PYPROJECT_NAME, WheelPackager, find_file_upwards
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cached_wheel_artifacts():
+    """Build the wheel once per test session and patch _ensure_wheel_artifacts to reuse it."""
+    pyproject_path = find_file_upwards(Path.cwd(), PYPROJECT_NAME)
+    packager = WheelPackager(pyproject_path.parent)
+    # Materialize once
+    cached_wheel = packager.wheel_path
+    cached_reqs = packager.requirements_path
+
+    original = catalog_mod._ensure_wheel_artifacts
+
+    def _fast_ensure(build_dir):
+        build_dir = Path(build_dir)
+        wheel_path = build_dir / DumpFiles.wheel
+        reqs_path = build_dir / DumpFiles.requirements
+        if not wheel_path.exists():
+            shutil.copy2(cached_wheel, wheel_path)
+        if not reqs_path.exists():
+            shutil.copy2(cached_reqs, reqs_path)
+
+    catalog_mod._ensure_wheel_artifacts = _fast_ensure
+    yield
+    catalog_mod._ensure_wheel_artifacts = original
 
 
 def get_split_tree(repo):

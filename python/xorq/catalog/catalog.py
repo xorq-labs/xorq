@@ -60,6 +60,33 @@ from xorq.ibis_yaml.enums import DumpFiles, ExprKind
 
 
 abspath = toolz.compose(Path.absolute, Path)
+
+
+def _ensure_wheel_artifacts(build_dir):
+    """Ensure a build directory contains a wheel and requirements.txt.
+
+    If either is missing, builds them from the nearest pyproject.toml
+    found by walking up from the current working directory.
+    """
+    build_dir = Path(build_dir)
+    wheel_path = build_dir / DumpFiles.wheel
+    reqs_path = build_dir / DumpFiles.requirements
+    if wheel_path.exists() and reqs_path.exists():
+        return
+    from xorq.ibis_yaml.packager import (  # noqa: PLC0415
+        PYPROJECT_NAME,
+        WheelPackager,
+        find_file_upwards,
+    )
+
+    pyproject_path = find_file_upwards(Path.cwd(), PYPROJECT_NAME)
+    packager = WheelPackager(pyproject_path.parent)
+    if not wheel_path.exists():
+        shutil.copy2(packager.wheel_path, wheel_path)
+    if not reqs_path.exists():
+        shutil.copy2(packager.requirements_path, reqs_path)
+
+
 popen_shell = partial(Popen, shell=True)
 
 
@@ -172,6 +199,7 @@ class Catalog:
             return catalog_entry
 
     def _add_build_dir(self, build_dir, sync=True, aliases=(), exist_ok=False):
+        _ensure_wheel_artifacts(build_dir)
         with make_zip_context(build_dir) as zip_path:
             return self._add_zip(
                 zip_path, sync=sync, aliases=aliases, exist_ok=exist_ok

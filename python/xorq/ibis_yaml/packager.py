@@ -1,19 +1,16 @@
 """
-Sdist-based build and run pipeline for xorq expressions.
+Wheel-based build and run pipeline for xorq expressions.
 
-Pipeline: SdistPackager → SdistArchive → PackagedBuilder → PackagedRunner
+Pipeline: WheelPackager → PackagedBuilder → PackagedRunner
 
-SdistPackager   project directory → sdist zip (via `uv build --sdist`),
-                guaranteeing uv.lock and requirements.txt are embedded.
+WheelPackager    project directory → wheel + requirements.txt sidecar
+                 (via `uv build --wheel` and `uv export`).
 
-SdistArchive    validated handle to an sdist zip with pyproject.toml,
-                uv.lock, and requirements.txt.
+PackagedBuilder  wheel + script → build directory (via `uv tool run xorq build`),
+                 containing the serialized expression, the wheel, and requirements.txt.
 
-PackagedBuilder sdist zip + script → build directory (via `uv tool run xorq build`),
-                containing the serialized expression and a copy of the sdist.
-
-PackagedRunner  build directory → execution output (via `uv tool run xorq run`),
-                in the sdist's isolated environment.
+PackagedRunner   build directory → execution output (via `uv tool run xorq run`),
+                 in the wheel's isolated environment.
 """
 
 import functools
@@ -21,9 +18,10 @@ import operator
 import os
 import shutil
 import subprocess
+import sys
+import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Iterable
 
 import tomlkit
 import toolz
@@ -36,76 +34,87 @@ from attr.validators import (
     optional,
 )
 from packaging.specifiers import SpecifierSet
-from packaging.version import Version
 
+from xorq.common.utils.otel_utils import tracer
 from xorq.common.utils.process_utils import in_nix_shell
-from xorq.common.utils.zip_utils import (
-    ZipProxy,
-    append_toplevel,
-    calc_zip_content_hexdigest,
-    replace_toplevel,
-    tgz_to_zip,
-)
+from xorq.ibis_yaml.enums import DumpFiles
 
 
 REQUIREMENTS_NAME = "requirements.txt"
 PYPROJECT_NAME = "pyproject.toml"
 UVLOCK_NAME = "uv.lock"
-BUILD_SDIST_NAME = "sdist.zip"
+DEFAULT_REQUIRES_PYTHON = ">=3.10"
+PYTHON_VERSION_CAP = SpecifierSet("<3.14")
 
 
 def _validate_python_version(instance, attribute, value):
     if value is None:
         return
     try:
-        Version(value)
-    except Exception as e:
-        raise ValueError(f"invalid python version: {value!r}") from e
+        SpecifierSet(value)
+    except Exception:
+        # Bare versions like "3.11" aren't valid specifiers; treat as ==3.11
+        try:
+            SpecifierSet(f"=={value}")
+        except Exception as e:
+            raise ValueError(f"invalid python version specifier: {value!r}") from e
 
 
-def resolve_python_version(path):
-    """Return the highest Python version acceptable per requires-python in pyproject.toml."""
-    return get_acceptable_python_versions(path)[-1]
+def _read_requires_python(path):
+    """Read requires-python from a project source, intersected with PYTHON_VERSION_CAP.
+
+    Accepts a pyproject.toml path, a directory containing one, a .whl file,
+    or a .zip archive.  Returns a PEP 440 specifier string.
+    """
+    path = Path(path)
+    if path.name == PYPROJECT_NAME:
+        pass
+    elif path.is_dir() and path.joinpath(PYPROJECT_NAME).exists():
+        path = path.joinpath(PYPROJECT_NAME)
+    elif path.suffix == ".whl":
+        with zipfile.ZipFile(path) as zf:
+            metadata_names = [
+                n for n in zf.namelist() if n.endswith(".dist-info/METADATA")
+            ]
+            if not metadata_names:
+                raise ValueError(f"no .dist-info/METADATA found in {path}")
+            metadata_text = zf.read(metadata_names[0]).decode()
+            for line in metadata_text.splitlines():
+                if line.startswith("Requires-Python:"):
+                    raw = line.split(":", 1)[1].strip()
+                    return str(SpecifierSet(raw) & PYTHON_VERSION_CAP)
+            raise ValueError(f"no Requires-Python in wheel metadata: {path}")
+    elif path.suffix == ".zip":
+        from xorq.common.utils.zip_utils import ZipProxy  # noqa: PLC0415
+
+        td = TemporaryDirectory()
+        path = ZipProxy(path).extract_toplevel_name(
+            PYPROJECT_NAME, Path(td.name, PYPROJECT_NAME)
+        )
+    else:
+        raise ValueError(
+            f"can only handle {PYPROJECT_NAME} or {PYPROJECT_NAME} containing dir / .zip / .whl"
+        )
+    data = tomlkit.loads(Path(path).read_text())
+    raw = toolz.get_in(("project", "requires-python"), data)
+    return str(SpecifierSet(raw or DEFAULT_REQUIRES_PYTHON) & PYTHON_VERSION_CAP)
+
+
+def _find_single_glob(directory, pattern):
+    """Find exactly one file matching pattern in directory."""
+    matches = list(Path(directory).glob(pattern))
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"expected exactly one {pattern} in {directory}, found {len(matches)}"
+        )
+    return matches[0]
 
 
 @frozen
-class SdistArchive:
-    """Validated path to an sdist .zip with pyproject.toml, uv.lock, requirements.txt."""
-
-    path = field(validator=instance_of(Path), converter=Path)
-
-    def __attrs_post_init__(self):
-        if not self.path.exists():
-            raise FileNotFoundError(f"sdist not found: {self.path}")
-        zp = ZipProxy(self.path)
-        required = (PYPROJECT_NAME, UVLOCK_NAME, REQUIREMENTS_NAME)
-        missing = [name for name in required if not zp.toplevel_name_exists(name)]
-        if missing:
-            raise FileNotFoundError(
-                f"{', '.join(missing)} not found in sdist: {self.path}"
-            )
-
-    @functools.cached_property
-    def zip_proxy(self):
-        return ZipProxy(self.path)
-
-    @functools.cached_property
-    def python_version(self):
-        return resolve_python_version(self.path)
-
-    def extract_requirements_to(self, tmpdir):
-        """Extract requirements.txt from the sdist to tmpdir."""
-        dest = Path(tmpdir) / REQUIREMENTS_NAME
-        if not dest.exists():
-            self.zip_proxy.extract_toplevel_name(REQUIREMENTS_NAME, dest)
-        return dest
-
-
-@frozen
-class SdistPackager:
+class WheelPackager:
     project_path = field(validator=instance_of(Path), converter=Path)
     python_version = field(validator=_validate_python_version, default=None)
-    overwrite_requirements = field(validator=instance_of(bool), default=False)
+    extras = field(factory=tuple, converter=tuple)
 
     def __attrs_post_init__(self):
         if not self.project_path.exists():
@@ -116,7 +125,7 @@ class SdistPackager:
             )
         if self.python_version is None:
             object.__setattr__(
-                self, "python_version", resolve_python_version(self.pyproject_path)
+                self, "python_version", _read_requires_python(self.pyproject_path)
             )
 
     @property
@@ -132,73 +141,59 @@ class SdistPackager:
         return Path(self._tmpdir.name)
 
     @functools.cached_property
-    def _sdist_path(self):
-        args = (
-            "uv",
-            "build",
-            "--sdist",
-            "--python",
-            self.python_version,
-            "--out-dir",
-            str(self.tmpdir),
-            str(self.pyproject_path.parent),
-        )
-        subprocess.run(args, check=True, capture_output=True)
-        tgz_paths = list(self.tmpdir.glob("*.tar.gz"))
-        if len(tgz_paths) != 1:
-            raise RuntimeError(
-                f"expected exactly one .tar.gz in {self.tmpdir}, found {len(tgz_paths)}"
+    def _wheel_path(self):
+        with tracer.start_as_current_span("packager.uv_build_wheel") as span:
+            span.set_attribute("python_version", self.python_version)
+            span.set_attribute("project_path", str(self.pyproject_path.parent))
+            args = (
+                "uv",
+                "build",
+                "--wheel",
+                "--python",
+                self.python_version,
+                "--out-dir",
+                str(self.tmpdir),
+                str(self.pyproject_path.parent),
             )
-        tgz_path = tgz_paths[0]
-        zip_path = tgz_to_zip(tgz_path)
-        tgz_path.unlink()
-        return zip_path
+            subprocess.run(args, check=True, capture_output=True)
+            return _find_single_glob(self.tmpdir, "*.whl")
 
-    def ensure_uvlock_member(self):
-        sdist_path = self._sdist_path
-        if ZipProxy(sdist_path).toplevel_name_exists(UVLOCK_NAME):
-            return
+    def _ensure_uvlock(self):
+        """Ensure uv.lock exists in the project directory (needed for uv export)."""
         uvlock_path = self.project_path.joinpath(UVLOCK_NAME)
-        if not uvlock_path.exists():
-            staging = self.tmpdir / "_uvlock_staging"
-            staging.mkdir(exist_ok=True)
-            shutil.copy2(self.pyproject_path, staging / PYPROJECT_NAME)
-            subprocess.run(
-                ("uv", "lock", "--directory", str(staging)),
-                check=True,
-                capture_output=True,
-            )
-            uvlock_path = staging / UVLOCK_NAME
-        append_toplevel(sdist_path, uvlock_path)
-
-    def ensure_requirements_member(self):
-        sdist_path = self._sdist_path
-        zp = ZipProxy(sdist_path)
-        requirements_text = uv_export_requirements_from_sdist(sdist_path, self.tmpdir)
-        requirements_path = self.tmpdir.joinpath(REQUIREMENTS_NAME)
-        requirements_path.write_text(requirements_text)
-        if zp.toplevel_name_exists(REQUIREMENTS_NAME):
-            with zp.open_toplevel_member(REQUIREMENTS_NAME) as fh:
-                existing = fh.read().decode()
-            if existing != requirements_text:
-                if not self.overwrite_requirements:
-                    raise ValueError(
-                        f"existing {REQUIREMENTS_NAME} in sdist does not match "
-                        f"what uv export generates from uv.lock"
-                    )
-                replace_toplevel(sdist_path, requirements_path)
-        else:
-            append_toplevel(sdist_path, requirements_path)
+        if uvlock_path.exists():
+            return uvlock_path
+        staging = self.tmpdir / "_uvlock_staging"
+        staging.mkdir(exist_ok=True)
+        shutil.copy2(self.pyproject_path, staging / PYPROJECT_NAME)
+        subprocess.run(
+            ("uv", "lock", "--directory", str(staging)),
+            check=True,
+            capture_output=True,
+        )
+        return staging / UVLOCK_NAME
 
     @functools.cached_property
-    def sdist_path(self):
-        self.ensure_uvlock_member()
-        self.ensure_requirements_member()
-        return self._sdist_path
+    def requirements_path(self):
+        with tracer.start_as_current_span("packager.uv_export_requirements"):
+            uvlock_path = self._ensure_uvlock()
+            # Stage pyproject.toml + uv.lock together for uv export
+            export_dir = self.tmpdir / "_export_staging"
+            export_dir.mkdir(exist_ok=True)
+            shutil.copy2(self.pyproject_path, export_dir / PYPROJECT_NAME)
+            shutil.copy2(uvlock_path, export_dir / UVLOCK_NAME)
+            requirements_text = uv_export_requirements(export_dir, extras=self.extras)
+            requirements_path = self.tmpdir / REQUIREMENTS_NAME
+            requirements_path.write_text(requirements_text)
+            return requirements_path
 
-    @property
-    def sdist_path_hexdigest(self):
-        return calc_zip_content_hexdigest(self.sdist_path)
+    @functools.cached_property
+    def wheel_path(self):
+        with tracer.start_as_current_span("packager.wheel_finalize"):
+            # Trigger both builds
+            _ = self._wheel_path
+            _ = self.requirements_path
+            return self._wheel_path
 
     @classmethod
     def from_script_path(cls, script_path, **kwargs):
@@ -206,10 +201,63 @@ class SdistPackager:
         return cls(pyproject_path.parent, **kwargs)
 
     @classmethod
+    def from_environment(cls, script_path, python=None, requires_python=None, **kwargs):
+        """Create a WheelPackager by freezing the current Python environment.
+
+        Runs ``uv pip freeze`` against the given (or current) interpreter to
+        discover installed packages, writes the result to a temporary
+        requirements file, then delegates to :meth:`from_script_and_requirements`.
+
+        If *requires_python* is not given, it is derived from the target
+        interpreter's version (e.g. ``>=3.12``).
+
+        .. note::
+
+            ``uv pip freeze`` captures *all* installed packages, not just the
+            project's declared dependencies.  Unrelated packages in the
+            environment will end up in the runner's requirements.  Use
+            :meth:`from_script_path` (which runs ``uv export``) when you want
+            only the dependencies declared in pyproject.toml.
+        """
+        python = python or sys.executable
+        try:
+            if requires_python is None:
+                version = subprocess.check_output(
+                    (
+                        str(python),
+                        "-c",
+                        "import sys; print(*sys.version_info[:2], sep='.')",
+                    ),
+                    text=True,
+                ).strip()
+                requires_python = f">={version}"
+            freeze_output = subprocess.check_output(
+                ("uv", "pip", "freeze", "--python", str(python)),
+                text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            raise ValueError(
+                f"failed to inspect python at {python!r}: {e.stderr or e}"
+            ) from e
+        with TemporaryDirectory() as tmpdir:
+            requirements_path = Path(tmpdir) / REQUIREMENTS_NAME
+            requirements_path.write_text(freeze_output)
+            return cls.from_script_and_requirements(
+                script_path,
+                requirements_path,
+                requires_python=requires_python,
+                **kwargs,
+            )
+
+    @classmethod
     def from_script_and_requirements(
-        cls, script_path, requirements_path, requires_python=">=3.10", **kwargs
+        cls,
+        script_path,
+        requirements_path,
+        requires_python=DEFAULT_REQUIRES_PYTHON,
+        **kwargs,
     ):
-        """Create an SdistPackager from a bare script and requirements.txt.
+        """Create a WheelPackager from a bare script and requirements.txt.
 
         Generates a temporary project in a staging dir, then constructs
         normally. The staging dir content is moved into self.tmpdir afterward
@@ -233,21 +281,28 @@ class SdistPackager:
 @frozen
 class PackagedBuilder:
     script_path = field(validator=instance_of(Path), converter=Path)
-    sdist_path = field(validator=instance_of(Path), converter=Path)
+    wheel_path = field(validator=instance_of(Path), converter=Path)
+    requirements_path = field(validator=instance_of(Path), converter=Path)
     expr_name = field(validator=instance_of(str), default="expr")
     builds_dir = field(validator=instance_of(str), default="builds")
     cache_dir = field(validator=optional(instance_of(str)), default=None)
     python_version = field(validator=_validate_python_version, default=None)
     maybe_packager = field(
-        validator=optional(instance_of(SdistPackager)),
+        validator=optional(instance_of(WheelPackager)),
         default=None,
     )
 
     def __attrs_post_init__(self):
-        sdist_archive = SdistArchive(self.sdist_path)
+        if not self.wheel_path.exists():
+            raise FileNotFoundError(f"wheel not found: {self.wheel_path}")
+        if not self.requirements_path.exists():
+            raise FileNotFoundError(f"requirements not found: {self.requirements_path}")
         if self.python_version is None:
-            object.__setattr__(self, "python_version", sdist_archive.python_version)
-        sdist_archive.extract_requirements_to(self.tmpdir)
+            object.__setattr__(
+                self,
+                "python_version",
+                _read_requires_python(self.wheel_path),
+            )
 
     @functools.cached_property
     def _tmpdir(self):
@@ -256,16 +311,6 @@ class PackagedBuilder:
     @property
     def tmpdir(self):
         return Path(self._tmpdir.name)
-
-    @property
-    def requirements_path(self):
-        return self.tmpdir.joinpath(REQUIREMENTS_NAME)
-
-    @functools.cached_property
-    def unzipped_path(self):
-        zp = ZipProxy(self.sdist_path)
-        unzipped_path = zp.extract_toplevel(self.tmpdir)
-        return unzipped_path
 
     @functools.cached_property
     def _uv_tool_run_xorq_build(self):
@@ -282,7 +327,7 @@ class PackagedBuilder:
         popened = uv_tool_run(
             *args,
             python_version=self.python_version,
-            with_=self.sdist_path,
+            with_=self.wheel_path,
             with_requirements=self.requirements_path,
         )
         return popened
@@ -296,30 +341,31 @@ class PackagedBuilder:
         return Path(self._uv_tool_run_xorq_build.stdout.strip())
 
     @functools.cached_property
-    def copy_sdist(self):
-        target = self.get_build_path().joinpath(BUILD_SDIST_NAME)
-        shutil.copy2(self.sdist_path, target)
-        return target
+    def _copy_artifacts(self):
+        with tracer.start_as_current_span("packager.copy_artifacts"):
+            build_path = self.get_build_path()
+            wheel_target = build_path / self.wheel_path.name
+            reqs_target = build_path / DumpFiles.requirements
+            shutil.copy2(self.wheel_path, wheel_target)
+            shutil.copy2(self.requirements_path, reqs_target)
+            return build_path
 
     @property
     def build_path(self):
-        self.copy_sdist
-        return self.get_build_path()
+        return self._copy_artifacts
 
     @classmethod
-    def from_script_path(
-        cls, script_path, project_path=None, overwrite_requirements=False, **kwargs
-    ):
+    def from_script_path(cls, script_path, project_path=None, extras=(), **kwargs):
+        packager_kwargs = {"extras": extras} if extras else {}
         packager = (
-            SdistPackager(project_path, overwrite_requirements=overwrite_requirements)
+            WheelPackager(project_path, **packager_kwargs)
             if project_path
-            else SdistPackager.from_script_path(
-                script_path, overwrite_requirements=overwrite_requirements
-            )
+            else WheelPackager.from_script_path(script_path, **packager_kwargs)
         )
         return cls(
             script_path=script_path,
-            sdist_path=packager.sdist_path,
+            wheel_path=packager.wheel_path,
+            requirements_path=packager.requirements_path,
             python_version=packager.python_version,
             maybe_packager=packager,
             **kwargs,
@@ -337,28 +383,26 @@ class PackagedRunner:
     def __attrs_post_init__(self):
         if not self.build_path.exists():
             raise FileNotFoundError(f"build path does not exist: {self.build_path}")
-        if not self.sdist_path.exists():
-            raise FileNotFoundError(f"sdist not found at: {self.sdist_path}")
-        sdist_archive = SdistArchive(self.sdist_path)
+        if not self.wheel_path.exists():
+            raise FileNotFoundError(f"wheel not found at: {self.wheel_path}")
+        if not self.requirements_path.exists():
+            raise FileNotFoundError(
+                f"requirements not found at: {self.requirements_path}"
+            )
         if self.python_version is None:
-            object.__setattr__(self, "python_version", sdist_archive.python_version)
-        sdist_archive.extract_requirements_to(self.tmpdir)
-
-    @property
-    def sdist_path(self):
-        return self.build_path.joinpath(BUILD_SDIST_NAME)
+            object.__setattr__(
+                self,
+                "python_version",
+                _read_requires_python(self.wheel_path),
+            )
 
     @functools.cached_property
-    def _tmpdir(self):
-        return TemporaryDirectory()
-
-    @property
-    def tmpdir(self):
-        return Path(self._tmpdir.name)
+    def wheel_path(self):
+        return _find_single_glob(self.build_path, "*.whl")
 
     @property
     def requirements_path(self):
-        return self.tmpdir.joinpath(REQUIREMENTS_NAME)
+        return self.build_path / DumpFiles.requirements
 
     @functools.cached_property
     def _uv_tool_run_xorq_run(self):
@@ -375,7 +419,7 @@ class PackagedRunner:
         popened = uv_tool_run(
             *args,
             python_version=self.python_version,
-            with_=self.sdist_path,
+            with_=self.wheel_path,
             with_requirements=self.requirements_path,
             capturing=False,
         )
@@ -408,67 +452,49 @@ def uv_tool_run(
     check=True,
     capturing=True,
 ):
-    command_v_xorq = subprocess.check_output(
-        "command -v xorq", shell=True, text=True
-    ).strip()
-    args = tuple(el if el != command_v_xorq else "xorq" for el in args)
-    run_args = (
-        "uv",
-        "tool",
-        "run",
-        *(("--python", python_version) if python_version else ()),
-        *(("--isolated",) if isolated else ()),
-        *(("--with", str(with_)) if with_ else ()),
-        *(("--with-requirements", str(with_requirements)) if with_requirements else ()),
-        *args,
-    )
-    capturing_kwargs = {"capture_output": True, "text": True} if capturing else {}
-    nix_shell_kwargs = (
-        {
-            "env": os.environ
-            | {"LD_LIBRARY_PATH": os.environ.get("UV_TOOL_RUN_LD_LIBRARY_PATH", "")},
-        }
-        if in_nix_shell()
-        else {}
-    )
-    kwargs = capturing_kwargs | nix_shell_kwargs
-    result = subprocess.run(run_args, **kwargs)
-    if check and result.returncode:
-        raise subprocess.CalledProcessError(
-            result.returncode, run_args, result.stdout, result.stderr
+    with tracer.start_as_current_span("packager.uv_tool_run") as span:
+        command_v_xorq = subprocess.check_output(
+            "command -v xorq", shell=True, text=True
+        ).strip()
+        args = tuple(el if el != command_v_xorq else "xorq" for el in args)
+        run_args = (
+            "uv",
+            "tool",
+            "run",
+            *(("--python", python_version) if python_version else ()),
+            *(("--isolated",) if isolated else ()),
+            *(("--with", str(with_)) if with_ else ()),
+            *(
+                ("--with-requirements", str(with_requirements))
+                if with_requirements
+                else ()
+            ),
+            *args,
         )
-    return result
-
-
-def get_acceptable_python_versions(
-    path: str | Path,
-    known_minors: Iterable[int] = range(8, 14),
-) -> tuple[Version, ...]:
-    if (path := Path(path)).name == PYPROJECT_NAME:
-        pass
-    elif path.is_dir() and path.joinpath(PYPROJECT_NAME).exists():
-        path = path.joinpath(PYPROJECT_NAME)
-    elif path.suffix == ".zip":
-        td = TemporaryDirectory()
-        path = ZipProxy(path).extract_toplevel_name(
-            PYPROJECT_NAME, Path(td.name, PYPROJECT_NAME)
+        span.set_attribute("args", " ".join(run_args))
+        span.set_attribute("python_version", python_version or "")
+        span.set_attribute("isolated", isolated)
+        capturing_kwargs = {"capture_output": True, "text": True} if capturing else {}
+        nix_shell_kwargs = (
+            {
+                "env": os.environ
+                | {
+                    "LD_LIBRARY_PATH": os.environ.get("UV_TOOL_RUN_LD_LIBRARY_PATH", "")
+                },
+            }
+            if in_nix_shell()
+            else {}
         )
-    else:
-        raise ValueError(
-            f"can only handle {PYPROJECT_NAME} or {PYPROJECT_NAME} containing dir / .zip"
-        )
-    data = tomlkit.loads(Path(path).read_text())
-    requires_python = toolz.get_in(("project", "requires-python"), data)
-    spec = SpecifierSet(requires_python)
-    acceptable_python_versions = tuple(
-        str(v) for v in (Version(f"3.{minor}") for minor in known_minors) if v in spec
-    )
-    if not acceptable_python_versions:
-        raise ValueError("No acceptable python versions found")
-    return acceptable_python_versions
+        kwargs = capturing_kwargs | nix_shell_kwargs
+        result = subprocess.run(run_args, **kwargs)
+        if check and result.returncode:
+            raise subprocess.CalledProcessError(
+                result.returncode, run_args, result.stdout, result.stderr
+            )
+        return result
 
 
-def uv_export_requirements(project_dir):
+def uv_export_requirements(project_dir, extras=()):
     """Run uv export in a directory with pyproject.toml + uv.lock."""
     args = (
         "uv",
@@ -480,17 +506,9 @@ def uv_export_requirements(project_dir):
         "--no-annotate",
         "--directory",
         str(project_dir),
+        *(arg for extra in extras for arg in ("--extra", extra)),
     )
     return subprocess.check_output(args, text=True)
-
-
-def uv_export_requirements_from_sdist(sdist_path, tmpdir):
-    """Extract uv.lock + pyproject.toml from sdist, run uv export."""
-    tmpdir = Path(tmpdir)
-    zp = ZipProxy(sdist_path)
-    zp.extract_toplevel_name(UVLOCK_NAME, tmpdir / UVLOCK_NAME)
-    zp.extract_toplevel_name(PYPROJECT_NAME, tmpdir / PYPROJECT_NAME)
-    return uv_export_requirements(tmpdir)
 
 
 def parse_requirements(requirements_text):
@@ -517,7 +535,7 @@ def parse_requirements(requirements_text):
 def generate_pyproject_toml(
     project_name,
     dependencies,
-    requires_python=">=3.10",
+    requires_python=DEFAULT_REQUIRES_PYTHON,
 ):
     """Generate a minimal pyproject.toml string from a list of dependencies."""
     doc = tomlkit.document()
@@ -553,7 +571,7 @@ def generate_project_from_requirements(
     script_path,
     requirements_path,
     output_dir,
-    requires_python=">=3.10",
+    requires_python=DEFAULT_REQUIRES_PYTHON,
 ):
     """Create a project directory with pyproject.toml, uv.lock, script, and requirements.txt.
 
