@@ -7,7 +7,7 @@ from functools import cache, cached_property
 from pathlib import Path
 from typing import Literal
 
-from attr import evolve, field, frozen
+from attr import field, frozen
 from attr.validators import instance_of, optional
 from pygments.style import Style as PygmentsStyle
 from pygments.token import (
@@ -25,13 +25,11 @@ from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
-from textual.suggester import SuggestFromList
 from textual.theme import Theme
 from textual.widgets import (
     DataTable,
     Footer,
     Header,
-    Input,
     Static,
     Tree,
 )
@@ -238,89 +236,6 @@ class RevisionRowData:
 
 
 VIEW_LIMIT = 50_000
-
-VERB_TEMPLATES = {
-    "filter": "source.filter({input})",
-    "mutate": "source.mutate({input})",
-    "select": "source.select({input})",
-    "order_by": "source.order_by({input})",
-    "drop": "source.drop({input})",
-    "agg": "source.group_by({group}).agg({input})",
-}
-
-
-def build_code(verb: str, user_input: str, group: str = "") -> str:
-    if verb == "freeform":
-        return user_input
-    if verb == "agg":
-        return VERB_TEMPLATES[verb].format(group=group, input=user_input)
-    return VERB_TEMPLATES[verb].format(input=user_input)
-
-
-@frozen
-class ExprStep:
-    """A single user-applied Ibis operation."""
-
-    verb: str = field(validator=instance_of(str))
-    user_input: str = field(validator=instance_of(str))
-    code: str = field(validator=instance_of(str))
-
-
-@frozen
-class ExprStack:
-    """Immutable operation stack with undo/redo cursor."""
-
-    base_expr: object = field(repr=False)
-    steps: tuple[ExprStep, ...] = field(factory=tuple)
-    cursor: int = field(default=0, validator=instance_of(int))
-
-    def push(self, step: ExprStep) -> "ExprStack":
-        """Apply new step, discard any steps after cursor (fork)."""
-        return evolve(
-            self,
-            steps=self.steps[: self.cursor] + (step,),
-            cursor=self.cursor + 1,
-        )
-
-    def undo(self) -> "ExprStack":
-        return evolve(self, cursor=max(0, self.cursor - 1))
-
-    def redo(self) -> "ExprStack":
-        return evolve(self, cursor=min(len(self.steps), self.cursor + 1))
-
-    @property
-    def can_undo(self) -> bool:
-        return self.cursor > 0
-
-    @property
-    def can_redo(self) -> bool:
-        return self.cursor < len(self.steps)
-
-    def current_expr(self):
-        """Replay active steps onto base via _eval_code."""
-        from xorq.catalog.bind import _eval_code  # noqa: PLC0415
-
-        expr = self.base_expr
-        for step in self.steps[: self.cursor]:
-            expr = _eval_code(step.code, expr)
-        return expr
-
-    @property
-    def current_code(self) -> str:
-        """Single evaluable expression chaining all active steps.
-
-        Each step's code starts with ``source.verb(...)``.  For steps after
-        the first, the leading ``source`` is replaced with the accumulated
-        expression so the result is one chained call that ``_eval_code`` can
-        evaluate in a single ``eval()``.
-        """
-        if self.cursor == 0:
-            return ""
-        steps = self.steps[: self.cursor]
-        result = steps[0].code
-        for step in steps[1:]:
-            result = step.code.replace("source", f"({result})", 1)
-        return result
 
 
 def _entry_info(entry: CatalogEntry) -> tuple[int | None, bool | None]:
@@ -1037,7 +952,6 @@ class DataViewScreen(Screen):
         super().__init__()
         self._entry = entry
         self._row_data = row_data
-        self._ibis_expr = None
         self._df = None
         self._sort_column_index = -1
 
@@ -1057,13 +971,13 @@ class DataViewScreen(Screen):
         self.query_one("#data-view-status", Static).update(f" Loading {label}...")
         self._load_data()
 
-    def _catalog_run_cmd(self, code=None) -> list[str]:
+    def _catalog_run_cmd(self) -> list[str]:
         """Build the xorq catalog run subprocess command."""
         catalog = self.app._catalog
         entry_name = (
             self._row_data.aliases[0] if self._row_data.aliases else self._entry.name
         )
-        cmd = [
+        return [
             "xorq",
             "catalog",
             "--path",
@@ -1077,15 +991,12 @@ class DataViewScreen(Screen):
             "-f",
             "arrow",
         ]
-        if code:
-            cmd.extend(["-c", code])
-        return cmd
 
-    def _run_catalog_subprocess(self, code=None):
+    def _run_catalog_subprocess(self):
         """Run xorq catalog run and return a pandas DataFrame."""
         import pyarrow as pa  # noqa: PLC0415
 
-        cmd = self._catalog_run_cmd(code)
+        cmd = self._catalog_run_cmd()
         proc = subprocess.run(cmd, capture_output=True)
         if proc.returncode != 0:
             raise RuntimeError(proc.stderr.decode().strip())
@@ -1095,7 +1006,6 @@ class DataViewScreen(Screen):
     @work(thread=True, exit_on_error=False)
     def _load_data(self) -> None:
         try:
-            self._stack = ExprStack(base_expr=self._entry)
             df = self._run_catalog_subprocess()
             self.app.call_from_thread(self._on_data_loaded, df)
         except Exception as e:
@@ -1141,213 +1051,10 @@ class DataViewScreen(Screen):
         self.query_one("#data-view-status", Static).update(f" Error: {message}")
         self.query_one("#data-view-table", DataTable).loading = False
 
-    _IBIS_METHOD_SUGGESTIONS = (
-        "filter",
-        "mutate",
-        "select",
-        "order_by",
-        "group_by",
-        "agg",
-        "distinct",
-        "head",
-        "limit",
-        "join",
-        "drop",
-    )
-
-    def _update_command_suggester(self) -> None:
-        """Update tab-completion suggestions from current expression columns."""
-        cols = tuple(self._df.columns) if self._df is not None else ()
-        self.query_one("#command-input", Input).suggester = SuggestFromList(
-            cols + self._IBIS_METHOD_SUGGESTIONS, case_sensitive=False
-        )
-
-    # --- Stack operations ---
-
-    def _push_step(self, verb: str, user_input: str, code: str) -> None:
-        """Push a step and re-execute in background."""
-        step = ExprStep(verb=verb, user_input=user_input, code=code)
-        self._stack = self._stack.push(step)
-        self._execute_current()
-
-    @work(thread=True, exit_on_error=False)
-    def _execute_current(self) -> None:
-        """Evaluate current stack expression via subprocess."""
-        try:
-            stack = self._stack
-            code = stack.current_code or None
-            df = self._run_catalog_subprocess(code)
-            self.app.call_from_thread(self._on_stack_executed, df)
-        except Exception as e:
-            self._stack = stack.undo()
-            self.app.call_from_thread(self._show_command_error, str(e))
-
-    def _on_stack_executed(self, df) -> None:
-        self._df = df
-        self._cursor_column_index = 0
-        self._render_table()
-        self._update_command_suggester()
-        self._render_stack_browser()
-
-    def _show_command_error(self, message) -> None:
-        cmd = self.query_one("#command-input", Input)
-        cmd.display = True
-        cmd.value = f"Error: {message}"
-        cmd.add_class("error")
-
-    # --- Command input ---
-
-    def _open_command_input(self, verb: str) -> None:
-        """Show the command input docked at bottom with verb prompt."""
-        self._command_verb = verb
-        cmd = self.query_one("#command-input", Input)
-        cmd.remove_class("error")
-        cmd.value = ""
-        prompt = verb if verb != "freeform" else ":"
-        cmd.placeholder = (
-            f"{prompt}\u25b8 type expression, Tab to complete, Enter to apply"
-        )
-        cmd.border_title = f"{prompt}\u25b8"
-        cmd.display = True
-        cmd.focus()
-
-    @on(Input.Submitted, "#command-input")
-    def _on_command_submitted(self, event: Input.Submitted) -> None:
-        user_input = event.value.strip()
-        cmd = self.query_one("#command-input", Input)
-
-        verb = self._command_verb
-
-        # Save accepts empty input (no alias)
-        if verb == "save":
-            alias = user_input or None
-            cmd.display = False
-            self._command_verb = None
-            self.query_one("#data-view-table", DataTable).focus()
-            self._do_persist(alias)
-            return
-
-        if not user_input:
-            cmd.display = False
-            self._command_verb = None
-            self._agg_group = None
-            self.query_one("#data-view-table", DataTable).focus()
-            return
-
-        if verb is None:
-            cmd.display = False
-            self.query_one("#data-view-table", DataTable).focus()
-            return
-
-        # Two-phase aggregate: first group_by, then agg
-        if verb == "agg_group":
-            self._agg_group = user_input
-            self._command_verb = "agg"
-            cmd.value = ""
-            cmd.placeholder = (
-                "agg\u25b8 aggregation expressions (e.g. avg=source.amount.mean())"
-            )
-            cmd.border_title = "agg\u25b8"
-            return
-
-        try:
-            if verb == "agg":
-                group = self._agg_group or ""
-                code = build_code(verb, user_input, group=group)
-                display_input = f"group_by({group}).agg({user_input})"
-            else:
-                code = build_code(verb, user_input)
-                display_input = user_input
-        except Exception as e:
-            cmd.value = f"Error building code: {e}"
-            cmd.add_class("error")
-            return
-
-        cmd.display = False
-        self._command_verb = None
-        self._agg_group = None
-        self.query_one("#data-view-table", DataTable).focus()
-        self._push_step(verb, display_input, code)
-
-    # --- Verb actions ---
-
-    def action_verb_filter(self) -> None:
-        if self._stack is None:
-            return
-        self._open_command_input("filter")
-
-    def action_verb_mutate(self) -> None:
-        if self._stack is None:
-            return
-        self._open_command_input("mutate")
-
-    def action_verb_select(self) -> None:
-        if self._stack is None:
-            return
-        self._open_command_input("select")
-
-    def action_verb_agg(self) -> None:
-        if self._stack is None:
-            return
-        self._agg_group = None
-        self._command_verb = "agg_group"
-        cmd = self.query_one("#command-input", Input)
-        cmd.remove_class("error")
-        cmd.value = ""
-        cmd.placeholder = (
-            'group_by\u25b8 column names to group by (e.g. "category", "region")'
-        )
-        cmd.border_title = "group_by\u25b8"
-        cmd.display = True
-        cmd.focus()
-
-    def action_verb_freeform(self) -> None:
-        if self._stack is None:
-            return
-        self._open_command_input("freeform")
-
-    # --- Instant actions (no input required) ---
-
-    def action_sort_asc(self) -> None:
-        if self._stack is None or self._df is None:
-            return
-        col = self._df.columns[self._cursor_column_index]
-        code = f'source.order_by("{col}")'
-        self._push_step("order_by", f'"{col}"', code)
-
-    def action_sort_desc(self) -> None:
-        if self._stack is None or self._df is None:
-            return
-        col = self._df.columns[self._cursor_column_index]
-        code = f'source.order_by(ibis.desc("{col}"))'
-        self._push_step("order_by", f'ibis.desc("{col}")', code)
-
-    def action_drop_column(self) -> None:
-        if self._stack is None or self._df is None:
-            return
-        col = self._df.columns[self._cursor_column_index]
-        code = f'source.drop("{col}")'
-        self._push_step("drop", f'"{col}"', code)
-
-    # --- Undo / Redo ---
-
-    def action_undo(self) -> None:
-        if self._stack is None or not self._stack.can_undo:
-            return
-        self._stack = self._stack.undo()
-        self._execute_current()
-
-    def action_redo(self) -> None:
-        if self._stack is None or not self._stack.can_redo:
-            return
-        self._stack = self._stack.redo()
-        self._execute_current()
-
     # --- Navigation ---
 
     def action_go_back(self) -> None:
         self._df = None
-        self._ibis_expr = None
         self.app.pop_screen()
 
     def action_cursor_down(self) -> None:
