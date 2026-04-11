@@ -12,6 +12,7 @@ from xorq.caching import ParquetSnapshotCache
 from xorq.catalog.annex import (
     LOCAL_ANNEX,
     Annex,
+    AnnexError,
     DirectoryRemoteConfig,
     S3RemoteConfig,
     _do_inside,
@@ -861,3 +862,23 @@ def test_base_path_is_silently_dropped_through_catalog_round_trip(catalog, tmp_p
     ck = entry.parquet_snapshot_cache_keys[0]
     assert ck.relative_path == "my_cache"
     assert ck.key
+
+
+def test_annex_fetch_content_no_remote_raises(tmpdir):
+    """fetch_content raises instead of hanging when no remote is configured."""
+    repo_path = Path(tmpdir) / "no-remote"
+    repo = Catalog.init_repo_path(repo_path, annex=LOCAL_ANNEX)
+    backend = GitAnnexBackend(repo=repo, annex=Annex(repo_path=repo_path))
+    catalog = Catalog(backend=backend)
+
+    expr = xo.memtable({"x": [1, 2, 3]})
+    entry = catalog.add(expr, sync=False)
+
+    # Drop the annex content so is_content_local returns False
+    backend.annex.drop(backend.get_relpath(entry.catalog_path))
+
+    assert not backend.is_content_local(entry.catalog_path)
+    assert not backend._has_any_remote()
+
+    with pytest.raises(AnnexError, match="no remote configured"):
+        backend.fetch_content(entry.catalog_path)

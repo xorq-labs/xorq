@@ -139,7 +139,8 @@ jobs:
         run: just up-ci ${{ matrix.backend.services }}
 
       - name: pytest
-        run: uv run --no-sync pytest --import-mode=importlib --cov --cov-report=xml -m ${{ matrix.backend.name }} -k 'not script_execution and not slow'${{ matrix.backend.parallel && ' -n auto --dist=loadfile' || '' }}
+        timeout-minutes: 20
+        run: uv run --no-sync pytest --import-mode=importlib --cov --cov-report=xml -m ${{ matrix.backend.name }} -k 'not script_execution and not slow' -v --durations=20${{ matrix.backend.parallel && ' -n auto --dist=loadfile' || '' }}
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres

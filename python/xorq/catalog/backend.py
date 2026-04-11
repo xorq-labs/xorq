@@ -9,7 +9,7 @@ from attr import (
 from attr.validators import instance_of
 from git import Repo
 
-from xorq.catalog.annex import Annex
+from xorq.catalog.annex import Annex, AnnexError
 
 
 class CatalogBackend(abc.ABC):
@@ -106,6 +106,19 @@ class GitAnnexBackend(CatalogBackend):
         p = Path(path)
         return p.exists() and not (p.is_symlink() and not p.resolve().exists())
 
+    def _has_any_remote(self):
+        """True if the repo has any git remote or annex special remote."""
+        if self.annex.remote_name is not None:
+            return True
+        return bool(self.repo.remotes)
+
     def fetch_content(self, *paths):
+        if not self._has_any_remote():
+            missing = [p for p in paths if not self.is_content_local(p)]
+            if missing:
+                raise AnnexError(
+                    f"Content not local and no remote configured: {missing}"
+                )
+            return
         relpaths = [self.get_relpath(p) for p in paths]
         self.annex.get(*relpaths)

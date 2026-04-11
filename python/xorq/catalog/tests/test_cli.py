@@ -1,5 +1,6 @@
 # https://docs.pytest.org/en/7.1.x/example/parametrize.html#parametrizing-conditional-raising
 import json
+import os
 import shutil
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
@@ -10,6 +11,7 @@ import pytest
 from click.testing import CliRunner
 
 import xorq.api as xo
+import xorq.expr.builders as _builders_mod
 from xorq.catalog.catalog import (
     Catalog,
     CatalogAddition,
@@ -25,6 +27,12 @@ from xorq.catalog.zip_utils import (
     write_zip,
 )
 from xorq.cli import cli as top_cli
+from xorq.expr.builders import (
+    _FROM_TAG_NODE_REGISTRY,
+    TagHandler,
+    _reset_registry,
+    register_tag_handler,
+)
 from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES
 from xorq.vendor.ibis.expr import operations as ops
 
@@ -32,6 +40,19 @@ from xorq.vendor.ibis.expr import operations as ops
 @pytest.fixture
 def runner():
     yield CliRunner()
+
+
+@pytest.fixture
+def saved_registry():
+    """Save and restore the handler registry around a test."""
+    saved = dict(_FROM_TAG_NODE_REGISTRY)
+    saved_keys = _builders_mod._BUILTIN_KEYS
+    saved_init = _builders_mod._initialized
+    yield
+    _FROM_TAG_NODE_REGISTRY.clear()
+    _FROM_TAG_NODE_REGISTRY.update(saved)
+    _builders_mod._BUILTIN_KEYS = saved_keys
+    _builders_mod._initialized = saved_init
 
 
 # --- init command ---
@@ -1395,3 +1416,30 @@ def test_rename_params_unknown_entry(runner, catalog_with_parameterized_entries)
     )
     assert result.exit_code != 0
     assert "Unknown entry" in result.output
+
+
+# --- run with ExprBuilder entries ---
+
+
+def test_run_expr_builder_entry(runner, catalog_path, saved_registry, backend_type):
+    """ExprBuilder entries should be runnable via `catalog run`."""
+    if backend_type == "annex" and os.environ.get("GITHUB_ACTIONS"):
+        pytest.skip("annex variant triggers Rich infinite recursion in CI")
+    _reset_registry()
+    handler = TagHandler(
+        tag_names=("test_cli_builder",),
+        extract_metadata=lambda tag_node: {"type": "test_cli_builder"},
+    )
+    register_tag_handler(handler)
+
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    source = xo.memtable({"x": [1, 2, 3], "y": [4, 5, 6]}, name="builder_src")
+    tagged = source.tag("test_cli_builder")
+    catalog.add(tagged, aliases=("bld",), sync=False)
+
+    result = runner.invoke(
+        cli,
+        ["--path", catalog_path, "run", "bld", "-o", "-", "-f", "csv"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "x" in result.output
