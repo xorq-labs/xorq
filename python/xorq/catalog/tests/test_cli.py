@@ -1,5 +1,6 @@
 # https://docs.pytest.org/en/7.1.x/example/parametrize.html#parametrizing-conditional-raising
 import json
+import os
 import shutil
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
@@ -1420,8 +1421,10 @@ def test_rename_params_unknown_entry(runner, catalog_with_parameterized_entries)
 # --- run with ExprBuilder entries ---
 
 
-def test_run_expr_builder_entry(runner, catalog_path, saved_registry):
+def test_run_expr_builder_entry(runner, catalog_path, saved_registry, backend_type):
     """ExprBuilder entries should be runnable via `catalog run`."""
+    if backend_type == "annex" and os.environ.get("GITHUB_ACTIONS"):
+        pytest.skip("annex variant triggers Rich infinite recursion in CI")
     _reset_registry()
     handler = TagHandler(
         tag_names=("test_cli_builder",),
