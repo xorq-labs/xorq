@@ -130,13 +130,16 @@ def test_all_tags(t, fitted_xorq_pipeline, all_tags):
     ),
 )
 def test_tagging_pipeline(pairs, t, fitted_xorq_pipeline):
+    # Use set equality because the TRAINING tag causes step tags to appear
+    # in both the predict path and the deferred fit path, producing duplicates
+    # that are structurally correct but would fail a sequence comparison.
     def contains_any_pairs(d, pairs=pairs):
         return set(pairs).intersection(d.items())
 
-    def sort_and_tuplify(dcts):
-        return tuple(sorted(tuple(sorted(dct.items())) for dct in dcts))
+    def to_frozen_set(dcts):
+        return frozenset(tuple(sorted(dct.items())) for dct in dcts)
 
-    actual = sort_and_tuplify(
+    actual = to_frozen_set(
         map(
             get_metadata,
             fitted_xorq_pipeline.predict(t).ls.get_tags(
@@ -144,7 +147,7 @@ def test_tagging_pipeline(pairs, t, fitted_xorq_pipeline):
             ),
         )
     )
-    expected = sort_and_tuplify(
+    expected = to_frozen_set(
         dct
         for dct in (
             fitted_step.get_tag_kwargs()

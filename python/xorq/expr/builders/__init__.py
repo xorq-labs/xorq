@@ -279,7 +279,8 @@ def _builtin_handlers():
             tag_names=tuple(
                 str(k)
                 for k in FittedPipelineTagKey
-                if k != FittedPipelineTagKey.ALL_STEPS
+                if k
+                not in (FittedPipelineTagKey.ALL_STEPS, FittedPipelineTagKey.TRAINING)
             ),
             extract_metadata=_ml_pipeline_extract_metadata,
             from_tag_node=_ml_from_tag_node,

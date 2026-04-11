@@ -853,6 +853,11 @@ class Pipeline:
                 exc_info=True,
             )
             training_hash = None
+        expr = expr.tag(
+            str(FittedPipelineTagKey.TRAINING),
+            target=target,
+            features=features,
+        )
         fitted_steps = ()
         transformed = expr
         # During fit, other (non-feature) columns are only needed if a predict
@@ -984,34 +989,22 @@ class FittedPipeline:
         expr = tag_node.to_expr()
         pipeline = expr.ls.pipeline
 
-        all_steps = tag_node.metadata[str(FittedPipelineTagKey.ALL_STEPS)]
-        dicts = tuple(dict(step_items) for step_items in all_steps)
-        features = dicts[0]["features"]
-        target = next((d["target"] for d in dicts if d.get("target")), None)
-
-        ml_tag_keys = {str(k) for k in FittedStepTagKey} | {
-            str(k) for k in FittedPipelineTagKey
-        }
         nodes = walk_nodes((Tag, CachedNode), expr)
-        ml_tags = [
-            n
-            for n in nodes
-            if isinstance(n, Tag) and n.metadata.get("tag") in ml_tag_keys
-        ]
-        # The innermost ML tag's parent is the training source — structurally
-        # guaranteed by Pipeline.fit() which applies steps sequentially on the
-        # training expression.
-        innermost_tag = ml_tags[-1]
-        source_node = innermost_tag.parent
-        if (
-            isinstance(source_node, Tag)
-            and source_node.metadata.get("tag") in ml_tag_keys
-        ):
-            raise RuntimeError(
-                f"Expected training source below innermost ML tag, "
-                f"but found another ML tag: {source_node.metadata.get('tag')}"
-            )
-        source_expr = source_node.to_expr()
+        training_tag = next(
+            (
+                n
+                for n in nodes
+                if isinstance(n, Tag)
+                and n.metadata.get("tag") == str(FittedPipelineTagKey.TRAINING)
+            ),
+            None,
+        )
+        if training_tag is None:
+            raise ValueError("No FittedPipeline-training tag found in expression")
+
+        source_expr = training_tag.parent.to_expr()
+        features = training_tag.metadata.get("features")
+        target = training_tag.metadata.get("target")
 
         cache = next((n.cache for n in nodes if isinstance(n, CachedNode)), None)
         return pipeline.fit(source_expr, features=features, target=target, cache=cache)
