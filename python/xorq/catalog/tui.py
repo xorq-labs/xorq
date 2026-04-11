@@ -1085,13 +1085,13 @@ class DataViewScreen(Screen):
         self.query_one("#data-view-status", Static).update(f" Loading {label}...")
         self._load_data()
 
-    def _catalog_run_cmd(self) -> list[str]:
+    def _catalog_run_cmd(self, code=None) -> list[str]:
         """Build the xorq catalog run subprocess command."""
         catalog = self.app._catalog
         entry_name = (
             self._row_data.aliases[0] if self._row_data.aliases else self._entry.name
         )
-        return [
+        cmd = [
             "xorq",
             "catalog",
             "--path",
@@ -1105,12 +1105,15 @@ class DataViewScreen(Screen):
             "-f",
             "arrow",
         ]
+        if code:
+            cmd.extend(["-c", code])
+        return cmd
 
-    def _run_catalog_subprocess(self):
+    def _run_catalog_subprocess(self, code=None):
         """Run xorq catalog run and return a pandas DataFrame."""
         import pyarrow as pa  # noqa: PLC0415
 
-        cmd = self._catalog_run_cmd()
+        cmd = self._catalog_run_cmd(code)
         proc = subprocess.run(cmd, capture_output=True)
         if proc.returncode != 0:
             raise RuntimeError(proc.stderr.decode().strip())
@@ -1120,11 +1123,8 @@ class DataViewScreen(Screen):
     @work(thread=True, exit_on_error=False)
     def _load_data(self) -> None:
         try:
-            from xorq.catalog.bind import _make_source_expr  # noqa: PLC0415
-
-            base_expr = _make_source_expr(self._entry)
-            self._stack = ExprStack(base_expr=base_expr)
-            df = base_expr.limit(VIEW_LIMIT).execute()
+            self._stack = ExprStack(base_expr=self._entry)
+            df = self._run_catalog_subprocess()
             self.app.call_from_thread(self._on_data_loaded, df)
         except Exception as e:
             self.app.call_from_thread(self._render_error, str(e))
@@ -1214,11 +1214,11 @@ class DataViewScreen(Screen):
 
     @work(thread=True, exit_on_error=False)
     def _execute_current(self) -> None:
-        """Evaluate current stack expression and update the table."""
+        """Evaluate current stack expression via subprocess."""
         try:
             stack = self._stack
-            expr = stack.current_expr()
-            df = expr.limit(VIEW_LIMIT).execute()
+            code = stack.current_code or None
+            df = self._run_catalog_subprocess(code)
             self.app.call_from_thread(self._on_stack_executed, df)
         except Exception as e:
             self._stack = stack.undo()
