@@ -1266,7 +1266,7 @@ class DataViewScreen(Screen):
 
         # Save accepts empty input (no alias)
         if verb == "save":
-            alias = user_input if user_input else None
+            alias = user_input or None
             cmd.display = False
             self._command_verb = None
             self.query_one("#data-view-table", DataTable).focus()
