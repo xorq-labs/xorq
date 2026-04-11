@@ -1026,10 +1026,10 @@ class DataViewScreen(Screen):
     BINDINGS = (
         ("escape", "cancel_or_back", "Back"),
         ("q", "cancel_or_back", "Back"),
-        ("h", "scroll_left", "Left"),
+        ("h", "cursor_left", "Col ←"),
         ("j", "cursor_down", "Down"),
         ("k", "cursor_up", "Up"),
-        ("l", "scroll_right", "Right"),
+        ("l", "cursor_right", "Col →"),
         ("g", "scroll_top", "Top"),
         ("shift+g", "scroll_bottom", "Bottom"),
         ("[", "sort_desc", "Sort ↓"),
@@ -1069,7 +1069,7 @@ class DataViewScreen(Screen):
 
     def on_mount(self) -> None:
         table = self.query_one("#data-view-table", DataTable)
-        table.cursor_type = "row"
+        table.cursor_type = "cell"
         table.zebra_stripes = True
         table.loading = True
 
@@ -1154,7 +1154,7 @@ class DataViewScreen(Screen):
                     ),
                     key=str(i),
                 )
-            table.cursor_type = "row"
+            table.cursor_type = "cell"
             self._update_status_bar()
 
     def _update_status_bar(self) -> None:
@@ -1167,8 +1167,13 @@ class DataViewScreen(Screen):
         if stack and stack.cursor > 0:
             step = stack.steps[stack.cursor - 1]
             step_info = f" | step {stack.cursor}/{len(stack.steps)} {step.verb}"
+        col_info = ""
+        cols = df.columns
+        idx = self._cursor_column_index
+        if 0 <= idx < len(cols):
+            col_info = f" | [{cols[idx]}]"
         self.query_one("#data-view-status", Static).update(
-            f" {label} \u2014 {len(df)} rows \u00d7 {len(df.columns)} cols{step_info}"
+            f" {label} \u2014 {len(df)} rows \u00d7 {len(cols)} cols{col_info}{step_info}"
         )
 
     def _render_error(self, message) -> None:
@@ -1397,13 +1402,11 @@ class DataViewScreen(Screen):
     def action_cursor_up(self) -> None:
         self.query_one("#data-view-table", DataTable).action_cursor_up()
 
-    def action_scroll_left(self) -> None:
-        self.query_one("#data-view-table", DataTable).action_scroll_left()
-        self._track_cursor_column()
+    def action_cursor_left(self) -> None:
+        self.query_one("#data-view-table", DataTable).action_cursor_left()
 
-    def action_scroll_right(self) -> None:
-        self.query_one("#data-view-table", DataTable).action_scroll_right()
-        self._track_cursor_column()
+    def action_cursor_right(self) -> None:
+        self.query_one("#data-view-table", DataTable).action_cursor_right()
 
     def action_scroll_top(self) -> None:
         table = self.query_one("#data-view-table", DataTable)
@@ -1414,14 +1417,12 @@ class DataViewScreen(Screen):
         if table.row_count > 0:
             table.move_cursor(row=table.row_count - 1)
 
-    def _track_cursor_column(self) -> None:
-        """Update tracked column index from DataTable cursor position."""
-        if self._df is None:
-            return
-        table = self.query_one("#data-view-table", DataTable)
-        col = table.cursor_column
-        if 0 <= col < len(self._df.columns):
+    @on(DataTable.CellHighlighted, "#data-view-table")
+    def _on_cell_highlighted(self, event: DataTable.CellHighlighted) -> None:
+        col = event.coordinate.column
+        if self._df is not None and 0 <= col < len(self._df.columns):
             self._cursor_column_index = col
+            self._update_status_bar()
 
     # --- Stack browser ---
 
