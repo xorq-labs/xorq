@@ -245,6 +245,7 @@ ignore-regex = '\b(DOUB|i[if]f|I[IF]F|lamduh|AFE|crate|ba|fpr)\b'
 builtin = "clear,rare,names"
 
 [tool.pytest.ini_options]
+faulthandler_timeout = 300
 filterwarnings = [
     # pandas 2.2 warnings
     'ignore:DataFrameGroupBy\.apply operated on the grouping columns\. This behavior is deprecated:DeprecationWarning',
