@@ -688,6 +688,12 @@ class DataFusionCompiler(SQLGlotCompiler):
 
     visit_DateDelta = visit_TimestampDelta
 
+    def visit_DateDiff(self, op, *, left, right):
+        return self.f.timestamp_delta("day", right, left)
+
+    def visit_TimestampDiff(self, op, *, left, right):
+        return self.f.timestamp_delta("second", right, left)
+
     def visit_TableUnnest(
         self,
         op,
