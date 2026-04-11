@@ -826,25 +826,6 @@ def test_data_view_loads_data(catalog, entry_a):
     _run(_test())
 
 
-def test_data_view_stats_hidden_by_default(catalog, entry_a):
-    async def _test():
-        app = _make_tui(catalog)
-        async with app.run_test(size=(120, 40)) as pilot:
-            screen, _ = await _populate_tree(pilot, catalog, entry_a)
-
-            await run_script(
-                pilot,
-                Press(("j",)),
-                Press(("e",)),
-            )
-            await settle(pilot)
-            assert isinstance(app.screen, DataViewScreen)
-            stats_panel = app.screen.query_one("#stats-panel")
-            assert stats_panel.display is False
-
-    _run(_test())
-
-
 def test_cached_display_reflects_execution_state(catalog, tmp_path, parquet_dir):
     con = xo.duckdb.connect()
     t = deferred_read_parquet(
