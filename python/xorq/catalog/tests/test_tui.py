@@ -740,6 +740,16 @@ def test_cached_true_after_execution(catalog, tmp_path, parquet_dir):
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture
+def _mock_catalog_run(monkeypatch):
+    """Bypass xorq catalog subprocess — execute the expression in-process."""
+    monkeypatch.setattr(
+        DataViewScreen,
+        "_run_catalog_subprocess",
+        lambda self: self._entry.expr.limit(50_000).execute(),
+    )
+
+
 def test_data_view_screen_construction(entry_a):
     row_data = CatalogRowData(entry=entry_a)
     screen = DataViewScreen(entry=entry_a, row_data=row_data)
@@ -748,7 +758,7 @@ def test_data_view_screen_construction(entry_a):
     assert screen._df is None
 
 
-def test_e_pushes_data_view_screen(catalog, entry_a):
+def test_e_pushes_data_view_screen(catalog, entry_a, _mock_catalog_run):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
@@ -783,7 +793,7 @@ def test_e_on_branch_does_nothing(catalog, entry_a):
     _run(_test())
 
 
-def test_data_view_escape_returns(catalog, entry_a):
+def test_data_view_escape_returns(catalog, entry_a, _mock_catalog_run):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
@@ -803,7 +813,7 @@ def test_data_view_escape_returns(catalog, entry_a):
     _run(_test())
 
 
-def test_data_view_loads_data(catalog, entry_a):
+def test_data_view_loads_data(catalog, entry_a, _mock_catalog_run):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:

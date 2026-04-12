@@ -14,6 +14,7 @@ from typing import Callable
 
 from attr import frozen
 from textual.pilot import Pilot
+from textual.worker import WorkerCancelled
 
 
 async def settle(pilot: Pilot, *, timeout: float = 5.0) -> None:
@@ -42,7 +43,7 @@ async def settle(pilot: Pilot, *, timeout: float = 5.0) -> None:
                 asyncio.gather(*[w.wait() for w in active]),
                 timeout=remaining,
             )
-        except (asyncio.CancelledError, asyncio.TimeoutError):
+        except (asyncio.CancelledError, asyncio.TimeoutError, WorkerCancelled):
             pass
 
         await pilot.pause()
