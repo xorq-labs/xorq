@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775834140105,
+  "lastUpdate": 1775975002477,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -5148,6 +5148,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.017597687670114187",
             "extra": "mean: 196.6867089999861 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f1691e01b13fb085193cc80fffe53eef1ab65cbb",
+          "message": "ci: add faulthandler_timeout, verbose output, and step timeout (#1811)\n\n## Summary\n\n- `faulthandler_timeout = 300` in pyproject.toml — dumps thread\ntracebacks if any test blocks >5 min\n- `-v` on pytest invocation — streams test names in real time (essential\nfor xdist debugging)\n- `--durations=20` — surfaces the 20 slowest tests at the end\n- `timeout-minutes: 20` on pytest step — kills hung steps so logs are\nalways available\n\nThese were essential for diagnosing the Rich infinite recursion hang in\n#1805.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-12T02:19:57-04:00",
+          "tree_id": "91589cb01206463a7daef1093605bdaf26f80061",
+          "url": "https://github.com/xorq-labs/xorq/commit/f1691e01b13fb085193cc80fffe53eef1ab65cbb"
+        },
+        "date": 1775975000437,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.505001389213038,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01990550143000453",
+            "extra": "mean: 133.24447900000433 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.493430275568621,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007609223325494484",
+            "extra": "mean: 222.54712740000286 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7068754602715269,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19479090099972507",
+            "extra": "mean: 1.4146763556000053 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.8332153026287363,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017807544484367326",
+            "extra": "mean: 260.87759780000397 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.343713432638415,
+            "unit": "iter/sec",
+            "range": "stddev: 0.025473177424202995",
+            "extra": "mean: 230.21776540000474 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.655964922601014,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00822222782128677",
+            "extra": "mean: 214.7782503999963 msec\nrounds: 5"
           }
         ]
       }
