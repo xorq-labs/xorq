@@ -23,9 +23,14 @@ def with_pure_suffix(path, suffix=""):
 
 def test_zip(zip_path):
     with zipfile.ZipFile(zip_path, "r") as zf:
-        names = {Path(name).name for name in zf.namelist() if not name.endswith("/")}
+        names = {
+            Path(info.filename).name for info in zf.infolist() if not info.is_dir()
+        }
         missing = set(REQUIRED_ARCHIVE_NAMES).difference(names)
-        assert not missing, missing
+        assert not missing, (
+            f"Archive is not a valid expression entry "
+            f"(missing {missing}); found: {sorted(names)}"
+        )
 
 
 @contextmanager

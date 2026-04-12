@@ -136,6 +136,9 @@ ibis = [
 trino = [
     "trino==0.336.0",
 ]
+bsl = [
+    "boring-semantic-layer>=0.1.0",
+]
 
 [dependency-groups]
 dev = [

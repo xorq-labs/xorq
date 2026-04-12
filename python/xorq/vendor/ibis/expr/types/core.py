@@ -7,9 +7,9 @@ import webbrowser
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, NoReturn, Optional
 
-import attr
 import toolz
 from attr import (
+    asdict,
     field,
     frozen,
 )
@@ -726,18 +726,86 @@ def _extract_sources(catalog_tag_nodes):
     )
 
 
-def _extract_kind(unbound_node, catalog_tag_nodes, is_source):
-    # Priority: UnboundExpr (incomplete/has placeholder) > Composed (has
-    # catalog HashingTag nodes) > Source (plain table) > Expr (everything else).
-    match (unbound_node, bool(catalog_tag_nodes), is_source):
-        case (node, _, _) if node is not None:
-            return ExprKind.UnboundExpr
-        case (_, True, _):
+def _extract_builders(expr):
+    from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+    from xorq.expr.builders import extract_builder_metadata  # noqa: PLC0415
+    from xorq.expr.relations import HashingTag, Tag  # noqa: PLC0415
+    from xorq.vendor.ibis.common.collections import FrozenOrderedDict  # noqa: PLC0415
+
+    tag_nodes = walk_nodes((Tag, HashingTag), expr)
+    if not tag_nodes:
+        return ()
+
+    return tuple(
+        FrozenOrderedDict(meta)
+        for tag_node in tag_nodes
+        if (meta := extract_builder_metadata(tag_node)) is not None
+    )
+
+
+@frozen
+class ExprTraits:
+    """Whole-graph boolean properties of an expression.
+
+    Unlike ``kind`` (which describes the outermost layer), traits answer
+    "does X exist anywhere in this expression graph?"  Computed once and
+    cached on the accessor via ``expr.ls.expr_traits``.
+    """
+
+    has_unbound: bool = field(default=False, validator=instance_of(bool))
+    has_composition: bool = field(default=False, validator=instance_of(bool))
+    has_builders: bool = field(default=False, validator=instance_of(bool))
+    is_source: bool = field(default=False, validator=instance_of(bool))
+
+    @classmethod
+    def from_expr(cls, expr):
+        unbound_node = _extract_unbound_node(expr)
+        catalog_tag_nodes = _extract_catalog_tag_nodes(expr)
+        builders = _extract_builders(expr)
+        return cls(
+            has_unbound=unbound_node is not None,
+            has_composition=bool(catalog_tag_nodes),
+            has_builders=bool(builders),
+            is_source=_extract_is_source(expr),
+        )
+
+
+def _extract_kind(expr):
+    """Classify an expression by its outermost structural layer.
+
+    UnboundExpr is the one exception — it requires a whole-graph walk because
+    UnboundTable is always a leaf, never the outermost node. All other kinds
+    are determined by the outermost tag/node only.
+    """
+    from xorq.catalog.bind import CatalogTag  # noqa: PLC0415
+    from xorq.expr.builders import extract_builder_metadata  # noqa: PLC0415
+    from xorq.expr.relations import CachedNode, HashingTag, Read, Tag  # noqa: PLC0415
+
+    # UnboundExpr: whole-graph check (it's a constraint, not a structural kind)
+    if _extract_unbound_node(expr) is not None:
+        return ExprKind.UnboundExpr
+
+    # Walk the outermost Tag/HashingTag chain
+    catalog_tags = frozenset(CatalogTag)
+    root = expr.op()
+    while isinstance(root, (Tag, HashingTag)):
+        tag_name = root.metadata.get("tag")
+
+        if tag_name in catalog_tags:
             return ExprKind.Composed
-        case (_, _, True):
-            return ExprKind.Source
-        case _:
-            return ExprKind.Expr
+
+        if extract_builder_metadata(root) is not None:
+            return ExprKind.ExprBuilder
+
+        # Unrecognized tag — unwrap and keep checking
+        root = root.parent
+
+    # No recognized tags. Check if root is a source.
+    source_nodes = (ops.DatabaseTable, Read, ops.InMemoryTable, CachedNode)
+    if isinstance(root, source_nodes):
+        return ExprKind.Source
+
+    return ExprKind.Expr
 
 
 def _validate_cache_key_item(instance, attribute, value):
@@ -800,6 +868,9 @@ class ExprMetadata:
     params: tuple = field(factory=tuple)
     sql_queries: tuple[tuple[str, str, str], ...] = field(factory=tuple)
     lineage: Optional[LineageDAG] = field(default=None, validator=_validate_lineage)
+    builders: tuple[dict, ...] = field(
+        factory=tuple, validator=deep_iterable(instance_of(dict))
+    )
 
     @staticmethod
     def _parse_cache_keys(raw):
@@ -829,6 +900,7 @@ class ExprMetadata:
             params=tuple(data.get("params") or ()),
             sql_queries=tuple(tuple(q) for q in data.get("sql_queries", ())),
             lineage=_parse_lineage(data.get("lineage")),
+            builders=tuple(data.get("builders", ())),
         )
 
     @classmethod
@@ -844,8 +916,8 @@ class ExprMetadata:
         validate_params(expr)
 
         unbound_node = _extract_unbound_node(expr)
-        is_source = _extract_is_source(expr)
         catalog_tag_nodes = _extract_catalog_tag_nodes(expr)
+        builders = _extract_builders(expr)
 
         tags = expr.ls.tags
         root_tag = tags[0].tag if tags else None
@@ -872,13 +944,14 @@ class ExprMetadata:
         )
 
         return cls(
-            kind=_extract_kind(unbound_node, catalog_tag_nodes, is_source),
+            kind=_extract_kind(expr),
             schema_in=unbound_node.schema if unbound_node else None,
             schema_out=expr.as_table().schema(),
             root_tag=root_tag,
             parquet_snapshot_cache_keys=parquet_snapshot_cache_keys,
             composed_from=_extract_sources(catalog_tag_nodes),
             params=named_params,
+            builders=builders,
         )
 
     def to_dict(self):
@@ -894,7 +967,7 @@ class ExprMetadata:
                 ("root_tag", self.root_tag),
                 (
                     "cache_keys",
-                    list(map(attr.asdict, self.parquet_snapshot_cache_keys)) or None,
+                    list(map(asdict, self.parquet_snapshot_cache_keys)) or None,
                 ),
                 ("params", self.params or None),
                 (
@@ -909,6 +982,7 @@ class ExprMetadata:
                     "lineage",
                     self.lineage.to_dict() if self.lineage else None,
                 ),
+                ("builders", list(self.builders) if self.builders else None),
             )
             if value is not None
         }
@@ -926,6 +1000,16 @@ class LETSQLAccessor:
     @cached_property
     def metadata(self):
         return ExprMetadata.from_expr(self.expr)
+
+    @cached_property
+    def expr_traits(self):
+        return ExprTraits.from_expr(self.expr)
+
+    @property
+    def builder(self):
+        from xorq.expr.builders import _resolve_builder_from_tag
+
+        return _resolve_builder_from_tag(self.expr)
 
     @property
     def kind(self) -> ExprKind:

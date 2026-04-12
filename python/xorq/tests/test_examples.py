@@ -20,6 +20,7 @@ NON_TESTABLE = (
     "xorq_build_and_run.py",
     "weather_flight.py",
     "gizmosql_demo.py",
+    "semantic_builder_example.py",
 )
 
 file_path = pathlib.Path(__file__).absolute()
