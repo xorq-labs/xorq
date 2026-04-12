@@ -1,5 +1,7 @@
 import os
+import socket
 import sys
+import urllib.parse
 
 from opentelemetry import trace
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
@@ -15,18 +17,26 @@ from xorq.common.utils.env_utils import (
 )
 
 
-def localhost_and_listening(uri):
-    import socket  # noqa: PLC0415
-    import urllib  # noqa: PLC0415
-
+def is_localhost_collector_listening(uri):
     parsed = urllib.parse.urlparse(uri)
     if parsed.hostname != "localhost":
-        return None
+        return False
+    if parsed.port is None:
+        return False
     try:
         with socket.create_connection((parsed.hostname, parsed.port), timeout=1):
             return True
-    except (OSError, TimeoutError):
+    except OSError:  # includes TimeoutError (subclass since 3.3)
         return False
+
+
+def _should_use_otlp_exporter(endpoint):
+    if not endpoint:
+        return False
+    parsed = urllib.parse.urlparse(endpoint)
+    if parsed.hostname != "localhost":
+        return True
+    return is_localhost_collector_listening(endpoint)
 
 
 # This is the only template loaded unconditionally at import time
@@ -93,7 +103,7 @@ provider = TracerProvider(resource=resource)
 
 traces_endpoint = otel_config.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
 
-if traces_endpoint and localhost_and_listening(traces_endpoint):
+if _should_use_otlp_exporter(traces_endpoint):
     processor = BatchSpanProcessor(get_otlp_exporter())
 else:
     processor = BatchSpanProcessor(
