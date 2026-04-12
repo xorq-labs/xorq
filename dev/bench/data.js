@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775975002477,
+  "lastUpdate": 1775975142952,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -5214,6 +5214,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.00822222782128677",
             "extra": "mean: 214.7782503999963 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1db68ce287b2bb2d3462e38a334187499175e993",
+          "message": "fix(catalog): prevent hang when annex content is missing with no remote (#1812)\n\n## Summary\n\n`GitAnnexBackend.fetch_content` now checks for configured remotes before\ncalling `git-annex get`. With no git remotes and no annex special\nremote, `git-annex get` blocks indefinitely waiting for content that has\nno source. The guard raises `AnnexError` instead.\n\n## Test plan\n\n- [x] `test_annex_fetch_content_no_remote_raises` — drops annex content,\nverifies `fetch_content` raises instead of blocking\n- [x] All 92 catalog tests pass (verified in main worktree)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-12T02:22:14-04:00",
+          "tree_id": "3c1c3f8ecd17054191f03978c7d7e367c343dcdc",
+          "url": "https://github.com/xorq-labs/xorq/commit/1db68ce287b2bb2d3462e38a334187499175e993"
+        },
+        "date": 1775975140939,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.644756078797295,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005254714054761001",
+            "extra": "mean: 93.94296990908462 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.944669618239483,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027437939473692538",
+            "extra": "mean: 253.50665499999536 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7107549176929844,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2288136973859934",
+            "extra": "mean: 1.4069547393999984 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.42509108634041,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05448360362743175",
+            "extra": "mean: 225.9840488000009 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.6492423380657013,
+            "unit": "iter/sec",
+            "range": "stddev: 0.033255827209953494",
+            "extra": "mean: 274.0294853999899 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.061456504195516,
+            "unit": "iter/sec",
+            "range": "stddev: 0.033667606351722654",
+            "extra": "mean: 246.2170895999975 msec\nrounds: 5"
           }
         ]
       }
