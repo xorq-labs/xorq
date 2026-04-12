@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775997504293,
+  "lastUpdate": 1776028718159,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -5412,6 +5412,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.04697182711472428",
             "extra": "mean: 280.5753656000036 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "45543592+ghoersti@users.noreply.github.com",
+            "name": "ghoersti",
+            "username": "ghoersti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "54e16eb441b429fba36efd01f1f123158eec5cd6",
+          "message": "fix(otel): collector probe (#1813)\n\n## Summary\n\n- **`socket.bind()` → `socket.create_connection()`** — `bind()` checks\nif a port is free (server-side); `create_connection()` checks if a\nservice is accepting connections (client-side). Adds 1s timeout and\ncontext manager to prevent socket leak.\n- **Fix silent discard of remote OTLP endpoints** —\n`localhost_and_listening()` returned `None` for non-localhost URIs,\nwhich is falsy, so `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` pointing at a\nremote collector was silently ignored (traces sent to `/dev/null`).\nSplit the logic into `is_localhost_collector_listening` (pure TCP probe)\nand `_should_use_otlp_exporter` (routing policy that trusts remote\nendpoints and only probes localhost).\n- **Guard `parsed.port is None`** — prevents `TypeError` on portless\nURIs.\n- **Add tests** — 10 tests covering the probe and routing functions.\n\n## Test plan\n\n- [x] `ruff check` passes\n- [x] `pytest python/xorq/common/utils/tests/test_otel_utils.py` — 10/10\npass\n- [ ] Set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to a remote endpoint and\nverify OTLP exporter is created\n- [ ] Verify no collector on localhost falls back to console exporter\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: ghoersti <ghoersti@users.noreply.github.com>\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-04-12T17:15:00-04:00",
+          "tree_id": "4715c38f0f7f408233e5d58ea4524732012b5b19",
+          "url": "https://github.com/xorq-labs/xorq/commit/54e16eb441b429fba36efd01f1f123158eec5cd6"
+        },
+        "date": 1776028715483,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.447359741032741,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02389376280079937",
+            "extra": "mean: 134.2757748749932 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.807691600406936,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011382852488924313",
+            "extra": "mean: 208.0000305999988 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7020249263699855,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19256142873449514",
+            "extra": "mean: 1.424450845599995 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.646913076407305,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012083396643623168",
+            "extra": "mean: 274.2045064000081 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.090509342164834,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04410231783052364",
+            "extra": "mean: 244.4683330000089 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.995915743956872,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009135155392085686",
+            "extra": "mean: 200.16350380000176 msec\nrounds: 5"
           }
         ]
       }
