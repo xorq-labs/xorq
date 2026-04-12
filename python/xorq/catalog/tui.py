@@ -21,6 +21,7 @@ from pygments.token import (
     Token,
 )
 from rich.syntax import Syntax
+from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -85,11 +86,35 @@ XORQ_DARK = Theme(
 
 KIND_ORDER = ("source", "expr", "unbound_expr", "composed")
 
+KIND_ICONS = {
+    "source": "⊞",
+    "expr": "⊕",
+    "unbound_expr": "⊘",
+    "composed": "⊛",
+}
+
+KIND_COLORS = {
+    "source": "#C1F0FF",
+    "expr": "#2BBE75",
+    "unbound_expr": "#F5CA2C",
+    "composed": "#4AA8EC",
+}
+
 SCHEMA_PREVIEW_COLUMNS = ("NAME", "TYPE")
 
 REVISION_COLUMNS = ("STATUS", "HASH", "COLUMNS", "CACHED", "DATE")
 
 GIT_LOG_COLUMNS = ("HASH", "DATE", "MESSAGE")
+
+
+def _styled_branch_label(kind: str, count: int) -> Text:
+    icon = KIND_ICONS.get(kind, "·")
+    color = KIND_COLORS.get(kind, "#C1F0FF")
+    label = Text()
+    label.append(f"{icon} ", style=f"bold {color}")
+    label.append(f"{kind} ", style=f"bold {color}")
+    label.append(f"({count})", style=f"dim {color}")
+    return label
 
 
 def _format_cached(value: bool | None) -> str:
@@ -323,6 +348,7 @@ class ExprStack:
             result = step.code.replace("source", f"({result})", 1)
         return result
 
+
 def _entry_info(entry: CatalogEntry) -> tuple[int | None, bool | None]:
     cache_keys_paths = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
     cached = (
@@ -476,6 +502,7 @@ class CatalogScreen(Screen):
         super().__init__()
         self._refresh_interval = refresh_interval
         self._row_cache: dict[str, CatalogRowData] = {}
+        self._new_keys: set[str] = set()
         self._git_log_visible = False
         self._git_log_loaded = False
         self._refresh_lock = threading.Lock()
@@ -547,7 +574,13 @@ class CatalogScreen(Screen):
         self.query_one("#schema-panel").border_title = "Schema"
         self.query_one("#schema-in-half").display = False
         self.query_one("#sql-panel").border_title = "SQL"
+        self.query_one("#sql-preview", Static).update(
+            Text("← Select an expression to view its SQL", style="dim")
+        )
         self.query_one("#info-panel").border_title = "Info"
+        self.query_one("#info-content", Static).update(
+            Text("← Select an expression", style="dim")
+        )
         self.query_one("#revisions-panel").border_title = "Revisions"
         self.query_one("#revisions-panel").display = False
 
@@ -698,6 +731,10 @@ class CatalogScreen(Screen):
         expected_keys = frozenset(_get_catalog_list(catalog))
         alias_multimap = _build_alias_multimap(self.catalog_aliases)
 
+        # Age out: keys that were pink last cycle turn green now
+        prev_new = self._new_keys
+        self._new_keys = set()
+
         # preserve insertion order from _row_cache (dict is ordered in Python 3.7+)
         cached_rows = tuple(
             self._row_cache[k] for k in self._row_cache if k in expected_keys
@@ -709,6 +746,13 @@ class CatalogScreen(Screen):
         self._row_cache = {
             k: v for k, v in self._row_cache.items() if k in expected_keys
         }
+
+        # Track new keys for pink highlighting (skip first load — everything is new)
+        if cached_rows:
+            self._new_keys = set(new_keys)
+
+        if prev_new:
+            self.app.call_from_thread(self._settle_new_labels, prev_new)
 
         match (bool(removed), bool(cached_rows)):
             case (True, _) | (_, False):
@@ -753,10 +797,14 @@ class CatalogScreen(Screen):
                 if kind not in groups:
                     continue
                 entries = groups[kind]
-                branch = tree.root.add(f"{kind} ({len(entries)})", data=kind)
+                branch = tree.root.add(
+                    _styled_branch_label(kind, len(entries)), data=kind
+                )
                 branch.expand()
                 for row_data in entries:
-                    branch.add_leaf(row_data.tree_label, data=row_data.row_key)
+                    branch.add_leaf(
+                        self._styled_leaf_label(row_data), data=row_data.row_key
+                    )
 
             # Restore approximate cursor position
             total = sum(1 + len(b.children) for b in tree.root.children)
@@ -776,19 +824,68 @@ class CatalogScreen(Screen):
                     break
 
             if branch is None:
-                branch = tree.root.add(f"{kind} (1)", data=kind)
+                branch = tree.root.add(_styled_branch_label(kind, 1), data=kind)
                 branch.expand()
             else:
                 count = len(branch.children) + 1
-                branch.set_label(f"{kind} ({count})")
+                branch.set_label(_styled_branch_label(kind, count))
 
-            branch.add_leaf(row_data.tree_label, data=row_data.row_key)
+            branch.add_leaf(self._styled_leaf_label(row_data), data=row_data.row_key)
+
+    def _styled_leaf_label(self, row_data) -> Text:
+        is_new = row_data.row_key in self._new_keys
+        cache_icon = _format_cached(row_data.cached)
+        ncols = len(row_data.schema_out)
+
+        label = Text()
+        if is_new:
+            label.append(f"{cache_icon} ", style="bold #FF69B4")
+            if row_data.aliases_display:
+                label.append(row_data.aliases_display, style="bold #FF69B4")
+                label.append(f" — {row_data.hash[:12]}", style="#FF69B4")
+            else:
+                label.append(row_data.hash[:12], style="bold #FF69B4")
+            label.append(f"  {ncols} cols", style="dim #FF69B4")
+        else:
+            cache_color = {"●": "#2BBE75", "○": "#F5CA2C"}.get(cache_icon, "dim")
+            label.append(f"{cache_icon} ", style=cache_color)
+            if row_data.aliases_display:
+                label.append(row_data.aliases_display, style="bold #C1F0FF")
+                label.append(f" — {row_data.hash[:12]}", style="dim #5abfb5")
+            else:
+                label.append(row_data.hash[:12], style="#C1F0FF")
+            label.append(f"  {ncols} cols", style="dim")
+        return label
+
+    def _settle_new_labels(self, keys: set[str]) -> None:
+        tree = self.query_one("#catalog-tree", Tree)
+        for branch in tree.root.children:
+            for leaf in branch.children:
+                if leaf.data in keys:
+                    row_data = self._row_cache.get(leaf.data)
+                    if row_data:
+                        leaf.set_label(self._styled_leaf_label(row_data))
 
     def _render_status(self, stamp, repo_path) -> None:
+        rows = self._row_cache.values()
         count = len(self._row_cache)
-        self.query_one("#status-bar", Static).update(
-            f" {count} entries · {repo_path} · {stamp}"
+        kind_counts = {}
+        cached_count = 0
+        for r in rows:
+            kind_counts[r.kind] = kind_counts.get(r.kind, 0) + 1
+            if r.cached:
+                cached_count += 1
+        kinds_str = ", ".join(
+            f"{c} {k}" for k, c in sorted(kind_counts.items(), key=lambda x: -x[1])
         )
+        parts = [f" {count} entries"]
+        if kinds_str:
+            parts[0] += f" ({kinds_str})"
+        if cached_count:
+            parts.append(f"{cached_count} cached")
+        parts.append(str(repo_path))
+        parts.append(stamp)
+        self.query_one("#status-bar", Static).update(" · ".join(parts))
 
     # --- Toggle: Git Log ---
 
@@ -1522,6 +1619,9 @@ class CatalogTUI(App):
         border: solid #C1F0FF;
         border-title-color: #C1F0FF;
         background: $surface;
+    }
+    #catalog-panel:focus-within {
+        border: double #C1F0FF;
     }
     #catalog-tree {
         height: 1fr;
