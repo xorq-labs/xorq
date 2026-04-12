@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775976512731,
+  "lastUpdate": 1775997504293,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -5346,6 +5346,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0049109228291824274",
             "extra": "mean: 195.48190266666646 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b54cc7bc2744c601eb0746fa55b884dd2967254f",
+          "message": "feat(tui): add DataViewScreen for full-screen data exploration (#1797)\n\n## Summary\n- Adds `DataViewScreen` — a full-screen data viewer pushed via `e` from\nthe catalog tree\n- Executes selected entry (up to 50K rows) via `xorq catalog run`\nsubprocess with Arrow IPC output\n- Column sorting with `[`/`]`, vim-style navigation (`hjkl`, `g/G`),\n`q`/`escape` to return\n- NaN values display as \"—\" instead of \"nan\"\n- Stats panel removed — not performant enough for interactive use, will\nrevisit later\n- Tests bypass the subprocess with an in-process monkeypatch to avoid\n`WorkerCancelled` in CI (memtable data isn't accessible cross-process)\n- `settle()` test helper hardened to catch `WorkerCancelled` alongside\n`CancelledError`/`TimeoutError`\n\n## Test plan\n- [x] `test_data_view_screen_construction` — DataViewScreen instantiates\ncorrectly\n- [x] `test_e_pushes_data_view_screen` — `e` on tree leaf pushes\nDataViewScreen\n- [x] `test_e_on_branch_does_nothing` — `e` on branch node is no-op\n- [x] `test_data_view_escape_returns` — escape pops back to\nCatalogScreen\n- [x] `test_data_view_loads_data` — background worker loads and renders\nrows\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-04-12T08:34:52-04:00",
+          "tree_id": "7b49c40098c1075d88602310af381ab274d90edf",
+          "url": "https://github.com/xorq-labs/xorq/commit/b54cc7bc2744c601eb0746fa55b884dd2967254f"
+        },
+        "date": 1775997501860,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.523505361188452,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005840315315029683",
+            "extra": "mean: 105.0033534999983 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.6973048630782297,
+            "unit": "iter/sec",
+            "range": "stddev: 0.025938885997959942",
+            "extra": "mean: 270.4672828000014 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.678278897619069,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14199701005356208",
+            "extra": "mean: 1.4743197872000053 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.8410031948182235,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008546549065628729",
+            "extra": "mean: 206.56875439999567 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.136945180474818,
+            "unit": "iter/sec",
+            "range": "stddev: 0.058653615907943754",
+            "extra": "mean: 241.7242569999985 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.5641047739936984,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04697182711472428",
+            "extra": "mean: 280.5753656000036 msec\nrounds: 5"
           }
         ]
       }
