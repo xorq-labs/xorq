@@ -850,7 +850,6 @@ class Pipeline:
 
             structlog.get_logger().warning(
                 "failed to compute training_hash, provenance will be unavailable",
-                exc_info=True,
             )
             training_hash = None
         expr = expr.tag(

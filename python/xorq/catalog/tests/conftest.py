@@ -73,17 +73,7 @@ def compare_repo_and_catalog(repo, catalog):
     assert tuple(sorted(alias_names)) == tuple(sorted(catalog.list_aliases()))
 
 
-@pytest.fixture(
-    params=[
-        "git",
-        pytest.param(
-            "annex",
-            marks=pytest.mark.skip(
-                reason="annex hangs CI — Rich traversal issue, fix in follow-up PR"
-            ),
-        ),
-    ]
-)
+@pytest.fixture(params=["git", "annex"])
 def backend_type(request):
     return request.param
 
