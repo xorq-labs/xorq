@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775975142952,
+  "lastUpdate": 1775976512731,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -5280,6 +5280,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.033667606351722654",
             "extra": "mean: 246.2170895999975 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "45543592+ghoersti@users.noreply.github.com",
+            "name": "ghoersti",
+            "username": "ghoersti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9696ad33932a59dc128099a19c22fe897c0791fa",
+          "message": "XOR-253 add expr builder roundtrip fitted bsl  (#1801)\n\nTagged expressions can now round-trip through the catalog as\nExprKind.ExprBuilder entries. A TagHandler registry dispatches\nextract_metadata (sidecar) and from_tagged (recovery) per tag name.\nBuilt-in handlers cover BSL semantic models and ML fitted pipelines.\nThird parties register handlers inline or via entry points.\n\nSee the examples for end-to-end usage:\n- examples/semantic_builder_example.py — BSL: catalog a query, recover\nthe SemanticModel, issue new queries\n- examples/fitted_pipeline_builder_example.py — ML: catalog predictions,\nrecover the FittedPipeline, predict/transform on new data\n- examples/custom_builder_example.py — Third-party: register a custom\nTagHandler, full round-trip\nFor full context see\n[XOR-253](https://linear.app/xorq-labs/issue/XOR-253/add-exprbuilder-kind)\n\n---------\n\nCo-authored-by: ghoersti <ghoersti@users.noreply.github.com>\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-04-12T02:44:51-04:00",
+          "tree_id": "1ebce99435a1f59667be16d20fef70ac3a74457d",
+          "url": "https://github.com/xorq-labs/xorq/commit/9696ad33932a59dc128099a19c22fe897c0791fa"
+        },
+        "date": 1775976509519,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.846452793188525,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012543788260286022",
+            "extra": "mean: 127.44612455555662 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.854371062306762,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010091533177591091",
+            "extra": "mean: 205.9999095999899 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7247664159558805,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1540423084723437",
+            "extra": "mean: 1.3797548809999967 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.366957916290975,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03685706341057939",
+            "extra": "mean: 228.99236016667146 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.108276896511343,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00917768291933111",
+            "extra": "mean: 195.76072719999615 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.115563059078613,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0049109228291824274",
+            "extra": "mean: 195.48190266666646 msec\nrounds: 6"
           }
         ]
       }
