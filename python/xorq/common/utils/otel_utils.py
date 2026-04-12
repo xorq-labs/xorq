@@ -20,13 +20,16 @@ def localhost_and_listening(uri):
     import urllib  # noqa: PLC0415
 
     parsed = urllib.parse.urlparse(uri)
-    if parsed.hostname != "localhost":
-        return None
-    try:
-        with socket.create_connection((parsed.hostname, parsed.port), timeout=1):
+    localhost = "localhost"
+    if parsed.hostname == localhost:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.bind((localhost, parsed.port))
+        except OSError:
             return True
-    except (OSError, TimeoutError):
-        return False
+        else:
+            return False
+    return None
 
 
 # This is the only template loaded unconditionally at import time
