@@ -41,6 +41,7 @@ from textual.widgets import (
 from xorq.caching.storage import resolve_parquet_cache_path
 from xorq.catalog.catalog import CatalogEntry
 from xorq.common.utils.caching_utils import CacheKey
+from xorq.common.utils.logging_utils import Runs
 
 
 DEFAULT_REFRESH_INTERVAL = 10
@@ -105,6 +106,8 @@ SCHEMA_PREVIEW_COLUMNS = ("NAME", "TYPE")
 REVISION_COLUMNS = ("STATUS", "HASH", "COLUMNS", "CACHED", "DATE")
 
 GIT_LOG_COLUMNS = ("HASH", "DATE", "MESSAGE")
+
+RUN_COLUMNS = ("STATUS", "RUN ID", "CACHE", "DURATION", "FORMAT", "DATE")
 
 
 def _styled_branch_label(kind: str, count: int) -> Text:
@@ -263,7 +266,119 @@ class RevisionRowData:
         )
 
 
+@frozen
+class RunRowData:
+    run_id: str = field(validator=instance_of(str))
+    status: str = field(validator=instance_of(str))
+    cache_type: str = field(default="", validator=instance_of(str))
+    duration_ms: int | None = field(default=None, validator=optional(instance_of(int)))
+    output_format: str = field(default="", validator=instance_of(str))
+    date: str = field(default="", validator=instance_of(str))
+    output_path: str | None = field(default=None, validator=optional(instance_of(str)))
+
+    @property
+    def status_display(self) -> str:
+        match self.status:
+            case "ok":
+                return "✓"
+            case "error":
+                return "✗"
+            case "running":
+                return "…"
+            case _:
+                return self.status
+
+    @property
+    def duration_display(self) -> str:
+        if self.duration_ms is None:
+            return "—"
+        if self.duration_ms < 1000:
+            return f"{self.duration_ms}ms"
+        secs = self.duration_ms / 1000
+        if secs < 60:
+            return f"{secs:.1f}s"
+        return f"{secs / 60:.1f}m"
+
+    @property
+    def row(self) -> tuple[str, ...]:
+        return (
+            self.status_display,
+            self.run_id[:8],
+            self.cache_type or "none",
+            self.duration_display,
+            self.output_format or "—",
+            self.date,
+        )
+
+
+def _compute_duration(meta: dict) -> int | None:
+    started = meta.get("started_at")
+    completed = meta.get("completed_at")
+    if not started or not completed:
+        return None
+    try:
+        s = datetime.fromisoformat(started)
+        c = datetime.fromisoformat(completed)
+        return int((c - s).total_seconds() * 1000)
+    except (ValueError, TypeError):
+        return None
+
+
+def _format_run_date(iso_str: str) -> str:
+    try:
+        dt = datetime.fromisoformat(iso_str)
+        return dt.strftime("%Y-%m-%d %H:%M")
+    except (ValueError, TypeError):
+        return iso_str
+
+
+def _build_run_rows(
+    expr_hash: str, aliases: tuple[str, ...] = ()
+) -> tuple[RunRowData, ...]:
+    from xorq.common.utils.logging_utils import get_xorq_runs_dir  # noqa: PLC0415
+
+    runs_dir = get_xorq_runs_dir()
+    # catalog run logs under alias names, xorq run logs under expr hash
+    lookup_keys = (expr_hash, *aliases)
+    seen_run_ids = set()
+    rows = []
+    for key in lookup_keys:
+        expr_dir = runs_dir / key
+        for run in Runs(expr_dir=expr_dir).runs:
+            if run.run_id in seen_run_ids:
+                continue
+            seen_run_ids.add(run.run_id)
+            meta = run.read_meta()
+            if meta is None:
+                continue
+            rows.append(
+                RunRowData(
+                    run_id=meta.get("run_id", run.run_id),
+                    status=meta.get("status", "unknown"),
+                    cache_type=meta.get("cache_strategy", ""),
+                    duration_ms=_compute_duration(meta),
+                    output_format=meta.get("output_format", ""),
+                    date=_format_run_date(meta.get("completed_at", "")),
+                    output_path=meta.get("output_path")
+                    or meta.get("output_snapshot_path"),
+                )
+            )
+    rows.sort(key=lambda r: r.date, reverse=True)
+    return tuple(rows)
+
+
 VIEW_LIMIT = 50_000
+
+SNAPSHOT_CACHE_EXPR = "xo.ParquetSnapshotCache.from_kwargs()"
+
+
+def _wrap_with_cache(code: str | None) -> str:
+    """Wrap a code expression so the result is snapshot-cached."""
+    cache = SNAPSHOT_CACHE_EXPR
+    if not code:
+        return f"source.cache({cache})"
+    return f"({code}).cache({cache})"
+
 
 VERB_TEMPLATES = {
     "filter": "source.filter({input})",
@@ -487,12 +602,14 @@ class CatalogScreen(Screen):
         ("1", "view_sql", "SQL"),
         ("2", "view_data", "Data"),
         ("e", "open_data_view", "Explore"),
+        ("r", "toggle_runs", "Runs"),
         ("v", "toggle_revisions", "Revisions"),
         ("g", "toggle_git_log", "Git Log"),
     )
 
     FOCUS_CYCLE = (
         "#catalog-tree",
+        "#runs-table",
         "#sql-panel",
         "#data-preview-panel",
         "#schema-preview-table",
@@ -503,6 +620,7 @@ class CatalogScreen(Screen):
         self._refresh_interval = refresh_interval
         self._row_cache: dict[str, CatalogRowData] = {}
         self._new_keys: set[str] = set()
+        self._runs_visible = False
         self._git_log_visible = False
         self._git_log_loaded = False
         self._refresh_lock = threading.Lock()
@@ -515,6 +633,8 @@ class CatalogScreen(Screen):
             with Vertical(id="left-column"):
                 with Vertical(id="catalog-panel"):
                     yield Tree("Catalog", id="catalog-tree")
+                with Vertical(id="runs-panel"):
+                    yield DataTable(id="runs-table")
                 with Vertical(id="revisions-panel"):
                     yield DataTable(id="revisions-preview-table")
                 with Vertical(id="git-log-panel"):
@@ -559,6 +679,12 @@ class CatalogScreen(Screen):
         for col in REVISION_COLUMNS:
             rev_table.add_column(col, key=col)
 
+        runs_table = self.query_one("#runs-table", DataTable)
+        runs_table.cursor_type = "row"
+        runs_table.zebra_stripes = True
+        for col in RUN_COLUMNS:
+            runs_table.add_column(col, key=col)
+
         git_log_table = self.query_one("#git-log-table", DataTable)
         git_log_table.cursor_type = "row"
         git_log_table.zebra_stripes = True
@@ -581,6 +707,10 @@ class CatalogScreen(Screen):
         self.query_one("#info-content", Static).update(
             Text("← Select an expression", style="dim")
         )
+        runs_panel = self.query_one("#runs-panel")
+        runs_panel.border_title = "Runs"
+        runs_panel.display = False
+
         self.query_one("#revisions-panel").border_title = "Revisions"
         self.query_one("#revisions-panel").display = False
 
@@ -608,6 +738,8 @@ class CatalogScreen(Screen):
         info_content = self.query_one("#info-content", Static)
         rev_table = self.query_one("#revisions-preview-table", DataTable)
         rev_table.clear()
+        runs_table = self.query_one("#runs-table", DataTable)
+        runs_table.clear()
 
         # Branch nodes (kind groupings) have children; only leaf nodes are entries
         entry_hash = event.node.data
@@ -690,6 +822,10 @@ class CatalogScreen(Screen):
                 self.query_one(
                     "#revisions-panel"
                 ).border_title = "Revisions — (no alias)"
+
+        # Runs preview
+        if self._runs_visible:
+            self._load_runs_preview(row_data.hash, row_data.aliases)
 
         # Update data preview if data view is active
         if self._active_view == "data":
@@ -886,6 +1022,58 @@ class CatalogScreen(Screen):
         parts.append(str(repo_path))
         parts.append(stamp)
         self.query_one("#status-bar", Static).update(" · ".join(parts))
+
+    # --- Toggle: Runs ---
+
+    def action_toggle_runs(self) -> None:
+        self._runs_visible = not self._runs_visible
+        self.query_one("#runs-panel").display = self._runs_visible
+        if self._runs_visible:
+            tree = self.query_one("#catalog-tree", Tree)
+            node = tree.cursor_node
+            if node and not node.children and node.data:
+                row_data = self._row_cache.get(node.data)
+                aliases = row_data.aliases if row_data else ()
+                self._load_runs_preview(node.data, aliases)
+
+    @work(thread=True, exit_on_error=False)
+    def _load_runs_preview(self, expr_hash, aliases=()) -> None:
+        run_rows = _build_run_rows(expr_hash, aliases)
+        self.app.call_from_thread(self._render_runs_preview, run_rows, expr_hash)
+
+    def _render_runs_preview(self, run_rows, expr_hash) -> None:
+        with self.app.batch_update():
+            runs_table = self.query_one("#runs-table", DataTable)
+            runs_table.clear()
+            runs_panel = self.query_one("#runs-panel")
+            if run_rows:
+                for i, row_data in enumerate(run_rows):
+                    runs_table.add_row(*row_data.row, key=str(i))
+                runs_panel.border_title = f"Runs — {len(run_rows)} runs"
+                runs_panel.border_subtitle = expr_hash[:12]
+            else:
+                runs_panel.border_title = "Runs — no runs"
+                runs_panel.border_subtitle = expr_hash[:12]
+
+    def _get_selected_run(self) -> RunRowData | None:
+        runs_table = self.query_one("#runs-table", DataTable)
+        if runs_table.row_count == 0:
+            return None
+        row_key, _ = runs_table.coordinate_to_cell_key(runs_table.cursor_coordinate)
+        try:
+            idx = int(row_key.value)
+        except (ValueError, TypeError):
+            return None
+        tree = self.query_one("#catalog-tree", Tree)
+        node = tree.cursor_node
+        if not node or node.children or not node.data:
+            return None
+        row_data = self._row_cache.get(node.data)
+        aliases = row_data.aliases if row_data else ()
+        run_rows = _build_run_rows(node.data, aliases)
+        if 0 <= idx < len(run_rows):
+            return run_rows[idx]
+        return None
 
     # --- Toggle: Git Log ---
 
@@ -1101,6 +1289,11 @@ class CatalogScreen(Screen):
         self.query_one(visible[next_idx]).focus()
 
     def action_open_data_view(self) -> None:
+        focused = self.app.focused
+        runs_table = self.query_one("#runs-table", DataTable)
+        if focused is runs_table:
+            self._open_run_data_view()
+            return
         tree = self.query_one("#catalog-tree", Tree)
         node = tree.cursor_node
         if node is None or node.children:
@@ -1109,6 +1302,27 @@ class CatalogScreen(Screen):
         if row_data is None or row_data.kind == "unbound_expr":
             return
         self.app.push_screen(DataViewScreen(entry=row_data.entry, row_data=row_data))
+
+    def _open_run_data_view(self) -> None:
+        run_row = self._get_selected_run()
+        if run_row is None:
+            return
+        parquet_path = run_row.output_path
+        if not parquet_path or parquet_path == "-":
+            # Fallback: try cache paths from the selected entry
+            tree = self.query_one("#catalog-tree", Tree)
+            node = tree.cursor_node
+            if node and not node.children and node.data:
+                row_data = self._row_cache.get(node.data)
+                if row_data:
+                    paths = get_cache_keys_paths(
+                        row_data.entry.parquet_snapshot_cache_keys
+                    )
+                    parquet_path = next((p for p in paths if Path(p).exists()), None)
+        if not parquet_path or not Path(parquet_path).exists():
+            self.notify("No parquet file available for this run", severity="warning")
+            return
+        self.app.push_screen(RunDataScreen(parquet_path=parquet_path, run_row=run_row))
 
     def action_quit_app(self) -> None:
         self.app.exit()
@@ -1221,7 +1435,7 @@ class DataViewScreen(Screen):
     def _load_data(self) -> None:
         try:
             self._stack = ExprStack(base_expr=self._entry)
-            df = self._run_catalog_subprocess()
+            df = self._run_catalog_subprocess(_wrap_with_cache(None))
             self.app.call_from_thread(self._on_data_loaded, df)
         except Exception as e:
             self.app.call_from_thread(self._render_error, str(e))
@@ -1315,7 +1529,7 @@ class DataViewScreen(Screen):
         try:
             stack = self._stack
             code = stack.current_code or None
-            df = self._run_catalog_subprocess(code)
+            df = self._run_catalog_subprocess(_wrap_with_cache(code))
             self.app.call_from_thread(self._on_stack_executed, df)
         except Exception as e:
             self._stack = stack.undo()
@@ -1602,6 +1816,124 @@ class DataViewScreen(Screen):
         self.query_one("#data-view-status", Static).update(f" \u2713 {message}")
 
 
+class RunDataScreen(Screen):
+    """Full-screen parquet viewer for inspecting run output."""
+
+    BINDINGS = (
+        Binding("escape", "go_back", "Back"),
+        Binding("q", "go_back", "Back", show=False),
+        Binding("j", "cursor_down", "Down", show=False),
+        Binding("k", "cursor_up", "Up", show=False),
+        Binding("h", "scroll_left", "Left", show=False),
+        Binding("l", "scroll_right", "Right", show=False),
+    )
+
+    def __init__(self, parquet_path: str, run_row: RunRowData | None = None):
+        super().__init__()
+        self._parquet_path = parquet_path
+        self._run_row = run_row
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=False)
+        yield Static("", id="run-data-status")
+        yield DataTable(id="run-data-table")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        table = self.query_one("#run-data-table", DataTable)
+        table.cursor_type = "row"
+        table.zebra_stripes = True
+        table.loading = True
+
+        run_label = ""
+        if self._run_row:
+            run_label = f" · run {self._run_row.run_id[:8]}"
+        self.query_one("#run-data-status", Static).update(
+            f" Loading {self._parquet_path}{run_label}..."
+        )
+        self._load_data()
+
+    @work(thread=True, exit_on_error=False)
+    def _load_data(self) -> None:
+        try:
+            import pyarrow.parquet as pq  # noqa: PLC0415
+
+            pf = pq.ParquetFile(self._parquet_path)
+            metadata = pf.metadata
+            total_rows = metadata.num_rows
+            num_cols = metadata.num_columns
+            file_size = Path(self._parquet_path).stat().st_size
+
+            table = pf.read_row_group(0) if metadata.num_row_groups > 0 else pf.read()
+            df = table.to_pandas().head(500)
+            columns = tuple(str(c) for c in df.columns)
+            rows = tuple(
+                tuple(
+                    "—"
+                    if isinstance(v, float) and math.isnan(v)
+                    else str(round(v, 2))
+                    if isinstance(v, float)
+                    else str(v)
+                    for v in row
+                )
+                for row in df.itertuples(index=False)
+            )
+            self.app.call_from_thread(
+                self._render_data,
+                columns,
+                rows,
+                total_rows,
+                num_cols,
+                file_size,
+                len(df),
+            )
+        except Exception as e:
+            self.app.call_from_thread(self._render_error, str(e))
+
+    def _render_data(
+        self, columns, rows, total_rows, num_cols, file_size, preview_rows
+    ) -> None:
+        with self.app.batch_update():
+            size_str = (
+                f"{file_size / 1024 / 1024:.1f} MB"
+                if file_size > 1024 * 1024
+                else f"{file_size / 1024:.1f} KB"
+            )
+            run_info = ""
+            if self._run_row:
+                run_info = f" · {self._run_row.status_display} {self._run_row.duration_display}"
+            self.query_one("#run-data-status", Static).update(
+                f" {total_rows} rows × {num_cols} cols · {size_str}"
+                f" · showing {preview_rows}{run_info}"
+            )
+            table = self.query_one("#run-data-table", DataTable)
+            table.clear(columns=True)
+            table.loading = False
+            for col in columns:
+                table.add_column(col, key=col)
+            for i, row in enumerate(rows):
+                table.add_row(*row, key=str(i))
+
+    def _render_error(self, message) -> None:
+        self.query_one("#run-data-status", Static).update(f" Error: {message}")
+        self.query_one("#run-data-table", DataTable).loading = False
+
+    def action_go_back(self) -> None:
+        self.app.pop_screen()
+
+    def action_cursor_down(self) -> None:
+        self.query_one("#run-data-table", DataTable).action_cursor_down()
+
+    def action_cursor_up(self) -> None:
+        self.query_one("#run-data-table", DataTable).action_cursor_up()
+
+    def action_scroll_left(self) -> None:
+        self.query_one("#run-data-table", DataTable).action_scroll_left()
+
+    def action_scroll_right(self) -> None:
+        self.query_one("#run-data-table", DataTable).action_scroll_right()
+
+
 class CatalogTUI(App):
     TITLE = "xorq catalog"
     CSS = """
@@ -1624,6 +1956,15 @@ class CatalogTUI(App):
         border: double #C1F0FF;
     }
     #catalog-tree {
+        height: 1fr;
+    }
+    #runs-panel {
+        height: 1fr;
+        border: solid #F5CA2C;
+        border-title-color: #F5CA2C;
+        border-subtitle-color: #F5CA2C;
+    }
+    #runs-table {
         height: 1fr;
     }
     #revisions-panel {
@@ -1711,6 +2052,14 @@ class CatalogTUI(App):
         height: 1;
         padding: 0 2;
         background: $surface;
+    }
+    RunDataScreen #run-data-status {
+        height: 1;
+        padding: 0 2;
+        background: $surface;
+    }
+    RunDataScreen #run-data-table {
+        height: 1fr;
     }
     DataViewScreen #data-view-status {
         height: 1;
