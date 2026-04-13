@@ -1,6 +1,7 @@
 import math
 import re
 import subprocess
+import tempfile
 import threading
 from datetime import datetime
 from functools import cache, cached_property
@@ -37,11 +38,13 @@ from textual.widgets import (
     Static,
     Tree,
 )
+from textual_image.widget import Image
 
 from xorq.caching.storage import resolve_parquet_cache_path
 from xorq.catalog.catalog import CatalogEntry
 from xorq.common.utils.caching_utils import CacheKey
 from xorq.common.utils.logging_utils import Runs
+from xorq.common.utils.plot_utils import PLOT_TAG
 
 
 DEFAULT_REFRESH_INTERVAL = 10
@@ -156,6 +159,14 @@ class CatalogRowData:
     @property
     def hash(self) -> str:
         return self.entry.name
+
+    @property
+    def backends(self) -> tuple[str, ...]:
+        return self.entry.backends
+
+    @property
+    def is_plot(self) -> bool:
+        return self.entry.root_tag == PLOT_TAG
 
     @property
     def schema_in(self) -> tuple[tuple[str, str], ...] | None:
@@ -645,6 +656,7 @@ class CatalogScreen(Screen):
                 with Vertical(id="data-preview-panel"):
                     yield Static("", id="data-preview-status")
                     yield DataTable(id="data-preview-table")
+                    yield Image(id="plot-image")
                 with Vertical(id="info-panel"):
                     yield Static("", id="info-content")
                 with Vertical(id="schema-panel"):
@@ -721,6 +733,9 @@ class CatalogScreen(Screen):
         data_panel = self.query_one("#data-preview-panel")
         data_panel.border_title = "Data Preview"
         data_panel.display = False
+
+        plot_image = self.query_one("#plot-image", Image)
+        plot_image.display = False
 
         self.query_one("#status-bar", Static).update(" Loading catalog...")
 
@@ -1106,6 +1121,10 @@ class CatalogScreen(Screen):
         self.query_one("#sql-panel").display = view == "sql"
         self.query_one("#data-preview-panel").display = view == "data"
 
+        if view != "data":
+            self._data_preview_hash = None
+            self.query_one("#data-preview-panel").border_title = "Data Preview"
+
         if view == "data":
             tree = self.query_one("#catalog-tree", Tree)
             node = tree.cursor_node
@@ -1127,19 +1146,28 @@ class CatalogScreen(Screen):
         if self._data_preview_hash == entry_hash:
             return
         self._data_preview_hash = entry_hash
+
+        is_plot = row_data.is_plot
+        self.query_one("#data-preview-table", DataTable).display = not is_plot
+        self.query_one("#plot-image", Image).display = is_plot
+
         if row_data.cached is True:
             self.query_one("#data-preview-status", Static).update(
-                " Loading data preview..."
+                " Loading plot..." if is_plot else " Loading data preview..."
             )
-            self.query_one("#data-preview-table", DataTable).loading = True
-            self._load_data_preview(row_data.entry)
+            if is_plot:
+                self._load_plot_preview(row_data.entry)
+            else:
+                self.query_one("#data-preview-table", DataTable).loading = True
+                self._load_data_preview(row_data.entry)
         else:
             self.query_one("#data-preview-status", Static).update(
                 " uncached — run to materialize"
             )
-            dt = self.query_one("#data-preview-table", DataTable)
-            dt.clear(columns=True)
-            dt.loading = False
+            if not is_plot:
+                dt = self.query_one("#data-preview-table", DataTable)
+                dt.clear(columns=True)
+                dt.loading = False
 
     # --- Toggle: Revisions (v) ---
 
@@ -1167,6 +1195,7 @@ class CatalogScreen(Screen):
 
     def _render_data_preview(self, columns, rows, total_rows) -> None:
         with self.app.batch_update():
+            self.query_one("#data-preview-panel").border_title = "Data Preview"
             self.query_one("#data-preview-status", Static).update(
                 f" Data Preview — {total_rows} rows (max 50)"
             )
@@ -1182,6 +1211,43 @@ class CatalogScreen(Screen):
     def _render_data_preview_error(self, message) -> None:
         self.query_one("#data-preview-status", Static).update(f" Error: {message}")
         self.query_one("#data-preview-table", DataTable).loading = False
+
+    # --- Plot Preview (worker) ---
+
+    @work(thread=True, exit_on_error=False)
+    def _load_plot_preview(self, entry) -> None:
+        try:
+            df = entry.expr.execute()
+            # Find the first binary column containing plot data
+            plot_bytes = None
+            for col in df.columns:
+                val = df[col].iloc[0]
+                if isinstance(val, (bytes, memoryview)):
+                    plot_bytes = bytes(val)
+                    break
+            if plot_bytes is None:
+                self.app.call_from_thread(
+                    self._render_data_preview_error, "No binary plot data found"
+                )
+                return
+            # Write to a temp file so the Image widget can load it
+            tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+            tmp.write(plot_bytes)
+            tmp.flush()
+            tmp.close()
+            self.app.call_from_thread(self._render_plot_preview, tmp.name)
+        except Exception as e:
+            self.app.call_from_thread(self._render_data_preview_error, str(e))
+
+    def _render_plot_preview(self, image_path) -> None:
+        with self.app.batch_update():
+            data_panel = self.query_one("#data-preview-panel")
+            data_panel.border_title = "Plot Preview"
+            self.query_one("#data-preview-status", Static).update(
+                f" Plot \u2014 {Path(image_path).name}"
+            )
+            plot_image = self.query_one("#plot-image", Image)
+            plot_image.image = image_path
 
     # --- Revisions Preview ---
 
@@ -2045,6 +2111,9 @@ class CatalogTUI(App):
         padding: 0 2;
     }
     #data-preview-table {
+        height: 1fr;
+    }
+    #plot-image {
         height: 1fr;
     }
     #status-bar {

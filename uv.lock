@@ -5488,6 +5488,19 @@ wheels = [
 ]
 
 [[package]]
+name = "textual-image"
+version = "0.10.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pillow" },
+    { name = "rich" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/88/25/52c6e92df487c74c280d42e1dd63ad260b4c06cabb401bd9358803345008/textual_image-0.10.0.tar.gz", hash = "sha256:8568883ab297f8d9d80452d842bd0fa2048d1f1b3ec91e34472264485a97290c", size = 115903, upload-time = "2026-04-07T18:00:08.819Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/84/b1/b98d31f1bc322332212328f1d282b87a91b88acf0c06910d651e59792c95/textual_image-0.10.0-py3-none-any.whl", hash = "sha256:c6a53ac7bc892a5832a27edeb6f058761ede3244414e7fc30b478fb191655bda", size = 115215, upload-time = "2026-04-07T18:00:07.144Z" },
+]
+
+[[package]]
 name = "threadpoolctl"
 version = "3.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5916,6 +5929,7 @@ dependencies = [
     { name = "strenum", marker = "python_full_version < '3.11'" },
     { name = "structlog" },
     { name = "textual" },
+    { name = "textual-image" },
     { name = "tomlkit" },
     { name = "toolz" },
     { name = "typing-extensions" },
@@ -6079,6 +6093,7 @@ requires-dist = [
     { name = "strenum", marker = "python_full_version < '3.11'", specifier = ">=0.4.15" },
     { name = "structlog", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=24.2.0,<26" },
     { name = "textual", specifier = ">=1.0.0" },
+    { name = "textual-image", specifier = ">=0.10.0" },
     { name = "tomlkit", specifier = ">=0.12" },
     { name = "toolz", specifier = ">=0.11" },
     { name = "trino", marker = "extra == 'trino'", specifier = "==0.336.0" },
