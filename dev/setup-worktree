@@ -28,5 +28,20 @@ for target in .gitignore .claude ci/ibis-testing-data; do
     fi
 done
 
+# Symlink user-defined extras from main worktree
+extra="$main/.envrcs/.worktree-symlinks"
+if [ -f "$extra" ]; then
+    while IFS= read -r target || [ -n "$target" ]; do
+        target="${target%%#*}"          # strip inline comments
+        target="${target// /}"          # trim whitespace
+        [ -z "$target" ] && continue    # skip blank lines
+        if [ -e "$main/$target" ] && [ ! -e "$here/$target" ]; then
+            mkdir -p "$(dirname "$here/$target")"
+            ln -sv "$main/$target" "$here/$target"
+            echo "$target" >> "$manifest"
+        fi
+    done < "$extra"
+fi
+
 echo "Manifest written to .envrcs/.worktree-manifest"
 echo "To remove: dev/cleanup-worktree"
