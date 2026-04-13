@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776084215390,
+  "lastUpdate": 1776086853638,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -5544,6 +5544,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.011871914063006207",
             "extra": "mean: 195.09788419999836 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c0aaf41af184b04736de2cc1f08e3a4945683939",
+          "message": "chore(deps): update dependency cryptography to v46.0.7 [security] (#1814)\n\nThis PR contains the following updates:\n\n| Package | Change |\n[Age](https://docs.renovatebot.com/merge-confidence/) |\n[Confidence](https://docs.renovatebot.com/merge-confidence/) |\n|---|---|---|---|\n| [cryptography](https://redirect.github.com/pyca/cryptography)\n([changelog](https://cryptography.io/en/latest/changelog/)) | `46.0.0` →\n`46.0.7` |\n![age](https://developer.mend.io/api/mc/badges/age/pypi/cryptography/46.0.7?slim=true)\n|\n![confidence](https://developer.mend.io/api/mc/badges/confidence/pypi/cryptography/46.0.0/46.0.7?slim=true)\n|\n\n### GitHub Vulnerability Alerts\n\n####\n[CVE-2026-26007](https://redirect.github.com/pyca/cryptography/security/advisories/GHSA-r6ph-v2qm-q3c2)\n\n## Vulnerability Summary\n\nThe `public_key_from_numbers` (or\n`EllipticCurvePublicNumbers.public_key()`),\n`EllipticCurvePublicNumbers.public_key()`, `load_der_public_key()` and\n`load_pem_public_key()` functions do not verify that the point belongs\nto the expected prime-order subgroup of the curve.\n\nThis missing validation allows an attacker to provide a public key point\n`P` from a small-order subgroup. This can lead to security issues in\nvarious situations, such as the most commonly used signature\nverification (ECDSA) and shared key negotiation (ECDH). When the victim\ncomputes the shared secret as `S = [victim_private_key]P` via ECDH, this\nleaks information about `victim_private_key mod (small_subgroup_order)`.\nFor curves with cofactor > 1, this reveals the least significant bits of\nthe private key. When these weak public keys are used in ECDSA , it's\neasy to forge signatures on the small subgroup.\n\nOnly SECT curves are impacted by this.\n\n## Credit\n\nThis vulnerability was discovered by:\n- XlabAI Team of Tencent Xuanwu Lab\n- Atuin Automated Vulnerability Discovery Engine\n\n####\n[CVE-2026-34073](https://redirect.github.com/pyca/cryptography/security/advisories/GHSA-m959-cc7f-wv43)\n\n## Summary\n\nIn versions of cryptography prior to 46.0.5, DNS name constraints were\nonly validated against SANs within child certificates, and not the \"peer\nname\" presented during each validation. Consequently, cryptography would\nallow a peer named `bar.example.com` to validate against a wildcard leaf\ncertificate for `*.example.com`, even if the leaf's parent certificate\n(or upwards) contained an excluded subtree constraint for\n`bar.example.com`.\n\nThis behavior resulted from a gap between RFC 5280 (which defines Name\nConstraint semantics) and RFC 9525 (which defines service identity\nsemantics): put together, neither states definitively whether Name\nConstraints should be applied to peer names. To close this gap,\ncryptography now conservatively rejects any validation where the peer\nname would be rejected by a name constraint if it were a SAN instead.\n\nIn practice, exploitation of this bypass requires an uncommon X.509\ntopology, one that the Web PKI avoids because it exhibits these kinds of\nproblems. Consequently, we consider this a medium-to-low impact\nseverity.\n\nSee CVE-2025-61727 for a similar bypass in Go's `crypto/x509`.\n\n## Remediation\n\nUsers should upgrade to 46.0.6 or newer. \n\n## Attribution\n\nReporter: @&#8203;1seal\n\n####\n[CVE-2026-39892](https://redirect.github.com/pyca/cryptography/security/advisories/GHSA-p423-j2cm-9vmq)\n\nIf a non-contiguous buffer was passed to APIs which accepted Python\nbuffers (e.g. `Hash.update()`), this could lead to buffer overflows. For\nexample:\n\n```python\nh = Hash(SHA256())\nb.update(buf[::-1])\n```\n\nwould read past the end of the buffer on Python >3.11\n\n---\n\n- [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check\nthis box\n\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0My4xMTAuMiIsInVwZGF0ZWRJblZlciI6IjQzLjExMC4yIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6W119-->\n\nCo-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
+          "timestamp": "2026-04-13T15:24:05+02:00",
+          "tree_id": "147d995f5ece58491e8a7b5e86c65c6fbdb43534",
+          "url": "https://github.com/xorq-labs/xorq/commit/c0aaf41af184b04736de2cc1f08e3a4945683939"
+        },
+        "date": 1776086851641,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.888469368048264,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00550058694433732",
+            "extra": "mean: 101.12788570000646 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.7651819175808114,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03493989213756036",
+            "extra": "mean: 265.59141679999243 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7362795602740072,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17274303389278942",
+            "extra": "mean: 1.358179764800002 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.425084734133219,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03441378365427879",
+            "extra": "mean: 225.98437320000357 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.6930903311016117,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02200061141349212",
+            "extra": "mean: 270.7759383999985 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.380625575270205,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027441259632164122",
+            "extra": "mean: 228.27789840000605 msec\nrounds: 5"
           }
         ]
       }
