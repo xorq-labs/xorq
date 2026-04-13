@@ -749,10 +749,12 @@ def cli(use_pdb, pdb_runcall):
     pass
 
 
-@cli.group("uv")
-def uv_group():
+@cli.group("uv", invoke_without_command=True)
+@click.pass_context
+def uv_group(ctx):
     """Commands that use uv to manage a custom Python environment."""
-    pass
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 @uv_group.command("build")
