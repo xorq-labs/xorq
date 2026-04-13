@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776086853638,
+  "lastUpdate": 1776087087040,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -5610,6 +5610,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.027441259632164122",
             "extra": "mean: 228.27789840000605 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4b3d8033337c2171c545f2e7034c97031ac0063d",
+          "message": "fix(dev): handle missing parent dirs in worktree setup/cleanup (#1806)\n\n## Summary\n\n- **setup-worktree** now creates parent directories before symlinking,\nso targets like `ci/ibis-testing-data` no longer fail when `ci/` doesn't\nexist.\n- **cleanup-worktree** removes empty parent directories left behind.\n- Users can now list additional paths in `.envrcs/.worktree-symlinks`\n(one per line) to have them automatically symlinked into new worktrees.\nCleanup is automatic via the existing manifest.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-13T15:27:52+02:00",
+          "tree_id": "b7a6410bf4400a0b91277b190c60680419902348",
+          "url": "https://github.com/xorq-labs/xorq/commit/4b3d8033337c2171c545f2e7034c97031ac0063d"
+        },
+        "date": 1776087084936,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.633496104183598,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02666275344946063",
+            "extra": "mean: 131.00157337500207 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.86459137964106,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012281846415444964",
+            "extra": "mean: 205.56711180000207 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7149563967011384,
+            "unit": "iter/sec",
+            "range": "stddev: 0.21630114459571728",
+            "extra": "mean: 1.3986866956000028 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.014099714713485,
+            "unit": "iter/sec",
+            "range": "stddev: 0.034740005705832966",
+            "extra": "mean: 249.12186319999705 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.354379573360482,
+            "unit": "iter/sec",
+            "range": "stddev: 0.044140069768182015",
+            "extra": "mean: 229.65384233332978 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.008925971196691,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004900844654113241",
+            "extra": "mean: 199.64359740000077 msec\nrounds: 5"
           }
         ]
       }
