@@ -749,7 +749,13 @@ def cli(use_pdb, pdb_runcall):
     pass
 
 
-@cli.command("uv-build")
+@cli.group("uv")
+def uv_group():
+    """Commands that use uv to manage a custom Python environment."""
+    pass
+
+
+@uv_group.command("build")
 @click.argument("script_path")
 @click.option(
     "-e",
@@ -770,7 +776,7 @@ def uv_build(script_path, expr_name, builds_dir, cache_dir):
     uv_build_command(script_path, expr_name, builds_dir, cache_dir)
 
 
-@cli.command("uv-run")
+@uv_group.command("run")
 @click.argument("build_path")
 @click.option(
     "--cache-dir",

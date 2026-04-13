@@ -172,7 +172,7 @@ The manifest is roundtrippable and machine-writeable. Git-diff
 your pipelines. Code review your features. Track python dependencies. Rebuild from YAML alone.
 
 ```bash
-$ xorq uv-build expr.py
+$ xorq uv build expr.py
 builds/28ecab08754e/
 
 $ ls builds/28ecab08754e/*.tar.gz

@@ -20,10 +20,12 @@ def test_output_formats_enum():
     sys.version_info > (3, 10), reason="compatibility test for Python 3.10"
 )
 @pytest.mark.xorq
-@pytest.mark.parametrize("cmd", ["run", "run-cached", "uv-run", "run-unbound"])
+@pytest.mark.parametrize(
+    "cmd", [["run"], ["run-cached"], ["uv", "run"], ["run-unbound"]]
+)
 def test_output_format_choices_in_help(cmd):
     runner = CliRunner()
-    result = runner.invoke(cli, [cmd, "--help"])
+    result = runner.invoke(cli, cmd + ["--help"])
     assert result.exit_code == 0, result.output
     for fmt in OutputFormats:
         assert fmt.value in result.output

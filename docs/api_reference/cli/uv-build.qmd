@@ -1,13 +1,13 @@
 ---
-title: 'uv-build'
+title: 'uv build'
 ---
 
-The `xorq uv-build` command builds an expression in an isolated, reproducible environment using uv tooling. It mirrors `xorq build` but executes via the packaged sdist to ensure dependency fidelity.
+The `xorq uv build` command builds an expression in an isolated, reproducible environment using uv tooling. It mirrors `xorq build` but executes via the packaged sdist to ensure dependency fidelity.
 
 ## Usage
 
 ```bash
-xorq uv-build <script_path> [options]
+xorq uv build <script_path> [options]
 ```
 
 ## Arguments
@@ -23,7 +23,7 @@ xorq uv-build <script_path> [options]
 ## Example
 
 ```bash
-xorq uv-build examples/penguins_example/expr.py -e expr --builds-dir builds
+xorq uv build examples/penguins_example/expr.py -e expr --builds-dir builds
 ```
 
 This writes the build artifacts to the specified `builds` directory and prints the build path to stdout.

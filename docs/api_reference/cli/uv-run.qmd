@@ -1,18 +1,18 @@
 ---
-title: 'uv-run'
+title: 'uv run'
 ---
 
-The `xorq uv-run` command executes a built expression in an isolated uv environment using the packaged sdist. It mirrors `xorq run` while ensuring the runtime matches the packaged dependencies.
+The `xorq uv run` command executes a built expression in an isolated uv environment using the packaged sdist. It mirrors `xorq run` while ensuring the runtime matches the packaged dependencies.
 
 ## Usage
 
 ```bash
-xorq uv-run <build_path> [options]
+xorq uv run <build_path> [options]
 ```
 
 ## Arguments
 
-- **build_path**: Path to the compiled build directory or file produced by `xorq build`/`uv-build`.
+- **build_path**: Path to the compiled build directory or file produced by `xorq build`/`uv build`.
 
 ## Options
 
@@ -24,13 +24,13 @@ xorq uv-run <build_path> [options]
 
 ```bash
 # Run and preview results
-xorq uv-run builds/7061dd65ff3c
+xorq uv run builds/7061dd65ff3c
 
 # Save to parquet
-xorq uv-run builds/7061dd65ff3c -o results.parquet
+xorq uv run builds/7061dd65ff3c -o results.parquet
 
 # Stream JSON to stdout
-xorq uv-run builds/7061dd65ff3c -f json -o -
+xorq uv run builds/7061dd65ff3c -f json -o -
 ```
 
 
