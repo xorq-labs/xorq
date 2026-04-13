@@ -1151,23 +1151,22 @@ class CatalogScreen(Screen):
         self.query_one("#data-preview-table", DataTable).display = not is_plot
         self.query_one("#plot-image", Image).display = is_plot
 
-        if row_data.cached is True:
+        if is_plot:
+            self.query_one("#data-preview-status", Static).update(" Loading plot...")
+            self._load_plot_preview(row_data)
+        elif row_data.cached is True:
             self.query_one("#data-preview-status", Static).update(
-                " Loading plot..." if is_plot else " Loading data preview..."
+                " Loading data preview..."
             )
-            if is_plot:
-                self._load_plot_preview(row_data.entry)
-            else:
-                self.query_one("#data-preview-table", DataTable).loading = True
-                self._load_data_preview(row_data.entry)
+            self.query_one("#data-preview-table", DataTable).loading = True
+            self._load_data_preview(row_data.entry)
         else:
             self.query_one("#data-preview-status", Static).update(
                 " uncached — run to materialize"
             )
-            if not is_plot:
-                dt = self.query_one("#data-preview-table", DataTable)
-                dt.clear(columns=True)
-                dt.loading = False
+            dt = self.query_one("#data-preview-table", DataTable)
+            dt.clear(columns=True)
+            dt.loading = False
 
     # --- Toggle: Revisions (v) ---
 
@@ -1215,10 +1214,33 @@ class CatalogScreen(Screen):
     # --- Plot Preview (worker) ---
 
     @work(thread=True, exit_on_error=False)
-    def _load_plot_preview(self, entry) -> None:
+    def _load_plot_preview(self, row_data) -> None:
+        import pyarrow as pa  # noqa: PLC0415
+
         try:
-            df = entry.expr.execute()
-            # Find the first binary column containing plot data
+            catalog = self.app._catalog
+            entry_name = (
+                row_data.aliases[0] if row_data.aliases else row_data.entry.name
+            )
+            cmd = [
+                "xorq",
+                "catalog",
+                "--path",
+                str(catalog.repo_path),
+                "run",
+                entry_name,
+                "-o",
+                "-",
+                "-f",
+                "arrow",
+            ]
+            proc = subprocess.run(cmd, capture_output=True)
+            if proc.returncode != 0:
+                msg = proc.stderr.decode().strip().removeprefix("Error: ")
+                self.app.call_from_thread(self._render_data_preview_error, msg)
+                return
+            reader = pa.ipc.open_stream(proc.stdout)
+            df = reader.read_pandas()
             plot_bytes = None
             for col in df.columns:
                 val = df[col].iloc[0]
@@ -1230,7 +1252,6 @@ class CatalogScreen(Screen):
                     self._render_data_preview_error, "No binary plot data found"
                 )
                 return
-            # Write to a temp file so the Image widget can load it
             tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
             tmp.write(plot_bytes)
             tmp.flush()
@@ -1440,16 +1461,22 @@ class DataViewScreen(Screen):
         yield Static("", id="data-view-status")
         with Horizontal(id="data-view-split"):
             yield DataTable(id="data-view-table")
+            yield Image(id="data-view-plot")
             with Vertical(id="stack-browser-panel"):
                 yield Static("", id="stack-browser-content")
         yield Input(id="command-input", placeholder="")
         yield Footer()
 
     def on_mount(self) -> None:
+        is_plot = self._row_data.is_plot
         table = self.query_one("#data-view-table", DataTable)
         table.cursor_type = "cell"
         table.zebra_stripes = True
-        table.loading = True
+        table.loading = not is_plot
+        table.display = not is_plot
+
+        plot_image = self.query_one("#data-view-plot", Image)
+        plot_image.display = is_plot
 
         stack_panel = self.query_one("#stack-browser-panel")
         stack_panel.border_title = "Expression Stack"
@@ -1460,7 +1487,10 @@ class DataViewScreen(Screen):
 
         label = self._row_data.aliases_display or self._row_data.hash[:12]
         self.query_one("#data-view-status", Static).update(f" Loading {label}...")
-        self._load_data()
+        if is_plot:
+            self._load_plot()
+        else:
+            self._load_data()
 
     def _catalog_run_cmd(self, code=None) -> list[str]:
         """Build the xorq catalog run subprocess command."""
@@ -1493,7 +1523,9 @@ class DataViewScreen(Screen):
         cmd = self._catalog_run_cmd(code)
         proc = subprocess.run(cmd, capture_output=True)
         if proc.returncode != 0:
-            raise RuntimeError(proc.stderr.decode().strip())
+            msg = proc.stderr.decode().strip()
+            msg = msg.removeprefix("Error: ")
+            raise RuntimeError(msg)
         reader = pa.ipc.open_stream(proc.stdout)
         return reader.read_pandas()
 
@@ -1505,6 +1537,37 @@ class DataViewScreen(Screen):
             self.app.call_from_thread(self._on_data_loaded, df)
         except Exception as e:
             self.app.call_from_thread(self._render_error, str(e))
+
+    @work(thread=True, exit_on_error=False)
+    def _load_plot(self) -> None:
+        try:
+            df = self._run_catalog_subprocess()
+            plot_bytes = None
+            for col in df.columns:
+                val = df[col].iloc[0]
+                if isinstance(val, (bytes, memoryview)):
+                    plot_bytes = bytes(val)
+                    break
+            if plot_bytes is None:
+                self.app.call_from_thread(
+                    self._render_error, "No binary plot data found"
+                )
+                return
+            tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+            tmp.write(plot_bytes)
+            tmp.flush()
+            tmp.close()
+            self.app.call_from_thread(self._render_plot, tmp.name)
+        except Exception as e:
+            self.app.call_from_thread(self._render_error, str(e))
+
+    def _render_plot(self, image_path) -> None:
+        label = self._row_data.aliases_display or self._row_data.hash[:12]
+        self.query_one("#data-view-status", Static).update(
+            f" {label} — Plot ({Path(image_path).name})"
+        )
+        plot_image = self.query_one("#data-view-plot", Image)
+        plot_image.image = image_path
 
     def _on_data_loaded(self, df) -> None:
         self._df = df
@@ -2114,6 +2177,7 @@ class CatalogTUI(App):
         height: 1fr;
     }
     #plot-image {
+        width: 1fr;
         height: 1fr;
     }
     #status-bar {
@@ -2139,6 +2203,10 @@ class CatalogTUI(App):
         height: 1fr;
     }
     DataViewScreen #data-view-table {
+        height: 1fr;
+    }
+    DataViewScreen #data-view-plot {
+        width: 1fr;
         height: 1fr;
     }
     DataViewScreen #stack-browser-panel {
