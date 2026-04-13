@@ -750,7 +750,8 @@ def test_init_uv_build_uv_run(template, tmpdir):
 
     build_args = (
         "xorq",
-        "uv-build",
+        "uv",
+        "build",
         str(path.joinpath("expr.py")),
     )
     (returncode, stdout, stderr) = subprocess_run(build_args, text=True)
@@ -761,7 +762,8 @@ def test_init_uv_build_uv_run(template, tmpdir):
     output_path = tmpdir.joinpath("output")
     run_args = (
         "xorq",
-        "uv-run",
+        "uv",
+        "run",
         "--output-path",
         str(output_path),
         str(build_path),

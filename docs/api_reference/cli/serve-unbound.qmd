@@ -12,7 +12,7 @@ xorq serve-unbound <build_path> [options]
 
 ## Arguments
 
-- **build_path**: Path to the build directory produced by `xorq build`/`uv-build`.
+- **build_path**: Path to the build directory produced by `xorq build`/`uv build`.
 
 ## Options
 

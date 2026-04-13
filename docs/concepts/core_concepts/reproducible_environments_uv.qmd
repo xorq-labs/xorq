@@ -10,7 +10,7 @@ You will understand how to ensure consistent execution across development and pr
 
 **What you'll learn:**
 - Why uv matters for Xorq
-- How uv-build works
+- How uv build works
 - Dependency locking
 - Environment reproducibility
 

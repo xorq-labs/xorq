@@ -10,9 +10,9 @@ Xorq provides command-line tools for building, running, and managing your data a
 |--------------------------------------------|--------------------------------------------------------------------------------------|
 | [init](init.qmd)                           | Create a Xorq project.                                                               |
 | [build](build.qmd)                         | Compile a Xorq expression into a reusable artifact that can be executed later.       |
-| [uv-build](uv-build.qmd)                   | Build a Xorq expression using uv for dependency management.                          |
+| [uv build](uv-build.qmd)                   | Build a Xorq expression using uv for dependency management.                          |
 | [run](run.qmd)                             | Executes a built expression artifact and outputs the results in your desired format. |
-| [uv-run](uv-run.qmd)                       | Run a built expression artifact using uv for dependency management.                  |
+| [uv run](uv-run.qmd)                       | Run a built expression artifact using uv for dependency management.                  |
 
 ### Serving and deployment
 
