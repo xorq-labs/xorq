@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776028718159,
+  "lastUpdate": 1776084215390,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -5478,6 +5478,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.009135155392085686",
             "extra": "mean: 200.16350380000176 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f386dbf2944715f91dcb23e1cfe6190696472649",
+          "message": "chore(cli): split uv into its own subcommand group (XOR-287) (#1818)\n\nReplace top-level `xorq uv-build` / `xorq uv-run` commands with a `uv`\nsubgroup so the interface becomes `xorq uv build` / `xorq uv run`.\nUpdate tests, README, and docs accordingly.\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-04-13T08:39:55-04:00",
+          "tree_id": "737dc6d99939d7e07c756797689be7a869cf66ef",
+          "url": "https://github.com/xorq-labs/xorq/commit/f386dbf2944715f91dcb23e1cfe6190696472649"
+        },
+        "date": 1776084212071,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.798738551365833,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016677614190112502",
+            "extra": "mean: 128.22586542856536 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.879962806641376,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011729999086975395",
+            "extra": "mean: 204.91959459999407 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7238960705127603,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17063632990270822",
+            "extra": "mean: 1.381413770200004 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.598159985892538,
+            "unit": "iter/sec",
+            "range": "stddev: 0.032300788259396356",
+            "extra": "mean: 217.47829633333046 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.07916611794753,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008837741238262172",
+            "extra": "mean: 196.88271199999576 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.125632213288802,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011871914063006207",
+            "extra": "mean: 195.09788419999836 msec\nrounds: 5"
           }
         ]
       }
