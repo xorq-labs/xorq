@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776172398388,
+  "lastUpdate": 1776173830051,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -5874,6 +5874,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.008921929091143593",
             "extra": "mean: 202.95495433333124 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8247e842f1a1147c231da6b62aa82bf09fd39359",
+          "message": "chore(deps): update dependency requests to v2.33.0 [security] (#1815)\n\nThis PR contains the following updates:\n\n| Package | Change |\n[Age](https://docs.renovatebot.com/merge-confidence/) |\n[Confidence](https://docs.renovatebot.com/merge-confidence/) |\n|---|---|---|---|\n| [requests](https://redirect.github.com/psf/requests)\n([changelog](https://redirect.github.com/psf/requests/blob/master/HISTORY.md))\n| `2.32.4` → `2.33.0` |\n![age](https://developer.mend.io/api/mc/badges/age/pypi/requests/2.33.0?slim=true)\n|\n![confidence](https://developer.mend.io/api/mc/badges/confidence/pypi/requests/2.32.4/2.33.0?slim=true)\n|\n\n### GitHub Vulnerability Alerts\n\n####\n[CVE-2026-25645](https://redirect.github.com/psf/requests/security/advisories/GHSA-gc5v-m9x4-r6x2)\n\n### Impact\nThe `requests.utils.extract_zipped_paths()` utility function uses a\npredictable filename when extracting files from zip archives into the\nsystem temporary directory. If the target file already exists, it is\nreused without validation. A local attacker with write access to the\ntemp directory could pre-create a malicious file that would be loaded in\nplace of the legitimate one.\n\n### Affected usages\n**Standard usage of the Requests library is not affected by this\nvulnerability.** Only applications that call `extract_zipped_paths()`\ndirectly are impacted.\n\n### Remediation\nUpgrade to at least Requests 2.33.0, where the library now extracts\nfiles to a non-deterministic location.\n\nIf developers are unable to upgrade, they can set `TMPDIR` in their\nenvironment to a directory with restricted write access.\n\n---\n\n- [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check\nthis box\n\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0My4xMTAuMiIsInVwZGF0ZWRJblZlciI6IjQzLjExMC4yIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6W119-->\n\nCo-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
+          "timestamp": "2026-04-14T15:33:24+02:00",
+          "tree_id": "1a1e2d2eea3bffaa819eea16d5af51657a67d3cc",
+          "url": "https://github.com/xorq-labs/xorq/commit/8247e842f1a1147c231da6b62aa82bf09fd39359"
+        },
+        "date": 1776173826938,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.464493686424441,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030206091502262254",
+            "extra": "mean: 133.9675592222262 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.7296886811452605,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015061720585268036",
+            "extra": "mean: 211.43040639999526 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7328620426423118,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14087865897117505",
+            "extra": "mean: 1.3645132941999976 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.7477130115395285,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0071434777044375635",
+            "extra": "mean: 266.8293962000064 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.4813137261576905,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03521853698314748",
+            "extra": "mean: 223.1488490000023 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.783323909334918,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01976266706912433",
+            "extra": "mean: 209.05964533333096 msec\nrounds: 6"
           }
         ]
       }
