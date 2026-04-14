@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776173830051,
+  "lastUpdate": 1776174092050,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -5940,6 +5940,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.01976266706912433",
             "extra": "mean: 209.05964533333096 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5eaec96df86e78abdebec645807ec6bbc14d8b89",
+          "message": "chore(deps): update dependency uv to v0.11.6 [security] (#1807)\n\nThis PR contains the following updates:\n\n| Package | Change |\n[Age](https://docs.renovatebot.com/merge-confidence/) |\n[Confidence](https://docs.renovatebot.com/merge-confidence/) |\n|---|---|---|---|\n| [uv](https://pypi.org/project/uv/)\n([source](https://redirect.github.com/astral-sh/uv),\n[changelog](https://redirect.github.com/astral-sh/uv/blob/main/CHANGELOG.md))\n| `0.10.4` → `0.11.6` |\n![age](https://developer.mend.io/api/mc/badges/age/pypi/uv/0.11.6?slim=true)\n|\n![confidence](https://developer.mend.io/api/mc/badges/confidence/pypi/uv/0.10.4/0.11.6?slim=true)\n|\n\n### GitHub Vulnerability Alerts\n\n####\n[GHSA-pjjw-68hj-v9mw](https://redirect.github.com/astral-sh/uv/security/advisories/GHSA-pjjw-68hj-v9mw)\n\n## Impact\n\nWheel RECORD entries can contain relative paths that traverse outside of\nthe wheel’s installation prefix. In versions 0.11.5 and earlier of uv,\nthese wheels were not rejected on installation and the RECORD was\nrespected without validation on uninstall.\n\nuv uses the RECORD to determine files to remove on uninstall.\nConsequently, a malicious or malformed wheel could induce deletion of\narbitrary files outside of the wheel’s installation prefix on uninstall.\n\nuv does not use the RECORD file to determine wheel file paths. Invalid\nRECORD entries cannot be used to create or modify files in arbitrary\nlocations.\n\nStandards-compliant Python packaging tooling does not produce RECORD\nfiles that exhibit this behavior; an attacker must manually manipulate\nthe RECORD. A user must install *and* uninstall the malformed wheel to\nbe affected. An attack must guess the depth of the installation prefix\npath in order to target system files.\n\nAbsolute paths in RECORD files are not allowed by the specification and,\nwhen present, uv always treats them as rooted in the wheel’s\ninstallation prefix. Absolute paths cannot be used to delete arbitrary\nfiles.\n\nOnly files can be deleted, attempts to delete a directory via an invalid\nRECORD entry will fail.\n\n## Patches\n\nVersions\n[0.11.6](https://redirect.github.com/astral-sh/uv/releases/tag/0.11.6)\nand newer of uv address the validation gap above, by [removing invalid\nentries from RECORD files on wheel\ninstallation](https://redirect.github.com/astral-sh/uv/pull/18943) and\n[ignoring RECORD paths that would escape the installation prefix on\nuninstall](https://redirect.github.com/astral-sh/uv/pull/18942).\n\n## Workarounds\n\nUsers are advised to upgrade to 0.11.6 or newer to address this\nadvisory.\n\nUsers should experience no breaking changes as a result of the patch\nabove.\n\n---\n\n- [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check\nthis box\n\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0My4xMTAuMiIsInVwZGF0ZWRJblZlciI6IjQzLjExMC4yIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6W119-->\n\nCo-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
+          "timestamp": "2026-04-14T15:37:22+02:00",
+          "tree_id": "a435e73b2486244c0eecece70a4c0de95b58cbec",
+          "url": "https://github.com/xorq-labs/xorq/commit/5eaec96df86e78abdebec645807ec6bbc14d8b89"
+        },
+        "date": 1776174089064,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 11.559350028652288,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0041993473520120575",
+            "extra": "mean: 86.51005441666608 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.111024741587291,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02540186629844965",
+            "extra": "mean: 243.24835360000634 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.8028068255020954,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2256587773469103",
+            "extra": "mean: 1.2456296686000088 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.185579661806432,
+            "unit": "iter/sec",
+            "range": "stddev: 0.031186803343424004",
+            "extra": "mean: 238.91553399999452 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.351568529573392,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02415245360215867",
+            "extra": "mean: 186.86110333332806 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.812313548609815,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004642967614912205",
+            "extra": "mean: 172.0485296666728 msec\nrounds: 6"
           }
         ]
       }
