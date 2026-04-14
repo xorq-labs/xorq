@@ -68,6 +68,7 @@ jobs:
               - --extra pyiceberg
               - --extra sqlite
               - --extra ibis
+              - --extra mcp
           - name: sqlite
             services: false
             extras:
