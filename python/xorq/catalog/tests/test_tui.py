@@ -313,13 +313,13 @@ def test_data_preview_hidden_by_default(catalog):
     _run(_test())
 
 
-def test_info_panel_exists(catalog):
+def test_summary_panel_exists(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
             await settle(pilot)
-            info = app.screen.query_one("#info-panel")
-            assert info.border_title == "Info"
+            summary = app.screen.query_one("#summary-panel")
+            assert "Summary" in summary.border_title
 
     _run(_test())
 
@@ -479,28 +479,38 @@ def test_schema_preview_empty_before_selection(catalog):
     _run(_test())
 
 
-def test_view_switching_1_2(catalog):
+def test_view_switching(catalog):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
             await settle(pilot)
             screen = app.screen
 
+            summary_panel = screen.query_one("#summary-panel")
             sql_panel = screen.query_one("#sql-panel")
             data_panel = screen.query_one("#data-preview-panel")
 
             await run_script(
                 pilot,
-                # Default: SQL visible, data hidden
-                Assert(lambda p: sql_panel.display is not False),
-                Assert(lambda p: data_panel.display is False),
-                # Switch to data
-                Press(("2",)),
+                # Default: summary visible, sql/data hidden
+                Assert(lambda p: summary_panel.display is not False),
                 Assert(lambda p: sql_panel.display is False),
-                Assert(lambda p: data_panel.display is not False),
-                # Switch back to SQL
+                Assert(lambda p: data_panel.display is False),
+                # Press 1: switch to SQL
                 Press(("1",)),
+                Assert(lambda p: summary_panel.display is False),
                 Assert(lambda p: sql_panel.display is not False),
+                # Press 1 again: back to summary
+                Press(("1",)),
+                Assert(lambda p: summary_panel.display is not False),
+                Assert(lambda p: sql_panel.display is False),
+                # Press 2: switch to data
+                Press(("2",)),
+                Assert(lambda p: summary_panel.display is False),
+                Assert(lambda p: data_panel.display is not False),
+                # Press 2 again: back to summary
+                Press(("2",)),
+                Assert(lambda p: summary_panel.display is not False),
                 Assert(lambda p: data_panel.display is False),
             )
 
@@ -752,7 +762,6 @@ def _mock_catalog_run(monkeypatch):
         "_run_catalog_subprocess",
         lambda self: self._entry.expr.limit(50_000).execute(),
     )
-
 
 
 def test_data_view_screen_construction(entry_a):

@@ -6,7 +6,6 @@ import threading
 from datetime import datetime
 from functools import cache, cached_property
 from pathlib import Path
-from typing import Literal
 
 from attr import evolve, field, frozen
 from attr.validators import instance_of, optional
@@ -21,6 +20,9 @@ from pygments.token import (
     String,
     Token,
 )
+from rich.console import Group
+from rich.panel import Panel
+from rich.rule import Rule
 from rich.syntax import Syntax
 from rich.text import Text
 from textual import on, work
@@ -595,6 +597,112 @@ def _revision_pair(i, rev_entry, commit):
     return row, (rev_entry, commit, exists)
 
 
+def _build_summary_content(row_data) -> Group:
+    """Build a rich renderable summary that adapts to expression kind."""
+    kind = row_data.kind
+    icon = KIND_ICONS.get(kind, "·")
+    color = KIND_COLORS.get(kind, "#C1F0FF")
+    meta = row_data.entry.metadata
+
+    # ── Header panel ──────────────────────────────────────────────
+    header = Text()
+    header.append(f"{icon} ", style=f"bold {color}")
+    header.append(kind.replace("_", " "), style=f"bold {color}")
+    if row_data.aliases_display:
+        header.append("  ", style="dim")
+        header.append(row_data.aliases_display, style="bold #C1F0FF")
+    header.append(f"\n{row_data.hash[:16]}", style="dim #5abfb5")
+    if row_data.is_plot:
+        header.append("  ", style="dim")
+        header.append("plot", style="italic #FF69B4")
+
+    parts: list = [Panel(header, border_style=color, padding=(0, 1))]
+
+    # ── Key-value details ─────────────────────────────────────────
+    def _kv(key: str, val, val_style: str = "#C1F0FF") -> Text:
+        t = Text()
+        t.append(f" {key:<11}", style="dim #5abfb5")
+        t.append(str(val), style=val_style)
+        return t
+
+    # Backends
+    backends = row_data.backends
+    if backends:
+        parts.append(_kv("Backend", ", ".join(backends), "#7ED4C8"))
+
+    # Columns
+    col_text = Text()
+    if row_data.schema_in:
+        col_text.append(f"{len(row_data.schema_in)} in", style="#F5CA2C")
+        col_text.append(" → ", style="dim")
+    col_text.append(f"{len(row_data.schema_out)} out", style="#C1F0FF")
+    kv = Text()
+    kv.append(f" {'Columns':<11}", style="dim #5abfb5")
+    kv.append_text(col_text)
+    parts.append(kv)
+
+    # Cache
+    cache_text = row_data.cache_info_text
+    if cache_text.startswith("●"):
+        parts.append(_kv("Cache", cache_text, "#2BBE75"))
+    elif cache_text.startswith("○"):
+        parts.append(_kv("Cache", cache_text, "#F5CA2C"))
+    else:
+        parts.append(_kv("Cache", cache_text, "dim"))
+
+    # ── Type-specific sections ────────────────────────────────────
+
+    # Parameters (unbound_expr)
+    if meta.params:
+        parts.append(Rule(title="Parameters", style="#F5CA2C", characters="─"))
+        for p in meta.params:
+            pt = Text()
+            pt.append(f" {p.get('param_name', '?'):<15}", style="bold #F5CA2C")
+            pt.append(str(p.get("type", "")), style="#7ED4C8")
+            default = p.get("default")
+            if default is not None:
+                pt.append(f"  = {default}", style="dim")
+            parts.append(pt)
+
+    # Composed from (composed)
+    if meta.composed_from:
+        parts.append(Rule(title="Sources", style="#4AA8EC", characters="─"))
+        for src in meta.composed_from:
+            st = Text()
+            src_kind = src.get("kind", "")
+            src_icon = KIND_ICONS.get(src_kind, "·")
+            src_color = KIND_COLORS.get(src_kind, "#C1F0FF")
+            st.append(f" {src_icon} ", style=src_color)
+            alias = src.get("alias", "")
+            entry_name = src.get("entry_name", "")[:12]
+            if alias:
+                st.append(alias, style=f"bold {src_color}")
+                st.append(f"  {entry_name}", style="dim #5abfb5")
+            else:
+                st.append(entry_name, style=src_color)
+            parts.append(st)
+
+    # Builders
+    if meta.builders:
+        parts.append(Rule(title="Builders", style="#FF69B4", characters="─"))
+        for b in meta.builders:
+            bt = Text()
+            bt.append(f" {b.get('name', b.get('tag', '?'))}", style="bold #FF69B4")
+            if b.get("type"):
+                bt.append(f"  ({b['type']})", style="dim")
+            parts.append(bt)
+
+    # ── Lineage ───────────────────────────────────────────────────
+    lineage = row_data.lineage_text
+    if lineage and lineage != "(empty)":
+        parts.append(Rule(title="Lineage", style="#4AA8EC", characters="─"))
+        lt = Text()
+        lt.append(f" {lineage}", style="#4AA8EC")
+        parts.append(lt)
+
+    return Group(*parts)
+
+
 # ---------------------------------------------------------------------------
 # Screens
 # ---------------------------------------------------------------------------
@@ -621,6 +729,7 @@ class CatalogScreen(Screen):
     FOCUS_CYCLE = (
         "#catalog-tree",
         "#runs-table",
+        "#summary-panel",
         "#sql-panel",
         "#data-preview-panel",
         "#schema-preview-table",
@@ -635,8 +744,9 @@ class CatalogScreen(Screen):
         self._git_log_visible = False
         self._git_log_loaded = False
         self._refresh_lock = threading.Lock()
-        self._active_view: Literal["sql", "data"] = "sql"
+        self._active_view = "summary"
         self._data_preview_hash: str | None = None
+        self._initial_select_done = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -651,14 +761,14 @@ class CatalogScreen(Screen):
                 with Vertical(id="git-log-panel"):
                     yield DataTable(id="git-log-table")
             with Vertical(id="right-column"):
+                with VerticalScroll(id="summary-panel"):
+                    yield Static("", id="summary-content")
                 with VerticalScroll(id="sql-panel"):
                     yield Static("", id="sql-preview")
                 with Vertical(id="data-preview-panel"):
                     yield Static("", id="data-preview-status")
                     yield DataTable(id="data-preview-table")
                     yield Image(id="plot-image")
-                with Vertical(id="info-panel"):
-                    yield Static("", id="info-content")
                 with Vertical(id="schema-panel"):
                     with Horizontal(id="schema-split"):
                         with Vertical(id="schema-in-half"):
@@ -711,14 +821,16 @@ class CatalogScreen(Screen):
         self.query_one("#catalog-panel").border_title = "Expressions"
         self.query_one("#schema-panel").border_title = "Schema"
         self.query_one("#schema-in-half").display = False
-        self.query_one("#sql-panel").border_title = "SQL"
-        self.query_one("#sql-preview", Static).update(
-            Text("← Select an expression to view its SQL", style="dim")
-        )
-        self.query_one("#info-panel").border_title = "Info"
-        self.query_one("#info-content", Static).update(
+        summary_panel = self.query_one("#summary-panel")
+        summary_panel.border_title = "Summary"
+        self.query_one("#summary-content", Static).update(
             Text("← Select an expression", style="dim")
         )
+
+        sql_panel = self.query_one("#sql-panel")
+        sql_panel.border_title = "SQL"
+        sql_panel.display = False
+
         runs_panel = self.query_one("#runs-panel")
         runs_panel.border_title = "Runs"
         runs_panel.display = False
@@ -749,8 +861,7 @@ class CatalogScreen(Screen):
         schema_in_table.clear()
         schema_out_table = self.query_one("#schema-preview-table", DataTable)
         schema_out_table.clear()
-        sql_preview = self.query_one("#sql-preview", Static)
-        info_content = self.query_one("#info-content", Static)
+        summary_content = self.query_one("#summary-content", Static)
         rev_table = self.query_one("#revisions-preview-table", DataTable)
         rev_table.clear()
         runs_table = self.query_one("#runs-table", DataTable)
@@ -764,10 +875,13 @@ class CatalogScreen(Screen):
             else None
         )
         if row_data is None:
-            sql_preview.update("")
-            info_content.update("")
+            summary_content.update("")
+            self.query_one("#sql-preview", Static).update("")
+            self.query_one("#sql-panel").border_subtitle = ""
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
+            self.query_one("#summary-panel").border_title = "Summary"
+            self.query_one("#summary-panel").border_subtitle = ""
             return
 
         # Schema
@@ -788,11 +902,21 @@ class CatalogScreen(Screen):
         for name, dtype in row_data.schema_out:
             schema_out_table.add_row(name, dtype)
 
-        # SQL preview
+        # Summary panel
+        kind = row_data.kind
+        icon = KIND_ICONS.get(kind, "·")
+        summary_panel = self.query_one("#summary-panel")
+        summary_panel.border_title = f"{icon} Summary"
+        summary_panel.border_subtitle = kind.replace("_", " ")
+        summary_content.update(_build_summary_content(row_data))
+        summary_panel.scroll_home(animate=False)
+
+        # SQL panel (populated always, shown on toggle)
+        sql_preview = self.query_one("#sql-preview", Static)
         sql_panel = self.query_one("#sql-panel")
         match row_data.sqls:
             case ():
-                sql_preview.update("(SQL unavailable)")
+                sql_preview.update(Text("(no SQL)", style="dim"))
                 sql_panel.border_subtitle = ""
             case ((_, engine, sql),):
                 sql_preview.update(
@@ -812,9 +936,6 @@ class CatalogScreen(Screen):
                 sql_panel.border_subtitle = (
                     f"{len(sqls)} queries · {', '.join(engines)}"
                 )
-
-        # Info panel
-        info_content.update(row_data.info_text)
 
         # Revisions preview
         match row_data.aliases:
@@ -842,7 +963,7 @@ class CatalogScreen(Screen):
         if self._runs_visible:
             self._load_runs_preview(row_data.hash, row_data.aliases)
 
-        # Update data preview if data view is active
+        # Update data preview if panel is visible
         if self._active_view == "data":
             self._refresh_data_preview(row_data)
 
@@ -924,6 +1045,11 @@ class CatalogScreen(Screen):
             git_rows = _build_git_log_rows(catalog.repo)
             self.app.call_from_thread(self._render_git_log, git_rows)
 
+        # Auto-select first leaf node on initial load
+        if not self._initial_select_done and self._row_cache:
+            self._initial_select_done = True
+            self.app.call_from_thread(self._select_first_leaf)
+
         stamp = datetime.now().strftime("%H:%M:%S")
         self.app.call_from_thread(self._render_status, stamp, repo_path)
 
@@ -986,26 +1112,21 @@ class CatalogScreen(Screen):
     def _styled_leaf_label(self, row_data) -> Text:
         is_new = row_data.row_key in self._new_keys
         cache_icon = _format_cached(row_data.cached)
-        ncols = len(row_data.schema_out)
 
         label = Text()
         if is_new:
             label.append(f"{cache_icon} ", style="bold #FF69B4")
             if row_data.aliases_display:
                 label.append(row_data.aliases_display, style="bold #FF69B4")
-                label.append(f" — {row_data.hash[:12]}", style="#FF69B4")
             else:
                 label.append(row_data.hash[:12], style="bold #FF69B4")
-            label.append(f"  {ncols} cols", style="dim #FF69B4")
         else:
             cache_color = {"●": "#2BBE75", "○": "#F5CA2C"}.get(cache_icon, "dim")
             label.append(f"{cache_icon} ", style=cache_color)
             if row_data.aliases_display:
                 label.append(row_data.aliases_display, style="bold #C1F0FF")
-                label.append(f" — {row_data.hash[:12]}", style="dim #5abfb5")
             else:
                 label.append(row_data.hash[:12], style="#C1F0FF")
-            label.append(f"  {ncols} cols", style="dim")
         return label
 
     def _settle_new_labels(self, keys: set[str]) -> None:
@@ -1037,6 +1158,13 @@ class CatalogScreen(Screen):
         parts.append(str(repo_path))
         parts.append(stamp)
         self.query_one("#status-bar", Static).update(" · ".join(parts))
+
+    def _select_first_leaf(self) -> None:
+        tree = self.query_one("#catalog-tree", Tree)
+        for branch in tree.root.children:
+            if branch.children:
+                tree.select_node(branch.children[0])
+                return
 
     # --- Toggle: Runs ---
 
@@ -1116,16 +1244,19 @@ class CatalogScreen(Screen):
 
     # --- View switching (1/2) ---
 
-    def _set_active_view(self, view: Literal["sql", "data"]) -> None:
+    _VIEW_PANELS = ("summary", "sql", "data")
+
+    def _set_active_view(self, view: str) -> None:
+        # Toggle back to summary if already active
+        if self._active_view == view:
+            view = "summary"
         self._active_view = view
+        self.query_one("#summary-panel").display = view == "summary"
         self.query_one("#sql-panel").display = view == "sql"
         self.query_one("#data-preview-panel").display = view == "data"
 
-        if view != "data":
-            self._data_preview_hash = None
-            self.query_one("#data-preview-panel").border_title = "Data Preview"
-
         if view == "data":
+            self._data_preview_hash = None
             tree = self.query_one("#catalog-tree", Tree)
             node = tree.cursor_node
             if node is not None and node.data is not None:
@@ -1147,26 +1278,42 @@ class CatalogScreen(Screen):
             return
         self._data_preview_hash = entry_hash
 
-        is_plot = row_data.is_plot
-        self.query_one("#data-preview-table", DataTable).display = not is_plot
-        self.query_one("#plot-image", Image).display = is_plot
-
-        if is_plot:
-            self.query_one("#data-preview-status", Static).update(" Loading plot...")
-            self._load_plot_preview(row_data)
-        elif row_data.cached is True:
-            self.query_one("#data-preview-status", Static).update(
-                " Loading data preview..."
-            )
-            self.query_one("#data-preview-table", DataTable).loading = True
-            self._load_data_preview(row_data.entry)
-        else:
+        if row_data.cached is not True:
+            self.query_one("#data-preview-table", DataTable).display = True
+            self.query_one("#plot-image", Image).display = False
             self.query_one("#data-preview-status", Static).update(
                 " uncached — run to materialize"
             )
             dt = self.query_one("#data-preview-table", DataTable)
             dt.clear(columns=True)
             dt.loading = False
+            return
+
+        # Find the first existing cache parquet path
+        paths = get_cache_keys_paths(row_data.entry.parquet_snapshot_cache_keys)
+        parquet_path = next((p for p in paths if Path(p).exists()), None)
+        if parquet_path is None:
+            self.query_one("#data-preview-table", DataTable).display = True
+            self.query_one("#plot-image", Image).display = False
+            self.query_one("#data-preview-status", Static).update(" cache file missing")
+            dt = self.query_one("#data-preview-table", DataTable)
+            dt.clear(columns=True)
+            dt.loading = False
+            return
+
+        is_plot = row_data.is_plot
+        self.query_one("#data-preview-table", DataTable).display = not is_plot
+        self.query_one("#plot-image", Image).display = is_plot
+
+        if is_plot:
+            self.query_one("#data-preview-status", Static).update(" Loading plot...")
+            self._load_plot_preview(parquet_path)
+        else:
+            self.query_one("#data-preview-status", Static).update(
+                " Loading data preview..."
+            )
+            self.query_one("#data-preview-table", DataTable).loading = True
+            self._load_data_preview(parquet_path)
 
     # --- Toggle: Revisions (v) ---
 
@@ -1177,17 +1324,28 @@ class CatalogScreen(Screen):
     # --- Data Preview (worker) ---
 
     @work(thread=True, exit_on_error=False)
-    def _load_data_preview(self, entry) -> None:
+    def _load_data_preview(self, parquet_path) -> None:
         try:
-            df = entry.expr.head(50).execute()
+            import pyarrow.parquet as pq  # noqa: PLC0415
+
+            pf = pq.ParquetFile(parquet_path)
+            meta = pf.metadata
+            table = pf.read_row_group(0) if meta.num_row_groups > 0 else pf.read()
+            df = table.to_pandas().head(50)
             columns = tuple(str(c) for c in df.columns)
             rows = tuple(
-                tuple(str(round(v, 2)) if isinstance(v, float) else str(v) for v in row)
+                tuple(
+                    "—"
+                    if isinstance(v, float) and math.isnan(v)
+                    else str(round(v, 2))
+                    if isinstance(v, float)
+                    else str(v)
+                    for v in row
+                )
                 for row in df.itertuples(index=False)
             )
-            total_rows = len(df)
             self.app.call_from_thread(
-                self._render_data_preview, columns, rows, total_rows
+                self._render_data_preview, columns, rows, meta.num_rows
             )
         except Exception as e:
             self.app.call_from_thread(self._render_data_preview_error, str(e))
@@ -1214,33 +1372,15 @@ class CatalogScreen(Screen):
     # --- Plot Preview (worker) ---
 
     @work(thread=True, exit_on_error=False)
-    def _load_plot_preview(self, row_data) -> None:
-        import pyarrow as pa  # noqa: PLC0415
+    def _load_plot_preview(self, parquet_path) -> None:
+        import pyarrow.parquet as pq  # noqa: PLC0415
 
         try:
-            catalog = self.app._catalog
-            entry_name = (
-                row_data.aliases[0] if row_data.aliases else row_data.entry.name
+            pf = pq.ParquetFile(parquet_path)
+            table = (
+                pf.read_row_group(0) if pf.metadata.num_row_groups > 0 else pf.read()
             )
-            cmd = [
-                "xorq",
-                "catalog",
-                "--path",
-                str(catalog.repo_path),
-                "run",
-                entry_name,
-                "-o",
-                "-",
-                "-f",
-                "arrow",
-            ]
-            proc = subprocess.run(cmd, capture_output=True)
-            if proc.returncode != 0:
-                msg = proc.stderr.decode().strip().removeprefix("Error: ")
-                self.app.call_from_thread(self._render_data_preview_error, msg)
-                return
-            reader = pa.ipc.open_stream(proc.stdout)
-            df = reader.read_pandas()
+            df = table.to_pandas()
             plot_bytes = None
             for col in df.columns:
                 val = df[col].iloc[0]
@@ -2070,7 +2210,7 @@ class CatalogTUI(App):
         height: 1fr;
     }
     #left-column {
-        width: 2fr;
+        width: 1fr;
     }
     #right-column {
         width: 3fr;
@@ -2113,6 +2253,19 @@ class CatalogTUI(App):
     #git-log-table {
         height: 1fr;
     }
+    #summary-panel {
+        height: 2fr;
+        border: solid #5abfb5;
+        border-title-color: #C1F0FF;
+        border-subtitle-color: #5abfb5;
+    }
+    #summary-panel:focus-within {
+        border: double #5abfb5;
+    }
+    #summary-content {
+        height: auto;
+        padding: 0 1;
+    }
     #sql-panel {
         height: 2fr;
         border: solid #2BBE75;
@@ -2131,16 +2284,6 @@ class CatalogTUI(App):
     }
     Tree:focus {
         border: none;
-    }
-    #info-panel {
-        height: auto;
-        max-height: 6;
-        border: solid #5abfb5;
-        border-title-color: #5abfb5;
-        padding: 0 1;
-    }
-    #info-content {
-        height: auto;
     }
     #schema-panel {
         height: 1fr;
