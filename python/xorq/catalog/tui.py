@@ -718,6 +718,7 @@ class CatalogScreen(Screen):
         ("l", "tree_expand", "Expand"),
         ("tab", "focus_next_panel", "Next"),
         ("shift+tab", "focus_prev_panel", "Prev"),
+        ("escape", "view_summary", "Summary"),
         ("1", "view_sql", "SQL"),
         ("2", "view_data", "Data"),
         ("e", "open_data_view", "Explore"),
@@ -1265,6 +1266,9 @@ class CatalogScreen(Screen):
                     self._refresh_data_preview(row_data)
         else:
             self._data_preview_hash = None
+
+    def action_view_summary(self) -> None:
+        self._set_active_view("summary")
 
     def action_view_sql(self) -> None:
         self._set_active_view("sql")
