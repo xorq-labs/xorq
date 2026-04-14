@@ -108,6 +108,38 @@ KIND_COLORS = {
 
 SCHEMA_PREVIEW_COLUMNS = ("NAME", "TYPE")
 
+_DTYPE_COLORS = {
+    "int": "#F5CA2C",
+    "float": "#F5CA2C",
+    "decimal": "#F5CA2C",
+    "double": "#F5CA2C",
+    "numeric": "#F5CA2C",
+    "string": "#2BBE75",
+    "utf8": "#2BBE75",
+    "varchar": "#2BBE75",
+    "text": "#2BBE75",
+    "binary": "#2BBE75",
+    "date": "#4AA8EC",
+    "time": "#4AA8EC",
+    "timestamp": "#4AA8EC",
+    "interval": "#4AA8EC",
+    "bool": "#C1F0FF",
+    "array": "#FF69B4",
+    "map": "#FF69B4",
+    "struct": "#FF69B4",
+    "json": "#FF69B4",
+    "geo": "#FF69B4",
+}
+
+
+def _dtype_color(dtype_str: str) -> str:
+    lower = dtype_str.lower()
+    for prefix, color in _DTYPE_COLORS.items():
+        if prefix in lower:
+            return color
+    return "#5abfb5"
+
+
 REVISION_COLUMNS = ("STATUS", "HASH", "COLUMNS", "CACHED", "DATE")
 
 GIT_LOG_COLUMNS = ("HASH", "DATE", "MESSAGE")
@@ -597,6 +629,28 @@ def _revision_pair(i, rev_entry, commit):
     return row, (rev_entry, commit, exists)
 
 
+def _build_empty_state() -> Group:
+    """Render a helpful empty state when no expression is selected."""
+    title = Text()
+    title.append("\n xorq catalog\n", style="bold #C1F0FF")
+
+    keys = Text()
+    for key, desc in (
+        ("j/k", "navigate"),
+        ("h/l", "collapse/expand"),
+        ("1", "SQL view"),
+        ("2", "data preview"),
+        ("e", "explore"),
+        ("r", "runs"),
+        ("v", "revisions"),
+        ("g", "git log"),
+    ):
+        keys.append(f" {key:<6}", style="bold #5abfb5")
+        keys.append(f"{desc}\n", style="dim")
+
+    return Group(title, keys)
+
+
 def _build_summary_content(row_data) -> Group:
     """Build a rich renderable summary that adapts to expression kind."""
     kind = row_data.kind
@@ -693,12 +747,47 @@ def _build_summary_content(row_data) -> Group:
             parts.append(bt)
 
     # ── Lineage ───────────────────────────────────────────────────
-    lineage = row_data.lineage_text
-    if lineage and lineage != "(empty)":
+    lineage = meta.lineage
+    if lineage and lineage.nodes:
         parts.append(Rule(title="Lineage", style="#4AA8EC", characters="─"))
-        lt = Text()
-        lt.append(f" {lineage}", style="#4AA8EC")
-        parts.append(lt)
+        nodes = lineage.nodes
+        for i, node in enumerate(nodes):
+            lt = Text()
+            if len(nodes) == 1:
+                lt.append(" ● ", style="dim #4AA8EC")
+            elif i == 0:
+                lt.append(" ╭ ", style="dim #4AA8EC")
+            elif i == len(nodes) - 1:
+                lt.append(" ╰ ", style="dim #4AA8EC")
+            else:
+                lt.append(" ├ ", style="dim #4AA8EC")
+            label = node.get("label", "?")
+            node_type = node.get("type", "")
+            lt.append(label, style="#4AA8EC")
+            if node_type and node_type != label:
+                lt.append(f"  {node_type}", style="dim")
+            parts.append(lt)
+
+    # ── SQL snippet ────────────────────────────────────────────────
+    match row_data.sqls:
+        case ():
+            pass
+        case sqls:
+            # Show the main (last) query, truncated
+            _, engine, sql = sqls[-1]
+            lines = sql.strip().splitlines()
+            truncated = len(lines) > 5
+            snippet = "\n".join(lines[:5])
+            if truncated:
+                snippet += "\n  …"
+            parts.append(Rule(title=f"SQL ({engine})", style="#2BBE75", characters="─"))
+            parts.append(Syntax(snippet, "sql", theme=XorqSQLStyle, word_wrap=True))
+            if truncated:
+                hint = Text()
+                hint.append(" press ", style="dim")
+                hint.append("1", style="bold #2BBE75")
+                hint.append(" for full SQL", style="dim")
+                parts.append(hint)
 
     return Group(*parts)
 
@@ -824,9 +913,8 @@ class CatalogScreen(Screen):
         self.query_one("#schema-in-half").display = False
         summary_panel = self.query_one("#summary-panel")
         summary_panel.border_title = "Summary"
-        self.query_one("#summary-content", Static).update(
-            Text("← Select an expression", style="dim")
-        )
+        summary_panel.border_subtitle = "1:SQL  2:Data"
+        self.query_one("#summary-content", Static).update(_build_empty_state())
 
         sql_panel = self.query_one("#sql-panel")
         sql_panel.border_title = "SQL"
@@ -899,16 +987,19 @@ class CatalogScreen(Screen):
                     f"{len(schema_in)} in · {len(row_data.schema_out)} out"
                 )
                 for name, dtype in schema_in:
-                    schema_in_table.add_row(name, dtype)
+                    dtype_s = str(dtype)
+                    schema_in_table.add_row(
+                        name, Text(dtype_s, style=_dtype_color(dtype_s))
+                    )
         for name, dtype in row_data.schema_out:
-            schema_out_table.add_row(name, dtype)
+            dtype_s = str(dtype)
+            schema_out_table.add_row(name, Text(dtype_s, style=_dtype_color(dtype_s)))
 
         # Summary panel
         kind = row_data.kind
         icon = KIND_ICONS.get(kind, "·")
         summary_panel = self.query_one("#summary-panel")
-        summary_panel.border_title = f"{icon} Summary"
-        summary_panel.border_subtitle = kind.replace("_", " ")
+        summary_panel.border_title = f"{icon} {kind.replace('_', ' ')}"
         summary_content.update(_build_summary_content(row_data))
         summary_panel.scroll_home(animate=False)
 
@@ -1148,17 +1239,26 @@ class CatalogScreen(Screen):
             kind_counts[r.kind] = kind_counts.get(r.kind, 0) + 1
             if r.cached:
                 cached_count += 1
-        kinds_str = ", ".join(
-            f"{c} {k}" for k, c in sorted(kind_counts.items(), key=lambda x: -x[1])
-        )
-        parts = [f" {count} entries"]
-        if kinds_str:
-            parts[0] += f" ({kinds_str})"
+
+        status = Text()
+        status.append(f" {count}", style="bold #C1F0FF")
+        status.append(" entries", style="#C1F0FF")
+        if kind_counts:
+            status.append("  ", style="dim")
+            for i, (k, c) in enumerate(
+                sorted(kind_counts.items(), key=lambda x: -x[1])
+            ):
+                if i > 0:
+                    status.append(" ", style="dim")
+                icon = KIND_ICONS.get(k, "·")
+                color = KIND_COLORS.get(k, "#C1F0FF")
+                status.append(f"{icon}{c}", style=color)
         if cached_count:
-            parts.append(f"{cached_count} cached")
-        parts.append(str(repo_path))
-        parts.append(stamp)
-        self.query_one("#status-bar", Static).update(" · ".join(parts))
+            status.append("  ● ", style="#2BBE75")
+            status.append(f"{cached_count} cached", style="#2BBE75")
+        status.append(f"  {repo_path}", style="dim #5abfb5")
+        status.append(f"  {stamp}", style="dim")
+        self.query_one("#status-bar", Static).update(status)
 
     def _select_first_leaf(self) -> None:
         tree = self.query_one("#catalog-tree", Tree)
@@ -1245,8 +1345,6 @@ class CatalogScreen(Screen):
 
     # --- View switching (1/2) ---
 
-    _VIEW_PANELS = ("summary", "sql", "data")
-
     def _set_active_view(self, view: str) -> None:
         # Toggle back to summary if already active
         if self._active_view == view:
@@ -1255,6 +1353,17 @@ class CatalogScreen(Screen):
         self.query_one("#summary-panel").display = view == "summary"
         self.query_one("#sql-panel").display = view == "sql"
         self.query_one("#data-preview-panel").display = view == "data"
+
+        # Show navigation hints on the visible panel
+        match view:
+            case "summary":
+                self.query_one("#summary-panel").border_subtitle = "1:SQL  2:Data"
+            case "sql":
+                self.query_one("#sql-panel").border_subtitle = "esc:Back  2:Data"
+            case "data":
+                self.query_one(
+                    "#data-preview-panel"
+                ).border_subtitle = "esc:Back  1:SQL"
 
         if view == "data":
             self._data_preview_hash = None
