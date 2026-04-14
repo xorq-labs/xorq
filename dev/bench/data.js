@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776087087040,
+  "lastUpdate": 1776154146743,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -5676,6 +5676,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.004900844654113241",
             "extra": "mean: 199.64359740000077 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "375ce76ccfb5994d14550919d775210340d05fed",
+          "message": "chore(deps): update dependency pytest to v9.0.3 [security] (#1822)\n\nThis PR contains the following updates:\n\n| Package | Change |\n[Age](https://docs.renovatebot.com/merge-confidence/) |\n[Confidence](https://docs.renovatebot.com/merge-confidence/) |\n|---|---|---|---|\n| [pytest](https://redirect.github.com/pytest-dev/pytest)\n([changelog](https://docs.pytest.org/en/stable/changelog.html)) |\n`==9.0.2` → `==9.0.3` |\n![age](https://developer.mend.io/api/mc/badges/age/pypi/pytest/9.0.3?slim=true)\n|\n![confidence](https://developer.mend.io/api/mc/badges/confidence/pypi/pytest/9.0.2/9.0.3?slim=true)\n|\n\n### GitHub Vulnerability Alerts\n\n#### [CVE-2025-71176](https://nvd.nist.gov/vuln/detail/CVE-2025-71176)\n\npytest through 9.0.2 on UNIX relies on directories with the\n`/tmp/pytest-of-{user}` name pattern, which allows local users to cause\na denial of service or possibly gain privileges.\n\n---\n\n- [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check\nthis box\n\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0My4xMTAuMiIsInVwZGF0ZWRJblZlciI6IjQzLjExMC4yIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6W119-->\n\nCo-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
+          "timestamp": "2026-04-14T10:05:33+02:00",
+          "tree_id": "9009f756ec3d83c81151a70458f909f2944575c3",
+          "url": "https://github.com/xorq-labs/xorq/commit/375ce76ccfb5994d14550919d775210340d05fed"
+        },
+        "date": 1776154143589,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.535965771085443,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016552276359007228",
+            "extra": "mean: 132.6969933750064 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.325568827418542,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05048153868614354",
+            "extra": "mean: 231.18346740000675 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7115347672855271,
+            "unit": "iter/sec",
+            "range": "stddev: 0.24651225399668",
+            "extra": "mean: 1.405412702199999 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.060437010062417,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007515971393799058",
+            "extra": "mean: 197.61139166667854 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.135222466764003,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01796064266427133",
+            "extra": "mean: 194.73353033333277 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.027919205742837,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0118907412229564",
+            "extra": "mean: 198.88943299999937 msec\nrounds: 5"
           }
         ]
       }
