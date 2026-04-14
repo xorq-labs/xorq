@@ -190,6 +190,69 @@ def _resolve_builder_from_tag(expr):
 # ---------------------------------------------------------------------------
 
 
+def _bsl_extract_metadata(tag_node):
+    meta = tag_node.metadata
+
+    all_dims: list[str] = []
+    all_measures: list[str] = []
+
+    def _collect(node):
+        if not isinstance(node, dict):
+            node = dict(node) if isinstance(node, (tuple, list)) else {}
+        if node.get("bsl_op_type") == "SemanticTableOp":
+            all_dims.extend(d[0] for d in node.get("dimensions", ()))
+            all_measures.extend(m[0] for m in node.get("measures", ()))
+            return
+        for key in ("source", "left", "right"):
+            child = node.get(key)
+            if child is not None:
+                _collect(child)
+
+    _collect(meta)
+    dims = tuple(dict.fromkeys(all_dims))
+    measures = tuple(dict.fromkeys(all_measures))
+    return {
+        "type": "semantic_model",
+        "description": f"{len(dims)} dims, {len(measures)} measures",
+        "dimensions": dims,
+        "measures": measures,
+    }
+
+
+def _bsl_from_tag_node(tag_node):
+    # TODO: BSL's from_tag_node returns the full query chain (SemanticAggregate),
+    # not the SemanticModel. We reconstruct only the base SemanticTableOp to
+    # get the SemanticModel back so callers can issue new .query() calls.
+    try:
+        from boring_semantic_layer.serialization import (  # noqa: PLC0415
+            BSLSerializationContext,
+            extract_xorq_metadata,
+            reconstruct_bsl_operation,
+        )
+    except ImportError:
+        raise ImportError(
+            "boring-semantic-layer is required to recover BSL models -- "
+            "install it with: uv pip install boring-semantic-layer"
+        ) from None
+
+    expr = tag_node.to_expr()
+    ctx = BSLSerializationContext()
+    metadata = extract_xorq_metadata(expr)
+    # Walk to innermost source (SemanticTableOp)
+    _MAX_DEPTH = 100
+    for _ in range(_MAX_DEPTH):
+        src = ctx.parse_field(metadata, "source")
+        if not src:
+            break
+        metadata = src
+    else:
+        raise RuntimeError(
+            f"_bsl_from_tag_node exceeded {_MAX_DEPTH} nesting levels; "
+            "possible circular metadata"
+        )
+    return reconstruct_bsl_operation(metadata, expr, ctx)
+
+
 def _ml_pipeline_extract_metadata(tag_node):
     from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: PLC0415
 
