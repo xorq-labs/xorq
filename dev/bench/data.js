@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776154146743,
+  "lastUpdate": 1776171321647,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -5742,6 +5742,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0118907412229564",
             "extra": "mean: 198.88943299999937 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f0478324b28bf7154a3d1ad720b6789933d98c33",
+          "message": "fix(packaging): exclude env_templates from VCS scan (#1825)\n\nexclude env_templates from VCS scan to prevent duplicate wheel entries\n\nIn a git repo, hatchling includes env_templates/ via `git ls-files`,\nwhile force-include (added in 8975c28) also adds the same files —\nproducing a ZIP with duplicate entries that PyPI rejects with HTTP 400.\n\nAdding `exclude = [\"python/xorq/env_templates/**\"]` to the wheel target\nprevents the VCS scan from including these files, so force-include\nremains the single code path that writes them in both git and non-git\ncontexts.\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-14T08:51:41-04:00",
+          "tree_id": "64cf41623e9f60b3ea0a4285ef7ab96ae1b61853",
+          "url": "https://github.com/xorq-labs/xorq/commit/f0478324b28bf7154a3d1ad720b6789933d98c33"
+        },
+        "date": 1776171319280,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.4968183815156175,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011693399518773257",
+            "extra": "mean: 133.38991944444464 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.969080154338481,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0604593105563913",
+            "extra": "mean: 251.9475448000037 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6208789870469495,
+            "unit": "iter/sec",
+            "range": "stddev: 0.26974891738169565",
+            "extra": "mean: 1.6106198161999998 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.3234237102540867,
+            "unit": "iter/sec",
+            "range": "stddev: 0.029213347765971648",
+            "extra": "mean: 300.89452539999684 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.7084351340188606,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02534457343484676",
+            "extra": "mean: 269.6555187999991 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.1378422540808595,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03745287650462483",
+            "extra": "mean: 241.6718517999982 msec\nrounds: 5"
           }
         ]
       }
