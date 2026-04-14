@@ -4,6 +4,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 sources = ["python"]
+# Exclude env_templates from the normal VCS scan (git ls-files picks them up in
+# a git repo, but force-include below also adds them, causing duplicates in the
+# wheel ZIP).  By excluding here we ensure only force-include writes the files.
+exclude = [
+    "python/xorq/env_templates/**",
+]
 
 # .gitignore contains `.env.*` which hatchling treats as an exclusion pattern
 # in non-VCS contexts (sdist rebuilds, staging dirs, uv tool run).
