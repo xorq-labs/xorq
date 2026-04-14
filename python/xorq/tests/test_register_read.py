@@ -11,9 +11,11 @@ import pytest
 
 import xorq.api as xo
 from xorq.caching import ParquetCache
+from xorq.ibis_yaml.enums import ExprKind
 from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis import Schema
 from xorq.vendor.ibis.common.collections import FrozenDict
+from xorq.vendor.ibis.expr.types.core import ExprMetadata
 
 
 @pytest.fixture
@@ -117,6 +119,15 @@ def test_read_csv_from_s3(con):
         },
     )
     assert t.head().execute() is not None
+
+
+@pytest.mark.s3
+def test_kind_deferred_read_is_source():
+    expr = xo.deferred_read_parquet(
+        "s3://bucket/data.parquet",
+        schema={"a": "int64", "b": "string"},
+    )
+    assert ExprMetadata.from_expr(expr).kind == ExprKind.Source
 
 
 def test_read_parquet(con, data_dir):
