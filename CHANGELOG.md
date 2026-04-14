@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.19] - 2026-04-14
+### Details
+#### Added
+- Add databricks workflow by @mesejo in [#1804](https://github.com/xorq-labs/xorq/pull/1804)
+- Add cache_keys to ExprMetadata (XOR-281) by @mesejo in [#1783](https://github.com/xorq-labs/xorq/pull/1783)
+- Add faulthandler_timeout, verbose output, and step timeout by @dlovell in [#1811](https://github.com/xorq-labs/xorq/pull/1811)
+- Add DataViewScreen for full-screen data exploration by @hussainsultan in [#1797](https://github.com/xorq-labs/xorq/pull/1797)
+
+#### Changed
+- Replace flat chain with full DAG data model by @hussainsultan in [#1788](https://github.com/xorq-labs/xorq/pull/1788)
+- Loose attrs by @mesejo in [#1496](https://github.com/xorq-labs/xorq/pull/1496)
+- Replace catalog DataTable with Tree widget and add view switching by @hussainsultan in [#1791](https://github.com/xorq-labs/xorq/pull/1791)
+- Split uv into its own subcommand group (XOR-287) by @mesejo in [#1818](https://github.com/xorq-labs/xorq/pull/1818)
+- Update dependency cryptography to v46.0.7 [security] by @renovate[bot] in [#1814](https://github.com/xorq-labs/xorq/pull/1814)
+- Update dependency pytest to v9.0.3 [security] by @renovate[bot] in [#1822](https://github.com/xorq-labs/xorq/pull/1822)
+
+#### Fixed
+- Include env_templates in wheel, fallback in otel_utils by @dlovell in [#1785](https://github.com/xorq-labs/xorq/pull/1785)
+- SnapshotStrategy fails with HashingTagNode by @mesejo in [#1786](https://github.com/xorq-labs/xorq/pull/1786)
+- Clean up dependency declarations by @dlovell in [#1796](https://github.com/xorq-labs/xorq/pull/1796)
+- Worktree setup improvements by @dlovell in [#1795](https://github.com/xorq-labs/xorq/pull/1795)
+- Skip _MISSING sentinel when binding default params by @hussainsultan in [#1793](https://github.com/xorq-labs/xorq/pull/1793)
+- Prevent hang when annex content is missing with no remote by @dlovell in [#1812](https://github.com/xorq-labs/xorq/pull/1812)
+- Collector probe by @ghoersti in [#1813](https://github.com/xorq-labs/xorq/pull/1813)
+- Handle missing parent dirs in worktree setup/cleanup by @dlovell in [#1806](https://github.com/xorq-labs/xorq/pull/1806)
+
+#### Removed
+- Remove CLAUDE.md by @mesejo in [#1802](https://github.com/xorq-labs/xorq/pull/1802)
+
 ## [0.3.18] - 2026-04-07
 ### Details
 #### Added
