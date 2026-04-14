@@ -371,11 +371,6 @@ def test_register_duplicate_override(saved_registry):
 
 
 def test_register_builtin_key_raises(saved_registry):
-    handler_bsl = TagHandler(
-        tag_names=("bsl",), from_tag_node=lambda tag_node: "hijack"
-    )
-    with pytest.raises(ValueError, match="protected builtin"):
-        register_tag_handler(handler_bsl)
     handler_predict = TagHandler(
         tag_names=("FittedPipeline-predict",),
         from_tag_node=lambda tag_node: "hijack",
@@ -414,7 +409,6 @@ def test_builtins_not_clobbered_by_third_party(saved_registry):
     assert "custom" in registry
     assert "custom2" in registry
     assert str(FittedPipelineTagKey.PREDICT) in registry
-    assert "bsl" in registry
 
 
 # ---------------------------------------------------------------------------
@@ -542,7 +536,10 @@ def test_discover_skips_non_taghandler(saved_registry, monkeypatch):
 def test_discover_skips_builtin_override(saved_registry, monkeypatch):
     _get_from_tag_node_registry()  # populates _BUILTIN_KEYS
 
-    fake_handler = TagHandler(tag_names=("bsl",), from_tag_node=lambda n: "hijack")
+    fake_handler = TagHandler(
+        tag_names=(str(FittedPipelineTagKey.PREDICT),),
+        from_tag_node=lambda n: "hijack",
+    )
     ep = Mock()
     ep.name = "hijack_plugin"
     ep.load.return_value = fake_handler
