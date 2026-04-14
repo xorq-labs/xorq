@@ -737,14 +737,54 @@ def _build_summary_content(row_data) -> Group:
             parts.append(st)
 
     # Builders
-    if meta.builders:
-        parts.append(Rule(title="Builders", style="#FF69B4", characters="─"))
-        for b in meta.builders:
-            bt = Text()
-            bt.append(f" {b.get('name', b.get('tag', '?'))}", style="bold #FF69B4")
-            if b.get("type"):
-                bt.append(f"  ({b['type']})", style="dim")
-            parts.append(bt)
+    for b in meta.builders:
+        btype = b.get("type", "")
+        if btype == "semantic_model":
+            parts.append(Rule(title="Semantic Model", style="#FF69B4", characters="─"))
+            if b.get("description"):
+                parts.append(_kv("Info", b["description"], "#FF69B4"))
+            dims = b.get("dimensions", ())
+            if dims:
+                parts.append(_kv("Dimensions", str(len(dims)), "#C1F0FF"))
+                for d in dims:
+                    dt = Text()
+                    dt.append(f"   · {d}", style="#7ED4C8")
+                    parts.append(dt)
+            measures = b.get("measures", ())
+            if measures:
+                parts.append(_kv("Measures", str(len(measures)), "#F5CA2C"))
+                for m in measures:
+                    mt = Text()
+                    mt.append(f"   · {m}", style="#F5CA2C")
+                    parts.append(mt)
+        elif btype == "fitted_pipeline":
+            parts.append(Rule(title="Fitted Pipeline", style="#FF69B4", characters="─"))
+            if b.get("description"):
+                parts.append(_kv("Info", b["description"], "#FF69B4"))
+            steps = b.get("steps", ())
+            if steps:
+                parts.append(_kv("Steps", str(len(steps)), "#C1F0FF"))
+                for i, s in enumerate(steps):
+                    st = Text()
+                    st.append(f"   {i + 1}. ", style="dim")
+                    st.append(s, style="#7ED4C8")
+                    parts.append(st)
+            features = b.get("features", ())
+            if features:
+                parts.append(_kv("Features", str(len(features)), "#2BBE75"))
+                for f in features:
+                    ft = Text()
+                    ft.append(f"   · {f}", style="#2BBE75")
+                    parts.append(ft)
+            target = b.get("target")
+            if target:
+                parts.append(_kv("Target", target, "#F5CA2C"))
+        else:
+            # Generic builder fallback
+            label = b.get("name", b.get("tag", btype or "?"))
+            parts.append(Rule(title=label, style="#FF69B4", characters="─"))
+            if b.get("description"):
+                parts.append(_kv("Info", b["description"], "#FF69B4"))
 
     # ── Lineage ───────────────────────────────────────────────────
     lineage = meta.lineage
