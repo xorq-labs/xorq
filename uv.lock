@@ -5896,6 +5896,9 @@ gizmosql = [
 ibis = [
     { name = "ibis-framework" },
 ]
+mcp = [
+    { name = "mcp" },
+]
 postgres = [
     { name = "adbc-driver-postgresql" },
     { name = "psycopg", extra = ["binary"] },
@@ -5985,6 +5988,7 @@ requires-dist = [
     { name = "ibis-framework", marker = "extra == 'ibis'", specifier = ">=10.5.0" },
     { name = "matplotlib", marker = "extra == 'examples'", specifier = ">=3.8.0" },
     { name = "mcp", marker = "extra == 'examples'", specifier = ">=1.5.0" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.5.0" },
     { name = "openai", marker = "extra == 'examples'", specifier = ">=1.65.4" },
     { name = "opentelemetry-exporter-otlp", specifier = ">=1.32.1" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.32.1" },
@@ -6023,7 +6027,7 @@ requires-dist = [
     { name = "xorq-feature-utils", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-feature-utils?branch=main" },
     { name = "xorq-weather-lib", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-weather-lib?branch=main" },
 ]
-provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "quickgrove", "examples", "postgres", "sqlite", "gizmosql", "ibis", "trino", "bsl"]
+provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "quickgrove", "mcp", "examples", "postgres", "sqlite", "gizmosql", "ibis", "trino", "bsl"]
 
 [package.metadata.requires-dev]
 dev = [

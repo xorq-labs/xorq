@@ -109,6 +109,9 @@ snowflake = [
 quickgrove = [
     "quickgrove>=0.1.2",
 ]
+mcp = [
+    "mcp>=1.5.0",
+]
 examples = [
     "pins[gcs]>=0.8.3,<1 ; python_version >= '3.10' and python_version < '4.0'",
     "xgboost >=1.6.1 ; python_version >= '3.10' and python_version < '4.0'",

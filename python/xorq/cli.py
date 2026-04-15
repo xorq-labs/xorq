@@ -714,14 +714,22 @@ def init_command(
 
 
 class PdbGroup(click.Group):
+    _lazy_loader_names = ("catalog", "mcp")
+
+    def _ensure_lazy(self, cmd_name):
+        if cmd_name in self._lazy_loader_names and cmd_name not in self.commands:
+            # Resolve loader function by name from the module globals.
+            loader = globals().get(f"_load_{cmd_name}_cli")
+            if loader:
+                loader()
+
     def get_command(self, ctx, cmd_name):
-        if cmd_name == "catalog" and "catalog" not in self.commands:
-            _load_catalog_cli()
+        self._ensure_lazy(cmd_name)
         return super().get_command(ctx, cmd_name)
 
     def list_commands(self, ctx):
-        if "catalog" not in self.commands:
-            _load_catalog_cli()
+        for name in self._lazy_loader_names:
+            self._ensure_lazy(name)
         return super().list_commands(ctx)
 
     def invoke(self, ctx):
@@ -1188,6 +1196,33 @@ def _load_catalog_cli():
     from xorq.catalog.cli import cli as _catalog_cli
 
     cli.add_command(_catalog_cli, "catalog")
+
+
+def _load_mcp_cli():
+    @cli.group("mcp", invoke_without_command=True)
+    @click.pass_context
+    def mcp_group(ctx):
+        """MCP (Model Context Protocol) server for Claude integrations."""
+        if ctx.invoked_subcommand is None:
+            click.echo(ctx.get_help())
+
+    @mcp_group.command("serve")
+    @click.option(
+        "--sse",
+        is_flag=True,
+        default=False,
+        help="Use SSE transport instead of stdio.",
+    )
+    def mcp_serve(sse):
+        """Start the xorq MCP server.
+
+        By default uses stdio transport (for Claude Desktop / Claude Code).
+        Pass --sse for HTTP Server-Sent Events transport.
+        """
+        from xorq.mcp import serve
+
+        transport = "sse" if sse else "stdio"
+        serve(transport=transport)
 
 
 def main():
