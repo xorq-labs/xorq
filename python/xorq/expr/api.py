@@ -324,7 +324,7 @@ def _transform_deferred_reads(expr):
                     "engine": node.source.name,
                     "method_name": node.method_name,
                     "path": str(
-                        read_kwargs.get("path")
+                        read_kwargs.get("hash_path")
                         or read_kwargs.get("source")
                         or read_kwargs.get("source_list")
                     ),

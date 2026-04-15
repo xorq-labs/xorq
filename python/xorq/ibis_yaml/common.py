@@ -109,9 +109,9 @@ class Registry:
             from xorq.common.utils.node_utils import update_read_kwargs  # noqa: PLC0415
 
             old_read_kwargs = node_dict_with_hash["read_kwargs"]
-            new_path = Path("memtables", dict(old_read_kwargs)["path"].name)
+            new_path = Path("memtables", dict(old_read_kwargs)["hash_path"].name)
             modified_read_kwargs = update_read_kwargs(
-                old_read_kwargs, (("path", new_path),)
+                old_read_kwargs, (("hash_path", new_path),)
             )
             node_dict_with_hash = freeze(
                 node_dict_with_hash | {"read_kwargs": modified_read_kwargs}
