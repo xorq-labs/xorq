@@ -872,6 +872,39 @@ class ExprMetadata:
         factory=tuple, validator=deep_iterable(instance_of(dict))
     )
 
+    def to_dict(self):
+        return {
+            key: value
+            for key, value in (
+                ("kind", str(self.kind)),
+                (
+                    "schema_in",
+                    toolz.valmap(str, self.schema_in) if self.schema_in else None,
+                ),
+                ("schema_out", toolz.valmap(str, self.schema_out)),
+                ("root_tag", self.root_tag),
+                (
+                    "cache_keys",
+                    list(map(asdict, self.parquet_snapshot_cache_keys)) or None,
+                ),
+                ("params", self.params or None),
+                (
+                    "composed_from",
+                    list(self.composed_from) if self.composed_from else None,
+                ),
+                (
+                    "sql_queries",
+                    [list(q) for q in self.sql_queries] if self.sql_queries else None,
+                ),
+                (
+                    "lineage",
+                    self.lineage.to_dict() if self.lineage else None,
+                ),
+                ("builders", list(self.builders) if self.builders else None),
+            )
+            if value is not None
+        }
+
     @staticmethod
     def _parse_cache_keys(raw):
         """Convert a list of ``{key, relative_path}`` dicts into a tuple of CacheKey."""
@@ -925,17 +958,15 @@ class ExprMetadata:
         tags = expr.ls.tags
         root_tag = tags[0].tag if tags else None
 
-        cached_expr = (
-            expr
-            if expr.ls.is_cached and isinstance(expr.op().cache, ParquetSnapshotCache)
-            else expr.as_table().ls.uncached_one.cache(
-                cache=ParquetDummySnapshotCache.from_kwargs()
-            )
+        cache = (
+            expr.op().cache
+            if (expr.ls.is_cached and isinstance(expr.op().cache, ParquetSnapshotCache))
+            else ParquetDummySnapshotCache.from_kwargs()
         )
         parquet_snapshot_cache_keys = (
             CacheKey(
-                key=cached_expr.ls.get_key(),
-                relative_path=str(cached_expr.op().cache.storage.relative_path),
+                key=cache.calc_key(expr.as_table()),
+                relative_path=str(cache.storage.relative_path),
             ),
         )
 
@@ -958,39 +989,6 @@ class ExprMetadata:
             params=named_params,
             builders=builders,
         )
-
-    def to_dict(self):
-        return {
-            key: value
-            for key, value in (
-                ("kind", str(self.kind)),
-                (
-                    "schema_in",
-                    toolz.valmap(str, self.schema_in) if self.schema_in else None,
-                ),
-                ("schema_out", toolz.valmap(str, self.schema_out)),
-                ("root_tag", self.root_tag),
-                (
-                    "cache_keys",
-                    list(map(asdict, self.parquet_snapshot_cache_keys)) or None,
-                ),
-                ("params", self.params or None),
-                (
-                    "composed_from",
-                    list(self.composed_from) if self.composed_from else None,
-                ),
-                (
-                    "sql_queries",
-                    [list(q) for q in self.sql_queries] if self.sql_queries else None,
-                ),
-                (
-                    "lineage",
-                    self.lineage.to_dict() if self.lineage else None,
-                ),
-                ("builders", list(self.builders) if self.builders else None),
-            )
-            if value is not None
-        }
 
 
 @frozen
