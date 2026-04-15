@@ -572,17 +572,20 @@ class ExprDumper:
         replacements = {}
         for node in walk_nodes((InMemoryTable, DatabaseTable), expr):
             if isinstance(node, InMemoryTable):
-                path, writer = self._prepare_memtable(node, MemtableTypes.inmemory)
+                which = MemtableTypes.inmemory
+                path, writer = self._prepare_memtable(node, which)
+                read_path = str(Path(which, path.name))
                 dr_op = make_read_op(
                     parquet_path=path,
                     read_kwargs={
                         "table_name": node.name,
                         "schema": node.schema,
-                        str(MemtableTypes.inmemory): True,
+                        str(which): True,
                         # InMemoryTable data is deterministic — use content hash
                         # (not mtime/inode) so the YAML is reproducible across
                         # processes and rebuild timestamps.
                         "normalize_method": normalize_read_path_md5sum,
+                        "read_path": read_path,
                     },
                 )
             elif (
@@ -591,9 +594,9 @@ class ExprDumper:
             ):
                 continue
             else:
-                path, writer = self._prepare_memtable(
-                    node, MemtableTypes.database_table
-                )
+                which = MemtableTypes.database_table
+                path, writer = self._prepare_memtable(node, which)
+                read_path = str(Path(which, path.name))
                 dr_op = make_read_op(
                     parquet_path=path,
                     read_kwargs={
@@ -601,6 +604,7 @@ class ExprDumper:
                         # we normalize based on content so we can reproducible hash
                         "normalize_method": normalize_read_path_md5sum,
                         "schema": node.schema,
+                        "read_path": read_path,
                     },
                     con=node.source,
                 )
@@ -688,8 +692,8 @@ class ExprLoader:
         loaded, expr_path, read_only_parquet_metadata=False
     ):
         def deferred_read_to_memtable(dr):
-            assert any(key == MemtableTypes.inmemory for key, _ in dr.read_kwargs)
-            path = expr_path.joinpath(next(v for k, v in dr.read_kwargs if k == "path"))
+            kw = dict(dr.read_kwargs)
+            path = expr_path.joinpath(kw["read_path"])
             df = (
                 pq.read_schema(path).empty_table().to_pandas()
                 if read_only_parquet_metadata
@@ -699,9 +703,7 @@ class ExprLoader:
             return mt.op()
 
         drs = tuple(
-            dr
-            for dr in walk_nodes(Read, loaded)
-            if MemtableTypes.inmemory in dict(dr.read_kwargs)
+            dr for dr in walk_nodes(Read, loaded) if "read_path" in dict(dr.read_kwargs)
         )
         replacements = {dr: deferred_read_to_memtable(dr) for dr in drs}
         op = loaded.op()
