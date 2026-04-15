@@ -31,6 +31,8 @@ if TYPE_CHECKING:
 
 DEFAULT_CHUNKSIZE = 10_000
 
+# Backends that use ADBC and require mode="replace" to avoid "relation already exists" errors.
+_ADBC_BACKENDS = frozenset(("sqlite", "postgres", "snowflake", "databricks"))
 
 # Backend-specific parameter names for the file path argument.
 _PATH_PARAM_NAMES = frozenset(("path", "paths", "source", "source_list"))
@@ -175,6 +177,8 @@ def deferred_read_csv(
         table_name = gen_name(f"xorq-{method_name}")
     if schema is None:
         schema = infer_schema(path)
+    if con.name in _ADBC_BACKENDS:
+        kwargs.setdefault("mode", "replace")
     if con.name == "pandas":
         # FIXME: determine how to best handle schema
         read_kwargs = make_read_kwargs(method, path, table_name, **kwargs)
@@ -242,6 +246,8 @@ def deferred_read_parquet(
     if table_name is None:
         table_name = gen_name(f"xorq-{method_name}")
     schema = schema or xo_connect().read_parquet(path).schema()
+    if con.name in _ADBC_BACKENDS:
+        kwargs.setdefault("mode", "replace")
     read_kwargs = make_read_kwargs(method, path, table_name=table_name, **kwargs)
     return Read(
         method_name=method_name,

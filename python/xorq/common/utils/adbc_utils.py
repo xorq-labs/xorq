@@ -15,9 +15,15 @@ class ADBCBase(ABC):
     def get_conn(self, **kwargs): ...
 
     def adbc_ingest(
-        self, table_name, record_batch_reader, mode="create", temporary=False, **kwargs
+        self,
+        table_name,
+        record_batch_reader,
+        mode="create",
+        temporary=False,
+        conn_kwargs=None,
+        **kwargs,
     ):
-        with self.get_conn() as conn:
+        with self.get_conn(**(conn_kwargs or {})) as conn:
             with conn.cursor() as cur:
                 cur.adbc_ingest(
                     table_name,

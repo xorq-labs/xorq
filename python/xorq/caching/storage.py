@@ -31,9 +31,6 @@ from xorq.config import _backend_init, options
 from xorq.vendor import ibis
 
 
-_ADBC_BACKENDS = ("sqlite", "postgres", "snowflake", "databricks")
-
-
 def resolve_parquet_cache_dir(
     relative_path: Path | str,
     base_path: Path | None = None,
@@ -128,12 +125,10 @@ class ParquetStorage(CacheStorage):
         return self.get_path(key).exists()
 
     def get(self, key):
-        kwargs = {"mode": "replace"} if self.source.name in _ADBC_BACKENDS else {}
         op = deferred_read_parquet(
             path=self.get_path(key),
             con=self.source,
             table_name=key,
-            **kwargs,
         ).op()
         return op
 
