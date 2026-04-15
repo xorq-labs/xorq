@@ -3,6 +3,7 @@ import subprocess
 import uuid
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from attr import evolve
 from git import Repo as GitRepo
@@ -882,3 +883,12 @@ def test_annex_fetch_content_no_remote_raises(tmpdir):
 
     with pytest.raises(AnnexError, match="no remote configured"):
         backend.fetch_content(entry.catalog_path)
+
+
+def test_catalog_entry_roundtrip_execute(catalog):
+    """Loading an expression from a catalog zip and executing it returns the original data."""
+    df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
+    expr = xo.memtable(df)
+    entry = catalog.add(expr)
+    result = entry.expr.execute()
+    pd.testing.assert_frame_equal(result, df)
