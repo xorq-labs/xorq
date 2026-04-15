@@ -557,11 +557,28 @@ class Catalog:
         )
 
     @classmethod
+    def _resolve_default_name(cls):
+        from xorq.catalog.constants import (  # noqa: PLC0415
+            DEFAULT_CATALOG_CONFIG,
+            DEFAULT_CATALOG_NAME,
+        )
+        from xorq.vendor.ibis.config import env_config  # noqa: PLC0415
+
+        if name := env_config.XORQ_DEFAULT_CATALOG:
+            return name
+        try:
+            name = DEFAULT_CATALOG_CONFIG.read_text().strip()
+        except FileNotFoundError:
+            return DEFAULT_CATALOG_NAME
+        return name or DEFAULT_CATALOG_NAME
+
+    @classmethod
     def from_default(
         cls, init=None, check_consistency=True, annex=None, **remote_kwargs
     ):
+        name = cls._resolve_default_name()
         return cls.from_name(
-            name="default",
+            name=name,
             init=init,
             check_consistency=check_consistency,
             annex=annex,

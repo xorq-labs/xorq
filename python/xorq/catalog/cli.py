@@ -338,6 +338,39 @@ def info(ctx):
         click.echo(f"aliases: {len(catalog.list_aliases())}")
 
 
+@cli.command("default")
+@click.option("--set", "set_name", default=None, help="Set the default catalog name.")
+@click.option("--unset", is_flag=True, help="Remove the persisted default.")
+def default_catalog(set_name, unset):
+    """Show or change the persisted default catalog name."""
+    from xorq.catalog.catalog import Catalog
+    from xorq.catalog.constants import DEFAULT_CATALOG_CONFIG
+    from xorq.vendor.ibis.config import env_config
+
+    if set_name and unset:
+        raise click.UsageError("--set and --unset are mutually exclusive.")
+
+    if set_name:
+        DEFAULT_CATALOG_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+        DEFAULT_CATALOG_CONFIG.write_text(set_name + "\n")
+        click.echo(f"Default catalog set to {set_name!r}")
+    elif unset:
+        try:
+            DEFAULT_CATALOG_CONFIG.unlink()
+            click.echo("Default catalog unset (reverted to 'default')")
+        except FileNotFoundError:
+            click.echo("No persisted default to unset.")
+    else:
+        name = Catalog._resolve_default_name()
+        if env_config.XORQ_DEFAULT_CATALOG:
+            source = "env (XORQ_DEFAULT_CATALOG)"
+        elif DEFAULT_CATALOG_CONFIG.exists():
+            source = f"config ({DEFAULT_CATALOG_CONFIG})"
+        else:
+            source = "built-in"
+        click.echo(f"{name}  (source: {source})")
+
+
 @cli.command()
 @click.argument("name", shell_complete=_complete_entry_names)
 @click.option(

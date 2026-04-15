@@ -1,3 +1,6 @@
+from pathlib import Path
+
+
 try:
     from enum import StrEnum
 except ImportError:
@@ -17,3 +20,6 @@ CATALOG_YAML_NAME = "catalog.yaml"
 MAIN_BRANCH = "main"
 ANNEX_BRANCH = "git-annex"
 DEFAULT_REMOTE = "origin"
+
+DEFAULT_CATALOG_NAME = "default"
+DEFAULT_CATALOG_CONFIG = Path("~/.config/xorq/catalog-default").expanduser()
