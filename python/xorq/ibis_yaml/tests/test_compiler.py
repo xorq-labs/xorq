@@ -28,7 +28,7 @@ from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.conftest import array_types_df
-from xorq.expr.relations import CachedNode
+from xorq.expr.relations import CachedNode, Read
 from xorq.ibis_yaml.compiler import (
     ArtifactStore,
     DumpFiles,
@@ -232,7 +232,7 @@ def test_deferred_reads_yaml(builds_dir, parquet_dir):
         "      method_name: read_parquet\n"
         "      name: awards_players\n"
         "      read_kwargs:\n"
-        f"        - path: {expected_read_path}\n"
+        f"        - hash_path: {expected_read_path}\n"
         "        - table_name: awards_players\n"
         f"    sql_file: {expected_sql_file}\n"
         "...\n"
@@ -901,3 +901,35 @@ def test_extract_sql_queries_binds_non_none_defaults():
     result = _extract_sql_queries(expr, ExprKind.UnboundExpr)
     assert len(result) == 1
     assert "1.0" in result[0][2]
+
+
+def test_read_kwargs_contains_hash_path_and_read_path(builds_dir):
+    t = xo.memtable({"a": [1, 2], "b": [3, 4]})
+    build_path = build_expr(t, builds_dir=builds_dir)
+    loaded_yaml = yaml12.parse_yaml(build_path.joinpath(DumpFiles.expr).read_text())
+    loaded = load_expr(build_path, raise_on_unbound=False)
+
+    reads = tuple(walk_nodes((Read,), loaded))
+    assert not reads, "deferred reads should be converted to memtables after load"
+
+    # inspect the YAML directly to verify both keys are serialized
+    def find_read_kwargs(d):
+        if isinstance(d, dict):
+            if d.get("op") == "Read":
+                return [d["read_kwargs"]]
+            return [rk for v in d.values() for rk in find_read_kwargs(v)]
+        if isinstance(d, list):
+            return [rk for v in d for rk in find_read_kwargs(v)]
+        return []
+
+    all_read_kwargs = find_read_kwargs(loaded_yaml)
+    assert all_read_kwargs
+
+    for rk_list in all_read_kwargs:
+        kw = dict(rk_list)
+        assert "hash_path" in kw, f"missing hash_path in {kw}"
+        assert "read_path" in kw, f"missing read_path in {kw}"
+        hash_path = pathlib.Path(kw["hash_path"])
+        read_path = pathlib.Path(kw["read_path"])
+        assert not read_path.is_absolute(), f"read_path should be relative: {read_path}"
+        assert hash_path.name == read_path.name

@@ -573,7 +573,7 @@ def warn_on_local_path(items: dict) -> None:
         return not parsed.scheme or parsed.scheme == "file"
 
     if path := next(
-        (v for k, v in dict(items).items() if k in ("path", "source")), None
+        (v for k, v in dict(items).items() if k in ("hash_path", "source")), None
     ):
         f = toolz.excepts((ValueError, AttributeError), is_local_path)
         paths = normalize_filenames(path)
