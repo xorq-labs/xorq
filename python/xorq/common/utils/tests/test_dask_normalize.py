@@ -10,6 +10,7 @@ from unittest.mock import (
 
 import cloudpickle
 import dask
+import pandas as pd
 import pyarrow.compute as pc
 import pytest
 import toolz
@@ -23,6 +24,10 @@ from xorq.caching import (
 )
 from xorq.common.utils.dask_normalize import (
     get_normalize_token_subset,
+)
+from xorq.common.utils.dask_normalize.dask_normalize_expr import (
+    _extract_duckdb_file_paths,
+    _extract_plan_file_paths,
 )
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     file_digest,
@@ -69,22 +74,371 @@ def test_tokenize_datafusion_memory_expr(alltypes_df, snapshot):
 
 
 @pytest.mark.snapshot_check
-def test_tokenize_datafusion_parquet_expr(alltypes_df, tmp_path, snapshot):
-    path = pathlib.Path(tmp_path).joinpath("data.parquet")
-    alltypes_df.to_parquet(path)
+def test_tokenize_datafusion_parquet_expr(parquet_dir, snapshot):
+    path = parquet_dir.joinpath("functional_alltypes.parquet")
     con = xo.datafusion.connect()
-    t = con.register(path, "t")
+    t = con.read_parquet(path, table_name="t")
     # DataFusion strips the leading "/" when rendering the plan, so the path
     # in the normalized token has no leading slash. Strip both forms to make
     # the snapshot stable across runs.
     parent = str(path.parent)
-    to_hash = (
-        str(tuple(dask.base.normalize_token(t)))
-        .replace(parent + "/", "")
-        .replace(parent.lstrip("/") + "/", "")
-    )
+    # Mock _normalize_path_stat so mtime/size/ino don't vary between machines.
+    _fixed_stat = (("st_mtime", 0), ("st_size", 0), ("st_ino", 0))
+    with patch(
+        "xorq.common.utils.dask_normalize.dask_normalize_expr._normalize_path_stat",
+        return_value=_fixed_stat,
+    ):
+        to_hash = (
+            str(tuple(dask.base.normalize_token(t)))
+            .replace(parent + "/", "")
+            .replace(parent.lstrip("/") + "/", "")
+        )
     actual = hashlib.md5(to_hash.encode(), usedforsecurity=False).hexdigest()
     snapshot.assert_match(actual, "datafusion_key.txt")
+
+
+@pytest.mark.parametrize(
+    "ep_str, expected",
+    [
+        (
+            "DataSourceExec: partitions=1, partition_sizes=[1]",
+            (),
+        ),
+        (
+            "DataSourceExec: file_groups={1 group: [[tmp/path/file.parquet]]}, file_type=parquet",
+            ("/tmp/path/file.parquet",),
+        ),
+        (
+            "DataSourceExec: file_groups={2 groups: [[tmp/a.parquet], [tmp/b.parquet]]}, file_type=parquet",
+            ("/tmp/a.parquet", "/tmp/b.parquet"),
+        ),
+        (
+            "DataSourceExec: file_groups={1 group: [[tmp/a.parquet, tmp/b.parquet]]}, file_type=parquet",
+            ("/tmp/a.parquet", "/tmp/b.parquet"),
+        ),
+        (
+            "DataSourceExec: file_groups={1 group: [[/tmp/already/absolute.parquet]]}, file_type=parquet",
+            ("/tmp/already/absolute.parquet",),
+        ),
+        (
+            "DataSourceExec: file_groups={1 group: [[tmp/data.csv]]}, file_type=csv, has_header=true",
+            ("/tmp/data.csv",),
+        ),
+        (
+            "DataSourceExec: file_groups={1 group: [[https://example.com/data.parquet]]}, file_type=parquet",
+            ("https://example.com/data.parquet",),
+        ),
+    ],
+)
+def test_extract_plan_file_paths(ep_str, expected):
+    assert _extract_plan_file_paths(ep_str) == expected
+
+
+@pytest.mark.parametrize(
+    "ddl, expected",
+    [
+        (
+            "CREATE VIEW v AS SELECT * FROM read_parquet('/tmp/file.parquet')",
+            ("/tmp/file.parquet",),
+        ),
+        (
+            "CREATE VIEW v AS SELECT * FROM read_parquet(['/tmp/a.parquet', '/tmp/b.parquet'])",
+            ("/tmp/a.parquet", "/tmp/b.parquet"),
+        ),
+        (
+            "CREATE VIEW v AS SELECT * FROM read_csv('/tmp/file.csv')",
+            ("/tmp/file.csv",),
+        ),
+        (
+            "CREATE TABLE t (a BIGINT, b DOUBLE)",
+            (),
+        ),
+        (
+            "CREATE VIEW v AS SELECT * FROM read_parquet('https://example.com/data.parquet')",
+            ("https://example.com/data.parquet",),
+        ),
+    ],
+)
+def test_extract_duckdb_file_paths(ddl, expected):
+    assert _extract_duckdb_file_paths(ddl) == expected
+
+
+def test_duckdb_remote_http_token_is_url_based():
+    """DuckDB: extractor preserves the URL string; token is stable across identical URLs."""
+    batting_url = "https://storage.googleapis.com/letsql-pins/batting/20240711T171118Z-431ef/batting.parquet"
+    ddl = f"CREATE VIEW batting AS SELECT * FROM read_parquet('{batting_url}')"
+
+    # Extractor now returns the raw URL string, not a mangled local path
+    (extracted,) = _extract_duckdb_file_paths(ddl)
+    assert extracted == batting_url
+
+    # With a real connection, re-registering the same URL produces the same token
+    con = xo.duckdb.connect()
+    con.raw_sql(f"CREATE VIEW batting AS SELECT * FROM read_parquet('{batting_url}')")
+    t = con.table("batting")
+    token = dask.base.tokenize(t)
+
+    con2 = xo.duckdb.connect()
+    con2.raw_sql(f"CREATE VIEW batting AS SELECT * FROM read_parquet('{batting_url}')")
+    t2 = con2.table("batting")
+    assert token == dask.base.tokenize(t2)
+
+
+def test_datafusion_remote_http_token_is_ep_str_based():
+    """DataFusion: extractor preserves the URL string for HTTP-backed tables."""
+    batting_url = "https://storage.googleapis.com/letsql-pins/batting/20240711T171118Z-431ef/batting.parquet"
+
+    ep_str = (
+        f"DataSourceExec: file_groups={{1 group: [[{batting_url}]]}}, "
+        "file_type=parquet, projection=[playerID, yearID]"
+    )
+
+    # Extractor now returns the raw URL string
+    (extracted,) = _extract_plan_file_paths(ep_str)
+    assert extracted == batting_url
+
+
+_ASTRONAUTS_CSV_URL = "https://raw.githubusercontent.com/ibis-project/testing-data/refs/heads/master/csv/astronauts.csv"
+
+
+def duckdb_http_csv_table():
+    con = xo.duckdb.connect()
+    con.read_csv(_ASTRONAUTS_CSV_URL, table_name="t")
+    return con.table("t")
+
+
+def xorq_http_csv_table():
+    return xo.connect().read_csv(_ASTRONAUTS_CSV_URL, table_name="t")
+
+
+@pytest.mark.parametrize(
+    "make_table",
+    (
+        pytest.param(
+            duckdb_http_csv_table,
+            id="duckdb",
+        ),
+        pytest.param(
+            xorq_http_csv_table,
+            id="xorq",
+            marks=pytest.mark.xfail(
+                raises=NotImplementedError,
+                strict=True,
+                reason="DataFusion strips scheme+host from HTTP URLs, rendering them as local-looking paths that _normalize_path_stat cannot resolve",
+            ),
+        ),
+    ),
+)
+def test_http_csv_token_is_stable(make_table):
+    """Token for an HTTP-backed CSV table is deterministic across repeated tokenization."""
+    assert dask.base.tokenize(make_table()) == dask.base.tokenize(make_table())
+
+
+def _datafusion_parquet_table(path):
+    return xo.datafusion.connect().read_parquet(path, table_name="t")
+
+
+def _datafusion_csv_table(path):
+    return xo.datafusion.connect().read_csv(path, table_name="t")
+
+
+def _duckdb_parquet_table(path):
+    return xo.duckdb.connect().read_parquet(path, table_name="t")
+
+
+def _duckdb_csv_table(path):
+    return xo.duckdb.connect().read_csv(path, table_name="t")
+
+
+def _xorq_parquet_table(path):
+    return xo.connect().read_parquet(path, table_name="t")
+
+
+def _xorq_csv_table(path):
+    return xo.connect().read_csv(path, table_name="t")
+
+
+@pytest.mark.parametrize(
+    "make_table",
+    [_datafusion_parquet_table, _duckdb_parquet_table, _xorq_parquet_table],
+    ids=["datafusion", "duckdb", "xorq"],
+)
+def test_parquet_invalidates_on_file_change(tmp_path, make_table):
+    """Cache token changes when the backing parquet file is overwritten."""
+    df = pd.DataFrame({"a": [1, 2, 3, 4, 5], "b": [1.0, 2.0, 3.0, 4.0, 5.0]})
+    path = tmp_path / "data.parquet"
+    df.to_parquet(path)
+    token_before = dask.base.tokenize(make_table(path))
+    df.iloc[:2].to_parquet(path)
+    token_after = dask.base.tokenize(make_table(path))
+    assert token_before != token_after
+
+
+def test_duckdb_multi_path_cache_key_invalidates_on_file_change(tmp_path):
+    """ParquetCache key changes when one of multiple parquet files backing a view changes."""
+    import pandas as pd  # noqa: PLC0415
+
+    df = pd.DataFrame({"a": [1, 2, 3], "b": [1.0, 2.0, 3.0]})
+    path1 = tmp_path / "part1.parquet"
+    path2 = tmp_path / "part2.parquet"
+    df.to_parquet(path1)
+    df.to_parquet(path2)
+
+    con = xo.duckdb.connect()
+    con.raw_sql(
+        f"CREATE VIEW test_view AS SELECT * FROM read_parquet(['{path1}', '{path2}'])"
+    )
+    cache = ParquetCache.from_kwargs(
+        source=con, relative_path="cache", base_path=tmp_path
+    )
+    key_before = cache.calc_key(con.table("test_view"))
+
+    # Modify only path1 — cache key must change even though path2 is unchanged
+    df.iloc[:1].to_parquet(path1)
+
+    con2 = xo.duckdb.connect()
+    con2.raw_sql(
+        f"CREATE VIEW test_view AS SELECT * FROM read_parquet(['{path1}', '{path2}'])"
+    )
+    cache2 = ParquetCache.from_kwargs(
+        source=con2, relative_path="cache", base_path=tmp_path
+    )
+    key_after = cache2.calc_key(con2.table("test_view"))
+
+    assert key_before != key_after
+
+
+def test_xorq_multi_csv_path_cache_key_invalidates_on_file_change(tmp_path):
+    """ParquetCache key changes when one of multiple CSV files backing an xorq table changes."""
+    import pandas as pd  # noqa: PLC0415
+
+    df = pd.DataFrame({"a": [1, 2, 3], "b": [1.0, 2.0, 3.0]})
+    path1 = tmp_path / "part1.csv"
+    path2 = tmp_path / "part2.csv"
+    df.to_csv(path1, index=False)
+    df.to_csv(path2, index=False)
+
+    con = xo.connect()
+    con.read_csv([path1, path2], table_name="t")
+    cache = ParquetCache.from_kwargs(
+        source=con, relative_path="cache", base_path=tmp_path
+    )
+    key_before = cache.calc_key(con.table("t"))
+
+    # Modify only path1 — cache key must change even though path2 is unchanged
+    df.iloc[:1].to_csv(path1, index=False)
+
+    con2 = xo.connect()
+    con2.read_csv([path1, path2], table_name="t")
+    cache2 = ParquetCache.from_kwargs(
+        source=con2, relative_path="cache", base_path=tmp_path
+    )
+    key_after = cache2.calc_key(con2.table("t"))
+
+    assert key_before != key_after
+
+
+def write_parquet(df, path):
+    df.to_parquet(path)
+
+
+def write_csv(df, path):
+    df.to_csv(path, index=False)
+
+
+@pytest.mark.parametrize(
+    "write_file, suffix, make_table",
+    [
+        (write_parquet, ".parquet", _datafusion_parquet_table),
+        (write_csv, ".csv", _datafusion_csv_table),
+        (write_parquet, ".parquet", _duckdb_parquet_table),
+        (write_csv, ".csv", _duckdb_csv_table),
+        (write_parquet, ".parquet", _xorq_parquet_table),
+        (write_csv, ".csv", _xorq_csv_table),
+    ],
+    ids=[
+        "datafusion-parquet",
+        "datafusion-csv",
+        "duckdb-parquet",
+        "duckdb-csv",
+        "xorq-parquet",
+        "xorq-csv",
+    ],
+)
+def test_token_stable_for_same_file(tmp_path, write_file, suffix, make_table):
+    """Two connections backed by the same file produce the same token."""
+    df = pd.DataFrame({"a": [1, 2, 3], "b": [1.0, 2.0, 3.0]})
+    path = tmp_path / f"data{suffix}"
+    write_file(df, path)
+    assert dask.base.tokenize(make_table(path)) == dask.base.tokenize(make_table(path))
+
+
+def _datafusion_parquet_tables(path1, path2):
+    con = xo.datafusion.connect()
+    return con.read_parquet(path1, table_name="t1"), con.read_parquet(
+        path2, table_name="t2"
+    )
+
+
+def _duckdb_parquet_tables(path1, path2):
+    con = xo.duckdb.connect()
+    con.raw_sql(f"CREATE VIEW t1 AS SELECT * FROM read_parquet('{path1}')")
+    con.raw_sql(f"CREATE VIEW t2 AS SELECT * FROM read_parquet('{path2}')")
+    return con.table("t1"), con.table("t2")
+
+
+def _xorq_parquet_tables(path1, path2):
+    con = xo.connect()
+    return con.read_parquet(path1, table_name="t1"), con.read_parquet(
+        path2, table_name="t2"
+    )
+
+
+@pytest.mark.parametrize(
+    "make_tables",
+    [_datafusion_parquet_tables, _duckdb_parquet_tables, _xorq_parquet_tables],
+    ids=["datafusion", "duckdb", "xorq"],
+)
+def test_parquet_different_files_produce_different_tokens(tmp_path, make_tables):
+    """Tables backed by different parquet files produce different tokens."""
+    df = pd.DataFrame({"a": [1, 2, 3], "b": [1.0, 2.0, 3.0]})
+    path1, path2 = tmp_path / "a.parquet", tmp_path / "b.parquet"
+    df.to_parquet(path1)
+    df.iloc[:1].to_parquet(path2)
+
+    t1, t2 = make_tables(path1, path2)
+    assert dask.base.tokenize(t1) != dask.base.tokenize(t2)
+
+
+@pytest.mark.parametrize(
+    "make_tables",
+    [_datafusion_parquet_tables, _duckdb_parquet_tables, _xorq_parquet_tables],
+    ids=["datafusion", "duckdb", "xorq"],
+)
+def test_parquet_same_content_different_path_produces_different_token(
+    tmp_path, make_tables
+):
+    """Same file content at different paths produces different tokens (path is in token)."""
+    df = pd.DataFrame({"a": [1, 2, 3], "b": [1.0, 2.0, 3.0]})
+    path1, path2 = tmp_path / "a.parquet", tmp_path / "b.parquet"
+    df.to_parquet(path1)
+    df.to_parquet(path2)
+
+    t1, t2 = make_tables(path1, path2)
+    assert dask.base.tokenize(t1) != dask.base.tokenize(t2)
+
+
+def test_datafusion_parquet_different_schema_produces_different_token(tmp_path):
+    """Same file registered with different column projections produces different tokens."""
+    df = pd.DataFrame({"a": [1, 2, 3], "b": [1.0, 2.0, 3.0], "c": ["x", "y", "z"]})
+    path = tmp_path / "data.parquet"
+    df.to_parquet(path)
+
+    con = xo.datafusion.connect()
+    t_full = con.read_parquet(path, table_name="t_full")
+    # register same file again but select only two columns
+    t_narrow = con.read_parquet(path, table_name="t_narrow")[["a", "b"]]
+    assert dask.base.tokenize(t_full) != dask.base.tokenize(t_narrow)
 
 
 @pytest.mark.snapshot_check

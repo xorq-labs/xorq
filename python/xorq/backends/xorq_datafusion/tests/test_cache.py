@@ -262,8 +262,8 @@ def test_parquet_cache_storage(tmp_path, alltypes_df):
     actual = cached.execute()
     assert_frame_equal(actual, expected)
 
-    # the file must exist and have the same schema
-    alltypes_df.head(1).to_parquet(path)
+    expected = alltypes_df.head(1)[cols]
+    expected.to_parquet(path)  # this modifies the file
     actual = cached.execute()
     assert_frame_equal(actual, expected)
 
