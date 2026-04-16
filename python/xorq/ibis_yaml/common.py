@@ -15,7 +15,7 @@ from dask.base import tokenize
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching.strategy import SnapshotStrategy
-from xorq.expr.relations import HashingTag, Tag
+from xorq.expr.relations import HashingTag, Read, Tag
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
@@ -98,6 +98,13 @@ class Registry:
                 with SnapshotStrategy().normalization_context(parent_expr):
                     parent_hash = tokenize(parent_expr.ls.untagged)
                 node_hash = tokenize((parent_hash, node.identifier))
+            case Read():
+                # Include node.name so two Reads with identical content but
+                # different table names get distinct registry keys (prevents
+                # silent dedup via setdefault).
+                untagged_repr = node.to_expr().ls.untagged
+                with SnapshotStrategy().normalization_context(node.to_expr()):
+                    node_hash = tokenize((untagged_repr, node.name))
             case _:
                 untagged_repr = node.to_expr().ls.untagged
                 with SnapshotStrategy().normalization_context(node.to_expr()):
@@ -105,7 +112,7 @@ class Registry:
         op_name = node_dict.get("op", "unknown").lower()
         node_ref = f"@{op_name}_{node_hash[: config.hash_length]}"
         node_dict_with_hash = freeze(node_dict | {"snapshot_hash": node_hash})
-        if node.__class__.__name__ == "Read" and "memtables" in dict(node.read_kwargs):
+        if isinstance(node, Read) and "memtables" in dict(node.read_kwargs):
             from xorq.common.utils.node_utils import update_read_kwargs  # noqa: PLC0415
 
             old_read_kwargs = node_dict_with_hash["read_kwargs"]

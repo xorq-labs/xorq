@@ -1,8 +1,10 @@
 import datetime
 import hashlib
+import itertools
 import json
 import os
 import pathlib
+import tempfile
 
 import dask
 import pandas as pd
@@ -21,6 +23,8 @@ from xorq.caching import (
     SourceCache,
     SourceSnapshotCache,
 )
+from xorq.catalog.backend import GitBackend
+from xorq.catalog.catalog import Catalog
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_read_path_md5sum,
 )
@@ -914,13 +918,15 @@ def test_read_kwargs_contains_hash_path_and_read_path(builds_dir):
 
     # inspect the YAML directly to verify both keys are serialized
     def find_read_kwargs(d):
-        if isinstance(d, dict):
-            if d.get("op") == "Read":
-                return [d["read_kwargs"]]
-            return [rk for v in d.values() for rk in find_read_kwargs(v)]
-        if isinstance(d, list):
-            return [rk for v in d for rk in find_read_kwargs(v)]
-        return []
+        match d:
+            case {"op": "Read", "read_kwargs": rk}:
+                return [rk]
+            case dict():
+                return [rk for v in d.values() for rk in find_read_kwargs(v)]
+            case list():
+                return [rk for v in d for rk in find_read_kwargs(v)]
+            case _:
+                return []
 
     all_read_kwargs = find_read_kwargs(loaded_yaml)
     assert all_read_kwargs
@@ -957,3 +963,73 @@ def test_roundtrip_database_table_preserves_node_type(builds_dir, users_df):
         if type(n) is rel.DatabaseTable
     )
     assert dts, "roundtripped database_table should contain a DatabaseTable node"
+
+
+def _make_three_table_join(tables, order):
+    """Build a three-way join chain: order[0].join(order[1]).select(order[1]).join(order[2]).select(order[2])."""
+    first, second, third = (tables[i] for i in order)
+    return (
+        first.join(second, second.columns)
+        .select(second)
+        .join(third, third.columns)
+        .select(third)
+    )
+
+
+@pytest.fixture
+def three_tables_mixed():
+    """Return (database_table, deferred_read, memtable) sharing the same data."""
+    tf = tempfile.NamedTemporaryFile(suffix=".csv")
+    pathlib.Path(tf.name).write_text("a,b\n1,2\n3,4")
+    con = xo.connect()
+    t0 = con.read_csv(tf.name, table_name="t0")
+    t1 = xo.deferred_read_csv(tf.name, con=con, table_name="t1")
+    t2 = xo.memtable(t1.execute(), name="t2")
+    yield (t0, t1, t2), tf
+
+
+@pytest.mark.parametrize(
+    "order",
+    tuple(itertools.permutations(range(3))),
+    ids=lambda o: "-".join(f"t{i}" for i in o),
+)
+def test_join_order_permutations_build_roundtrip(builds_dir, three_tables_mixed, order):
+    """build_expr / load_expr roundtrip works for every join ordering of
+    (database_table, deferred_read, memtable)."""
+    tables, _ = three_tables_mixed
+    expr = _make_three_table_join(tables, order)
+    expected = expr.execute()
+
+    build_path = build_expr(expr, builds_dir=builds_dir)
+    roundtrip_expr = load_expr(build_path)
+    actual = roundtrip_expr.execute()
+
+    assert_frame_equal(
+        actual.sort_values(list(actual.columns), ignore_index=True),
+        expected.sort_values(list(expected.columns), ignore_index=True),
+    )
+
+
+@pytest.mark.parametrize(
+    "order",
+    tuple(itertools.permutations(range(3))),
+    ids=lambda o: "-".join(f"t{i}" for i in o),
+)
+def test_join_order_permutations_catalog_roundtrip(tmp_path, three_tables_mixed, order):
+    """Catalog add / entry.expr roundtrip works for every join ordering of
+    (database_table, deferred_read, memtable)."""
+    repo = Catalog.init_repo_path(tmp_path / f"repo-{''.join(map(str, order))}")
+    catalog = Catalog(backend=GitBackend(repo=repo))
+
+    tables, _ = three_tables_mixed
+    expr = _make_three_table_join(tables, order)
+    expected = expr.execute()
+
+    entry = catalog.add(expr)
+    roundtrip_expr = entry.expr
+    actual = roundtrip_expr.execute()
+
+    assert_frame_equal(
+        actual.sort_values(list(actual.columns), ignore_index=True),
+        expected.sort_values(list(expected.columns), ignore_index=True),
+    )

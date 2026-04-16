@@ -696,8 +696,9 @@ class ExprLoader:
                 )
                 return ibis.memtable(df, schema=dr.schema, name=dr.name).op()
             resolved_kwargs = update_read_kwargs(dr.read_kwargs, (("hash_path", path),))
-            args = dict(zip(dr.__argnames__, dr.__args__))
-            args["read_kwargs"] = resolved_kwargs
+            args = dict(zip(dr.__argnames__, dr.__args__)) | {
+                "read_kwargs": resolved_kwargs
+            }
             return dr.__recreate__(args).make_dt()
 
         drs = tuple(
