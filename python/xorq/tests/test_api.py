@@ -100,33 +100,8 @@ def test_unbind(alltypes, expr_fn: Callable):
 
 
 @pytest.mark.parametrize(
-    ("extension", "method"),
-    [("parquet", xo.read_parquet), ("csv", xo.read_csv)],
-)
-def test_read(data_dir, extension, method):
-    table = method(
-        data_dir / extension / f"batting.{extension}", table_name=f"batting-{extension}"
-    )
-    assert table.execute() is not None
-
-
-@pytest.mark.parametrize(
     ("extension", "write", "read"),
     [
-        (
-            "parquet",
-            xo.to_parquet,
-            lambda path, schema: xo.read_parquet(
-                path, schema=schema.to_pyarrow()
-            ).execute(),
-        ),
-        (
-            "csv",
-            xo.to_csv,
-            lambda path, schema: xo.read_csv(
-                path, schema=schema.to_pyarrow()
-            ).execute(),
-        ),
         (
             "json",
             xo.to_json,

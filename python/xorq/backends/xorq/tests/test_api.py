@@ -5,34 +5,16 @@ import xorq.api as xo
 from xorq.api import SessionConfig
 
 
-def test_register_read_csv(csv_dir):
-    # this will use ls.options.backend: do we want to clear it out between function invocations?
-    api_batting = xo.read_csv(csv_dir / "batting.csv", table_name="api_batting")
-    result = xo.execute(api_batting)
-
-    assert result is not None
-
-
-def test_register_read_parquet(parquet_dir):
-    # this will use ls.options.backend: do we want to clear it out between function invocations?
-    api_batting = xo.read_parquet(
-        parquet_dir / "batting.parquet", table_name="api_batting"
-    )
-    result = xo.execute(api_batting)
-
-    assert result is not None
-
-
 @pytest.mark.xfail(reason="No purpose with no registration api")
 def test_executed_on_original_backend(parquet_dir, csv_dir, mocker):
     con = xo.config._backend_init()
     spy = mocker.spy(con, "execute")
 
-    parquet_table = xo.read_parquet(parquet_dir / "batting.parquet")[
+    parquet_table = con.read_parquet(parquet_dir / "batting.parquet")[
         lambda t: t.yearID == 2015
     ]
 
-    csv_table = xo.read_csv(csv_dir / "batting.csv")[lambda t: t.yearID == 2014]
+    csv_table = con.read_csv(csv_dir / "batting.csv")[lambda t: t.yearID == 2014]
 
     expr = parquet_table.join(
         csv_table,

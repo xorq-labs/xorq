@@ -547,7 +547,7 @@ def test_build_file_stability_and_relocatability(
         normalize_method=normalize_read_path_md5sum,
     )
     batting = xo.memtable(
-        xo.read_parquet(parquet_dir.joinpath("batting.parquet")).execute()
+        xo.connect().read_parquet(parquet_dir.joinpath("batting.parquet")).execute()
     )
     on = sorted(set(batting.columns).intersection(awards_players.columns))
     expr = awards_players.select(on).join(batting.select(on), predicates=on)

@@ -45,7 +45,6 @@ from xorq.vendor.ibis.expr.sql import SQLString
 
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
     from io import TextIOWrapper
     from pathlib import Path
 
@@ -56,8 +55,6 @@ if TYPE_CHECKING:
 __all__ = (
     "execute",
     "calc_split_column",
-    "read_csv",
-    "read_parquet",
     "read_postgres",
     "read_pyarrow_stream",
     "register",
@@ -89,121 +86,6 @@ def read_pyarrow_stream(
     con = con or _backend_init()
     rbr = pa.ipc.open_stream(source, **kwargs)
     return con.read_record_batches(rbr, table_name=table_name)
-
-
-def read_csv(
-    sources: str | Path | Sequence[str | Path],
-    table_name: str | None = None,
-    **kwargs: Any,
-) -> ir.Table:
-    """Lazily load a CSV or set of CSVs.
-
-    This function delegates to the `read_csv` method on the current default
-    backend (DuckDB or `xorq.config.default_backend`).
-
-    Parameters
-    ----------
-    sources
-        A filesystem path or URL or list of same.  Supports CSV and TSV files.
-    table_name
-        A name to refer to the table.  If not provided, a name will be generated.
-    kwargs
-        Backend-specific keyword arguments for the file type. For the DuckDB
-        backend used by default, please refer to:
-
-        * CSV/TSV: https://duckdb.org/docs/data/csv/overview.html#parameters.
-
-    Returns
-    -------
-    ir.Table
-        Table expression representing a file
-
-    Examples
-    --------
-    >>> import xorq.api as xo
-    >>> xo.options.interactive = True
-    >>> lines = '''a,b
-    ... 1,d
-    ... 2,
-    ... ,f
-    ... '''
-    >>> with open("/tmp/lines.csv", mode="w") as f:
-    ...     nbytes = f.write(lines)  # nbytes is unused
-    >>> t = xo.read_csv("/tmp/lines.csv")
-    >>> t
-    ┏━━━━━━━┳━━━━━━━━┓
-    ┃ a     ┃ b      ┃
-    ┡━━━━━━━╇━━━━━━━━┩
-    │ int64 │ string │
-    ├───────┼────────┤
-    │     1 │ d      │
-    │     2 │ NULL   │
-    │  NULL │ f      │
-    └───────┴────────┘
-
-    """
-    from xorq.config import _backend_init  # noqa: PLC0415
-
-    con = _backend_init()
-    return con.read_csv(sources, table_name=table_name, **kwargs)
-
-
-def read_parquet(
-    sources: str | Path | Sequence[str | Path],
-    table_name: str | None = None,
-    **kwargs: Any,
-) -> ir.Table:
-    """Lazily load a parquet file or set of parquet files.
-
-    This function delegates to the `read_parquet` method on the current default
-    backend (DuckDB or `ibis.config.default_backend`).
-
-    Parameters
-    ----------
-    sources
-        A filesystem path or URL or list of same.
-    table_name
-        A name to refer to the table.  If not provided, a name will be generated.
-    kwargs
-        Backend-specific keyword arguments for the file type. For the DuckDB
-        backend used by default, please refer to:
-
-        * Parquet: https://duckdb.org/docs/data/parquet
-
-    Returns
-    -------
-    ir.Table
-        Table expression representing a file
-
-    Examples
-    --------
-    >>> import xorq.api as xo
-    >>> import pandas as pd
-    >>> xo.options.interactive = True
-    >>> df = pd.DataFrame({"a": [1, 2, 3], "b": list("ghi")})
-    >>> df
-       a  b
-    0  1  g
-    1  2  h
-    2  3  i
-    >>> df.to_parquet("/tmp/data.parquet")
-    >>> t = xo.read_parquet("/tmp/data.parquet")
-    >>> t
-    ┏━━━━━━━┳━━━━━━━━┓
-    ┃ a     ┃ b      ┃
-    ┡━━━━━━━╇━━━━━━━━┩
-    │ int64 │ string │
-    ├───────┼────────┤
-    │     1 │ g      │
-    │     2 │ h      │
-    │     3 │ i      │
-    └───────┴────────┘
-
-    """
-    from xorq.config import _backend_init  # noqa: PLC0415
-
-    con = _backend_init()
-    return con.read_parquet(sources, table_name=table_name, **kwargs)
 
 
 def register(
