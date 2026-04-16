@@ -31,6 +31,5 @@ def load_expr_from_zip(zip_path, lazy=False, read_only_parquet_metadata=False):
             build_dir,
             lazy=lazy,
             read_only_parquet_metadata=read_only_parquet_metadata,
-            resolve_all_reads=True,
         )
         return expr

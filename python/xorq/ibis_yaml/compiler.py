@@ -669,7 +669,6 @@ class ExprLoader:
         raise_on_unbound: bool = True,
         lazy: bool = False,
         read_only_parquet_metadata: bool = False,
-        resolve_all_reads: bool = False,
     ):
         profiles = hydrate_cons(
             self.artifact_store.load_yaml(DumpFiles.profiles), lazy=lazy
@@ -682,10 +681,7 @@ class ExprLoader:
             )
         expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
         expr = self.deferred_reads_to_memtables(
-            expr,
-            self.expr_path,
-            read_only_parquet_metadata=read_only_parquet_metadata,
-            resolve_all_reads=resolve_all_reads,
+            expr, self.expr_path, read_only_parquet_metadata=read_only_parquet_metadata
         )
         if self.cache_dir:
             expr = self.replace_base_path(expr, base_path=Path(self.cache_dir))
@@ -693,7 +689,7 @@ class ExprLoader:
 
     @staticmethod
     def deferred_reads_to_memtables(
-        loaded, expr_path, read_only_parquet_metadata=False, resolve_all_reads=False
+        loaded, expr_path, read_only_parquet_metadata=False
     ):
         def deferred_read_to_memtable(dr):
             kw = dict(dr.read_kwargs)
@@ -706,15 +702,9 @@ class ExprLoader:
             mt = ibis.memtable(df, schema=dr.schema, name=dr.name)
             return mt.op()
 
-        def should_resolve(dr):
-            kw = dict(dr.read_kwargs)
-            if "read_path" not in kw:
-                return False
-            if resolve_all_reads:
-                return True
-            return MemtableTypes.inmemory in kw
-
-        drs = tuple(dr for dr in walk_nodes(Read, loaded) if should_resolve(dr))
+        drs = tuple(
+            dr for dr in walk_nodes(Read, loaded) if "read_path" in dict(dr.read_kwargs)
+        )
         replacements = {dr: deferred_read_to_memtable(dr) for dr in drs}
         op = loaded.op()
         if replacements:
@@ -751,13 +741,11 @@ def load_expr(expr_path, **kwargs):
     raise_on_unbound = kwargs.pop("raise_on_unbound", False)
     lazy = kwargs.pop("lazy", False)
     read_only_parquet_metadata = kwargs.pop("read_only_parquet_metadata", False)
-    resolve_all_reads = kwargs.pop("resolve_all_reads", False)
     expr_loader = ExprLoader(expr_path, **kwargs)
     return expr_loader.load_expr(
         raise_on_unbound=raise_on_unbound,
         lazy=lazy,
         read_only_parquet_metadata=read_only_parquet_metadata,
-        resolve_all_reads=resolve_all_reads,
     )
 
 
