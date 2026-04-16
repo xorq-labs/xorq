@@ -21,6 +21,7 @@ NON_TESTABLE = (
     "weather_flight.py",
     "gizmosql_demo.py",
     "semantic_builder_example.py",
+    "databricks_into_backend_example.py",
 )
 
 file_path = pathlib.Path(__file__).absolute()
