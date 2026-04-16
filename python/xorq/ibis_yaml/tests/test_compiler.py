@@ -933,3 +933,27 @@ def test_read_kwargs_contains_hash_path_and_read_path(builds_dir):
         read_path = pathlib.Path(kw["read_path"])
         assert not read_path.is_absolute(), f"read_path should be relative: {read_path}"
         assert hash_path.name == read_path.name
+
+
+def test_roundtrip_database_table_preserves_node_type(builds_dir, users_df):
+    """Roundtripping a con.register() expression must produce DatabaseTable, not Read or InMemoryTable."""
+    con = xo.connect()
+    t = con.register(users_df, table_name="users")
+    expr = t.filter(t.age > 30).select(t.user_id, t.name)
+
+    roundtrip_expr = do_roundtrip_expr(expr, builds_dir=builds_dir)
+
+    reads = tuple(walk_nodes((Read,), roundtrip_expr))
+    assert not reads, "roundtripped database_table should not contain Read nodes"
+
+    inmem = tuple(walk_nodes((rel.InMemoryTable,), roundtrip_expr))
+    assert not inmem, (
+        "roundtripped database_table should not contain InMemoryTable nodes"
+    )
+
+    dts = tuple(
+        n
+        for n in walk_nodes((rel.DatabaseTable,), roundtrip_expr)
+        if type(n) is rel.DatabaseTable
+    )
+    assert dts, "roundtripped database_table should contain a DatabaseTable node"
