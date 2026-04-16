@@ -52,6 +52,7 @@ from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.common.utils.node_utils import (
     change_read_table_name,
     recreate,
+    update_read_kwargs,
 )
 from xorq.config import _backend_init
 from xorq.expr.api import deferred_read_parquet, read_parquet
@@ -684,21 +685,25 @@ class ExprLoader:
     def deferred_reads_to_memtables(
         loaded, expr_path, read_only_parquet_metadata=False
     ):
-        def deferred_read_to_memtable(dr):
+        def resolve_read(dr):
             kw = dict(dr.read_kwargs)
             path = expr_path.joinpath(kw["read_path"])
-            df = (
-                pq.read_schema(path).empty_table().to_pandas()
-                if read_only_parquet_metadata
-                else read_parquet(path).execute()
-            )
-            mt = ibis.memtable(df, schema=dr.schema, name=dr.name)
-            return mt.op()
+            if MemtableTypes.inmemory in kw:
+                df = (
+                    pq.read_schema(path).empty_table().to_pandas()
+                    if read_only_parquet_metadata
+                    else read_parquet(path).execute()
+                )
+                return ibis.memtable(df, schema=dr.schema, name=dr.name).op()
+            resolved_kwargs = update_read_kwargs(dr.read_kwargs, (("hash_path", path),))
+            args = dict(zip(dr.__argnames__, dr.__args__))
+            args["read_kwargs"] = resolved_kwargs
+            return dr.__recreate__(args).make_dt()
 
         drs = tuple(
             dr for dr in walk_nodes(Read, loaded) if "read_path" in dict(dr.read_kwargs)
         )
-        replacements = {dr: deferred_read_to_memtable(dr) for dr in drs}
+        replacements = {dr: resolve_read(dr) for dr in drs}
         op = loaded.op()
         if replacements:
             op = replace_nodes(replace_from_mapping(replacements), op)
