@@ -856,7 +856,7 @@ class ExprMetadata:
         default=None, validator=optional(instance_of(ibis.expr.schema.Schema))
     )
     root_tag: Optional[str] = field(default=None)
-    parquet_snapshot_cache_keys: tuple[CacheKey, ...] = field(
+    effective_cache_keys: tuple[CacheKey, ...] = field(
         factory=tuple,
         validator=deep_iterable(
             _validate_cache_key_item, iterable_validator=instance_of(tuple)
@@ -885,7 +885,7 @@ class ExprMetadata:
                 ("root_tag", self.root_tag),
                 (
                     "cache_keys",
-                    list(map(asdict, self.parquet_snapshot_cache_keys)) or None,
+                    list(map(asdict, self.effective_cache_keys)) or None,
                 ),
                 ("params", self.params or None),
                 (
@@ -928,7 +928,7 @@ class ExprMetadata:
                 else None
             ),
             root_tag=data.get("root_tag"),
-            parquet_snapshot_cache_keys=cls._parse_cache_keys(data.get("cache_keys")),
+            effective_cache_keys=cls._parse_cache_keys(data.get("cache_keys")),
             composed_from=tuple(data.get("composed_from") or data.get("sources") or ()),
             params=tuple(data.get("params") or ()),
             sql_queries=tuple(tuple(q) for q in data.get("sql_queries", ())),
@@ -984,7 +984,7 @@ class ExprMetadata:
             schema_in=unbound_node.schema if unbound_node else None,
             schema_out=expr.as_table().schema(),
             root_tag=root_tag,
-            parquet_snapshot_cache_keys=parquet_snapshot_cache_keys,
+            effective_cache_keys=parquet_snapshot_cache_keys,
             composed_from=_extract_sources(catalog_tag_nodes),
             params=named_params,
             builders=builders,

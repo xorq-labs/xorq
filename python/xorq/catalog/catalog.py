@@ -847,7 +847,7 @@ class CatalogEntry:
 
     @property
     def parquet_snapshot_cache_keys(self):
-        return self.metadata.parquet_snapshot_cache_keys
+        return self.metadata.effective_cache_keys
 
     @cached_property
     def sidecar_metadata(self) -> dict:
