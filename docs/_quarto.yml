@@ -147,6 +147,7 @@ website:
           contents:
             - concepts/understanding_xorq/multi_engine_execution.qmd
             - concepts/understanding_xorq/intelligent_caching_system.qmd
+            - concepts/core_concepts/caching_internals.qmd
             - concepts/core_concepts/profile_based_connections.qmd
         - id: reproducibility-section
           section: "Reproducibility"
