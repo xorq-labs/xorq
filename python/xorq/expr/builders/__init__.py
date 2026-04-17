@@ -11,7 +11,7 @@ Both callbacks are optional (but at least one is required).  If only
 ``from_tag_node`` is provided, a minimal metadata dict ``{"type": tag_name}``
 is generated automatically.
 
-Built-in handlers (BSL, ML pipeline) are declared in ``_builtin_handlers()``.
+Built-in handlers (ML pipeline) are declared in ``_builtin_handlers()``.
 Third-party packages register via the ``"xorq.from_tag_node"`` entry point
 group — the loaded object must be a ``TagHandler``.
 
@@ -190,58 +190,6 @@ def _resolve_builder_from_tag(expr):
 # ---------------------------------------------------------------------------
 
 
-def _bsl_extract_metadata(tag_node):
-    meta = tag_node.metadata
-    table_meta = meta
-    while table_meta.get("bsl_op_type") != "SemanticTableOp":
-        source = table_meta.get("source")
-        if source is None:
-            break
-        table_meta = dict(source) if isinstance(source, tuple) else source
-    dims = tuple(d[0] for d in table_meta.get("dimensions", ()))
-    measures = tuple(m[0] for m in table_meta.get("measures", ()))
-    return {
-        "type": "semantic_model",
-        "description": f"{len(dims)} dims, {len(measures)} measures",
-        "dimensions": dims,
-        "measures": measures,
-    }
-
-
-def _bsl_from_tag_node(tag_node):
-    # TODO: BSL's from_tag_node returns the full query chain (SemanticAggregate),
-    # not the SemanticModel. We reconstruct only the base SemanticTableOp to
-    # get the SemanticModel back so callers can issue new .query() calls.
-    try:
-        from boring_semantic_layer.serialization import (  # noqa: PLC0415
-            BSLSerializationContext,
-            extract_xorq_metadata,
-            reconstruct_bsl_operation,
-        )
-    except ImportError:
-        raise ImportError(
-            "boring-semantic-layer is required to recover BSL models -- "
-            "install it with: uv pip install boring-semantic-layer"
-        ) from None
-
-    expr = tag_node.to_expr()
-    ctx = BSLSerializationContext()
-    metadata = extract_xorq_metadata(expr)
-    # Walk to innermost source (SemanticTableOp)
-    _MAX_DEPTH = 100
-    for _ in range(_MAX_DEPTH):
-        src = ctx.parse_field(metadata, "source")
-        if not src:
-            break
-        metadata = src
-    else:
-        raise RuntimeError(
-            f"_bsl_from_tag_node exceeded {_MAX_DEPTH} nesting levels; "
-            "possible circular metadata"
-        )
-    return reconstruct_bsl_operation(metadata, expr, ctx)
-
-
 def _ml_pipeline_extract_metadata(tag_node):
     from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: PLC0415
 
@@ -266,15 +214,10 @@ def _ml_from_tag_node(tag_node):
 
 
 def _builtin_handlers():
-    """Declare built-in handlers for BSL and ML pipeline tags."""
+    """Declare built-in handlers for ML pipeline tags."""
     from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: PLC0415
 
     return (
-        TagHandler(
-            tag_names=("bsl",),
-            extract_metadata=_bsl_extract_metadata,
-            from_tag_node=_bsl_from_tag_node,
-        ),
         TagHandler(
             tag_names=tuple(
                 str(k)
