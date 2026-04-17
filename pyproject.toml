@@ -190,7 +190,7 @@ docs = [
 ]
 
 [project.entry-points."xorq.backends"]
-xorq = "xorq.backends.xorq"
+xorq-datafusion = "xorq.backends.xorq"
 postgres = "xorq.backends.postgres"
 snowflake = "xorq.backends.snowflake"
 datafusion = "xorq.backends.datafusion"
