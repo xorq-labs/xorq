@@ -875,9 +875,7 @@ class ExprMetadata:
         """Convert a ``{key, relative_path}`` dict into a CacheKey, or None."""
         from xorq.common.utils.caching_utils import CacheKey  # noqa: PLC0415
 
-        if not raw:
-            return None
-        return CacheKey(**raw)
+        return CacheKey(**raw) if raw else None
 
     @classmethod
     def from_dict(cls, data):
