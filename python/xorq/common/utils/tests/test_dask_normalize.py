@@ -258,6 +258,49 @@ def test_parquet_cache_tokenize_stable_across_cloudpickle():
     assert token_before == token_after
 
 
+def test_loaded_parquet_dt_has_stable_token(tmp_path):
+    """Two loads of the same build zip produce equal `.ls.tokenized`.
+
+    Regression: `normalize_datafusion_databasetable` used to hash the
+    execution plan string, which contains the extract dir path — fresh
+    per load — so tokens diverged across loads.
+    """
+    import pandas as pd  # noqa: PLC0415
+
+    from xorq.catalog.expr_utils import (  # noqa: PLC0415
+        build_expr_context_zip,
+        load_expr_from_zip,
+    )
+
+    df = pd.DataFrame({"x": [1, 2, 3]})
+    parquet_path = tmp_path / "data.parquet"
+    df.to_parquet(parquet_path)
+    expr = xo.deferred_read_parquet(parquet_path, xo.connect(), "t")
+    with build_expr_context_zip(expr) as zip_path:
+        a = load_expr_from_zip(zip_path)
+        b = load_expr_from_zip(zip_path)
+        assert a.ls.tokenized == b.ls.tokenized
+
+
+def test_datafusion_parquet_token_stable_across_registered_path(tmp_path):
+    """Registering the same parquet content at a different path yields the
+    same token — content, not path, is what the normalizer keys on."""
+    import pandas as pd  # noqa: PLC0415
+
+    df = pd.DataFrame({"x": [1, 2, 3]})
+    p1 = tmp_path / "a" / "data.parquet"
+    p2 = tmp_path / "b" / "data.parquet"
+    for p in (p1, p2):
+        p.parent.mkdir(parents=True)
+        df.to_parquet(p)
+
+    con1 = xo.datafusion.connect()
+    con2 = xo.datafusion.connect()
+    t1 = con1.read_parquet(p1, "t")
+    t2 = con2.read_parquet(p2, "t")
+    assert dask.base.tokenize(t1) == dask.base.tokenize(t2)
+
+
 def test_different_cache_types_produce_different_hashes():
     t = xo.memtable({"a": [1, 2, 3], "b": ["x", "y", "z"]})
     c0 = t.cache()

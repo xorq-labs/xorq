@@ -1,3 +1,4 @@
+import hashlib
 import itertools
 import pathlib
 import re
@@ -13,6 +14,7 @@ import xorq.expr.operations as xops
 import xorq.expr.relations as rel
 import xorq.vendor.ibis.expr.operations.relations as ir
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+    file_digest,
     normalize_seq_with_caller,
 )
 from xorq.expr import api
@@ -22,6 +24,46 @@ from xorq.vendor.ibis.expr.operations.udf import (
     InputType,
     ScalarUDF,
 )
+
+
+_DATAFUSION_CONTENT_DIGESTS_ATTR = "_xorq_content_digests"
+# DataFusion strips the leading "/" when displaying execution plans, so paths
+# appear as e.g. "tmp/xorq-catalog-ab/build/x.parquet". Match on the .parquet/
+# .csv suffix and restore the leading "/".
+_DATAFUSION_FILE_PATH_RE = re.compile(r"[\w/\-._~]+\.(?:parquet|csv)\b")
+
+
+def _extract_plan_file_paths(ep_str):
+    paths = []
+    for m in _DATAFUSION_FILE_PATH_RE.finditer(ep_str):
+        s = m.group(0)
+        paths.append(pathlib.Path(s if s.startswith("/") else "/" + s))
+    return sorted(paths)
+
+
+def _compute_datafusion_content_digests(dt):
+    table = dt.source.con.table(dt.name)
+    paths = _extract_plan_file_paths(str(table.execution_plan()))
+    if not paths:
+        return None
+    return tuple(file_digest(p, hashlib.md5) for p in paths)
+
+
+def stash_datafusion_content_digests(dt):
+    """Precompute and cache content digests for a DataFusion DT backed by files.
+
+    Called at load time so later ``dask.base.tokenize`` doesn't need the
+    files at their original paths — the extract dir used by
+    ``load_expr_from_zip`` is temporary and differs per load.
+    """
+    digests = _compute_datafusion_content_digests(dt)
+    if digests is None:
+        return
+    store = getattr(dt.source, _DATAFUSION_CONTENT_DIGESTS_ATTR, None)
+    if store is None:
+        store = {}
+        setattr(dt.source, _DATAFUSION_CONTENT_DIGESTS_ATTR, store)
+    store[dt.name] = digests
 
 
 def expr_is_bound(expr):
@@ -86,11 +128,20 @@ def normalize_datafusion_databasetable(dt):
     if ep_str.startswith(("ParquetExec:", "CsvExec:")) or re.match(
         r"DataSourceExec:.+file_type=(csv|parquet)", ep_str
     ):
+        # ep_str contains absolute file paths that vary per load (e.g.
+        # load_expr_from_zip picks a fresh extract dir). Hash file contents
+        # instead so tokens are stable across processes.
+        store = getattr(dt.source, _DATAFUSION_CONTENT_DIGESTS_ATTR, None)
+        digests = (store or {}).get(dt.name)
+        if digests is None:
+            digests = _compute_datafusion_content_digests(dt)
+        if digests is None:
+            raise ValueError(
+                f"no parquet/csv paths extractable from execution plan: {ep_str!r}"
+            )
         return normalize_seq_with_caller(
             dt.schema.to_pandas(),
-            # ep_str denotes the parquet files to be read
-            # FIXME: md5sum on detected .parquet files?
-            ep_str,
+            digests,
         )
     elif ep_str.startswith(("MemoryExec:", "DataSourceExec:")):
         return normalize_memory_databasetable(dt)
