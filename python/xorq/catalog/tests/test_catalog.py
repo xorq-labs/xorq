@@ -823,8 +823,7 @@ def test_cache_keys_stores_key_and_relative_path(catalog, tmp_path):
     expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
     entry = catalog.add(expr)
 
-    assert len(entry.resolved_snapshot_cache_key) == 1
-    ck = entry.resolved_snapshot_cache_key[0]
+    ck = entry.resolved_snapshot_cache_key
     assert isinstance(ck, CacheKey)
     assert ck.relative_path == relative
     assert ck.key  # non-empty hash string
@@ -858,8 +857,7 @@ def test_base_path_is_silently_dropped_through_catalog_round_trip(catalog, tmp_p
     expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
     entry = catalog.add(expr)
 
-    assert len(entry.resolved_snapshot_cache_key) == 1
-    ck = entry.resolved_snapshot_cache_key[0]
+    ck = entry.resolved_snapshot_cache_key
     assert ck.relative_path == "my_cache"
     assert ck.key
 
