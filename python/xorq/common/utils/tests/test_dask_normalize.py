@@ -74,18 +74,14 @@ def test_tokenize_datafusion_parquet_expr(alltypes_df, tmp_path, snapshot):
     alltypes_df.to_parquet(path)
     con = xo.datafusion.connect()
     t = con.register(path, "t")
-    # work around tmp_path variation
-    (prefix, suffix) = (
-        re.escape(part)
-        for part in (
-            r"file_groups={1 group: [[",
-            r"]]",
-        )
-    )
-    to_hash = re.sub(
-        prefix + f".*?/{path.name}" + suffix,
-        prefix + f"/{path.name}" + suffix,
-        str(tuple(dask.base.normalize_token(t))),
+    # DataFusion strips the leading "/" when rendering the plan, so the path
+    # in the normalized token has no leading slash. Strip both forms to make
+    # the snapshot stable across runs.
+    parent = str(path.parent)
+    to_hash = (
+        str(tuple(dask.base.normalize_token(t)))
+        .replace(parent + "/", "")
+        .replace(parent.lstrip("/") + "/", "")
     )
     actual = hashlib.md5(to_hash.encode(), usedforsecurity=False).hexdigest()
     snapshot.assert_match(actual, "datafusion_key.txt")
@@ -280,25 +276,6 @@ def test_loaded_parquet_dt_has_stable_token(tmp_path):
         a = load_expr_from_zip(zip_path)
         b = load_expr_from_zip(zip_path)
         assert a.ls.tokenized == b.ls.tokenized
-
-
-def test_datafusion_parquet_token_stable_across_registered_path(tmp_path):
-    """Registering the same parquet content at a different path yields the
-    same token — content, not path, is what the normalizer keys on."""
-    import pandas as pd  # noqa: PLC0415
-
-    df = pd.DataFrame({"x": [1, 2, 3]})
-    p1 = tmp_path / "a" / "data.parquet"
-    p2 = tmp_path / "b" / "data.parquet"
-    for p in (p1, p2):
-        p.parent.mkdir(parents=True)
-        df.to_parquet(p)
-
-    con1 = xo.datafusion.connect()
-    con2 = xo.datafusion.connect()
-    t1 = con1.read_parquet(p1, "t")
-    t2 = con2.read_parquet(p2, "t")
-    assert dask.base.tokenize(t1) == dask.base.tokenize(t2)
 
 
 def test_different_cache_types_produce_different_hashes():

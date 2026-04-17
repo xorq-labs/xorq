@@ -699,14 +699,7 @@ class ExprLoader:
             args = dict(zip(dr.__argnames__, dr.__args__)) | {
                 "read_kwargs": resolved_kwargs
             }
-            dt = dr.__recreate__(args).make_dt()
-            from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
-                stash_datafusion_content_digests,
-            )
-
-            if dt.source.name in ("datafusion", "xorq"):
-                stash_datafusion_content_digests(dt)
-            return dt
+            return dr.__recreate__(args).make_dt()
 
         drs = tuple(
             dr for dr in walk_nodes(Read, loaded) if "read_path" in dict(dr.read_kwargs)
