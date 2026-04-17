@@ -418,7 +418,7 @@ def normalize_backend(con):
         con_details = {k: con_dct[k] for k in ("host", "port", "dbname")}
     elif name == "pandas":
         con_details = id(con.dictionary)
-    elif name in ("datafusion", "duckdb", "xorq", "gizmosql"):
+    elif name in ("datafusion", "duckdb", "xorq-datafusion", "gizmosql"):
         con_details = (con._profile.con_name, con._profile.kwargs_tuple)
     elif name == "trino":
         con_details = con.con.host
