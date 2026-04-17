@@ -531,7 +531,11 @@ def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
 def _remotetable_to_yaml(op: RemoteTable, context: TranslationContext) -> dict:
     deterministic_name = dask.base.tokenize(op)
     profile_name = op.source._profile.hash_name
-    remote_expr_yaml = context.translate_to_yaml(op.remote_expr)
+    context.push_remote_table(op.name)
+    try:
+        remote_expr_yaml = context.translate_to_yaml(op.remote_expr)
+    finally:
+        context.pop_remote_table()
     return freeze(
         {
             "op": "RemoteTable",
@@ -596,7 +600,10 @@ def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
     table_name = op.name
     read_kwargs = freeze(op.read_kwargs)
     if prefix := get_uid_prefix(table_name):
-        table_name = f"{prefix}{dask.base.tokenize(op)}"
+        rename_key = op
+        if (outer := context.current_remote_table) is not None:
+            rename_key = (op, outer)
+        table_name = f"{prefix}{dask.base.tokenize(rename_key)}"
         read_kwargs = update_read_kwargs(read_kwargs, (("table_name", table_name),))
     return freeze(
         {

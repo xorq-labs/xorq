@@ -171,10 +171,21 @@ class TranslationContext:
         converter=toolz.excepts(TypeError, Path),
         validator=_is_absolute_path,
     )
+    remote_table_stack: list = field(factory=list, eq=False)
 
     @property
     def definitions(self):
         return self.registry.getstate()
+
+    def push_remote_table(self, ident: str) -> None:
+        self.remote_table_stack.append(ident)
+
+    def pop_remote_table(self) -> None:
+        self.remote_table_stack.pop()
+
+    @property
+    def current_remote_table(self) -> str | None:
+        return self.remote_table_stack[-1] if self.remote_table_stack else None
 
     def translate_from_yaml(self, yaml_dict: dict) -> Any:
         return translate_from_yaml(yaml_dict, self)
