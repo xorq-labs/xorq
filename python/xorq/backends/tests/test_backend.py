@@ -26,7 +26,7 @@ def get_method(connect_parts):
         ("postgres", "connect_env"),
         ("datafusion", "connect"),
         (
-            "xorq",
+            "xorq-datafusion",
             "connect",
         ),
         ("pandas", "connect"),
@@ -58,7 +58,7 @@ def test_con_equality(connect_parts):
             ],
         ),
         (
-            "xorq",
+            "xorq-datafusion",
             "connect",
         ),
         ("pandas", "connect"),

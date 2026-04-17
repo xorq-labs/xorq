@@ -51,7 +51,13 @@ def normalize_inmemorytable(dt):
 
 
 def normalize_memory_databasetable(dt):
-    if dt.source.name not in ("pandas", "xorq", "datafusion", "duckdb", "sqlite"):
+    if dt.source.name not in (
+        "pandas",
+        "xorq-datafusion",
+        "datafusion",
+        "duckdb",
+        "sqlite",
+    ):
         raise ValueError(f"expected in-memory backend, got {dt.source.name!r}")
     return normalize_seq_with_caller(
         # we are normalizing the data, we don't care about the connection
@@ -73,7 +79,7 @@ def normalize_pandas_databasetable(dt):
 
 
 def normalize_datafusion_databasetable(dt):
-    if dt.source.name not in ("datafusion", "xorq"):
+    if dt.source.name not in ("datafusion", "xorq-datafusion"):
         raise ValueError(f"expected datafusion/xorq backend, got {dt.source.name!r}")
     table = dt.source.con.table(dt.name)
     ep_str = str(table.execution_plan())
@@ -248,7 +254,7 @@ def rename_unbound_static(op, prefix="static-name"):
 
 
 def normalize_xorq_databasetable(dt):
-    if dt.source.name != "xorq":
+    if dt.source.name != "xorq-datafusion":
         raise ValueError(f"expected xorq backend, got {dt.source.name!r}")
     if isinstance(dt, rel.FlightExpr):
         return dask.base.normalize_token(
@@ -363,7 +369,7 @@ def normalize_databasetable(dt):
         "datafusion": normalize_datafusion_databasetable,
         "postgres": normalize_postgres_databasetable,
         "snowflake": normalize_snowflake_databasetable,
-        "xorq": normalize_xorq_databasetable,
+        "xorq-datafusion": normalize_xorq_databasetable,
         "duckdb": normalize_duckdb_databasetable,
         "trino": normalize_remote_databasetable,
         "gizmosql": normalize_remote_databasetable,

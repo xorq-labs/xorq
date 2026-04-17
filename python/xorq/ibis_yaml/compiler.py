@@ -367,7 +367,7 @@ def _extract_sql_queries(expr, kind) -> tuple[tuple[str, str, str], ...]:
     match kind:
         case ExprKind.UnboundExpr:
             sql = str(xorq_to_sql(clean)).strip()
-            return (("main", "xorq", sql),) if sql else ()
+            return (("main", "xorq-datafusion", sql),) if sql else ()
         case _:
             sql_plans, deferred_reads = generate_sql_plans(clean)
             return tuple(
