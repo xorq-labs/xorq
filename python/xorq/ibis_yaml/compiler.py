@@ -83,7 +83,7 @@ def _ensure_translate_registered():
     import xorq.ibis_yaml.translate  # noqa: PLC0415, F401
 
 
-memory_backends = ("pandas", "duckdb", "datafusion", "xorq")
+memory_backends = ("pandas", "duckdb", "datafusion", "xorq-datafusion")
 table_like_ops = tuple(o for o in opaque_ops if issubclass(o, DatabaseTable))
 
 

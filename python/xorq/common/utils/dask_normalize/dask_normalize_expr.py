@@ -271,7 +271,7 @@ def normalize_xorq_databasetable(dt):
         )
     native_source = dt.source._sources.get_backend(dt)
 
-    if native_source.name == "xorq":
+    if native_source.name == "xorq-datafusion":
         return normalize_datafusion_databasetable(dt)
     new_dt = rel.make_native_op(dt)
     return dask.base.normalize_token(new_dt)
