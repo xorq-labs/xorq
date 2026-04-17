@@ -1,13 +1,17 @@
 import operator
 from pathlib import Path
 
+import cloudpickle
 import pandas as pd
 import pyarrow as pa
 import pytest
 import toolz
 
 import xorq.api as xo
-from xorq.flight.exchanger import make_udxf
+from xorq.flight.exchanger import (
+    UnboundExprExchanger,
+    make_udxf,
+)
 from xorq.flight.tests.conftest import (
     do_agg,
     field_name,
@@ -15,6 +19,27 @@ from xorq.flight.tests.conftest import (
     my_udf_on_expr,
     return_type,
 )
+
+
+def test_unbound_exchanger_command_stable_across_reduce(tmp_path):
+    """`UnboundExprExchanger.command` embeds the expression's token.
+
+    The exchanger's ``__reduce__`` builds a zip and reloads on unpickle,
+    producing a fresh extract dir each time. If the token depends on that
+    dir (via DataFusion's execution plan string), two round-trips produce
+    different commands and client/server registration breaks.
+    """
+    df = pd.DataFrame({"x": [1.0, 2.0, 3.0]})
+    parquet_path = tmp_path / "data.parquet"
+    df.to_parquet(parquet_path)
+
+    bound = xo.deferred_read_parquet(parquet_path, xo.connect(), "bound")
+    unbound = xo.table(bound.schema(), name="unbound")
+    joined = unbound.join(bound, unbound.x == bound.x).select(unbound.x)
+
+    exchanger_once = cloudpickle.loads(cloudpickle.dumps(UnboundExprExchanger(joined)))
+    exchanger_twice = cloudpickle.loads(cloudpickle.dumps(exchanger_once))
+    assert exchanger_once.command == exchanger_twice.command
 
 
 def test_flight_expr(con, diamonds, baseline):
