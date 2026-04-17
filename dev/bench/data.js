@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776420469057,
+  "lastUpdate": 1776424610092,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -6138,6 +6138,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.03275021437722716",
             "extra": "mean: 252.08906699999716 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "45543592+ghoersti@users.noreply.github.com",
+            "name": "ghoersti",
+            "username": "ghoersti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "434add6466398d0893f81bc145e639a1066f196f",
+          "message": "refactor: drop BSL builtin tag handler, rely on entry-point discovery… (#1827)\n\n… (XOR-296)\n\nBSL now ships its own TagHandler via the xorq.from_tag_node entry point\npending (boring-semantic-layer#235), xorq no longer needs BSL-specific\ncode. Remove _bsl_extract_metadata, _bsl_from_tag_node, and the BSL\nentry from _builtin_handlers — only the ML pipeline handler remains\nbuilt-in.\n\nCo-authored-by: ghoersti <ghoersti@users.noreply.github.com>\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-17T07:13:38-04:00",
+          "tree_id": "54fd9c78df1e3c9ef04e7dc5bff1d8a3bb1bf82b",
+          "url": "https://github.com/xorq-labs/xorq/commit/434add6466398d0893f81bc145e639a1066f196f"
+        },
+        "date": 1776424607261,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.499135346350636,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015582747348038719",
+            "extra": "mean: 105.27273941666475 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.59011418661805,
+            "unit": "iter/sec",
+            "range": "stddev: 0.047279571410031286",
+            "extra": "mean: 217.85950400000615 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7786556441004265,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14134132223844276",
+            "extra": "mean: 1.2842647549999981 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.705498789709612,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007374703534733497",
+            "extra": "mean: 175.26951400000144 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.992173822282218,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02857490290371495",
+            "extra": "mean: 250.49009500000352 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.0831828046174365,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027168242195684922",
+            "extra": "mean: 196.72713699999633 msec\nrounds: 6"
           }
         ]
       }
