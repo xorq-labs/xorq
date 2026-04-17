@@ -405,11 +405,12 @@ class FlightUDXF(DatabaseTableView):
                 rbr_in = instrument_reader(rbr_in, "input: ")
             with flight_udxf.make_server() as server:
                 client = server.client
-                client.do_action(
-                    AddExchangeAction.name,
-                    self.udxf,
-                    options=client._options,
-                )
+                if not getattr(self.udxf, "_xorq_server_has_command", False):
+                    client.do_action(
+                        AddExchangeAction.name,
+                        self.udxf,
+                        options=client._options,
+                    )
                 (fut, rbr_out) = client.do_exchange_batches(self.udxf.command, rbr_in)
                 if do_instrument_reader:
                     rbr_out = instrument_reader(rbr_out, "output: ")
