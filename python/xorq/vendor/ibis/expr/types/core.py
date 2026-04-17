@@ -870,41 +870,6 @@ class ExprMetadata:
         factory=tuple, validator=deep_iterable(instance_of(dict))
     )
 
-    def to_dict(self):
-        return {
-            key: value
-            for key, value in (
-                ("kind", str(self.kind)),
-                (
-                    "schema_in",
-                    toolz.valmap(str, self.schema_in) if self.schema_in else None,
-                ),
-                ("schema_out", toolz.valmap(str, self.schema_out)),
-                ("root_tag", self.root_tag),
-                (
-                    "cache_keys",
-                    asdict(self.resolved_snapshot_cache_key)
-                    if self.resolved_snapshot_cache_key
-                    else None,
-                ),
-                ("params", self.params or None),
-                (
-                    "composed_from",
-                    list(self.composed_from) if self.composed_from else None,
-                ),
-                (
-                    "sql_queries",
-                    [list(q) for q in self.sql_queries] if self.sql_queries else None,
-                ),
-                (
-                    "lineage",
-                    self.lineage.to_dict() if self.lineage else None,
-                ),
-                ("builders", list(self.builders) if self.builders else None),
-            )
-            if value is not None
-        }
-
     @staticmethod
     def _parse_cache_key(raw):
         """Convert a ``{key, relative_path}`` dict into a CacheKey, or None."""
@@ -987,6 +952,41 @@ class ExprMetadata:
             params=named_params,
             builders=builders,
         )
+
+    def to_dict(self):
+        return {
+            key: value
+            for key, value in (
+                ("kind", str(self.kind)),
+                (
+                    "schema_in",
+                    toolz.valmap(str, self.schema_in) if self.schema_in else None,
+                ),
+                ("schema_out", toolz.valmap(str, self.schema_out)),
+                ("root_tag", self.root_tag),
+                (
+                    "cache_keys",
+                    asdict(self.resolved_snapshot_cache_key)
+                    if self.resolved_snapshot_cache_key
+                    else None,
+                ),
+                ("params", self.params or None),
+                (
+                    "composed_from",
+                    list(self.composed_from) if self.composed_from else None,
+                ),
+                (
+                    "sql_queries",
+                    [list(q) for q in self.sql_queries] if self.sql_queries else None,
+                ),
+                (
+                    "lineage",
+                    self.lineage.to_dict() if self.lineage else None,
+                ),
+                ("builders", list(self.builders) if self.builders else None),
+            )
+            if value is not None
+        }
 
 
 @frozen

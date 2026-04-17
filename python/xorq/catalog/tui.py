@@ -100,9 +100,11 @@ def _format_cached(value: bool | None) -> str:
 
 
 def get_cache_key_path(cache_key: CacheKey | None) -> str | None:
-    if cache_key is None:
-        return None
-    return str(resolve_parquet_cache_path(cache_key.relative_path, cache_key.key))
+    return (
+        str(resolve_parquet_cache_path(cache_key.relative_path, cache_key.key))
+        if cache_key is not None
+        else None
+    )
 
 
 @frozen
