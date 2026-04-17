@@ -846,8 +846,8 @@ class CatalogEntry:
         return load_expr_from_zip(self.catalog_path, lazy=True)
 
     @property
-    def parquet_snapshot_cache_keys(self):
-        return self.metadata.effective_cache_keys
+    def resolved_snapshot_cache_key(self):
+        return self.metadata.resolved_snapshot_cache_key
 
     @cached_property
     def sidecar_metadata(self) -> dict:

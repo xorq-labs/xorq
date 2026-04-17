@@ -31,7 +31,7 @@ from xorq.catalog.expr_utils import (
 from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
 )
-from xorq.catalog.tui import get_cache_keys_paths
+from xorq.catalog.tui import get_cache_key_path
 from xorq.catalog.zip_utils import (
     BuildZip,
     with_pure_suffix,
@@ -823,8 +823,8 @@ def test_cache_keys_stores_key_and_relative_path(catalog, tmp_path):
     expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
     entry = catalog.add(expr)
 
-    assert len(entry.parquet_snapshot_cache_keys) == 1
-    ck = entry.parquet_snapshot_cache_keys[0]
+    assert len(entry.resolved_snapshot_cache_key) == 1
+    ck = entry.resolved_snapshot_cache_key[0]
     assert isinstance(ck, CacheKey)
     assert ck.relative_path == relative
     assert ck.key  # non-empty hash string
@@ -840,15 +840,15 @@ def test_cache_keys_paths_relocatable(catalog, tmp_path, monkeypatch):
     expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
     entry = catalog.add(expr)
 
-    ck = entry.parquet_snapshot_cache_keys[0]
+    ck = entry.resolved_snapshot_cache_key
     expected_name = ck.key + ".parquet"
 
-    paths_at_A = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
-    assert paths_at_A[0] == str(cache_dir_A / relative / expected_name)
+    path_at_A = get_cache_key_path(entry.resolved_snapshot_cache_key)
+    assert path_at_A == str(cache_dir_A / relative / expected_name)
 
     monkeypatch.setattr("xorq.caching.storage.get_xorq_cache_dir", lambda: cache_dir_B)
-    paths_at_B = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
-    assert paths_at_B[0] == str(cache_dir_B / relative / expected_name)
+    path_at_B = get_cache_key_path(entry.resolved_snapshot_cache_key)
+    assert path_at_B == str(cache_dir_B / relative / expected_name)
 
 
 def test_base_path_is_silently_dropped_through_catalog_round_trip(catalog, tmp_path):
@@ -858,8 +858,8 @@ def test_base_path_is_silently_dropped_through_catalog_round_trip(catalog, tmp_p
     expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
     entry = catalog.add(expr)
 
-    assert len(entry.parquet_snapshot_cache_keys) == 1
-    ck = entry.parquet_snapshot_cache_keys[0]
+    assert len(entry.resolved_snapshot_cache_key) == 1
+    ck = entry.resolved_snapshot_cache_key[0]
     assert ck.relative_path == "my_cache"
     assert ck.key
 
