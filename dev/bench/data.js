@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776174092050,
+  "lastUpdate": 1776385105486,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -6006,6 +6006,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.004642967614912205",
             "extra": "mean: 172.0485296666728 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "05d8c32dc568641536cb5e3cce09c29135aa62b8",
+          "message": "feat(catalog): CLI-settable default catalog (#1828)\n\n## Summary\n\n- Adds `xorq catalog default [--set NAME | --unset]` subcommand to\npersist a default catalog name across invocations\n- Resolution order: CLI flags (`--name`/`--path`) >\n`XORQ_DEFAULT_CATALOG` env var > config file\n(`~/.config/xorq/catalog-default`) > hardcoded `\"default\"`\n- Wired through the existing `env_config` / `.env.xorq.template` pattern\n\nCloses XOR-9\n\n## Test plan\n\n- [x] 12 new tests in `test_catalog_default.py` covering resolution\norder, `from_default()` integration, and CLI set/show/unset behavior\n- [x] All 40 existing `test_catalog_ctor.py` tests still pass\n- [ ] Manual: `xorq catalog default`, `xorq catalog default --set foo`,\n`xorq catalog default --unset`\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-16T20:14:50-04:00",
+          "tree_id": "273268de0e9d2a678f58c8866956feb38b84a3dd",
+          "url": "https://github.com/xorq-labs/xorq/commit/05d8c32dc568641536cb5e3cce09c29135aa62b8"
+        },
+        "date": 1776385102939,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.358700666394471,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013916249883643083",
+            "extra": "mean: 119.6358190000062 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.857118126917672,
+            "unit": "iter/sec",
+            "range": "stddev: 0.019911660592037052",
+            "extra": "mean: 205.8834012000034 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7146536937605584,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1984958363971833",
+            "extra": "mean: 1.3992791315999908 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.618134103228627,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02540802995955074",
+            "extra": "mean: 216.53767033332372 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.181160225810038,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01450137999135241",
+            "extra": "mean: 193.00696300000197 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.084089182753809,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010171391708042796",
+            "extra": "mean: 196.69206499999822 msec\nrounds: 6"
           }
         ]
       }
