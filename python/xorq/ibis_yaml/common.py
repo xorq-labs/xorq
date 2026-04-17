@@ -1,5 +1,6 @@
 import base64
 import functools
+from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ from attr import (
     field,
     frozen,
 )
+from attr.validators import instance_of
 from dask.base import tokenize
 
 import xorq.expr.datatypes as dt
@@ -171,17 +173,21 @@ class TranslationContext:
         converter=toolz.excepts(TypeError, Path),
         validator=_is_absolute_path,
     )
-    remote_table_stack: list = field(factory=list, eq=False)
+    remote_table_stack: list[str] = field(
+        validator=instance_of(list), factory=list, eq=False
+    )
 
     @property
     def definitions(self):
         return self.registry.getstate()
 
-    def push_remote_table(self, ident: str) -> None:
+    @contextmanager
+    def remote_table_scope(self, ident: str):
         self.remote_table_stack.append(ident)
-
-    def pop_remote_table(self) -> None:
-        self.remote_table_stack.pop()
+        try:
+            yield
+        finally:
+            self.remote_table_stack.pop()
 
     @property
     def current_remote_table(self) -> str | None:

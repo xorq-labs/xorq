@@ -21,9 +21,8 @@ def _cleanup_one(path: str):
 
 
 def _cleanup_all():
-    for p in list(_live_extract_dirs):
-        shutil.rmtree(p, ignore_errors=True)
-    _live_extract_dirs.clear()
+    for p in tuple(_live_extract_dirs):
+        _cleanup_one(p)
 
 
 atexit.register(_cleanup_all)
