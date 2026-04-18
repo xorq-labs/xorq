@@ -1541,3 +1541,145 @@ def test_run_expr_builder_entry(runner, catalog_path, saved_registry):
     )
     assert result.exit_code == 0, result.output
     assert "x" in result.output
+
+
+# --- run-cached command ---
+
+
+def test_run_cached_single_entry(runner, catalog_with_source_and_transform, tmp_path):
+    catalog_path, _, _ = catalog_with_source_and_transform
+    cache_dir = tmp_path / "cache"
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run-cached",
+            "src",
+            "--cache-dir",
+            str(cache_dir),
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "user_id" in result.output
+    assert cache_dir.exists()
+    assert any(cache_dir.iterdir())
+
+
+def test_run_cached_two_entries(runner, catalog_with_source_and_transform, tmp_path):
+    catalog_path, _, _ = catalog_with_source_and_transform
+    cache_dir = tmp_path / "cache"
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run-cached",
+            "src",
+            "trn",
+            "--cache-dir",
+            str(cache_dir),
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "user_id" in result.output
+
+
+def test_run_cached_snapshot_type(runner, catalog_with_source_and_transform, tmp_path):
+    catalog_path, _, _ = catalog_with_source_and_transform
+    cache_dir = tmp_path / "cache"
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run-cached",
+            "src",
+            "--cache-type",
+            "snapshot",
+            "--cache-dir",
+            str(cache_dir),
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "user_id" in result.output
+
+
+def test_run_cached_ttl(runner, catalog_with_source_and_transform, tmp_path):
+    catalog_path, _, _ = catalog_with_source_and_transform
+    cache_dir = tmp_path / "cache"
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run-cached",
+            "src",
+            "--ttl",
+            "60",
+            "--cache-dir",
+            str(cache_dir),
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "user_id" in result.output
+
+
+def test_run_cached_with_params(runner, catalog_with_parameterized_entries, tmp_path):
+    """run-cached with -p binds a NamedScalarParameter before caching."""
+    catalog_path, _, _ = catalog_with_parameterized_entries
+    cache_dir = tmp_path / "cache"
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run-cached",
+            "psrc",
+            "-p",
+            "threshold=25.0",
+            "--cache-dir",
+            str(cache_dir),
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "3,30" in result.output
+    assert "1,10" not in result.output
+    assert "2,20" not in result.output
+
+
+def test_run_cached_no_entries(runner, catalog_with_source_and_transform, tmp_path):
+    catalog_path, _, _ = catalog_with_source_and_transform
+    cache_dir = tmp_path / "cache"
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run-cached",
+            "--cache-dir",
+            str(cache_dir),
+        ],
+    )
+    assert result.exit_code != 0
+    assert "At least one entry is required" in result.output

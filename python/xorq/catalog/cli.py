@@ -1032,3 +1032,197 @@ def run(
                 )
                 if file_metrics:
                     rl.log_span_event(span, "catalog_run.output_written", file_metrics)
+
+
+@cli.command("run-cached")
+@click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
+@click.option(
+    "-c",
+    "--code",
+    default=None,
+    help="Inline Ibis code expression applied to `source`.",
+)
+@click.option(
+    "-o",
+    "--output-path",
+    default=None,
+    help=f"Path to write output (default: {os.devnull})",
+)
+@click.option(
+    "-f",
+    "--format",
+    "output_format",
+    type=click.Choice([f.value for f in OutputFormats]),
+    default=OutputFormats.default,
+    help="Output format (default: parquet).",
+)
+@click.option("--limit", type=int, default=None, help="Limit number of rows to output.")
+@click.option(
+    "-i",
+    "--instream",
+    type=click.File("rb"),
+    default="-",
+    help="Stream to read Arrow IPC record batches from (default: stdin).",
+)
+@click.option(
+    "--fuse/--no-fuse",
+    default=True,
+    help="Enable/disable catalog source fusion (default: enabled).",
+)
+@click.option(
+    "--rename-params",
+    "raw_rename_params",
+    multiple=True,
+    help="Rename a parameter: entry,old_name,new_name (repeatable).",
+)
+@click.option(
+    "-p",
+    "--params",
+    "raw_params",
+    multiple=True,
+    help="Parameter as key=value (repeatable). e.g. --params threshold=0.5",
+)
+@click.option(
+    "--cache-dir",
+    default=None,
+    help="Directory for all generated parquet files cache.",
+)
+@click.option(
+    "--cache-type",
+    type=click.Choice(["modification-time", "snapshot"]),
+    default="modification-time",
+    help="Cache strategy: 'modification-time' (ParquetCache, default) or 'snapshot' (ParquetSnapshotCache).",
+)
+@click.option(
+    "--ttl",
+    type=int,
+    default=None,
+    help="TTL in seconds for snapshot cache (uses ParquetTTLSnapshotCache when set).",
+)
+@click.pass_context
+def run_cached(
+    ctx,
+    entries,
+    code,
+    output_path,
+    output_format,
+    limit,
+    instream,
+    fuse,
+    raw_rename_params,
+    raw_params,
+    cache_dir,
+    cache_type,
+    ttl,
+):
+    """Compose and execute catalog entries with a ParquetCache wrapping the expression.
+
+    Same semantics as `run`, but wraps the resulting expression with a cache
+    (ParquetCache by default; snapshot/TTL variants via --cache-type / --ttl).
+    """
+    import datetime
+
+    from xorq.caching import ParquetCache, ParquetSnapshotCache, ParquetTTLSnapshotCache
+    from xorq.cli import _apply_cli_params, _get_cache_dir, arbitrate_output_format
+    from xorq.common.utils.logging_utils import RunLogger
+    from xorq.common.utils.otel_utils import tracer
+    from xorq.common.utils.profile_utils import timed
+
+    with tracer.start_as_current_span("catalog.run_cached") as span:
+        span.set_attributes({"entries": entries, "has_code": code is not None})
+        with click_context_catalog(ctx):
+            if not entries:
+                raise click.UsageError("At least one entry is required.")
+
+            resolved_cache_dir = _get_cache_dir(cache_dir)
+
+            expr_hash = "+".join(entries)
+            run_params = (
+                ("expr_hash", expr_hash),
+                ("entries", ",".join(entries)),
+                ("has_code", str(code is not None)),
+                ("output_format", str(output_format)),
+                ("output_path", str(output_path)),
+                ("fuse", str(fuse)),
+                ("limit", limit),
+                ("params", ",".join(raw_params)),
+                ("cache_type", cache_type),
+                ("ttl", ttl),
+            )
+
+            with RunLogger.from_expr_hash(
+                expr_hash, params_tuple=run_params, span=span
+            ) as rl:
+                rl.log_span_event(span, "catalog_run_cached.start", dict(run_params))
+
+                catalog = ctx.obj.make_catalog(init=False)
+                rename_map = (
+                    _parse_rename_params(raw_rename_params)
+                    if raw_rename_params
+                    else None
+                )
+
+                with timed() as get_elapsed:
+                    if len(entries) > 1:
+                        expr = _compose_expr(
+                            catalog, entries, code, rename_map=rename_map
+                        )
+                    else:
+                        (entry,) = entries
+                        expr = _resolve_single_entry(
+                            catalog, entry, code, instream, rename_map, span
+                        )
+
+                    rl.log_span_event(
+                        span,
+                        "catalog_run_cached.expr_loaded",
+                        {"elapsed_s": round(get_elapsed(), 3)},
+                    )
+
+                expr = _apply_cli_params(expr, raw_params)
+
+                if fuse:
+                    expr = expr.ls.fused
+
+                match (cache_type, ttl):
+                    case ("modification-time", None):
+                        cache = ParquetCache.from_kwargs(base_path=resolved_cache_dir)
+                    case (_, int(seconds)):
+                        ttl_delta = datetime.timedelta(seconds=seconds)
+                        cache = ParquetTTLSnapshotCache.from_kwargs(
+                            base_path=resolved_cache_dir, ttl=ttl_delta
+                        )
+                    case ("snapshot", None):
+                        cache = ParquetSnapshotCache.from_kwargs(
+                            base_path=resolved_cache_dir
+                        )
+                    case _:
+                        raise click.BadParameter(
+                            f"Unknown cache type: {cache_type!r}. "
+                            "Must be 'modification-time' or 'snapshot'."
+                        )
+
+                expr = expr.cache(cache=cache)
+
+                if limit is not None:
+                    expr = expr.limit(limit)
+
+                with timed() as get_elapsed:
+                    arbitrate_output_format(expr, output_path, output_format)
+
+                    rl.log_span_event(
+                        span,
+                        "catalog_run_cached.done",
+                        {
+                            "elapsed_s": round(get_elapsed(), 3),
+                            "output_format": str(output_format),
+                        },
+                    )
+
+                file_metrics = RunLogger._compute_file_metrics(
+                    output_format, output_path
+                )
+                if file_metrics:
+                    rl.log_span_event(
+                        span, "catalog_run_cached.output_written", file_metrics
+                    )
