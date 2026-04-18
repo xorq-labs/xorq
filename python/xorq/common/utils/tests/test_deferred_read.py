@@ -153,7 +153,10 @@ def test_deferred_read(get_con, pins_resource, request):
     con = get_con()
     pins_resource = request.getfixturevalue(pins_resource)
     assert pins_resource.table_name not in con.tables
-    t = pins_resource.deferred_reader(pins_resource.path, con, pins_resource.table_name)
+    kwargs = {"mode": "create"} if con.name != "pandas" else {}
+    t = pins_resource.deferred_reader(
+        pins_resource.path, con, pins_resource.table_name, **kwargs
+    )
     assert xo.execute(t).equals(pins_resource.df)
     assert pins_resource.table_name in con.tables
     # is this a test of mode for postgres?
@@ -208,7 +211,10 @@ def test_cached_deferred_read(get_con, pins_resource, filter_, request, tmp_path
     cache = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
 
     df = pins_resource.df[filter_].reset_index(drop=True)
-    t = pins_resource.deferred_reader(pins_resource.path, con, pins_resource.table_name)
+    kwargs = {"mode": "create"} if con.name == "postgres" else {}
+    t = pins_resource.deferred_reader(
+        pins_resource.path, con, pins_resource.table_name, **kwargs
+    )
     expr = t[filter_].cache(cache=cache)
 
     # no work is done yet
