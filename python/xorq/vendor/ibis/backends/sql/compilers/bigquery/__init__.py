@@ -1023,7 +1023,7 @@ class BigQueryCompiler(SQLGlotCompiler):
     def visit_DropColumns(self, op, *, parent, columns_to_drop):
         quoted = self.quoted
         excludes = [sg.column(column, quoted=quoted) for column in columns_to_drop]
-        star = sge.Star(**{"except": excludes})
+        star = sge.Star(**{"except_": excludes})
         table = sg.to_identifier(parent.alias_or_name, quoted=quoted)
         column = sge.Column(this=star, table=table)
         return sg.select(column).from_(parent)
