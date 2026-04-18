@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776424610092,
+  "lastUpdate": 1776493144256,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -6204,6 +6204,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.027168242195684922",
             "extra": "mean: 196.72713699999633 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b634749e86a0000524127ea9370a6797f839ea4a",
+          "message": "fix(caching): resolve ParquetCache \"relation already exists\" (#1823)\n\n- Pass mode=\"replace\" in ParquetStorage.get() for ADBC-backed sources\n(postgres, sqlite, snowflake, databricks) so cache hits do not fail when\nthe materialized table already exists from a prior execution.\n- Extract shared adbc_ingest logic into ADBCBase mixin; PgADBC and\nSQLiteADBC now inherit from it instead of duplicating the method body.\n\n- Add regression tests in test_cache.py covering both postgres and\nsqlite.\n\ncloses #1820\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-18T02:15:26-04:00",
+          "tree_id": "a546d061db8b2bff9e950c39fd504a45845233d9",
+          "url": "https://github.com/xorq-labs/xorq/commit/b634749e86a0000524127ea9370a6797f839ea4a"
+        },
+        "date": 1776493141875,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.3677596390592,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005943622933470654",
+            "extra": "mean: 106.74910955555106 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.313490071703264,
+            "unit": "iter/sec",
+            "range": "stddev: 0.019087337558267675",
+            "extra": "mean: 301.79658859999563 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6406687420467718,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19324518109774125",
+            "extra": "mean: 1.5608690331999924 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.488898742879551,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01159154313819235",
+            "extra": "mean: 222.7717881999979 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.601504132860534,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010777588606958101",
+            "extra": "mean: 217.32024380000894 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.362386405093867,
+            "unit": "iter/sec",
+            "range": "stddev: 0.021611134731879256",
+            "extra": "mean: 229.2323300000021 msec\nrounds: 5"
           }
         ]
       }
