@@ -623,7 +623,7 @@ def test_into_backend_with_array_filter(builds_dir):
     )
     roundtrip_expr = do_roundtrip_expr(expr, builds_dir=builds_dir, debug=False)
     assert_frame_equal(expr.execute(), roundtrip_expr.execute())
-    assert {"duckdb", "xorq"}.intersection(
+    assert {"duckdb", "xorq-datafusion"}.intersection(
         source.name for source in find_all_sources(roundtrip_expr)
     )
 

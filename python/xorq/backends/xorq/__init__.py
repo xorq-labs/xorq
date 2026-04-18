@@ -36,7 +36,7 @@ def _get_datafusion_dataframe(con, expr, **kwargs):
 
 
 class Backend(DataFusionBackend):
-    name = "xorq"
+    name = "xorq-datafusion"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

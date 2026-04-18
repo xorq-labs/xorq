@@ -103,7 +103,7 @@ def test_train_test_split():
 @pytest.mark.parametrize(
     "con_name,unique_key",
     itertools.product(
-        (None, "pandas", "xorq", "sqlite"),
+        (None, "pandas", "xorq-datafusion", "sqlite"),
         (
             "key1",
             ("key1",),
