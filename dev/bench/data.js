@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776509667097,
+  "lastUpdate": 1776512717945,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -6336,6 +6336,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0061293527611889975",
             "extra": "mean: 203.36260683333288 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5c431bf51447a72ab7b8c0bc76267d6dc517354b",
+          "message": "docs: add ADR template (#1817)\n\n## Summary\n\n- Adds `docs/adr/template.md` with the common structure extracted from\nADR-0002 through ADR-0005\n- Includes HTML comment guidance on when to write an ADR vs. a commit\nmessage, how to title decisions (not problems), and when Rationale\nwarrants its own section\n\n## Test plan\n\n- [x] Reviewed against existing ADRs for consistency\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-18T07:41:33-04:00",
+          "tree_id": "fa284b5e7475f70d10d486438e79e06ee8b7a27e",
+          "url": "https://github.com/xorq-labs/xorq/commit/5c431bf51447a72ab7b8c0bc76267d6dc517354b"
+        },
+        "date": 1776512715377,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.936511148905495,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015595326731913745",
+            "extra": "mean: 125.999948999997 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.846381065598588,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008115307752802043",
+            "extra": "mean: 206.3395318000005 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7082084658468635,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1632641113842091",
+            "extra": "mean: 1.4120136205999985 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.238481727967089,
+            "unit": "iter/sec",
+            "range": "stddev: 0.035285142377843644",
+            "extra": "mean: 235.9335404000035 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.92667102205739,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005156452890322864",
+            "extra": "mean: 202.97681649999788 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.933187859433354,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009245031168962251",
+            "extra": "mean: 202.708680166675 msec\nrounds: 6"
           }
         ]
       }
