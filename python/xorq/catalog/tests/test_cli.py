@@ -1417,6 +1417,107 @@ def test_rename_params_unknown_entry(runner, catalog_with_parameterized_entries)
     assert "Unknown entry" in result.output
 
 
+# --- --params tests ---
+
+
+def test_run_with_params_single_entry(runner, catalog_with_parameterized_entries):
+    """run with -p binds a NamedScalarParameter value before execution."""
+    catalog_path, _, _ = catalog_with_parameterized_entries
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "psrc",
+            "-p",
+            "threshold=25.0",
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # threshold=25 filters amount > 25, leaving only user_id=3,amount=30
+    assert "3,30" in result.output
+    assert "1,10" not in result.output
+    assert "2,20" not in result.output
+
+
+def test_run_params_after_rename(runner, catalog_with_parameterized_entries):
+    """--params values bind to the renamed names, not the original."""
+    catalog_path, _, _ = catalog_with_parameterized_entries
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "psrc",
+            "ptrn",
+            "--rename-params",
+            "ptrn,threshold,trn_threshold",
+            "-p",
+            "trn_threshold=25.0",
+            "-p",
+            "threshold=5.0",
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "3,30" in result.output
+    assert "1,10" not in result.output
+
+
+def test_run_params_bad_format(runner, catalog_with_parameterized_entries):
+    """-p without '=' should report a usage error."""
+    catalog_path, _, _ = catalog_with_parameterized_entries
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "psrc",
+            "-p",
+            "no_equals",
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Expected key=value" in result.output
+
+
+def test_run_params_unknown_name(runner, catalog_with_parameterized_entries):
+    """-p with a name not in the expr should error with available names."""
+    catalog_path, _, _ = catalog_with_parameterized_entries
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "psrc",
+            "-p",
+            "not_a_param=1.0",
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Unknown parameter" in result.output
+    assert "threshold" in result.output
+
+
 # --- run with ExprBuilder entries ---
 
 
