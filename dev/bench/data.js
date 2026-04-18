@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776512717945,
+  "lastUpdate": 1776514237225,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -6402,6 +6402,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.009245031168962251",
             "extra": "mean: 202.708680166675 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b2fd1d626685a08f86efd8fbea6a057b1f0d2529",
+          "message": "fix(compiler): use except_ in sge.Star to emit EXCLUDE clauses (#1839)\n\n## Summary\n\n- **Fix one-character typo** (`\"except\"` → `\"except_\"`) in `sge.Star()`\nacross all four vendored compilers that override `visit_DropColumns`:\nDuckDB, Snowflake, BigQuery, and ClickHouse\n- `except` is a Python reserved word; sqlglot names the arg slot\n`except_` — passing `\"except\"` was silently ignored, causing `SELECT *\nEXCLUDE (...)` to render as bare `SELECT *`\n- This made `DropColumns` a no-op on wide tables, leading to column\ncount mismatches downstream (e.g., `ArrowInvalid: tried to rename a\ntable of 72 columns but only 70 names were provided`)\n- Bug was inherited from upstream ibis when the vendor copy was created\n(0c806fdc, Feb 2025)\n\n### Why it went undetected\n\nThe `drop_columns_to_select` rewrite converts `DropColumns` → explicit\n`Select` when ≥50% of columns are dropped. Most test tables are narrow\n(3–5 columns), so the rewrite always kicked in and `visit_DropColumns`\nwas never exercised.\n\n## Test plan\n\n- [x] Added 7 regression tests in `test_drop_columns.py` using a\n10-column table (dropping 2 = 20% < 50% threshold) to ensure\n`visit_DropColumns` runs\n- [x] `test_drop_columns_generates_exclude` — SQL contains `EXCLUDE`,\nnot bare `SELECT *`\n- [x] `test_drop_columns_lists_all_dropped` — every dropped column\nappears in `EXCLUDE`\n- [x] `test_drop_columns_preserves_remaining` — dropped columns absent\nfrom result schema\n- [x] `test_sge_star_except_underscore` — regression guard proving\n`\"except\"` is silently ignored by sqlglot\n- [x] Pre-commit passes on all changed files\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-18T08:06:53-04:00",
+          "tree_id": "49dba1573df53e2f73f055f537026815c4f68ceb",
+          "url": "https://github.com/xorq-labs/xorq/commit/b2fd1d626685a08f86efd8fbea6a057b1f0d2529"
+        },
+        "date": 1776514234926,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.627386869529853,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012197831102036084",
+            "extra": "mean: 131.10650044444898 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.524439564299585,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030001579482699933",
+            "extra": "mean: 221.0218493999946 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6826201441007616,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16300250644650088",
+            "extra": "mean: 1.4649435834000086 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.9288264152523156,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03453112668771585",
+            "extra": "mean: 254.52893416666217 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.230573305109196,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04895639931980356",
+            "extra": "mean: 236.3745827999992 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.994388285345388,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006631442599740383",
+            "extra": "mean: 200.2247207999858 msec\nrounds: 5"
           }
         ]
       }
