@@ -24,6 +24,25 @@ from xorq.vendor.ibis.expr.operations.udf import (
 )
 
 
+# DataFusion strips the leading "/" when displaying execution plans, so paths
+# appear as e.g. "tmp/xorq-catalog-ab/build/x.parquet". Match on the .parquet/
+# .csv suffix; canonicalization below restores the leading "/" when needed.
+_DATAFUSION_FILE_PATH_RE = re.compile(r"[\w/\-._~]+\.(?:parquet|csv)\b")
+# load_expr_from_zip picks a fresh tempfile.mkdtemp(prefix="xorq-catalog-") per
+# load. Strip everything up to and including that segment so paths relative to
+# the build dir (whose name is a content hash) are stable across reloads.
+_CATALOG_EXTRACT_DIR_RE = re.compile(r".*?/xorq-catalog-[^/]+/")
+
+
+def _canonicalize_plan_path(s):
+    return _CATALOG_EXTRACT_DIR_RE.sub("", s)
+
+
+def _extract_plan_file_paths(ep_str):
+    paths = [m.group(0) for m in _DATAFUSION_FILE_PATH_RE.finditer(ep_str)]
+    return tuple(sorted(_canonicalize_plan_path(p) for p in paths))
+
+
 def expr_is_bound(expr):
     backends, _ = expr._find_backends()
     return bool(backends)
@@ -86,11 +105,18 @@ def normalize_datafusion_databasetable(dt):
     if ep_str.startswith(("ParquetExec:", "CsvExec:")) or re.match(
         r"DataSourceExec:.+file_type=(csv|parquet)", ep_str
     ):
+        # ep_str contains absolute file paths; the catalog-extract tempdir
+        # prefix varies per load, so strip it to keep tokens stable across
+        # zip reloads. Same-path reads stay cache-hit; content changes at a
+        # stable path are deliberately not re-keyed (schema change would).
+        paths = _extract_plan_file_paths(ep_str)
+        if not paths:
+            raise ValueError(
+                f"no parquet/csv paths extractable from execution plan: {ep_str!r}"
+            )
         return normalize_seq_with_caller(
             dt.schema.to_pandas(),
-            # ep_str denotes the parquet files to be read
-            # FIXME: md5sum on detected .parquet files?
-            ep_str,
+            paths,
         )
     elif ep_str.startswith(("MemoryExec:", "DataSourceExec:")):
         return normalize_memory_databasetable(dt)
@@ -300,16 +326,7 @@ def normalize_ibis_datatype(datatype):
 @dask.base.normalize_token.register(rel.Read)
 def normalize_read(read):
     read_kwargs = dict(read.read_kwargs)
-    try_names = (
-        "path",
-        "paths",  # duckdb read_parquet
-        "source",
-        "source_list",  # duckdb
-    )
-    try:
-        path = next(el for el in (read_kwargs.get(name) for name in try_names) if el)
-    except StopIteration as err:
-        raise ValueError("unable to find path name in read_kwargs") from err
+    path = read_kwargs["hash_path"]
     if isinstance(path, (list, tuple)):
         # normalize_filenames may have converted a single path to a list
         path = path[0] if len(path) == 1 else path
@@ -331,7 +348,7 @@ def normalize_read(read):
             )
         elif path.startswith(("s3", "gs", "gcs")):
             metadata = api.get_object_metadata(
-                path, **{k: v for k, v in read_kwargs.items() if k != "path"}
+                path, **{k: v for k, v in read_kwargs.items() if k != "hash_path"}
             )
             tpls = tuple(
                 (k, metadata.get(k))

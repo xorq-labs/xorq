@@ -328,6 +328,44 @@ class UnboundExprExchanger(AbstractExchanger):
             "command": self.command,
         }
 
+    def __reduce__(self):
+        from xorq.catalog.expr_utils import build_expr_context_zip  # noqa: PLC0415
+
+        with build_expr_context_zip(self.unbound_expr) as zip_path:
+            zip_bytes = zip_path.read_bytes()
+        return (
+            _unbound_exchanger_from_zip_bytes,
+            (zip_bytes, self.make_connection),
+        )
+
+
+def _unbound_exchanger_from_zip_bytes(zip_bytes, make_connection):
+    import os  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+    import weakref  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415
+
+    from xorq.catalog.expr_utils import load_expr_from_zip  # noqa: PLC0415
+
+    fd, zip_str = tempfile.mkstemp(suffix=".zip")
+    os.close(fd)
+    zip_path = Path(zip_str)
+    try:
+        zip_path.write_bytes(zip_bytes)
+        loaded = load_expr_from_zip(zip_path)
+    except BaseException:
+        zip_path.unlink(missing_ok=True)
+        raise
+    weakref.finalize(loaded, zip_path.unlink, missing_ok=True)
+
+    exchanger = UnboundExprExchanger(loaded, make_connection=make_connection)
+    # UnboundExprExchanger stores a rewritten copy of `loaded`, not `loaded`
+    # itself; pin `loaded` to the exchanger so the zip-file and extract-dir
+    # finalizers (both keyed on `loaded`) don't fire while the exchanger
+    # still references files under the extract dir.
+    exchanger._zip_keepalive = loaded
+    return exchanger
+
 
 def make_udxf(
     process_df,

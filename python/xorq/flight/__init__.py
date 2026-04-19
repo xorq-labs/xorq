@@ -17,7 +17,6 @@ from attrs.validators import (
 
 from xorq.backends.xorq import connect as xo_connect
 from xorq.common.utils.logging_utils import get_print_logger
-from xorq.flight.action import AddExchangeAction
 from xorq.flight.backend import Backend
 from xorq.flight.server import (
     BasicAuthServerMiddlewareFactory,
@@ -240,10 +239,18 @@ class FlightServer:
             verify_client=self.verify_client,
             **self.auth_kwargs,
         )
+        # Register in-process exchangers directly on the delegate instead of
+        # round-tripping through gRPC. For large exchangers (e.g. an
+        # UnboundExprExchanger carrying cloudpickled UDF closures) the pickled
+        # action body can exceed gRPC's initial-metadata size limit, which
+        # manifests as "received initial metadata size exceeds limit" during
+        # startup and a dead server the client can't connect to.
         for udxf in self.exchangers:
-            self.client.do_action(
-                AddExchangeAction.name, udxf, options=self.client._options
-            )
+            self.server.exchangers[udxf.command] = udxf
+            # HACK: stopgap until alias / command is specifiable via do-action
+            # — match AddExchangeAction.do_action which also stashes under
+            # "default" so get_exchange("default") works.
+            self.server.exchangers["default"] = udxf
         if block:
             # https://arrow.apache.org/docs/python/generated/pyarrow.flight.FlightServerBase.html#pyarrow.flight.FlightServerBase.serve
             self.server.serve()

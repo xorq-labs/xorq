@@ -45,14 +45,19 @@ def make_zip_context(build_dir):
         yield zip_path
 
 
+def extract_build_zip_to(zip_path, td):
+    """Extract a build zip into `td` and return the single top-level build dir."""
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall(td)
+    (build_dir, *rest) = Path(td).iterdir()
+    assert not rest
+    return build_dir
+
+
 @contextmanager
 def extract_build_zip_context(zip_path):
     with tempfile.TemporaryDirectory() as td:
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(td)
-        (path, *rest) = Path(td).iterdir()
-        assert not rest
-        yield path
+        yield extract_build_zip_to(zip_path, td)
 
 
 def write_zip(path, relpath_to_bytes):

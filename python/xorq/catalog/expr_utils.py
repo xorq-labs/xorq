@@ -1,10 +1,31 @@
+import atexit
+import shutil
 import tempfile
+import weakref
 from contextlib import contextmanager
 
 from xorq.catalog.zip_utils import (
-    extract_build_zip_context,
+    extract_build_zip_to,
     make_zip_context,
 )
+
+
+# Tracks temp dirs that haven't been cleaned up yet.
+# weakref.finalize handles per-expression cleanup; atexit sweeps stragglers.
+_live_extract_dirs: set[str] = set()
+
+
+def _cleanup_one(path: str):
+    shutil.rmtree(path, ignore_errors=True)
+    _live_extract_dirs.discard(path)
+
+
+def _cleanup_all():
+    for p in tuple(_live_extract_dirs):
+        _cleanup_one(p)
+
+
+atexit.register(_cleanup_all)
 
 
 @contextmanager
@@ -26,10 +47,22 @@ def build_expr_context_zip(expr):
 def load_expr_from_zip(zip_path, lazy=False, read_only_parquet_metadata=False):
     from xorq.ibis_yaml.compiler import load_expr  # noqa: PLC0415
 
-    with extract_build_zip_context(zip_path) as build_dir:
+    td = tempfile.mkdtemp(prefix="xorq-catalog-")
+    _live_extract_dirs.add(td)
+    try:
+        build_dir = extract_build_zip_to(zip_path, td)
+        # Invariant: `load_expr` must eagerly materialize all IO from
+        # `build_dir`. The extract dir's lifetime is pinned to `expr` via
+        # `weakref.finalize` below, so any lazy reference to files under
+        # `build_dir` will break once `expr` is garbage-collected.
         expr = load_expr(
             build_dir,
             lazy=lazy,
             read_only_parquet_metadata=read_only_parquet_metadata,
         )
-        return expr
+    except BaseException:
+        _cleanup_one(td)
+        raise
+
+    weakref.finalize(expr, _cleanup_one, td)
+    return expr

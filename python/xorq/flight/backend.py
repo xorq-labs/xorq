@@ -223,15 +223,26 @@ class Backend(SQLBackend):
         exchanger = self.con.do_action_one(GetExchangeAction.name, action_body=command)
 
         if isinstance(exchanger, UnboundExprExchanger):
+            # Use the user-provided `command` rather than `exchanger.command`:
+            # the unbound_expr token can change across the cloudpickle round-
+            # trip (different Backend identity, etc.), so the client-side
+            # `exchanger.command` may not match the server's registration key.
             exchanger = make_udxf(
                 exchanger.exchange_f,  # process_df no wraps
                 exchanger.schema_in_required,  # maybe_schema_in
                 exchanger.calc_schema_out,  # maybe_schema_out
-                name=exchanger.command,  # name
+                name=command,  # name
                 description=exchanger.description,  # description
-                command=exchanger.command,  # command
+                command=command,  # command
                 do_wraps=False,  #
             )
+            # Tells FlightUDXF.to_rbr to skip AddExchangeAction: the server
+            # already has this command registered with a correctly-populated
+            # backend, and re-adding would pickle-roundtrip the exchanger's
+            # unbound_expr through Backend.__reduce__ (which keeps only the
+            # Profile, not the registered tables) and overwrite the server's
+            # working exchanger with one whose backend is empty.
+            exchanger._xorq_server_has_command = True
 
         @toolz.curry
         def flight_udxf(

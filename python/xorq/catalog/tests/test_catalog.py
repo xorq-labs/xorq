@@ -1,8 +1,10 @@
+import gc
 import shutil
 import subprocess
 import uuid
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from attr import evolve
 from git import Repo as GitRepo
@@ -26,6 +28,7 @@ from xorq.catalog.catalog import (
 )
 from xorq.catalog.constants import MAIN_BRANCH, CatalogInfix
 from xorq.catalog.expr_utils import (
+    _live_extract_dirs,
     build_expr_context_zip,
 )
 from xorq.catalog.tests.conftest import (
@@ -880,3 +883,41 @@ def test_annex_fetch_content_no_remote_raises(tmpdir):
 
     with pytest.raises(AnnexError, match="no remote configured"):
         backend.fetch_content(entry.catalog_path)
+
+
+def test_catalog_entry_roundtrip_execute(catalog):
+    """Loading an expression from a catalog zip and executing it returns the original data."""
+    df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
+    expr = xo.memtable(df)
+    entry = catalog.add(expr)
+    result = entry.expr.execute()
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_database_table_roundtrip_execute(catalog):
+    """A registered database_table survives zip roundtrip and can be executed."""
+    df = pd.DataFrame({"x": [10, 20], "y": ["a", "b"]})
+    con = xo.connect()
+    t = con.register(df, table_name="test_dt")
+    entry = catalog.add(t)
+    result = entry.expr.execute()
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_extract_dir_cleaned_up_on_expr_gc(catalog):
+    """Temp extract directory is removed when the loaded expression is garbage-collected."""
+    entry = catalog.add(xo.memtable(pd.DataFrame({"a": [1]})))
+
+    before = frozenset(_live_extract_dirs)
+    expr = entry.expr
+    created = frozenset(_live_extract_dirs) - before
+    assert len(created) == 1, f"expected exactly one new extract dir, got {created}"
+    (td,) = created
+    assert Path(td).is_dir()
+
+    del expr
+    for _ in range(3):
+        gc.collect()
+
+    assert td not in _live_extract_dirs
+    assert not Path(td).exists()
