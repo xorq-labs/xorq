@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776614633150,
+  "lastUpdate": 1776641219291,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -6732,6 +6732,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.04584581968499913",
             "extra": "mean: 179.05410666666435 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d109890b59f7c0bc15bd2411b197162980c8fb61",
+          "message": "feat(catalog): add -p/--params to `catalog run` (#1840)\n\n## Summary\n- Add repeatable `-p/--params key=value` to `xorq catalog run`,\nmirroring `xorq run`.\n- Values are coerced via each `NamedScalarParameter`'s declared dtype,\nthen bound after `--rename-params` is applied (so values bind to the\nrenamed names).\n- Extract a small `_apply_cli_params(expr, raw_params)` helper in\n`xorq.cli` and reuse it from `run_cached_command` and the new catalog\n`run` path.\n\n## Example\n```\nxorq catalog run src trn \\\n  --rename-params src,threshold,src_threshold \\\n  -p src_threshold=0.5 -p year=2024 \\\n  -o out.csv -f csv\n```\n\n## Test plan\n- [x] `xorq catalog run <entry> -p name=value` binds the value and\nexecutes.\n- [x] `-p unknown=1` reports unknown parameter with available names.\n- [x] `-p badint=nope` on an Int64 param reports a type-coercion error.\n- [x] Composed multi-entry run binds params defined in any sub-entry.\n- [x] `--rename-params` + `-p <new_name>=...` works end-to-end.\n- [x] Existing `xorq run` / `xorq run-cached` still accept `-p`\nunchanged.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-04-19T19:23:22-04:00",
+          "tree_id": "038e65e33c82fd314ea6a6bc6d17885aec1b9007",
+          "url": "https://github.com/xorq-labs/xorq/commit/d109890b59f7c0bc15bd2411b197162980c8fb61"
+        },
+        "date": 1776641215522,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.089615984109983,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017497578741624928",
+            "extra": "mean: 110.01564881818447 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.128558509651305,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05291717753378005",
+            "extra": "mean: 242.21529079999868 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7145902320130343,
+            "unit": "iter/sec",
+            "range": "stddev: 0.21654157555445022",
+            "extra": "mean: 1.39940339960001 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.184765011828595,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016222208555277406",
+            "extra": "mean: 192.8727720000012 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.217474420983708,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009395305254048579",
+            "extra": "mean: 191.66361333333745 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.597783448692024,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05426051055036784",
+            "extra": "mean: 217.4961068000016 msec\nrounds: 5"
           }
         ]
       }
