@@ -15,6 +15,7 @@ from public import public
 
 from xorq.caching.storage import (
     CacheStorage,
+    ParquetDummyStorage,
     ParquetStorage,
     ParquetTTLStorage,
     SourceStorage,
@@ -172,6 +173,12 @@ class ParquetSnapshotCache(Cache):
 class ParquetTTLSnapshotCache(Cache):
     strategy_typ = SnapshotStrategy
     storage_typ = ParquetTTLStorage
+
+
+@public
+@frozen
+class ParquetDummySnapshotCache(ParquetSnapshotCache):
+    storage_typ = ParquetDummyStorage
 
 
 @public

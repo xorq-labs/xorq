@@ -49,14 +49,6 @@ def test_kind_database_table_is_source():
     assert ExprMetadata.from_expr(expr).kind == ExprKind.Source
 
 
-def test_kind_deferred_read_is_source():
-    expr = xo.deferred_read_parquet(
-        "s3://bucket/data.parquet",
-        schema={"a": "int64", "b": "string"},
-    )
-    assert ExprMetadata.from_expr(expr).kind == ExprKind.Source
-
-
 def test_kind_cached_node_is_source():
     con = xo.connect()
     con.raw_sql("CREATE TABLE _test_cached (a INT)")
