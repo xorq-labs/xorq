@@ -40,7 +40,7 @@ from xorq.catalog.tui import (
     _build_git_log_rows,
     _entry_info,
     _format_cached,
-    get_cache_keys_paths,
+    get_cache_key_path,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
 
@@ -140,7 +140,7 @@ def test_revision_row_columns_display_zero():
 
 def test_cached_is_none_for_plain_memtable(entry_a):
     row = CatalogRowData(entry=entry_a)
-    assert row.cached is None
+    assert not row.cached
 
 
 def test_schema_out_single_column(entry_b):
@@ -681,14 +681,14 @@ def test_entry_info(entry_b):
     """_entry_info reads column count from expr_metadata; cached is None for plain memtables."""
     column_count, cached = _entry_info(entry_b)
     assert column_count == 1  # single column: value
-    assert cached is None  # no ParquetSnapshotCache nodes in a plain memtable
+    assert not cached
 
 
 def test_entry_info_three_columns(entry_a):
     """_entry_info reports the correct column count for a multi-column expression."""
     column_count, cached = _entry_info(entry_a)
     assert column_count == 3  # id, name, score
-    assert cached is None
+    assert not cached
 
 
 def test_entry_info_scalar_expression_wraps_as_table(catalog):
@@ -698,7 +698,7 @@ def test_entry_info_scalar_expression_wraps_as_table(catalog):
     entry = catalog.add(t.a.sum())
     column_count, cached = _entry_info(entry)
     assert column_count == 1
-    assert cached is None
+    assert not cached
 
 
 def test_cached_false_before_execution(catalog, tmp_path, parquet_dir):
@@ -710,9 +710,9 @@ def test_cached_false_before_execution(catalog, tmp_path, parquet_dir):
     expr = t.cache(cache=cache)
     entry = catalog.add(expr)
 
-    cache_keys_paths = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
-    assert cache_keys_paths, "entry must have cache_keys_paths"
-    assert not any(Path(p).exists() for p in cache_keys_paths)
+    path = get_cache_key_path(entry.projected_cache_key)
+    assert path is not None, "entry must have a cache key path"
+    assert not Path(path).exists()
     assert CatalogRowData(entry=entry).cached is False
     _, cached = _entry_info(entry)
     assert cached is False
@@ -728,8 +728,8 @@ def test_cached_true_after_execution(catalog, tmp_path, parquet_dir):
     entry = catalog.add(expr)
     entry.expr.execute()
 
-    cache_keys_paths = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
-    assert all(Path(p).exists() for p in cache_keys_paths)
+    path = get_cache_key_path(entry.projected_cache_key)
+    assert path is not None and Path(path).exists()
     assert CatalogRowData(entry=entry).cached is True
     _, cached = _entry_info(entry)
     assert cached is True
@@ -855,8 +855,8 @@ def test_memtable_cached_lifecycle(catalog, tmp_path):
     expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
     entry = catalog.add(expr)
 
-    cache_keys_paths = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
-    assert cache_keys_paths, "entry must have cache_keys_paths"
+    path = get_cache_key_path(entry.projected_cache_key)
+    assert path is not None, "entry must have a cache key path"
     assert CatalogRowData(entry=entry).cached is False
 
     entry.expr.execute()

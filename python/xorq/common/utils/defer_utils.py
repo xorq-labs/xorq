@@ -31,6 +31,8 @@ if TYPE_CHECKING:
 
 DEFAULT_CHUNKSIZE = 10_000
 
+# Backends that use ADBC and require mode="replace" to avoid "relation already exists" errors.
+_ADBC_BACKENDS = frozenset(("sqlite", "postgres", "snowflake", "databricks"))
 
 # Backend-specific parameter names for the file path argument.
 _PATH_PARAM_NAMES = frozenset(("path", "paths", "source", "source_list"))
@@ -40,10 +42,11 @@ def make_read_kwargs(f, *args, **kwargs):
     # FIXME: if any kwarg is a dictionary, we'll fail Concrete's hashable requirement, so just pickle
     read_kwargs = get_arguments(f, *args, **kwargs)
     kwargs = read_kwargs.pop("kwargs", {})
-    # Normalize backend-specific path parameter names to "path" so that
+    # Normalize backend-specific path parameter names to "hash_path" so that
     # Read nodes are portable across backends.
     read_kwargs = {
-        ("path" if k in _PATH_PARAM_NAMES else k): v for k, v in read_kwargs.items()
+        ("hash_path" if k in _PATH_PARAM_NAMES else k): v
+        for k, v in read_kwargs.items()
     }
     tpl = tuple(read_kwargs.items()) + tuple(kwargs.items())
     return tpl
@@ -175,6 +178,8 @@ def deferred_read_csv(
         table_name = gen_name(f"xorq-{method_name}")
     if schema is None:
         schema = infer_schema(path)
+    if con.name in _ADBC_BACKENDS:
+        kwargs.setdefault("mode", "replace")
     if con.name == "pandas":
         # FIXME: determine how to best handle schema
         read_kwargs = make_read_kwargs(method, path, table_name, **kwargs)
@@ -242,6 +247,8 @@ def deferred_read_parquet(
     if table_name is None:
         table_name = gen_name(f"xorq-{method_name}")
     schema = schema or xo_connect().read_parquet(path).schema()
+    if con.name in _ADBC_BACKENDS:
+        kwargs.setdefault("mode", "replace")
     read_kwargs = make_read_kwargs(method, path, table_name=table_name, **kwargs)
     return Read(
         method_name=method_name,

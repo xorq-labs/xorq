@@ -1,8 +1,10 @@
+import gc
 import shutil
 import subprocess
 import uuid
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from attr import evolve
 from git import Repo as GitRepo
@@ -26,12 +28,13 @@ from xorq.catalog.catalog import (
 )
 from xorq.catalog.constants import MAIN_BRANCH, CatalogInfix
 from xorq.catalog.expr_utils import (
+    _live_extract_dirs,
     build_expr_context_zip,
 )
 from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
 )
-from xorq.catalog.tui import get_cache_keys_paths
+from xorq.catalog.tui import get_cache_key_path
 from xorq.catalog.zip_utils import (
     BuildZip,
     with_pure_suffix,
@@ -823,8 +826,7 @@ def test_cache_keys_stores_key_and_relative_path(catalog, tmp_path):
     expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
     entry = catalog.add(expr)
 
-    assert len(entry.parquet_snapshot_cache_keys) == 1
-    ck = entry.parquet_snapshot_cache_keys[0]
+    ck = entry.projected_cache_key
     assert isinstance(ck, CacheKey)
     assert ck.relative_path == relative
     assert ck.key  # non-empty hash string
@@ -840,15 +842,15 @@ def test_cache_keys_paths_relocatable(catalog, tmp_path, monkeypatch):
     expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
     entry = catalog.add(expr)
 
-    ck = entry.parquet_snapshot_cache_keys[0]
+    ck = entry.projected_cache_key
     expected_name = ck.key + ".parquet"
 
-    paths_at_A = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
-    assert paths_at_A[0] == str(cache_dir_A / relative / expected_name)
+    path_at_A = get_cache_key_path(entry.projected_cache_key)
+    assert path_at_A == str(cache_dir_A / relative / expected_name)
 
     monkeypatch.setattr("xorq.caching.storage.get_xorq_cache_dir", lambda: cache_dir_B)
-    paths_at_B = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
-    assert paths_at_B[0] == str(cache_dir_B / relative / expected_name)
+    path_at_B = get_cache_key_path(entry.projected_cache_key)
+    assert path_at_B == str(cache_dir_B / relative / expected_name)
 
 
 def test_base_path_is_silently_dropped_through_catalog_round_trip(catalog, tmp_path):
@@ -858,8 +860,7 @@ def test_base_path_is_silently_dropped_through_catalog_round_trip(catalog, tmp_p
     expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
     entry = catalog.add(expr)
 
-    assert len(entry.parquet_snapshot_cache_keys) == 1
-    ck = entry.parquet_snapshot_cache_keys[0]
+    ck = entry.projected_cache_key
     assert ck.relative_path == "my_cache"
     assert ck.key
 
@@ -882,3 +883,41 @@ def test_annex_fetch_content_no_remote_raises(tmpdir):
 
     with pytest.raises(AnnexError, match="no remote configured"):
         backend.fetch_content(entry.catalog_path)
+
+
+def test_catalog_entry_roundtrip_execute(catalog):
+    """Loading an expression from a catalog zip and executing it returns the original data."""
+    df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
+    expr = xo.memtable(df)
+    entry = catalog.add(expr)
+    result = entry.expr.execute()
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_database_table_roundtrip_execute(catalog):
+    """A registered database_table survives zip roundtrip and can be executed."""
+    df = pd.DataFrame({"x": [10, 20], "y": ["a", "b"]})
+    con = xo.connect()
+    t = con.register(df, table_name="test_dt")
+    entry = catalog.add(t)
+    result = entry.expr.execute()
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_extract_dir_cleaned_up_on_expr_gc(catalog):
+    """Temp extract directory is removed when the loaded expression is garbage-collected."""
+    entry = catalog.add(xo.memtable(pd.DataFrame({"a": [1]})))
+
+    before = frozenset(_live_extract_dirs)
+    expr = entry.expr
+    created = frozenset(_live_extract_dirs) - before
+    assert len(created) == 1, f"expected exactly one new extract dir, got {created}"
+    (td,) = created
+    assert Path(td).is_dir()
+
+    del expr
+    for _ in range(3):
+        gc.collect()
+
+    assert td not in _live_extract_dirs
+    assert not Path(td).exists()

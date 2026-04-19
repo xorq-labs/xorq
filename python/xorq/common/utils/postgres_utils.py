@@ -12,6 +12,7 @@ from attr.validators import (
 from xorq.backends.postgres import (
     Backend as PGBackend,
 )
+from xorq.common.utils.adbc_utils import ADBCBase
 from xorq.common.utils.env_utils import (
     EnvConfigable,
     env_templates_dir,
@@ -21,7 +22,7 @@ from xorq.vendor.ibis.backends.sql.compilers.base import STAR, AlterTable, Renam
 
 
 @frozen
-class PgADBC:
+class PgADBC(ADBCBase):
     con = field(validator=instance_of(PGBackend))
 
     @property
@@ -37,36 +38,21 @@ class PgADBC:
         }
         return dct
 
-    def get_uri(self, **kwargs):
-        params = {**self.params, **kwargs}
-        uri = f"postgresql://{params['user']}:{params['password']}@{params['host']}:{params['port']}/{params['database']}"
-        return uri
-
     @property
     def uri(self):
         return self.get_uri()
-
-    def get_conn(self, **kwargs):
-        return adbc_driver_postgresql.dbapi.connect(self.get_uri(**kwargs))
 
     @property
     def conn(self):
         return self.get_conn()
 
-    def adbc_ingest(
-        self, table_name, record_batch_reader, mode="create", temporary=False, **kwargs
-    ):
-        with self.get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.adbc_ingest(
-                    table_name,
-                    record_batch_reader,
-                    mode=mode,
-                    temporary=temporary,
-                    **kwargs,
-                )
-            # must commit!
-            conn.commit()
+    def get_uri(self, **kwargs):
+        params = {**self.params, **kwargs}
+        uri = f"postgresql://{params['user']}:{params['password']}@{params['host']}:{params['port']}/{params['database']}"
+        return uri
+
+    def get_conn(self, **kwargs):
+        return adbc_driver_postgresql.dbapi.connect(self.get_uri(**kwargs))
 
 
 PostgresConfig = EnvConfigable.subclass_from_env_file(

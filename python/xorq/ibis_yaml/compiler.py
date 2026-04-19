@@ -52,6 +52,7 @@ from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.common.utils.node_utils import (
     change_read_table_name,
     recreate,
+    update_read_kwargs,
 )
 from xorq.config import _backend_init
 from xorq.expr.api import deferred_read_parquet, read_parquet
@@ -83,7 +84,7 @@ def _ensure_translate_registered():
     import xorq.ibis_yaml.translate  # noqa: PLC0415, F401
 
 
-memory_backends = ("pandas", "duckdb", "datafusion", "xorq")
+memory_backends = ("pandas", "duckdb", "datafusion", "xorq-datafusion")
 table_like_ops = tuple(o for o in opaque_ops if issubclass(o, DatabaseTable))
 
 
@@ -367,7 +368,7 @@ def _extract_sql_queries(expr, kind) -> tuple[tuple[str, str, str], ...]:
     match kind:
         case ExprKind.UnboundExpr:
             sql = str(xorq_to_sql(clean)).strip()
-            return (("main", "xorq", sql),) if sql else ()
+            return (("main", "xorq-datafusion", sql),) if sql else ()
         case _:
             sql_plans, deferred_reads = generate_sql_plans(clean)
             return tuple(
@@ -572,38 +573,35 @@ class ExprDumper:
         replacements = {}
         for node in walk_nodes((InMemoryTable, DatabaseTable), expr):
             if isinstance(node, InMemoryTable):
-                path, writer = self._prepare_memtable(node, MemtableTypes.inmemory)
-                dr_op = make_read_op(
-                    parquet_path=path,
-                    read_kwargs={
-                        "table_name": node.name,
-                        "schema": node.schema,
-                        str(MemtableTypes.inmemory): True,
-                        # InMemoryTable data is deterministic — use content hash
-                        # (not mtime/inode) so the YAML is reproducible across
-                        # processes and rebuild timestamps.
-                        "normalize_method": normalize_read_path_md5sum,
-                    },
-                )
+                which = MemtableTypes.inmemory
+                # The `inmemory` marker flags this Read for memtable
+                # reconstruction on load; InMemoryTable data is deterministic,
+                # so content-hash normalization keeps the YAML reproducible
+                # across processes and rebuild timestamps.
+                type_kwargs = {str(which): True}
+                con_kwargs = {}
             elif (
                 isinstance(node, table_like_ops)
                 or node.source.name not in memory_backends
             ):
                 continue
             else:
-                path, writer = self._prepare_memtable(
-                    node, MemtableTypes.database_table
-                )
-                dr_op = make_read_op(
-                    parquet_path=path,
-                    read_kwargs={
-                        "table_name": node.name,
-                        # we normalize based on content so we can reproducible hash
-                        "normalize_method": normalize_read_path_md5sum,
-                        "schema": node.schema,
-                    },
-                    con=node.source,
-                )
+                which = MemtableTypes.database_table
+                type_kwargs = {}
+                con_kwargs = {"con": node.source}
+
+            path, writer = self._prepare_memtable(node, which)
+            dr_op = make_read_op(
+                parquet_path=path,
+                read_kwargs={
+                    "table_name": node.name,
+                    "schema": node.schema,
+                    **type_kwargs,
+                    "normalize_method": normalize_read_path_md5sum,
+                    "read_path": str(Path(which, path.name)),
+                },
+                **con_kwargs,
+            )
             path_to_writer[path] = writer
             replacements[node] = dr_op
         op = expr.op()
@@ -687,23 +685,26 @@ class ExprLoader:
     def deferred_reads_to_memtables(
         loaded, expr_path, read_only_parquet_metadata=False
     ):
-        def deferred_read_to_memtable(dr):
-            assert any(key == MemtableTypes.inmemory for key, _ in dr.read_kwargs)
-            path = expr_path.joinpath(next(v for k, v in dr.read_kwargs if k == "path"))
-            df = (
-                pq.read_schema(path).empty_table().to_pandas()
-                if read_only_parquet_metadata
-                else read_parquet(path).execute()
-            )
-            mt = ibis.memtable(df, schema=dr.schema, name=dr.name)
-            return mt.op()
+        def resolve_read(dr):
+            kw = dict(dr.read_kwargs)
+            path = expr_path.joinpath(kw["read_path"])
+            if MemtableTypes.inmemory in kw:
+                df = (
+                    pq.read_schema(path).empty_table().to_pandas()
+                    if read_only_parquet_metadata
+                    else read_parquet(path).execute()
+                )
+                return ibis.memtable(df, schema=dr.schema, name=dr.name).op()
+            resolved_kwargs = update_read_kwargs(dr.read_kwargs, (("hash_path", path),))
+            args = dict(zip(dr.__argnames__, dr.__args__)) | {
+                "read_kwargs": resolved_kwargs
+            }
+            return dr.__recreate__(args).make_dt()
 
         drs = tuple(
-            dr
-            for dr in walk_nodes(Read, loaded)
-            if MemtableTypes.inmemory in dict(dr.read_kwargs)
+            dr for dr in walk_nodes(Read, loaded) if "read_path" in dict(dr.read_kwargs)
         )
-        replacements = {dr: deferred_read_to_memtable(dr) for dr in drs}
+        replacements = {dr: resolve_read(dr) for dr in drs}
         op = loaded.op()
         if replacements:
             op = replace_nodes(replace_from_mapping(replacements), op)

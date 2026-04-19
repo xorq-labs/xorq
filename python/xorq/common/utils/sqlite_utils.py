@@ -10,6 +10,7 @@ from attr.validators import (
 from xorq.backends.sqlite import (
     Backend as SQLiteBackend,
 )
+from xorq.common.utils.adbc_utils import ADBCBase
 
 
 def get_sqlite_stats(dt):
@@ -20,31 +21,16 @@ def get_sqlite_stats(dt):
 
 
 @frozen
-class SQLiteADBC:
+class SQLiteADBC(ADBCBase):
     con = field(validator=instance_of(SQLiteBackend))
 
     @property
     def uri(self):
         return self.con.uri
 
-    def get_conn(self, **kwargs):
-        return adbc_driver_sqlite.dbapi.connect(self.uri)
-
     @property
     def conn(self):
         return self.get_conn()
 
-    def adbc_ingest(
-        self, table_name, record_batch_reader, mode="create", temporary=False, **kwargs
-    ):
-        with self.get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.adbc_ingest(
-                    table_name,
-                    record_batch_reader,
-                    mode=mode,
-                    temporary=temporary,
-                    **kwargs,
-                )
-            # must commit!
-            conn.commit()
+    def get_conn(self, **kwargs):
+        return adbc_driver_sqlite.dbapi.connect(self.uri)

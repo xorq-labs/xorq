@@ -74,18 +74,14 @@ def test_tokenize_datafusion_parquet_expr(alltypes_df, tmp_path, snapshot):
     alltypes_df.to_parquet(path)
     con = xo.datafusion.connect()
     t = con.register(path, "t")
-    # work around tmp_path variation
-    (prefix, suffix) = (
-        re.escape(part)
-        for part in (
-            r"file_groups={1 group: [[",
-            r"]]",
-        )
-    )
-    to_hash = re.sub(
-        prefix + f".*?/{path.name}" + suffix,
-        prefix + f"/{path.name}" + suffix,
-        str(tuple(dask.base.normalize_token(t))),
+    # DataFusion strips the leading "/" when rendering the plan, so the path
+    # in the normalized token has no leading slash. Strip both forms to make
+    # the snapshot stable across runs.
+    parent = str(path.parent)
+    to_hash = (
+        str(tuple(dask.base.normalize_token(t)))
+        .replace(parent + "/", "")
+        .replace(parent.lstrip("/") + "/", "")
     )
     actual = hashlib.md5(to_hash.encode(), usedforsecurity=False).hexdigest()
     snapshot.assert_match(actual, "datafusion_key.txt")
@@ -256,6 +252,30 @@ def test_parquet_cache_tokenize_stable_across_cloudpickle():
     cache2 = cloudpickle.loads(cloudpickle.dumps(cache))
     token_after = dask.base.tokenize(cache2)
     assert token_before == token_after
+
+
+def test_loaded_parquet_dt_has_stable_token(tmp_path):
+    """Two loads of the same build zip produce equal `.ls.tokenized`.
+
+    Regression: `normalize_datafusion_databasetable` used to hash the
+    execution plan string, which contains the extract dir path — fresh
+    per load — so tokens diverged across loads.
+    """
+    import pandas as pd  # noqa: PLC0415
+
+    from xorq.catalog.expr_utils import (  # noqa: PLC0415
+        build_expr_context_zip,
+        load_expr_from_zip,
+    )
+
+    df = pd.DataFrame({"x": [1, 2, 3]})
+    parquet_path = tmp_path / "data.parquet"
+    df.to_parquet(parquet_path)
+    expr = xo.deferred_read_parquet(parquet_path, xo.connect(), "t")
+    with build_expr_context_zip(expr) as zip_path:
+        a = load_expr_from_zip(zip_path)
+        b = load_expr_from_zip(zip_path)
+        assert a.ls.tokenized == b.ls.tokenized
 
 
 def test_different_cache_types_produce_different_hashes():

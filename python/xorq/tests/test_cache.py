@@ -3,6 +3,7 @@ import pytest
 
 import xorq.api as xo
 from xorq.caching import ParquetCache, SourceCache
+from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.relations import RemoteTable
 from xorq.tests.util import assert_frame_equal
@@ -62,3 +63,33 @@ def test_cache_record_batch_provider_exec(pg):
     cache = SourceCache.from_kwargs(source=ls_con)
 
     assert cache.calc_key(t) is not None
+
+
+@pytest.mark.parametrize(
+    "get_cache_source",
+    [
+        pytest.param(
+            lambda tmp_path: xo.postgres.connect_env(),
+            id="postgres",
+        ),
+        pytest.param(
+            lambda tmp_path: xo.sqlite.connect(str(tmp_path / "cache.db")),
+            id="sqlite",
+        ),
+    ],
+)
+def test_parquet_cache_adbc_source_multiple_executions(
+    get_cache_source, parquet_dir, tmp_path
+):
+    # Regression test for #1820: repeated cache hits with an ADBC-backed cache
+    # source must not raise "relation already exists" on the second call.
+    cache = ParquetCache.from_kwargs(
+        source=get_cache_source(tmp_path), relative_path=tmp_path
+    )
+    t = deferred_read_parquet(parquet_dir / "astronauts.parquet", xo.connect())
+    expr = t.cache(cache=cache)
+
+    result = xo.execute(expr)
+    assert not result.empty
+    result2 = xo.execute(expr)
+    assert not result2.empty

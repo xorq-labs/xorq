@@ -94,6 +94,25 @@ def test_into_backend():
     assert xo.execute(expr).equals(xo.execute(roundtrip_expr))
 
 
+def test_read_dedup_preserved_across_remote_tables():
+    parquet_path = xo.config.options.pins.get_path("awards_players")
+    con_a = xo.connect()
+    con_b = xo.connect()
+    target = xo.connect()
+
+    read_a = deferred_read_parquet(parquet_path, con_a)
+    read_b = deferred_read_parquet(parquet_path, con_b)
+    expr = into_backend(read_a, target).union(into_backend(read_b, target))
+
+    profiles = {c._profile.hash_name: c for c in (con_a, con_b, target)}
+    yaml_dict = YamlExpressionTranslator.to_yaml(expr, profiles)
+
+    nodes = dict(yaml_dict["definitions"]["nodes"])
+    read_entries = [dict(v) for k, v in nodes.items() if k.startswith("@read_")]
+    assert len(read_entries) == 2
+    assert read_entries[0]["name"] != read_entries[1]["name"]
+
+
 @pytest.mark.xfail(reason="MemTable is not serializable")
 def test_memtable_cache():
     table = xo.memtable([(i, "val") for i in range(10)], columns=["key1", "val"])

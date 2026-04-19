@@ -100,11 +100,13 @@ def replace_source_factory(source: Any):
 
 def make_native_op(node):
     # FIXME: how to reference let.Backend.name?
-    if node.source.name != "xorq":
-        raise ValueError(f"Expected 'xorq' backend, but got {node.source.name!r}")
+    if node.source.name != "xorq-datafusion":
+        raise ValueError(
+            f"Expected 'xorq-datafusion' backend, but got {node.source.name!r}"
+        )
     sources = node.source._sources
     native_source = sources.get_backend(node)
-    if native_source.name == "xorq":
+    if native_source.name == "xorq-datafusion":
         raise ValueError("Expected a native backend, but got 'let' backend")
 
     def replace_table(_node, _kwargs):
@@ -403,11 +405,12 @@ class FlightUDXF(DatabaseTableView):
                 rbr_in = instrument_reader(rbr_in, "input: ")
             with flight_udxf.make_server() as server:
                 client = server.client
-                client.do_action(
-                    AddExchangeAction.name,
-                    self.udxf,
-                    options=client._options,
-                )
+                if not getattr(self.udxf, "_xorq_server_has_command", False):
+                    client.do_action(
+                        AddExchangeAction.name,
+                        self.udxf,
+                        options=client._options,
+                    )
                 (fut, rbr_out) = client.do_exchange_batches(self.udxf.command, rbr_in)
                 if do_instrument_reader:
                     rbr_out = instrument_reader(rbr_out, "output: ")
@@ -592,8 +595,9 @@ class Read(ops.DatabaseTable):
 
     def make_dt(self):
         method = getattr(self.source, self.method_name)
-        args = tuple(v for k, v in self.read_kwargs if k == "path")
-        kwargs = {k: v for k, v in self.read_kwargs if k != "path"}
+        _exclude = ("hash_path", "read_path")
+        args = tuple(v for k, v in self.read_kwargs if k == "hash_path")
+        kwargs = {k: v for k, v in self.read_kwargs if k not in _exclude}
         dt = method(*args, **kwargs).op()
         return dt
 

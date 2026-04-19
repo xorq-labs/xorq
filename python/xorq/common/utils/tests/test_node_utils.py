@@ -180,6 +180,8 @@ def test_snapshot_hash_alignment_with_ibis_yaml(to_find_name):
         snapshot_hash = dask.base.tokenize(node_expr.ls.untagged)
 
     typs = (type(node),)
-    found = find_by_expr_hash(expr_cached, snapshot_hash, typs=typs)
+    found = find_by_expr_hash(
+        expr_cached, snapshot_hash, typs=typs, strategy=SnapshotStrategy()
+    )
 
     assert found == node

@@ -153,7 +153,10 @@ def test_deferred_read(get_con, pins_resource, request):
     con = get_con()
     pins_resource = request.getfixturevalue(pins_resource)
     assert pins_resource.table_name not in con.tables
-    t = pins_resource.deferred_reader(pins_resource.path, con, pins_resource.table_name)
+    kwargs = {"mode": "create"} if con.name != "pandas" else {}
+    t = pins_resource.deferred_reader(
+        pins_resource.path, con, pins_resource.table_name, **kwargs
+    )
     assert xo.execute(t).equals(pins_resource.df)
     assert pins_resource.table_name in con.tables
     # is this a test of mode for postgres?
@@ -208,7 +211,10 @@ def test_cached_deferred_read(get_con, pins_resource, filter_, request, tmp_path
     cache = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
 
     df = pins_resource.df[filter_].reset_index(drop=True)
-    t = pins_resource.deferred_reader(pins_resource.path, con, pins_resource.table_name)
+    kwargs = {"mode": "create"} if con.name == "postgres" else {}
+    t = pins_resource.deferred_reader(
+        pins_resource.path, con, pins_resource.table_name, **kwargs
+    )
     expr = t[filter_].cache(cache=cache)
 
     # no work is done yet
@@ -356,7 +362,11 @@ def test_deferred_read_csv_multiple_paths(csv_dir):
 
 @pytest.fixture(scope="function")
 def backend(request, con):
-    lookup = {"duckdb": xo.duckdb.connect(), "postgres": con, "xorq": xo.connect()}
+    lookup = {
+        "duckdb": xo.duckdb.connect(),
+        "postgres": con,
+        "xorq-datafusion": xo.connect(),
+    }
 
     return lookup.get(request.param, con)
 
@@ -366,7 +376,7 @@ def backend(request, con):
     [
         pytest.param("duckdb", id="duckdb"),
         pytest.param("postgres", id="postgres"),
-        pytest.param("xorq", id="xorq"),
+        pytest.param("xorq-datafusion", id="xorq-datafusion"),
     ],
     indirect=True,
 )

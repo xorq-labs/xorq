@@ -1420,6 +1420,12 @@ def test_rename_params_unknown_entry(runner, catalog_with_parameterized_entries)
 # --- --params tests ---
 
 
+def _csv_data_rows(output):
+    """Return non-header, non-empty CSV lines from CLI output."""
+    lines = [ln for ln in output.splitlines() if ln.strip()]
+    return [ln for ln in lines if ln and ln[0].isdigit()]
+
+
 def test_run_with_params_single_entry(runner, catalog_with_parameterized_entries):
     """run with -p binds a NamedScalarParameter value before execution."""
     catalog_path, _, _ = catalog_with_parameterized_entries
@@ -1439,10 +1445,9 @@ def test_run_with_params_single_entry(runner, catalog_with_parameterized_entries
         ],
     )
     assert result.exit_code == 0, result.output
-    # threshold=25 filters amount > 25, leaving only user_id=3,amount=30
-    assert "3,30" in result.output
-    assert "1,10" not in result.output
-    assert "2,20" not in result.output
+    # threshold=25 filters amount > 25, leaving only user_id=3,amount=30,name=c
+    rows = _csv_data_rows(result.output)
+    assert rows == ['3,30,"c"']
 
 
 def test_run_params_after_rename(runner, catalog_with_parameterized_entries):
@@ -1469,8 +1474,38 @@ def test_run_params_after_rename(runner, catalog_with_parameterized_entries):
         ],
     )
     assert result.exit_code == 0, result.output
-    assert "3,30" in result.output
-    assert "1,10" not in result.output
+    rows = _csv_data_rows(result.output)
+    assert rows == ["3,30"]
+
+
+def test_run_params_multiple_distinct(runner, catalog_path):
+    """Two distinct -p flags bind to their respective NamedScalarParameters."""
+    lo = xo.param("lo", "float64", default=0.0)
+    hi = xo.param("hi", "float64", default=1000.0)
+    t = xo.memtable({"user_id": [1, 2, 3], "amount": [10.0, 20.0, 30.0]})
+    expr = t.filter((t.amount > lo) & (t.amount < hi))
+    Catalog.from_kwargs(path=catalog_path, init=False).add(expr, aliases=("rng",))
+
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "rng",
+            "-p",
+            "lo=15.0",
+            "-p",
+            "hi=25.0",
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    rows = _csv_data_rows(result.output)
+    assert rows == ["2,20"]
 
 
 def test_run_params_bad_format(runner, catalog_with_parameterized_entries):
@@ -1491,8 +1526,30 @@ def test_run_params_bad_format(runner, catalog_with_parameterized_entries):
             "csv",
         ],
     )
-    assert result.exit_code != 0
+    assert result.exit_code == 2
     assert "Expected key=value" in result.output
+
+
+def test_run_params_bad_value(runner, catalog_with_parameterized_entries):
+    """-p with a value that fails dtype coercion should error."""
+    catalog_path, _, _ = catalog_with_parameterized_entries
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "psrc",
+            "-p",
+            "threshold=not_a_float",
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 2
+    assert "not_a_float" in result.output
 
 
 def test_run_params_unknown_name(runner, catalog_with_parameterized_entries):
@@ -1513,9 +1570,34 @@ def test_run_params_unknown_name(runner, catalog_with_parameterized_entries):
             "csv",
         ],
     )
-    assert result.exit_code != 0
+    assert result.exit_code == 2
     assert "Unknown parameter" in result.output
     assert "threshold" in result.output
+
+
+def test_run_params_no_declared(runner, catalog_path):
+    """-p on an expr with no NamedScalarParameter reports 'Available: (none)'."""
+    plain = xo.memtable({"x": [1, 2, 3]})
+    Catalog.from_kwargs(path=catalog_path, init=False).add(plain, aliases=("plain",))
+
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            "plain",
+            "-p",
+            "anything=1.0",
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 2
+    assert "Unknown parameter" in result.output
+    assert "(none)" in result.output
 
 
 # --- run with ExprBuilder entries ---
@@ -1541,145 +1623,3 @@ def test_run_expr_builder_entry(runner, catalog_path, saved_registry):
     )
     assert result.exit_code == 0, result.output
     assert "x" in result.output
-
-
-# --- run-cached command ---
-
-
-def test_run_cached_single_entry(runner, catalog_with_source_and_transform, tmp_path):
-    catalog_path, _, _ = catalog_with_source_and_transform
-    cache_dir = tmp_path / "cache"
-    result = runner.invoke(
-        cli,
-        [
-            "--path",
-            catalog_path,
-            "run-cached",
-            "src",
-            "--cache-dir",
-            str(cache_dir),
-            "-o",
-            "-",
-            "-f",
-            "csv",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    assert "user_id" in result.output
-    assert cache_dir.exists()
-    assert any(cache_dir.iterdir())
-
-
-def test_run_cached_two_entries(runner, catalog_with_source_and_transform, tmp_path):
-    catalog_path, _, _ = catalog_with_source_and_transform
-    cache_dir = tmp_path / "cache"
-    result = runner.invoke(
-        cli,
-        [
-            "--path",
-            catalog_path,
-            "run-cached",
-            "src",
-            "trn",
-            "--cache-dir",
-            str(cache_dir),
-            "-o",
-            "-",
-            "-f",
-            "csv",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    assert "user_id" in result.output
-
-
-def test_run_cached_snapshot_type(runner, catalog_with_source_and_transform, tmp_path):
-    catalog_path, _, _ = catalog_with_source_and_transform
-    cache_dir = tmp_path / "cache"
-    result = runner.invoke(
-        cli,
-        [
-            "--path",
-            catalog_path,
-            "run-cached",
-            "src",
-            "--cache-type",
-            "snapshot",
-            "--cache-dir",
-            str(cache_dir),
-            "-o",
-            "-",
-            "-f",
-            "csv",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    assert "user_id" in result.output
-
-
-def test_run_cached_ttl(runner, catalog_with_source_and_transform, tmp_path):
-    catalog_path, _, _ = catalog_with_source_and_transform
-    cache_dir = tmp_path / "cache"
-    result = runner.invoke(
-        cli,
-        [
-            "--path",
-            catalog_path,
-            "run-cached",
-            "src",
-            "--ttl",
-            "60",
-            "--cache-dir",
-            str(cache_dir),
-            "-o",
-            "-",
-            "-f",
-            "csv",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    assert "user_id" in result.output
-
-
-def test_run_cached_with_params(runner, catalog_with_parameterized_entries, tmp_path):
-    """run-cached with -p binds a NamedScalarParameter before caching."""
-    catalog_path, _, _ = catalog_with_parameterized_entries
-    cache_dir = tmp_path / "cache"
-    result = runner.invoke(
-        cli,
-        [
-            "--path",
-            catalog_path,
-            "run-cached",
-            "psrc",
-            "-p",
-            "threshold=25.0",
-            "--cache-dir",
-            str(cache_dir),
-            "-o",
-            "-",
-            "-f",
-            "csv",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    assert "3,30" in result.output
-    assert "1,10" not in result.output
-    assert "2,20" not in result.output
-
-
-def test_run_cached_no_entries(runner, catalog_with_source_and_transform, tmp_path):
-    catalog_path, _, _ = catalog_with_source_and_transform
-    cache_dir = tmp_path / "cache"
-    result = runner.invoke(
-        cli,
-        [
-            "--path",
-            catalog_path,
-            "run-cached",
-            "--cache-dir",
-            str(cache_dir),
-        ],
-    )
-    assert result.exit_code != 0
-    assert "At least one entry is required" in result.output

@@ -99,9 +99,11 @@ def _format_cached(value: bool | None) -> str:
             return "—"
 
 
-def get_cache_keys_paths(cache_keys: tuple[CacheKey, ...]) -> tuple[str, ...]:
-    return tuple(
-        str(resolve_parquet_cache_path(ck.relative_path, ck.key)) for ck in cache_keys
+def get_cache_key_path(cache_key: CacheKey | None) -> str | None:
+    return (
+        str(resolve_parquet_cache_path(cache_key.relative_path, cache_key.key))
+        if cache_key is not None
+        else None
     )
 
 
@@ -112,10 +114,8 @@ class CatalogRowData:
 
     @property
     def cached(self) -> bool | None:
-        if cache_keys_paths := get_cache_keys_paths(
-            self.entry.parquet_snapshot_cache_keys
-        ):
-            return all(Path(p).exists() for p in cache_keys_paths)
+        if path := get_cache_key_path(self.entry.projected_cache_key):
+            return Path(path).exists()
         return None
 
     @property
@@ -158,12 +158,12 @@ class CatalogRowData:
 
     @cached_property
     def cache_info_text(self) -> str:
-        paths = get_cache_keys_paths(self.entry.parquet_snapshot_cache_keys)
-        match paths:
-            case () | None:
+        path = get_cache_key_path(self.entry.projected_cache_key)
+        match path:
+            case None:
                 return "— unknown"
-            case _ if all(Path(p).exists() for p in paths):
-                return f"● cached  {paths[0]}"
+            case _ if Path(path).exists():
+                return f"● cached  {path}"
             case _:
                 return "○ uncached"
 
@@ -239,10 +239,8 @@ VIEW_LIMIT = 50_000
 
 
 def _entry_info(entry: CatalogEntry) -> tuple[int | None, bool | None]:
-    cache_keys_paths = get_cache_keys_paths(entry.parquet_snapshot_cache_keys)
-    cached = (
-        all(Path(p).exists() for p in cache_keys_paths) if cache_keys_paths else None
-    )
+    path = get_cache_key_path(entry.projected_cache_key)
+    cached = Path(path).exists() if path is not None else None
     return len(entry.columns), cached
 
 
