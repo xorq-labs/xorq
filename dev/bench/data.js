@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776614370096,
+  "lastUpdate": 1776614602047,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -6600,6 +6600,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0072733714994903656",
             "extra": "mean: 195.04688699999897 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9ff7230856b3dd51cb3b0443bc2a60bb10940d32",
+          "message": "docs(adr): add ADR-0006 on read_kwargs hash_path/read_path split (#1838)\n\n## Summary\n- Adds ADR-0006 documenting the split of the `read_kwargs` `\"path\"` key\ninto `hash_path` (identity for dask tokenization) and `read_path`\n(location for I/O).\n- Motivated by catalog roundtrip failures where zipped build tmpdirs\nextract to a different path on load, leaving absolute paths pointing at\nnonexistent dirs.\n\n## Test plan\n- [ ] Review ADR for accuracy against current `relations.py`,\n`compiler.py`, `defer_utils.py`, and `dask_normalize_expr.py` behavior\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-19T11:59:57-04:00",
+          "tree_id": "6c337ab32c45011ddb537dd2aa3cf0b56ef333d4",
+          "url": "https://github.com/xorq-labs/xorq/commit/9ff7230856b3dd51cb3b0443bc2a60bb10940d32"
+        },
+        "date": 1776614599669,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.78615302681743,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014918314520236245",
+            "extra": "mean: 128.4331294999923 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.338246318622366,
+            "unit": "iter/sec",
+            "range": "stddev: 0.033846884797221845",
+            "extra": "mean: 230.50788879999686 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7333709264843933,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14384633864149296",
+            "extra": "mean: 1.363566462599988 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.4623657814082645,
+            "unit": "iter/sec",
+            "range": "stddev: 0.033558047647463216",
+            "extra": "mean: 224.09637599999996 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.93936853990389,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011764705022655678",
+            "extra": "mean: 202.45502879998867 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.82259017907958,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008670168246872704",
+            "extra": "mean: 207.35744960001057 msec\nrounds: 5"
           }
         ]
       }
