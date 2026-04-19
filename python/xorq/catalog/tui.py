@@ -422,19 +422,19 @@ def _revision_pair(i, rev_entry, commit):
 
 class CatalogScreen(Screen):
     BINDINGS = (
-        ("q", "quit_app", "Quit"),
-        ("ctrl+c", "quit_app", "Quit"),
-        ("h", "tree_collapse", "Collapse"),
-        ("j", "cursor_down", "Down"),
-        ("k", "cursor_up", "Up"),
-        ("l", "tree_expand", "Expand"),
-        ("tab", "focus_next_panel", "Next"),
-        ("shift+tab", "focus_prev_panel", "Prev"),
-        ("1", "view_sql", "SQL"),
-        ("2", "view_data", "Data"),
-        ("e", "open_data_view", "Explore"),
-        ("v", "toggle_revisions", "Revisions"),
-        ("g", "toggle_git_log", "Git Log"),
+        Binding("q", "quit_app", "Quit"),
+        Binding("ctrl+c", "quit_app", "Quit", show=False),
+        Binding("h", "tree_collapse", "Collapse", show=False),
+        Binding("j", "cursor_down", "Down", show=False),
+        Binding("k", "cursor_up", "Up", show=False),
+        Binding("l", "tree_expand", "Expand", show=False),
+        Binding("tab", "focus_next_panel", "Next", show=False),
+        Binding("shift+tab", "focus_prev_panel", "Prev", show=False),
+        Binding("e", "open_data_view", "Explore"),
+        Binding("v", "toggle_revisions", "Revisions"),
+        Binding("g", "toggle_git_log", "Git Log"),
+        Binding("1", "view_sql", "SQL"),
+        Binding("2", "view_data", "Data"),
     )
 
     FOCUS_CYCLE = (
