@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776514237225,
+  "lastUpdate": 1776611195981,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -6468,6 +6468,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.006631442599740383",
             "extra": "mean: 200.2247207999858 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "759d3d01a49f0378b64ef06ba3e544583c641f32",
+          "message": "feat(metadata): compute synthetic cache keys for uncached expressions (XOR-284) (#1787)\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-19T11:02:54-04:00",
+          "tree_id": "5c0f6a16631edfc142359593d458faaf77e35c81",
+          "url": "https://github.com/xorq-labs/xorq/commit/759d3d01a49f0378b64ef06ba3e544583c641f32"
+        },
+        "date": 1776611193178,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.299970645195918,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015103839428671433",
+            "extra": "mean: 136.98685222222036 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.6498491412709155,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007739882824843555",
+            "extra": "mean: 215.0607406000006 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.688406306237774,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1493233179233083",
+            "extra": "mean: 1.4526305046000005 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.8957971531787154,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03690857070536055",
+            "extra": "mean: 256.6868758000055 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.675791887251157,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018644500476699927",
+            "extra": "mean: 213.86751680000202 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.938658468957033,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009635409247570328",
+            "extra": "mean: 202.48413740000615 msec\nrounds: 5"
           }
         ]
       }
