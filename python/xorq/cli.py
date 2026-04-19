@@ -126,6 +126,16 @@ def _parse_cli_params(expr, raw_params: tuple) -> dict:
     return params
 
 
+def _apply_cli_params(expr, raw_params: tuple):
+    """Parse --params CLI strings and bind them to expr; no-op if empty."""
+    param_dict = _parse_cli_params(expr, raw_params)
+    if not param_dict:
+        return expr
+    from xorq.expr.api import bind_params  # noqa: PLC0415
+
+    return bind_params(expr, param_dict)
+
+
 def ensure_build_dir(expr_path):
     build_dir = Path(expr_path)
     if not build_dir.exists() or not build_dir.is_dir():
@@ -412,11 +422,7 @@ def run_cached_command(
 
         with timed() as get_elapsed:
             expr = load_expr(expr_path, cache_dir=cache_dir)
-            param_dict = _parse_cli_params(expr, raw_params)
-            if param_dict:
-                from xorq.expr.api import bind_params  # noqa: PLC0415
-
-                expr = bind_params(expr, param_dict)
+            expr = _apply_cli_params(expr, raw_params)
 
         rl.log_span_event(
             span, "run_cached.expr_loaded", {"elapsed_s": round(get_elapsed(), 3)}

@@ -920,6 +920,13 @@ def _resolve_single_entry(catalog, entry, code, instream, rename_map, span):
     multiple=True,
     help="Rename a parameter: entry,old_name,new_name (repeatable).",
 )
+@click.option(
+    "-p",
+    "--params",
+    "raw_params",
+    multiple=True,
+    help="Parameter as key=value (repeatable). e.g. --params threshold=0.5",
+)
 @click.pass_context
 def run(
     ctx,
@@ -931,6 +938,7 @@ def run(
     instream,
     fuse,
     raw_rename_params,
+    raw_params,
 ):
     """Compose and execute catalog entries.
 
@@ -948,7 +956,7 @@ def run(
 
     To persist composed results, use 'compose'.
     """
-    from xorq.cli import arbitrate_output_format
+    from xorq.cli import _apply_cli_params, arbitrate_output_format
     from xorq.common.utils.logging_utils import RunLogger
     from xorq.common.utils.otel_utils import tracer
     from xorq.common.utils.profile_utils import timed
@@ -968,6 +976,7 @@ def run(
                 ("output_path", str(output_path)),
                 ("fuse", str(fuse)),
                 ("limit", limit),
+                ("params", ",".join(raw_params)),
             )
 
             with RunLogger.from_expr_hash(
@@ -998,6 +1007,8 @@ def run(
                         "catalog_run.expr_loaded",
                         {"elapsed_s": round(get_elapsed(), 3)},
                     )
+
+                expr = _apply_cli_params(expr, raw_params)
 
                 if fuse:
                     expr = expr.ls.fused
