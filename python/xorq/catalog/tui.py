@@ -240,23 +240,6 @@ class RevisionRowData:
 
 VIEW_LIMIT = 50_000
 
-VERB_TEMPLATES = {
-    "filter": "source.filter({input})",
-    "mutate": "source.mutate({input})",
-    "select": "source.select({input})",
-    "order_by": "source.order_by({input})",
-    "drop": "source.drop({input})",
-    "agg": "source.group_by({group}).agg({input})",
-}
-
-
-def build_code(verb: str, user_input: str, group: str = "") -> str:
-    if verb == "freeform":
-        return user_input
-    if verb == "agg":
-        return VERB_TEMPLATES[verb].format(group=group, input=user_input)
-    return VERB_TEMPLATES[verb].format(input=user_input)
-
 
 @frozen
 class ExprStep:
@@ -297,31 +280,22 @@ class ExprStack:
     def can_redo(self) -> bool:
         return self.cursor < len(self.steps)
 
-    def current_expr(self):
-        """Replay active steps onto base via _eval_code."""
-        from xorq.catalog.bind import _eval_code  # noqa: PLC0415
-
-        expr = self.base_expr
-        for step in self.steps[: self.cursor]:
-            expr = _eval_code(step.code, expr)
-        return expr
-
     @property
     def current_code(self) -> str:
         """Single evaluable expression chaining all active steps.
 
-        Each step's code starts with ``source.verb(...)``.  For steps after
-        the first, the leading ``source`` is replaced with the accumulated
-        expression so the result is one chained call that ``_eval_code`` can
-        evaluate in a single ``eval()``.
+        Each step is wrapped in a ``(lambda source: step_code)(prior)`` call,
+        so every ``source`` identifier in the step binds to the prior step's
+        result via the same namespace mechanism ``_eval_code`` uses — no
+        string substitution of ``source`` inside user code.
         """
         if self.cursor == 0:
             return ""
-        steps = self.steps[: self.cursor]
-        result = steps[0].code
-        for step in steps[1:]:
-            result = step.code.replace("source", f"({result})", 1)
+        result = "source"
+        for step in self.steps[: self.cursor]:
+            result = f"(lambda source: {step.code})({result})"
         return result
+
 
 def _entry_info(entry: CatalogEntry) -> tuple[int | None, bool | None]:
     path = get_cache_key_path(entry.projected_cache_key)
@@ -1038,11 +1012,21 @@ class DataViewScreen(Screen):
         Binding("ctrl+r", "redo", "Redo"),
         Binding("e", "toggle_stack_browser", "Stack"),
         Binding("w", "persist", "Save"),
-        Binding("f", "verb_filter", "Filter"),
-        Binding("=", "verb_mutate", "Mutate"),
-        Binding("-", "verb_select", "Select"),
-        Binding("#", "verb_agg", "Agg"),
-        Binding(":", "verb_freeform", "Free"),
+        Binding(":", "open_freeform", "Expr"),
+    )
+
+    _IBIS_METHOD_SUGGESTIONS = (
+        "filter",
+        "mutate",
+        "select",
+        "order_by",
+        "group_by",
+        "agg",
+        "distinct",
+        "head",
+        "limit",
+        "join",
+        "drop",
     )
 
     def __init__(self, entry, row_data):
@@ -1053,8 +1037,7 @@ class DataViewScreen(Screen):
         self._df = None
         self._cursor_column_index = 0
         self._stack_browser_visible = False
-        self._command_verb = None
-        self._agg_group = None
+        self._command_mode = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -1181,20 +1164,6 @@ class DataViewScreen(Screen):
         self.query_one("#data-view-status", Static).update(f" Error: {message}")
         self.query_one("#data-view-table", DataTable).loading = False
 
-    _IBIS_METHOD_SUGGESTIONS = (
-        "filter",
-        "mutate",
-        "select",
-        "order_by",
-        "group_by",
-        "agg",
-        "distinct",
-        "head",
-        "limit",
-        "join",
-        "drop",
-    )
-
     def _update_command_suggester(self) -> None:
         """Update tab-completion suggestions from current expression columns."""
         cols = tuple(self._df.columns) if self._df is not None else ()
@@ -1237,114 +1206,44 @@ class DataViewScreen(Screen):
 
     # --- Command input ---
 
-    def _open_command_input(self, verb: str) -> None:
-        """Show the command input docked at bottom with verb prompt."""
-        self._command_verb = verb
-        cmd = self.query_one("#command-input", Input)
-        cmd.remove_class("error")
-        cmd.value = ""
-        prompt = verb if verb != "freeform" else ":"
-        cmd.placeholder = (
-            f"{prompt}\u25b8 type expression, Tab to complete, Enter to apply"
-        )
-        cmd.border_title = f"{prompt}\u25b8"
-        cmd.display = True
-        cmd.focus()
-
     @on(Input.Submitted, "#command-input")
     def _on_command_submitted(self, event: Input.Submitted) -> None:
         user_input = event.value.strip()
         cmd = self.query_one("#command-input", Input)
+        mode = self._command_mode
 
-        verb = self._command_verb
-
-        # Save accepts empty input (no alias)
-        if verb == "save":
+        if mode == "save":
             alias = user_input or None
             cmd.display = False
-            self._command_verb = None
+            self._command_mode = None
             self.query_one("#data-view-table", DataTable).focus()
             self._do_persist(alias)
             return
 
         if not user_input:
             cmd.display = False
-            self._command_verb = None
-            self._agg_group = None
+            self._command_mode = None
             self.query_one("#data-view-table", DataTable).focus()
-            return
-
-        if verb is None:
-            cmd.display = False
-            self.query_one("#data-view-table", DataTable).focus()
-            return
-
-        # Two-phase aggregate: first group_by, then agg
-        if verb == "agg_group":
-            self._agg_group = user_input
-            self._command_verb = "agg"
-            cmd.value = ""
-            cmd.placeholder = (
-                "agg\u25b8 aggregation expressions (e.g. avg=source.amount.mean())"
-            )
-            cmd.border_title = "agg\u25b8"
-            return
-
-        try:
-            if verb == "agg":
-                group = self._agg_group or ""
-                code = build_code(verb, user_input, group=group)
-                display_input = f"group_by({group}).agg({user_input})"
-            else:
-                code = build_code(verb, user_input)
-                display_input = user_input
-        except Exception as e:
-            cmd.value = f"Error building code: {e}"
-            cmd.add_class("error")
             return
 
         cmd.display = False
-        self._command_verb = None
-        self._agg_group = None
+        self._command_mode = None
         self.query_one("#data-view-table", DataTable).focus()
-        self._push_step(verb, display_input, code)
+        self._push_step("freeform", user_input, user_input)
 
-    # --- Verb actions ---
+    # --- Freeform action ---
 
-    def action_verb_filter(self) -> None:
+    def action_open_freeform(self) -> None:
         if self._stack is None:
             return
-        self._open_command_input("filter")
-
-    def action_verb_mutate(self) -> None:
-        if self._stack is None:
-            return
-        self._open_command_input("mutate")
-
-    def action_verb_select(self) -> None:
-        if self._stack is None:
-            return
-        self._open_command_input("select")
-
-    def action_verb_agg(self) -> None:
-        if self._stack is None:
-            return
-        self._agg_group = None
-        self._command_verb = "agg_group"
+        self._command_mode = "freeform"
         cmd = self.query_one("#command-input", Input)
         cmd.remove_class("error")
         cmd.value = ""
-        cmd.placeholder = (
-            'group_by\u25b8 column names to group by (e.g. "category", "region")'
-        )
-        cmd.border_title = "group_by\u25b8"
+        cmd.placeholder = ":\u25b8 type expression, Tab to complete, Enter to apply"
+        cmd.border_title = ":\u25b8"
         cmd.display = True
         cmd.focus()
-
-    def action_verb_freeform(self) -> None:
-        if self._stack is None:
-            return
-        self._open_command_input("freeform")
 
     # --- Instant actions (no input required) ---
 
@@ -1389,8 +1288,7 @@ class DataViewScreen(Screen):
         cmd = self.query_one("#command-input", Input)
         if cmd.display:
             cmd.display = False
-            self._command_verb = None
-            self._agg_group = None
+            self._command_mode = None
             self.query_one("#data-view-table", DataTable).focus()
         else:
             self._df = None
@@ -1462,7 +1360,7 @@ class DataViewScreen(Screen):
     def action_persist(self) -> None:
         if self._stack is None or self._stack.cursor == 0:
             return
-        self._command_verb = "save"
+        self._command_mode = "save"
         cmd = self.query_one("#command-input", Input)
         cmd.remove_class("error")
         cmd.value = ""
@@ -1472,29 +1370,38 @@ class DataViewScreen(Screen):
         cmd.focus()
 
     def _do_persist(self, alias=None) -> None:
-        """Persist current stack expression to catalog via ExprComposer."""
         if self._stack is None or self._stack.cursor == 0:
             return
         self._persist_to_catalog(alias)
 
+    def _catalog_compose_cmd(self, code: str, alias: str | None) -> list[str]:
+        catalog = self.app._catalog
+        entry_name = (
+            self._row_data.aliases[0] if self._row_data.aliases else self._entry.name
+        )
+        cmd = [
+            "xorq",
+            "catalog",
+            "--path",
+            str(catalog.repo_path),
+            "compose",
+            entry_name,
+            "-c",
+            code,
+        ]
+        if alias:
+            cmd.extend(["-a", alias])
+        return cmd
+
     @work(thread=True, exit_on_error=False)
     def _persist_to_catalog(self, alias) -> None:
         try:
-            from xorq.catalog.composer import ExprComposer  # noqa: PLC0415
-
             code = self._stack.current_code
-            composer = ExprComposer(source=self._entry, code=code, alias=alias)
-            expr = composer.expr
-            catalog = self.app._catalog
-            if catalog is None:
-                self.app.call_from_thread(
-                    self._show_command_error, "No catalog available"
-                )
-                return
-            entry = catalog.add(expr)
-            if alias:
-                catalog.add_alias(entry.name, alias)
-            msg = f"Saved as '{alias or entry.name[:12]}'"
+            cmd = self._catalog_compose_cmd(code, alias)
+            proc = subprocess.run(cmd, capture_output=True)
+            if proc.returncode != 0:
+                raise RuntimeError(proc.stderr.decode().strip())
+            msg = f"Saved as '{alias}'" if alias else "Saved"
             self.app.call_from_thread(self._show_persist_success, msg)
         except Exception as e:
             self.app.call_from_thread(self._show_command_error, f"Save failed: {e}")

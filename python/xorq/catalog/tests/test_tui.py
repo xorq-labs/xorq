@@ -43,7 +43,6 @@ from xorq.catalog.tui import (
     _build_git_log_rows,
     _entry_info,
     _format_cached,
-    build_code,
     get_cache_key_path,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
@@ -754,7 +753,6 @@ def _mock_catalog_run(monkeypatch):
     )
 
 
-
 def test_data_view_screen_construction(entry_a):
     row_data = CatalogRowData(entry=entry_a)
     screen = DataViewScreen(entry=entry_a, row_data=row_data)
@@ -962,18 +960,6 @@ def test_expr_stack_fork_discards_after_cursor():
     assert forked.steps[1] is step3  # step2 was replaced
 
 
-def test_expr_stack_current_expr_evaluates():
-    base = xo.memtable({"x": [1, 2, 3]})
-    step = ExprStep(
-        verb="filter", user_input="source.x > 1", code="source.filter(source.x > 1)"
-    )
-    stack = ExprStack(base_expr=base).push(step)
-    result = stack.current_expr()
-    df = result.execute()
-    assert len(df) == 2
-    assert list(df["x"]) == [2, 3]
-
-
 def test_expr_stack_current_code():
     base = xo.memtable({"x": [1, 2, 3]})
     step1 = ExprStep(
@@ -984,8 +970,11 @@ def test_expr_stack_current_code():
     )
     stack = ExprStack(base_expr=base).push(step1).push(step2)
     code = stack.current_code
-    # Steps are chained into a single evaluable expression
-    assert code == "(source.filter(source.x > 1)).mutate(y=source.x * 2)"
+    # Each step is wrapped in a lambda so its `source` binds to the prior result.
+    assert code == (
+        "(lambda source: source.mutate(y=source.x * 2))"
+        "((lambda source: source.filter(source.x > 1))(source))"
+    )
 
 
 def test_expr_stack_current_code_single_step():
@@ -994,7 +983,7 @@ def test_expr_stack_current_code_single_step():
         verb="filter", user_input="source.x > 1", code="source.filter(source.x > 1)"
     )
     stack = ExprStack(base_expr=base).push(step)
-    assert stack.current_code == "source.filter(source.x > 1)"
+    assert stack.current_code == "(lambda source: source.filter(source.x > 1))(source)"
 
 
 def test_expr_stack_current_code_evaluable():
@@ -1015,30 +1004,28 @@ def test_expr_stack_current_code_evaluable():
     assert list(df["y"]) == [20]
 
 
-def test_build_code_filter():
-    assert build_code("filter", "source.x > 1") == "source.filter(source.x > 1)"
+def test_expr_stack_current_code_inner_source_rebinds():
+    """Every `source` in a step must bind to the prior step's result, not only the first."""
 
-
-def test_build_code_mutate():
-    assert build_code("mutate", "y=source.x * 2") == "source.mutate(y=source.x * 2)"
-
-
-def test_build_code_select():
-    assert build_code("select", '"x", "y"') == 'source.select("x", "y")'
-
-
-def test_build_code_freeform():
-    assert build_code("freeform", "source.distinct()") == "source.distinct()"
-
-
-def test_build_code_agg():
-    code = build_code("agg", "avg=source.x.mean()", group='"category"')
-    assert code == 'source.group_by("category").agg(avg=source.x.mean())'
-
-
-def test_build_code_agg_empty_group():
-    code = build_code("agg", "total=source.x.sum()", group="")
-    assert code == "source.group_by().agg(total=source.x.sum())"
+    base = xo.memtable({"x": [1, 2, 3], "y": [10, 20, 30]})
+    step1 = ExprStep(
+        verb="freeform",
+        user_input='source.select("x")',
+        code='source.select("x")',
+    )
+    # This step references source.x; after select("x"), source.y is gone.
+    # If `source` inside the mutate bound to the original base, this would
+    # silently succeed using base.x rather than the selected projection.
+    step2 = ExprStep(
+        verb="freeform",
+        user_input="source.mutate(z=source.x * 10)",
+        code="source.mutate(z=source.x * 10)",
+    )
+    stack = ExprStack(base_expr=base).push(step1).push(step2)
+    result = _eval_code(stack.current_code, base)
+    df = result.execute()
+    assert list(df.columns) == ["x", "z"]
+    assert list(df["z"]) == [10, 20, 30]
 
 
 # ---------------------------------------------------------------------------
@@ -1066,7 +1053,7 @@ def test_data_view_has_command_input_hidden(catalog, entry_a):
     _run(_test())
 
 
-def test_data_view_f_opens_filter_input(catalog, entry_a):
+def test_data_view_colon_opens_freeform_input(catalog, entry_a):
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
@@ -1081,16 +1068,15 @@ def test_data_view_f_opens_filter_input(catalog, entry_a):
             data_screen = app.screen
             assert isinstance(data_screen, DataViewScreen)
 
-            # Wait for data to load first
             data_table = data_screen.query_one("#data-view-table", DataTable)
             await wait_until(pilot, lambda: data_table.row_count > 0)
 
-            await pilot.press("f")
+            await pilot.press(":")
             await settle(pilot)
 
             cmd = data_screen.query_one("#command-input", Input)
             assert cmd.display is not False
-            assert "filter" in str(cmd.border_title)
+            assert ":" in str(cmd.border_title)
 
     _run(_test())
 
@@ -1112,7 +1098,7 @@ def test_data_view_escape_closes_command_input(catalog, entry_a):
             await wait_until(pilot, lambda: data_table.row_count > 0)
 
             # Open command input
-            await pilot.press("f")
+            await pilot.press(":")
             await settle(pilot)
 
             cmd = data_screen.query_one("#command-input", Input)
