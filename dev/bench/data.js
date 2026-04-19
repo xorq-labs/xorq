@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776611195981,
+  "lastUpdate": 1776614370096,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -6534,6 +6534,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.009635409247570328",
             "extra": "mean: 202.48413740000615 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b1c7038ecfdc2eb8c5346483ee2247f4f40dd990",
+          "message": "fix(catalog): portable deferred reads via read_path/hash_path (#1832)\n\n## Summary\n\nMake catalog-loaded deferred reads execute end-to-end. Fixes a chain of\nregressions that surface when a catalog entry is loaded from a zip and\neither executed locally or served over flight.\n\n### Catalog / deferred reads\n\n- **Portable deferred reads** (`fab04ad5` + `a7462020`): split `path` in\n`read_kwargs` into `hash_path` (absolute, used only by `normalize_read`\n  for cache-key computation) and `read_path` (relative to build root,\n  used by `deferred_reads_to_memtables` for file I/O). Also drop the\n  dead `try_names` fallback in `normalize_read` — `make_read_kwargs`\n  already normalizes backend-specific param names into `hash_path`.\n- **database_table re-registration** (`34c9fbc0`):\n  `deferred_reads_to_memtables` now dispatches `database_table` Reads\n  through `make_dt` instead of converting to bare memtables, preserving\n  the backend connection.\n- **Read hash disambiguation** (`0c18e10f`): include `node.name` in the\n  Read content hash so a memtable and a database_table sharing identical\n  data don't collide in `Registry.register_node`'s `setdefault`.\n- **Extract-dir lifetime** (`39cc0532`): replace contextmanager-scoped\n  cleanup with `weakref.finalize` keyed on the loaded expression, plus\n  an atexit sweep. Fixes premature cleanup of files referenced by\n  deferred reads after the context exits.\n\n### ibis_yaml\n\n- **Per-RemoteTable Read rename** (`cf1a3429`): thread the enclosing\n  RemoteTable's name through a stack on `TranslationContext` and mix\n  it into `_read_to_yaml`'s tokenize input. Prevents\n  content-equivalent Reads wrapped by distinct RemoteTables from\n  collapsing to the same `table_name`, which was causing \"table not\n  found\" failures on zip roundtrips of multi-RemoteTable expressions.\n\n### dask_normalize\n\n- **Tempdir canonicalization** (`12fe6c68`): strip\n  `.../xorq-catalog-<random>/` prefixes from DatabaseTable plan paths so\n  tokens match across `load_expr_from_zip` calls that pick fresh\n  `mkdtemp` extract dirs. Preserves the same-path-same-token cache\n  semantic for `test_parquet_cache_storage`.\n\n### flight (UnboundExprExchanger chain)\n\n- **Zip-bundle serialization** (`05a09141`):\n  `UnboundExprExchanger.__reduce__` now serializes via the build-zip\n  bundle. Default cloudpickle walked into `Backend.__reduce__` which\n  returns only `(Profile.get_con, (profile,))`, dropping all table\n  state — so a client fetching the exchanger got a backend missing the\n  Read-backed tables the server registered at load time.\n- **In-process registration** (`c77a3705`): `FlightServer.serve()`\n  registers exchangers directly on `self.server.exchangers` instead of\n  pickling them through its own gRPC loopback. The loopback path\n  exceeded gRPC's initial-metadata size limit for exchangers carrying\n  UDF closures, manifesting as `ArrowInvalid: received initial metadata\n  size exceeds limit` during startup.\n- **Skip redundant AddExchange** (`bda7404f`): mark server-originated\n  exchangers with `_xorq_server_has_command=True`; `FlightUDXF.to_rbr`\n  skips `AddExchangeAction` when set, and uses the user-provided\n  `command` string so the server's key matches across cloudpickle\n  (unbound_expr token isn't stable across roundtrip).\n\n## Test plan\n\n- [x] `test_catalog_entry_roundtrip_execute` — catalog add → load →\n      execute, data roundtrip verified against git and annex backends\n- [x] `test_read_kwargs_contains_hash_path_and_read_path` — YAML has\n      both keys; `read_path` relative\n- [x] `test_memtable_cache_key_stable_across_roundtrip` — cache keys\n      unchanged by `hash_path` rename\n- [x] Parametrized multi-RemoteTable join-order tests for\n      `build_expr`/`load_expr` and catalog roundtrip paths\n- [x] `test_flight_exchange` — command hash stable across two\n      cloudpickle roundtrips of UnboundExprExchanger\n- [x] `test_parquet_cache_storage` — cache hits preserved under\n      content-change (schema-change still invalidates)\n- [x] Updated snapshot files for `path` → `hash_path` rename and\n      tuple-of-paths DT token form\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-19T11:55:52-04:00",
+          "tree_id": "89ce684fd115391745398c3553bb5a660add238f",
+          "url": "https://github.com/xorq-labs/xorq/commit/b1c7038ecfdc2eb8c5346483ee2247f4f40dd990"
+        },
+        "date": 1776614367677,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.548724606460834,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013211530042691882",
+            "extra": "mean: 132.4727092499991 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.439494120426339,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04137298233467999",
+            "extra": "mean: 225.25088959999948 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7036496883741719,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18711616578873788",
+            "extra": "mean: 1.4211617179999962 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.33460629474327,
+            "unit": "iter/sec",
+            "range": "stddev: 0.029524353795766387",
+            "extra": "mean: 230.7014598333268 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.541773269623331,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04756209141337121",
+            "extra": "mean: 220.17831816666936 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.126972367418533,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0072733714994903656",
+            "extra": "mean: 195.04688699999897 msec\nrounds: 6"
           }
         ]
       }
