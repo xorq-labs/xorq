@@ -856,7 +856,7 @@ class ExprMetadata:
         default=None, validator=optional(instance_of(ibis.expr.schema.Schema))
     )
     root_tag: Optional[str] = field(default=None)
-    resolved_snapshot_cache_key: Optional[CacheKey] = field(
+    projected_cache_key: Optional[CacheKey] = field(
         default=None,
         validator=optional(_validate_cache_key_item),
     )
@@ -891,7 +891,7 @@ class ExprMetadata:
                 else None
             ),
             root_tag=data.get("root_tag"),
-            resolved_snapshot_cache_key=cls._parse_cache_key(data.get("cache_keys")),
+            projected_cache_key=cls._parse_cache_key(data.get("cache_keys")),
             composed_from=tuple(data.get("composed_from") or data.get("sources") or ()),
             params=tuple(data.get("params") or ()),
             sql_queries=tuple(tuple(q) for q in data.get("sql_queries", ())),
@@ -926,7 +926,7 @@ class ExprMetadata:
             if (expr.ls.is_cached and isinstance(expr.op().cache, ParquetSnapshotCache))
             else ParquetDummySnapshotCache.from_kwargs()
         )
-        resolved_snapshot_cache_key = CacheKey(
+        projected_cache_key = CacheKey(
             key=cache.calc_key(expr.as_table()),
             relative_path=str(cache.storage.relative_path),
         )
@@ -945,7 +945,7 @@ class ExprMetadata:
             schema_in=unbound_node.schema if unbound_node else None,
             schema_out=expr.as_table().schema(),
             root_tag=root_tag,
-            resolved_snapshot_cache_key=resolved_snapshot_cache_key,
+            projected_cache_key=projected_cache_key,
             composed_from=_extract_sources(catalog_tag_nodes),
             params=named_params,
             builders=builders,
@@ -964,8 +964,8 @@ class ExprMetadata:
                 ("root_tag", self.root_tag),
                 (
                     "cache_keys",
-                    asdict(self.resolved_snapshot_cache_key)
-                    if self.resolved_snapshot_cache_key
+                    asdict(self.projected_cache_key)
+                    if self.projected_cache_key
                     else None,
                 ),
                 ("params", self.params or None),

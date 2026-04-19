@@ -35,7 +35,6 @@ __all__ = [  # noqa: PLE0604
     "ParquetCache",
     "ParquetSnapshotCache",
     "ParquetTTLSnapshotCache",
-    "ParquetDummySnapshotCache",
     "SourceCache",
     "SourceSnapshotCache",
     "GCSCache",

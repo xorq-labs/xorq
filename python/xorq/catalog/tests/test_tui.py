@@ -710,7 +710,7 @@ def test_cached_false_before_execution(catalog, tmp_path, parquet_dir):
     expr = t.cache(cache=cache)
     entry = catalog.add(expr)
 
-    path = get_cache_key_path(entry.resolved_snapshot_cache_key)
+    path = get_cache_key_path(entry.projected_cache_key)
     assert path is not None, "entry must have a cache key path"
     assert not Path(path).exists()
     assert CatalogRowData(entry=entry).cached is False
@@ -728,7 +728,7 @@ def test_cached_true_after_execution(catalog, tmp_path, parquet_dir):
     entry = catalog.add(expr)
     entry.expr.execute()
 
-    path = get_cache_key_path(entry.resolved_snapshot_cache_key)
+    path = get_cache_key_path(entry.projected_cache_key)
     assert path is not None and Path(path).exists()
     assert CatalogRowData(entry=entry).cached is True
     _, cached = _entry_info(entry)
@@ -855,7 +855,7 @@ def test_memtable_cached_lifecycle(catalog, tmp_path):
     expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
     entry = catalog.add(expr)
 
-    path = get_cache_key_path(entry.resolved_snapshot_cache_key)
+    path = get_cache_key_path(entry.projected_cache_key)
     assert path is not None, "entry must have a cache key path"
     assert CatalogRowData(entry=entry).cached is False
 

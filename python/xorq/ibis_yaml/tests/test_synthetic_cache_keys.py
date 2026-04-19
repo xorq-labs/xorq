@@ -9,13 +9,13 @@ from xorq.vendor.ibis.expr.types.core import ExprMetadata
 
 def test_synthetic_key_always_present_for_uncached_expr():
     t = ibis.memtable({"x": [1, 2, 3]})
-    key = ExprMetadata.from_expr(t).resolved_snapshot_cache_key
+    key = ExprMetadata.from_expr(t).projected_cache_key
     assert isinstance(key, CacheKey)
 
 
 def test_synthetic_key_matches_parquet_snapshot_cache_key():
     t = ibis.memtable({"x": [1, 2, 3]})
-    synthetic_key = ExprMetadata.from_expr(t).resolved_snapshot_cache_key
+    synthetic_key = ExprMetadata.from_expr(t).projected_cache_key
     real_key = ParquetSnapshotCache.from_kwargs().calc_key(t)
     assert synthetic_key.key == real_key
 
@@ -30,7 +30,7 @@ def test_to_dict_always_includes_cache_keys():
 def test_parquet_file_locatable_from_metadata_cache_key():
     t = ibis.memtable({"x": [1, 2, 3]})
 
-    ck = ExprMetadata.from_expr(t).resolved_snapshot_cache_key
+    ck = ExprMetadata.from_expr(t).projected_cache_key
 
     cached_expr = t.cache(cache=ParquetSnapshotCache.from_kwargs())
     cached_expr.execute()
@@ -46,7 +46,7 @@ def test_run_cached_creates_file_at_metadata_cache_key(tmp_path):
     run_cached_command(expr_path, cache_type="snapshot")
 
     loaded_expr = load_expr(expr_path)
-    ck = ExprMetadata.from_expr(loaded_expr).resolved_snapshot_cache_key
+    ck = ExprMetadata.from_expr(loaded_expr).projected_cache_key
 
     path = resolve_parquet_cache_path(ck.relative_path, ck.key)
     assert path.exists()

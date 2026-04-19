@@ -114,7 +114,7 @@ class CatalogRowData:
 
     @property
     def cached(self) -> bool | None:
-        if path := get_cache_key_path(self.entry.resolved_snapshot_cache_key):
+        if path := get_cache_key_path(self.entry.projected_cache_key):
             return Path(path).exists()
         return None
 
@@ -158,7 +158,7 @@ class CatalogRowData:
 
     @cached_property
     def cache_info_text(self) -> str:
-        path = get_cache_key_path(self.entry.resolved_snapshot_cache_key)
+        path = get_cache_key_path(self.entry.projected_cache_key)
         match path:
             case None:
                 return "— unknown"
@@ -239,7 +239,7 @@ VIEW_LIMIT = 50_000
 
 
 def _entry_info(entry: CatalogEntry) -> tuple[int | None, bool | None]:
-    path = get_cache_key_path(entry.resolved_snapshot_cache_key)
+    path = get_cache_key_path(entry.projected_cache_key)
     cached = Path(path).exists() if path is not None else None
     return len(entry.columns), cached
 
