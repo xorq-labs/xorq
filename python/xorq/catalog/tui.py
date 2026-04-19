@@ -1413,130 +1413,78 @@ class DataViewScreen(Screen):
 class CatalogTUI(App):
     TITLE = "xorq catalog"
     CSS = """
-    #main-split {
-        height: 1fr;
+    #main-split { height: 1fr; }
+    #left-column { width: 2fr; }
+    #right-column { width: 3fr; }
+
+    #catalog-panel,
+    #revisions-panel,
+    #git-log-panel,
+    #sql-panel,
+    #info-panel,
+    #schema-panel,
+    #data-preview-panel,
+    DataViewScreen #stack-browser-panel {
+        border: solid #3d6670;
+        border-title-color: #7aa8b2;
+        border-subtitle-color: #7aa8b2;
     }
-    #left-column {
-        width: 2fr;
-    }
-    #right-column {
-        width: 3fr;
-    }
-    #catalog-panel {
-        height: 2fr;
-        border: solid #C1F0FF;
-        border-title-color: #C1F0FF;
-        background: $surface;
-    }
-    #catalog-tree {
-        height: 1fr;
-    }
-    #revisions-panel {
-        height: 1fr;
-        border: solid #5abfb5;
-        border-title-color: #5abfb5;
-        border-subtitle-color: #5abfb5;
-    }
-    #revisions-preview-table {
-        height: 1fr;
-    }
-    #git-log-panel {
-        height: 1fr;
-        border: solid #4AA8EC;
-        border-title-color: #4AA8EC;
-    }
-    #git-log-table {
-        height: 1fr;
-    }
-    #sql-panel {
-        height: 2fr;
-        border: solid #2BBE75;
-        border-title-color: #2BBE75;
-        border-subtitle-color: #2BBE75;
-    }
-    #sql-panel:focus-within {
-        border: double #2BBE75;
-    }
-    #sql-preview {
-        height: auto;
-        padding: 1 2;
-    }
-    DataTable:focus {
-        border: none;
-    }
-    Tree:focus {
-        border: none;
-    }
-    #info-panel {
-        height: auto;
-        max-height: 6;
-        border: solid #5abfb5;
-        border-title-color: #5abfb5;
-        padding: 0 1;
-    }
-    #info-content {
-        height: auto;
-    }
-    #schema-panel {
-        height: 1fr;
-        border: solid #4AA8EC;
-        border-title-color: #4AA8EC;
-        border-subtitle-color: #4AA8EC;
-    }
-    #schema-split {
-        height: 1fr;
-    }
-    #schema-in-half {
-        width: 1fr;
-    }
-    #schema-out-half {
-        width: 1fr;
-    }
-    #schema-in-table {
-        height: 1fr;
-    }
-    #schema-preview-table {
-        height: 1fr;
-    }
-    #data-preview-panel {
-        height: 2fr;
+    #catalog-panel:focus-within,
+    #revisions-panel:focus-within,
+    #git-log-panel:focus-within,
+    #sql-panel:focus-within,
+    #info-panel:focus-within,
+    #schema-panel:focus-within,
+    #data-preview-panel:focus-within,
+    DataViewScreen #stack-browser-panel:focus-within {
         border: solid #C1F0FF;
         border-title-color: #C1F0FF;
         border-subtitle-color: #C1F0FF;
     }
-    #data-preview-status {
-        height: 1;
-        padding: 0 2;
-    }
-    #data-preview-table {
-        height: 1fr;
-    }
+
+    #catalog-panel { height: 2fr; background: $surface; }
+    #catalog-tree { height: 1fr; }
+    #revisions-panel { height: 1fr; }
+    #revisions-preview-table { height: 1fr; }
+    #git-log-panel { height: 1fr; }
+    #git-log-table { height: 1fr; }
+    #sql-panel { height: 2fr; }
+    #sql-preview { height: auto; padding: 1 2; }
+
+    DataTable:focus { border: none; }
+    Tree:focus { border: none; }
+
+    #info-panel { height: auto; max-height: 6; padding: 0 1; }
+    #info-content { height: auto; }
+
+    #schema-panel { height: 1fr; }
+    #schema-split { height: 1fr; }
+    #schema-in-half { width: 1fr; }
+    #schema-out-half { width: 1fr; }
+    #schema-in-table { height: 1fr; }
+    #schema-preview-table { height: 1fr; }
+
+    #data-preview-panel { height: 2fr; }
+    #data-preview-status { height: 1; padding: 0 2; }
+    #data-preview-table { height: 1fr; }
+
     #status-bar {
         dock: bottom;
         height: 1;
         padding: 0 2;
         background: $surface;
     }
+
     DataViewScreen #data-view-status {
         height: 1;
         padding: 0 2;
         background: $surface;
     }
-    DataViewScreen #data-view-split {
-        height: 1fr;
-    }
-    DataViewScreen #data-view-table {
-        height: 1fr;
-    }
-    DataViewScreen #stack-browser-panel {
-        width: 40;
-        border: solid #5abfb5;
-        border-title-color: #5abfb5;
-        padding: 0 1;
-    }
-    DataViewScreen #stack-browser-content {
-        height: auto;
-    }
+    DataViewScreen #data-view-split { height: 1fr; }
+    DataViewScreen #data-view-table { height: 1fr; }
+    DataViewScreen #stack-browser-panel { width: 40; padding: 0 1; }
+    DataViewScreen #stack-browser-content { height: auto; }
+
     DataViewScreen #command-input {
         dock: bottom;
         height: 3;
