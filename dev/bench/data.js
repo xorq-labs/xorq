@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776679647773,
+  "lastUpdate": 1776686722832,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -6996,6 +6996,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.009519189662182598",
             "extra": "mean: 199.0373684999914 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "870ce12010a3f44d5ade2719f3019812f8049ddb",
+          "message": "fix(ci): reduce false positives in benchmark (#1844)\n\nraise benchmark alert threshold and enable warmup to reduce false\npositives\n\nSubprocess-based CLI benchmarks have high natural variance (~10-20%) on\nshared GitHub Actions runners due to process startup time, OS scheduler\njitter, and filesystem cache state. The previous 130% threshold was too\ntight for this workload.\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-20T08:01:24-04:00",
+          "tree_id": "4afd276d58f4188a217a1f6431792f9b28d7eac8",
+          "url": "https://github.com/xorq-labs/xorq/commit/870ce12010a3f44d5ade2719f3019812f8049ddb"
+        },
+        "date": 1776686720160,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.594409108408444,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004372068169799169",
+            "extra": "mean: 94.38940763636663 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.901766900210148,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00927791819298896",
+            "extra": "mean: 204.00806900000248 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7006035869026874,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19906131653345163",
+            "extra": "mean: 1.4273406797999997 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.107445126352397,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03670584068529984",
+            "extra": "mean: 243.46034316666496 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.000549339514941,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015051157251708353",
+            "extra": "mean: 199.97802883332838 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.686249474002165,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0247052123373977",
+            "extra": "mean: 271.2784381666656 msec\nrounds: 6"
           }
         ]
       }
