@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776670845653,
+  "lastUpdate": 1776679647773,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -6930,6 +6930,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.008915202193814073",
             "extra": "mean: 192.6740403999986 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b423c838fc95464e6d18e23cce1c634bf279d03b",
+          "message": "chore(deps): bump orjson from 3.11.4 to 3.11.6 (#1845)\n\nBumps [orjson](https://github.com/ijl/orjson) from 3.11.4 to 3.11.6.\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/ijl/orjson/releases\">orjson's\nreleases</a>.</em></p>\n<blockquote>\n<h2>3.11.6</h2>\n<h3>Changed</h3>\n<ul>\n<li>orjson now includes code licensed under the Mozilla Public License\n2.0 (MPL-2.0).</li>\n<li>Drop support for Python 3.9.</li>\n<li>ABI compatibility with CPython 3.15 alpha 5.</li>\n<li>Build now depends on Rust 1.89 or later instead of 1.85.</li>\n</ul>\n<h3>Fixed</h3>\n<ul>\n<li>Fix sporadic crash serializing deeply nested <code>list</code> of\n<code>dict</code>.</li>\n</ul>\n<h2>3.11.5</h2>\n<h3>Changed</h3>\n<ul>\n<li>Show simple error message instead of traceback when attempting to\nbuild on unsupported Python versions.</li>\n</ul>\n</blockquote>\n</details>\n<details>\n<summary>Changelog</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/ijl/orjson/blob/master/CHANGELOG.md\">orjson's\nchangelog</a>.</em></p>\n<blockquote>\n<h2>3.11.6 - 2026-01-29</h2>\n<h3>Changed</h3>\n<ul>\n<li>orjson now includes code licensed under the Mozilla Public License\n2.0 (MPL-2.0).</li>\n<li>Drop support for Python 3.9.</li>\n<li>ABI compatibility with CPython 3.15 alpha 5.</li>\n<li>Build now depends on Rust 1.89 or later instead of 1.85.</li>\n</ul>\n<h3>Fixed</h3>\n<ul>\n<li>Fix sporadic crash serializing deeply nested <code>list</code> of\n<code>dict</code>.</li>\n</ul>\n<h2>3.11.5 - 2025-12-06</h2>\n<h3>Changed</h3>\n<ul>\n<li>Show simple error message instead of traceback when attempting to\nbuild on unsupported Python versions.</li>\n</ul>\n</blockquote>\n</details>\n<details>\n<summary>Commits</summary>\n<ul>\n<li><a\nhref=\"https://github.com/ijl/orjson/commit/ec02024c3837255064f248c0d2d331319b75e9ad\"><code>ec02024</code></a>\n3.11.6</li>\n<li><a\nhref=\"https://github.com/ijl/orjson/commit/d58168733189f82b3fd0c058dff73e05d09202e6\"><code>d581687</code></a>\nbuild, clippy misc</li>\n<li><a\nhref=\"https://github.com/ijl/orjson/commit/4105b29b2275f200f6fae01349bef02ccf1bc2e2\"><code>4105b29</code></a>\nwriter::num</li>\n<li><a\nhref=\"https://github.com/ijl/orjson/commit/62bb185b70785ded49c79c26f8c9781f1e6fe370\"><code>62bb185</code></a>\nFix sporadic crash on serializing object close</li>\n<li><a\nhref=\"https://github.com/ijl/orjson/commit/d860078a973f44401265c5c4ad12a7dbe4f839ad\"><code>d860078</code></a>\nPyRef idiom refactors</li>\n<li><a\nhref=\"https://github.com/ijl/orjson/commit/343ae2f148197918aba9f8562db42c364620e4b8\"><code>343ae2f</code></a>\nDeserializer, Utf8Buffer</li>\n<li><a\nhref=\"https://github.com/ijl/orjson/commit/7835f58d1c56947d1cf7a18acdfc07a2bca9b0f2\"><code>7835f58</code></a>\nPyBytesRef and other input refactor</li>\n<li><a\nhref=\"https://github.com/ijl/orjson/commit/71e0516424ce1e11613eb1780f18e8cde83989fd\"><code>71e0516</code></a>\nPyStrRef</li>\n<li><a\nhref=\"https://github.com/ijl/orjson/commit/1096df42dc585fde837ed0c930a346f5ef7dbb94\"><code>1096df4</code></a>\nMSRV 1.89</li>\n<li><a\nhref=\"https://github.com/ijl/orjson/commit/b718e75b8ba18a707c2b44b6de14d52547573771\"><code>b718e75</code></a>\nDrop support for python3.9</li>\n<li>Additional commits viewable in <a\nhref=\"https://github.com/ijl/orjson/compare/3.11.4...3.11.6\">compare\nview</a></li>\n</ul>\n</details>\n<br />\n\n\n[![Dependabot compatibility\nscore](https://dependabot-badges.githubapp.com/badges/compatibility_score?dependency-name=orjson&package-manager=uv&previous-version=3.11.4&new-version=3.11.6)](https://docs.github.com/en/github/managing-security-vulnerabilities/about-dependabot-security-updates#about-compatibility-scores)\n\nDependabot will resolve any conflicts with this PR as long as you don't\nalter it yourself. You can also trigger a rebase manually by commenting\n`@dependabot rebase`.\n\n[//]: # (dependabot-automerge-start)\n[//]: # (dependabot-automerge-end)\n\n---\n\n<details>\n<summary>Dependabot commands and options</summary>\n<br />\n\nYou can trigger Dependabot actions by commenting on this PR:\n- `@dependabot rebase` will rebase this PR\n- `@dependabot recreate` will recreate this PR, overwriting any edits\nthat have been made to it\n- `@dependabot show <dependency name> ignore conditions` will show all\nof the ignore conditions of the specified dependency\n- `@dependabot ignore this major version` will close this PR and stop\nDependabot creating any more for this major version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this minor version` will close this PR and stop\nDependabot creating any more for this minor version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this dependency` will close this PR and stop\nDependabot creating any more for this dependency (unless you reopen the\nPR or upgrade to it yourself)\nYou can disable automated security fix PRs for this repo from the\n[Security Alerts\npage](https://github.com/xorq-labs/xorq/network/alerts).\n\n</details>\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-04-20T12:03:44+02:00",
+          "tree_id": "3c29a04ef1d1d644bcf4dae03b3a616b5ba395ec",
+          "url": "https://github.com/xorq-labs/xorq/commit/b423c838fc95464e6d18e23cce1c634bf279d03b"
+        },
+        "date": 1776679644798,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.6133975402953435,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012514478985561142",
+            "extra": "mean: 131.34740366666935 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.706653499909937,
+            "unit": "iter/sec",
+            "range": "stddev: 0.019237705474999672",
+            "extra": "mean: 212.4651836000112 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7013978948982559,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1644845911781846",
+            "extra": "mean: 1.4257242676000033 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.359510085754789,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03550418364933445",
+            "extra": "mean: 229.3835730000069 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.789334485438599,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027518732640326303",
+            "extra": "mean: 208.79727716666707 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.024182180141933,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009519189662182598",
+            "extra": "mean: 199.0373684999914 msec\nrounds: 6"
           }
         ]
       }
