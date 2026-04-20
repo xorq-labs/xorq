@@ -747,6 +747,9 @@ def test_init_uv_build_uv_run(template, tmpdir):
     assert path.exists()
     assert path.joinpath("pyproject.toml").exists()
     assert path.joinpath("requirements.txt").exists()
+    # Remove pre-committed requirements.txt; the template's copy may have been
+    # exported with a different uv version than CI, causing a sync-check failure.
+    path.joinpath("requirements.txt").unlink()
 
     build_args = (
         "xorq",
@@ -771,6 +774,97 @@ def test_init_uv_build_uv_run(template, tmpdir):
     (returncode, stdout, stderr) = subprocess_run(run_args, text=True)
     assert returncode == 0, stderr
     assert output_path.exists()
+
+
+@pytest.mark.slow(level=2)
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
+)
+def test_uv_build_with_project_path(tmpdir):
+    tmpdir = Path(tmpdir)
+    path = tmpdir.joinpath("xorq-template-default")
+    init_args = (
+        "xorq",
+        "init",
+        "--path",
+        str(path),
+    )
+    (returncode, stdout, stderr) = subprocess_run(init_args)
+    assert returncode == 0, stderr
+    (path / "requirements.txt").unlink(missing_ok=True)
+
+    # Move script outside the project dir so upward search would fail
+    script_path = tmpdir / "expr.py"
+    shutil.copy2(path / "expr.py", script_path)
+
+    build_args = (
+        "xorq",
+        "uv",
+        "build",
+        str(script_path),
+        "--project-path",
+        str(path),
+    )
+    (returncode, stdout, stderr) = subprocess_run(build_args, text=True)
+    assert returncode == 0, stderr
+    build_path = Path(stdout.strip().split("\n")[-1])
+    assert build_path.exists()
+
+
+@pytest.mark.slow(level=2)
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
+)
+def test_uv_build_no_all_extras(tmpdir):
+    tmpdir = Path(tmpdir)
+    path = tmpdir.joinpath("xorq-template-default")
+    (returncode, _, stderr) = subprocess_run(("xorq", "init", "--path", str(path)))
+    assert returncode == 0, stderr
+    (path / "requirements.txt").unlink(missing_ok=True)
+    build_args = (
+        "xorq",
+        "uv",
+        "build",
+        str(path / "expr.py"),
+        "--no-all-extras",
+    )
+    (returncode, stdout, stderr) = subprocess_run(build_args, text=True)
+    assert returncode == 0, stderr
+    build_path = Path(stdout.strip().split("\n")[-1])
+    assert build_path.exists()
+
+
+@pytest.mark.slow(level=2)
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
+)
+def test_uv_build_with_extra(tmpdir):
+    import tomlkit  # noqa: PLC0415
+
+    tmpdir = Path(tmpdir)
+    path = tmpdir.joinpath("xorq-template-default")
+    (returncode, _, stderr) = subprocess_run(("xorq", "init", "--path", str(path)))
+    assert returncode == 0, stderr
+    # Add an optional dependency group and re-lock
+    pyproject = path / "pyproject.toml"
+    data = tomlkit.loads(pyproject.read_text())
+    data["project"]["optional-dependencies"] = {"testgroup": ["requests>=2"]}
+    pyproject.write_text(tomlkit.dumps(data))
+    subprocess_run(("uv", "lock", "--directory", str(path)))
+    (path / "requirements.txt").unlink(missing_ok=True)
+    build_args = (
+        "xorq",
+        "uv",
+        "build",
+        str(path / "expr.py"),
+        "--no-all-extras",
+        "--extra",
+        "testgroup",
+    )
+    (returncode, stdout, stderr) = subprocess_run(build_args, text=True)
+    assert returncode == 0, stderr
+    build_path = Path(stdout.strip().split("\n")[-1])
+    assert build_path.exists()
 
 
 serve_hashes = (
