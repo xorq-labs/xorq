@@ -1,8 +1,10 @@
 # ADR-0004: uv as the sole packaging and execution runtime for the sdist pipeline
 
-- **Status:** Accepted
-- **Date:** 2026-04-05
+- **Status:** Superseded by [ADR-0008](0008-wheel-based-packaging-pipeline.md)
+- **Date:** 2026-04-05 (superseded 2026-04-20)
 - **Context area:** `python/xorq/ibis_yaml/packager.py`
+
+> **Superseded.** This ADR documents the sdist-based pipeline. It was replaced by a wheel-based pipeline; see [ADR-0008](0008-wheel-based-packaging-pipeline.md) for the current design and the rationale for the switch. The content below is preserved as a historical record.
 
 ## Context
 

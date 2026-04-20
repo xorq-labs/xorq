@@ -151,24 +151,23 @@ def uv_build_command(
     builds_dir="builds",
     cache_dir=None,
     project_path=None,
+    extras=(),
+    all_extras=True,
 ):
     from xorq.ibis_yaml.packager import PackagedBuilder
 
-    sdist_builder = PackagedBuilder.from_script_path(
+    builder = PackagedBuilder.from_script_path(
         script_path,
         project_path=project_path,
-        overwrite_requirements=True,
         expr_name=expr_name,
         builds_dir=builds_dir,
         cache_dir=cache_dir,
+        extras=extras,
+        all_extras=all_extras,
     )
-    # should we execv here instead?
-    # ensure we do copy_sdist
-    sdist_builder.build_path
-    popened = sdist_builder._uv_tool_run_xorq_build
-    print(popened.stderr, file=sys.stderr, end="")
-    print(popened.stdout, file=sys.stdout, end="")
-    return popened
+    builder.build()
+    print(builder.build_path)
+    return builder
 
 
 @_lazy_span("cli.uv_run_command")
@@ -180,14 +179,14 @@ def uv_run_command(
 ):
     from xorq.ibis_yaml.packager import PackagedRunner
 
-    sdist_runner = PackagedRunner(
+    runner = PackagedRunner(
         expr_path,
         cache_dir=cache_dir,
         output_path=output_path,
         output_format=output_format,
     )
-    popened = sdist_runner._uv_tool_run_xorq_run
-    return popened
+    runner.run()
+    return runner
 
 
 @_lazy_span("cli.build_command")
@@ -779,9 +778,36 @@ def uv_group(ctx):
     default=None,
     help="Directory for all generated parquet files cache",
 )
-def uv_build(script_path, expr_name, builds_dir, cache_dir):
+@click.option(
+    "--project-path",
+    default=None,
+    type=click.Path(exists=True, file_okay=False),
+    help="Explicit project root (default: search upward from script for pyproject.toml)",
+)
+@click.option(
+    "--extra",
+    "extras",
+    multiple=True,
+    help="Optional dependency group to include in requirements (repeatable)",
+)
+@click.option(
+    "--all-extras/--no-all-extras",
+    default=True,
+    help="Include all optional dependency groups (default: enabled)",
+)
+def uv_build(
+    script_path, expr_name, builds_dir, cache_dir, project_path, extras, all_extras
+):
     """Build an expression with a custom Python environment."""
-    uv_build_command(script_path, expr_name, builds_dir, cache_dir)
+    uv_build_command(
+        script_path,
+        expr_name,
+        builds_dir,
+        cache_dir,
+        project_path=project_path,
+        extras=extras,
+        all_extras=all_extras,
+    )
 
 
 @uv_group.command("run")

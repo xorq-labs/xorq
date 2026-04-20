@@ -38,8 +38,11 @@ def build_expr_context(expr):
 
 
 @contextmanager
-def build_expr_context_zip(expr):
+def build_expr_context_zip(expr, project_path=None):
+    from xorq.catalog.catalog import _ensure_wheel_artifacts  # noqa: PLC0415
+
     with build_expr_context(expr) as build_dir:
+        _ensure_wheel_artifacts(build_dir, project_path=project_path)
         with make_zip_context(build_dir) as zip_path:
             yield zip_path
 

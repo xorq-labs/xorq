@@ -10,6 +10,7 @@ from attr import evolve
 from git import Repo as GitRepo
 
 import xorq.api as xo
+import xorq.catalog.catalog as catalog_mod
 from xorq.caching import ParquetSnapshotCache
 from xorq.catalog.annex import (
     LOCAL_ANNEX,
@@ -32,6 +33,7 @@ from xorq.catalog.expr_utils import (
     build_expr_context_zip,
 )
 from xorq.catalog.tests.conftest import (
+    TEST_WHEEL_NAME,
     compare_repo_and_catalog,
 )
 from xorq.catalog.tui import get_cache_key_path
@@ -69,6 +71,29 @@ def test_catalog_addition_from_expr(catalog):
     assert catalog_entry.exists()
     catalog.assert_consistency()
     assert catalog_entry.name in catalog.list()
+
+
+def test_catalog_add_expr_threads_project_path(catalog, tmp_path, monkeypatch):
+    # Verify the project_path kwarg on Catalog.add is plumbed all the way
+    # through to _ensure_wheel_artifacts, so callers outside the project cwd
+    # (e.g. Jupyter kernels) can opt out of the upward-walk.
+    explicit_project = tmp_path / "explicit-project"
+    explicit_project.mkdir()
+    captured = {}
+    original = catalog_mod._ensure_wheel_artifacts
+
+    def spy(build_dir, project_path=None):
+        captured["project_path"] = project_path
+        return original(build_dir, project_path=project_path)
+
+    monkeypatch.setattr(catalog_mod, "_ensure_wheel_artifacts", spy)
+
+    expr = xo.memtable({"threaded": ["threaded"]})
+    catalog_entry = catalog.add(expr, project_path=explicit_project)
+
+    assert captured["project_path"] == explicit_project
+    assert catalog_entry.exists()
+    catalog.assert_consistency()
 
 
 def test_catalog_addition_with_aliases(catalog):
@@ -239,20 +264,32 @@ def test_from_repo_path_false_forces_plain_git(tmpdir):
     assert isinstance(reopened.backend, GitBackend)
 
 
+_VALID_ARCHIVE_NAMES = (*REQUIRED_ARCHIVE_NAMES, TEST_WHEEL_NAME)
+
+
 @pytest.mark.parametrize("elide", REQUIRED_ARCHIVE_NAMES)
 def test_test_zip(elide, catalog, tmpdir):
     zip_path = write_zip(
         Path(tmpdir).joinpath("build.zip"),
-        {name: b"" for name in REQUIRED_ARCHIVE_NAMES if name != elide},
+        {name: b"" for name in _VALID_ARCHIVE_NAMES if name != elide},
     )
     with pytest.raises(AssertionError, match=elide):
+        BuildZip(zip_path)
+
+
+def test_test_zip_missing_wheel(catalog, tmpdir):
+    zip_path = write_zip(
+        Path(tmpdir).joinpath("build.zip"),
+        dict.fromkeys(REQUIRED_ARCHIVE_NAMES, b""),
+    )
+    with pytest.raises(AssertionError, match=r"\.whl"):
         BuildZip(zip_path)
 
 
 def test_assert_consistency(catalog, tmpdir):
     zip_path = write_zip(
         Path(tmpdir).joinpath("build.zip"),
-        dict.fromkeys(REQUIRED_ARCHIVE_NAMES, b""),
+        dict.fromkeys(_VALID_ARCHIVE_NAMES, b""),
     )
     catalog_addition = CatalogAddition(BuildZip(zip_path), catalog)
     catalog_addition.ensure_dirs()

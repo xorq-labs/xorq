@@ -17,6 +17,7 @@ from xorq.catalog.catalog import (
 )
 from xorq.catalog.cli import cli
 from xorq.catalog.tests.conftest import (
+    TEST_WHEEL_NAME,
     compare_repo_and_catalog,
     make_build_zip,
 )
@@ -573,7 +574,7 @@ def test_check_catches_inconsistency(runner, catalog_path, tmpdir):
     catalog = Catalog.from_kwargs(path=catalog_path, init=False)
     zip_path = write_zip(
         Path(tmpdir).joinpath("build.zip"),
-        dict.fromkeys(REQUIRED_ARCHIVE_NAMES, b""),
+        dict.fromkeys((*REQUIRED_ARCHIVE_NAMES, TEST_WHEEL_NAME), b""),
     )
     catalog_addition = CatalogAddition(BuildZip(zip_path), catalog)
     catalog_addition.ensure_dirs()

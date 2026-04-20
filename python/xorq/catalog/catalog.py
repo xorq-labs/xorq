@@ -60,6 +60,43 @@ from xorq.ibis_yaml.enums import DumpFiles, ExprKind
 
 
 abspath = toolz.compose(Path.absolute, Path)
+
+
+def _ensure_wheel_artifacts(build_dir, project_path=None):
+    """Ensure a build directory contains a wheel and requirements.txt.
+
+    If either is missing, builds them from the given project_path
+    (or the nearest pyproject.toml found by walking up from cwd).
+    """
+    build_dir = Path(build_dir)
+    has_wheel = bool(list(build_dir.glob("*.whl")))
+    reqs_path = build_dir / DumpFiles.requirements
+    if has_wheel and reqs_path.exists():
+        return
+    from xorq.ibis_yaml.packager import (  # noqa: PLC0415
+        PYPROJECT_NAME,
+        WheelPackager,
+        find_file_upwards,
+    )
+
+    if project_path is None:
+        try:
+            project_path = find_file_upwards(Path.cwd(), PYPROJECT_NAME).parent
+        except ValueError as e:
+            raise ValueError(
+                f"cannot locate a {PYPROJECT_NAME} to build wheel artifacts from: "
+                f"current working directory {Path.cwd()!s} has no {PYPROJECT_NAME} "
+                f"in it or any parent. Pass project_path= to catalog.add() when "
+                f"calling from outside the project (e.g. a Jupyter kernel)."
+            ) from e
+    packager = WheelPackager(project_path)
+    bundle = packager.build()
+    if not has_wheel:
+        shutil.copy2(bundle.wheel_path, build_dir / bundle.wheel_path.name)
+    if not reqs_path.exists():
+        shutil.copy2(bundle.requirements_path, reqs_path)
+
+
 popen_shell = partial(Popen, shell=True)
 
 
@@ -171,23 +208,37 @@ class Catalog:
             self.assert_consistency()
             return catalog_entry
 
-    def _add_build_dir(self, build_dir, sync=True, aliases=(), exist_ok=False):
+    def _add_build_dir(
+        self, build_dir, sync=True, aliases=(), exist_ok=False, project_path=None
+    ):
+        _ensure_wheel_artifacts(build_dir, project_path=project_path)
         with make_zip_context(build_dir) as zip_path:
             return self._add_zip(
                 zip_path, sync=sync, aliases=aliases, exist_ok=exist_ok
             )
 
-    def _add_expr(self, expr, sync=True, aliases=(), exist_ok=False):
+    def _add_expr(self, expr, sync=True, aliases=(), exist_ok=False, project_path=None):
         with build_expr_context(expr) as path:
             return self._add_build_dir(
-                path, sync=sync, aliases=aliases, exist_ok=exist_ok
+                path,
+                sync=sync,
+                aliases=aliases,
+                exist_ok=exist_ok,
+                project_path=project_path,
             )
 
-    def add(self, obj, sync=True, aliases=(), exist_ok=False):
+    def add(self, obj, sync=True, aliases=(), exist_ok=False, project_path=None):
         """Add a build to the catalog.
 
         *obj* may be a ``Path`` to a zip archive, a ``Path`` to a build
         directory, or an xorq ``Expr``.  Returns the created ``CatalogEntry``.
+
+        *project_path* is the directory containing the ``pyproject.toml`` used
+        to build the wheel and requirements sidecars.  If omitted, the packager
+        walks upward from the current working directory to find one.  Passing
+        it explicitly is required when the caller's cwd is not inside the
+        project (e.g. Jupyter kernels started from ``/tmp``).  Ignored for zip
+        inputs, which are already complete build archives.
         """
         from xorq.api import Expr  # noqa: PLC0415
 
@@ -195,12 +246,18 @@ class Catalog:
             case Path() if obj.is_dir():
                 f = self._add_build_dir
             case Path() if obj.is_file():
-                f = self._add_zip
+                return self._add_zip(obj, sync=sync, aliases=aliases, exist_ok=exist_ok)
             case Expr():
                 f = self._add_expr
             case _:
                 raise ValueError(f"don't know how to handle type={type(obj)}")
-        return f(obj, sync=sync, aliases=aliases, exist_ok=exist_ok)
+        return f(
+            obj,
+            sync=sync,
+            aliases=aliases,
+            exist_ok=exist_ok,
+            project_path=project_path,
+        )
 
     def remove(self, name, sync=True):
         """Remove an entry (and its aliases) from the catalog by name."""
