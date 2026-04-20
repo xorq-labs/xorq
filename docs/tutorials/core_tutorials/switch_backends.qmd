@@ -274,7 +274,6 @@ print("DuckDB result:", result2)
 Now you know how to switch backends. Continue learning:
 
 - [Your first build](your_first_build.qmd) shows how to package expressions for deployment across backends
-- [Optimize pipeline performance](/guides/performance_workflows/optimize_pipeline_performance.qmd) covers backend selection strategies
-- [Switch backends dynamically](/guides/performance_workflows/switch_backends_dynamically.qmd) teaches advanced backend-switching patterns
+- [Optimize pipeline performance](/guides/performance_workflows/optimize_pipeline_performance.qmd) covers backend selection strategies and dynamic switching patterns
 
 

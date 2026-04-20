@@ -2,21 +2,516 @@
 title: 'Integrate with scikit-learn pipelines'
 ---
 
-## Coming soon
+Integrate your existing scikit-learn pipelines with Xorq to add deferred execution, caching, and seamless deployment. This guide shows you how to wrap sklearn pipelines while preserving full API compatibility, enabling you to use your existing sklearn code with Xorq's optimization features.
 
-This guide will show you how to integrate existing scikit-learn pipelines with Xorq.
 
-You will learn how to wrap sklearn objects for deferred execution and caching.
+Xorq's `Pipeline.from_instance()` method wraps scikit-learn pipelines, preserving all sklearn functionality while adding deferred execution and integration with Xorq expressions. Your existing sklearn code works unchanged - you wrap it to gain Xorq's benefits.
 
-**What you'll accomplish:**
-- Wrap sklearn pipelines
-- Preserve sklearn API compatibility
-- Enable caching for fitted pipelines
-- Deploy sklearn models
+:::{.callout-tip}
+If you haven't installed Xorq yet, then see the [installation guide](../../getting_started/installation.qmd) for setup instructions.
+:::
 
-**Prerequisites:**
-- Familiarity with scikit-learn
-- Existing sklearn pipeline
+## Wrap your sklearn pipeline
 
-Check back soon for the complete guide.
+Wrap your existing sklearn pipelines with `Pipeline.from_instance()` to add deferred execution and Xorq integration. The wrapped pipeline preserves all sklearn functionality while enabling optimization and caching. You can use `make_pipeline()` or `Pipeline()` constructors—both work. The wrapped pipeline is immutable but supports parameter updates via `set_params()`.
 
+### Use with Xorq expressions
+
+Create `wrap_and_predict.py` to use your wrapped pipeline with Xorq expressions:
+
+```{python}
+#| eval: true
+import xorq.api as xo
+from xorq.expr.ml import Pipeline, train_test_splits
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier
+import sklearn.pipeline
+import numpy as np
+
+# Connect and create data
+con = xo.connect()
+np.random.seed(42)
+data = xo.memtable({
+    "feature1": np.random.randn(1000),
+    "feature2": np.random.randn(1000),
+    "target": np.random.randint(0, 2, 1000)
+}, name="training_data")
+
+# Split data
+train, test = train_test_splits(data, test_sizes=0.3, random_seed=42)
+
+# Create and wrap sklearn pipeline
+sklearn_pipeline = sklearn.pipeline.Pipeline([
+    ("scaler", StandardScaler()),
+    ("knn", KNeighborsClassifier(n_neighbors=5))
+])
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+
+# Fit with deferred execution
+fitted = xorq_pipeline.fit(
+    train,
+    features=("feature1", "feature2"),
+    target="target"
+)
+
+# Make predictions (still deferred)
+predictions = fitted.predict(test)
+
+# Execute to get results
+results = predictions.execute()
+print(results)
+```
+
+Wrapped pipelines work with Xorq expressions, not pandas DataFrames. `.fit()` returns a `FittedPipeline` that supports deferred execution, and `.predict()` creates an expression that executes only when you call `.execute()`. This deferred execution enables optimization and caching of the entire pipeline. To change behavior without rewriting the pipeline, update parameters with `set_params()`.
+
+## Manage pipeline parameters
+
+Use `set_params()` with the `step__parameter` syntax. Xorq pipelines support sklearn's parameter naming convention.
+
+### Update parameters
+
+Create `update_params.py` to modify pipeline parameters and verify the changes:
+
+```{python}
+#| eval: true
+import xorq.api as xo
+from xorq.expr.ml import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier
+import sklearn.pipeline
+import numpy as np
+
+# Create data
+con = xo.connect()
+np.random.seed(42)
+data = xo.memtable({
+    "feature1": np.random.randn(1000),
+    "feature2": np.random.randn(1000),
+    "target": np.random.randint(0, 2, 1000)
+}, name="training_data")
+train, test = xo.train_test_splits(data, test_sizes=0.3, random_seed=42)
+
+# Create base pipeline with initial parameters
+sklearn_pipeline = sklearn.pipeline.Pipeline([
+    ("scaler", StandardScaler()),
+    ("knn", KNeighborsClassifier(n_neighbors=5))
+])
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+
+# Check original parameters
+print("Original parameters:")
+print(f"  n_neighbors: {xorq_pipeline.instance.named_steps['knn'].n_neighbors}")
+print(f"  weights: {xorq_pipeline.instance.named_steps['knn'].weights}")
+
+# Update parameters using sklearn naming convention
+updated_pipeline = xorq_pipeline.set_params(
+    knn__n_neighbors=10,
+    knn__weights="distance"
+)
+
+# Verify parameters were updated
+print("\nUpdated parameters:")
+print(f"  n_neighbors: {updated_pipeline.instance.named_steps['knn'].n_neighbors}")
+print(f"  weights: {updated_pipeline.instance.named_steps['knn'].weights}")
+
+# Use updated pipeline
+fitted = updated_pipeline.fit(train, features=("feature1", "feature2"), target="target")
+print("\nPipeline fitted successfully with updated parameters.")
+```
+
+Use `step_name__parameter_name` syntax (double underscore) to update parameters. `set_params()` returns a new pipeline instance since pipelines are immutable. All sklearn parameter names and values are supported.
+
+### Compare parameter settings
+
+Create `compare_params.py` to test different parameter combinations:
+
+```{python, eval=false}
+import xorq.api as xo
+from xorq.expr.ml import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier
+import sklearn.pipeline
+import numpy as np
+
+# Create data
+con = xo.connect()
+np.random.seed(42)
+data = xo.memtable({
+    "feature1": np.random.randn(1000),
+    "feature2": np.random.randn(1000),
+    "target": np.random.randint(0, 2, 1000)
+}, name="training_data")
+train, test = xo.train_test_splits(data, test_sizes=0.3, random_seed=42)
+
+# Base pipeline
+sklearn_pipeline = sklearn.pipeline.Pipeline([
+    ("scaler", StandardScaler()),
+    ("knn", KNeighborsClassifier(n_neighbors=11))
+])
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+
+# Test different parameter values
+results = {}
+for weights in ("uniform", "distance"):
+    # Create pipeline with different weights
+    test_pipeline = xorq_pipeline.set_params(knn__weights=weights)
+    fitted = test_pipeline.fit(train, features=("feature1", "feature2"), target="target")
+    
+    # Score on test set
+    score = fitted.score_expr(test)
+    results[weights] = score
+
+print(f"Uniform weights: {results['uniform']:.4f}")
+print(f"Distance weights: {results['distance']:.4f}")
+```
+
+You should see a result like this (exact values will vary with random data):
+
+```
+Uniform weights: 0.4444
+Distance weights: 0.4314
+```
+
+Each `set_params()` call creates a new pipeline instance, enabling efficient comparison of parameter settings without modifying the original pipeline. Use `score_expr()` to evaluate fitted pipelines on test data.
+
+## Verify sklearn compatibility
+
+Xorq pipelines produce identical results to sklearn pipelines. You can verify equivalence by comparing outputs.
+
+### Test equivalence
+
+Create `test_equivalence.py` to compare Xorq and sklearn pipeline outputs:
+
+```{python}
+#| eval: false
+import xorq.api as xo
+from xorq.expr.ml import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.pipeline import make_pipeline
+import numpy as np
+import pandas as pd
+
+# Create test data
+np.random.seed(42)
+X_train = pd.DataFrame({
+    "feature1": np.random.randn(100),
+    "feature2": np.random.randn(100)
+})
+y_train = np.random.randint(0, 2, 100)
+X_test = pd.DataFrame({
+    "feature1": np.random.randn(30),
+    "feature2": np.random.randn(30)
+})
+y_test = np.random.randint(0, 2, 30)
+
+# Train sklearn pipeline
+sklearn_pipeline = make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=5))
+sklearn_pipeline.fit(X_train, y_train)
+sklearn_predictions = sklearn_pipeline.predict(X_test)
+sklearn_score = sklearn_pipeline.score(X_test, y_test)
+
+# Train Xorq pipeline
+con = xo.connect()
+train = xo.memtable(X_train.assign(target=y_train), name="train")
+test = xo.memtable(X_test.assign(target=y_test), name="test")
+
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+fitted = xorq_pipeline.fit(train, features=("feature1", "feature2"), target="target")
+xorq_results = fitted.predict(test).execute()
+xorq_predictions = xorq_results["predicted"].to_numpy()
+xorq_score = fitted.score_expr(test)
+
+# Verify equivalence
+assert np.allclose(sklearn_predictions, xorq_predictions)
+assert np.isclose(sklearn_score, xorq_score)
+print("✓ Xorq and sklearn pipelines produce identical results!")
+```
+
+You should see:
+
+```
+✓ Xorq and sklearn pipelines produce identical results!
+```
+
+Xorq pipelines produce identical predictions to sklearn. Use `np.allclose()` for floating-point comparisons. This equivalence enables seamless migration from sklearn to Xorq.
+
+### Access sklearn instance
+
+Access the underlying sklearn pipeline when you need sklearn-specific methods or want to use the pipeline with pandas DataFrames directly. The `.instance` property returns the equivalent sklearn pipeline.
+
+Create `access_sklearn_instance.py`:
+
+```{python}
+#| eval: true
+import xorq.api as xo
+from xorq.expr.ml import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier
+import sklearn.pipeline
+import numpy as np
+import pandas as pd
+
+# Create and wrap pipeline
+sklearn_pipeline = sklearn.pipeline.Pipeline([
+    ("scaler", StandardScaler()),
+    ("knn", KNeighborsClassifier(n_neighbors=5))
+])
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+
+# Access the sklearn instance
+sklearn_instance = xorq_pipeline.instance
+print(f"Type: {type(sklearn_instance)}")
+
+# Verify it's the same pipeline
+print(f"Same object: {sklearn_instance is sklearn_pipeline}")
+
+# You can use sklearn methods directly
+# For example, get all parameters:
+params = sklearn_instance.get_params()
+print(f"\nPipeline parameters: {list(params.keys())[:3]}...")
+```
+
+The `.instance` property returns the equivalent sklearn pipeline, useful for debugging or when you need sklearn-specific features not exposed by Xorq. The instance reflects current parameter settings, but changes to the instance don't affect the Xorq pipeline due to immutability.
+
+## Enable caching for fitted pipelines
+
+Add caching to your wrapped sklearn pipelines to speed up repeated training and prediction operations.
+
+### Add caching
+
+Create `cache_pipeline.py` to add caching to your wrapped sklearn pipelines. Caching speeds up repeated training by reusing fitted models:
+
+```{python}
+#| eval: true
+import xorq.api as xo
+from xorq.expr.ml import Pipeline
+from xorq.caching import ParquetCache
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+import sklearn.pipeline
+from pathlib import Path
+import numpy as np
+import time
+
+# Connect and create data
+con = xo.connect()
+np.random.seed(42)
+data = xo.memtable({
+    "feature1": np.random.randn(1000),
+    "feature2": np.random.randn(1000),
+    "target": np.random.randint(0, 2, 1000)
+}, name="training_data")
+
+train, test = xo.train_test_splits(data, test_sizes=0.3, random_seed=42)
+
+# Create and wrap pipeline
+sklearn_pipeline = sklearn.pipeline.Pipeline([
+    ("scaler", StandardScaler()),
+    ("classifier", LogisticRegression(random_state=42))
+])
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+
+# Set up caching
+cache = ParquetCache.from_kwargs(
+    source=con,
+    relative_path="./pipeline-cache",
+    base_path=Path(".").absolute()
+)
+
+# First fit - computes and caches the model
+print("First fit (computes model)...")
+start = time.time()
+fitted = xorq_pipeline.fit(
+    train,
+    features=("feature1", "feature2"),
+    target="target",
+    cache=cache
+)
+first_time = time.time() - start
+print(f"First fit completed in {first_time:.3f} seconds")
+
+# Second fit with same data - uses cache
+print("\nSecond fit (uses cache)...")
+start = time.time()
+fitted_cached = xorq_pipeline.fit(
+    train,
+    features=("feature1", "feature2"),
+    target="target",
+    cache=cache
+)
+second_time = time.time() - start
+print(f"Second fit completed in {second_time:.3f} seconds")
+print(f"\nCache speedup: {first_time/second_time:.1f}x faster")
+```
+
+Caching works with wrapped sklearn pipelines. Fitted models are cached based on content-addressed hashing, and cache hits avoid recomputation of fitted steps. See [Train models at scale](./train_models_at_scale.qmd) for detailed caching examples.
+
+## Prepare sklearn models for deployment
+
+Prepare your wrapped sklearn pipelines for deployment by creating a prediction expression with a placeholder input. This creates a deployment-ready expression that can be served later. Wrapped sklearn pipelines work the same as native Xorq pipelines for deployment.
+
+### Create prediction expression
+
+Create `prepare_deployment.py` to create a prediction expression ready for serving:
+
+```{python}
+#| eval: false
+import xorq.api as xo
+from xorq.expr.ml import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+import sklearn.pipeline
+import numpy as np
+
+# Connect and create data
+con = xo.connect()
+np.random.seed(42)
+data = xo.memtable({
+    "feature1": np.random.randn(1000),
+    "feature2": np.random.randn(1000),
+    "target": np.random.randint(0, 2, 1000)
+}, name="training_data")
+
+train, test = xo.train_test_splits(data, test_sizes=0.3, random_seed=42)
+
+# Create and wrap sklearn pipeline
+sklearn_pipeline = sklearn.pipeline.Pipeline([
+    ("scaler", StandardScaler()),
+    ("classifier", LogisticRegression(random_state=42))
+])
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+
+# Fit the pipeline
+fitted_pipeline = xorq_pipeline.fit(
+    train,
+    features=("feature1", "feature2"),
+    target="target"
+)
+
+# Create a placeholder input table matching your model's feature schema
+placeholder_input = xo.table(
+    name="input_data",
+    schema={
+        "feature1": "float64",
+        "feature2": "float64"
+    }
+).tag("model_input")
+
+# Create prediction expression for deployment
+model_expr = fitted_pipeline.predict(placeholder_input)
+
+print("Prediction expression created successfully!")
+print(f"Expression schema: {model_expr.schema()}")
+```
+
+You should see:
+
+```
+Prediction expression created successfully!
+Expression schema: ibis.Schema {
+  predicted  int64
+}
+```
+
+Use a placeholder input table with the same schema as your training features. Tag the placeholder with `"model_input"` for deployment. The prediction expression is deferred until execution. This creates a deployment-ready expression that you can serve later using Xorq's serving infrastructure, for example Flight servers. The expression itself is not yet deployed or accessible to clients.
+
+## Troubleshooting
+
+When integrating sklearn pipelines, you may encounter issues with parameter updates, compatibility, or execution. Here's how to resolve common problems:
+
+### Issue: Parameter updates don't work
+
+**Error**: `set_params()` doesn't change behavior or raise an error
+
+**Cause**: Using the wrong parameter name format, or the parameter doesn't exist
+
+**Detection**: Parameter changes don't affect pipeline behavior
+
+**Recovery**:
+
+1. Verify parameter name format: use `step_name__parameter_name` (double underscore)
+2. Check step names match pipeline definition: `sklearn_pipeline.named_steps.keys()`
+3. Verify parameter exists: `sklearn_pipeline.get_params().keys()`
+4. Use correct parameter value type, for example string versus int
+
+**Prevention**:
+
+- Use sklearn's `get_params()` to see all available parameters
+- Test parameter updates on small examples first
+- Document parameter names for your pipeline steps
+
+### Issue: Predictions differ from sklearn
+
+**Error**: Xorq predictions don't match sklearn predictions
+
+**Cause**: Data format differences, random seed issues, or execution timing
+
+**Detection**: Predictions or scores differ between sklearn and Xorq
+
+**Recovery**:
+
+1. Verify data is identical: compare input DataFrames/expressions
+2. Set random seeds consistently: use `random_state` parameter
+3. Check feature order: ensure features are in the same order
+4. Verify target encoding: ensure target values match exactly
+5. Compare intermediate steps: check scaler outputs match
+
+**Prevention**:
+
+- Use the same random seeds for reproducibility
+- Validate data format before wrapping
+- Test on small datasets first
+- Compare intermediate pipeline steps
+
+### Issue: Cannot access fitted sklearn model
+
+**Error**: Need to access the underlying sklearn model for custom operations
+
+**Cause**: Xorq's `FittedPipeline` wraps sklearn models
+
+**Detection**: Need sklearn-specific methods not exposed by Xorq
+
+**Recovery**:
+
+1. Access fitted step models: `fitted.predict_step.model` for the final step
+2. Access transform step models: `fitted.transform_steps[0].model` for transform steps
+3. Use `.instance` property: `pipeline.instance` for the sklearn pipeline
+4. Extract models from fitted steps: iterate through `fitted.fitted_steps`
+
+**Prevention**:
+
+- Document which sklearn methods you need
+- Test model access patterns before deployment
+- Consider if Xorq's API covers your needs
+
+### Issue: Pipeline wrapping fails
+
+**Error**: `Pipeline.from_instance()` raises an error
+
+**Cause**: Invalid sklearn pipeline, unsupported step types, or version incompatibility
+
+**Detection**: Wrapping fails with TypeError or ValueError
+
+**Recovery**:
+
+1. Verify pipeline is a sklearn `Pipeline` object: `isinstance(pipeline, sklearn.pipeline.Pipeline)`
+2. Check step types are supported: most sklearn estimators work
+3. Update sklearn version: ensure a compatible sklearn version
+4. Test with a simple pipeline first: wrap a minimal pipeline to isolate the issue
+
+**Prevention**:
+
+- Use standard sklearn pipeline constructors
+- Test pipeline wrapping early in development
+- Keep sklearn and Xorq versions updated
+- Use supported sklearn estimators
+
+For more troubleshooting help, see the [troubleshooting guide](../../troubleshooting/index.qmd).
+
+## Next steps
+
+You now have sklearn pipelines integrated with Xorq, enabling deferred execution, caching, and deployment while preserving full sklearn compatibility.
+
+- [Train models at scale](./train_models_at_scale.qmd) - Use caching and optimization with your wrapped pipelines
+- [Evaluate model performance](./evaluate_model_performance.qmd) - Use sklearn metrics with Xorq expressions

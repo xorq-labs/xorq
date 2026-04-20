@@ -2,21 +2,472 @@
 title: 'Manage the compute catalog'
 ---
 
-## Coming soon
+Organize builds with aliases, discover existing computations, and promote versions through environments using the Xorq catalog. The catalog tracks builds with entry IDs and aliases, making it easy to reference builds by name instead of build hashes.
 
-This guide will show you how to use the catalog system to manage builds, aliases, and metadata.
+:::{.callout-tip}
+If you haven't installed Xorq yet, then see the [installation guide](../../getting_started/installation.qmd) for setup instructions.
+:::
 
-You will learn catalog operations for production deployment workflows.
+## Build an expression
 
-**What you'll accomplish:**
-- Add builds to the catalog
-- Create and manage aliases
-- Query catalog metadata
-- Compare builds with diff-builds
+Before adding builds to the catalog, you need to create a build from your Xorq expression.
 
-**Prerequisites:**
-- Completed "Your first build" tutorial
-- Understanding of build system
+### Create an expression file
 
-Check back soon for the complete guide.
+::: {.panel-tabset}
 
+## I have an expression
+
+If you already have a Python file with your Xorq expression, then you can proceed directly to building. Make sure your expression is assigned to a variable, for example `model_expr` or `my_expr`, that you can reference with the `-e` flag.
+
+For example, if your file `my_expression.py` contains an expression variable:
+
+```{python}
+#| eval: false
+import xorq.api as xo
+
+# Your existing expression
+my_expr = xo.memtable(...)  # or any Xorq expression
+```
+
+Then you would build it with:
+
+```bash
+xorq build my_expression.py -e my_expr --builds-dir builds
+```
+
+:::{.callout-note}
+Replace `my_expression.py` with your file path and `my_expr` with your expression variable name.
+:::
+
+## I need to create one
+
+If you don't have an expression file yet, then create a Python file with your Xorq expression. For example, create `train_model.py`:
+
+```{python}
+#| eval: true
+import pandas as pd
+import xorq.api as xo
+
+
+def _build_training_table() -> xo.Table:
+    """Create a small in-memory training table."""
+    df = pd.DataFrame(
+        {
+            "feature": [1.0, 2.0, 3.0, 4.0],
+            "label": [0.0, 0.0, 1.0, 1.0],
+        }
+    )
+    return xo.memtable(df)
+
+
+# Expression referenced by the guides
+train_data = _build_training_table()
+
+# A trivial "model expression" that computes a derived feature.
+# In a real project this would be your trained model or full pipeline.
+model_expr = train_data.mutate(
+    feature_scaled=train_data.feature / 4.0,
+)
+```
+
+Save this file as `train_model.py` and proceed with building.
+
+:::
+
+### Build the expression
+
+Build your expression into a reusable artifact. Replace `<your_file.py>` with your Python file path and `<expression_name>` with the variable name of your expression:
+
+```bash
+xorq build <your_file.py> -e <expression_name> --builds-dir builds
+```
+
+For example, if you created `train_model.py` with `model_expr`, then run:
+
+```bash
+xorq build train_model.py -e model_expr --builds-dir builds
+```
+
+**You should see output like this**:
+
+```
+Building model_expr from train_model.py
+Written 'model_expr' to builds/abc123def456
+builds/abc123def456
+```
+
+:::{.callout-important}
+The last line (`builds/abc123def456`) is the build hash directory. Copy this hash; you use it when adding the build to the catalog. Replace `abc123def456` with your actual hash.
+:::
+
+## Add builds to the catalog
+
+Add builds to the catalog so you can reference them by alias instead of build hash. That way you can run or serve a build by name, for example `my-model`, without copying the build hash.
+
+### Add a build with an alias
+
+Register a build directory under a short name so you can use it in later commands. Run:
+
+```bash
+xorq catalog add builds/<build_hash> --alias my-model
+```
+
+**You should see a result like this**:
+
+```
+Added build <build_hash> as entry <entry_id> revision r1
+```
+
+The catalog creates a unique entry ID for the build and associates your alias with it. You can now reference this build using `my-model` instead of the build hash.
+
+### List catalog entries
+
+View all entries and aliases in your catalog:
+
+```bash
+xorq catalog ls
+```
+
+**You should see a result like this**:
+
+```
+Aliases:
+my-model	ce9fe1e5-0004-4087-b668-f67dfbdea6ba	r1
+Entries:
+<entry_id>    r1    <build_hash>
+```
+
+The output shows aliases mapped to entry IDs and revision IDs, plus entries with their current revision and build ID.
+
+### View catalog information
+
+Get the catalog storage location and statistics:
+
+```bash
+xorq catalog info
+```
+
+**You should see a result like this**:
+
+```
+Catalog path: /Users/username/.config/xorq/catalog.yaml
+Entries: 1
+Aliases: 2
+```
+
+This shows:
+
+- **Catalog path**: Where the catalog file is stored (useful for backups)
+- **Entries**: Number of build entries in the catalog
+- **Aliases**: Number of aliases pointing to entries
+
+:::{.callout-note}
+The catalog path will show your actual home directory path, not `/Users/username/`.
+:::
+
+### Search for builds
+
+Find builds by searching aliases:
+
+```bash
+xorq catalog ls | grep my-model
+```
+
+**You should see a result like this**:
+
+```
+my-model        <entry_id>    r1
+```
+
+Use descriptive aliases to make builds easy to discover.
+
+## Promote builds through environments
+
+Use environment-specific aliases to promote the same build through development, staging, and production.
+
+### Add development alias
+
+Add a build with a development alias:
+
+```bash
+xorq catalog add builds/<build_hash> --alias model-dev
+```
+
+**You should see a result like this**:
+
+```
+Added build <build_hash> as entry <entry_id> revision r1
+```
+
+### Promote to staging
+
+After testing in development, promote the same build to staging:
+
+```bash
+xorq catalog add builds/<build_hash> --alias model-staging
+```
+
+**You should see a result like this**:
+
+```
+Added build <build_hash> as entry <entry_id> revision r1
+```
+
+### Promote to production
+
+After staging validation, promote to production:
+
+```bash
+xorq catalog add builds/<build_hash> --alias model-prod
+```
+
+**You should see a result like this**:
+
+```
+Added build <build_hash> as entry <entry_id> revision r1
+```
+
+All three aliases (`model-dev`, `model-staging`, `model-prod`) now point to the same build. You can update any alias to point to a new build when you're ready to promote a new version.
+
+### Update alias to new version
+
+When you have a new build to promote, update the alias to point to it:
+
+::: {.panel-tabset}
+
+## Build
+
+Build a new version of your model:
+
+```bash
+xorq build train_model.py -e model_expr --builds-dir builds
+```
+
+## Update alias
+
+Update the production alias to point to the new build:
+
+```bash
+xorq catalog add builds/<new_build_hash> --alias model-prod
+```
+
+## Verify
+
+Verify the alias points to the new build:
+
+```bash
+xorq catalog ls | grep model-prod
+```
+
+:::
+
+**You should see a result like this**:
+
+```
+model-prod      <new_entry_id>    r1
+```
+
+The alias now points to the new build. The previous build remains accessible by its entry ID or build hash.
+
+## Compare builds
+
+Compare two builds to see what changed between versions.
+
+### Compare by alias or entry ID
+
+Compare two builds using aliases, entry IDs, or build hashes:
+
+```bash
+xorq catalog diff-builds model-dev model-prod
+```
+
+**You should see a result like this**:
+
+```
+## Diff: expr.yaml
+diff --git a/expr.yaml b/expr.yaml
+index 1234567..abcdefg 100644
+--- a/expr.yaml
++++ b/expr.yaml
+@@ -10,7 +10,7 @@
+     value: 0.5
+   - op: Literal
+     value: 0.8
+```
+
+The command uses `git diff` to show differences in build files. Exit code 0 means no differences; exit code 1 means differences found.
+
+### Compare specific files
+
+Compare only specific files:
+
+```bash
+xorq catalog diff-builds model-dev model-prod --files expr.yaml metadata.json
+```
+
+This limits the comparison to the specified files.
+
+## Remove builds from catalog
+
+Remove entries or aliases when you no longer need them.
+
+### Remove an entry
+
+Remove a build entry from the catalog:
+
+```bash
+xorq catalog rm <entry_id>
+```
+
+**You should see a result like this**:
+
+```
+Removed entry <entry_id>
+```
+
+Removing an entry also removes all aliases pointing to it. The build directory itself is not deleted; you must clean it up manually.
+
+### Remove an alias
+
+Remove just an alias, keeping the entry:
+
+```bash
+xorq catalog rm my-model
+```
+
+**You should see a result like this**:
+
+```
+Removed alias my-model
+```
+
+The entry remains accessible by its entry ID, but the alias is gone.
+
+### Clean up build directories
+
+The catalog removal doesn't delete build directories. Manually remove old build directories:
+
+::: {.panel-tabset}
+
+## List builds
+
+List all build directories:
+
+```bash
+ls builds/
+```
+
+## Remove old build
+
+Remove a specific build directory:
+
+```bash
+rm -rf builds/<old_build_hash>
+```
+
+:::
+
+Only remove build directories that aren't referenced by any catalog entries.
+
+## Backup catalog
+
+Back up your catalog to prevent data loss.
+
+### Find catalog location
+
+Get the catalog storage path:
+
+```bash
+xorq catalog info
+```
+
+**You should see a result like this**:
+
+```
+Catalog path: /Users/username/.config/xorq/catalog.yaml
+Entries: 1
+Aliases: 2
+```
+
+### Backup catalog directory
+
+Back up the entire catalog directory:
+
+```bash
+CATALOG_PATH=$(xorq catalog info | grep "Catalog path:" | sed 's/Catalog path: //')
+CATALOG_DIR=$(dirname "$CATALOG_PATH")
+tar -czf catalog-backup-$(date +%Y%m%d).tar.gz "$CATALOG_DIR"
+```
+
+**You should see a result like this**:
+
+```
+catalog-backup-20260119.tar.gz
+```
+
+This creates a compressed archive of your catalog configuration and build references.
+
+## Troubleshooting
+
+Common issues when managing the catalog.
+
+### Issue: Script not found
+
+**Error**: `Error: Script not found at <filename>`
+
+**Cause**: The Python file doesn't exist in the current directory or the path is incorrect.
+
+**Fix**:
+
+1. Verify the file exists: `ls <filename>` or `ls *.py`
+2. Check you're in the correct directory: `pwd`
+3. If the file is elsewhere, then use the full path: `xorq build /full/path/to/file.py -e <expression_name> --builds-dir builds`
+4. If you haven't created the file yet, see the [Create an expression file](#create-an-expression-file) section above
+
+### Issue: Build not found in catalog
+
+**Error**: `Entry <alias> not found in catalog`
+
+**Cause**: The alias or entry ID doesn't exist in the catalog.
+
+**Fix**:
+
+1. List catalog entries: `xorq catalog ls`
+2. Verify the alias spelling
+3. If the build is missing, then add it: `xorq catalog add builds/<build_hash> --alias <alias>`
+4. If the alias was removed, then use the entry ID instead of the alias
+
+### Issue: Alias points to wrong build
+
+**Error**: Alias references an unexpected build.
+
+**Cause**: The alias was updated to point to a different build.
+
+**Fix**:
+
+1. Check current alias: `xorq catalog ls | grep <alias>`
+2. Find the correct build hash
+3. Update alias: `xorq catalog add builds/<correct_hash> --alias <alias>`
+4. Verify: `xorq catalog ls | grep <alias>`
+
+### Issue: Cannot add entry
+
+**Error**: Permission denied or storage full.
+
+**Cause**: Catalog directory is not writable or storage is full.
+
+**Fix**:
+
+1. Check catalog location: `xorq catalog info`
+2. Verify write permissions on the catalog directory
+3. If storage is full, then free up disk space
+4. Check that the build directory exists and is readable
+
+## Next steps
+
+You now know how to organize builds with aliases, discover existing computations, promote versions through environments, and manage the catalog.
+
+- [Build reproducible environments](build_reproducible_environments.qmd) - Create reproducible builds
+- [Set up CI/CD pipelines](setup_cicd_pipelines.qmd) - Automate catalog management
+- [Version and promote models](../ml_workflows/version_and_promote_models.qmd) - Model versioning workflows

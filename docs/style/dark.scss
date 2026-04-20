@@ -673,3 +673,47 @@ pre code {
     border-color: $white;
   }
 }
+
+/* Code quotes in annotation callout boxes - custom dark teal background and light blue text */
+.quarto-annotation code,
+.quarto-annotation-popover code,
+.quarto-annotation-popover .quarto-annotation code,
+[data-annotation] code,
+.quarto-annotation-popover p code,
+.quarto-annotation-popover li code,
+.quarto-annotation-popover strong code,
+.quarto-annotation-popover em code,
+.quarto-annotation-popover * code,
+.quarto-annotation-popover code:not(pre code),
+.quarto-annotation code:not(pre code),
+[data-annotation] code:not(pre code),
+.popover code,
+.popover-body code,
+.bs-popover-auto[data-popper-placement] code,
+.bs-popover-top code,
+.bs-popover-bottom code,
+.bs-popover-left code,
+.bs-popover-right code,
+.popover code:not(pre code),
+.popover-body code:not(pre code) {
+  background-color: #1f2e33 !important;
+  background: #1f2e33 !important;
+  padding: 0.125em 0.25em !important;
+  border: none !important;
+  color: #96dfff !important;
+  box-shadow: none !important;
+  border-radius: 2px !important;
+}
+
+/* Additional override for any code elements in annotation contexts */
+[class*="annotation"] code:not(pre code),
+[class*="popover"] code:not(pre code),
+[data-bs-toggle="popover"] + .popover code:not(pre code) {
+  background-color: #1f2e33 !important;
+  background: #1f2e33 !important;
+  padding: 0.125em 0.25em !important;
+  border: none !important;
+  color: #96dfff !important;
+  box-shadow: none !important;
+  border-radius: 2px !important;
+}
