@@ -992,7 +992,9 @@ def test_file_backed_database_table_not_snapshotted_at_build(builds_dir, tmp_pat
     # A file-backed DatabaseTable should not create a parquet snapshot.
     # Only in-memory data (xo.memtable, con.register(df)) needs snapshotting.
     snapshot_dir = build_path / str(MemtableTypes.database_table)
-    parquet_files = list(snapshot_dir.glob("*.parquet")) if snapshot_dir.exists() else []
+    parquet_files = (
+        list(snapshot_dir.glob("*.parquet")) if snapshot_dir.exists() else []
+    )
     assert not parquet_files, (
         f"con.read_csv() table was eagerly snapshotted at build time: {parquet_files}. "
         "File-backed reads should reference the original file path, not a data copy."
