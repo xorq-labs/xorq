@@ -1,0 +1,36 @@
+---
+title: "Agents and the semantic layer: FAA flights on xorq"
+description: "Build a business semantic layer over the FAA on-time performance dataset and let agents query it through xorq expressions."
+status: "preview"
+draft: true
+---
+
+::: {.callout-warning}
+**Preview — not yet written.** This tutorial is an outline. The worked example lives in Hussain's head; the writeup is pending. TODO: **research BSL** — what's the current standard for expressing a semantic layer (Cube, dbt semantic layer, Malloy, LookML), and which primitive does xorq want to expose to agents?
+:::
+
+## What this tutorial will cover
+
+An agent can only reason about data as well as the vocabulary it's given. Give it raw flight records and it writes brittle SQL against column names it half-understands. Give it a **semantic layer** — named dimensions, measures, and relationships with known join paths — and it composes correct answers on the first try.
+
+This tutorial walks through building a minimal business semantic layer (BSL) on top of the FAA on-time performance dataset, registering it as xorq catalog entries, and letting an agent answer operational questions against it.
+
+## Intended outline
+
+1. **The dataset** — FAA BTS on-time performance (flights, carriers, airports). Why it's a good semantic-layer testbed: stable schema, well-known entities, questions a human analyst would actually ask.
+2. **Without a semantic layer** — let an agent loose on the raw CSVs. Watch it guess at column meanings (`DEP_DELAY` vs `DEP_DELAY_NEW`), miscount cancellations, double-count diverted flights.
+3. **Modeling the BSL** — entities (Flight, Carrier, Airport, Route), measures (on-time rate, avg delay, cancellation rate), dimensions (origin region, time of day, carrier size). TODO: **research BSL** conventions here — what shape does xorq want this to take in the catalog?
+4. **Registering the layer as xorq expressions** — each measure becomes a named, typed catalog entry with its aggregation logic baked in. Each dimension becomes a reusable grouping.
+5. **The agent with the semantic layer** — same agent, same prompts, now composing against named measures instead of raw columns. Show the accuracy delta.
+6. **What this generalizes to** — the BSL pattern isn't FAA-specific. Any domain with stable entities and analyst-style questions benefits from this shape.
+
+## Open questions
+
+- What's the minimum viable BSL primitive in xorq? Is it just a naming convention over existing expressions, or a new catalog entry type?
+- How does the BSL interact with input-addressed caching — do measure definitions become cache keys?
+- How does an agent *discover* the semantic layer? Through catalog search, an MCP resource, or a dedicated skill?
+
+## Related
+
+- [Orientation Over Reasoning](https://xorq.dev/blog/orientation-over-reasoning/) — the DABStep result that motivates this direction.
+- [Getting started with the xorq Claude plugin](recon_import.qmd) — the opposite end of the spectrum: no schema, agent discovers it.

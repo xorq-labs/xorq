@@ -1,0 +1,29 @@
+---
+title: "Build your own data agent"
+description: "Skeleton for writing a domain-specific data agent against the xorq catalog, using Python and your framework of choice."
+status: "preview"
+draft: true
+---
+
+::: {.callout-warning}
+**Preview — not yet written.** This tutorial is a placeholder for a walkthrough of building a custom data agent on top of xorq.
+:::
+
+## What this tutorial will cover
+
+Not every agentic workflow belongs in Claude Code or an IDE. Teams often want a **domain-specific agent** — one that knows the shape of their data, speaks their business vocabulary, and runs unattended inside a product or pipeline.
+
+This tutorial will show how to build such an agent against the xorq catalog: how to expose catalog entries as tools, how to ground the agent in existing expressions, and how to let it write new expressions that land back in the catalog as reviewable commits.
+
+## Intended outline
+
+1. **The agent surface** — what a data agent actually needs: a schema view of the catalog, a way to compose new expressions, a way to execute and return results.
+2. **Wiring xorq to your agent framework** — a minimal example using pydantic-ai (or equivalent) with the catalog as a tool surface.
+3. **Grounding the agent** — catalog search as the first step of every turn; preferring existing entries over new computation.
+4. **Writing back** — new expressions land as catalog entries, versioned and reviewable, not as ephemeral outputs.
+5. **Guardrails** — input validation, lineage checks, and human-in-the-loop review before writes become permanent.
+
+## Related
+
+- [Agentic workflows overview](index.qmd)
+- [MCP for data analysts](mcp_for_analysts.qmd) — the turnkey version of this pattern
