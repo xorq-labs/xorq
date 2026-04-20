@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776666563349,
+  "lastUpdate": 1776670845653,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -6864,6 +6864,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.007553114409072334",
             "extra": "mean: 199.97984783331427 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d2b1155f5c5575b1ddb24a255570093157c4dd8c",
+          "message": "feat: remove xo.read_csv and xo.read_parquet from top-level API (#1834)\n\nRemoves `xo.read_csv` and `xo.read_parquet` to steer users toward the\npreferred `xo.deferred_read_csv` and `xo.deferred_read_parquet`. Updates\nall test callsites to use backend-level `con.read_*` methods instead.\n\nCloses #1830\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-20T09:37:10+02:00",
+          "tree_id": "80b2a43fb35278f2cc4900ae0bfb615c17d52848",
+          "url": "https://github.com/xorq-labs/xorq/commit/d2b1155f5c5575b1ddb24a255570093157c4dd8c"
+        },
+        "date": 1776670842638,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.881327118672488,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012192242039686359",
+            "extra": "mean: 126.8821843000012 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 5.017452103301853,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0071565434275206044",
+            "extra": "mean: 199.3043440000008 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7268325200733023,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1715856441804281",
+            "extra": "mean: 1.3758327708000024 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.476519809773792,
+            "unit": "iter/sec",
+            "range": "stddev: 0.042823191808162735",
+            "extra": "mean: 223.38781966666468 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.157268810798332,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004984411464786902",
+            "extra": "mean: 193.901081499997 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.190112782832405,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008915202193814073",
+            "extra": "mean: 192.6740403999986 msec\nrounds: 5"
           }
         ]
       }
