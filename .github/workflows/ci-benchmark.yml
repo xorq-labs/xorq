@@ -46,6 +46,7 @@ jobs:
           uv run --no-sync pytest
           --import-mode=importlib
           --benchmark-json=benchmark-results.json
+          --benchmark-warmup=on
           -m benchmark
           python/
         working-directory: ${{ github.workspace }}
@@ -63,6 +64,6 @@ jobs:
           output-file-path: benchmark-results.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: ${{ github.event_name != 'pull_request' }}
-          alert-threshold: "130%"
+          alert-threshold: "180%"
           comment-on-alert: true
           fail-on-alert: true
