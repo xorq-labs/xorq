@@ -504,7 +504,7 @@ def test_parquet_ttl_snapshot_cache(ls_con, batting, tmp_path):
     path = tmp_path.joinpath("data.parquet")
     expr = batting[lambda t: t.yearID > 2014][lambda t: t.stint == 1]
     expr.to_parquet(all_rows_path)
-    assert xo.read_parquet(all_rows_path).count().execute() != n_rows
+    assert ls_con.read_parquet(all_rows_path).count().execute() != n_rows
     expr.limit(n_rows).to_parquet(n_rows_path)
     path.write_bytes(all_rows_path.read_bytes())
 

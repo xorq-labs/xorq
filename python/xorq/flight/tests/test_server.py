@@ -208,7 +208,7 @@ def test_failed_auth(tls_kwargs):
     ],
 )
 def test_into_backend_flight_server(connection, port, parquet_dir):
-    batting = xo.read_parquet(parquet_dir / "batting.parquet")
+    batting = xo.connect().read_parquet(parquet_dir / "batting.parquet")
     flight_url = make_flight_url(port)
 
     with FlightServer(
