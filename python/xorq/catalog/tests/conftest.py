@@ -73,31 +73,23 @@ def compare_repo_and_catalog(repo, catalog):
     assert tuple(sorted(alias_names)) == tuple(sorted(catalog.list_aliases()))
 
 
-@pytest.fixture(params=["git", "annex"])
+@pytest.fixture(scope="session", params=["git", "annex"])
 def backend_type(request):
     return request.param
 
 
-@pytest.fixture
-def repo(tmpdir, backend_type):
-    annex = LOCAL_ANNEX if backend_type == "annex" else None
-    repo = Catalog.init_repo_path(Path(tmpdir).joinpath("repo"), annex=annex)
-    yield repo
-
-
-@pytest.fixture
-def catalog(repo, backend_type):
+def _make_catalog_from_repo(repo, backend_type):
     repo_path = Path(repo.working_dir)
     if backend_type == "annex":
         backend = GitAnnexBackend(repo=repo, annex=Annex(repo_path=repo_path))
     else:
         backend = GitBackend(repo=repo)
-    yield Catalog(backend=backend)
+    return Catalog(backend=backend)
 
 
-@pytest.fixture
-def catalog_path(catalog):
-    yield str(catalog.repo_path)
+def _init_catalog_repo(repo_path, backend_type):
+    annex = LOCAL_ANNEX if backend_type == "annex" else None
+    return Catalog.init_repo_path(repo_path, annex=annex)
 
 
 def make_build_zip(tmpdir, name):
@@ -108,25 +100,67 @@ def make_build_zip(tmpdir, name):
         return target
 
 
-@pytest.fixture
-def data_dict(tmpdir):
-    data_dict = {}
-    for name in map(
+_DATA_DICT_NAMES = tuple(
+    map(
         chr,
         (
             *range(ord("a"), ord("c")),
             *range(ord("A"), ord("C")),
         ),
-    ):
-        target = make_build_zip(tmpdir, name)
-        data_dict[target.name] = target
-    yield data_dict
+    )
+)
+
+
+@pytest.fixture(scope="session")
+def _data_dict_template(tmp_path_factory):
+    root = tmp_path_factory.mktemp("data-dict-template")
+    return {
+        (target := make_build_zip(root, name)).name: target for name in _DATA_DICT_NAMES
+    }
 
 
 @pytest.fixture
-def catalog_populated(catalog, data_dict):
-    tuple(catalog.add(path) for path in data_dict.values())
-    yield catalog
+def data_dict(tmpdir, _data_dict_template):
+    dst_root = Path(tmpdir)
+    return {
+        name: Path(shutil.copy(src, dst_root.joinpath(name)))
+        for name, src in _data_dict_template.items()
+    }
+
+
+@pytest.fixture(scope="session")
+def _catalog_populated_template(tmp_path_factory, backend_type, _data_dict_template):
+    root = tmp_path_factory.mktemp(f"catalog-populated-template-{backend_type}")
+    repo_path = root / "repo"
+    repo = _init_catalog_repo(repo_path, backend_type)
+    catalog = _make_catalog_from_repo(repo, backend_type)
+    for path in _data_dict_template.values():
+        catalog.add(path)
+    return repo_path
+
+
+@pytest.fixture
+def repo(tmpdir, backend_type):
+    repo = _init_catalog_repo(Path(tmpdir).joinpath("repo"), backend_type)
+    yield repo
+
+
+@pytest.fixture
+def catalog(repo, backend_type):
+    yield _make_catalog_from_repo(repo, backend_type)
+
+
+@pytest.fixture
+def catalog_path(catalog):
+    yield str(catalog.repo_path)
+
+
+@pytest.fixture
+def catalog_populated(tmpdir, backend_type, _catalog_populated_template):
+    dst = Path(tmpdir).joinpath("repo")
+    shutil.copytree(_catalog_populated_template, dst, symlinks=True)
+    repo = Repo(dst)
+    yield _make_catalog_from_repo(repo, backend_type)
 
 
 @pytest.fixture
