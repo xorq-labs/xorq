@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776641219291,
+  "lastUpdate": 1776666563349,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -6798,6 +6798,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.05426051055036784",
             "extra": "mean: 217.4961068000016 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "77161655e221e37a3047f28fa0206718d25fa9ff",
+          "message": "perf(catalog): template-clone fixtures to cut annex test setup (#1843)\n\n## Summary\n\n- Make `data_dict` and `catalog_populated` session-scoped **templates**;\neach test gets a per-test `shutil.copy` / `shutil.copytree(...,\nsymlinks=True)` from the template instead of rebuilding from scratch\n- Eliminates the 4× `git annex add` + commit that every `[annex]` test\npaid in setup — the dominant cost in\n`python/xorq/catalog/tests/test_cli.py` under xdist `--dist=loadfile`\n\n## Motivation\n\nAnalysis of [ci-test job\n72022776701](https://github.com/xorq-labs/xorq/actions/runs/24632718743/job/72022776701)\n(10 min wall) showed:\n\n| Worker | Cumulative | Dominant file |\n|---|---|---|\n| gw1 | **557.6 s** | `catalog/tests/test_cli.py` (entire worker) |\n| gw0 | 416.2 s | `catalog/tests/test_catalog.py` (262 s) |\n| gw2 | 404.1 s | `catalog/tests/test_tui.py` (182 s) |\n| gw3 | 407.1 s | mixed |\n\nWithin `test_cli.py`: `[annex]` parametrization = 517 s, `[git]` = 40 s\nfor the same 87 functions — a 13× gap. Slowest-20 durations on that job\nwere 6–8 s of fixture **setup** per annex test. Root cause: the annex\nfixture chain builds 4 zip archives and runs `catalog.add()` (= `git\nannex add` + commit) on each, for every test.\n\n## Local measurements\n\nRunning `pytest python/xorq/catalog/tests/ -k 'not script_execution and\nnot slow and not benchmark' --no-cov -n auto --dist=loadfile`:\n\n| | Baseline | After | Δ |\n|---|---|---|---|\n| Full `catalog/tests/` | 142.8 s | 116.9 s | **−18%** |\n| `test_cli.py` (`-n 4`, mirrors CI worker count) | 139.8 s | 113.1 s |\n**−19%** |\n\nSame pass/fail set both runs: 550 passed / 21 skipped / 8 pre-existing\nfailures. No new regressions.\n\nCI per-test setup (~8 s) is ~5× slower than local (~1.7 s), so CI impact\nshould be meaningfully larger than the local 18%.\n\n## Implementation notes\n\n- `backend_type` is now `scope=\"session\"` so session-scoped fixtures can\ndepend on it while preserving `[\"git\", \"annex\"]` parametrization.\n- `_catalog_populated_template` builds one pristine annex/git repo per\n(session, backend); `catalog_populated` `copytree`s it per test and\nrebuilds the `Catalog` handle on the copy.\n- `symlinks=True` is required — git-annex stores content via symlinks\ninto `.git/annex/objects`, which must be copied verbatim.\n- Templates share UUID/commit-SHA across copies within a session. No\ntests currently assert UUID uniqueness across catalog-populated\ninstances; `repo_cloned_bare` still gets a fresh annex UUID via its own\n`git annex init`.\n\n## Test plan\n\n- [x] Full `catalog/tests/` passes with same pass/fail set as baseline\n- [ ] CI `ci-test` green\n- [ ] CI wall-time delta captured for comparison with the 606 s baseline\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-20T08:25:45+02:00",
+          "tree_id": "7014982c14ae29f4acf9a22f51114e0d8f11303c",
+          "url": "https://github.com/xorq-labs/xorq/commit/77161655e221e37a3047f28fa0206718d25fa9ff"
+        },
+        "date": 1776666560511,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.807598650329558,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010798160907110315",
+            "extra": "mean: 128.08035412498953 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.776738299442886,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010735006339465362",
+            "extra": "mean: 209.34787240000787 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.703822771038913,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1730591272212348",
+            "extra": "mean: 1.420812228800014 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.169578036888986,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04461270734373754",
+            "extra": "mean: 239.83242216666176 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.719267531861408,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02331387036026454",
+            "extra": "mean: 211.89728983335954 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.000503854935986,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007553114409072334",
+            "extra": "mean: 199.97984783331427 msec\nrounds: 6"
           }
         ]
       }
