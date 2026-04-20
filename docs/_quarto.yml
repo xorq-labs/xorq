@@ -215,8 +215,6 @@ website:
                 - href: reference/ls.qmd
                   text: "ls"
                 - reference/memtable.qmd
-                - reference/read_csv.qmd
-                - reference/read_parquet.qmd
                 - reference/deferred_read_csv.qmd
                 - reference/deferred_read_parquet.qmd
                 - reference/to_csv.qmd
@@ -349,14 +347,6 @@ quartodoc:
           signature_name: full
           package: xorq.api
         - name: memtable
-          dynamic: true
-          signature_name: full
-          package: xorq.api
-        - name: read_csv
-          dynamic: true
-          signature_name: full
-          package: xorq.api
-        - name: read_parquet
           dynamic: true
           signature_name: full
           package: xorq.api
