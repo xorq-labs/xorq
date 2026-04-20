@@ -11,6 +11,7 @@ class DumpFiles(StrEnum):
     build_metadata = "build_metadata.json"
     profiles = "profiles.yaml"
     sql = "sql.yaml"
+    requirements = "requirements.txt"
 
 
 REQUIRED_ARCHIVE_NAMES = (
@@ -18,6 +19,7 @@ REQUIRED_ARCHIVE_NAMES = (
     DumpFiles.expr_metadata,
     DumpFiles.build_metadata,
     DumpFiles.profiles,
+    DumpFiles.requirements,
 )
 
 

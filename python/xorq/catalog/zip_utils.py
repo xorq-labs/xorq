@@ -31,6 +31,11 @@ def test_zip(zip_path):
             f"Archive is not a valid expression entry "
             f"(missing {missing}); found: {sorted(names)}"
         )
+        wheels = [name for name in names if name.endswith(".whl")]
+        assert len(wheels) == 1, (
+            f"Archive must contain exactly one .whl file, "
+            f"found {len(wheels)}: {sorted(names)}"
+        )
 
 
 @contextmanager
