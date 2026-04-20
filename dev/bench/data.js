@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776686722832,
+  "lastUpdate": 1776702783813,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -7062,6 +7062,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0247052123373977",
             "extra": "mean: 271.2784381666656 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "28957a93f752c3092dc77816518e2c84bbd3036d",
+          "message": "ref(packager): build wheel directly instead of sdist (#1790)\n\n## Summary\n\nWheel-based packager pipeline, organized as five reviewable commits:\n\n1. **`ref(packager): replace sdist pipeline with wheel-based build`**\n- Switch from `uv build --sdist` to `uv build --wheel`, eliminating the\nsdist→wheel conversion uv performs internally (~45% cold-build speedup).\n- Replace `SdistPackager`/`SdistArchive` with\n`WheelPackager`/`WheelBundle`; store `requirements.txt` as a sidecar\nnext to the wheel rather than embedding it.\n- Remove dead archive-manipulation helpers\n(`append_toplevel`/`replace_toplevel`/`tgz_to_zip`/`calc_zip_content_hexdigest`)\nand simplify subprocess plumbing.\n- Validate lockfile freshness via `uv export --locked` (not `--frozen`);\nbyte-exact sync-check of in-tree `requirements.txt` against `uv export`\noutput, with an actionable error message.\n   - Add otel tracing spans in the build path.\n- Harden stdout parsing in `PackagedBuilder._build` and surface `uv\nexport` stderr on failure.\n- Rewrite packager tests for the new API and fill coverage gaps for\n`_read_requires_python`, `find_file_upwards`, `_nix_env`,\n`WheelBundle.from_build_path`, `_write_requirements_path`,\n`_ensure_wheel_artifacts`, and `uv_export_requirements`.\n\n2. **`feat(cli): add --project-path, --extra, --all-extras to uv\nbuild`**\n   - Wire the new `WheelPackager` options through `xorq uv build`.\n- Simplify `uv_build_command`/`uv_run_command` onto the new\n`.build()`/`.run()` API.\n- CLI tests for `--project-path`, `--no-all-extras`, and `--extra`;\nremove stale `requirements.txt` from template tmpdirs so uv-version\ndrift doesn't break the sync check.\n\n3. **`feat(catalog): require wheel + requirements in build archives`**\n- Add `_ensure_wheel_artifacts` to inject wheel and `requirements.txt`\ninto build dirs before archiving.\n- Thread `project_path` through `Catalog.add`, `_add_build_dir`,\n`_add_expr`, `build_expr_context`, and `build_expr_context_zip` so\ncallers outside the project cwd (e.g. Jupyter kernels) can opt out of\nthe upward pyproject search.\n   - Validate archives contain exactly one `.whl` file.\n- Add `DumpFiles.requirements` to `REQUIRED_ARCHIVE_NAMES`; move the\ntest-only `_TEST_WHEEL_NAME` constant into the catalog test conftest.\n- Clear error when the upward pyproject search fails, naming the\n`project_path=` escape hatch.\n\n4. **`docs(adr): supersede ADR-0004 with ADR-0008 for wheel-based\npipeline`**\n- ADR-0004 documented the sdist pipeline, which has since been replaced\n— this is a different architectural decision, not a correction. Per the\nproject's ADR template, preserve ADR-0004 as a historical record and\nintroduce a new ADR for the current design of record.\n- Flip ADR-0004 status to \"Superseded by ADR-0008\" and add a pointer\nbanner; leave its original sdist content intact.\n- Add ADR-0008 covering the wheel pipeline end to end: `uv build\n--wheel`, `uv export --locked` with byte-exact sync-check, `uv tool run\n--isolated` with `--with <wheel>` + `--with-requirements`, the sidecar\narchive contract and the `_ensure_wheel_artifacts` ownership split\nbetween `Catalog._add_build_dir` and `build_expr_context_zip`,\n`--python` threading, and Nix LD_LIBRARY_PATH handling. Retains the\nRationale/Consequences sections since those uv-as-sole-runtime choices\ncarry over.\n\n5. **`ref(packager): consolidate _ensure_wheel_artifacts ownership`**\n- Drop the redundant `_ensure_wheel_artifacts` call from\n`build_expr_context`; the catalog-entry path is now owned solely by\n`Catalog._add_build_dir`, and the standalone-zip path (Flight exchange,\n`catalog.push`) by `build_expr_context_zip`. Gives each flow exactly one\ncheckpoint.\n- Default `uv_export_requirements(all_extras=True)` to match every\ncaller in the pipeline.\n- Tighten the stdout-parse comment in `PackagedBuilder._build` so it no\nlonger contradicts its own fallback.\n\n## Test plan\n\n- [ ] `python -m pytest python/xorq/ibis_yaml/tests/test_packager.py -x\n-q -m slow` — wheel build/run end-to-end\n- [ ] `python -m pytest python/xorq/tests/test_cli.py -x -q -k \"uv_build\nor uv_run\"` — CLI integration (includes\n`test_uv_build_with_project_path`, `--no-all-extras`, `--extra`)\n- [ ] `python -m pytest python/xorq/catalog/tests/test_catalog.py -x -q\n-m \"not slow\"` — catalog archive validation (missing wheel, missing\nrequired names, `project_path` threading)\n\n## Reviewer notes\n\n- Commits are path-separated, so file-by-file review maps cleanly onto\neach commit. Caveat: `test_packager.py` in commit 1 imports\n`_ensure_wheel_artifacts` from `catalog.catalog`, which only exists\nafter commit 3, so test collection is imperfect under `git bisect`; the\nfinal merged tree is unaffected.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-20T18:28:52+02:00",
+          "tree_id": "408740ab0c8e76594854c54fe61ad162c00e24b0",
+          "url": "https://github.com/xorq-labs/xorq/commit/28957a93f752c3092dc77816518e2c84bbd3036d"
+        },
+        "date": 1776702781624,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.883485812835238,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0303838162175024",
+            "extra": "mean: 112.56842427272834 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.841135629045137,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012994541839541112",
+            "extra": "mean: 206.5631035000024 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6386740478486974,
+            "unit": "iter/sec",
+            "range": "stddev: 0.22003845465655106",
+            "extra": "mean: 1.5657439085999953 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.0590711353319415,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011440943946836696",
+            "extra": "mean: 197.66474383333352 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.6404917620686676,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03214664667493982",
+            "extra": "mean: 274.6881644999964 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.029017430574621,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008096731860757296",
+            "extra": "mean: 198.84599999999182 msec\nrounds: 5"
           }
         ]
       }
