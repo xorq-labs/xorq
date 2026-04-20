@@ -1,5 +1,4 @@
 import functools
-import shutil
 import sys
 import tempfile
 import zipfile
@@ -8,8 +7,8 @@ from pathlib import (
 )
 
 import pytest
-import tomlkit
 
+from xorq.catalog.catalog import _ensure_wheel_artifacts
 from xorq.common.utils.download_utils import (
     download_xorq_template,
 )
@@ -17,17 +16,19 @@ from xorq.common.utils.zip_utils import (
     ZipProxy,
     append_toplevel,
 )
+from xorq.ibis_yaml.enums import DumpFiles
 from xorq.ibis_yaml.packager import (
     PYPROJECT_NAME,
-    REQUIREMENTS_NAME,
     UVLOCK_NAME,
     PackagedBuilder,
     PackagedRunner,
-    SdistArchive,
-    SdistPackager,
+    WheelBundle,
+    WheelPackager,
+    _nix_env,
+    _read_requires_python,
     _validate_python_version,
-    generate_pyproject_toml,
-    parse_requirements,
+    find_file_upwards,
+    uv_export_requirements,
 )
 from xorq.init_templates import InitTemplates
 
@@ -52,17 +53,23 @@ def prep_template_tmpdir(template, tmpdir):
         root_dir = first.rstrip("/").split("/")[0]
         zf.extractall(tmpdir)
     project_path = tmpdir.joinpath(root_dir)
+    # Remove pre-committed requirements.txt so the packager regenerates it
+    # from uv.lock. The templates' requirements.txt may have been exported
+    # with a different uv version than CI uses, causing a sync-check failure.
+    stale_reqs = project_path / DumpFiles.requirements
+    stale_reqs.unlink(missing_ok=True)
     return (zip_path, project_path)
 
 
 @pytest.mark.slow(level=1)
-@pytest.mark.snapshot_check
 @pytest.mark.parametrize("template", tuple(InitTemplates))
-def test_sdist_path_hexdigest(template, tmpdir, snapshot):
+def test_wheel_packager(template, tmpdir):
     zip_path, project_path = prep_template_tmpdir(template, tmpdir)
-    packager = SdistPackager(project_path, overwrite_requirements=True)
-    actual = packager.sdist_path_hexdigest
-    snapshot.assert_match(actual, f"test_sdist_path_hexdigest-{template}")
+    packager = WheelPackager(project_path)
+    bundle = packager.build()
+    assert bundle.wheel_path.exists()
+    assert bundle.wheel_path.suffix == ".whl"
+    assert bundle.requirements_path.exists()
 
 
 @pytest.mark.slow(level=1)
@@ -70,53 +77,17 @@ def test_sdist_path_hexdigest(template, tmpdir, snapshot):
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
 )
 @pytest.mark.parametrize("template", tuple(InitTemplates))
-def test_sdist_builder(template, tmpdir):
-    # test that we build and inject the requirements.txt
+def test_wheel_builder(template, tmpdir):
     zip_path, project_path = prep_template_tmpdir(template, tmpdir)
     script_path = project_path.joinpath("expr.py")
-    packaged_builder = PackagedBuilder(script_path=script_path, sdist_path=zip_path)
-    assert packaged_builder.build_path, packaged_builder._uv_tool_run_xorq_build.stderr
-
-
-@pytest.mark.slow(level=1)
-@pytest.mark.skipif(
-    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
-)
-@pytest.mark.parametrize("template", tuple(InitTemplates))
-def test_catalog_sdist_validation(template, tmpdir):
-    # test that SdistArchive validates a well-formed sdist
-    zip_path, project_path = prep_template_tmpdir(template, tmpdir)
-    packager = SdistPackager(project_path=project_path, overwrite_requirements=True)
-    sdist_archive = SdistArchive(packager.sdist_path)
-    assert sdist_archive.python_version
-
-
-@pytest.mark.slow(level=1)
-@pytest.mark.skipif(
-    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
-)
-@pytest.mark.parametrize("template", tuple(InitTemplates))
-def test_catalog_sdist_rejects_incomplete(template, tmpdir):
-    # test that SdistArchive raises when required members are missing
-    zip_path, project_path = prep_template_tmpdir(template, tmpdir)
-    packager = SdistPackager(project_path=project_path, overwrite_requirements=True)
-    sdist_incomplete = Path(tmpdir).joinpath("sdist_incomplete.zip")
-    # Copy the raw sdist and strip uv.lock + requirements.txt so validation fails
-    shutil.copy2(packager._sdist_path, sdist_incomplete)
-    with zipfile.ZipFile(sdist_incomplete, "r") as zf_in:
-        stripped = Path(tmpdir).joinpath("sdist_stripped.zip")
-        with zipfile.ZipFile(stripped, "w") as zf_out:
-            for item in zf_in.infolist():
-                name = (
-                    item.filename.split("/", 1)[-1]
-                    if "/" in item.filename
-                    else item.filename
-                )
-                if name in (UVLOCK_NAME, REQUIREMENTS_NAME):
-                    continue
-                zf_out.writestr(item, zf_in.read(item.filename))
-    with pytest.raises(FileNotFoundError):
-        SdistArchive(stripped)
+    packager = WheelPackager(project_path)
+    packaged_builder = PackagedBuilder(
+        script_path=script_path,
+        bundle=packager.build(),
+    )
+    assert packaged_builder.build_path, packaged_builder.build_result.stderr
+    assert list(packaged_builder.build_path.glob("*.whl"))
+    assert (packaged_builder.build_path / DumpFiles.requirements).exists()
 
 
 @pytest.mark.slow(level=2)
@@ -124,16 +95,20 @@ def test_catalog_sdist_rejects_incomplete(template, tmpdir):
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
 )
 @pytest.mark.parametrize("template", tuple(InitTemplates))
-def test_sdist_runner(template, tmpdir):
+def test_wheel_runner(template, tmpdir):
     tmpdir = Path(tmpdir)
     output_path = tmpdir.joinpath("output")
     zip_path, project_path = prep_template_tmpdir(template, tmpdir)
     script_path = project_path.joinpath("expr.py")
-    packaged_builder = PackagedBuilder(script_path=script_path, sdist_path=zip_path)
+    packager = WheelPackager(project_path)
+    packaged_builder = PackagedBuilder(
+        script_path=script_path,
+        bundle=packager.build(),
+    )
     packaged_runner = PackagedRunner(
         packaged_builder.build_path, output_path=str(output_path)
     )
-    assert packaged_runner.popened.returncode == 0
+    assert packaged_runner.run_result.returncode == 0
     assert output_path.exists()
 
 
@@ -143,91 +118,31 @@ def test_sdist_runner(template, tmpdir):
 
 
 @pytest.mark.parametrize(
-    "text, expected",
-    [
-        # simple pinned deps
-        ("requests==2.31.0\nflask==3.0.0\n", ["requests==2.31.0", "flask==3.0.0"]),
-        # blank lines and comments
-        (
-            "# this is a comment\nrequests==2.31.0\n\n# another\nflask>=3\n",
-            ["requests==2.31.0", "flask>=3"],
-        ),
-        # inline hashes
-        (
-            "requests==2.31.0 --hash=sha256:abc123 --hash=sha256:def456\n",
-            ["requests==2.31.0"],
-        ),
-        # option lines (-i, --index-url, etc.)
-        (
-            "-i https://pypi.org/simple\n--extra-index-url https://foo\nrequests\n",
-            ["requests"],
-        ),
-        # backslash continuations
-        ("requests==2.31.0 \\\n", ["requests==2.31.0"]),
-        # inline comment after dep
-        ("requests==2.31.0  # pinned\n", ["requests==2.31.0"]),
-        # empty input
-        ("", []),
-        ("\n\n# only comments\n", []),
-    ],
-    ids=[
-        "simple",
-        "comments_and_blanks",
-        "inline_hashes",
-        "option_lines",
-        "backslash_continuation",
-        "inline_comment",
-        "empty",
-        "only_comments",
-    ],
-)
-def test_parse_requirements(text, expected):
-    assert parse_requirements(text) == expected
-
-
-def test_generate_pyproject_toml_structure():
-    deps = ["requests>=2.31", "flask>=3.0"]
-    text = generate_pyproject_toml("my-project", deps, requires_python=">=3.11")
-    data = tomlkit.loads(text)
-    assert data["build-system"]["requires"] == ["hatchling"]
-    assert data["build-system"]["build-backend"] == "hatchling.build"
-    assert data["project"]["name"] == "my-project"
-    assert data["project"]["version"] == "0.0.0"
-    assert data["project"]["requires-python"] == ">=3.11"
-    assert list(data["project"]["dependencies"]) == deps
-
-
-def test_generate_pyproject_toml_empty_deps():
-    text = generate_pyproject_toml("empty-proj", [])
-    data = tomlkit.loads(text)
-    assert list(data["project"]["dependencies"]) == []
-
-
-@pytest.mark.parametrize(
     "value",
-    ["3.11", "3.10", "3.13.1"],
+    ["3.11", ">=3.10", ">=3.10,<3.14", None],
 )
 def test_validate_python_version_accepts_valid(value):
-    # should not raise — use a dummy attrs instance
     _validate_python_version(None, None, value)
 
 
 @pytest.mark.parametrize(
     "value",
-    ["not.a.version", "abc", "3.10.x"],
+    ["garbage", "abc", ">>>3.10"],
 )
 def test_validate_python_version_rejects_invalid(value):
-    with pytest.raises(ValueError, match="invalid python version"):
+    with pytest.raises(ValueError, match="invalid python version specifier"):
         _validate_python_version(None, None, value)
 
 
-def test_validate_python_version_accepts_none():
-    _validate_python_version(None, None, None)
+def test_wheel_packager_rejects_bad_python_version():
+    with pytest.raises(ValueError, match="invalid python version specifier"):
+        WheelPackager(project_path="/tmp", python_version="garbage")
 
 
-def test_sdist_packager_rejects_bad_python_version():
-    with pytest.raises(ValueError, match="invalid python version"):
-        SdistPackager(project_path="/tmp", python_version="garbage")
+def test_wheel_packager_rejects_missing_lock_and_requirements(tmp_path):
+    _make_pyproject(tmp_path)
+    with pytest.raises(FileNotFoundError, match="neither .* nor .* found"):
+        WheelPackager(tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -259,53 +174,323 @@ def test_zip_proxy_rejects_non_zip(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# SdistArchive: validates members, rejects missing
+# PackagedBuilder / PackagedRunner: validation error paths
 # ---------------------------------------------------------------------------
 
 
-def _make_sdist_zip(tmp_path, members):
-    """Helper: create a minimal sdist zip with given top-level member names."""
-    zip_path = tmp_path / "test.zip"
-    with zipfile.ZipFile(zip_path, "w") as zf:
-        for name in members:
-            zf.writestr(f"proj-0.0.0/{name}", "content")
-    return zip_path
+def test_wheel_bundle_rejects_missing_wheel(tmp_path):
+    with pytest.raises(FileNotFoundError, match="wheel not found"):
+        WheelBundle(
+            wheel_path=tmp_path / "missing.whl",
+            requirements_path=tmp_path / "requirements.txt",
+        )
 
 
-def test_sdist_archive_accepts_complete(tmp_path):
-    zip_path = _make_sdist_zip(
-        tmp_path, [PYPROJECT_NAME, UVLOCK_NAME, REQUIREMENTS_NAME]
+def test_packaged_runner_rejects_missing_build_path(tmp_path):
+    with pytest.raises(FileNotFoundError, match="build path does not exist"):
+        PackagedRunner(build_path=tmp_path / "nonexistent")
+
+
+def test_packaged_runner_rejects_missing_wheel(tmp_path):
+    build_dir = tmp_path / "build"
+    build_dir.mkdir()
+    # requirements exists but wheel doesn't
+    (build_dir / DumpFiles.requirements).write_text("requests==2.31.0")
+    with pytest.raises(FileNotFoundError, match="invalid build path"):
+        PackagedRunner(build_path=build_dir)
+
+
+def test_packaged_runner_rejects_missing_requirements(tmp_path):
+    build_dir = tmp_path / "build"
+    build_dir.mkdir()
+    _make_wheel(build_dir)
+    with pytest.raises(FileNotFoundError, match="invalid build path"):
+        PackagedRunner(build_path=build_dir)
+
+
+# ---------------------------------------------------------------------------
+# Helpers for unit tests below
+# ---------------------------------------------------------------------------
+
+
+def _make_wheel(directory, requires_python=">=3.10"):
+    """Create a minimal .whl with valid METADATA."""
+    wheel_path = Path(directory) / "pkg-0.0.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel_path, "w") as zf:
+        zf.writestr(
+            "pkg-0.0.0.dist-info/METADATA",
+            f"Metadata-Version: 2.1\nName: pkg\nVersion: 0.0.0\n"
+            f"Requires-Python: {requires_python}\n",
+        )
+    return wheel_path
+
+
+def _make_pyproject(directory, requires_python=">=3.10"):
+    """Write a minimal pyproject.toml."""
+    path = Path(directory) / PYPROJECT_NAME
+    path.write_text(
+        '[build-system]\nrequires = ["hatchling"]\n'
+        'build-backend = "hatchling.build"\n\n'
+        '[project]\nname = "test-pkg"\nversion = "0.0.0"\n'
+        f'requires-python = "{requires_python}"\n'
     )
-    archive = SdistArchive(zip_path)
-    assert archive.path == zip_path
+    return path
 
 
-def test_sdist_archive_rejects_missing_uvlock(tmp_path):
-    zip_path = _make_sdist_zip(tmp_path, [PYPROJECT_NAME, REQUIREMENTS_NAME])
-    with pytest.raises(FileNotFoundError, match=UVLOCK_NAME):
-        SdistArchive(zip_path)
+# ---------------------------------------------------------------------------
+# _read_requires_python: all input types and error paths
+# ---------------------------------------------------------------------------
 
 
-def test_sdist_archive_rejects_missing_multiple(tmp_path):
-    zip_path = _make_sdist_zip(tmp_path, [PYPROJECT_NAME])
-    with pytest.raises(FileNotFoundError, match=UVLOCK_NAME) as exc_info:
-        SdistArchive(zip_path)
-    # both missing members mentioned in one error
-    assert REQUIREMENTS_NAME in str(exc_info.value)
+def test_read_requires_python_from_pyproject_file(tmp_path):
+    pyproject = _make_pyproject(tmp_path, requires_python=">=3.11")
+    result = _read_requires_python(pyproject)
+    assert ">=3.11" in result
 
 
-def test_sdist_archive_rejects_nonexistent_path(tmp_path):
-    with pytest.raises(FileNotFoundError, match="sdist not found"):
-        SdistArchive(tmp_path / "does_not_exist.zip")
+def test_read_requires_python_from_directory(tmp_path):
+    _make_pyproject(tmp_path, requires_python=">=3.11")
+    result = _read_requires_python(tmp_path)
+    assert ">=3.11" in result
 
 
-def test_sdist_archive_extract_requirements_to(tmp_path):
-    zip_path = _make_sdist_zip(
-        tmp_path, [PYPROJECT_NAME, UVLOCK_NAME, REQUIREMENTS_NAME]
+def test_read_requires_python_from_wheel(tmp_path):
+    wheel = _make_wheel(tmp_path, requires_python=">=3.10")
+    result = _read_requires_python(wheel)
+    assert ">=3.10" in result
+
+
+def test_read_requires_python_wheel_missing_dist_info(tmp_path):
+    wheel_path = tmp_path / "bad-0.0.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel_path, "w") as zf:
+        zf.writestr("some_file.txt", "content")
+    with pytest.raises(ValueError, match="no .dist-info/METADATA"):
+        _read_requires_python(wheel_path)
+
+
+def test_read_requires_python_wheel_missing_requires_python(tmp_path):
+    wheel_path = tmp_path / "bad-0.0.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel_path, "w") as zf:
+        zf.writestr(
+            "bad-0.0.0.dist-info/METADATA",
+            "Metadata-Version: 2.1\nName: bad\nVersion: 0.0.0\n",
+        )
+    with pytest.raises(ValueError, match="no Requires-Python"):
+        _read_requires_python(wheel_path)
+
+
+def test_read_requires_python_rejects_unknown_path(tmp_path):
+    txt = tmp_path / "random.txt"
+    txt.write_text("hello")
+    with pytest.raises(ValueError, match="can only handle"):
+        _read_requires_python(txt)
+
+
+# ---------------------------------------------------------------------------
+# find_file_upwards: error path
+# ---------------------------------------------------------------------------
+
+
+def test_find_file_upwards_not_found(tmp_path):
+    with pytest.raises(ValueError, match="could not find"):
+        find_file_upwards(tmp_path, "nonexistent_file_xyz.toml")
+
+
+# ---------------------------------------------------------------------------
+# _nix_env: conditional branches
+# ---------------------------------------------------------------------------
+
+
+def test_nix_env_returns_none_outside_nix(monkeypatch):
+    monkeypatch.setattr("xorq.ibis_yaml.packager.in_nix_shell", lambda: False)
+    assert _nix_env() is None
+
+
+def test_nix_env_uses_override_inside_nix(monkeypatch):
+    monkeypatch.setattr("xorq.ibis_yaml.packager.in_nix_shell", lambda: True)
+    monkeypatch.setenv("UV_TOOL_RUN_LD_LIBRARY_PATH", "/custom/lib")
+    env = _nix_env()
+    assert env is not None
+    assert env["LD_LIBRARY_PATH"] == "/custom/lib"
+
+
+def test_nix_env_removes_ld_path_inside_nix(monkeypatch):
+    monkeypatch.setattr("xorq.ibis_yaml.packager.in_nix_shell", lambda: True)
+    monkeypatch.delenv("UV_TOOL_RUN_LD_LIBRARY_PATH", raising=False)
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/should/be/removed")
+    env = _nix_env()
+    assert env is not None
+    assert "LD_LIBRARY_PATH" not in env
+
+
+# ---------------------------------------------------------------------------
+# WheelBundle.from_build_path
+# ---------------------------------------------------------------------------
+
+
+def test_wheel_bundle_from_build_path(tmp_path):
+    wheel = _make_wheel(tmp_path)
+    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
+    bundle = WheelBundle.from_build_path(tmp_path)
+    assert bundle.wheel_path == wheel
+    assert bundle.requirements_path == tmp_path / DumpFiles.requirements
+    assert bundle.python_version is not None
+
+
+def test_wheel_bundle_from_build_path_no_wheel(tmp_path):
+    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
+    with pytest.raises(RuntimeError, match="expected exactly one"):
+        WheelBundle.from_build_path(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# WheelPackager._write_requirements_path: sync check
+# ---------------------------------------------------------------------------
+
+
+def test_write_requirements_path_rejects_stale_requirements(tmp_path, monkeypatch):
+    _make_pyproject(tmp_path)
+    (tmp_path / UVLOCK_NAME).write_text("# lockfile")
+    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
+    packager = WheelPackager(tmp_path)
+    monkeypatch.setattr(
+        "xorq.ibis_yaml.packager.uv_export_requirements",
+        lambda *a, **kw: "flask==3.0.0\n",
     )
-    archive = SdistArchive(zip_path)
-    dest_dir = tmp_path / "extract"
-    dest_dir.mkdir()
-    result = archive.extract_requirements_to(dest_dir)
-    assert result.exists()
-    assert result.read_text() == "content"
+    with pytest.raises(RuntimeError, match="does not match") as exc_info:
+        packager._write_requirements_path()
+    message = str(exc_info.value)
+    # Error must name the remediation paths explicitly so the user can act.
+    assert str(tmp_path / DumpFiles.requirements) in message
+    assert "uv export" in message
+
+
+# ---------------------------------------------------------------------------
+# _ensure_wheel_artifacts: branching logic
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_wheel_artifacts_skips_when_present(tmp_path):
+    _make_wheel(tmp_path)
+    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
+    _ensure_wheel_artifacts(tmp_path)
+    assert len(list(tmp_path.glob("*.whl"))) == 1
+
+
+def test_ensure_wheel_artifacts_copies_missing(tmp_path, monkeypatch):
+    build_dir = tmp_path / "build"
+    build_dir.mkdir()
+
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    fake_wheel = _make_wheel(source_dir)
+    fake_reqs = source_dir / DumpFiles.requirements
+    fake_reqs.write_text("requests==2.31.0\n")
+
+    class FakeBundle:
+        wheel_path = fake_wheel
+        requirements_path = fake_reqs
+
+    class FakePackager:
+        def __init__(self, *a, **kw):
+            pass
+
+        def build(self):
+            return FakeBundle()
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.WheelPackager", FakePackager)
+    _ensure_wheel_artifacts(build_dir, project_path=tmp_path)
+
+    assert len(list(build_dir.glob("*.whl"))) == 1
+    assert (build_dir / DumpFiles.requirements).exists()
+
+
+def test_ensure_wheel_artifacts_raises_clearly_when_cwd_has_no_pyproject(
+    tmp_path, monkeypatch
+):
+    # Simulate a caller (e.g. a Jupyter kernel) whose cwd is outside any
+    # project.  The default upward-walk must fail with a message that
+    # names the project_path escape hatch.
+    build_dir = tmp_path / "build"
+    build_dir.mkdir()
+    cwd_without_pyproject = tmp_path / "elsewhere"
+    cwd_without_pyproject.mkdir()
+    monkeypatch.setattr(
+        "xorq.ibis_yaml.packager.find_file_upwards",
+        lambda *a, **kw: (_ for _ in ()).throw(
+            ValueError("could not find 'pyproject.toml' in ...")
+        ),
+    )
+    with pytest.raises(ValueError, match="project_path=") as exc_info:
+        _ensure_wheel_artifacts(build_dir, project_path=None)
+    assert "catalog.add" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# uv_export_requirements: extras arg construction
+# ---------------------------------------------------------------------------
+
+
+class _FakeResult:
+    def __init__(self, returncode=0, stdout="", stderr=""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def _patch_uv_export(monkeypatch, captured, result=None):
+    result = result or _FakeResult()
+
+    def _run(args, **kw):
+        captured["args"] = tuple(args)
+        return result
+
+    monkeypatch.setattr("subprocess.run", _run)
+    monkeypatch.setattr("xorq.ibis_yaml.packager._nix_env", lambda: None)
+
+
+def test_uv_export_requirements_all_extras(monkeypatch):
+    captured = {}
+    _patch_uv_export(monkeypatch, captured)
+    uv_export_requirements("/proj", ">=3.10", all_extras=True)
+    assert "--all-extras" in captured["args"]
+
+
+def test_uv_export_requirements_specific_extras(monkeypatch):
+    captured = {}
+    _patch_uv_export(monkeypatch, captured)
+    uv_export_requirements("/proj", ">=3.10", extras=("pg", "redis"), all_extras=False)
+    args = captured["args"]
+    assert "--all-extras" not in args
+    pg_idx = args.index("pg")
+    assert args[pg_idx - 1] == "--extra"
+    redis_idx = args.index("redis")
+    assert args[redis_idx - 1] == "--extra"
+
+
+def test_uv_export_requirements_no_extras(monkeypatch):
+    captured = {}
+    _patch_uv_export(monkeypatch, captured)
+    uv_export_requirements("/proj", ">=3.10", all_extras=False)
+    args = captured["args"]
+    assert "--all-extras" not in args
+    assert "--extra" not in args
+
+
+def test_uv_export_requirements_default_is_all_extras(monkeypatch):
+    captured = {}
+    _patch_uv_export(monkeypatch, captured)
+    uv_export_requirements("/proj", ">=3.10")
+    assert "--all-extras" in captured["args"]
+
+
+def test_uv_export_requirements_surfaces_stderr_on_failure(monkeypatch):
+    captured = {}
+    _patch_uv_export(
+        monkeypatch,
+        captured,
+        result=_FakeResult(returncode=2, stderr="error: project has no lock"),
+    )
+    with pytest.raises(RuntimeError, match="uv export failed") as exc_info:
+        uv_export_requirements("/proj", ">=3.10")
+    assert "project has no lock" in str(exc_info.value)
