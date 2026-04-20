@@ -54,6 +54,7 @@ class TagHandler:
     from_tag_node: Optional[Callable] = field(
         default=None, validator=optional(is_callable())
     )
+    reemit: Optional[Callable] = field(default=None, validator=optional(is_callable()))
 
     def __attrs_post_init__(self):
         if not self.tag_names:
@@ -159,6 +160,48 @@ def extract_builder_metadata(tag_node):
     if handler.extract_metadata is not None:
         return handler.extract_metadata(tag_node)
     return {"type": tag_name}
+
+
+_SINGLE_OUTPUT_DISPATCH = "single_output"
+
+
+def get_rebuild_dispatch(tag_node):
+    """Return a rebuild dispatch for *tag_node*, or ``None``.
+
+    Dispatch order:
+      1. Handler-level ``reemit`` callable (e.g., BSL-shape builders whose
+         ``from_tag_node`` does not carry the full recipe).
+      2. Domain-object ``reemit(tag_node, rebuild_subexpr)`` method
+         (multi-output builders like ``FittedPipeline``).
+      3. Domain-object ``with_inputs_translated(remap, to_catalog)`` +
+         ``expr`` (single-output builders like ``ExprComposer``).
+
+    Returns
+    -------
+    callable | tuple | None
+        - ``callable(rebuild_subexpr) -> Expr`` for paths 1 and 2.
+        - ``(_SINGLE_OUTPUT_DISPATCH, builder)`` sentinel for path 3; the
+          driver must supply ``remap`` / ``to_catalog``.
+        - ``None`` when no handler matches or no rebuild path is available.
+    """
+    registry = _get_from_tag_node_registry()
+    handler = registry.get(tag_node.metadata.get("tag"))
+    if handler is None:
+        return None
+    if callable(handler.reemit):
+        return lambda rebuild_subexpr: handler.reemit(tag_node, rebuild_subexpr)
+    if handler.from_tag_node is None:
+        return None
+    builder = handler.from_tag_node(tag_node)
+    if builder is None:
+        return None
+    if callable(getattr(builder, "reemit", None)):
+        return lambda rebuild_subexpr: builder.reemit(tag_node, rebuild_subexpr)
+    if callable(getattr(builder, "with_inputs_translated", None)) and hasattr(
+        builder, "expr"
+    ):
+        return (_SINGLE_OUTPUT_DISPATCH, builder)
+    return None
 
 
 def _resolve_builder_from_tag(expr):

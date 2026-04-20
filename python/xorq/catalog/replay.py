@@ -11,23 +11,28 @@ catalog, reproducing the source catalog's state.
 
 Rebuild mode (``rebuild=True``) re-executes each ``AddEntry`` against the
 target catalog under the current code. Entries whose expression contains no
-catalog references are re-added from their stored ``lazy_expr``. Entries
-with catalog references (``Composed``, or ``ExprBuilder`` wrapping a
-composed subtree) have the catalog subtree *recomposed*: the composition
-recipe (``source [+ transforms*] [+ code]``) is recovered via
-``ExprComposer.from_expr``, each referenced entry is translated to its
-already-rebuilt counterpart in the target catalog, the subtree is rebuilt
-via ``ExprComposer.expr``, and the fresh subtree is spliced back under any
-outer wrapping (e.g., builder tags). Any composition shape outside the
-sanctioned ``SOURCE [TRANSFORM*] [CODE]`` arrangement raises.
+rebuildable tags are re-added from their stored ``lazy_expr``. Entries
+containing rebuildable tags walk outermost-first: the first ``CatalogTag``
+(SOURCE / TRANSFORM / CODE) goes through :class:`ExprComposer` as a
+single-output builder; any other tag registered via a ``TagHandler``
+goes through the handler's rebuild protocol. The fresh subtree is spliced
+back under any outer wrapping.
+
+Rebuild protocols (see ``xorq.expr.builders.get_rebuild_dispatch``):
+  1. Handler-level ``reemit`` callable on the ``TagHandler``.
+  2. Domain-object ``reemit(tag_node, rebuild_subexpr)`` method
+     (multi-output builders like ``FittedPipeline``).
+  3. Domain-object ``with_inputs_translated(remap, to_catalog)`` +
+     ``expr`` (single-output builders like ``ExprComposer``).
 """
 
 from __future__ import annotations
 
 import os
 import re
+import tempfile
 from contextlib import contextmanager, nullcontext
-from functools import cached_property
+from functools import cached_property, partial
 
 from attr import field, frozen
 from attr.validators import deep_iterable, instance_of, optional
@@ -40,91 +45,154 @@ def _translate(name, remap):
     return remap.get(name, name) if remap else name
 
 
-def _rebuild_expr_for_target(source_entry, to_catalog, remap):
-    """Return an expression for re-adding source_entry into to_catalog.
+@contextmanager
+def _tempfile_patch(patch_text):
+    """Write *patch_text* to a temp file and yield its path.
 
-    Entries with no catalog tags (raw expressions, pure builders over
-    non-catalog sources, bare memtables) are re-added via their stored
-    lazy_expr. Entries containing catalog tags (Composed, or ExprBuilder
-    wrapping a composed subtree) have their catalog subtree recovered
-    via ExprComposer.from_expr, translated through remap, rebuilt via
-    ExprComposer.expr, and spliced back into the outer expression.
+    GitPython's ``repo.git.am(input=...)`` passes ``--input=`` as a flag
+    instead of piping to stdin, so we write to a file and pass the path.
+    """
+    fd, path = tempfile.mkstemp(suffix=".patch")
+    try:
+        os.write(fd, patch_text.encode())
+        os.close(fd)
+        yield path
+    finally:
+        os.unlink(path)
+
+
+def _rebuild_expr_for_target(
+    source_entry, to_catalog, remap, on_unrebuilt_builder="raise"
+):
+    """Return an expression for re-adding *source_entry* into *to_catalog*.
+
+    Thin wrapper around :func:`_rebuild_subexpr` that reads ``lazy_expr``
+    and ``catalog`` from *source_entry*.
+    """
+    return _rebuild_subexpr(
+        source_entry.lazy_expr,
+        from_catalog=source_entry.catalog,
+        to_catalog=to_catalog,
+        remap=remap,
+        on_unrebuilt_builder=on_unrebuilt_builder,
+    )
+
+
+def _rebuild_subexpr(
+    expr, *, from_catalog, to_catalog, remap, on_unrebuilt_builder="raise"
+):
+    """Rebuild every outermost rebuildable tag in *expr* under current code.
+
+    Walks tags outermost-first and collects all outermost rebuildable
+    tags — those with no rebuildable tag among their ancestors. Each is
+    rebuilt atomically and spliced back, so parallel rebuildable
+    subtrees (e.g., a ``FittedPipeline``'s training subtree reached via
+    fit UDF, and its predict-input subtree reached via the direct tree
+    path) all get rebuilt in one pass.
+
+    - Catalog tag (``ExprKind.Composed``): recovers the full
+      ``SOURCE [TRANSFORM*] [CODE]`` chain via ``ExprComposer.from_expr``
+      and rebuilds it atomically via ``with_inputs_translated``. Inner
+      catalog tags inside the chain are rebuilt as part of the same
+      composition.
+    - Registered builder tag (``ExprKind.ExprBuilder``): dispatches via
+      the handler protocol. The handler's ``reemit`` recursively
+      rebuilds its own inputs via the ``rebuild_subexpr`` closure
+      passed in; outer processing does not re-enter its subtree.
+
+    Returns *expr* unchanged when no rebuildable tag is found.
     """
     from xorq.catalog.bind import CatalogTag  # noqa: PLC0415
     from xorq.catalog.composer import ExprComposer  # noqa: PLC0415
     from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
-    from xorq.expr.relations import HashingTag  # noqa: PLC0415
+    from xorq.expr.builders import (  # noqa: PLC0415
+        _get_from_tag_node_registry,
+        get_rebuild_dispatch,
+    )
+    from xorq.expr.relations import HashingTag, Tag  # noqa: PLC0415
 
-    expr = source_entry.lazy_expr
     catalog_tags = frozenset(CatalogTag)
-    # INVARIANT: walk_nodes is outermost-first (graph_utils.py:73, DFS from
-    # root). composer.py:72 also depends on this. The first HashingTag with
-    # a catalog tag is therefore the outermost catalog tag — i.e., the
-    # composition root. If walk_nodes ordering changes, this must be
-    # reworked.
-    composition_root = next(
-        (
-            ht
-            for ht in walk_nodes(HashingTag, expr)
-            if ht.metadata.get("tag") in catalog_tags
-        ),
-        None,
+    rebuild_subexpr = partial(
+        _rebuild_subexpr,
+        from_catalog=from_catalog,
+        to_catalog=to_catalog,
+        remap=remap,
+        on_unrebuilt_builder=on_unrebuilt_builder,
     )
-    if composition_root is None:
-        return expr
 
-    try:
-        recipe = ExprComposer.from_expr(
-            composition_root.to_expr(), source_entry.catalog
-        )
-    except ValueError as e:
+    def _is_catalog_tag(node):
+        return isinstance(node, HashingTag) and node.metadata.get("tag") in catalog_tags
+
+    def _rebuild_tag(tag):
+        if _is_catalog_tag(tag):
+            try:
+                composer = ExprComposer.from_expr(tag.to_expr(), from_catalog)
+            except ValueError as e:
+                raise RuntimeError(
+                    f"rebuild: cannot recover composition recipe: {e}. "
+                    "Only bind()/ExprComposer-produced composition shapes "
+                    "can be rebuilt."
+                ) from e
+            return composer.with_inputs_translated(remap, to_catalog).expr
+        dispatch = get_rebuild_dispatch(tag)
+        if dispatch is None:
+            return None
+        if callable(dispatch):
+            return dispatch(rebuild_subexpr)
+        _, builder = dispatch
+        return builder.with_inputs_translated(remap, to_catalog).expr
+
+    # Collect outermost rebuildable tags. walk_nodes yields outermost-first,
+    # so a tag is "outermost rebuildable" iff no already-collected
+    # rebuildable tag contains it in its subtree.
+    outermost = []
+    claimed = set()
+    for tag in walk_nodes((Tag, HashingTag), expr):
+        if id(tag) in claimed:
+            continue
+        if not (_is_catalog_tag(tag) or get_rebuild_dispatch(tag) is not None):
+            tag_name = tag.metadata.get("tag")
+            if tag_name and tag_name in _get_from_tag_node_registry():
+                msg = (
+                    f"rebuild: handler for tag {tag_name!r} has no rebuild "
+                    "protocol (handler.reemit, object.reemit, or "
+                    "object.with_inputs_translated)"
+                )
+                if on_unrebuilt_builder == "raise":
+                    raise RuntimeError(msg)
+                import warnings  # noqa: PLC0415
+
+                warnings.warn(msg, stacklevel=2)
+            continue
+        outermost.append(tag)
+        for descendant in walk_nodes((Tag, HashingTag), tag.to_expr()):
+            claimed.add(id(descendant))
+
+    for tag in outermost:
+        fresh = _rebuild_tag(tag)
+        if fresh is None:
+            continue
+        _assert_schema_preserved(tag, fresh)
+        expr = _splice_or_return(expr, old=tag, new=fresh)
+
+    return expr
+
+
+def _assert_schema_preserved(tag_node, fresh):
+    old_schema = tag_node.to_expr().schema()
+    new_schema = fresh.schema()
+    if old_schema != new_schema:
         raise RuntimeError(
-            f"rebuild: cannot recover composition recipe for entry "
-            f"{source_entry.name!r}: {e}. Only bind()/ExprComposer-produced "
-            f"composition shapes can be rebuilt."
-        ) from e
-
-    fresh = _translate_recipe(recipe, to_catalog, remap).expr
-
-    if expr.op() is composition_root:
-        return fresh
-    return _splice(expr, old=composition_root, new=fresh.op())
+            f"rebuild: schema changed for tag {tag_node.metadata.get('tag')!r} — "
+            f"old: {dict(old_schema.items())}, new: {dict(new_schema.items())}. "
+            "Remove and re-add the entry manually under current code."
+        )
 
 
-def _translate_recipe(recipe, to_catalog, remap):
-    """Remap recipe's source and transforms into to_catalog entries.
-
-    Pins the source alias explicitly: if the original recipe had
-    alias=None, ``_make_source_tag`` would fall back to
-    ``entry.aliases[0]``, whose ordering is not guaranteed stable
-    across catalogs. Capturing the source's first alias here makes
-    the rebuilt source tag's ``alias`` metadata independent of
-    aliases-list ordering drift.
-    """
-    from xorq.catalog.composer import ExprComposer  # noqa: PLC0415
-
-    def lookup(old_name):
-        new_name = _translate(old_name, remap)
-        if new_name not in to_catalog.list():
-            raise RuntimeError(
-                f"rebuild: recipe references {old_name!r} which has not been "
-                f"rebuilt in target (translated to {new_name!r}). This indicates "
-                f"a non-topological op ordering or a reference to an entry "
-                f"outside the source catalog."
-            )
-        return to_catalog.get_catalog_entry(new_name)
-
-    new_source = lookup(recipe.source.name)
-    pinned_alias = recipe.alias
-    if pinned_alias is None and new_source.aliases:
-        pinned_alias = new_source.aliases[0].alias
-
-    return ExprComposer(
-        source=new_source,
-        transforms=tuple(lookup(t.name) for t in recipe.transforms),
-        code=recipe.code,
-        alias=pinned_alias,
-    )
+def _splice_or_return(expr, *, old, new):
+    if expr.op() is old:
+        return new
+    return _splice(expr, old=old, new=new.op())
 
 
 def _splice(expr, *, old, new):
@@ -134,10 +202,8 @@ def _splice(expr, *, old, new):
     `replace_nodes` rebuilds every parent of `old` with `new` as its
     child, so any parent validator that checks schema/type compatibility
     (e.g. builder tags that pre-computed schema-dependent metadata) will
-    reject a mismatched substitution. This holds by construction for
-    bind()-produced composition recovered via ExprComposer — a future
-    composition shape with schema-transforming outer wrappers would need
-    a different splice strategy.
+    reject a mismatched substitution. Schema preservation is enforced by
+    :func:`_assert_schema_preserved` before calling this function.
     """
     from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
 
@@ -239,6 +305,15 @@ def _changed_paths(commit):
     return {diff.b_path or diff.a_path for diff in parent.diff(commit)}
 
 
+_CATALOG_PREFIXES = tuple(f"{infix.value}/" for infix in CatalogInfix)
+
+
+def _is_catalog_path(path):
+    if path == CATALOG_YAML_NAME:
+        return True
+    return any(path.startswith(prefix) for prefix in _CATALOG_PREFIXES)
+
+
 @frozen
 class InitCatalog:
     """First commit: bare repo initialization."""
@@ -250,7 +325,15 @@ class InitCatalog:
         sha = self.commit_metadata.sha[:8] if self.commit_metadata else "--------"
         return f"[init]  {sha}  {self.message}"
 
-    def do(self, from_catalog, to_catalog, *, rebuild=False, remap=None):
+    def do(
+        self,
+        from_catalog,
+        to_catalog,
+        *,
+        rebuild=False,
+        remap=None,
+        on_unrebuilt_builder="raise",
+    ):
         pass
 
     @staticmethod
@@ -276,7 +359,15 @@ class AddCatalogYAML:
         sha = self.commit_metadata.sha[:8] if self.commit_metadata else "--------"
         return f"[init]  {sha}  {self.message}"
 
-    def do(self, from_catalog, to_catalog, *, rebuild=False, remap=None):
+    def do(
+        self,
+        from_catalog,
+        to_catalog,
+        *,
+        rebuild=False,
+        remap=None,
+        on_unrebuilt_builder="raise",
+    ):
         pass
 
     @staticmethod
@@ -314,7 +405,15 @@ class AddEntry:
         alias_str = ", ".join(self.aliases) if self.aliases else "(none)"
         return f"[add]   {sha}  entry={self.entry_hash}  aliases=[{alias_str}]"
 
-    def do(self, from_catalog, to_catalog, *, rebuild=False, remap=None):
+    def do(
+        self,
+        from_catalog,
+        to_catalog,
+        *,
+        rebuild=False,
+        remap=None,
+        on_unrebuilt_builder="raise",
+    ):
         if not rebuild:
             catalog_entry = from_catalog.get_catalog_entry(self.entry_hash)
             to_catalog.add(
@@ -326,7 +425,18 @@ class AddEntry:
             return
 
         source_entry = from_catalog.get_catalog_entry(self.entry_hash)
-        expr = _rebuild_expr_for_target(source_entry, to_catalog, remap)
+        try:
+            expr = _rebuild_subexpr(
+                source_entry.lazy_expr,
+                from_catalog=from_catalog,
+                to_catalog=to_catalog,
+                remap=remap,
+                on_unrebuilt_builder=on_unrebuilt_builder,
+            )
+        except RuntimeError as e:
+            raise RuntimeError(
+                f"rebuild: failed to rebuild entry {source_entry.name!r}: {e}"
+            ) from e
         new_entry = to_catalog.add(
             expr,
             sync=False,
@@ -372,7 +482,15 @@ class AddAlias:
         sha = self.commit_metadata.sha[:8] if self.commit_metadata else "--------"
         return f"[alias] {sha}  {self.alias} -> {self.entry_name}"
 
-    def do(self, from_catalog, to_catalog, *, rebuild=False, remap=None):
+    def do(
+        self,
+        from_catalog,
+        to_catalog,
+        *,
+        rebuild=False,
+        remap=None,
+        on_unrebuilt_builder="raise",
+    ):
         entry_name = _translate(self.entry_name, remap) if rebuild else self.entry_name
         to_catalog.add_alias(entry_name, self.alias, sync=False)
 
@@ -413,7 +531,15 @@ class RemoveEntry:
         alias_str = ", ".join(self.aliases) if self.aliases else "(none)"
         return f"[rm]    {sha}  entry={self.entry_name}  aliases=[{alias_str}]"
 
-    def do(self, from_catalog, to_catalog, *, rebuild=False, remap=None):
+    def do(
+        self,
+        from_catalog,
+        to_catalog,
+        *,
+        rebuild=False,
+        remap=None,
+        on_unrebuilt_builder="raise",
+    ):
         entry_name = _translate(self.entry_name, remap) if rebuild else self.entry_name
         to_catalog.remove(entry_name, sync=False)
 
@@ -447,7 +573,15 @@ class RemoveAlias:
         sha = self.commit_metadata.sha[:8] if self.commit_metadata else "--------"
         return f"[rm-a]  {sha}  alias={self.alias}"
 
-    def do(self, from_catalog, to_catalog, *, rebuild=False, remap=None):
+    def do(
+        self,
+        from_catalog,
+        to_catalog,
+        *,
+        rebuild=False,
+        remap=None,
+        on_unrebuilt_builder="raise",
+    ):
         from xorq.catalog.catalog import CatalogAlias  # noqa: PLC0415
 
         CatalogAlias.from_name(self.alias, to_catalog).remove()
@@ -482,14 +616,25 @@ class UnknownOp:
         sha = self.commit_metadata.sha[:8] if self.commit_metadata else "--------"
         return f"[???]   {sha}  {self.message}"
 
-    def do(self, from_catalog, to_catalog, *, rebuild=False, remap=None):
+    def do(
+        self,
+        from_catalog,
+        to_catalog,
+        *,
+        rebuild=False,
+        remap=None,
+        on_unrebuilt_builder="raise",
+    ):
         if rebuild:
-            raise RuntimeError(
-                f"Cannot rebuild unknown op at commit {self.hexsha[:8]}: {self.message!r}. "
-                "Rebuild requires all ops be recognized catalog operations."
-            )
+            commit = from_catalog.repo.commit(self.hexsha)
+            if any(_is_catalog_path(p) for p in _changed_paths(commit)):
+                raise RuntimeError(
+                    f"Cannot rebuild unknown op at commit {self.hexsha[:8]}: {self.message!r}. "
+                    "Rebuild requires all ops be recognized catalog operations."
+                )
         patch = from_catalog.repo.git.format_patch("-1", self.hexsha, stdout=True)
-        to_catalog.repo.git.am(input=patch)
+        with _tempfile_patch(patch) as path:
+            to_catalog.repo.git.am(path)
 
     def verify_commit(self, commit):
         pass
@@ -568,6 +713,9 @@ class Replayer:
     from_catalog: object = field()  # Catalog — avoid import-time dep
     verify: bool = field(default=True)
     rebuild: bool = field(default=False)
+    on_unrebuilt_builder: str = field(
+        default="raise", validator=validators.in_(("raise", "warn"))
+    )
 
     @cached_property
     def ops(self) -> tuple[CatalogOp, ...]:
@@ -601,7 +749,13 @@ class Replayer:
                 else nullcontext()
             )
             with ctx:
-                op.do(self.from_catalog, to_catalog, rebuild=self.rebuild, remap=remap)
+                op.do(
+                    self.from_catalog,
+                    to_catalog,
+                    rebuild=self.rebuild,
+                    remap=remap,
+                    on_unrebuilt_builder=self.on_unrebuilt_builder,
+                )
             if isinstance(op, (InitCatalog, AddCatalogYAML)) and preserve_commits:
                 noop_ops.append(op)
         if noop_ops:

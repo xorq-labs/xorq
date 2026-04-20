@@ -51,6 +51,40 @@ class ExprComposer:
 
         return current
 
+    def with_inputs_translated(self, remap, to_catalog):
+        """Return a new ExprComposer with catalog inputs translated through *remap*.
+
+        ``source`` and each entry in ``transforms`` is rewritten to the
+        corresponding entry in *to_catalog* (following *remap*). ``code``
+        is preserved byte-for-byte. ``alias`` is pinned explicitly when
+        the original was ``None`` so the rebuilt source tag's alias
+        metadata is independent of aliases-list ordering drift across
+        catalogs.
+        """
+
+        def lookup(old_name):
+            new_name = remap.get(old_name, old_name) if remap else old_name
+            if new_name not in to_catalog.list():
+                raise RuntimeError(
+                    f"rebuild: recipe references {old_name!r} which has not been "
+                    f"rebuilt in target (translated to {new_name!r}). This indicates "
+                    f"a non-topological op ordering or a reference to an entry "
+                    f"outside the source catalog."
+                )
+            return to_catalog.get_catalog_entry(new_name)
+
+        new_source = lookup(self.source.name)
+        pinned_alias = self.alias
+        if pinned_alias is None and new_source.aliases:
+            pinned_alias = new_source.aliases[0].alias
+
+        return ExprComposer(
+            source=new_source,
+            transforms=tuple(lookup(t.name) for t in self.transforms),
+            code=self.code,
+            alias=pinned_alias,
+        )
+
     @classmethod
     def from_expr(cls, expr, catalog):
         """Recover an ExprComposer from a tagged expression.
