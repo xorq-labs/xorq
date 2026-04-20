@@ -122,24 +122,31 @@ def _to_path_str(raw):
 
 def _normalize_path_stat(path, **kwargs):
     """Return a stable metadata tuple for any path: HTTP HEAD, cloud metadata, or local stat."""
-    if path.startswith(("http://", "https://")):
-        req = urllib.request.Request(path, method="HEAD", headers={"User-Agent": ""})
-        resp = urllib.request.urlopen(req)
-        headers = resp.info()
-        return (("url", path),) + tuple(
-            (k, headers.get(k))
-            for k in ("Last-Modified", "Content-Length", "Content-Type")
-        )
-    elif path.startswith(("s3://", "gs://", "gcs://")):
-        metadata = api.get_object_metadata(path, **kwargs)
-        return tuple(
-            (k, metadata.get(k))
-            for k in ("location", "last_modified", "size", "e_tag", "version")
-        )
-    p = pathlib.Path(path)
-    if p.exists():
-        return normalize_read_path_stat(p)
-    raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
+    match path:
+        case str() if path.startswith(("http://", "https://")):
+            req = urllib.request.Request(
+                path, method="HEAD", headers={"User-Agent": ""}
+            )
+            resp = urllib.request.urlopen(req)
+            headers = resp.info()
+            return (
+                ("url", path),
+                *(
+                    (k, headers.get(k))
+                    for k in ("Last-Modified", "Content-Length", "Content-Type")
+                ),
+            )
+        case str() if path.startswith(("s3://", "gs://", "gcs://")):
+            metadata = api.get_object_metadata(path, **kwargs)
+            return tuple(
+                (k, metadata.get(k))
+                for k in ("location", "last_modified", "size", "e_tag", "version")
+            )
+        case _:
+            p = pathlib.Path(path)
+            if p.exists():
+                return normalize_read_path_stat(p)
+            raise NotImplementedError(f"Don't know how to deal with path {path!r}")
 
 
 def _extract_duckdb_file_paths(sql_ddl):
