@@ -44,7 +44,6 @@ from xorq.ibis_yaml.compiler import (
     load_expr,
 )
 from xorq.ibis_yaml.config import config
-from xorq.ibis_yaml.enums import MemtableTypes
 from xorq.ibis_yaml.sql import find_relations
 from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
@@ -966,17 +965,18 @@ def test_roundtrip_database_table_preserves_node_type(builds_dir, users_df):
     assert dts, "roundtripped database_table should contain a DatabaseTable node"
 
 
-def test_file_backed_database_table_not_snapshotted_at_build(builds_dir, tmp_path):
-    """con.read_csv()/read_parquet() should NOT snapshot file contents at build time.
+def test_file_backed_database_table_preserves_original_path_in_yaml(
+    builds_dir, tmp_path
+):
+    """con.read_csv() should preserve the original file path in the built YAML.
 
-    con.read_csv(path) registers a lazy file scan in the backend — the data is not
-    in memory. At build time, the build should record the original file path for
-    re-registration at load time, not eagerly execute the scan and write a full
-    parquet copy into the build dir.
+    con.read_csv(path) registers a lazy file scan — the build should serialize it
+    with method_name=read_csv and hash_path pointing to the original file, so the
+    expression remains reproducible from the source data.
 
-    con.register(df) genuinely has no backing file and MUST be snapshotted.
-    These two cases are currently indistinguishable (both produce DatabaseTable nodes
-    with no file-path metadata), so both get snapshotted — the bug.
+    Instead, the build currently converts it to method_name=read_parquet with
+    hash_path pointing to a parquet snapshot inside the build dir, losing the
+    original file path entirely.
 
     Issue: https://github.com/xorq-labs/xorq/issues/1831
     """
@@ -989,16 +989,34 @@ def test_file_backed_database_table_not_snapshotted_at_build(builds_dir, tmp_pat
 
     build_path = build_expr(expr, builds_dir=builds_dir)
 
-    # A file-backed DatabaseTable should not create a parquet snapshot.
-    # Only in-memory data (xo.memtable, con.register(df)) needs snapshotting.
-    snapshot_dir = build_path / str(MemtableTypes.database_table)
-    parquet_files = (
-        list(snapshot_dir.glob("*.parquet")) if snapshot_dir.exists() else []
-    )
-    assert not parquet_files, (
-        f"con.read_csv() table was eagerly snapshotted at build time: {parquet_files}. "
-        "File-backed reads should reference the original file path, not a data copy."
-    )
+    loaded_yaml = yaml12.parse_yaml((build_path / DumpFiles.expr).read_text())
+
+    def find_reads(d):
+        match d:
+            case {"op": "Read", **rest}:
+                return [rest]
+            case dict():
+                return [r for v in d.values() for r in find_reads(v)]
+            case list():
+                return [r for v in d for r in find_reads(v)]
+            case _:
+                return []
+
+    reads = find_reads(loaded_yaml)
+    assert reads, "no Read nodes found in expr.yaml"
+
+    for read in reads:
+        kw = dict(read.get("read_kwargs", []))
+        # The original read_csv call must be preserved: method and path should
+        # point back to the source file, not a parquet snapshot in the build dir.
+        assert read.get("method_name") == "read_csv", (
+            f"method_name was rewritten to {read.get('method_name')!r}; "
+            "con.read_csv() should stay as read_csv in the YAML"
+        )
+        assert kw.get("hash_path") == str(csv_path), (
+            f"hash_path {kw.get('hash_path')!r} does not point to the original file; "
+            "the original file path must be preserved for portability"
+        )
 
 
 def _make_three_table_join(tables, order):
