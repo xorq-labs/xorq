@@ -11,15 +11,19 @@ catalog, reproducing the source catalog's state.
 
 Rebuild mode (``rebuild=True``) re-executes each ``AddEntry`` against the
 target catalog under the current code. Entries whose expression contains no
-catalog references are re-added from their stored ``lazy_expr``. Entries
-with catalog references (``Composed``, or ``ExprBuilder`` wrapping a
-composed subtree) have the catalog subtree *recomposed*: the composition
-recipe (``source [+ transforms*] [+ code]``) is recovered via
-``ExprComposer.from_expr``, each referenced entry is translated to its
-already-rebuilt counterpart in the target catalog, the subtree is rebuilt
-via ``ExprComposer.expr``, and the fresh subtree is spliced back under any
-outer wrapping (e.g., builder tags). Any composition shape outside the
-sanctioned ``SOURCE [TRANSFORM*] [CODE]`` arrangement raises.
+rebuildable tags are re-added from their stored ``lazy_expr``. Entries
+containing rebuildable tags walk outermost-first: the first ``CatalogTag``
+(SOURCE / TRANSFORM / CODE) goes through :class:`ExprComposer` as a
+single-output builder; any other tag registered via a ``TagHandler``
+goes through the handler's rebuild protocol. The fresh subtree is spliced
+back under any outer wrapping.
+
+Rebuild protocols (see ``xorq.expr.builders.get_rebuild_dispatch``):
+  1. Handler-level ``reemit`` callable on the ``TagHandler``.
+  2. Domain-object ``reemit(tag_node, rebuild_subexpr)`` method
+     (multi-output builders like ``FittedPipeline``).
+  3. Domain-object ``with_inputs_translated(remap, to_catalog)`` +
+     ``expr`` (single-output builders like ``ExprComposer``).
 """
 
 from __future__ import annotations
@@ -27,7 +31,7 @@ from __future__ import annotations
 import os
 import re
 from contextlib import contextmanager, nullcontext
-from functools import cached_property
+from functools import cached_property, partial
 
 from attr import field, frozen, validators
 
@@ -40,90 +44,118 @@ def _translate(name, remap):
 
 
 def _rebuild_expr_for_target(source_entry, to_catalog, remap):
-    """Return an expression for re-adding source_entry into to_catalog.
+    """Return an expression for re-adding *source_entry* into *to_catalog*.
 
-    Entries with no catalog tags (raw expressions, pure builders over
-    non-catalog sources, bare memtables) are re-added via their stored
-    lazy_expr. Entries containing catalog tags (Composed, or ExprBuilder
-    wrapping a composed subtree) have their catalog subtree recovered
-    via ExprComposer.from_expr, translated through remap, rebuilt via
-    ExprComposer.expr, and spliced back into the outer expression.
+    Thin wrapper around :func:`_rebuild_subexpr` that reads ``lazy_expr``
+    and ``catalog`` from *source_entry*.
+    """
+    return _rebuild_subexpr(
+        source_entry.lazy_expr,
+        from_catalog=source_entry.catalog,
+        to_catalog=to_catalog,
+        remap=remap,
+    )
+
+
+def _rebuild_subexpr(expr, *, from_catalog, to_catalog, remap):
+    """Rebuild every outermost rebuildable tag in *expr* under current code.
+
+    Walks tags outermost-first and collects all outermost rebuildable
+    tags — those with no rebuildable tag among their ancestors. Each is
+    rebuilt atomically and spliced back, so parallel rebuildable
+    subtrees (e.g., a ``FittedPipeline``'s training subtree reached via
+    fit UDF, and its predict-input subtree reached via the direct tree
+    path) all get rebuilt in one pass.
+
+    - Catalog tag (``ExprKind.Composed``): recovers the full
+      ``SOURCE [TRANSFORM*] [CODE]`` chain via ``ExprComposer.from_expr``
+      and rebuilds it atomically via ``with_inputs_translated``. Inner
+      catalog tags inside the chain are rebuilt as part of the same
+      composition.
+    - Registered builder tag (``ExprKind.ExprBuilder``): dispatches via
+      the handler protocol. The handler's ``reemit`` recursively
+      rebuilds its own inputs via the ``rebuild_subexpr`` closure
+      passed in; outer processing does not re-enter its subtree.
+
+    Returns *expr* unchanged when no rebuildable tag is found.
     """
     from xorq.catalog.bind import CatalogTag  # noqa: PLC0415
     from xorq.catalog.composer import ExprComposer  # noqa: PLC0415
     from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
-    from xorq.expr.relations import HashingTag  # noqa: PLC0415
+    from xorq.expr.builders import (  # noqa: PLC0415
+        get_rebuild_dispatch,
+    )
+    from xorq.expr.relations import HashingTag, Tag  # noqa: PLC0415
 
-    expr = source_entry.lazy_expr
     catalog_tags = frozenset(CatalogTag)
-    # INVARIANT: walk_nodes is outermost-first (graph_utils.py:73, DFS from
-    # root). composer.py:72 also depends on this. The first HashingTag with
-    # a catalog tag is therefore the outermost catalog tag — i.e., the
-    # composition root. If walk_nodes ordering changes, this must be
-    # reworked.
-    composition_root = next(
-        (
-            ht
-            for ht in walk_nodes(HashingTag, expr)
-            if ht.metadata.get("tag") in catalog_tags
-        ),
-        None,
+    rebuild_subexpr = partial(
+        _rebuild_subexpr,
+        from_catalog=from_catalog,
+        to_catalog=to_catalog,
+        remap=remap,
     )
-    if composition_root is None:
-        return expr
 
-    try:
-        recipe = ExprComposer.from_expr(
-            composition_root.to_expr(), source_entry.catalog
-        )
-    except ValueError as e:
+    def _is_catalog_tag(node):
+        return isinstance(node, HashingTag) and node.metadata.get("tag") in catalog_tags
+
+    def _rebuild_tag(tag):
+        if _is_catalog_tag(tag):
+            try:
+                composer = ExprComposer.from_expr(tag.to_expr(), from_catalog)
+            except ValueError as e:
+                raise RuntimeError(
+                    f"rebuild: cannot recover composition recipe: {e}. "
+                    "Only bind()/ExprComposer-produced composition shapes "
+                    "can be rebuilt."
+                ) from e
+            return composer.with_inputs_translated(remap, to_catalog).expr
+        dispatch = get_rebuild_dispatch(tag)
+        if dispatch is None:
+            return None
+        if callable(dispatch):
+            return dispatch(rebuild_subexpr)
+        _, builder = dispatch
+        return builder.with_inputs_translated(remap, to_catalog).expr
+
+    # Collect outermost rebuildable tags. walk_nodes yields outermost-first,
+    # so a tag is "outermost rebuildable" iff no already-collected
+    # rebuildable tag contains it in its subtree.
+    outermost = []
+    claimed = set()
+    for tag in walk_nodes((Tag, HashingTag), expr):
+        if id(tag) in claimed:
+            continue
+        if not (_is_catalog_tag(tag) or get_rebuild_dispatch(tag) is not None):
+            continue
+        outermost.append(tag)
+        for descendant in walk_nodes((Tag, HashingTag), tag.to_expr()):
+            claimed.add(id(descendant))
+
+    for tag in outermost:
+        fresh = _rebuild_tag(tag)
+        if fresh is None:
+            continue
+        _assert_schema_preserved(tag, fresh)
+        expr = _splice_or_return(expr, old=tag, new=fresh)
+
+    return expr
+
+
+def _assert_schema_preserved(tag_node, fresh):
+    old_schema = tag_node.to_expr().schema()
+    new_schema = fresh.schema()
+    if old_schema != new_schema:
         raise RuntimeError(
-            f"rebuild: cannot recover composition recipe for entry "
-            f"{source_entry.name!r}: {e}. Only bind()/ExprComposer-produced "
-            f"composition shapes can be rebuilt."
-        ) from e
-
-    fresh = _translate_recipe(recipe, to_catalog, remap).expr
-
-    if expr.op() is composition_root:
-        return fresh
-    return _splice(expr, old=composition_root, new=fresh.op())
+            f"rebuild: schema changed for tag {tag_node.metadata.get('tag')!r} — "
+            f"old: {dict(old_schema.items())}, new: {dict(new_schema.items())}. "
+            "Remove and re-add the entry manually under current code."
+        )
 
 
-def _translate_recipe(recipe, to_catalog, remap):
-    """Remap recipe's source and transforms into to_catalog entries.
-
-    Pins the source alias explicitly: if the original recipe had
-    alias=None, ``_make_source_tag`` would fall back to
-    ``entry.aliases[0]``, whose ordering is not guaranteed stable
-    across catalogs. Capturing the source's first alias here makes
-    the rebuilt source tag's ``alias`` metadata independent of
-    aliases-list ordering drift.
-    """
-    from xorq.catalog.composer import ExprComposer  # noqa: PLC0415
-
-    def lookup(old_name):
-        new_name = _translate(old_name, remap)
-        if new_name not in to_catalog.list():
-            raise RuntimeError(
-                f"rebuild: recipe references {old_name!r} which has not been "
-                f"rebuilt in target (translated to {new_name!r}). This indicates "
-                f"a non-topological op ordering or a reference to an entry "
-                f"outside the source catalog."
-            )
-        return to_catalog.get_catalog_entry(new_name)
-
-    new_source = lookup(recipe.source.name)
-    pinned_alias = recipe.alias
-    if pinned_alias is None and new_source.aliases:
-        pinned_alias = new_source.aliases[0].alias
-
-    return ExprComposer(
-        source=new_source,
-        transforms=tuple(lookup(t.name) for t in recipe.transforms),
-        code=recipe.code,
-        alias=pinned_alias,
-    )
+def _splice_or_return(expr, *, old, new):
+    if expr.op() is old:
+        return new
+    return _splice(expr, old=old, new=new.op())
 
 
 def _splice(expr, *, old, new):
@@ -133,10 +165,8 @@ def _splice(expr, *, old, new):
     `replace_nodes` rebuilds every parent of `old` with `new` as its
     child, so any parent validator that checks schema/type compatibility
     (e.g. builder tags that pre-computed schema-dependent metadata) will
-    reject a mismatched substitution. This holds by construction for
-    bind()-produced composition recovered via ExprComposer — a future
-    composition shape with schema-transforming outer wrappers would need
-    a different splice strategy.
+    reject a mismatched substitution. Schema preservation is enforced by
+    :func:`_assert_schema_preserved` before calling this function.
     """
     from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
 
@@ -325,7 +355,17 @@ class AddEntry:
             return
 
         source_entry = from_catalog.get_catalog_entry(self.entry_hash)
-        expr = _rebuild_expr_for_target(source_entry, to_catalog, remap)
+        try:
+            expr = _rebuild_subexpr(
+                source_entry.lazy_expr,
+                from_catalog=from_catalog,
+                to_catalog=to_catalog,
+                remap=remap,
+            )
+        except RuntimeError as e:
+            raise RuntimeError(
+                f"rebuild: failed to rebuild entry {source_entry.name!r}: {e}"
+            ) from e
         new_entry = to_catalog.add(
             expr,
             sync=False,
