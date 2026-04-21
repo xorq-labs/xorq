@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.20] - 2026-04-21
+### Details
+#### Added
+- Add DataBricks backend by @mesejo in [#1803](https://github.com/xorq-labs/xorq/pull/1803)
+- Add ADR template by @dlovell in [#1817](https://github.com/xorq-labs/xorq/pull/1817)
+- Add ADR-0006 on read_kwargs hash_path/read_path split by @dlovell in [#1838](https://github.com/xorq-labs/xorq/pull/1838)
+- Add -p/--params to `catalog run` by @hussainsultan in [#1840](https://github.com/xorq-labs/xorq/pull/1840)
+
+#### Changed
+- Update dependency requests to v2.33.0 [security] by @renovate[bot] in [#1815](https://github.com/xorq-labs/xorq/pull/1815)
+- Update dependency uv to v0.11.6 [security] by @renovate[bot] in [#1807](https://github.com/xorq-labs/xorq/pull/1807)
+- CLI-settable default catalog by @dlovell in [#1828](https://github.com/xorq-labs/xorq/pull/1828)
+- Drop BSL builtin tag handler, rely on entry-point discovery… by @ghoersti in [#1827](https://github.com/xorq-labs/xorq/pull/1827)
+- Rename backend to xorq-datafusion by @hussainsultan in [#1837](https://github.com/xorq-labs/xorq/pull/1837)
+- Compute synthetic cache keys for uncached expressions (XOR-284) by @mesejo in [#1787](https://github.com/xorq-labs/xorq/pull/1787)
+- Template-clone fixtures to cut annex test setup by @dlovell in [#1843](https://github.com/xorq-labs/xorq/pull/1843)
+- Bump orjson from 3.11.4 to 3.11.6 by @dependabot[bot] in [#1845](https://github.com/xorq-labs/xorq/pull/1845)
+- Build wheel directly instead of sdist by @dlovell in [#1790](https://github.com/xorq-labs/xorq/pull/1790)
+- Bump pyasn1 from 0.6.2 to 0.6.3 by @dependabot[bot] in [#1846](https://github.com/xorq-labs/xorq/pull/1846)
+- Rename xorq backend to xorq_datafusion by @mesejo in [#1851](https://github.com/xorq-labs/xorq/pull/1851)
+
+#### Fixed
+- Resolve ParquetCache "relation already exists" by @mesejo in [#1823](https://github.com/xorq-labs/xorq/pull/1823)
+- Use except_ in sge.Star to emit EXCLUDE clauses by @hussainsultan in [#1839](https://github.com/xorq-labs/xorq/pull/1839)
+- Portable deferred reads via read_path/hash_path by @dlovell in [#1832](https://github.com/xorq-labs/xorq/pull/1832)
+- Use xorq-datafusion in SnapshotStrategy.normalize_backend by @mesejo in [#1842](https://github.com/xorq-labs/xorq/pull/1842)
+- Reduce false positives in benchmark by @mesejo in [#1844](https://github.com/xorq-labs/xorq/pull/1844)
+- Invalidate on file changes for DuckDB and DataFusion by @mesejo in [#1833](https://github.com/xorq-labs/xorq/pull/1833)
+- Deterministic catalog entry zip bytes by @dlovell in [#1852](https://github.com/xorq-labs/xorq/pull/1852)
+
+#### Removed
+- Remove xo.read_csv and xo.read_parquet from top-level API by @mesejo in [#1834](https://github.com/xorq-labs/xorq/pull/1834)
+- Remove read_csv and read_parquet from API reference by @mesejo in [#1848](https://github.com/xorq-labs/xorq/pull/1848)
+
 ## [0.3.19] - 2026-04-14
 ### Details
 #### Added
