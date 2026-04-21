@@ -365,7 +365,7 @@ def backend(request, con):
     lookup = {
         "duckdb": xo.duckdb.connect(),
         "postgres": con,
-        "xorq-datafusion": xo.connect(),
+        "xorq_datafusion": xo.connect(),
     }
 
     return lookup.get(request.param, con)
@@ -376,7 +376,7 @@ def backend(request, con):
     [
         pytest.param("duckdb", id="duckdb"),
         pytest.param("postgres", id="postgres"),
-        pytest.param("xorq-datafusion", id="xorq-datafusion"),
+        pytest.param("xorq_datafusion", id="xorq_datafusion"),
     ],
     indirect=True,
 )

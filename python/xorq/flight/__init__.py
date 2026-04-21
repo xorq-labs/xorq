@@ -15,7 +15,7 @@ from attrs.validators import (
     optional,
 )
 
-from xorq.backends.xorq import connect as xo_connect
+from xorq.backends.xorq_datafusion import connect as xo_connect
 from xorq.common.utils.logging_utils import get_print_logger
 from xorq.flight.backend import Backend
 from xorq.flight.server import (

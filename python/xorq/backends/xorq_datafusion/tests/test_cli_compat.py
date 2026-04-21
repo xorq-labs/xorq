@@ -9,7 +9,7 @@ from xorq.cli import OutputFormats, cli, uv_group
 @pytest.mark.skipif(
     sys.version_info > (3, 10), reason="compatibility test for Python 3.10"
 )
-@pytest.mark.xorq
+@pytest.mark.xorq_datafusion
 def test_output_formats_enum():
     for fmt in OutputFormats:
         assert OutputFormats(fmt.value) == fmt
@@ -19,7 +19,7 @@ def test_output_formats_enum():
 @pytest.mark.skipif(
     sys.version_info > (3, 10), reason="compatibility test for Python 3.10"
 )
-@pytest.mark.xorq
+@pytest.mark.xorq_datafusion
 def test_uv_group_shows_help_without_subcommand():
     runner = CliRunner()
     result = runner.invoke(cli, ["uv"])
@@ -32,7 +32,7 @@ def test_uv_group_shows_help_without_subcommand():
 @pytest.mark.skipif(
     sys.version_info > (3, 10), reason="compatibility test for Python 3.10"
 )
-@pytest.mark.xorq
+@pytest.mark.xorq_datafusion
 @pytest.mark.parametrize(
     "cmd",
     [
@@ -56,7 +56,7 @@ def test_output_format_choices_in_help(cmd):
 @pytest.mark.skipif(
     sys.version_info > (3, 10), reason="compatibility test for Python 3.10"
 )
-@pytest.mark.xorq
+@pytest.mark.xorq_datafusion
 @pytest.mark.parametrize("fmt", OutputFormats)
 def test_output_format_accepted_by_cli(tmp_path, fmt):
     runner = CliRunner()

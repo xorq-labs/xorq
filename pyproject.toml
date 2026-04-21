@@ -190,7 +190,7 @@ docs = [
 ]
 
 [project.entry-points."xorq.backends"]
-xorq-datafusion = "xorq.backends.xorq"
+xorq_datafusion = "xorq.backends.xorq_datafusion"
 postgres = "xorq.backends.postgres"
 snowflake = "xorq.backends.snowflake"
 datafusion = "xorq.backends.datafusion"
@@ -274,7 +274,7 @@ markers = [
     "slow",
     "datafusion: Apache Datafusion tests",
     "duckdb: DuckDB tests",
-    "let",
+
     "pandas",
     "postgres",
     "trino",
@@ -283,6 +283,7 @@ markers = [
     "sqlite",
     "gizmosql: GizmoSQL (DuckDB over Arrow Flight SQL) tests",
     "databricks: Databricks tests",
+    "xorq_datafusion: xorq DataFusion backend tests",
 ]
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"

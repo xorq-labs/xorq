@@ -72,7 +72,7 @@ def normalize_inmemorytable(dt):
 def normalize_memory_databasetable(dt):
     if dt.source.name not in (
         "pandas",
-        "xorq-datafusion",
+        "xorq_datafusion",
         "datafusion",
         "duckdb",
         "sqlite",
@@ -98,7 +98,7 @@ def normalize_pandas_databasetable(dt):
 
 
 def normalize_datafusion_databasetable(dt):
-    if dt.source.name not in ("datafusion", "xorq-datafusion"):
+    if dt.source.name not in ("datafusion", "xorq_datafusion"):
         raise ValueError(f"expected datafusion/xorq backend, got {dt.source.name!r}")
     table = dt.source.con.table(dt.name)
     ep_str = str(table.execution_plan())
@@ -280,7 +280,7 @@ def rename_unbound_static(op, prefix="static-name"):
 
 
 def normalize_xorq_databasetable(dt):
-    if dt.source.name != "xorq-datafusion":
+    if dt.source.name != "xorq_datafusion":
         raise ValueError(f"expected xorq backend, got {dt.source.name!r}")
     if isinstance(dt, rel.FlightExpr):
         return dask.base.normalize_token(
@@ -303,7 +303,7 @@ def normalize_xorq_databasetable(dt):
         )
     native_source = dt.source._sources.get_backend(dt)
 
-    if native_source.name == "xorq-datafusion":
+    if native_source.name == "xorq_datafusion":
         return normalize_datafusion_databasetable(dt)
     new_dt = rel.make_native_op(dt)
     return dask.base.normalize_token(new_dt)
@@ -386,7 +386,7 @@ def normalize_databasetable(dt):
         "datafusion": normalize_datafusion_databasetable,
         "postgres": normalize_postgres_databasetable,
         "snowflake": normalize_snowflake_databasetable,
-        "xorq-datafusion": normalize_xorq_databasetable,
+        "xorq_datafusion": normalize_xorq_databasetable,
         "duckdb": normalize_duckdb_databasetable,
         "trino": normalize_remote_databasetable,
         "gizmosql": normalize_remote_databasetable,
@@ -441,7 +441,7 @@ def normalize_backend(con):
         con_details = {k: con_dct[k] for k in ("host", "port", "dbname")}
     elif name == "pandas":
         con_details = id(con.dictionary)
-    elif name in ("datafusion", "duckdb", "xorq-datafusion", "gizmosql"):
+    elif name in ("datafusion", "duckdb", "xorq_datafusion", "gizmosql"):
         con_details = (con._profile.con_name, con._profile.kwargs_tuple)
     elif name == "trino":
         con_details = con.con.host
