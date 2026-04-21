@@ -261,9 +261,11 @@ def test_parquet_cache_storage(tmp_path, alltypes_df):
     cached = expr.cache(cache=cache)
     actual = cached.execute()
     assert_frame_equal(actual, expected)
+    assert cache.exists(expr), "first execute should populate the cache"
 
     expected = alltypes_df.head(1)[cols]
     expected.to_parquet(path)  # this modifies the file
+    assert not cache.exists(expr), "file change should invalidate the cache key"
     actual = cached.execute()
     assert_frame_equal(actual, expected)
 

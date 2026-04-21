@@ -124,9 +124,9 @@ def _normalize_path_stat(path, **kwargs):
     match path:
         case str() if path.startswith(("http://", "https://")):
             req = urllib.request.Request(
-                path, method="HEAD", headers={"User-Agent": ""}
+                path, method="HEAD", headers={"User-Agent": "xorq-cache"}
             )
-            resp = urllib.request.urlopen(req)
+            resp = urllib.request.urlopen(req, timeout=10)
             headers = resp.info()
             return (
                 ("url", path),
@@ -141,11 +141,11 @@ def _normalize_path_stat(path, **kwargs):
                 (k, metadata.get(k))
                 for k in ("location", "last_modified", "size", "e_tag", "version")
             )
-        case _:
+        case str():
             p = pathlib.Path(path)
             if p.exists():
                 return normalize_read_path_stat(p)
-            raise NotImplementedError(f"Don't know how to deal with path {path!r}")
+            raise FileNotFoundError(f"local path does not exist: {path!r}")
 
 
 def _extract_duckdb_file_paths(sql_ddl):
@@ -335,10 +335,13 @@ def normalize_duckdb_file_read(dt):
             dt.schema.to_pandas(),
             file_metadata,
         )
-    return normalize_seq_with_caller(
-        dt.schema.to_pandas(),
-        sql_ddl_statement,
-    )
+    else:
+        # No read_parquet/read_csv paths found (e.g. plain CREATE TABLE) —
+        # fall back to DDL-string-based token (not file-change-sensitive).
+        return normalize_seq_with_caller(
+            dt.schema.to_pandas(),
+            sql_ddl_statement,
+        )
 
 
 def rename_unbound_static(op, prefix="static-name"):

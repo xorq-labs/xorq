@@ -222,7 +222,7 @@ def xorq_http_csv_table():
             xorq_http_csv_table,
             id="xorq",
             marks=pytest.mark.xfail(
-                raises=NotImplementedError,
+                raises=FileNotFoundError,
                 strict=True,
                 reason="DataFusion strips scheme+host from HTTP URLs, rendering them as local-looking paths that _normalize_path_stat cannot resolve",
             ),
