@@ -1,6 +1,8 @@
 .gitignore
 /target
 
+.claude
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 .pytest_cache/
@@ -88,3 +90,4 @@ ci/ibis_testing.db
 .codspeed
 
 .envrc.secrets
+.envrcs/.worktree-symlinks
