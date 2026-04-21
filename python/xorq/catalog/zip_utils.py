@@ -40,13 +40,25 @@ def test_zip(zip_path):
 
 @contextmanager
 def make_zip_context(build_dir):
+    # Determinism: fixed mtime, sorted iteration, fixed permissions. Two
+    # builds of the same expression with identical member bytes must produce
+    # byte-identical zip archives, so downstream content-addressed storage
+    # (git-annex, etc.) dedups them.
     path_prefix = (build_dir := Path(build_dir)).parent
+    fixed_date_time = (1980, 1, 1, 0, 0, 0)
+    fixed_external_attr = 0o644 << 16
     with tempfile.TemporaryDirectory() as td:
         zip_path = Path(td).joinpath(build_dir.name).with_suffix(PREFERRED_SUFFIX)
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            for p in build_dir.rglob("*"):
+            for p in sorted(build_dir.rglob("*")):
                 if p.is_file():
-                    zf.write(p, arcname=p.relative_to(path_prefix))
+                    info = zipfile.ZipInfo(
+                        filename=str(p.relative_to(path_prefix)),
+                        date_time=fixed_date_time,
+                    )
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    info.external_attr = fixed_external_attr
+                    zf.writestr(info, p.read_bytes())
         yield zip_path
 
 
