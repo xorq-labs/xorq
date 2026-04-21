@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import itertools
 import operator
 import re
@@ -3301,11 +3302,16 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         from xorq.expr.api import _transform_expr
 
-        (expr, _) = _transform_expr(expr)
+        (expr, _, _caches) = _transform_expr(expr)
 
-        schema = backend._get_sql_string_view_schema(name=name, table=expr, query=query)
-        node = ops.SQLStringView(child=expr.op(), query=query, schema=schema)
-        return node.to_expr()
+        with contextlib.ExitStack() as stack:
+            for cache in _caches:
+                stack.enter_context(contextlib.closing(cache))
+            schema = backend._get_sql_string_view_schema(
+                name=name, table=expr, query=query
+            )
+            node = ops.SQLStringView(child=expr.op(), query=query, schema=schema)
+            return node.to_expr()
 
     def to_pandas(self, **kwargs) -> pd.DataFrame:
         """Convert a table expression to a pandas DataFrame.
