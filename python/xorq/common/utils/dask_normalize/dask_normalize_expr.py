@@ -1,4 +1,3 @@
-import contextlib
 import itertools
 import pathlib
 import re
@@ -152,15 +151,23 @@ def _normalize_path_stat(path, **kwargs):
 def _extract_duckdb_file_paths(sql_ddl):
     """Extract path strings from read_parquet/read_csv literals in a DuckDB DDL statement."""
     tree = sg.parse_one(sql_ddl, dialect="duckdb")
-    return tuple(
+    parquet_paths = tuple(
         _to_path_str(lit.this)
-        for func in itertools.chain(
-            tree.find_all(sg.exp.ReadParquet),
-            tree.find_all(sg.exp.ReadCSV),
-        )
+        for func in tree.find_all(sg.exp.ReadParquet)
         for lit in func.find_all(sg.exp.Literal)
         if lit.is_string
     )
+    # Search only func.this (the path argument), not func.find_all — func.expressions
+    # holds keyword args like (header = CAST('t' AS BOOLEAN)) whose string literals
+    # would otherwise be mistaken for file paths.
+    csv_paths = tuple(
+        _to_path_str(lit.this)
+        for func in tree.find_all(sg.exp.ReadCSV)
+        if func.this is not None
+        for lit in func.this.find_all(sg.exp.Literal)
+        if lit.is_string
+    )
+    return parquet_paths + csv_paths
 
 
 def normalize_datafusion_databasetable(dt):
@@ -323,12 +330,11 @@ def normalize_duckdb_file_read(dt):
     ).fetchone()
     paths = _extract_duckdb_file_paths(sql_ddl_statement)
     if paths:
-        with contextlib.suppress(NotImplementedError):
-            file_metadata = tuple((p, _normalize_path_stat(p)) for p in sorted(paths))
-            return normalize_seq_with_caller(
-                dt.schema.to_pandas(),
-                file_metadata,
-            )
+        file_metadata = tuple((p, _normalize_path_stat(p)) for p in sorted(paths))
+        return normalize_seq_with_caller(
+            dt.schema.to_pandas(),
+            file_metadata,
+        )
     return normalize_seq_with_caller(
         dt.schema.to_pandas(),
         sql_ddl_statement,
