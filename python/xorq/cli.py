@@ -620,10 +620,10 @@ def unbind_and_serve_command(
         xorq.flight.FlightServer,
         flight_url=flight_url,
     )
-    logger.info(f"Serving expression from '{expr_path}' on {flight_url.to_location()}")
     server, _ = xorq.expr.relations.flight_serve_unbound(
         unbound_expr, make_server=make_server
     )
+    logger.info(f"Serving expression from '{expr_path}' on {flight_url.to_location()}")
     server.wait()
 
 
@@ -701,8 +701,9 @@ def serve_command(
         host=host,
     )
     location = server.flight_url.to_location()
+    server.serve(block=False)
     logger.info(f"Serving expression '{expr_path.stem}' on {location}")
-    server.serve(block=True)
+    server.wait()
 
 
 @_lazy_span("cli.init_command")

@@ -32,7 +32,7 @@ class FlightClient:
         cert_chain=None,
         private_key=None,
         tls_root_certs=None,
-        healthcheck_n_tries=20,
+        healthcheck_n_tries=40,
         **kwargs,
     ):
         """
@@ -89,15 +89,12 @@ class FlightClient:
                 )
                 if any(to_match in str(e) for to_match in matches):
                     raise e
-                else:
-                    pass
             except pa.flight.FlightUnauthenticatedError:
                 return
             except Exception:
                 pass
-            finally:
-                logger.info(f"Flight server unavailable, sleeping {sleep_n} seconds")
-                time.sleep(sleep_n)
+            logger.info(f"Flight server unavailable, sleeping {sleep_n} seconds")
+            time.sleep(sleep_n)
         raise RuntimeError(f"failed to connect after {attempt_i} attempts")
 
     # FIXME: rename to execute_table, add execute that return pd.DataFrame

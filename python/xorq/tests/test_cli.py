@@ -936,6 +936,7 @@ def hit_server(port, expr):
 
 
 @pytest.mark.slow(level=3)
+@pytest.mark.xdist_group(name="serve")
 @pytest.mark.parametrize("serve_hash", serve_hashes)
 def test_serve_unbound_hash(serve_hash, pipeline_https_build):
     lookup = {
@@ -975,6 +976,7 @@ serve_tags = (
 
 
 @pytest.mark.slow(level=3)
+@pytest.mark.xdist_group(name="serve")
 @pytest.mark.parametrize("serve_tag", serve_tags)
 def test_serve_unbound_tag(serve_tag, pipeline_https_build):
     expr = load_expr(pipeline_https_build)
@@ -999,6 +1001,7 @@ def test_serve_unbound_tag(serve_tag, pipeline_https_build):
 
 
 @pytest.mark.slow(level=1)
+@pytest.mark.xdist_group(name="serve")
 def test_serve_unbound_tag_get_exchange(pipeline_https_build, parquet_dir):
     batting_url = "https://storage.googleapis.com/letsql-pins/batting/20240711T171118Z-431ef/batting.parquet"
     serve_tag = "read-batting"
@@ -1027,6 +1030,7 @@ def test_serve_unbound_tag_get_exchange(pipeline_https_build, parquet_dir):
 
 
 @pytest.mark.slow(level=1)
+@pytest.mark.xdist_group(name="serve")
 def test_serve_unbound_tag_get_exchange_udf(fixture_dir, tmp_path):
     df = pd.DataFrame([float(v) for v in range(10)], columns=["x"])
 
@@ -1059,6 +1063,7 @@ def test_serve_unbound_tag_get_exchange_udf(fixture_dir, tmp_path):
 
 
 @pytest.mark.slow(level=3)
+@pytest.mark.xdist_group(name="serve")
 def test_serve_penguins_template(tmpdir, tmp_path):
     tmpdir = Path(tmpdir)
     path = tmpdir.joinpath("xorq-template-penguins")
