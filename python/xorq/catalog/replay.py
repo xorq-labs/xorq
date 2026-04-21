@@ -564,6 +564,39 @@ def parse_commit(commit, *, verify=True) -> CatalogOp:
 # -- Replayer -----------------------------------------------------------------
 
 
+def _rewrite_noop_commits(repo, noop_ops):
+    """Rewrite the first N commits so their timestamps match the source catalog.
+
+    InitCatalog and AddCatalogYAML are no-ops during replay because
+    Catalog.from_repo_path(init=True) already created those commits.
+    This function rewrites them with the correct author/committer metadata
+    using ``git commit-tree``, then rebases the remaining history on top.
+    """
+    all_commits = list(repo.iter_commits(reverse=True))
+    n = len(noop_ops)
+
+    prev_sha = None
+    for commit, op in zip(all_commits[:n], noop_ops):
+        if op.commit_metadata is None:
+            prev_sha = commit.hexsha
+            continue
+        parent_args = ["-p", prev_sha] if prev_sha else []
+        with op.commit_metadata.git_env():
+            new_sha = repo.git.commit_tree(
+                str(commit.tree), *parent_args, m=commit.message.strip()
+            )
+        prev_sha = new_sha
+
+    if prev_sha is None:
+        return
+
+    if n < len(all_commits):
+        old_base = all_commits[n - 1].hexsha
+        repo.git.rebase("--onto", prev_sha, old_base)
+    else:
+        repo.git.update_ref(f"refs/heads/{repo.active_branch.name}", prev_sha)
+
+
 def _parse_catalog_ops(catalog, *, verify=True) -> tuple[CatalogOp, ...]:
     commits = tuple(catalog.repo.iter_commits(reverse=True))
     return tuple(parse_commit(c, verify=verify) for c in commits)
@@ -599,6 +632,7 @@ class Replayer:
 
     def replay(self, to_catalog, *, preserve_commits=True) -> None:
         remap: dict[str, str] = {}
+        noop_ops: list[CatalogOp] = []
         for op in self.ops:
             ctx = (
                 op.commit_metadata.git_env()
@@ -607,4 +641,8 @@ class Replayer:
             )
             with ctx:
                 op.do(self.from_catalog, to_catalog, rebuild=self.rebuild, remap=remap)
+            if isinstance(op, (InitCatalog, AddCatalogYAML)) and preserve_commits:
+                noop_ops.append(op)
+        if noop_ops:
+            _rewrite_noop_commits(to_catalog.repo, noop_ops)
         to_catalog.assert_consistency()
