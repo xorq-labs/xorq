@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776774966280,
+  "lastUpdate": 1776787024268,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -7260,6 +7260,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.015522461402541746",
             "extra": "mean: 216.7325723999852 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9db3be53ec73bd87cbb3802f031862cb40f0a73c",
+          "message": "refactor: rename xorq backend to xorq_datafusion (#1851)\n\nRenames the backend from `xorq`/`xorq-datafusion` to `xorq_datafusion`\nfor a consistent, valid Python identifier across directory name, entry\npoint, Backend.name, pytest marker, and all string references.\n\nAlso removes leftover \"let\" references (the backend's previous name):\nstale FIXME comment, error message, docs import, and pytest marker\nentry.\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-21T11:53:06-04:00",
+          "tree_id": "8fcb75f89fc59e0ac700e84af9014c02321a8c17",
+          "url": "https://github.com/xorq-labs/xorq/commit/9db3be53ec73bd87cbb3802f031862cb40f0a73c"
+        },
+        "date": 1776787021222,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.402404947812432,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005430911751763806",
+            "extra": "mean: 96.13161619999175 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.836329067760649,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008017438392219415",
+            "extra": "mean: 206.76839520000385 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6524504670243647,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18974099087275728",
+            "extra": "mean: 1.5326833997999985 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.08680396981503,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014507026178058656",
+            "extra": "mean: 196.58709200000146 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.9121664258288273,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03493164462011153",
+            "extra": "mean: 255.61284749999896 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.145463667744138,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006460927396434137",
+            "extra": "mean: 194.34594520000132 msec\nrounds: 5"
           }
         ]
       }
