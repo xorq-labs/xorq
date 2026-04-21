@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
+from batchcorder import StreamCache
 
 import xorq.common.exceptions as com
 import xorq.vendor.ibis.config
@@ -349,6 +350,8 @@ class Backend(BasePandasBackend):
             record_batches = pa.RecordBatchReader.from_batches(
                 record_batches[0].schema, record_batches
             )
+        elif isinstance(record_batches, StreamCache):
+            record_batches = pa.RecordBatchReader.from_stream(record_batches)
 
         self.dictionary[table_name] = record_batches.read_pandas()
         return self.table(table_name)

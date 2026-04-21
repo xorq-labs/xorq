@@ -19,6 +19,7 @@ import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
 import sqlglot as sg
 import sqlglot.expressions as sge
+from batchcorder import StreamCache
 from sqlglot import exp, parse_one
 
 import xorq
@@ -709,7 +710,10 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
     def read_record_batches(
         self,
-        source: pa.Table | pa.RecordBatchReader | Iterable[pa.RecordBatch],
+        source: pa.Table
+        | pa.RecordBatchReader
+        | StreamCache
+        | Iterable[pa.RecordBatch],
         table_name: str | None = None,
     ) -> ir.Table:
         """Register Arrow data as a table in the current database.
@@ -725,11 +729,16 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         source
             The Arrow data to register. Accepts:
 
+            - ``StreamCache`` — multi-scan capable; schema taken from the
+              cache; batches are cast and re-ingested into a new cache.
             - ``pa.Table`` — converted to batches via ``to_batches()``.
             - ``pa.RecordBatchReader`` — consumed directly; schema taken from
               the reader.
             - Any ``Iterable[pa.RecordBatch]`` (list, tuple, generator) —
-              schema inferred from the first batch.
+              schema inferred from the first batch. Empty iterables raise
+              ``ValueError`` because no schema can be inferred. ``pa.Table``
+              and ``pa.RecordBatchReader`` may be empty (schema is already
+              known).
         table_name
             Name for the registered table. Defaults to a sequentially
             generated name.
@@ -767,6 +776,26 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         table_name = table_name or gen_name("read_record_batches")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
         self.con.deregister_table(table_ident)
+        if isinstance(source, StreamCache):
+            schema = source.schema
+            reader = pa.RecordBatchReader.from_stream(source)
+
+            def make_cast_gen():
+                with contextlib.closing(reader):
+                    for batch in reader:
+                        yield _select_and_cast(batch, schema)
+
+            cast_reader = pa.RecordBatchReader.from_batches(schema, make_cast_gen())
+            inner_cache = StreamCache(cast_reader)
+            self.con.register_record_batch_reader(
+                table_ident,
+                inner_cache,
+            )
+            try:
+                return self.table(table_name)
+            except Exception:
+                self.con.deregister_table(table_ident)
+                raise
         if not isinstance(source, (pa.Table, pa.RecordBatchReader)) and (
             isinstance(source, (str, bytes)) or not hasattr(source, "__iter__")
         ):

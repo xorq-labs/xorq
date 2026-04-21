@@ -463,11 +463,11 @@ def _drop_created_tables(created: dict) -> None:
     raise_collected_errors("failed to drop created tables", errors)
 
 
-def _run_cleanup(drains: list, created: dict) -> None:
-    """Close/join drains and drop created tables, surfacing every failure.
+def _run_cleanup(drains: list, created: dict, caches: list = ()) -> None:
+    """Close/join drains, drop created tables, close caches; surface every failure.
 
-    Both steps always run even if the first raises, so a drain failure never
-    leaks the temp tables and a drop failure never hides a drain failure.
+    All steps always run even if an earlier one raises, so a drain failure never
+    leaks temp tables or caches, and a later failure never hides an earlier one.
     """
     cleanup_errors: list[BaseException] = []
     try:
@@ -478,6 +478,11 @@ def _run_cleanup(drains: list, created: dict) -> None:
         _drop_created_tables(created)
     except BaseException as exc:  # noqa: BLE001
         cleanup_errors.append(exc)
+    for cache in caches:
+        try:
+            cache.close()
+        except BaseException as exc:  # noqa: BLE001
+            cleanup_errors.append(exc)
     raise_collected_errors("execution cleanup failed", cleanup_errors)
 
 
@@ -493,10 +498,10 @@ def _transform_expr(expr, params=None, **kwargs):
     expr = _remove_tag_nodes(expr)
     expr = _register_and_transform_cache_tables(expr)
     expr, tee_created, drains = register_and_transform_tee_nodes(expr)
-    expr, created = register_and_transform_remote_tables(expr, **kwargs)
+    expr, created, caches = register_and_transform_remote_tables(expr, **kwargs)
     expr, dt_to_read = _transform_deferred_reads(expr)
     created = {**created, **tee_created}
-    return (expr, created, drains)
+    return (expr, created, drains, caches)
 
 
 def _pandas_execute(con, expr: ir.Expr, **kwargs):
@@ -509,14 +514,14 @@ def _pandas_execute(con, expr: ir.Expr, **kwargs):
         df = node.to_rbr().read_pandas(timestamp_as_object=True)
         return expr.__pandas_result__(df)
     params = kwargs.pop("params", None)
-    expr, created, drains = _transform_expr(expr, params=params)
+    expr, created, drains, caches = _transform_expr(expr, params=params)
 
     span.set_attribute("engine", "pandas")
     try:
         result = con.execute(expr, **kwargs)
     except BaseException as primary:
         try:
-            _run_cleanup(drains, created)
+            _run_cleanup(drains, created, caches)
         except BaseException as cleanup_exc:  # noqa: BLE001
             raise_collected_errors(
                 "execute failed and cleanup failed",
@@ -524,7 +529,7 @@ def _pandas_execute(con, expr: ir.Expr, **kwargs):
             )
         raise
     else:
-        _run_cleanup(drains, created)
+        _run_cleanup(drains, created, caches)
         return result
 
 
@@ -565,13 +570,13 @@ def to_pyarrow_batches(
         span.set_attribute("engine", "flight")
         return expr.op().to_rbr()
     params = kwargs.pop("params", None)
-    expr, created, drains = _transform_expr(expr, params=params)
+    expr, created, drains, caches = _transform_expr(expr, params=params)
     con, _ = find_backend(expr.op(), use_default=True)
 
     span.set_attribute("engine", con.name)
 
     def clean_up():
-        _run_cleanup(drains, created)
+        _run_cleanup(drains, created, caches)
 
     try:
         reader = con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
@@ -736,10 +741,14 @@ def to_json(
 def get_plans(expr: ir.Expr) -> dict:
     # Strip tee nodes first (like to_sql): EXPLAIN is a non-executing path, so
     # it must not register a pass-through table or fire the side-effect write.
-    _expr, _, _ = _transform_expr(_remove_tee_nodes(expr))
-    con, _ = find_backend(_expr.op())
-    sql = f"EXPLAIN {to_sql(_expr)}"
-    return con.con.sql(sql).to_pandas().set_index("plan_type")["plan"].to_dict()
+    _expr, _created, _drains, _caches = _transform_expr(_remove_tee_nodes(expr))
+    try:
+        con, _ = find_backend(_expr.op())
+        sql = f"EXPLAIN {to_sql(_expr)}"
+        return con.con.sql(sql).to_pandas().set_index("plan_type")["plan"].to_dict()
+    finally:
+        for cache in _caches:
+            cache.close()
 
 
 def get_object_metadata(path: str, **kwargs: Any) -> dict:

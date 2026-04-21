@@ -215,8 +215,12 @@ class SourceStorage(CacheStorage):
                 from xorq.expr.api import _transform_expr  # noqa: PLC0415
 
                 # must transform for Read ops: create_table expects a vanilla ibis expr
-                (transformed, _, _) = _transform_expr(value.to_expr())
-                self.source.create_table(key, transformed)
+                (transformed, _, _, _caches) = _transform_expr(value.to_expr())
+                try:
+                    self.source.create_table(key, transformed)
+                finally:
+                    for cache in _caches:
+                        cache.close()
             else:
                 assert hasattr(self.source, "read_record_batches")
                 # read_record_batches will create durable table in out-of-core fashion
