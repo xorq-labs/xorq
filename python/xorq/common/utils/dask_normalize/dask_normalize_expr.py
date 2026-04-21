@@ -146,6 +146,8 @@ def _normalize_path_stat(path, **kwargs):
             if p.exists():
                 return normalize_read_path_stat(p)
             raise FileNotFoundError(f"local path does not exist: {path!r}")
+        case _:
+            raise TypeError(f"expected str path, got {type(path).__name__}")
 
 
 def _extract_duckdb_file_paths(sql_ddl):
