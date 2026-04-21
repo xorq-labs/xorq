@@ -97,15 +97,29 @@ def get_print_logger():
 # https://betterstack.com/community/guides/logging/structlog/
 log_path = get_log_path(log_path=default_log_path)
 log_level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper())
-rfh = logging.handlers.RotatingFileHandler(log_path, maxBytes=50 * 2**20)
+
+_xorq_logger = logging.getLogger("xorq")
+_xorq_logger.setLevel(log_level)
+_rfh = logging.handlers.RotatingFileHandler(
+    log_path, maxBytes=50 * 2**20, backupCount=3
+)
+_rfh.setFormatter(
+    structlog.stdlib.ProcessorFormatter(
+        processors=[
+            structlog.processors.dict_tracebacks,
+            structlog.processors.JSONRenderer(),
+        ],
+    )
+)
+_xorq_logger.addHandler(_rfh)
+
 structlog.configure(
-    logger_factory=structlog.WriteLoggerFactory(rfh._open()),
     processors=[
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.dict_tracebacks,
-        structlog.processors.JSONRenderer(),
+        structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
     ],
+    logger_factory=structlog.stdlib.LoggerFactory(),
     wrapper_class=structlog.make_filtering_bound_logger(log_level),
 )
 get_logger = structlog.get_logger
