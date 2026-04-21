@@ -134,6 +134,8 @@ Launch the TUI to browse, inspect, and run catalog entries interactively:
 xorq catalog tui
 ```
 
+![xorq catalog TUI](docs/images/tui-screenshot.svg)
+
 ## BSL integration
 
 Xorq integrates with [Boring Semantic Layer](https://github.com/boringdata/boring-semantic-layer) to catalog semantic models as executable entries. You build a `SemanticTable`, query it into an expression, tag it, and add it to the catalog. Data agents can discover the entry, inspect its dimensions and measures, and run queries without knowing the underlying schema.
@@ -171,15 +173,24 @@ The catalog entry carries the full semantic model. You can recover it from any c
 
 ## Scikit-learn integration
 
-Xorq translates `scikit-learn` Pipeline objects into deferred expressions:
+`Pipeline.from_instance` wraps any scikit-learn pipeline in deferred execution. Intermediate results are cached automatically; the same expression runs on any backend.
+
+**xorq**
 
 ```python
+import xorq.api as xo
 from xorq.expr.ml.pipeline_lib import Pipeline
 
+iris = xo.examples.iris.fetch()
+features = tuple(iris.drop("species").schema())
+train, test = xo.train_test_splits(iris, 0.2)
+
 xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+fitted = xorq_pipeline.fit(train, features=features, target="species")
+predictions = test.pipe(fitted.predict)
 ```
 
-See the [sklearn template](https://github.com/xorq-labs/xorq-template-sklearn) for a full train/predict example.
+The expression `predictions` is deferred — nothing runs until you call `.execute()`. See the [sklearn template](https://github.com/xorq-labs/xorq-template-sklearn) for a full example with caching and model persistence.
 
 ## Backends
 
