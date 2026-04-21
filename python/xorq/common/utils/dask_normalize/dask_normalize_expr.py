@@ -408,6 +408,35 @@ def normalize_ibis_datatype(datatype):
 @dask.base.normalize_token.register(rel.Read)
 def normalize_read(read):
     read_kwargs = dict(read.read_kwargs)
+    # Catalog-produced Reads stamp a `read_path` that is relative to the build
+    # dir and content-addressed via normalize_read_path_md5sum
+    # (compiler.py:_replace_tables). That key is stable across reloads, while
+    # `hash_path` becomes a per-load tempdir path and may even remain relative
+    # when a Read is only reachable via tokenize side-channels (UDF closures,
+    # toolz.curry partials, attrs state). Prefer `read_path` when present; fall
+    # back to `hash_path` semantics for user-supplied deferred reads.
+    if (read_path := read_kwargs.get("read_path")) is not None:
+        tpls = (("read_path", str(read_path)), ("name", read.name))
+    else:
+        tpls = _normalize_read_by_hash_path(read, read_kwargs)
+    tpls += tuple(
+        (k, v)
+        for k, v in read.read_kwargs
+        if k
+        in (
+            "mode",
+            "schema",
+            "temporary",
+        )
+    )
+    return normalize_seq_with_caller(
+        read.schema,
+        tpls,
+        caller="normalize_read",
+    )
+
+
+def _normalize_read_by_hash_path(read, read_kwargs):
     path = read_kwargs["hash_path"]
     if isinstance(path, (list, tuple)):
         # normalize_filenames may have converted a single path to a list
@@ -435,21 +464,7 @@ def normalize_read(read):
         raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
     else:
         raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
-    tpls += tuple(
-        (k, v)
-        for k, v in read.read_kwargs
-        if k
-        in (
-            "mode",
-            "schema",
-            "temporary",
-        )
-    )
-    return normalize_seq_with_caller(
-        read.schema,
-        tpls,
-        caller="normalize_read",
-    )
+    return tpls
 
 
 @dask.base.normalize_token.register(ir.DatabaseTable)
