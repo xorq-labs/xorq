@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776702783813,
+  "lastUpdate": 1776763965942,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -7128,6 +7128,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.008096731860757296",
             "extra": "mean: 198.84599999999182 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "48571b9971730ab9e8ce4832eeb815f37d6e674e",
+          "message": "chore(deps): bump pyasn1 from 0.6.2 to 0.6.3 (#1846)\n\nBumps [pyasn1](https://github.com/pyasn1/pyasn1) from 0.6.2 to 0.6.3.\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/pyasn1/pyasn1/releases\">pyasn1's\nreleases</a>.</em></p>\n<blockquote>\n<h2>Release 0.6.3</h2>\n<p>It's a minor release.</p>\n<ul>\n<li>Added nesting depth limit to ASN.1 decoder to prevent stack overflow\nfrom deeply nested structures (CVE-2026-30922).</li>\n<li>Fixed OverflowError from oversized BER length field.</li>\n<li>Fixed DeprecationWarning stacklevel for deprecated attributes.</li>\n<li>Fixed asDateTime incorrect fractional seconds parsing.</li>\n</ul>\n<p>All changes are noted in the <a\nhref=\"https://github.com/pyasn1/pyasn1/blob/master/CHANGES.rst\">CHANGELOG</a>.</p>\n</blockquote>\n</details>\n<details>\n<summary>Changelog</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/pyasn1/pyasn1/blob/main/CHANGES.rst\">pyasn1's\nchangelog</a>.</em></p>\n<blockquote>\n<h2>Revision 0.6.3, released 16-03-2026</h2>\n<ul>\n<li>CVE-2026-30922 (GHSA-jr27-m4p2-rc6r): Added nesting depth\nlimit to ASN.1 decoder to prevent stack overflow from deeply\nnested structures (thanks for reporting, romanticpragmatism)</li>\n<li>Fixed OverflowError from oversized BER length field\n[issue <a\nhref=\"https://redirect.github.com/pyasn1/pyasn1/issues/54\">#54</a>](<a\nhref=\"https://redirect.github.com/pyasn1/pyasn1/issues/54\">pyasn1/pyasn1#54</a>)\n[pr <a\nhref=\"https://redirect.github.com/pyasn1/pyasn1/issues/100\">#100</a>](<a\nhref=\"https://redirect.github.com/pyasn1/pyasn1/pull/100\">pyasn1/pyasn1#100</a>)</li>\n<li>Fixed DeprecationWarning stacklevel for deprecated attributes\n[issue <a\nhref=\"https://redirect.github.com/pyasn1/pyasn1/issues/86\">#86</a>](<a\nhref=\"https://redirect.github.com/pyasn1/pyasn1/issues/86\">pyasn1/pyasn1#86</a>)\n[pr <a\nhref=\"https://redirect.github.com/pyasn1/pyasn1/issues/101\">#101</a>](<a\nhref=\"https://redirect.github.com/pyasn1/pyasn1/pull/101\">pyasn1/pyasn1#101</a>)</li>\n<li>Fixed asDateTime incorrect fractional seconds parsing\n[issue <a\nhref=\"https://redirect.github.com/pyasn1/pyasn1/issues/81\">#81</a>](<a\nhref=\"https://redirect.github.com/pyasn1/pyasn1/issues/81\">pyasn1/pyasn1#81</a>)\n[pr <a\nhref=\"https://redirect.github.com/pyasn1/pyasn1/issues/102\">#102</a>](<a\nhref=\"https://redirect.github.com/pyasn1/pyasn1/pull/102\">pyasn1/pyasn1#102</a>)</li>\n</ul>\n</blockquote>\n</details>\n<details>\n<summary>Commits</summary>\n<ul>\n<li><a\nhref=\"https://github.com/pyasn1/pyasn1/commit/af65c3b92e9deeae50db4de390982dd970d87f98\"><code>af65c3b</code></a>\nPrepare release 0.6.3</li>\n<li><a\nhref=\"https://github.com/pyasn1/pyasn1/commit/5a49bd1fe93b5b866a1210f6bf0a3924f21572c8\"><code>5a49bd1</code></a>\nMerge commit from fork</li>\n<li><a\nhref=\"https://github.com/pyasn1/pyasn1/commit/5494ba43f738e700ca9f7c7a69ec5c44908c9a9f\"><code>5494ba4</code></a>\nFix asDateTime incorrect fractional seconds parsing (<a\nhref=\"https://redirect.github.com/pyasn1/pyasn1/issues/102\">#102</a>)</li>\n<li><a\nhref=\"https://github.com/pyasn1/pyasn1/commit/71f486e6c32d0f270868aa1b2bb5ceb7d5fd5476\"><code>71f486e</code></a>\nFix DeprecationWarning stacklevel for deprecated attributes (<a\nhref=\"https://redirect.github.com/pyasn1/pyasn1/issues/101\">#101</a>)</li>\n<li><a\nhref=\"https://github.com/pyasn1/pyasn1/commit/d7cb42dcaa9a66e18f14c4609c2ed00c5b65f7e8\"><code>d7cb42d</code></a>\nFix OverflowError from oversized BER length field (<a\nhref=\"https://redirect.github.com/pyasn1/pyasn1/issues/100\">#100</a>)</li>\n<li>See full diff in <a\nhref=\"https://github.com/pyasn1/pyasn1/compare/v0.6.2...v0.6.3\">compare\nview</a></li>\n</ul>\n</details>\n<br />\n\n\n[![Dependabot compatibility\nscore](https://dependabot-badges.githubapp.com/badges/compatibility_score?dependency-name=pyasn1&package-manager=uv&previous-version=0.6.2&new-version=0.6.3)](https://docs.github.com/en/github/managing-security-vulnerabilities/about-dependabot-security-updates#about-compatibility-scores)\n\nDependabot will resolve any conflicts with this PR as long as you don't\nalter it yourself. You can also trigger a rebase manually by commenting\n`@dependabot rebase`.\n\n[//]: # (dependabot-automerge-start)\n[//]: # (dependabot-automerge-end)\n\n---\n\n<details>\n<summary>Dependabot commands and options</summary>\n<br />\n\nYou can trigger Dependabot actions by commenting on this PR:\n- `@dependabot rebase` will rebase this PR\n- `@dependabot recreate` will recreate this PR, overwriting any edits\nthat have been made to it\n- `@dependabot show <dependency name> ignore conditions` will show all\nof the ignore conditions of the specified dependency\n- `@dependabot ignore this major version` will close this PR and stop\nDependabot creating any more for this major version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this minor version` will close this PR and stop\nDependabot creating any more for this minor version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this dependency` will close this PR and stop\nDependabot creating any more for this dependency (unless you reopen the\nPR or upgrade to it yourself)\nYou can disable automated security fix PRs for this repo from the\n[Security Alerts\npage](https://github.com/xorq-labs/xorq/network/alerts).\n\n</details>\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-04-21T11:28:36+02:00",
+          "tree_id": "70c8bed6f04edee25b9eb6455d79820e524a1571",
+          "url": "https://github.com/xorq-labs/xorq/commit/48571b9971730ab9e8ce4832eeb815f37d6e674e"
+        },
+        "date": 1776763962428,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.321487313290236,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017833023990614493",
+            "extra": "mean: 136.58426999999887 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.669733901209656,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03437843988769731",
+            "extra": "mean: 272.4993219999874 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6370223422282983,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2529581611682898",
+            "extra": "mean: 1.5698036531999946 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.806476313169006,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017603325704130715",
+            "extra": "mean: 262.71015966666295 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.05835371219672,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011068280895574852",
+            "extra": "mean: 197.69277850000813 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.061759835447815,
+            "unit": "iter/sec",
+            "range": "stddev: 0.059064305971377316",
+            "extra": "mean: 246.19870216668005 msec\nrounds: 6"
           }
         ]
       }
