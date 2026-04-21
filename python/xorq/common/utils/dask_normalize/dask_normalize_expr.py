@@ -420,6 +420,13 @@ def normalize_read(read):
             tpls = _normalize_path_stat(
                 path, **{k: v for k, v in read_kwargs.items() if k != "hash_path"}
             )
+        elif not pathlib.Path(path).is_absolute() and path == read_kwargs.get(
+            "read_path"
+        ):
+            # Build-bundled Read whose hash_path was rewritten to the relative
+            # read_path for deterministic YAML (see common.py register_node).
+            # The filename is already a content hash, so use it directly.
+            tpls = (("build-relative-path", path),)
         elif (path := pathlib.Path(path)).exists():
             tpls = read.normalize_method(path)
         else:
