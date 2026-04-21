@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776793026315,
+  "lastUpdate": 1776800056328,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -7392,6 +7392,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.007066570462230169",
             "extra": "mean: 200.27721840000368 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3d7e9aeb147bd98888f8d702be3634697ec66b9d",
+          "message": "fix(catalog): deterministic catalog entry zip bytes (#1852)\n\n## Summary\n\nTwo sources of non-determinism made `catalog.add(expr)` produce a\ndifferent zip on every run for the same expression, plus a downstream\ncrash when UDF closures contained Read nodes with the newly-relative\npaths. After this change, two runs of a catalog addition produce\nbyte-identical zips and normalize correctly.\n\n### 1. `expr.yaml` leaked the build tempdir prefix\n\n`read_kwargs.hash_path` was serialized as the absolute build-time path,\ne.g. `/tmp/tmpXXXX/<hash>/database_tables/...`. The existing rewrite in\n`Registry.register_node` only fired for `InMemoryTable` memtables (gated\non `\"memtables\" in read_kwargs`), so `database_table` Reads leaked the\ntempdir prefix.\n\nFix: gate on `\"read_path\" in read_kwargs` (the builder-materialized\nmarker introduced by ADR-0006) and set `hash_path = Path(read_path)`.\nLossless because `ExprLoader.deferred_reads_to_memtables` overwrites\n`hash_path` with `expr_path.joinpath(read_path)` at load time whenever\n`read_path` is present.\n\n### 2. Zip member mtimes came from the filesystem\n\n`make_zip_context` used `zf.write(p, arcname=...)`, which captures each\nmember's mtime and permissions. Switched to `zf.writestr(ZipInfo(...,\ndate_time=(1980,1,1,0,0,0)), bytes)` with `external_attr=0o644<<16` and\nsorted `rglob` output for stable ordering.\n\n### 3. `normalize_read` crashed on relative build-relative paths\n\nThe deterministic YAML serialization rewrites `hash_path` to a relative\nbuild-relative path for all Read nodes. When a UDF's pickled closure\ncontains a Read, `deferred_reads_to_memtables` can't resolve it, so\n`normalize_read` encounters the relative path during tokenization and\nfails. Fixed by using the path string directly as the normalization\ntoken — the filename already embeds a content hash, so this is safe and\ndeterministic.\n\n## Test plan\n\n- [x] `python/xorq/ibis_yaml/tests/` — 435 passed (5 pre-existing\npostgres-env failures unrelated)\n- [x] `python/xorq/catalog/tests/test_catalog.py` +\n`test_git_backend.py` — 117 passed\n- [x] Run `scripts/2026-04-17-paddy-issue.py` twice; assert resulting\nentry zip md5s match\n- [x] Verify `expr.yaml` `hash_path` is now\n`database_tables/<hash>.parquet` (relative)\n- [x] Verify zip member mtimes are `(1980, 1, 1, 0, 0, 0)`\n- [x] UDF expressions with Read nodes in their closures normalize\nwithout crashing\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-21T21:30:07+02:00",
+          "tree_id": "1e57f934602cc7da35d7eaa40f83eea182e627de",
+          "url": "https://github.com/xorq-labs/xorq/commit/3d7e9aeb147bd98888f8d702be3634697ec66b9d"
+        },
+        "date": 1776800054059,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.037092123167467,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022813328030573655",
+            "extra": "mean: 124.4231103333296 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.242345913720465,
+            "unit": "iter/sec",
+            "range": "stddev: 0.059602180170504775",
+            "extra": "mean: 235.71863783333433 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6625471104835132,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2007170881891149",
+            "extra": "mean: 1.5093266338000035 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.208389847683788,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05491362605182098",
+            "extra": "mean: 237.62057133332823 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.147328679047843,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004674979256353038",
+            "extra": "mean: 194.27552860000787 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.1292577848044685,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05005053712915977",
+            "extra": "mean: 242.17427250000392 msec\nrounds: 6"
           }
         ]
       }
