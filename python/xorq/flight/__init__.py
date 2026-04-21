@@ -81,6 +81,8 @@ class FlightUrl:
         self._socket = self._bind_socket(self.host, self.port)
 
     def unbind_socket(self):
+        if self._socket is not None:
+            self._socket.close()
         self._socket = None
 
     def to_location(self):
