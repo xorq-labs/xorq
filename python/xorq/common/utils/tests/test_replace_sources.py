@@ -32,7 +32,7 @@ def parquet_path(parquet_dir):
     return parquet_dir / "batting.parquet"
 
 
-BACKEND_NAMES = ("xorq-datafusion", "duckdb", "pandas")
+BACKEND_NAMES = ("xorq_datafusion", "duckdb", "pandas")
 
 
 def make_con(name):

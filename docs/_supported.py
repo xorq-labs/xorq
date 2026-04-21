@@ -38,7 +38,7 @@ from ibis.expr.types.temporal import (
 )
 from ibis.expr.types.uuid import UUIDValue
 
-from xorq.backends.let import Backend as LETSQLBackend
+from xorq.backends.xorq_datafusion import Backend as LETSQLBackend
 
 
 support_matrix_ignored_operations = (ops.ScalarParameter,)

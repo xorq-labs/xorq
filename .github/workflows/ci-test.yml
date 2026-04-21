@@ -38,10 +38,10 @@ jobs:
             services: false
             extras:
               - --extra duckdb
-          - name: xorq
+          - name: xorq_datafusion
             services: false
             extras: []
-          - name: xorq
+          - name: xorq_datafusion
             python-version: "3.10"
             services: false
             extras: []

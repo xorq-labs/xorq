@@ -19,7 +19,7 @@ from toolz.curried import (
 
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ibis_ops
-from xorq.backends.xorq import connect
+from xorq.backends.xorq_datafusion import connect
 from xorq.caching import (
     ParquetCache,
     ParquetSnapshotCache,

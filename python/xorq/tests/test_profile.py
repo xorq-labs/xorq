@@ -9,7 +9,7 @@ from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.backends.profiles import Profile, Profiles
 
 
-local_con_names = ("duckdb", "xorq-datafusion", "datafusion", "pandas", "pyiceberg")
+local_con_names = ("duckdb", "xorq_datafusion", "datafusion", "pandas", "pyiceberg")
 remote_connectors = (lambda: xo.postgres.connect_env(),)
 local_connectors = tuple(
     lambda: getattr(xo, con_name).connect()  # noqa: B023

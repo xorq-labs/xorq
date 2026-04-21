@@ -644,7 +644,7 @@ def test_execution_expr_multiple_tables(ls_con, tables, request, mocker):
     )
 
     native_backend = (
-        left_backend is right_backend and left_backend.name != "xorq-datafusion"
+        left_backend is right_backend and left_backend.name != "xorq_datafusion"
     )
     spy = mocker.spy(left_backend, "to_pyarrow_batches") if native_backend else None
 

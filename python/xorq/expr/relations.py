@@ -8,7 +8,7 @@ import pyarrow as pa
 import toolz
 from opentelemetry import trace
 
-from xorq.backends.xorq import connect as xo_connect
+from xorq.backends.xorq_datafusion import connect as xo_connect
 from xorq.common.utils.otel_utils import tracer
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
@@ -99,15 +99,14 @@ def replace_source_factory(source: Any):
 
 
 def make_native_op(node):
-    # FIXME: how to reference let.Backend.name?
-    if node.source.name != "xorq-datafusion":
+    if node.source.name != "xorq_datafusion":
         raise ValueError(
-            f"Expected 'xorq-datafusion' backend, but got {node.source.name!r}"
+            f"Expected 'xorq_datafusion' backend, but got {node.source.name!r}"
         )
     sources = node.source._sources
     native_source = sources.get_backend(node)
-    if native_source.name == "xorq-datafusion":
-        raise ValueError("Expected a native backend, but got 'let' backend")
+    if native_source.name == "xorq_datafusion":
+        raise ValueError("Expected a native backend, but got 'xorq_datafusion' backend")
 
     def replace_table(_node, _kwargs):
         return sources.get_table_or_op(
