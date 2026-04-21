@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776800056328,
+  "lastUpdate": 1776801541466,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -7458,6 +7458,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.05005053712915977",
             "extra": "mean: 242.17427250000392 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "833c3a56674f0078c094f77f7b6557beb938f9e7",
+          "message": "fix(flight): reduce test flakiness from CI resource contention (#1855)\n\n## Summary\n\n- Serialize all Flight server tests under `xdist_group(\"serve\")` so they\ndon't compete for CPU when pytest-xdist fans out across workers — the\ndirect cause of `test_serve_unbound_tag_get_exchange_udf` timing out in\nCI\n- Move port-announcement log lines in `unbind_and_serve_command` and\n`serve_command` to after the gRPC server is actually listening, so\nhealthcheck retries aren't burned during server startup\n- Fix `_wait_on_healthcheck` sleeping 1s unconditionally in a `finally`\nblock (including after successful healthcheck)\n- Explicitly close the reserved socket in `FlightUrl.unbind_socket`\ninstead of relying on refcount/GC\n- Double the default healthcheck budget from 20 to 40 attempts\n\n## Test plan\n\n- [ ] CI `ci-test` passes (specifically\n`test_serve_unbound_tag_get_exchange_udf` on split 1)\n- [ ] `test_serve_command` still passes (affected by `serve_command`\nblock→wait change)\n- [ ] No regressions in other serve tests (`test_serve_unbound_hash`,\n`test_serve_unbound_tag`, `test_serve_penguins_template`)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-21T21:53:48+02:00",
+          "tree_id": "5492c206cfff39bfe038ca7c8a0349c0fdc416e1",
+          "url": "https://github.com/xorq-labs/xorq/commit/833c3a56674f0078c094f77f7b6557beb938f9e7"
+        },
+        "date": 1776801538867,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 12.49558476922511,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0043372850187969126",
+            "extra": "mean: 80.0282674615486 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 6.139992152640216,
+            "unit": "iter/sec",
+            "range": "stddev: 0.002314145204462755",
+            "extra": "mean: 162.86665766665465 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.8277343833162019,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12521948530100602",
+            "extra": "mean: 1.2081170242000099 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.3496186935093,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0213857329897478",
+            "extra": "mean: 186.9292107142704 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 6.36527424128428,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007116510539947546",
+            "extra": "mean: 157.10242200000428 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.019859460429033,
+            "unit": "iter/sec",
+            "range": "stddev: 0.033485593150147056",
+            "extra": "mean: 199.20876428571026 msec\nrounds: 7"
           }
         ]
       }
