@@ -1,8 +1,11 @@
 import operator
+from datetime import datetime, timedelta
 
 import pytest
 
+import xorq.api as xo
 from xorq.vendor import ibis
+from xorq.vendor.ibis.util import gen_name
 
 
 try:
@@ -99,3 +102,68 @@ def test_keyed_asof_join_with_tolerance(
 
     # check that time is equal in value, if not dtype
     tm.assert_series_equal(result["time"], expected["time"], check_dtype=False)
+
+
+# https://github.com/xorq-labs/xorq/issues/983
+def test_asof_join_tolerance_with_into_backend(duckdb_con):
+    sensors_df = pd.DataFrame(
+        {
+            "site": ["a", "b", "a", "b", "a"],
+            "humidity": [0.3, 0.4, 0.5, 0.6, 0.7],
+            "event_time": [
+                datetime(2024, 11, 16, 12, 0, 15, 500000),
+                datetime(2024, 11, 16, 12, 0, 15, 700000),
+                datetime(2024, 11, 17, 18, 12, 14, 950000),
+                datetime(2024, 11, 17, 18, 12, 15, 120000),
+                datetime(2024, 11, 18, 18, 12, 15, 100000),
+            ],
+        }
+    )
+    events_df = pd.DataFrame(
+        {
+            "site": ["a", "b", "a"],
+            "event_type": ["cloud coverage", "rain start", "rain stop"],
+            "event_time": [
+                datetime(2024, 11, 16, 12, 0, 15, 400000),
+                datetime(2024, 11, 17, 18, 12, 15, 100000),
+                datetime(2024, 11, 18, 18, 12, 15, 100000),
+            ],
+        }
+    )
+    tolerance = timedelta(seconds=1)
+
+    sensors = duckdb_con.create_table(gen_name("sensors"), sensors_df, overwrite=True)
+    events = duckdb_con.create_table(gen_name("events"), events_df, overwrite=True)
+
+    expected = (
+        sensors.asof_join(
+            events,
+            on="event_time",
+            predicates="site",
+            tolerance=tolerance,
+        )
+        .drop("event_time_right")
+        .order_by("event_time")
+        .execute()
+    )
+
+    result = (
+        xo.memtable(sensors_df)
+        .into_backend(duckdb_con)
+        .asof_join(
+            xo.memtable(events_df).into_backend(duckdb_con),
+            on="event_time",
+            predicates="site",
+            tolerance=tolerance,
+        )
+        .drop("event_time_right")
+        .order_by("event_time")
+        .execute()
+    )
+
+    assert not result.empty
+    tm.assert_frame_equal(
+        result.reset_index(drop=True),
+        expected.reset_index(drop=True),
+        check_dtype=False,
+    )

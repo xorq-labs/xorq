@@ -280,7 +280,9 @@ def rbr_wrapper(reader, clean_up):
     import pyarrow as pa  # noqa: PLC0415
 
     def gen():
-        yield from reader
-        clean_up()
+        try:
+            yield from reader
+        finally:
+            clean_up()
 
     return pa.RecordBatchReader.from_batches(reader.schema, gen())
