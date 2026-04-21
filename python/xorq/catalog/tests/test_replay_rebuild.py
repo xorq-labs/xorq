@@ -52,9 +52,13 @@ def saved_registry():
     _builders_mod._initialized = saved_init
 
 
-def _replay_rebuild(source_catalog_obj, target_path):
+def _replay_rebuild(source_catalog_obj, target_path, on_unrebuilt_builder="raise"):
     target = Catalog.from_repo_path(target_path, init=True)
-    Replayer(from_catalog=source_catalog_obj, rebuild=True).replay(target)
+    Replayer(
+        from_catalog=source_catalog_obj,
+        rebuild=True,
+        on_unrebuilt_builder=on_unrebuilt_builder,
+    ).replay(target)
     return target
 
 
@@ -300,7 +304,9 @@ def test_rebuild_preserves_outer_builder_wrapping(tmpdir, saved_registry):
     builder_expr = composed.tag("test_rebuild_builder")
     catalog.add(builder_expr, aliases=("builder1",))
 
-    target = _replay_rebuild(catalog, Path(tmpdir).joinpath("tgt"))
+    target = _replay_rebuild(
+        catalog, Path(tmpdir).joinpath("tgt"), on_unrebuilt_builder="warn"
+    )
     new_builder = target.get_catalog_entry("builder1", maybe_alias=True)
     new_source = target.get_catalog_entry("my-source", maybe_alias=True)
     new_transform = target.get_catalog_entry("my-transform", maybe_alias=True)
@@ -341,7 +347,9 @@ def test_rebuild_pure_builder_without_catalog_refs(tmpdir, saved_registry):
     raw = xo.memtable({"x": [1, 2, 3]}).tag("test_pure_builder")
     catalog.add(raw, aliases=("pure",))
 
-    target = _replay_rebuild(catalog, Path(tmpdir).joinpath("tgt"))
+    target = _replay_rebuild(
+        catalog, Path(tmpdir).joinpath("tgt"), on_unrebuilt_builder="warn"
+    )
     new_pure = target.get_catalog_entry("pure", maybe_alias=True)
     src_entry = catalog.get_catalog_entry("pure", maybe_alias=True)
     # Same content hash — no catalog-tag rewrite should have run.
@@ -416,11 +424,13 @@ def test_rebuild_preserves_commit_metadata(source_catalog, target_path):
         assert s.authored_date == t.authored_date
 
 
-def test_rebuild_raises_on_unknown_op(tmpdir):
+def test_rebuild_raises_on_unknown_op_touching_catalog_paths(tmpdir):
     repo = Catalog.init_repo_path(Path(tmpdir).joinpath("src"))
     catalog = Catalog(backend=GitBackend(repo=repo))
-    (Path(repo.working_dir) / "stray.txt").write_text("hello")
-    repo.index.add(["stray.txt"])
+    stray = Path(repo.working_dir) / "entries" / "fake.zip"
+    stray.parent.mkdir(parents=True, exist_ok=True)
+    stray.write_text("corrupt")
+    repo.index.add(["entries/fake.zip"])
     repo.index.commit("not a catalog op")
 
     target_path = Path(tmpdir).joinpath("target")
@@ -428,6 +438,25 @@ def test_rebuild_raises_on_unknown_op(tmpdir):
     replayer = Replayer(from_catalog=catalog, rebuild=True, verify=False)
     with pytest.raises(RuntimeError, match="Cannot rebuild unknown op"):
         replayer.replay(target)
+
+
+def test_rebuild_applies_non_catalog_unknown_op(tmpdir):
+    from xorq.catalog.replay import UnknownOp  # noqa: PLC0415
+
+    repo = Catalog.init_repo_path(Path(tmpdir).joinpath("src"))
+    catalog = Catalog(backend=GitBackend(repo=repo))
+    (Path(repo.working_dir) / "README.md").write_text("hello")
+    repo.index.add(["README.md"])
+    commit = repo.index.commit("add readme")
+
+    target_path = Path(tmpdir).joinpath("target")
+    target = Catalog.from_repo_path(target_path, init=True)
+    op = UnknownOp(
+        message="add readme",
+        hexsha=commit.hexsha,
+    )
+    op.do(catalog, target, rebuild=True, remap={})
+    assert (Path(target.repo.working_dir) / "README.md").read_text() == "hello"
 
 
 def test_cli_replay_rebuild_smoke(source_catalog, tmpdir):

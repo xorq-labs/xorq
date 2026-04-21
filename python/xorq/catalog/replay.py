@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import os
 import re
+import tempfile
 from contextlib import contextmanager, nullcontext
 from functools import cached_property, partial
 
@@ -41,6 +42,22 @@ from xorq.catalog.constants import CATALOG_YAML_NAME, CatalogInfix
 # Only exercised on rebuild=True — translates old catalog names to rebuilt ones.
 def _translate(name, remap):
     return remap.get(name, name) if remap else name
+
+
+@contextmanager
+def _tempfile_patch(patch_text):
+    """Write *patch_text* to a temp file and yield its path.
+
+    GitPython's ``repo.git.am(input=...)`` passes ``--input=`` as a flag
+    instead of piping to stdin, so we write to a file and pass the path.
+    """
+    fd, path = tempfile.mkstemp(suffix=".patch")
+    try:
+        os.write(fd, patch_text.encode())
+        os.close(fd)
+        yield path
+    finally:
+        os.unlink(path)
 
 
 def _rebuild_expr_for_target(
@@ -615,7 +632,8 @@ class UnknownOp:
                     "Rebuild requires all ops be recognized catalog operations."
                 )
         patch = from_catalog.repo.git.format_patch("-1", self.hexsha, stdout=True)
-        to_catalog.repo.git.am(input=patch)
+        with _tempfile_patch(patch) as path:
+            to_catalog.repo.git.am(path)
 
     def verify_commit(self, commit):
         pass

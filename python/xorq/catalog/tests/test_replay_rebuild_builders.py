@@ -39,9 +39,13 @@ def saved_registry():
     _builders_mod._initialized = saved_init
 
 
-def _replay_rebuild(source_catalog_obj, target_path):
+def _replay_rebuild(source_catalog_obj, target_path, on_unrebuilt_builder="raise"):
     target = Catalog.from_repo_path(target_path, init=True)
-    Replayer(from_catalog=source_catalog_obj, rebuild=True).replay(target)
+    Replayer(
+        from_catalog=source_catalog_obj,
+        rebuild=True,
+        on_unrebuilt_builder=on_unrebuilt_builder,
+    ).replay(target)
     return target
 
 
@@ -309,7 +313,9 @@ def test_rebuild_refuses_missing_protocol_silent_passthrough(tmpdir, saved_regis
     composed = bind(source_entry, transform_entry).tag("test_bare")
     catalog.add(composed, aliases=("bare_entry",))
 
-    target = _replay_rebuild(catalog, Path(tmpdir).joinpath("tgt"))
+    target = _replay_rebuild(
+        catalog, Path(tmpdir).joinpath("tgt"), on_unrebuilt_builder="warn"
+    )
     new_bare = target.get_catalog_entry("bare_entry", maybe_alias=True)
 
     from xorq.expr.relations import Tag  # noqa: PLC0415
