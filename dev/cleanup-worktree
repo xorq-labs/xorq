@@ -3,26 +3,18 @@ set -euo pipefail
 
 here=$(git rev-parse --show-toplevel)
 main=$(git worktree list --porcelain | head -1 | cut -d' ' -f2)
-
-# Support both old and new manifest locations
-manifest="$here/.worktree-manifest"
-if [ ! -f "$manifest" ]; then
-    manifest="$here/.envrcs/.worktree-manifest"
-fi
+manifest="$here/.envrcs/.worktree-manifest"
 
 if [ -f "$manifest" ]; then
     cd "$here"
     xargs rm -v < "$manifest"
+    # Remove any empty parent directories created by setup
     while IFS= read -r entry; do
         dir=$(dirname "$entry")
         rmdir -p "$dir" 2>/dev/null || true
     done < "$manifest"
     rm -v "$manifest"
 fi
-
-# Restore all git-tracked files that were replaced by symlinks
-cd "$here"
-git checkout -- . 2>/dev/null || true
 
 cd "$main"
 git worktree remove "$here"

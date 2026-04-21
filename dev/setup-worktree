@@ -9,18 +9,13 @@ if [ "$main" = "$here" ]; then
     exit 0
 fi
 
-manifest="$here/.worktree-manifest"
+manifest="$here/.envrcs/.worktree-manifest"
 : > "$manifest"
 
-# Remove git's .envrc and .envrcs so we can replace them with symlinks
-# to the main worktree (where the sops secret symlinks live).
-for target in .envrc .envrcs dev; do
-    if [ -e "$here/$target" ] && [ ! -L "$here/$target" ]; then
-        rm -rf "$here/$target"
-    fi
-    if [ -e "$main/$target" ] && [ ! -e "$here/$target" ]; then
-        ln -sv "$main/$target" "$here/$target"
-        echo "$target" >> "$manifest"
+for f in "$main"/.envrcs/.envrc.secrets "$main"/.envrcs/.envrc.user "$main"/.envrcs/.env.*; do
+    if [ -e "$f" ]; then
+        cp -Pv "$f" "$here/.envrcs/"
+        echo ".envrcs/$(basename "$f")" >> "$manifest"
     fi
 done
 
@@ -48,5 +43,5 @@ if [ -f "$extra" ]; then
     done < "$extra"
 fi
 
-echo "Manifest written to .worktree-manifest"
+echo "Manifest written to .envrcs/.worktree-manifest"
 echo "To remove: dev/cleanup-worktree"
