@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776801541466,
+  "lastUpdate": 1776804500477,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -7524,6 +7524,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.033485593150147056",
             "extra": "mean: 199.20876428571026 msec\nrounds: 7"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "646f882b5e27eae9bf744b639b5fe9fd687dfc5d",
+          "message": "release: 0.3.20 (#1856)\n\n## Summary\nRelease v0.3.20.\n\nSee `CHANGELOG.md` for the full list of changes since v0.3.19.\n\n## Test plan\n- [x] Trigger the [ci-pre-release\nworkflow](https://github.com/xorq-labs/xorq/actions/workflows/ci-pre-release.yml)\nagainst branch `release-0.3.20`\n- [x] All ci-pre-release checks pass\n- [ ] Squash-merge this PR\n- [ ] Tag `v0.3.20` on `origin/main` and push\n- [ ] Create GitHub release to trigger publishing\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-04-21T16:44:11-04:00",
+          "tree_id": "551acfe283003d19c93f89f01378ba0006ce79d5",
+          "url": "https://github.com/xorq-labs/xorq/commit/646f882b5e27eae9bf744b639b5fe9fd687dfc5d"
+        },
+        "date": 1776804497132,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.838633644833303,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007825179114903517",
+            "extra": "mean: 101.64012972727608 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.7294098203063095,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01455654215181987",
+            "extra": "mean: 211.44287300000428 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6067366229600133,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10996194453476416",
+            "extra": "mean: 1.648161594600009 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.839458353334928,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009105143632617201",
+            "extra": "mean: 206.63469483333566 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.957305031743087,
+            "unit": "iter/sec",
+            "range": "stddev: 0.049956722237160085",
+            "extra": "mean: 252.6972249999962 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.626043084126652,
+            "unit": "iter/sec",
+            "range": "stddev: 0.026620136869060926",
+            "extra": "mean: 216.16746360000434 msec\nrounds: 5"
           }
         ]
       }
