@@ -1179,23 +1179,32 @@ class DataViewScreen(Screen):
         self._stack = self._stack.push(step)
         self._execute_current()
 
-    @work(thread=True, exit_on_error=False)
+    @work(thread=True, exit_on_error=False, exclusive=True, group="execute_current")
     def _execute_current(self) -> None:
         """Evaluate current stack expression via subprocess."""
+        stack = self._stack
         try:
-            stack = self._stack
             code = stack.current_code or None
             df = self._run_catalog_subprocess(code)
-            self.app.call_from_thread(self._on_stack_executed, df)
         except Exception as e:
-            self._stack = stack.undo()
-            self.app.call_from_thread(self._show_command_error, str(e))
+            self.app.call_from_thread(self._on_stack_execute_failed, stack, str(e))
+            return
+        self.app.call_from_thread(self._on_stack_executed, stack, df)
 
-    def _on_stack_executed(self, df) -> None:
+    def _on_stack_executed(self, stack, df) -> None:
+        if self._stack is not stack:
+            return
         self._df = df
         self._cursor_column_index = 0
         self._render_table()
         self._update_command_suggester()
+        self._render_stack_browser()
+
+    def _on_stack_execute_failed(self, stack, message) -> None:
+        if self._stack is not stack:
+            return
+        self._stack = stack.undo()
+        self._show_command_error(message)
         self._render_stack_browser()
 
     def _show_command_error(self, message) -> None:
