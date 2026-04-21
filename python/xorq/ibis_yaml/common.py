@@ -114,11 +114,18 @@ class Registry:
         op_name = node_dict.get("op", "unknown").lower()
         node_ref = f"@{op_name}_{node_hash[: config.hash_length]}"
         node_dict_with_hash = freeze(node_dict | {"snapshot_hash": node_hash})
-        if isinstance(node, Read) and "memtables" in dict(node.read_kwargs):
+        if isinstance(node, Read) and "read_path" in dict(node.read_kwargs):
+            # Reads whose parquet was materialized into the build bundle carry
+            # a build-relative `read_path`. The absolute `hash_path` assigned
+            # at build time embeds the tmpdir root, so serializing it verbatim
+            # would make expr.yaml bytes non-deterministic across rebuilds.
+            # The loader (ExprLoader.deferred_reads_to_memtables) overwrites
+            # hash_path with expr_path.joinpath(read_path) anyway, so rewriting
+            # the stored value to the relative read_path is lossless.
             from xorq.common.utils.node_utils import update_read_kwargs  # noqa: PLC0415
 
             old_read_kwargs = node_dict_with_hash["read_kwargs"]
-            new_path = Path("memtables", dict(old_read_kwargs)["hash_path"].name)
+            new_path = Path(dict(old_read_kwargs)["read_path"])
             modified_read_kwargs = update_read_kwargs(
                 old_read_kwargs, (("hash_path", new_path),)
             )
