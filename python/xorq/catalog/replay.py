@@ -43,7 +43,9 @@ def _translate(name, remap):
     return remap.get(name, name) if remap else name
 
 
-def _rebuild_expr_for_target(source_entry, to_catalog, remap):
+def _rebuild_expr_for_target(
+    source_entry, to_catalog, remap, on_unrebuilt_builder="raise"
+):
     """Return an expression for re-adding *source_entry* into *to_catalog*.
 
     Thin wrapper around :func:`_rebuild_subexpr` that reads ``lazy_expr``
@@ -54,10 +56,13 @@ def _rebuild_expr_for_target(source_entry, to_catalog, remap):
         from_catalog=source_entry.catalog,
         to_catalog=to_catalog,
         remap=remap,
+        on_unrebuilt_builder=on_unrebuilt_builder,
     )
 
 
-def _rebuild_subexpr(expr, *, from_catalog, to_catalog, remap):
+def _rebuild_subexpr(
+    expr, *, from_catalog, to_catalog, remap, on_unrebuilt_builder="raise"
+):
     """Rebuild every outermost rebuildable tag in *expr* under current code.
 
     Walks tags outermost-first and collects all outermost rebuildable
@@ -83,6 +88,7 @@ def _rebuild_subexpr(expr, *, from_catalog, to_catalog, remap):
     from xorq.catalog.composer import ExprComposer  # noqa: PLC0415
     from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
     from xorq.expr.builders import (  # noqa: PLC0415
+        _get_from_tag_node_registry,
         get_rebuild_dispatch,
     )
     from xorq.expr.relations import HashingTag, Tag  # noqa: PLC0415
@@ -93,6 +99,7 @@ def _rebuild_subexpr(expr, *, from_catalog, to_catalog, remap):
         from_catalog=from_catalog,
         to_catalog=to_catalog,
         remap=remap,
+        on_unrebuilt_builder=on_unrebuilt_builder,
     )
 
     def _is_catalog_tag(node):
@@ -126,6 +133,18 @@ def _rebuild_subexpr(expr, *, from_catalog, to_catalog, remap):
         if id(tag) in claimed:
             continue
         if not (_is_catalog_tag(tag) or get_rebuild_dispatch(tag) is not None):
+            tag_name = tag.metadata.get("tag")
+            if tag_name and tag_name in _get_from_tag_node_registry():
+                msg = (
+                    f"rebuild: handler for tag {tag_name!r} has no rebuild "
+                    "protocol (handler.reemit, object.reemit, or "
+                    "object.with_inputs_translated)"
+                )
+                if on_unrebuilt_builder == "raise":
+                    raise RuntimeError(msg)
+                import warnings  # noqa: PLC0415
+
+                warnings.warn(msg, stacklevel=2)
             continue
         outermost.append(tag)
         for descendant in walk_nodes((Tag, HashingTag), tag.to_expr()):
@@ -268,6 +287,15 @@ def _changed_paths(commit):
     return {diff.b_path or diff.a_path for diff in parent.diff(commit)}
 
 
+_CATALOG_PREFIXES = tuple(f"{infix.value}/" for infix in CatalogInfix)
+
+
+def _is_catalog_path(path):
+    if path == CATALOG_YAML_NAME:
+        return True
+    return any(path.startswith(prefix) for prefix in _CATALOG_PREFIXES)
+
+
 @frozen
 class InitCatalog:
     """First commit: bare repo initialization."""
@@ -279,7 +307,15 @@ class InitCatalog:
         sha = self.commit_metadata.sha[:8] if self.commit_metadata else "--------"
         return f"[init]  {sha}  {self.message}"
 
-    def do(self, from_catalog, to_catalog, *, rebuild=False, remap=None):
+    def do(
+        self,
+        from_catalog,
+        to_catalog,
+        *,
+        rebuild=False,
+        remap=None,
+        on_unrebuilt_builder="raise",
+    ):
         pass
 
     @staticmethod
@@ -305,7 +341,15 @@ class AddCatalogYAML:
         sha = self.commit_metadata.sha[:8] if self.commit_metadata else "--------"
         return f"[init]  {sha}  {self.message}"
 
-    def do(self, from_catalog, to_catalog, *, rebuild=False, remap=None):
+    def do(
+        self,
+        from_catalog,
+        to_catalog,
+        *,
+        rebuild=False,
+        remap=None,
+        on_unrebuilt_builder="raise",
+    ):
         pass
 
     @staticmethod
@@ -343,7 +387,15 @@ class AddEntry:
         alias_str = ", ".join(self.aliases) if self.aliases else "(none)"
         return f"[add]   {sha}  entry={self.entry_hash}  aliases=[{alias_str}]"
 
-    def do(self, from_catalog, to_catalog, *, rebuild=False, remap=None):
+    def do(
+        self,
+        from_catalog,
+        to_catalog,
+        *,
+        rebuild=False,
+        remap=None,
+        on_unrebuilt_builder="raise",
+    ):
         if not rebuild:
             catalog_entry = from_catalog.get_catalog_entry(self.entry_hash)
             to_catalog.add(
@@ -361,6 +413,7 @@ class AddEntry:
                 from_catalog=from_catalog,
                 to_catalog=to_catalog,
                 remap=remap,
+                on_unrebuilt_builder=on_unrebuilt_builder,
             )
         except RuntimeError as e:
             raise RuntimeError(
@@ -411,7 +464,15 @@ class AddAlias:
         sha = self.commit_metadata.sha[:8] if self.commit_metadata else "--------"
         return f"[alias] {sha}  {self.alias} -> {self.entry_name}"
 
-    def do(self, from_catalog, to_catalog, *, rebuild=False, remap=None):
+    def do(
+        self,
+        from_catalog,
+        to_catalog,
+        *,
+        rebuild=False,
+        remap=None,
+        on_unrebuilt_builder="raise",
+    ):
         entry_name = _translate(self.entry_name, remap) if rebuild else self.entry_name
         to_catalog.add_alias(entry_name, self.alias, sync=False)
 
@@ -452,7 +513,15 @@ class RemoveEntry:
         alias_str = ", ".join(self.aliases) if self.aliases else "(none)"
         return f"[rm]    {sha}  entry={self.entry_name}  aliases=[{alias_str}]"
 
-    def do(self, from_catalog, to_catalog, *, rebuild=False, remap=None):
+    def do(
+        self,
+        from_catalog,
+        to_catalog,
+        *,
+        rebuild=False,
+        remap=None,
+        on_unrebuilt_builder="raise",
+    ):
         entry_name = _translate(self.entry_name, remap) if rebuild else self.entry_name
         to_catalog.remove(entry_name, sync=False)
 
@@ -486,7 +555,15 @@ class RemoveAlias:
         sha = self.commit_metadata.sha[:8] if self.commit_metadata else "--------"
         return f"[rm-a]  {sha}  alias={self.alias}"
 
-    def do(self, from_catalog, to_catalog, *, rebuild=False, remap=None):
+    def do(
+        self,
+        from_catalog,
+        to_catalog,
+        *,
+        rebuild=False,
+        remap=None,
+        on_unrebuilt_builder="raise",
+    ):
         from xorq.catalog.catalog import CatalogAlias  # noqa: PLC0415
 
         CatalogAlias.from_name(self.alias, to_catalog).remove()
@@ -521,12 +598,22 @@ class UnknownOp:
         sha = self.commit_metadata.sha[:8] if self.commit_metadata else "--------"
         return f"[???]   {sha}  {self.message}"
 
-    def do(self, from_catalog, to_catalog, *, rebuild=False, remap=None):
+    def do(
+        self,
+        from_catalog,
+        to_catalog,
+        *,
+        rebuild=False,
+        remap=None,
+        on_unrebuilt_builder="raise",
+    ):
         if rebuild:
-            raise RuntimeError(
-                f"Cannot rebuild unknown op at commit {self.hexsha[:8]}: {self.message!r}. "
-                "Rebuild requires all ops be recognized catalog operations."
-            )
+            commit = from_catalog.repo.commit(self.hexsha)
+            if any(_is_catalog_path(p) for p in _changed_paths(commit)):
+                raise RuntimeError(
+                    f"Cannot rebuild unknown op at commit {self.hexsha[:8]}: {self.message!r}. "
+                    "Rebuild requires all ops be recognized catalog operations."
+                )
         patch = from_catalog.repo.git.format_patch("-1", self.hexsha, stdout=True)
         to_catalog.repo.git.am(input=patch)
 
@@ -607,6 +694,9 @@ class Replayer:
     from_catalog: object = field()  # Catalog — avoid import-time dep
     verify: bool = field(default=True)
     rebuild: bool = field(default=False)
+    on_unrebuilt_builder: str = field(
+        default="raise", validator=validators.in_(("raise", "warn"))
+    )
 
     @cached_property
     def ops(self) -> tuple[CatalogOp, ...]:
@@ -640,7 +730,13 @@ class Replayer:
                 else nullcontext()
             )
             with ctx:
-                op.do(self.from_catalog, to_catalog, rebuild=self.rebuild, remap=remap)
+                op.do(
+                    self.from_catalog,
+                    to_catalog,
+                    rebuild=self.rebuild,
+                    remap=remap,
+                    on_unrebuilt_builder=self.on_unrebuilt_builder,
+                )
             if isinstance(op, (InitCatalog, AddCatalogYAML)) and preserve_commits:
                 noop_ops.append(op)
         if noop_ops:
