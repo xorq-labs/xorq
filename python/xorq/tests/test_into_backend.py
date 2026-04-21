@@ -257,14 +257,15 @@ def test_into_backend_duckdb(pg):
         .select(player_id="playerID", year_id="yearID_right")
     )
 
-    expr, created = register_and_transform_remote_tables(expr)
+    expr, created, _caches = register_and_transform_remote_tables(expr)
     query = ibis.to_sql(expr, dialect="duckdb")
 
     res = ddb.con.sql(query).df()
 
-    assert query.count("ls_batting") == 2
+    assert len(created) == 1
+    registered_name = next(iter(created))
+    assert query.count(registered_name) == 2
     assert 0 < len(res) <= 15
-    assert len(created) == 3
 
 
 @pytest.mark.postgres
@@ -273,14 +274,15 @@ def test_into_backend_duckdb_expr(pg):
     t = pg.table("batting").into_backend(ddb, "ls_batting")
     expr = t.join(t, "playerID").limit(15).select(_.playerID * 2)
 
-    expr, created = register_and_transform_remote_tables(expr)
+    expr, created, _caches = register_and_transform_remote_tables(expr)
     query = ibis.to_sql(expr, dialect="duckdb")
 
     res = ddb.con.sql(query).df()
 
-    assert query.count("ls_batting") == 2
+    assert len(created) == 1
+    registered_name = next(iter(created))
+    assert query.count(registered_name) == 2
     assert 0 < len(res) <= 15
-    assert len(created) == 3
 
 
 @pytest.mark.trino
@@ -288,14 +290,14 @@ def test_into_backend_duckdb_trino(trino_table):
     db_con = xo.duckdb.connect()
     expr = trino_table.head(10_000).into_backend(db_con).pipe(make_merged)
 
-    expr, created = register_and_transform_remote_tables(expr)
+    expr, created, _caches = register_and_transform_remote_tables(expr)
     query = ibis.to_sql(expr, dialect="duckdb")
 
     df = db_con.con.sql(query).df()  # to bypass execute hotfix
 
     assert isinstance(df, pd.DataFrame)
     assert len(df) > 0
-    assert len(created) == 3
+    assert len(created) == 1
 
 
 @pytest.mark.trino
@@ -310,15 +312,16 @@ def test_multiple_into_backend_duckdb_xorq(trino_table):
         .into_backend(ls_con)[lambda t: t.orderstatus == "F"]
     )
 
-    expr, created = register_and_transform_remote_tables(expr)
+    expr, created, _caches = register_and_transform_remote_tables(expr)
 
     df = expr.execute()
 
     assert isinstance(df, pd.DataFrame)
     assert len(df) > 0
-    assert len(created) == 2
+    assert len(created) == 1
 
 
+@pytest.mark.trino
 @pytest.mark.benchmark
 def test_into_backend_duckdb_trino_cached(trino_table, tmp_path):
     db_con = xo.duckdb.connect()
