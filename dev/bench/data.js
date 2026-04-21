@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776787024268,
+  "lastUpdate": 1776793026315,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -7326,6 +7326,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.006460927396434137",
             "extra": "mean: 194.34594520000132 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6bdddbbaf36fc21521b6a431740f3c61a932e5da",
+          "message": "fix(cache): invalidate on file changes for DuckDB and DataFusion (#1833)\n\n## Summary\n\n- **DataFusion path extraction**: Replace fragile regex with\n`yaml12.parse_yaml` on the `file_groups=` section of execution plans,\ncorrectly handling multi-group, multi-file, URL, and\nwhitespace-containing paths. Apply `_canonicalize_plan_path` to strip\n`xorq-catalog-*` tempdir prefixes for stable catalog-zip tokens.\n- **DuckDB path extraction**: Parse DDL via `sqlglot` AST\n(`ReadParquet`/`ReadCSV` nodes) instead of hashing the raw DDL string.\nFalls back to DDL-string-based token for tables without\n`read_parquet`/`read_csv` (e.g. plain `CREATE TABLE`).\n- **File-metadata-based cache keys**: Both DataFusion and DuckDB\nfile-backed tables now include per-file stat metadata (mtime, size,\ninode) in the cache token via `_normalize_path_stat`, so overwriting a\nbacking file invalidates the cache.\n- **`_normalize_path_stat` consolidation**: Extract shared HTTP HEAD /\nS3 / local stat logic from `normalize_read` into a reusable helper, used\nby all three code paths. Includes `timeout=10` on HTTP requests,\n`FileNotFoundError` for missing local paths, and a descriptive\n`User-Agent` header.\n- **Scheme prefix bugfix**: Fix overly broad `startswith(\"http\")` /\n`startswith(\"s3\")` checks in `normalize_read` to use full scheme\nprefixes (`\"http://\"`, `\"s3://\"`, etc.).\n- **Known limitation**: DataFusion strips scheme+host from HTTP URLs in\nexecution plans, so HTTP-backed CSV tables on the xorq/DataFusion\nbackend cannot be tokenized (documented as `xfail(strict=True)`).\n\n## Test plan\n\n- [x] Parametrized `test_extract_plan_file_paths` — unit tests for\nDataFusion plan parsing (single/multi group, absolute paths, URLs, no\nfile_groups)\n- [x] Parametrized `test_extract_duckdb_file_paths` — unit tests for\nDuckDB DDL parsing (parquet, csv, multi-path, plain CREATE TABLE, URLs)\n- [x] `test_parquet_invalidates_on_file_change` — token changes when\nbacking parquet is overwritten (datafusion, duckdb, xorq)\n- [x] `test_token_stable_for_same_file` — same file produces same token\nacross connections (parquet+csv × all backends)\n- [x] `test_parquet_different_files_produce_different_tokens` /\n`test_parquet_same_content_different_path_produces_different_token`\n- [x] `test_duckdb_multi_path_cache_key_invalidates_on_file_change` /\n`test_xorq_multi_csv_path_cache_key_invalidates_on_file_change`\n- [x] `test_parquet_cache_storage` — asserts cache populated after first\nexecute, invalidated after file change, then re-populated with correct\ndata\n- [x] `test_http_csv_token_is_stable` — stable for DuckDB, xfail for\nxorq/DataFusion\n- [x] Snapshot test updated (`datafusion_key.txt`) with mocked\n`_normalize_path_stat` for machine-stable hashes\n\nCloses #1821\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-04-21T13:33:09-04:00",
+          "tree_id": "dae275882d82e5215117a954ebaefed8e0e01947",
+          "url": "https://github.com/xorq-labs/xorq/commit/6bdddbbaf36fc21521b6a431740f3c61a932e5da"
+        },
+        "date": 1776793023424,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.036275325413301,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005939750810575565",
+            "extra": "mean: 99.63855788888685 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.726156130437488,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010842889275201488",
+            "extra": "mean: 211.5884393999977 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.591412109279543,
+            "unit": "iter/sec",
+            "range": "stddev: 0.21128331669056521",
+            "extra": "mean: 1.6908683205999921 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.08298213332397,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007948594606746323",
+            "extra": "mean: 196.73490359999732 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.144476889880848,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0476473341588515",
+            "extra": "mean: 241.28497433333487 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.993079132958348,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007066570462230169",
+            "extra": "mean: 200.27721840000368 msec\nrounds: 5"
           }
         ]
       }
