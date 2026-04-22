@@ -13,8 +13,8 @@ manifest="$here/.envrcs/.worktree-manifest"
 : > "$manifest"
 
 for f in "$main"/.envrcs/.envrc.secrets "$main"/.envrcs/.envrc.user "$main"/.envrcs/.env.*; do
-    if [ -f "$f" ]; then
-        cp -v "$f" "$here/.envrcs/"
+    if [ -e "$f" ]; then
+        cp -Pv "$f" "$here/.envrcs/"
         echo ".envrcs/$(basename "$f")" >> "$manifest"
     fi
 done
