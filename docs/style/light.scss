@@ -213,8 +213,7 @@ input {
 }
 
 pre code {
-    background: $white !important;
-    color: $black !important;
+    background: #ffffff !important;
 }
 
 div.cell-output > pre {
@@ -401,8 +400,8 @@ pre>code.sourceCode {
 /* ALT Riviera - Regular */
 @font-face {
   font-family: 'ALT Riviera';
-  src: url('/style/fonts/ALTRiviera-Regular.ttf') format('ttf'),
-       url('/style/fonts/ALTRiviera-Regular.otf') format('otf');
+  src: url('/style/fonts/ALTRiviera-Regular.ttf') format('truetype'),
+       url('/style/fonts/ALTRiviera-Regular.otf') format('opentype');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
