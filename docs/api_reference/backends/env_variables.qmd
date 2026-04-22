@@ -90,7 +90,8 @@ Core XORQ application settings.
 | `XORQ_DEFAULT_RELATIVE_PATH` | Default relative path for data | No | `parquet` | 
 | `XORQ_PROFILE_DIR` | Directory for storing profiles | No | `~/.config/xorq/profiles` | 
 | `XORQ_DEBUG` | Enable debug mode | No | `False` | 
-| `XORQ_CACHE_KEY_PREFIX` | Prefix for cache keys | No | `letsql_cache-` | 
+| `XORQ_CACHE_KEY_PREFIX` | Prefix for cache keys | No | `letsql_cache-` |
+| `XORQ_LOG_LEVEL` | Log level for file logging (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, or `OFF` to disable) | No | `INFO` |
 
 **Note:** These variables use `export` statements in the template, indicating they should be set as shell environment variables.
 

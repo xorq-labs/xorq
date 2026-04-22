@@ -1,4 +1,6 @@
 import json
+import logging
+import logging.handlers
 import pathlib
 from unittest.mock import MagicMock
 
@@ -139,6 +141,42 @@ def test_from_expr_hash_finalizes_with_span_context(tmp_path):
     meta = json.loads((rl.run_dir / "meta.json").read_text())
     assert meta["status"] == "ok"
     assert "otel_trace_id" in meta
+
+
+def test_rotating_file_handler_rotates(tmp_path):
+    log_file = tmp_path / "xorq.log"
+    max_bytes = 1024
+
+    handler = logging.handlers.RotatingFileHandler(
+        log_file, maxBytes=max_bytes, backupCount=3
+    )
+    handler.setFormatter(
+        structlog.stdlib.ProcessorFormatter(
+            processors=[structlog.processors.JSONRenderer()],
+        )
+    )
+    test_logger = logging.getLogger("test_rotation")
+    test_logger.setLevel(logging.DEBUG)
+    test_logger.addHandler(handler)
+
+    structlog.configure(
+        processors=[
+            structlog.processors.add_log_level,
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+        ],
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.make_filtering_bound_logger(logging.DEBUG),
+    )
+
+    logger = structlog.get_logger("test_rotation")
+    for i in range(200):
+        logger.info("padding", i=i, data="x" * 50)
+
+    assert log_file.exists()
+    assert (tmp_path / "xorq.log.1").exists()
+
+    test_logger.removeHandler(handler)
+    handler.close()
 
 
 def test_null_run_logger_is_noop():
