@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776872300319,
+  "lastUpdate": 1776872928557,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -7656,6 +7656,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.014028563558438904",
             "extra": "mean: 210.44001260000869 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6ed881c1b841c043d264808a3c630b6b6d619b74",
+          "message": "fix(worktree): preserve symlinks when copying envrc secrets (#1854)\n\n## Summary\n- Use `cp -Pv` instead of `cp -v` in `dev/setup-worktree` so symlinks\nlike `.envrc.secrets` → `~/.config/xorq/envrcs/.envrc.secrets` are\npreserved as symlinks rather than dereferenced into regular files\n- Check `-e` instead of `-f` so symlinks are detected correctly\n- Add `.claude` and `.envrcs/.worktree-symlinks` to\n`.gitignore.template` to keep worktree noise out of `git status`\n\n## Test plan\n- [x] Create a worktree and verify `.envrcs/.envrc.secrets` and\n`.envrcs/.envrc.user` are symlinks (not regular files)\n- [x] Verify `git status` in the worktree is clean (no modifications to\ntracked files)\n- [x] Verify `direnv allow` loads secrets correctly in the worktree\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-22T17:44:38+02:00",
+          "tree_id": "fa48d08131a28fa43d4cbf04450b2c04311e14f8",
+          "url": "https://github.com/xorq-labs/xorq/commit/6ed881c1b841c043d264808a3c630b6b6d619b74"
+        },
+        "date": 1776872924816,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.838798168239407,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00549371627083476",
+            "extra": "mean: 101.63843011111832 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.458373552692671,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006760994515098506",
+            "extra": "mean: 224.2970420000006 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.5850904602211262,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19670399329267887",
+            "extra": "mean: 1.7091374205999954 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.71309867702339,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013905947947286676",
+            "extra": "mean: 212.17463680000037 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.883195079460073,
+            "unit": "iter/sec",
+            "range": "stddev: 0.048083892907677235",
+            "extra": "mean: 257.5198977999946 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.798633364573455,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011284947504935553",
+            "extra": "mean: 208.39266599999746 msec\nrounds: 5"
           }
         ]
       }
