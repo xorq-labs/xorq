@@ -31,6 +31,8 @@ website:
         text: "Get started"
       - href: tutorials/ml_tutorials/split_data_for_training.qmd
         text: "Tutorials"
+      - href: agentic_workflows/index.qmd
+        text: "Agentic workflows"
       - href: guides/data_workflows/read_write_production_data.qmd
         text: "Guides"
       - href: concepts/understanding_xorq/overview.qmd
@@ -86,6 +88,19 @@ website:
             # - href: tutorials/analytics_tutorials/use_window_functions.qmd
             - href: tutorials/analytics_tutorials/work_with_schemas.qmd
 
+    - id: agentic-workflows
+      title: "Agentic workflows"
+      collapse-level: 1
+      pinned: true
+      contents:
+        - href: agentic_workflows/index.qmd
+          text: "Overview"
+        - href: agentic_workflows/faa_semantic_layer.qmd
+          text: "Semantic layer (FAA)"
+        - href: agentic_workflows/build_your_own_agent.qmd
+          text: "Build your own data agent"
+        - href: agentic_workflows/mcp_for_analysts.qmd
+          text: "MCP for data analysts"
 
     - id: guides
       title: "Guides"
