@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776804500477,
+  "lastUpdate": 1776872300319,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -7590,6 +7590,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.026620136869060926",
             "extra": "mean: 216.16746360000434 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5af7c04d098ae40ebf7472dff87da72069560438",
+          "message": "fix(logging): wire RotatingFileHandler so xorq.log actually rotates (#1857)\n\n## Summary\n\nAddresses https://github.com/boringdata/boring-semantic-layer/issues/233\n— `~/.config/xorq/xorq.log` grows without bound.\n\n- `RotatingFileHandler` was configured with `backupCount=0` (default),\nwhich disables rotation entirely\n- `structlog.WriteLoggerFactory(rfh._open())` grabbed a raw file\ndescriptor, bypassing the handler's `emit()` path — so\n`shouldRollover()` never ran even if `backupCount` were set\n- Route structlog through stdlib logging via `ProcessorFormatter` so\nwrites go through `emit()` → `shouldRollover()` → `doRollover()`\n- Set `backupCount=3` to keep rotated backups (`xorq.log.1`, `.2`,\n`.3`), capping total disk usage at ~200 MiB\n- Add `XORQ_LOG_LEVEL` env var (via `EnvConfigable` /\n`.env.xorq.template`). Set to `OFF` to disable file logging entirely\n- Document `XORQ_LOG_LEVEL` in the env variables reference\n\n## Test plan\n\n- [x] Smoke test: `get_logger('test').info('msg', k='v')` writes JSON to\n`~/.config/xorq/xorq.log`\n- [x] Log output format unchanged (JSON with `level`, `timestamp`,\n`event`, kwargs)\n- [x] `XORQ_LOG_LEVEL=OFF` skips handler creation and log file writes\n- [x] `ruff check` passes\n- [x] Test that rotation triggers by writing >maxBytes and checking for\n`.log.1` backup\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-22T17:34:12+02:00",
+          "tree_id": "0494b39bb54fbd752b5cb3f1d9d9c907dd1b976b",
+          "url": "https://github.com/xorq-labs/xorq/commit/5af7c04d098ae40ebf7472dff87da72069560438"
+        },
+        "date": 1776872297844,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.27236651229399,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02992062754008482",
+            "extra": "mean: 120.88439245454713 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.33583513130498,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030874452593657536",
+            "extra": "mean: 230.63607580000962 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.61134734261894,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16476481825483255",
+            "extra": "mean: 1.6357313269999962 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.806072403274192,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006272746564581563",
+            "extra": "mean: 208.0701071666624 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.305017068592174,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03622019906060252",
+            "extra": "mean: 302.57029819999275 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.751948014281571,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014028563558438904",
+            "extra": "mean: 210.44001260000869 msec\nrounds: 5"
           }
         ]
       }
