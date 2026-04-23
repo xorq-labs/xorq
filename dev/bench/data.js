@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776872928557,
+  "lastUpdate": 1776938833560,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -7722,6 +7722,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.011284947504935553",
             "extra": "mean: 208.39266599999746 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7d3758696859792edaabe225a2ab60d1662a3aa4",
+          "message": "feat(catalog): add `run-cached` command mirroring `xorq run-cached` (#1841)\n\n## Summary\n- Adds `xorq catalog run-cached` as a sibling of `catalog run`, wrapping\nthe composed/resolved expression with a ParquetCache before output.\n- Accepts the full `catalog run` surface (entries, `-c/--code`,\n`-p/--params`, `--rename-params`, `--fuse`, `-i/--instream`, `--limit`,\n`-o/--output-path`, `-f/--format`) plus the cache options from `xorq\nrun-cached` (`--cache-dir`, `--cache-type`, `--ttl`).\n- Cache selection mirrors `xorq run-cached`: `ParquetCache`\n(modification-time, default), `ParquetSnapshotCache` (`--cache-type\nsnapshot`), or `ParquetTTLSnapshotCache` when `--ttl` is set.\n\n## Stacking\nStacked on `hussain/feat/catalog-run-params` because `run-cached`\ndepends on the `_apply_cli_params` helper extracted in that branch.\nMerge the parent PR first.\n\n## Test plan\n- [x] `test_run_cached_single_entry` — happy path, verifies cache dir is\npopulated\n- [x] `test_run_cached_two_entries` — compose + cache\n- [x] `test_run_cached_snapshot_type` — `--cache-type snapshot`\n- [x] `test_run_cached_ttl` — `--ttl` selects TTL variant\n- [x] `test_run_cached_with_params` — `-p/--params` binds before caching\n- [x] `test_run_cached_no_entries` — usage error when no entries given\n- [x] Existing `catalog run` tests still pass (no regressions)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-23T12:03:35+02:00",
+          "tree_id": "2479acd7d4d655db17cf8b389c19595bf2b5bd72",
+          "url": "https://github.com/xorq-labs/xorq/commit/7d3758696859792edaabe225a2ab60d1662a3aa4"
+        },
+        "date": 1776938830642,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.360169220329132,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0070990894942879615",
+            "extra": "mean: 96.5235199090919 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 5.046950590260772,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004990957024381243",
+            "extra": "mean: 198.13944720000336 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6694495500587108,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16810409533230464",
+            "extra": "mean: 1.4937645412000051 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.062058444709824,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027965106991748978",
+            "extra": "mean: 197.54809449998825 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.69402147738287,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03445297860780438",
+            "extra": "mean: 213.03694599998835 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.371917799042772,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006322304915655304",
+            "extra": "mean: 186.15325799999974 msec\nrounds: 6"
           }
         ]
       }
