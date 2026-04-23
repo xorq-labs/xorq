@@ -9,7 +9,11 @@ from abc import (
 
 import dask
 from attr import (
+    field,
     frozen,
+)
+from attr.validators import (
+    instance_of,
 )
 
 import xorq.common.utils.dask_normalize  # noqa: F401
@@ -23,6 +27,7 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     patch_normalize_op_caching,
     patch_normalize_token,
 )
+from xorq.config import options
 from xorq.expr.relations import (
     Read,
     RemoteTable,
@@ -73,8 +78,13 @@ def _rename_remote_table(node, kwargs):
 
 @frozen
 class CacheStrategy:
+    key_prefix = field(
+        validator=instance_of(str),
+        factory=functools.partial(options.get, "cache.key_prefix"),
+    )
+
     @abstractmethod
-    def calc_key(self, expr, key_prefix=""):
+    def calc_key(self, expr):
         pass
 
     def __dask_tokenize__(self):
@@ -83,17 +93,17 @@ class CacheStrategy:
 
 @frozen
 class ModificationTimeStrategy(CacheStrategy):
-    def calc_key(self, expr: ir.Expr, key_prefix=""):
-        return key_prefix + expr.ls.tokenized
+    def calc_key(self, expr: ir.Expr):
+        return self.key_prefix + expr.ls.tokenized
 
 
 @frozen
 class SnapshotStrategy(CacheStrategy):
-    def calc_key(self, expr: ir.Expr, key_prefix=""):
+    def calc_key(self, expr: ir.Expr):
         with self.normalization_context(expr):
             replaced = self.replace_remote_table(expr)
             tokenized = replaced.ls.tokenized
-            return key_prefix + "-".join(("snapshot", tokenized))
+            return self.key_prefix + "-".join(("snapshot", tokenized))
 
     @contextlib.contextmanager
     def normalization_context(self, expr):

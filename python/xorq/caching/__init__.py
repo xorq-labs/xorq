@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import functools
 
 from attr import (
     field,
@@ -27,7 +26,6 @@ from xorq.caching.strategy import (
 )
 from xorq.common.exceptions import XorqError
 from xorq.common.utils.otel_utils import tracer
-from xorq.config import options
 from xorq.vendor.ibis.expr import types as ir
 
 
@@ -45,10 +43,6 @@ __all__ = [  # noqa: PLE0604
 class Cache:
     strategy = field(validator=instance_of(CacheStrategy))
     storage = field(validator=instance_of(CacheStorage))
-    key_prefix = field(
-        validator=instance_of(str),
-        factory=functools.partial(options.get, "cache.key_prefix"),
-    )
 
     strategy_typ = None
     storage_typ = None
@@ -70,7 +64,7 @@ class Cache:
         if expr.ls.is_cached and expr.ls.cache is self:
             expr = expr.ls.uncached_one
         expr = maybe_prevent_cross_source_caching(expr, self)
-        return self.strategy.calc_key(expr, self.key_prefix)
+        return self.strategy.calc_key(expr)
 
     def key_exists(self, key):
         return self.storage.exists(key)
@@ -119,7 +113,10 @@ class Cache:
         )
 
         return normalize_seq_with_caller(
-            self.strategy, self.storage, self.key_prefix, caller="normalize_cache"
+            self.strategy,
+            self.storage,
+            self.strategy.key_prefix,
+            caller="normalize_cache",
         )
 
     @classmethod
