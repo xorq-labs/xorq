@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/xorq-labs/xorq/main/schemas/catalog.schema.json",
+  "title": "xorq Catalog Index",
+  "description": "Schema for xorq catalog.yaml index files. The catalog.yaml tracks all entry hashes and aliases stored in a catalog repository.",
+  "oneOf": [
+    { "$ref": "#/$defs/CatalogIndex" },
+    { "$ref": "#/$defs/LegacyCatalogIndex" }
+  ],
+  "$defs": {
+    "EntryName": {
+      "type": "string",
+      "description": "A catalog entry name — a lowercase hex hash derived from the expression's build fingerprint (e.g. '6623dfa75d8c'). Corresponds to entries/<name>.zip in the catalog repo.",
+      "pattern": "^[0-9a-f]+$",
+      "minLength": 8
+    },
+    "AliasName": {
+      "type": "string",
+      "description": "A human-readable alias for a catalog entry. Corresponds to a symlink at aliases/<alias>.zip -> ../entries/<entry>.zip.",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+      "minLength": 1
+    },
+    "CatalogIndex": {
+      "type": "object",
+      "title": "Catalog Index (current format)",
+      "description": "Current catalog.yaml format containing separate lists of entry hashes and alias names.",
+      "required": ["entries", "aliases"],
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "type": "array",
+          "description": "Ordered list of entry names (hex hashes) tracked by this catalog.",
+          "items": { "$ref": "#/$defs/EntryName" },
+          "uniqueItems": true,
+          "default": []
+        },
+        "aliases": {
+          "type": "array",
+          "description": "Ordered list of alias names defined in this catalog.",
+          "items": { "$ref": "#/$defs/AliasName" },
+          "uniqueItems": true,
+          "default": []
+        }
+      },
+      "examples": [
+        {
+          "entries": ["6623dfa75d8c", "a1b2c3d4e5f6"],
+          "aliases": ["my-model", "production-v1"]
+        },
+        {
+          "entries": [],
+          "aliases": []
+        }
+      ]
+    },
+    "LegacyCatalogIndex": {
+      "type": "array",
+      "title": "Catalog Index (legacy format)",
+      "description": "Legacy catalog.yaml format: a plain list of entry names with no aliases section. Auto-converted to the current format on first write.",
+      "items": { "$ref": "#/$defs/EntryName" },
+      "uniqueItems": true,
+      "examples": [
+        ["6623dfa75d8c", "a1b2c3d4e5f6"]
+      ]
+    },
+    "EntryMetadata": {
+      "type": "object",
+      "title": "Entry Metadata",
+      "description": "Schema for metadata/<entry>.zip.metadata.yaml files. Stores the MD5 checksum of the corresponding entry ZIP archive for integrity verification.",
+      "required": ["md5sum"],
+      "additionalProperties": false,
+      "properties": {
+        "md5sum": {
+          "type": "string",
+          "description": "MD5 hex digest of the entry's ZIP archive file.",
+          "pattern": "^[0-9a-f]{32}$",
+          "examples": ["d41d8cd98f00b204e9800998ecf8427e"]
+        }
+      },
+      "examples": [
+        { "md5sum": "d41d8cd98f00b204e9800998ecf8427e" }
+      ]
+    },
+    "IbisDataType": {
+      "type": "string",
+      "description": "An ibis data type string as produced by ibis Schema serialisation.",
+      "examples": [
+        "int8", "int16", "int32", "int64",
+        "uint8", "uint16", "uint32", "uint64",
+        "float32", "float64",
+        "string", "boolean",
+        "date", "time", "timestamp", "timestamp('UTC')",
+        "array<string>", "map<string, int64>",
+        "struct<x: float64, y: float64>"
+      ]
+    },
+    "IbisSchema": {
+      "type": "object",
+      "title": "Ibis Schema",
+      "description": "A mapping of column names to ibis data type strings, as serialised by ibis Schema.",
+      "additionalProperties": { "$ref": "#/$defs/IbisDataType" },
+      "examples": [
+        {
+          "id": "int64",
+          "name": "string",
+          "score": "float64",
+          "ts": "timestamp('UTC')"
+        }
+      ]
+    },
+    "ExprKind": {
+      "type": "string",
+      "title": "Expression Kind",
+      "description": "Classifies how the stored expression is bound to its data sources.",
+      "enum": ["source", "expr", "unbound_expr"]
+    },
+    "ExprMetadata": {
+      "type": "object",
+      "title": "Expression Metadata",
+      "description": "Schema for expr_metadata.json inside each catalog entry ZIP archive. Describes the kind of the stored expression and its input/output schemas.",
+      "required": ["kind", "schema_out"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "$ref": "#/$defs/ExprKind" },
+        "schema_in": {
+          "$ref": "#/$defs/IbisSchema",
+          "description": "Input schema. Present only when kind is 'unbound_expr'; describes the column types the expression expects its UnboundTable placeholder to receive."
+        },
+        "schema_out": {
+          "$ref": "#/$defs/IbisSchema",
+          "description": "Output schema of the expression — the columns and types produced after all transformations."
+        }
+      },
+      "if": {
+        "properties": { "kind": { "const": "unbound_expr" } },
+        "required": ["kind"]
+      },
+      "then": {
+        "required": ["kind", "schema_in", "schema_out"]
+      },
+      "examples": [
+        {
+          "kind": "source",
+          "schema_out": { "id": "int64", "value": "float64" }
+        },
+        {
+          "kind": "unbound_expr",
+          "schema_in": { "id": "int64", "value": "float64" },
+          "schema_out": { "id": "int64", "scaled": "float64" }
+        }
+      ]
+    }
+  }
+}
