@@ -48,4 +48,4 @@ def test_snapshot_strategy_calc_key_with_hashing_tag_over_remote_table():
 
     strategy = SnapshotStrategy()
     key = strategy.calc_key(tagged)
-    assert key.startswith("snapshot-")
+    assert key.startswith(f"{strategy.key_prefix}snapshot-")
