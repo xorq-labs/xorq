@@ -9,7 +9,16 @@ title: 'Cache Strategies, Storage, and Backend Invalidation'
   --xorq-blueSky: 195 100% 88%;
   --xorq-cloud: 196 100% 97%;
   --xorq-teal: 186 68% 30%;
+  --xorq-accent: 186 68% 30%;
+  --xorq-code-fg: 186 68% 6%;
+  --xorq-code-bg-alpha: 0.25;
   --xorq-mono: "FK Grotesk Mono", "Space Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+body.quarto-dark {
+  --xorq-accent: 195 100% 85%;
+  --xorq-code-fg: 196 100% 97%;
+  --xorq-code-bg-alpha: 0.15;
 }
 
 main h2 {
@@ -20,9 +29,15 @@ main h2 {
 main h3,
 main h4,
 main h5 {
-  color: hsl(var(--xorq-teal));
+  color: hsl(var(--xorq-accent));
   text-transform: none !important;
   letter-spacing: 0;
+}
+
+body.quarto-dark main h3,
+body.quarto-dark main h4,
+body.quarto-dark main h5 {
+  text-transform: none !important;
 }
 
 main h3::before,
@@ -30,7 +45,13 @@ main h3::after,
 main h4::before,
 main h4::after,
 main h5::before,
-main h5::after {
+main h5::after,
+body.quarto-dark main h3::before,
+body.quarto-dark main h3::after,
+body.quarto-dark main h4::before,
+body.quarto-dark main h4::after,
+body.quarto-dark main h5::before,
+body.quarto-dark main h5::after {
   content: "" !important;
   display: none !important;
 }
@@ -43,16 +64,22 @@ main table {
 main table thead th {
   text-transform: uppercase;
   font-weight: 500;
-  color: hsl(var(--xorq-teal));
+  color: hsl(var(--xorq-accent));
   border-bottom: 2px solid hsl(var(--xorq-blueSky));
 }
 
 main :not(pre) > code {
   font-family: var(--xorq-mono);
-  color: hsl(var(--xorq-midnight));
-  background: hsl(var(--xorq-blueSky) / 0.25);
+  color: hsl(var(--xorq-code-fg));
+  background: hsl(var(--xorq-blueSky) / var(--xorq-code-bg-alpha));
   border-radius: 0;
   padding: 0.1em 0.35em;
+}
+
+main :is(h1, h2, h3, h4, h5, h6) code {
+  background: transparent !important;
+  padding: 0 !important;
+  color: inherit !important;
 }
 </style>
 ```
