@@ -54,16 +54,23 @@ class Cache:
     storage_typ = None
 
     def __attrs_post_init__(self):
-        assert isinstance(self.strategy, self.strategy_typ)
-        assert isinstance(self.storage, self.storage_typ)
+        if not isinstance(self.strategy, self.strategy_typ):
+            raise TypeError(
+                f"expected strategy of type {self.strategy_typ.__name__}, "
+                f"got {type(self.strategy).__name__}"
+            )
+        if not isinstance(self.storage, self.storage_typ):
+            raise TypeError(
+                f"expected storage of type {self.storage_typ.__name__}, "
+                f"got {type(self.storage).__name__}"
+            )
 
     def calc_key(self, expr):
         # the order here matters: must check is_cached before calling maybe_prevent_cross_source_caching
         if expr.ls.is_cached and expr.ls.cache is self:
             expr = expr.ls.uncached_one
         expr = maybe_prevent_cross_source_caching(expr, self)
-        # FIXME: let strategy solely determine key by giving it key_prefix
-        return self.key_prefix + self.strategy.calc_key(expr)
+        return self.strategy.calc_key(expr, self.key_prefix)
 
     def key_exists(self, key):
         return self.storage.exists(key)
@@ -204,8 +211,15 @@ class GCSCache(Cache):
     def __attrs_post_init__(self):
         from xorq.common.utils.gcloud_utils import GCStorage  # noqa: PLC0415
 
-        assert isinstance(self.strategy, self.strategy_typ)
-        assert isinstance(self.storage, GCStorage)
+        if not isinstance(self.strategy, self.strategy_typ):
+            raise TypeError(
+                f"expected strategy of type {self.strategy_typ.__name__}, "
+                f"got {type(self.strategy).__name__}"
+            )
+        if not isinstance(self.storage, GCStorage):
+            raise TypeError(
+                f"expected storage of type GCStorage, got {type(self.storage).__name__}"
+            )
 
     @classmethod
     def from_kwargs(cls, bucket_name, source):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import pathlib
 from abc import (
     abstractmethod,
 )
@@ -15,10 +16,10 @@ import xorq.common.utils.dask_normalize  # noqa: F401
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.common.utils.dask_normalize.dask_normalize_expr import (
     normalize_backend,
-    normalize_read,
     normalize_remote_table,
 )
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+    normalize_seq_with_caller,
     patch_normalize_op_caching,
     patch_normalize_token,
 )
@@ -29,10 +30,51 @@ from xorq.expr.relations import (
 from xorq.vendor.ibis.expr import types as ir
 
 
+def snapshot_normalize_read(read):
+    """Normalize Read for snapshot caching using path identity only, not file modification stats."""
+    read_kwargs = dict(read.read_kwargs)
+    # Materialized build-bundle reads carry a content-hash-named read_path that is
+    # stable across environments. Their hash_path is an absolute tmpdir path that
+    # changes every run, so prefer read_path when available.
+    path = read_kwargs.get("read_path") or read_kwargs["hash_path"]
+    match path:
+        case list() | tuple() if len(path) == 1:
+            tpls = (("path", str(path[0])),)
+        case list() | tuple():
+            tpls = (("paths", tuple(str(p) for p in path)),)
+        case str() | pathlib.Path():
+            tpls = (("path", str(path)),)
+        case _:
+            raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
+    tpls += tuple(
+        (k, v) for k, v in read.read_kwargs if k in ("mode", "schema", "temporary")
+    )
+    return normalize_seq_with_caller(
+        read.schema,
+        tpls,
+        caller="snapshot_normalize_read",
+    )
+
+
+def _rename_remote_table(node, kwargs):
+    if isinstance(node, RemoteTable):
+        # FIXME: how to verify that we're always within a normalization_context?
+        name = dask.base.tokenize(node)
+        return RemoteTable(
+            name=name,
+            schema=node.schema,
+            source=node.source,
+            remote_expr=node.remote_expr,
+            namespace=node.namespace,
+        )
+    # kwargs is None when no children were rewritten (graph.py convention)
+    return node.__recreate__(kwargs) if kwargs else node
+
+
 @frozen
 class CacheStrategy:
     @abstractmethod
-    def calc_key(self, expr):
+    def calc_key(self, expr, key_prefix=""):
         pass
 
     def __dask_tokenize__(self):
@@ -41,17 +83,17 @@ class CacheStrategy:
 
 @frozen
 class ModificationTimeStrategy(CacheStrategy):
-    def calc_key(self, expr: ir.Expr):
-        return expr.ls.tokenized
+    def calc_key(self, expr: ir.Expr, key_prefix=""):
+        return key_prefix + expr.ls.tokenized
 
 
 @frozen
 class SnapshotStrategy(CacheStrategy):
-    def calc_key(self, expr: ir.Expr):
+    def calc_key(self, expr: ir.Expr, key_prefix=""):
         with self.normalization_context(expr):
             replaced = self.replace_remote_table(expr)
             tokenized = replaced.ls.tokenized
-            return "-".join(("snapshot", tokenized))
+            return key_prefix + "-".join(("snapshot", tokenized))
 
     @contextlib.contextmanager
     def normalization_context(self, expr):
@@ -73,37 +115,21 @@ class SnapshotStrategy(CacheStrategy):
                     ):
                         yield
 
-    @staticmethod
-    @functools.cache
-    def cached_normalize_read(op):
-        return normalize_read(op)
-
-    @staticmethod
-    @functools.cache
-    def cached_replace_remote_table(op):
-        def rename_remote_table(node, kwargs):
-            if isinstance(node, RemoteTable):
-                # FIXME: how to verify that we're always within a self.normalization_context?
-                name = dask.base.tokenize(node)
-                rt = RemoteTable(
-                    name=name,
-                    schema=node.schema,
-                    source=node.source,
-                    remote_expr=node.remote_expr,
-                    namespace=node.namespace,
-                )
-                return rt
-            else:
-                # kwargs is None when no children were rewritten (graph.py convention)
-                return node.__recreate__(kwargs) if kwargs else node
-
-        return op.replace(rename_remote_table)
-
     def replace_remote_table(self, expr):
         """replace remote table with deterministic name ***strictly for key calculation***"""
         if expr.op().find(RemoteTable):
             expr = self.cached_replace_remote_table(expr.op()).to_expr()
         return expr
+
+    @staticmethod
+    @functools.cache
+    def cached_normalize_read(op):
+        return snapshot_normalize_read(op)
+
+    @staticmethod
+    @functools.cache
+    def cached_replace_remote_table(op):
+        return op.replace(_rename_remote_table)
 
     @staticmethod
     def normalize_backend(con):

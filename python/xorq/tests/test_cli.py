@@ -14,6 +14,7 @@ import pyarrow.parquet as pq
 import pytest
 
 import xorq.api as xo
+from xorq.caching.strategy import SnapshotStrategy
 from xorq.cli import (
     OutputFormats,
     build_command,
@@ -868,10 +869,10 @@ def test_uv_build_with_extra(tmpdir):
 
 
 serve_hashes = (
-    "1e5f8b2b262dd841f1db1bc19ac6abc2",  # batting, rel.Read
-    "e210634ae2df82a56dd49d7cf7516d14",  # awards_players, rel.Read
-    "edaa2a90ba8df1688e67a24edb03964e",  # left, ops.Filter
-    "929550bdf9130ece976a83ae2cf285f8",  # right, ops.DropColumns
+    "0f76674432f4f2e88d98adf8cfa8b7b2",  # batting, rel.Read
+    "f2f7ee33ce2ff34ed8b11ca1e58aedcd",  # awards_players, rel.Read
+    "7adb47cba9c636e265af9710e5f805b5",  # left, ops.Filter
+    "b37e5c790be38823aca3a7bd151570d4",  # right, ops.DropColumns
 )
 
 
@@ -940,12 +941,14 @@ def hit_server(port, expr):
 @pytest.mark.parametrize("serve_hash", serve_hashes)
 def test_serve_unbound_hash(serve_hash, pipeline_https_build):
     lookup = {
-        "929550bdf9130ece976a83ae2cf285f8": "xorq.vendor.ibis.expr.operations.DropColumns",
-        "edaa2a90ba8df1688e67a24edb03964e": "xorq.vendor.ibis.expr.operations.Filter",
+        "b37e5c790be38823aca3a7bd151570d4": "xorq.vendor.ibis.expr.operations.DropColumns",
+        "7adb47cba9c636e265af9710e5f805b5": "xorq.vendor.ibis.expr.operations.Filter",
     }
     expr = load_expr(pipeline_https_build)
     typ = lookup.get(serve_hash)
-    subexpr = find_node(expr, hash=serve_hash, tag=None, typs=typ).to_expr()
+    subexpr = find_node(
+        expr, hash=serve_hash, tag=None, typs=typ, strategy=SnapshotStrategy()
+    ).to_expr()
 
     serve_args = (
         "xorq",
@@ -1097,7 +1100,7 @@ def test_serve_penguins_template(tmpdir, tmp_path):
     assert returncode == 0, stderr
 
     if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
-        serve_hash = "d9cebcfbeeadc40f4a39814357716481"  # RemoteTable (test split)
+        serve_hash = "2e6380c0c379fbac0f8270a7418a590b"  # RemoteTable (test split)
 
         serve_args = (
             "xorq",
