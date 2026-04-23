@@ -284,8 +284,17 @@ class Node(Hashable):
         return tuple(_flatten_collections(self.__args__))
 
     def __rich_repr__(self):
-        """Support for rich reprerentation of the node."""
-        return zip(self.__argnames__, self.__args__)
+        """Support for rich representation of the node.
+
+        Child Nodes are rendered as compact type summaries to prevent
+        unbounded recursion when Rich traverses deep expression graphs
+        (e.g. during structlog exception logging with show_locals=True).
+        """
+        for name, arg in zip(self.__argnames__, self.__args__):
+            if isinstance(arg, Node):
+                yield name, f"{type(arg).__name__}(...)"
+            else:
+                yield name, arg
 
     def map(self, fn: Callable, filter: Optional[Finder] = None) -> dict[Node, Any]:
         """Apply a function to all nodes in the graph.
