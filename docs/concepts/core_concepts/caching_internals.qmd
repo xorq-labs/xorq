@@ -2,6 +2,61 @@
 title: 'Cache Strategies, Storage, and Backend Invalidation'
 ---
 
+```{=html}
+<style>
+:root {
+  --xorq-midnight: 186 68% 6%;
+  --xorq-blueSky: 195 100% 88%;
+  --xorq-cloud: 196 100% 97%;
+  --xorq-teal: 186 68% 30%;
+  --xorq-mono: "FK Grotesk Mono", "Space Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+main h2 {
+  border-left: 4px solid hsl(var(--xorq-blueSky));
+  padding-left: 0.75rem;
+}
+
+main h3,
+main h4,
+main h5 {
+  color: hsl(var(--xorq-teal));
+  text-transform: none !important;
+  letter-spacing: 0;
+}
+
+main h3::before,
+main h3::after,
+main h4::before,
+main h4::after,
+main h5::before,
+main h5::after {
+  content: "" !important;
+  display: none !important;
+}
+
+main table {
+  font-family: var(--xorq-mono);
+  letter-spacing: -0.00875rem;
+}
+
+main table thead th {
+  text-transform: uppercase;
+  font-weight: 500;
+  color: hsl(var(--xorq-teal));
+  border-bottom: 2px solid hsl(var(--xorq-blueSky));
+}
+
+main :not(pre) > code {
+  font-family: var(--xorq-mono);
+  color: hsl(var(--xorq-midnight));
+  background: hsl(var(--xorq-blueSky) / 0.25);
+  border-radius: 0;
+  padding: 0.1em 0.35em;
+}
+</style>
+```
+
 Every cache in xorq is the combination of a **strategy** and a **storage**. The strategy determines how the cache key is computed. The storage determines where the cached data lives. The cache classes you import from `xorq.caching` are named combinations of these two axes:
 
 | Cache class | Strategy | Storage |
