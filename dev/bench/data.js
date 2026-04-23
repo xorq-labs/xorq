@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776938833560,
+  "lastUpdate": 1776951481184,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -7788,6 +7788,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.006322304915655304",
             "extra": "mean: 186.15325799999974 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2146e58a24c8e2a58be032c157593ab13ae7c66e",
+          "message": "fix(worktree): copy .gitignore instead of symlinking (#1863)\n\n## Summary\n- git opens `.gitignore` with `O_NOFOLLOW`, so a symlinked `.gitignore`\nalways fails with ELOOP (\"Too many levels of symbolic links\")\n- Changed `dev/setup-worktree` to copy `.gitignore` instead of\nsymlinking it\n- Other entries (`.claude`, `ci/ibis-testing-data`) remain symlinks —\nthey're directories that git doesn't open with `O_NOFOLLOW`\n\n## Test plan\n- [x] Run `dev/setup-worktree` in a new worktree, verify `.gitignore` is\na regular file\n- [x] Run `git add` in the worktree, verify no ELOOP warning\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-23T15:33:40+02:00",
+          "tree_id": "dfb0240104a81ed31c5cde8f9724a7b5c67f86c1",
+          "url": "https://github.com/xorq-labs/xorq/commit/2146e58a24c8e2a58be032c157593ab13ae7c66e"
+        },
+        "date": 1776951478297,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.097343124290346,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005884892262738878",
+            "extra": "mean: 99.03595309090592 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.728623203145244,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015154912145344339",
+            "extra": "mean: 211.47804699999142 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6295607047360906,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15133759944130262",
+            "extra": "mean: 1.588409175599986 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.042635398248091,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006387248358333328",
+            "extra": "mean: 198.3090033333402 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.028372152712346,
+            "unit": "iter/sec",
+            "range": "stddev: 0.038163100229203446",
+            "extra": "mean: 248.23922966667547 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.892594722353451,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012444108897900819",
+            "extra": "mean: 204.39052420000507 msec\nrounds: 5"
           }
         ]
       }
