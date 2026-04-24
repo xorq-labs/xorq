@@ -71,31 +71,6 @@ class Backend(DataFusionBackend):
         arrow_table = batch_reader.read_all()
         return expr.__pyarrow_result__(arrow_table)
 
-    def to_pyarrow_batches(
-        self,
-        expr: ir.Expr,
-        *,
-        chunk_size: int = 1_000_000,
-        **kwargs: Any,
-    ) -> pa.ipc.RecordBatchReader:
-        return super().to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
-
-    def do_connect(self, config: SessionConfig | None = None) -> None:
-        """Creates a connection.
-
-        Parameters
-        ----------
-        config
-            Mapping of table names to files.
-
-        Examples
-        --------
-        >>> import xorq.api as xo
-        >>> con = xo.connect()
-
-        """
-        super().do_connect(config=config)
-
     def _extract_catalog(self, query):
         tables = parse_one(query).find_all(exp.Table)
         return {table.name: self.table(table.name) for table in tables}
