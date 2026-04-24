@@ -333,3 +333,62 @@ def test_rebuild_refuses_missing_protocol_silent_passthrough(tmpdir, saved_regis
         and ht.metadata.get("entry_name")
     }
     assert inner_names <= set(target.list())
+
+
+# ---------------------------------------------------------------------------
+# Real FittedPipeline rebuild integration (sklearn-gated)
+# ---------------------------------------------------------------------------
+
+
+def test_rebuild_fitted_pipeline_roundtrip_predictions_match(tmpdir):
+    """End-to-end rebuild of a real sklearn FittedPipeline catalog entry.
+
+    Covers the multi-output-builder rebuild path:
+      1. ``FittedPipeline`` is recovered from the PREDICT tag via the builtin
+         ``from_tag_node`` handler.
+      2. Its ``reemit`` method is dispatched by the rebuild driver, which
+         refits the pipeline and re-stamps the tag with fresh kwargs.
+      3. The rebuilt entry executes and produces predictions equal to the
+         source's predictions.
+
+    Without this, the FittedPipeline rebuild path is only covered by dispatch-
+    table string checks; nothing fits a real model and compares outputs.
+    """
+    pytest.importorskip("sklearn")
+    import pandas as pd  # noqa: PLC0415
+    from sklearn.linear_model import LinearRegression  # noqa: PLC0415
+    from sklearn.pipeline import make_pipeline  # noqa: PLC0415
+    from sklearn.preprocessing import StandardScaler  # noqa: PLC0415
+
+    from xorq.expr.ml.pipeline_lib import Pipeline  # noqa: PLC0415
+    from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
+
+    train = xo.memtable(
+        {
+            "feature_0": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "feature_1": [5.0, 4.0, 3.0, 2.0, 1.0],
+            "target": [0.0, 1.0, 0.0, 1.0, 0.0],
+        },
+        name="ml_train",
+    )
+    sk_pipe = make_pipeline(StandardScaler(), LinearRegression())
+    pipeline = Pipeline.from_instance(sk_pipe)
+    fitted = pipeline.fit(train, target="target")
+    predict_expr = fitted.predict(train)
+
+    repo = Catalog.init_repo_path(Path(tmpdir).joinpath("src"))
+    catalog = Catalog(backend=GitBackend(repo=repo))
+    src_entry = catalog.add(predict_expr, aliases=("preds",))
+    assert src_entry.kind == ExprKind.ExprBuilder
+
+    src_df = src_entry.expr.execute().reset_index(drop=True)
+
+    target = _replay_rebuild(catalog, Path(tmpdir).joinpath("tgt"))
+    tgt_entry = target.get_catalog_entry("preds", maybe_alias=True)
+
+    # The rebuilt entry is still an ExprBuilder — the outer PREDICT tag was
+    # preserved (re-emitted with refreshed kwargs), not stripped.
+    assert tgt_entry.kind == ExprKind.ExprBuilder
+
+    tgt_df = tgt_entry.expr.execute().reset_index(drop=True)
+    pd.testing.assert_frame_equal(src_df, tgt_df, check_exact=False)
