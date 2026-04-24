@@ -48,7 +48,7 @@ def _do_inside(repo_path, *args, env=None):
     cmd = [GIT_ANNEX_COMMAND, *args]
     run_env = None
     if env:
-        run_env = {**os.environ, **env}
+        run_env = {**os.environ, **dict(env)}
     result = subprocess.run(
         cmd,
         cwd=repo_path,
@@ -71,7 +71,11 @@ def _check_output_do_inside(repo_path, *args, check_stderr=True, env=None):
 @frozen
 class Annex:
     repo_path = field(validator=instance_of(Path), converter=abspath)
-    env = field(validator=optional(instance_of(dict)), default=None)
+    env = field(
+        validator=optional(instance_of(tuple)),
+        default=None,
+        converter=lambda v: tuple(v.items()) if isinstance(v, dict) else v,
+    )
     poll_interval_seconds = field(validator=instance_of(float), default=0.001)
 
     def __attrs_post_init__(self):
@@ -214,10 +218,11 @@ class Annex:
                 }
             return cls.from_dict(config, **kwargs)
         # recover creds from self.env (set at construction time)
+        env_dict = dict(self.env) if self.env else {}
         instance_fallback = {
-            field_name: self.env[env_key]
+            field_name: env_dict[env_key]
             for env_key, field_name in self._ENV_TO_FIELD.items()
-            if self.env and self.env.get(env_key) and field_name not in config
+            if env_dict.get(env_key) and field_name not in config
         }
         # fill in fields missing from remote.log (e.g. secrets) from env vars
         env_config = cls.EnvConfig.from_env()
@@ -497,15 +502,15 @@ class S3RemoteConfig(RemoteConfig):
 
     @property
     def env(self):
-        return {
-            "AWS_ACCESS_KEY_ID": self.aws_access_key_id,
-            "AWS_SECRET_ACCESS_KEY": self.aws_secret_access_key,
+        return (
+            ("AWS_ACCESS_KEY_ID", self.aws_access_key_id),
+            ("AWS_SECRET_ACCESS_KEY", self.aws_secret_access_key),
             # clear session/temporary credentials that may be in the
             # environment so git-annex doesn't try to use STS tokens
-            "AWS_SESSION_TOKEN": "",
-            "AWS_SECURITY_TOKEN": "",
-            "AWS_CREDENTIAL_EXPIRATION": "",
-        }
+            ("AWS_SESSION_TOKEN", ""),
+            ("AWS_SECURITY_TOKEN", ""),
+            ("AWS_CREDENTIAL_EXPIRATION", ""),
+        )
 
     _DEFAULT_PORTS = {"http": "80", "https": "443"}
 
