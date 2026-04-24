@@ -228,7 +228,12 @@ class Annex:
             and getattr(env_config, a.name)
             and a.name not in config
         }
-        return cls.from_dict(config, **{**env_fallback, **instance_fallback, **kwargs})
+        merged = config | env_fallback | instance_fallback | kwargs
+        # check that all required fields (no default) are present
+        required = {a.name for a in attr.fields(cls) if a.default is attr.NOTHING}
+        if not required.issubset(merged):
+            return None
+        return cls.from_dict(merged)
 
     @property
     def remote_config(self):
