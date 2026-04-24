@@ -40,6 +40,15 @@ class Backend(IbisPostgresBackend):
             caller="normalize_postgres_databasetable",
         )
 
+    def __dask_tokenize__(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+
+        con_dct = self.con.info.get_parameters() | {"port": self.con.info.port}
+        con_details = {k: con_dct[k] for k in ("host", "port", "dbname")}
+        return normalize_seq_with_caller(self.name, con_details)
+
     compiler = compiler
 
     @classmethod

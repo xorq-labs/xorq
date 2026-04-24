@@ -72,6 +72,17 @@ class Backend(SQLBackend):
             caller="normalize_pyiceberg_databasetable",
         )
 
+    def __dask_tokenize__(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+
+        catalog_params = self.catalog_params
+        con_details = (self.catalog.name,) + tuple(
+            catalog_params[k] for k in ("type", "uri", "warehouse")
+        )
+        return normalize_seq_with_caller(self.name, con_details)
+
     @property
     def version(self):
         import importlib.metadata  # noqa: PLC0415

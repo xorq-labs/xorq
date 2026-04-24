@@ -37,6 +37,11 @@ class Backend(IbisSQLiteBackend):
             caller="normalize_sqlite_database_table",
         )
 
+    def __dask_tokenize__(self):
+        if self.is_in_memory():
+            return id(self.con)
+        return self.uri
+
     def read_record_batches(
         self,
         record_batches: pa.RecordBatchReader,

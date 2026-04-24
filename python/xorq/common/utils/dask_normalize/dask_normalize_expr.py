@@ -498,7 +498,6 @@ def normalize_named_scalar_parameter(node):
     )
 
 
-@dask.base.normalize_token.register(ibis.backends.BaseBackend)
 def normalize_backend(con):
     name = con.name
     if name == "snowflake":
@@ -680,7 +679,6 @@ def opaque_node_replacer(node, kwargs):
     return new_node
 
 
-@dask.base.normalize_token.register(ibis.expr.types.Expr)
 def normalize_expr(expr):
     from xorq.expr.api import get_compiler  # noqa: PLC0415
 

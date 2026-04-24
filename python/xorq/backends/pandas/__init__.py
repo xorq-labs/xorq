@@ -312,6 +312,13 @@ class Backend(BasePandasBackend):
 
         return normalize_memory_databasetable(dt)
 
+    def __dask_tokenize__(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+
+        return normalize_seq_with_caller(self.name, id(self.dictionary))
+
     def execute(self, query, params=None, limit="default", **kwargs):
         from xorq.backends.pandas.executor import PandasExecutor  # noqa: PLC0415
 

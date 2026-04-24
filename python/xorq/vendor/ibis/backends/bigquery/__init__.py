@@ -179,6 +179,13 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema):
             last_modified_time,
         )
 
+    def __dask_tokenize__(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+
+        return normalize_seq_with_caller(self.name, (self.project_id, self.dataset_id))
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.__session_dataset: bq.DatasetReference | None = None

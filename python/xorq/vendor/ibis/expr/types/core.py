@@ -156,6 +156,14 @@ class Expr(Immutable, Coercible):
     def __hash__(self):
         return hash((self.__class__, self._arg))
 
+    def __dask_tokenize__(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
+            normalize_op,
+        )
+        from xorq.expr.api import get_compiler  # noqa: PLC0415
+
+        return normalize_op(self.op(), compiler=get_compiler(self))
+
     def equals(self, other):
         """Return whether this expression is _structurally_ equivalent to `other`.
 
