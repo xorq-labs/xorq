@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777046574551,
+  "lastUpdate": 1777067524785,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -8184,6 +8184,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.010951341014562887",
             "extra": "mean: 211.12251520000882 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "385e696d90743c5b83fdbee677ef5371db918a58",
+          "message": "refactor(worktree): make new-worktree project-agnostic (#1870)\n\n## Summary\n\n- Extract the hardcoded `xorq-` prefix in `dev/new-worktree` into a\n`PROJECT_NAME` variable, sourced from `dev/project.env` with a fallback\nto the repo directory basename\n- Add `dev/project.env` with commented-out `PROJECT_NAME` and\n`CONTAINER_WORKSPACE` — works without edits, provides a config seam for\nthe devcontainer workflow (`feat/devcontainer`)\n\n## Motivation\n\nThe worktree scripts should be project-agnostic so they can be reused\nacross repos. This is also a prerequisite for generalizing the\ndevcontainer workflow, which needs `PROJECT_NAME` for container naming\nand `CONTAINER_WORKSPACE` for mount paths.\n\n## Test plan\n\n- [ ] `dev/new-worktree <branch>` creates sibling dir named\n`<reponame>-<branch>`\n- [ ] Uncommenting `PROJECT_NAME=foo` in `project.env` changes the\nprefix to `foo-<branch>`\n- [ ] Deleting `project.env` still works (guarded source falls through\nto basename default)\n- [ ] `dev/setup-worktree` and `dev/cleanup-worktree` still work\nunchanged\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-24T23:48:07+02:00",
+          "tree_id": "a6a79dd1b576ac6dd00bc8343c009dd03b8af618",
+          "url": "https://github.com/xorq-labs/xorq/commit/385e696d90743c5b83fdbee677ef5371db918a58"
+        },
+        "date": 1777067521582,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.543385497298685,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006878127001513007",
+            "extra": "mean: 94.84619530000202 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.867891568542826,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009502040861699652",
+            "extra": "mean: 205.42774750000112 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6669780158284627,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1872172545145997",
+            "extra": "mean: 1.4992997914 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.2040032367338105,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010181940899062547",
+            "extra": "mean: 192.15975750000305 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.058797559792673,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02780189445665281",
+            "extra": "mean: 246.3783879999871 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.192356569357838,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006398614500298537",
+            "extra": "mean: 192.59077966667348 msec\nrounds: 6"
           }
         ]
       }
