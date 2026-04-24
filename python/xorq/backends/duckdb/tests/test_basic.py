@@ -106,11 +106,9 @@ def test_sql_execution(con, duckdb_con, awards_players, batting):
         predicate,
         how="inner",
     )
-    query = xo.to_sql(expr)
 
     result = (
-        con.sql(query)
-        .execute()
+        expr.execute()
         .fillna(np.nan)[left.columns]
         .sort_values(result_order)
         .reset_index(drop=True)
