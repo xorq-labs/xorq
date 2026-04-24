@@ -5,6 +5,7 @@ import pytest
 from pytest import param
 
 import xorq.api as xo
+from xorq.tests.test_cli import build_run_examples_expr_names
 
 
 KEY_PREFIX = xo.config.options.cache.key_prefix
@@ -23,11 +24,16 @@ NON_TESTABLE = (
     "semantic_builder_example.py",
     "databricks_into_backend_example.py",
 )
+TESTED_IN_BUILD_AND_RUN = tuple(name for name, *_ in build_run_examples_expr_names)
 
 file_path = pathlib.Path(__file__).absolute()
 root = file_path.parent
 examples_dir = file_path.parents[3] / "examples"
-scripts = (p for p in examples_dir.glob("*.py") if p.name not in NON_TESTABLE)
+scripts = (
+    p
+    for p in examples_dir.glob("*.py")
+    if p.name not in (NON_TESTABLE + TESTED_IN_BUILD_AND_RUN)
+)
 
 
 def teardown_function():
