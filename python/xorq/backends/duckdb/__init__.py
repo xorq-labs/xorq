@@ -8,6 +8,30 @@ from xorq.vendor.ibis.util import gen_name
 
 
 class Backend(IbisDuckDBBackend):
+    def tokenize_table(self, dt):
+        import re  # noqa: PLC0415
+
+        import sqlglot as sg  # noqa: PLC0415
+
+        from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
+            normalize_duckdb_file_read,
+            normalize_memory_databasetable,
+        )
+
+        name = sg.table(dt.name, quoted=dt.source.compiler.quoted).sql(
+            dialect=dt.source.name
+        )
+        ((_, plan),) = dt.source.raw_sql(f"EXPLAIN SELECT * FROM {name}").fetchall()
+        scan_line = plan.split("\n")[1]
+        execution_plan_name = r"\s*│\s*(\w+)\s*│\s*"
+        match re.match(execution_plan_name, scan_line).group(1):
+            case "ARROW_SCAN" | "PANDAS_SCAN":
+                return normalize_memory_databasetable(dt)
+            case "READ_PARQUET" | "READ_CSV" | "SEQ_SCAN":
+                return normalize_duckdb_file_read(dt)
+            case _:
+                raise NotImplementedError(scan_line)
+
     def execute(
         self,
         expr: ir.Expr,

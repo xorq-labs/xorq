@@ -168,6 +168,17 @@ class CachedNode(DatabaseTableView):
     parent: Any = None
     cache: Any = None
 
+    def __dask_tokenize__(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+
+        return normalize_seq_with_caller(
+            self.parent,
+            self.cache,
+            caller="normalize_cached_node",
+        )
+
 
 gen_name_namespace = "rbr-placeholder"
 gen_name = toolz.compose(
@@ -179,6 +190,18 @@ gen_name = toolz.compose(
 
 class RemoteTable(DatabaseTableView):
     remote_expr: Expr
+
+    def __dask_tokenize__(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+
+        return normalize_seq_with_caller(
+            ("schema", self.schema),
+            ("expr", self.remote_expr),
+            ("source", self.source.name),
+            caller="normalize_remote_table",
+        )
 
     @classmethod
     def from_expr(cls, con, expr, name=None):
@@ -591,6 +614,52 @@ class Read(ops.DatabaseTable):
     method_name: str = None
     read_kwargs: Any = ()
     normalize_method: Callable = None
+
+    def __dask_tokenize__(self):
+        import pathlib  # noqa: PLC0415
+
+        from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
+            _normalize_path_stat,
+        )
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+
+        read_kwargs = dict(self.read_kwargs)
+        path = read_kwargs["hash_path"]
+        if isinstance(path, (list, tuple)):
+            path = path[0] if len(path) == 1 else path
+        if isinstance(path, (str, pathlib.Path)):
+            path = str(path)
+            if path.startswith(("http://", "https://")):
+                tpls = _normalize_path_stat(path)
+            elif path.startswith(("s3://", "gs://", "gcs://")):
+                tpls = _normalize_path_stat(
+                    path,
+                    **{k: v for k, v in read_kwargs.items() if k != "hash_path"},
+                )
+            elif not pathlib.Path(path).is_absolute() and path == read_kwargs.get(
+                "read_path"
+            ):
+                tpls = (("build-relative-path", path),)
+            elif (path := pathlib.Path(path)).exists():
+                tpls = self.normalize_method(path)
+            else:
+                raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
+        elif isinstance(path, (list, tuple)) and all(
+            isinstance(el, str) for el in path
+        ):
+            raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
+        else:
+            raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
+        tpls += tuple(
+            (k, v) for k, v in self.read_kwargs if k in ("mode", "schema", "temporary")
+        )
+        return normalize_seq_with_caller(
+            self.schema,
+            tpls,
+            caller="normalize_read",
+        )
 
     def make_dt(self):
         method = getattr(self.source, self.method_name)

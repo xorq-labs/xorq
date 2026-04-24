@@ -876,6 +876,25 @@ class BaseBackend(abc.ABC, _FileIOHandler, CacheHandler):
         self._profile = Profile.from_con(self, *args, **kwargs)
         super().__init__()
 
+    def tokenize_table(self, dt):
+        """Return a stable token for a DatabaseTable bound to this backend.
+
+        Subclasses must override this to provide backend-specific logic.
+        """
+        raise NotImplementedError(
+            f"tokenize_table is not implemented for backend {self.name!r}"
+        )
+
+    def __dask_tokenize__(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+
+        return normalize_seq_with_caller(
+            self.name,
+            (self._profile.con_name, self._profile.kwargs_tuple),
+        )
+
     @property
     @abc.abstractmethod
     def dialect(self) -> sg.Dialect | None:

@@ -19,6 +19,29 @@ if TYPE_CHECKING:
 
 
 class Backend(IbisSQLiteBackend):
+    def tokenize_table(self, dt):
+        from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
+            normalize_memory_databasetable,
+            normalize_seq_with_caller,
+        )
+        from xorq.common.utils.sqlite_utils import get_sqlite_stats  # noqa: PLC0415
+
+        if dt.source.is_in_memory():
+            return normalize_memory_databasetable(dt)
+        return normalize_seq_with_caller(
+            dt.name,
+            dt.schema,
+            dt.source,
+            dt.namespace,
+            get_sqlite_stats(dt),
+            caller="normalize_sqlite_database_table",
+        )
+
+    def __dask_tokenize__(self):
+        if self.is_in_memory():
+            return id(self.con)
+        return self.uri
+
     def read_record_batches(
         self,
         record_batches: pa.RecordBatchReader,

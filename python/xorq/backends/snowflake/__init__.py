@@ -96,6 +96,30 @@ class Backend(IbisSnowflakeBackend):
         toolz.curry(connect_env, authenticator=SnowflakeAuthenticator.keypair)
     )
 
+    def tokenize_table(self, dt):
+        from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+        from xorq.common.utils.snowflake_utils import (  # noqa: PLC0415
+            get_snowflake_last_modification_time,
+        )
+
+        return normalize_seq_with_caller(
+            dt.name,
+            dt.schema,
+            dt.source,
+            dt.namespace,
+            get_snowflake_last_modification_time(dt).tobytes(),
+            caller="normalize_snowflake_databasetable",
+        )
+
+    def __dask_tokenize__(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+
+        return normalize_seq_with_caller(self.name, self.con._host)
+
     def table(self, *args, **kwargs):
         table = super().table(*args, **kwargs)
         op = table.op()

@@ -22,6 +22,46 @@ if TYPE_CHECKING:
 
 
 class Backend(IbisDatafusionBackend):
+    def tokenize_table(self, dt):
+        import re  # noqa: PLC0415
+
+        from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
+            _extract_plan_file_paths,
+            _normalize_path_stat,
+            normalize_memory_databasetable,
+            normalize_seq_with_caller,
+        )
+
+        table = dt.source.con.table(dt.name)
+        ep_str = str(table.execution_plan())
+        if ep_str.startswith(("ParquetExec:", "CsvExec:")) or re.match(
+            r"DataSourceExec:.+file_type=(csv|parquet)", ep_str
+        ):
+            paths = _extract_plan_file_paths(ep_str)
+            if paths:
+                file_metadata = tuple(
+                    (p, _normalize_path_stat(p)) for p in sorted(paths)
+                )
+                return normalize_seq_with_caller(
+                    dt.schema.to_pandas(),
+                    file_metadata,
+                )
+            else:
+                raise ValueError(
+                    f"no parquet/csv paths extractable from execution plan: {ep_str!r}"
+                )
+        elif ep_str.startswith(("MemoryExec:", "DataSourceExec:")):
+            return normalize_memory_databasetable(dt)
+        elif "PyRecordBatchProviderExec" in ep_str:
+            return normalize_seq_with_caller(
+                dt.schema.to_pandas(),
+                dt.name,
+            )
+        elif ep_str.startswith("EmptyExec"):
+            raise ValueError("No data to cache")
+        else:
+            raise ValueError(f"unrecognized DataFusion execution plan: {ep_str!r}")
+
     def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
         self.con.from_arrow(op.data.to_pyarrow(op.schema), op.name)
 

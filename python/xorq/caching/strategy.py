@@ -13,11 +13,6 @@ from attr import (
 
 import xorq.common.utils.dask_normalize  # noqa: F401
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.common.utils.dask_normalize.dask_normalize_expr import (
-    normalize_backend,
-    normalize_read,
-    normalize_remote_table,
-)
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     patch_normalize_op_caching,
     patch_normalize_token,
@@ -76,7 +71,7 @@ class SnapshotStrategy(CacheStrategy):
     @staticmethod
     @functools.cache
     def cached_normalize_read(op):
-        return normalize_read(op)
+        return op.__dask_tokenize__()
 
     @staticmethod
     @functools.cache
@@ -111,7 +106,7 @@ class SnapshotStrategy(CacheStrategy):
         if name in ("pandas", "duckdb", "datafusion", "xorq_datafusion"):
             return (name, None)
         else:
-            return normalize_backend(con)
+            return con.__dask_tokenize__()
 
     @staticmethod
     def normalize_databasetable(dt):
@@ -119,7 +114,7 @@ class SnapshotStrategy(CacheStrategy):
             # one alternative is to explicitly iterate over the fields name, schema, source, namespace
             # but explicit is better than implicit, additionally the name is not a safe bet for caching
             # RemoteTable
-            return normalize_remote_table(dt)
+            return dt.__dask_tokenize__()
         else:
             keys = ["name", "schema", "source", "namespace"]
             return dask.tokenize._normalize_seq_func(

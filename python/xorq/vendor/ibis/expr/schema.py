@@ -102,6 +102,13 @@ class Schema(Concrete, Coercible, MapSet):
             )
         return self == other
 
+    def __dask_tokenize__(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+
+        return normalize_seq_with_caller(self.to_pandas())
+
     @classmethod
     def from_tuples(
         cls,

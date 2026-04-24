@@ -117,6 +117,28 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
     name = "databricks"
     compiler = sc.databricks.compiler
 
+    def tokenize_table(self, dt):
+        from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+
+        return normalize_seq_with_caller(
+            dt.name,
+            dt.schema,
+            dt.source,
+            dt.namespace,
+            caller="normalize_remote_databasetable",
+        )
+
+    def __dask_tokenize__(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+
+        return normalize_seq_with_caller(
+            self.name, (self._server_hostname, self._http_path)
+        )
+
     @property
     def current_catalog(self) -> str:
         with self._safe_raw_sql(sg.select(self.compiler.f.current_catalog())) as cur:
