@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from click.testing import CliRunner
 
@@ -68,6 +69,20 @@ def test_rebuild_produces_consistent_target(source_catalog, target_path):
     assert len(target.list()) == len(catalog.list())
     assert set(target.list_aliases()) == set(catalog.list_aliases())
     target.assert_consistency()
+
+    # Execution-equivalence: every aliased entry must execute to the same data
+    # in source and target. Structural checks (schema/recipe/hash) can line up
+    # while a broken rebuild silently returns wrong rows.
+    from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
+
+    for alias in ("my-source", "my-transform", "bound1"):
+        src_entry = catalog.get_catalog_entry(alias, maybe_alias=True)
+        tgt_entry = target.get_catalog_entry(alias, maybe_alias=True)
+        if src_entry.kind == ExprKind.UnboundExpr:
+            continue
+        src_df = src_entry.expr.execute().reset_index(drop=True)
+        tgt_df = tgt_entry.expr.execute().reset_index(drop=True)
+        pd.testing.assert_frame_equal(src_df, tgt_df)
 
 
 def test_rebuild_preserves_composed_from_linkage(source_catalog, target_path):
@@ -459,6 +474,71 @@ def test_rebuild_applies_non_catalog_unknown_op(tmpdir):
     assert (Path(target.repo.working_dir) / "README.md").read_text() == "hello"
 
 
+def test_rebuild_applies_changed_reemit(tmpdir, saved_registry):
+    """Simulate a code change between catalog.add and replay --rebuild: swap
+    the handler's reemit so it produces a different (but schema-compatible)
+    expression. Asserts (a) the rebuilt entry has a new hash, (b) ``remap``
+    records the old → new translation, (c) the rebuilt entry executes with
+    the v2 behavior. This is the only test where rebuild is not a no-op.
+    """
+    from xorq.expr.builders import TagHandler, register_tag_handler  # noqa: PLC0415
+
+    # v1 handler: reemit keeps every row with amount > 0.
+    def reemit_v1(tag_node, rebuild_subexpr):
+        inner = tag_node.parent.to_expr()
+        return inner.filter(inner.amount > 0)
+
+    register_tag_handler(
+        TagHandler(
+            tag_names=("cc_handler",),
+            extract_metadata=lambda tag_node: {"type": "cc_handler"},
+            reemit=reemit_v1,
+        )
+    )
+
+    repo = Catalog.init_repo_path(Path(tmpdir).joinpath("src"))
+    catalog = Catalog(backend=GitBackend(repo=repo))
+    raw = xo.memtable({"user_id": [1, 2, 3], "amount": [-5.0, 10.0, 20.0]})
+    src_entry = catalog.add(raw.tag("cc_handler"), aliases=("cc",))
+
+    # Swap to v2 — same schema, different filter (> 15 instead of > 0).
+    def reemit_v2(tag_node, rebuild_subexpr):
+        inner = tag_node.parent.to_expr()
+        return inner.filter(inner.amount > 15)
+
+    register_tag_handler(
+        TagHandler(
+            tag_names=("cc_handler",),
+            extract_metadata=lambda tag_node: {"type": "cc_handler"},
+            reemit=reemit_v2,
+        ),
+        override=True,
+    )
+
+    # Drive replay manually so we can inspect the remap built during rebuild.
+    target_path = Path(tmpdir).joinpath("tgt")
+    target = Catalog.from_repo_path(target_path, init=True)
+    replayer = Replayer(from_catalog=catalog, rebuild=True)
+    remap: dict = {}
+    for op in replayer.ops:
+        op.do(catalog, target, rebuild=True, remap=remap)
+    target.assert_consistency()
+
+    tgt_entry = target.get_catalog_entry("cc", maybe_alias=True)
+
+    # (a) Entry hash changed: the rebuilt zip encodes v2's filter expression,
+    #     not the stored tag wrapper, so md5sum differs from source.
+    assert tgt_entry.name != src_entry.name
+
+    # (b) Remap records the translation, and the translated name is in target.
+    assert remap.get(src_entry.name) == tgt_entry.name
+    assert tgt_entry.name in target.list()
+
+    # (c) Execution reflects v2 behavior: only the single row with amount > 15.
+    result = tgt_entry.expr.execute().reset_index(drop=True)
+    assert list(result["amount"]) == [20.0]
+
+
 def test_cli_replay_rebuild_smoke(source_catalog, tmpdir):
     catalog, *_ = source_catalog
     target = str(Path(tmpdir).joinpath("cli-target"))
@@ -471,3 +551,60 @@ def test_cli_replay_rebuild_smoke(source_catalog, tmpdir):
     target_catalog = Catalog.from_repo_path(target, init=False)
     target_catalog.assert_consistency()
     assert set(target_catalog.list_aliases()) == set(catalog.list_aliases())
+
+
+def test_cli_replay_rebuild_is_not_silently_ignored(tmpdir, saved_registry):
+    """Discriminating CLI test: if ``--rebuild`` were silently dropped, plain
+    replay would copy the source zip byte-for-byte and the target entry's
+    executed output would still match v1 behavior. Rebuild must re-emit the
+    expression under the v2 handler, so the target executes with v2 rows.
+    """
+    from xorq.expr.builders import TagHandler, register_tag_handler  # noqa: PLC0415
+
+    def reemit_v1(tag_node, rebuild_subexpr):
+        inner = tag_node.parent.to_expr()
+        return inner.filter(inner.amount > 0)
+
+    register_tag_handler(
+        TagHandler(
+            tag_names=("cli_cc_handler",),
+            extract_metadata=lambda tag_node: {"type": "cli_cc_handler"},
+            reemit=reemit_v1,
+        )
+    )
+
+    repo = Catalog.init_repo_path(Path(tmpdir).joinpath("src"))
+    source = Catalog(backend=GitBackend(repo=repo))
+    raw = xo.memtable({"user_id": [1, 2, 3], "amount": [-5.0, 10.0, 20.0]})
+    src_entry = source.add(raw.tag("cli_cc_handler"), aliases=("cli_cc",))
+
+    def reemit_v2(tag_node, rebuild_subexpr):
+        inner = tag_node.parent.to_expr()
+        return inner.filter(inner.amount > 15)
+
+    register_tag_handler(
+        TagHandler(
+            tag_names=("cli_cc_handler",),
+            extract_metadata=lambda tag_node: {"type": "cli_cc_handler"},
+            reemit=reemit_v2,
+        ),
+        override=True,
+    )
+
+    target_path = str(Path(tmpdir).joinpath("cli-target"))
+    result = CliRunner().invoke(
+        cli,
+        ["--path", str(source.repo_path), "replay", target_path, "--rebuild"],
+    )
+    assert result.exit_code == 0, result.output
+
+    target_catalog = Catalog.from_repo_path(target_path, init=False)
+    tgt_entry = target_catalog.get_catalog_entry("cli_cc", maybe_alias=True)
+
+    # Under plain replay the target zip equals the source zip, so the target
+    # entry would have src_entry.name. Rebuild must have produced a new zip.
+    assert tgt_entry.name != src_entry.name
+
+    # Execution reflects v2 (amount > 15), not v1 (amount > 0): one row, 20.0.
+    rows = tgt_entry.expr.execute()["amount"].tolist()
+    assert rows == [20.0]
