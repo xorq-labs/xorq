@@ -9,7 +9,6 @@ import dask
 import sqlglot as sg
 import yaml12
 
-import xorq.expr.datatypes as dat
 import xorq.expr.operations as xops
 import xorq.expr.relations as rel
 import xorq.vendor.ibis.expr.operations.relations as ir
@@ -400,7 +399,6 @@ def normalize_module(module):
     )
 
 
-@dask.base.normalize_token.register(dat.DataType)
 def normalize_ibis_datatype(datatype):
     return normalize_seq_with_caller(datatype.name.lower(), *datatype.args)
 
