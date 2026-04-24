@@ -165,14 +165,13 @@ class Options(IbisOptions):
     ----------
     cache : Cache
         Options controlling caching.
-    backend : Optional[xorq.backends.xorq_datafusion.Backend]
-        The backend to use for execution.
+    default_backend : Optional[xorq.backends.xorq_datafusion.Backend]
+        The default backend to use for execution.
     repr : Repr
         Options controlling expression printing.
     """
 
     cache: Cache = Cache()
-    backend: Optional[Any] = None
     repr: Repr = Repr()
     sql: SQL = SQL()
     pins: Pins = Pins()
@@ -192,8 +191,8 @@ options = Options()
 
 
 def _backend_init():
-    if (backend := options.backend) is not None:
+    if (backend := options.default_backend) is not None:
         return backend
 
-    options.backend = con = connect()
+    options.default_backend = con = connect()
     return con

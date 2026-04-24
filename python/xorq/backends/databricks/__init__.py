@@ -25,7 +25,7 @@ import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
-from xorq.expr.api import read_parquet
+from xorq.config import _backend_init
 from xorq.vendor.ibis import util
 from xorq.vendor.ibis.backends import CanCreateDatabase, UrlFromPath
 from xorq.vendor.ibis.backends.sql import SQLBackend
@@ -521,7 +521,7 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
     ) -> ir.Table:
         if table_name is None:
             table_name = util.gen_name("ls-read-parquet")
-        record_batches = read_parquet(path).to_pyarrow_batches()
+        record_batches = _backend_init().read_parquet(path).to_pyarrow_batches()
         return self.read_record_batches(
             record_batches=record_batches,
             table_name=table_name,
