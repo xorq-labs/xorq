@@ -241,6 +241,14 @@ class RevisionRowData:
 VIEW_LIMIT = 50_000
 
 
+@cache
+def _ibis_table_method_names() -> tuple[str, ...]:
+    """Public method names on the ibis Table class, for tab-completion."""
+    from xorq.vendor.ibis.expr.types.relations import Table  # noqa: PLC0415
+
+    return tuple(name for name in dir(Table) if not name.startswith("_"))
+
+
 @frozen
 class ExprStep:
     """A single user-applied Ibis operation."""
@@ -992,8 +1000,9 @@ class CatalogScreen(Screen):
 class DataViewScreen(Screen):
     """Full-screen data viewer with interactive expression composition.
 
-    Every user action (filter, mutate, select, sort, aggregate) is a raw Ibis
-    API call pushed onto an undo/redo ExprStack.
+    Column-level verbs (sort, drop) and a freeform `:` prompt each push an
+    Ibis call onto an undo/redo ExprStack; the full chain is re-evaluated via
+    ``xorq catalog run -c`` on every change.
     """
 
     BINDINGS = (
@@ -1010,23 +1019,9 @@ class DataViewScreen(Screen):
         Binding("d", "drop_column", "Drop"),
         Binding("u", "undo", "Undo"),
         Binding("ctrl+r", "redo", "Redo"),
-        Binding("e", "toggle_stack_browser", "Stack"),
+        Binding("s", "toggle_stack_browser", "Stack"),
         Binding("w", "persist", "Save"),
         Binding(":", "open_freeform", "Expr"),
-    )
-
-    _IBIS_METHOD_SUGGESTIONS = (
-        "filter",
-        "mutate",
-        "select",
-        "order_by",
-        "group_by",
-        "agg",
-        "distinct",
-        "head",
-        "limit",
-        "join",
-        "drop",
     )
 
     def __init__(self, entry, row_data):
@@ -1066,19 +1061,24 @@ class DataViewScreen(Screen):
         self.query_one("#data-view-status", Static).update(f" Loading {label}...")
         self._load_data()
 
-    def _catalog_run_cmd(self, code=None) -> list[str]:
-        """Build the xorq catalog run subprocess command."""
+    def _catalog_base_cmd(self, subcommand: str) -> list[str]:
+        """Shared ``xorq catalog --path <repo> <subcommand> <entry>`` prefix."""
         catalog = self.app._catalog
         entry_name = (
             self._row_data.aliases[0] if self._row_data.aliases else self._entry.name
         )
-        cmd = [
+        return [
             "xorq",
             "catalog",
             "--path",
             str(catalog.repo_path),
-            "run",
+            subcommand,
             entry_name,
+        ]
+
+    def _catalog_run_cmd(self, code=None) -> list[str]:
+        """Build the xorq catalog run subprocess command."""
+        cmd = self._catalog_base_cmd("run") + [
             "--limit",
             str(VIEW_LIMIT),
             "-o",
@@ -1168,7 +1168,7 @@ class DataViewScreen(Screen):
         """Update tab-completion suggestions from current expression columns."""
         cols = tuple(self._df.columns) if self._df is not None else ()
         self.query_one("#command-input", Input).suggester = SuggestFromList(
-            cols + self._IBIS_METHOD_SUGGESTIONS, case_sensitive=False
+            cols + _ibis_table_method_names(), case_sensitive=False
         )
 
     # --- Stack operations ---
@@ -1208,37 +1208,25 @@ class DataViewScreen(Screen):
         self._render_stack_browser()
 
     def _show_command_error(self, message) -> None:
-        cmd = self.query_one("#command-input", Input)
-        cmd.display = True
-        cmd.value = f"Error: {message}"
-        cmd.add_class("error")
+        self.app.notify(message, title="Error", severity="error", timeout=6)
 
     # --- Command input ---
+
+    def _close_command_input(self) -> None:
+        self.query_one("#command-input", Input).display = False
+        self._command_mode = None
+        self.query_one("#data-view-table", DataTable).focus()
 
     @on(Input.Submitted, "#command-input")
     def _on_command_submitted(self, event: Input.Submitted) -> None:
         user_input = event.value.strip()
-        cmd = self.query_one("#command-input", Input)
         mode = self._command_mode
+        self._close_command_input()
 
         if mode == "save":
-            alias = user_input or None
-            cmd.display = False
-            self._command_mode = None
-            self.query_one("#data-view-table", DataTable).focus()
-            self._do_persist(alias)
-            return
-
-        if not user_input:
-            cmd.display = False
-            self._command_mode = None
-            self.query_one("#data-view-table", DataTable).focus()
-            return
-
-        cmd.display = False
-        self._command_mode = None
-        self.query_one("#data-view-table", DataTable).focus()
-        self._push_step("freeform", user_input, user_input)
+            self._do_persist(user_input or None)
+        elif user_input:
+            self._push_step("freeform", user_input, user_input)
 
     # --- Freeform action ---
 
@@ -1247,7 +1235,6 @@ class DataViewScreen(Screen):
             return
         self._command_mode = "freeform"
         cmd = self.query_one("#command-input", Input)
-        cmd.remove_class("error")
         cmd.value = ""
         cmd.placeholder = ":\u25b8 type expression, Tab to complete, Enter to apply"
         cmd.border_title = ":\u25b8"
@@ -1296,9 +1283,7 @@ class DataViewScreen(Screen):
     def action_cancel_or_back(self) -> None:
         cmd = self.query_one("#command-input", Input)
         if cmd.display:
-            cmd.display = False
-            self._command_mode = None
-            self.query_one("#data-view-table", DataTable).focus()
+            self._close_command_input()
         else:
             self._df = None
             self._stack = None
@@ -1359,7 +1344,7 @@ class DataViewScreen(Screen):
         )
         code = stack.current_code
         code_lines = (
-            ("--code equivalent:", code) if code else ("(no transforms applied)",)
+            ("\u2014 code equivalent:", code) if code else ("(no transforms applied)",)
         )
         lines = (f"{base_marker}0  base: {label}", *step_lines, "", *code_lines)
         self.query_one("#stack-browser-content", Static).update("\n".join(lines))
@@ -1371,7 +1356,6 @@ class DataViewScreen(Screen):
             return
         self._command_mode = "save"
         cmd = self.query_one("#command-input", Input)
-        cmd.remove_class("error")
         cmd.value = ""
         cmd.placeholder = "alias name (leave empty to save without alias)"
         cmd.border_title = "save\u25b8"
@@ -1384,20 +1368,7 @@ class DataViewScreen(Screen):
         self._persist_to_catalog(alias)
 
     def _catalog_compose_cmd(self, code: str, alias: str | None) -> list[str]:
-        catalog = self.app._catalog
-        entry_name = (
-            self._row_data.aliases[0] if self._row_data.aliases else self._entry.name
-        )
-        cmd = [
-            "xorq",
-            "catalog",
-            "--path",
-            str(catalog.repo_path),
-            "compose",
-            entry_name,
-            "-c",
-            code,
-        ]
+        cmd = self._catalog_base_cmd("compose") + ["-c", code]
         if alias:
             cmd.extend(["-a", alias])
         return cmd
@@ -1500,11 +1471,6 @@ class CatalogTUI(App):
         border: solid #2BBE75;
         border-title-color: #2BBE75;
         padding: 0 1;
-    }
-    DataViewScreen #command-input.error {
-        border: solid #FF4757;
-        border-title-color: #FF4757;
-        color: #FF4757;
     }
     """
 

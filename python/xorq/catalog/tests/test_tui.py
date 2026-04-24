@@ -1137,9 +1137,9 @@ def test_data_view_stack_browser_toggle(catalog, entry_a):
 
             await run_script(
                 pilot,
-                Press(("e",)),
+                Press(("s",)),
                 Assert(lambda p: panel.display is not False),
-                Press(("e",)),
+                Press(("s",)),
                 Assert(lambda p: panel.display is False),
             )
 
