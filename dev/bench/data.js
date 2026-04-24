@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777046505558,
+  "lastUpdate": 1777046574551,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -8118,6 +8118,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.009208847672684642",
             "extra": "mean: 210.67053939999596 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6fc98a965ee10524803fa4881aca2da813f83062",
+          "message": "fix(catalog): make Annex.env hashable for TUI cache compatibility (#1868)\n\n## Summary\n- Convert `Annex.env` from `dict` to `tuple` of key-value pairs so\n`Annex` instances are hashable (required by `@frozen`)\n- Fixes TUI cache failures when using git-annex catalogs, since\n`functools.lru_cache` needs hashable arguments\n- Adds a converter on the `env` field that automatically coerces dicts\nto tuples, and updates `S3RemoteConfig.env` to return a tuple directly\n\n## Test plan\n- [x] Verify `Annex` instances with env are hashable (`hash(annex)`\nsucceeds)\n- [x] Verify TUI catalog browsing works with git-annex remotes\n- [ ] Verify S3-backed annex operations still pass credentials correctly\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-24T17:58:35+02:00",
+          "tree_id": "d24358afc3682acc6945b194945d471bd8e4dd43",
+          "url": "https://github.com/xorq-labs/xorq/commit/6fc98a965ee10524803fa4881aca2da813f83062"
+        },
+        "date": 1777046572230,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.27348308207349,
+            "unit": "iter/sec",
+            "range": "stddev: 0.019860928567275702",
+            "extra": "mean: 120.86807818181714 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.063513790055398,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04583811039952416",
+            "extra": "mean: 246.09243419999984 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6415680130826293,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19642350398318542",
+            "extra": "mean: 1.5586811992000094 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.709019453687851,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00501306273559736",
+            "extra": "mean: 212.35843466665946 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.8843292370760043,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02528028396075819",
+            "extra": "mean: 257.4447064000083 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.736586237865919,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010951341014562887",
+            "extra": "mean: 211.12251520000882 msec\nrounds: 5"
           }
         ]
       }
