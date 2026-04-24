@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777030290047,
+  "lastUpdate": 1777036955585,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -7986,6 +7986,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.011468805021231116",
             "extra": "mean: 198.05807960000266 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "paddy@paddymullen.com",
+            "name": "Paddy Mullen",
+            "username": "paddymul"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aa649c70155bfa9759e4e73cfd5c3fda5f43d657",
+          "message": "docs: cache strategies, storage, and backend invalidation (#1836)\n\n## Summary\n\n- Adds `docs/concepts/core_concepts/caching_internals.qmd` — a deep-dive\nreference on how xorq caching works under the hood\n- Covers cache strategies (ModificationTime vs Snapshot), storage\nbackends (Source, Parquet, GCS), per-backend invalidation signals,\nrecord batch streaming, and a glossary\n- Adds entry to `_quarto.yml` nav under \"Execution and backends\", after\nthe existing caching overview",
+          "timestamp": "2026-04-24T09:18:43-04:00",
+          "tree_id": "98d911394c4ff08b61d97d68bc466ca0c7a95e66",
+          "url": "https://github.com/xorq-labs/xorq/commit/aa649c70155bfa9759e4e73cfd5c3fda5f43d657"
+        },
+        "date": 1777036953152,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.727885992742777,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00373900277172263",
+            "extra": "mean: 102.79725736362687 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.6720603953134905,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009070427373290774",
+            "extra": "mean: 214.03832900000452 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6623998232395015,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18919773872897808",
+            "extra": "mean: 1.509662238600015 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.656409182083798,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016372090628972026",
+            "extra": "mean: 214.75775879998764 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.007220353893595,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04003415007029624",
+            "extra": "mean: 249.54954099999895 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.657863033514232,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01850240884659218",
+            "extra": "mean: 214.690726799995 msec\nrounds: 5"
           }
         ]
       }
