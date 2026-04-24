@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777036955585,
+  "lastUpdate": 1777046505558,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -8052,6 +8052,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.01850240884659218",
             "extra": "mean: 214.690726799995 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a6cb9d695803f75b8e60baa0b1b609ba4f1bb38b",
+          "message": "fix(catalog): validate required fields before constructing RemoteConfig (#1780)\n\nresolve_remote_config now checks that all required attrs fields are\npresent in the merged dict before calling from_dict. When credentials\nare unavailable (no embedcreds, no env vars, no kwargs), it returns None\ninstead of crashing with a TypeError from the attrs constructor.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-24T17:57:49+02:00",
+          "tree_id": "62d45ac97697d35fe406ff38af1b4906c4dc873b",
+          "url": "https://github.com/xorq-labs/xorq/commit/a6cb9d695803f75b8e60baa0b1b609ba4f1bb38b"
+        },
+        "date": 1777046503290,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.495777519948403,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006912361963197358",
+            "extra": "mean: 105.30996518181207 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.429341080369073,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012416039958685792",
+            "extra": "mean: 225.7672149999962 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.639566913611239,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16507221034657005",
+            "extra": "mean: 1.5635580558000073 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.84106339853977,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007350620455526519",
+            "extra": "mean: 206.5661854999945 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.7372385514892845,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016965892805852232",
+            "extra": "mean: 267.57724620000545 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.74674818248469,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009208847672684642",
+            "extra": "mean: 210.67053939999596 msec\nrounds: 5"
           }
         ]
       }
