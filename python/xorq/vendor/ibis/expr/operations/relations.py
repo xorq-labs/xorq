@@ -423,6 +423,9 @@ class DatabaseTable(PhysicalTable):
     source: Any
     namespace: Namespace = Namespace()
 
+    def __dask_tokenize__(self):
+        return self.source.tokenize_table(self)
+
 
 @public
 class InMemoryTable(PhysicalTable):
