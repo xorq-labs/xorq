@@ -181,10 +181,12 @@ class Profile:
 
     @con_name.validator
     def validate_con_name(self, attr, value):
-        assert next(
-            (ep for ep in _load_entry_points() if ep.name == value),
-            None,
-        )
+        entry_points = _load_entry_points()
+        if not any(ep.name == value for ep in entry_points):
+            installed = sorted(ep.name for ep in entry_points)
+            raise ValueError(
+                f"Unknown backend {value!r}; installed backends: {installed}"
+            )
 
     def __attrs_post_init__(self):
         # Sort kwargs_tuple after initialization
