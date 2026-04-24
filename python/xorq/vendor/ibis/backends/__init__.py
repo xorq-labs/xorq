@@ -876,6 +876,15 @@ class BaseBackend(abc.ABC, _FileIOHandler, CacheHandler):
         self._profile = Profile.from_con(self, *args, **kwargs)
         super().__init__()
 
+    def tokenize_table(self, dt):
+        """Return a stable token for a DatabaseTable bound to this backend.
+
+        Subclasses must override this to provide backend-specific logic.
+        """
+        raise NotImplementedError(
+            f"tokenize_table is not implemented for backend {self.name!r}"
+        )
+
     @property
     @abc.abstractmethod
     def dialect(self) -> sg.Dialect | None:
