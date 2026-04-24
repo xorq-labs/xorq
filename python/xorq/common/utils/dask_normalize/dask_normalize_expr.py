@@ -2,7 +2,6 @@ import itertools
 import pathlib
 import re
 import types
-import urllib.error
 import urllib.request
 
 import dask
@@ -101,12 +100,6 @@ def normalize_memory_databasetable(dt):
     )
 
 
-def normalize_pandas_databasetable(dt):
-    if dt.source.name != "pandas":
-        raise ValueError(f"expected pandas backend, got {dt.source.name!r}")
-    return normalize_memory_databasetable(dt)
-
-
 _REMOTE_SCHEMES = ("http://", "https://", "s3://", "gs://", "gcs://")
 
 
@@ -171,159 +164,6 @@ def _extract_duckdb_file_paths(sql_ddl):
     return parquet_paths + csv_paths
 
 
-def normalize_datafusion_databasetable(dt):
-    if dt.source.name not in ("datafusion", "xorq_datafusion"):
-        raise ValueError(f"expected datafusion/xorq backend, got {dt.source.name!r}")
-    table = dt.source.con.table(dt.name)
-    ep_str = str(table.execution_plan())
-    if ep_str.startswith(("ParquetExec:", "CsvExec:")) or re.match(
-        r"DataSourceExec:.+file_type=(csv|parquet)", ep_str
-    ):
-        paths = _extract_plan_file_paths(ep_str)
-        if paths:
-            file_metadata = tuple((p, _normalize_path_stat(p)) for p in sorted(paths))
-            return normalize_seq_with_caller(
-                dt.schema.to_pandas(),
-                file_metadata,
-            )
-        else:
-            raise ValueError(
-                f"no parquet/csv paths extractable from execution plan: {ep_str!r}"
-            )
-    elif ep_str.startswith(("MemoryExec:", "DataSourceExec:")):
-        return normalize_memory_databasetable(dt)
-    elif "PyRecordBatchProviderExec" in ep_str:
-        return normalize_seq_with_caller(
-            dt.schema.to_pandas(),
-            dt.name,
-        )
-    elif ep_str.startswith("EmptyExec"):
-        raise ValueError("No data to cache")
-    else:
-        raise ValueError(f"unrecognized DataFusion execution plan: {ep_str!r}")
-
-
-def normalize_remote_databasetable(dt):
-    return normalize_seq_with_caller(
-        dt.name,
-        dt.schema,
-        dt.source,
-        dt.namespace,
-        caller="normalize_remote_databasetable",
-    )
-
-
-def normalize_postgres_databasetable(dt):
-    from xorq.common.utils.postgres_utils import (  # noqa: PLC0415
-        get_postgres_n_reltuples,
-    )
-
-    if dt.source.name != "postgres":
-        raise ValueError(f"expected postgres backend, got {dt.source.name!r}")
-    return normalize_seq_with_caller(
-        dt.name,
-        dt.schema,
-        dt.source,
-        dt.namespace,
-        get_postgres_n_reltuples(dt),
-        caller="normalize_postgres_databasetable",
-    )
-
-
-def normalize_pyiceberg_database_table(dt):
-    from xorq.common.utils.pyiceberg_utils import (  # noqa: PLC0415
-        get_iceberg_snapshots_ids,
-    )
-
-    if dt.source.name != "pyiceberg":
-        raise ValueError(f"expected pyiceberg backend, got {dt.source.name!r}")
-
-    return normalize_seq_with_caller(
-        dt.name,
-        dt.schema,
-        dt.source,
-        dt.namespace,
-        get_iceberg_snapshots_ids(dt),
-        caller="normalize_pyiceberg_databasetable",
-    )
-
-
-def normalize_snowflake_databasetable(dt):
-    from xorq.common.utils.snowflake_utils import (  # noqa: PLC0415
-        get_snowflake_last_modification_time,
-    )
-
-    if dt.source.name != "snowflake":
-        raise ValueError(f"expected snowflake backend, got {dt.source.name!r}")
-    return normalize_seq_with_caller(
-        dt.name,
-        dt.schema,
-        dt.source,
-        dt.namespace,
-        get_snowflake_last_modification_time(dt).tobytes(),
-        caller="normalize_snowflake_databasetable",
-    )
-
-
-def normalize_bigquery_databasetable(dt):
-    # https://stackoverflow.com/questions/44288261/get-the-last-modified-date-for-all-bigquery-tables-in-a-bigquery-project/44290543#44290543
-    if dt.source.name != "bigquery":
-        raise ValueError(f"expected bigquery backend, got {dt.source.name!r}")
-    # https://stackoverflow.com/a/44290543
-    query = f"""
-    SELECT last_modified_time
-    FROM `{dt.namespace.database}.__TABLES__` where table_id = '{dt.name}'
-    """
-    ((last_modified_time,),) = dt.source.raw_sql(query).to_dataframe()
-    return normalize_seq_with_caller(
-        dt.name,
-        dt.schema,
-        dt.source,
-        dt.namespace,
-        last_modified_time,
-    )
-
-
-def normalize_duckdb_databasetable(dt):
-    if dt.source.name != "duckdb":
-        raise ValueError(f"expected duckdb backend, got {dt.source.name!r}")
-    name = sg.table(dt.name, quoted=dt.source.compiler.quoted).sql(
-        dialect=dt.source.name
-    )
-
-    ((_, plan),) = dt.source.raw_sql(f"EXPLAIN SELECT * FROM {name}").fetchall()
-    scan_line = plan.split("\n")[1]
-    execution_plan_name = r"\s*│\s*(\w+)\s*│\s*"
-    match re.match(execution_plan_name, scan_line).group(1):
-        case "ARROW_SCAN" | "PANDAS_SCAN":
-            return normalize_memory_databasetable(dt)
-        case "READ_PARQUET" | "READ_CSV" | "SEQ_SCAN":
-            return normalize_duckdb_file_read(dt)
-        case _:
-            raise NotImplementedError(scan_line)
-
-
-def normalize_sqlite_database_table(dt):
-    from xorq.common.utils.sqlite_utils import get_sqlite_stats  # noqa: PLC0415
-
-    if dt.source.name != "sqlite":
-        raise ValueError(f"expected sqlite backend, got {dt.source.name!r}")
-
-    if dt.source.is_in_memory():
-        return normalize_memory_databasetable(dt)
-    else:
-        return normalize_seq_with_caller(
-            dt.name,
-            dt.schema,
-            dt.source,
-            dt.namespace,
-            get_sqlite_stats(dt),
-            caller="normalize_sqlite_database_table",
-        )
-
-    pass
-
-
 def normalize_duckdb_file_read(dt):
     name = sg.exp.convert(dt.name).sql(dialect=dt.source.name)
     (sql_ddl_statement,) = dt.source.con.sql(
@@ -360,189 +200,12 @@ def rename_unbound_static(op, prefix="static-name"):
     return op.replace(rename_unbound)
 
 
-def normalize_xorq_databasetable(dt):
-    if dt.source.name != "xorq_datafusion":
-        raise ValueError(f"expected xorq backend, got {dt.source.name!r}")
-    if isinstance(dt, rel.FlightExpr):
-        return dask.base.normalize_token(
-            (
-                "normalize_xorq_databasetable",
-                dt.input_expr,
-                # we need to "stabilize" the name of the tables in the unbound expr
-                rename_unbound_static(dt.unbound_expr.op()).to_expr(),
-                dt.make_connection,
-            )
-        )
-    elif isinstance(dt, rel.FlightUDXF):
-        return dask.base.normalize_token(
-            (
-                "normalize_xorq_databasetable",
-                dt.input_expr,
-                dt.udxf.exchange_f,
-                dt.make_connection,
-            )
-        )
-    native_source = dt.source._sources.get_backend(dt)
-
-    if native_source.name == "xorq_datafusion":
-        return normalize_datafusion_databasetable(dt)
-    new_dt = rel.make_native_op(dt)
-    return dask.base.normalize_token(new_dt)
-
-
 @dask.base.normalize_token.register(types.ModuleType)
 def normalize_module(module):
     return normalize_seq_with_caller(
         module.__name__,
         module.__package__,
         caller="normalize_module",
-    )
-
-
-def normalize_ibis_datatype(datatype):
-    return normalize_seq_with_caller(datatype.name.lower(), *datatype.args)
-
-
-@dask.base.normalize_token.register(rel.Read)
-def normalize_read(read):
-    read_kwargs = dict(read.read_kwargs)
-    path = read_kwargs["hash_path"]
-    if isinstance(path, (list, tuple)):
-        # normalize_filenames may have converted a single path to a list
-        path = path[0] if len(path) == 1 else path
-    if isinstance(path, (str, pathlib.Path)):
-        path = str(path)
-        if path.startswith(("http://", "https://")):
-            tpls = _normalize_path_stat(path)
-        elif path.startswith(("s3://", "gs://", "gcs://")):
-            tpls = _normalize_path_stat(
-                path, **{k: v for k, v in read_kwargs.items() if k != "hash_path"}
-            )
-        elif not pathlib.Path(path).is_absolute() and path == read_kwargs.get(
-            "read_path"
-        ):
-            # Build-bundled Read whose hash_path was rewritten to the relative
-            # read_path for deterministic YAML (see common.py register_node).
-            # The filename is already a content hash, so use it directly.
-            tpls = (("build-relative-path", path),)
-        elif (path := pathlib.Path(path)).exists():
-            tpls = read.normalize_method(path)
-        else:
-            raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
-    elif isinstance(path, (list, tuple)) and all(isinstance(el, str) for el in path):
-        raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
-    else:
-        raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
-    tpls += tuple(
-        (k, v)
-        for k, v in read.read_kwargs
-        if k
-        in (
-            "mode",
-            "schema",
-            "temporary",
-        )
-    )
-    return normalize_seq_with_caller(
-        read.schema,
-        tpls,
-        caller="normalize_read",
-    )
-
-
-def normalize_databasetable(dt):
-    dct = {
-        "pandas": normalize_pandas_databasetable,
-        "datafusion": normalize_datafusion_databasetable,
-        "postgres": normalize_postgres_databasetable,
-        "snowflake": normalize_snowflake_databasetable,
-        "xorq_datafusion": normalize_xorq_databasetable,
-        "duckdb": normalize_duckdb_databasetable,
-        "trino": normalize_remote_databasetable,
-        "gizmosql": normalize_remote_databasetable,
-        "bigquery": normalize_bigquery_databasetable,
-        "pyiceberg": normalize_pyiceberg_database_table,
-        "sqlite": normalize_sqlite_database_table,
-    }
-    f = dct[dt.source.name]
-    return f(dt)
-
-
-def normalize_remote_table(dt):
-    if not isinstance(dt, rel.RemoteTable):
-        raise ValueError(f"expected RemoteTable, got {type(dt)}")
-
-    return normalize_seq_with_caller(
-        ("schema", dt.schema),
-        ("expr", dt.remote_expr),
-        # only thing that matters is the type of source its going into
-        ("source", dt.source.name),
-        caller="normalize_remote_table",
-    )
-
-
-def normalize_cached_node(node):
-    return normalize_seq_with_caller(
-        node.parent,
-        node.cache,
-        caller="normalize_cached_node",
-    )
-
-
-def normalize_named_scalar_parameter(node):
-    return normalize_seq_with_caller(
-        node.label,
-        node.dtype,
-        node.default,
-        caller="normalize_named_scalar_parameter",
-    )
-
-
-def normalize_backend(con):
-    name = con.name
-    if name == "snowflake":
-        con_details = con.con._host
-    elif name == "postgres":
-        con_dct = con.con.info.get_parameters() | {"port": con.con.info.port}
-        con_details = {k: con_dct[k] for k in ("host", "port", "dbname")}
-    elif name == "pandas":
-        con_details = id(con.dictionary)
-    elif name in ("datafusion", "duckdb", "xorq_datafusion", "gizmosql"):
-        con_details = (con._profile.con_name, con._profile.kwargs_tuple)
-    elif name == "trino":
-        con_details = con.con.host
-    elif name == "bigquery":
-        con_details = (
-            con.project_id,
-            con.dataset_id,
-        )
-    elif name == "pyiceberg":
-        catalog_params = con.catalog_params
-        con_details = (con.catalog.name,) + tuple(
-            catalog_params[k] for k in ("type", "uri", "warehouse")
-        )
-    elif name == "sqlite":
-        return id(con.con) if con.is_in_memory() else con.uri
-    elif name == "databricks":
-        con_details = (con._server_hostname, con._http_path)
-    else:
-        raise ValueError(f"no normalization rule for backend {name!r}")
-    return normalize_seq_with_caller(
-        name,
-        con_details,
-    )
-
-
-def normalize_schema(schema):
-    return normalize_seq_with_caller(
-        schema.to_pandas(),
-    )
-
-
-def normalize_namespace(ns):
-    return normalize_seq_with_caller(
-        ns.catalog,
-        ns.database,
     )
 
 
@@ -585,37 +248,6 @@ def _normalize_computed_kwargs_expr(cke):
         reads,
         cached,
         caller="normalize_computed_kwargs_expr",
-    )
-
-
-def normalize_scalar_udf(udf):
-    typs = tuple(arg.dtype for arg in udf.args)
-    computed_kwargs_expr = udf.__config__.get("computed_kwargs_expr")
-    if computed_kwargs_expr is not None:
-        computed_kwargs_token = _normalize_computed_kwargs_expr(computed_kwargs_expr)
-    else:
-        computed_kwargs_token = None
-    return normalize_seq_with_caller(
-        ScalarUDF,
-        typs,
-        udf.dtype,
-        udf.__func__,
-        computed_kwargs_token,
-        caller="normalize_scalar_udf",
-    )
-
-
-def normalize_agg_udf(udf):
-    (*args, where) = udf.args
-    if where is not None:
-        raise NotImplementedError
-    typs = tuple(arg.dtype for arg in args)
-    return normalize_seq_with_caller(
-        AggUDF,
-        typs,
-        udf.dtype,
-        udf.__func__,
-        caller="normalize_agg_udf",
     )
 
 
@@ -677,12 +309,6 @@ def opaque_node_replacer(node, kwargs):
             else:
                 new_node = node
     return new_node
-
-
-def normalize_expr(expr):
-    from xorq.expr.api import get_compiler  # noqa: PLC0415
-
-    return normalize_op(expr.op(), compiler=get_compiler(expr))
 
 
 def normalize_op(op, compiler=None):
