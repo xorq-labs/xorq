@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 import sqlglot as sg
 import sqlglot.expressions as sge
 
-from xorq.expr.api import read_csv, read_parquet
+from xorq.config import _backend_init
 from xorq.vendor.ibis import Schema, util
 from xorq.vendor.ibis.backends.sqlite import Backend as IbisSQLiteBackend
 from xorq.vendor.ibis.backends.sqlite import _quote
@@ -95,7 +95,7 @@ class Backend(IbisSQLiteBackend):
         **kwargs: Any,
     ) -> ir.Table:
         table_name = table_name or gen_name("xo_read_parquet")
-        record_batches = read_parquet(path).to_pyarrow_batches()
+        record_batches = _backend_init().read_parquet(path).to_pyarrow_batches()
         return self.read_record_batches(record_batches, table_name, mode, **kwargs)
 
     def read_csv(
@@ -106,5 +106,5 @@ class Backend(IbisSQLiteBackend):
         **kwargs: Any,
     ) -> ir.Table:
         table_name = table_name or gen_name("xo_read_csv")
-        record_batches = read_csv(path).to_pyarrow_batches()
+        record_batches = _backend_init().read_csv(path).to_pyarrow_batches()
         return self.read_record_batches(record_batches, table_name, mode, **kwargs)

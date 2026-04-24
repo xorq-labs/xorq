@@ -55,7 +55,7 @@ from xorq.common.utils.node_utils import (
     update_read_kwargs,
 )
 from xorq.config import _backend_init
-from xorq.expr.api import deferred_read_parquet, read_parquet
+from xorq.expr.api import deferred_read_parquet
 from xorq.expr.operations import _MISSING
 from xorq.expr.relations import (
     CachedNode,
@@ -692,7 +692,7 @@ class ExprLoader:
                 df = (
                     pq.read_schema(path).empty_table().to_pandas()
                     if read_only_parquet_metadata
-                    else read_parquet(path).execute()
+                    else _backend_init().read_parquet(path).execute()
                 )
                 return ibis.memtable(df, schema=dr.schema, name=dr.name).op()
             resolved_kwargs = update_read_kwargs(dr.read_kwargs, (("hash_path", path),))

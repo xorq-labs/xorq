@@ -12,7 +12,7 @@ from xorq.backends.postgres.compiler import compiler
 from xorq.common.utils.defer_utils import (
     read_csv_rbr,
 )
-from xorq.expr.api import read_parquet
+from xorq.config import _backend_init
 from xorq.vendor.ibis.backends.postgres import Backend as IbisPostgresBackend
 from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import (
@@ -125,7 +125,7 @@ class Backend(IbisPostgresBackend):
                 )
             else:
                 table_name = gen_name("ls-read-parquet")
-        record_batches = read_parquet(path).to_pyarrow_batches()
+        record_batches = _backend_init().read_parquet(path).to_pyarrow_batches()
         return self.read_record_batches(
             record_batches=record_batches,
             table_name=table_name,

@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import ast
 import pathlib
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 from xorq.backends.xorq_datafusion import connect
 from xorq.common.utils.env_utils import (
@@ -27,7 +29,7 @@ class Cache(Config):
 
     """
 
-    default_relative_path: Union[str, pathlib.Path] = pathlib.Path(
+    default_relative_path: str | pathlib.Path = pathlib.Path(
         env_config.XORQ_DEFAULT_RELATIVE_PATH
     )
     key_prefix: str = env_config.XORQ_CACHE_KEY_PREFIX
@@ -165,14 +167,13 @@ class Options(IbisOptions):
     ----------
     cache : Cache
         Options controlling caching.
-    backend : Optional[xorq.backends.xorq_datafusion.Backend]
-        The backend to use for execution.
+    default_backend : Optional[xorq.backends.xorq_datafusion.Backend]
+        The default backend to use for execution.
     repr : Repr
         Options controlling expression printing.
     """
 
     cache: Cache = Cache()
-    backend: Optional[Any] = None
     repr: Repr = Repr()
     sql: SQL = SQL()
     pins: Pins = Pins()
@@ -192,8 +193,8 @@ options = Options()
 
 
 def _backend_init():
-    if (backend := options.backend) is not None:
+    if (backend := options.default_backend) is not None:
         return backend
 
-    options.backend = con = connect()
+    options.default_backend = con = connect()
     return con

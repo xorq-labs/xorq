@@ -7,12 +7,10 @@ from typing import Annotated, Any, Optional
 
 from public import public
 
-import xorq.common.exceptions as com
 from xorq.common.utils.env_utils import (
     EnvConfigable,
     env_templates_dir,
 )
-from xorq.loader import load_backend
 from xorq.vendor.ibis.common.grounds import Annotable
 from xorq.vendor.ibis.common.patterns import Between
 
@@ -188,38 +186,6 @@ class Options(Config):
     pandas: Optional[Config] = None
     pyspark: Optional[Config] = None
     profiles: Profiles = Profiles()
-
-
-def _default_backend() -> Any:
-    if (backend := options.default_backend) is not None:
-        return backend
-
-    try:
-        import duckdb as _  # noqa: F401
-    except ImportError:
-        raise com.XorqError(
-            """\
-You have used a function that relies on the default backend, but the default
-backend (DuckDB) is not installed.
-
-You may specify an alternate backend to use, e.g.
-
-ibis.set_backend("polars")
-
-or to install the DuckDB backend, run:
-
-    pip install 'ibis-framework[duckdb]'
-
-or
-
-    conda install -c conda-forge ibis-framework
-
-For more information on available backends, visit https://ibis-project.org/install
-"""
-        )
-
-    options.default_backend = con = load_backend("duckdb").connect(":memory:")
-    return con
 
 
 options = Options()
