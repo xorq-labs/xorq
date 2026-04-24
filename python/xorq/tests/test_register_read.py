@@ -275,8 +275,7 @@ def test_expr_over_same_table_multiple_times(parquet_dir, get_con):
         t = other_con.read_parquet(astronauts_path, table_name=table_name)
 
     ls_table_name = f"{other_con.name}_{table_name}"
-    ls_con.register(t, ls_table_name)
-    other = ls_con.table(ls_table_name)
+    other = ls_con.register(t, ls_table_name)
 
     expr = astronauts[[col]].distinct().join(other[[col]].distinct(), col)
 
