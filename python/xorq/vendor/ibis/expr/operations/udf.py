@@ -53,6 +53,30 @@ class InputType(enum.Enum):
 
 @public
 class ScalarUDF(ops.Value):
+    def __dask_tokenize__(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
+            _normalize_computed_kwargs_expr,
+        )
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+
+        typs = tuple(arg.dtype for arg in self.args)
+        computed_kwargs_expr = self.__config__.get("computed_kwargs_expr")
+        computed_kwargs_token = (
+            _normalize_computed_kwargs_expr(computed_kwargs_expr)
+            if computed_kwargs_expr is not None
+            else None
+        )
+        return normalize_seq_with_caller(
+            ScalarUDF,
+            typs,
+            self.dtype,
+            self.__func__,
+            computed_kwargs_token,
+            caller="normalize_scalar_udf",
+        )
+
     @attribute
     def shape(self):
         if not (args := getattr(self, "args")):  # noqa: B009
@@ -102,6 +126,23 @@ class AggUDF(ops.Reduction):
     where: Optional[ops.Value[dt.Boolean]] = None
 
     __reduce__ = reduce_udf
+
+    def __dask_tokenize__(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+
+        (*args, where) = self.args
+        if where is not None:
+            raise NotImplementedError
+        typs = tuple(arg.dtype for arg in args)
+        return normalize_seq_with_caller(
+            AggUDF,
+            typs,
+            self.dtype,
+            self.__func__,
+            caller="normalize_agg_udf",
+        )
 
 
 def _wrap(

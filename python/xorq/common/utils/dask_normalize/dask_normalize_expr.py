@@ -592,13 +592,9 @@ def _normalize_computed_kwargs_expr(cke):
     )
 
 
-@dask.base.normalize_token.register(ScalarUDF)
 def normalize_scalar_udf(udf):
     typs = tuple(arg.dtype for arg in udf.args)
     computed_kwargs_expr = udf.__config__.get("computed_kwargs_expr")
-    # Normalize computed_kwargs_expr via content-stable decomposition
-    # rather than the default normalize_expr -> normalize_op -> SQL path,
-    # which includes session-dependent UDF class names.
     if computed_kwargs_expr is not None:
         computed_kwargs_token = _normalize_computed_kwargs_expr(computed_kwargs_expr)
     else:
@@ -608,22 +604,14 @@ def normalize_scalar_udf(udf):
         typs,
         udf.dtype,
         udf.__func__,
-        #
-        # ExprScalarUDF
         computed_kwargs_token,
-        # we are insensitive to these for now
-        # udf.__udf_namespace__,
-        # udf.__func_name__,
         caller="normalize_scalar_udf",
     )
 
 
-@dask.base.normalize_token.register(AggUDF)
 def normalize_agg_udf(udf):
     (*args, where) = udf.args
     if where is not None:
-        # TODO: determine if sql string already contains
-        #       the relevant information of `where`
         raise NotImplementedError
     typs = tuple(arg.dtype for arg in args)
     return normalize_seq_with_caller(
@@ -631,9 +619,6 @@ def normalize_agg_udf(udf):
         typs,
         udf.dtype,
         udf.__func__,
-        # we are insensitive to these for now
-        # udf.__udf_namespace__,
-        # udf.__func_name__,
         caller="normalize_agg_udf",
     )
 
