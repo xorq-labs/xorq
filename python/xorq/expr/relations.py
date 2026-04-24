@@ -168,6 +168,17 @@ class CachedNode(DatabaseTableView):
     parent: Any = None
     cache: Any = None
 
+    def __dask_tokenize__(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+
+        return normalize_seq_with_caller(
+            self.parent,
+            self.cache,
+            caller="normalize_cached_node",
+        )
+
 
 gen_name_namespace = "rbr-placeholder"
 gen_name = toolz.compose(
