@@ -305,6 +305,13 @@ class BasePandasBackend(BaseBackend, NoUrl):
 class Backend(BasePandasBackend):
     name = "pandas"
 
+    def tokenize_table(self, dt):
+        from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
+            normalize_memory_databasetable,
+        )
+
+        return normalize_memory_databasetable(dt)
+
     def execute(self, query, params=None, limit="default", **kwargs):
         from xorq.backends.pandas.executor import PandasExecutor  # noqa: PLC0415
 

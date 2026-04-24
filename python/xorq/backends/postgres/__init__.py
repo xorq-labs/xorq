@@ -22,6 +22,24 @@ from xorq.vendor.ibis.util import (
 
 class Backend(IbisPostgresBackend):
     _top_level_methods = ("connect_examples", "connect_env")
+
+    def tokenize_table(self, dt):
+        from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+        from xorq.common.utils.postgres_utils import (  # noqa: PLC0415
+            get_postgres_n_reltuples,
+        )
+
+        return normalize_seq_with_caller(
+            dt.name,
+            dt.schema,
+            dt.source,
+            dt.namespace,
+            get_postgres_n_reltuples(dt),
+            caller="normalize_postgres_databasetable",
+        )
+
     compiler = compiler
 
     @classmethod

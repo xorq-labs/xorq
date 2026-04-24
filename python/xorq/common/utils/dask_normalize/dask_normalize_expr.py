@@ -450,7 +450,6 @@ def normalize_read(read):
     )
 
 
-@dask.base.normalize_token.register(ir.DatabaseTable)
 def normalize_databasetable(dt):
     dct = {
         "pandas": normalize_pandas_databasetable,
@@ -469,7 +468,6 @@ def normalize_databasetable(dt):
     return f(dt)
 
 
-@dask.base.normalize_token.register(rel.RemoteTable)
 def normalize_remote_table(dt):
     if not isinstance(dt, rel.RemoteTable):
         raise ValueError(f"expected RemoteTable, got {type(dt)}")
@@ -483,7 +481,6 @@ def normalize_remote_table(dt):
     )
 
 
-@dask.base.normalize_token.register(rel.CachedNode)
 def normalize_cached_node(node):
     return normalize_seq_with_caller(
         node.parent,

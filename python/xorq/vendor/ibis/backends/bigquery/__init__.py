@@ -161,6 +161,24 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema):
     compiler = sc.bigquery.compiler
     supports_python_udfs = False
 
+    def tokenize_table(self, dt):
+        from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+
+        query = f"""
+        SELECT last_modified_time
+        FROM `{dt.namespace.database}.__TABLES__` where table_id = '{dt.name}'
+        """
+        ((last_modified_time,),) = dt.source.raw_sql(query).to_dataframe()
+        return normalize_seq_with_caller(
+            dt.name,
+            dt.schema,
+            dt.source,
+            dt.namespace,
+            last_modified_time,
+        )
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.__session_dataset: bq.DatasetReference | None = None

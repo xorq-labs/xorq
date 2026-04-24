@@ -55,6 +55,23 @@ class Backend(SQLBackend):
     dialect = PyIceberg
     compiler = postgres_compiler
 
+    def tokenize_table(self, dt):
+        from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+        from xorq.common.utils.pyiceberg_utils import (  # noqa: PLC0415
+            get_iceberg_snapshots_ids,
+        )
+
+        return normalize_seq_with_caller(
+            dt.name,
+            dt.schema,
+            dt.source,
+            dt.namespace,
+            get_iceberg_snapshots_ids(dt),
+            caller="normalize_pyiceberg_databasetable",
+        )
+
     @property
     def version(self):
         import importlib.metadata  # noqa: PLC0415

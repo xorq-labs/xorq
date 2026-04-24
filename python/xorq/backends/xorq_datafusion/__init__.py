@@ -38,6 +38,48 @@ def _get_datafusion_dataframe(con, expr, **kwargs):
 class Backend(DataFusionBackend):
     name = "xorq_datafusion"
 
+    def tokenize_table(self, dt):
+        import dask  # noqa: PLC0415
+
+        from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
+            rename_unbound_static,
+        )
+        from xorq.expr.relations import (  # noqa: PLC0415
+            FlightExpr,
+            FlightUDXF,
+            make_native_op,
+        )
+
+        if isinstance(dt, FlightExpr):
+            return dask.base.normalize_token(
+                (
+                    "normalize_xorq_databasetable",
+                    dt.input_expr,
+                    rename_unbound_static(dt.unbound_expr.op()).to_expr(),
+                    dt.make_connection,
+                )
+            )
+        elif isinstance(dt, FlightUDXF):
+            return dask.base.normalize_token(
+                (
+                    "normalize_xorq_databasetable",
+                    dt.input_expr,
+                    dt.udxf.exchange_f,
+                    dt.make_connection,
+                )
+            )
+        native_source = dt.source._sources.get_backend(dt)
+        if native_source.name == "xorq_datafusion":
+            # table lives in this backend's own datafusion context;
+            # delegate to datafusion execution-plan tokenization
+            from xorq.backends.datafusion import (  # noqa: PLC0415
+                Backend as _DataFusionBackend,
+            )
+
+            return _DataFusionBackend.tokenize_table(self, dt)
+        new_dt = make_native_op(dt)
+        return dask.base.normalize_token(new_dt)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._sources = SourceDict()
