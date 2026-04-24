@@ -41,12 +41,11 @@ from xorq.vendor.ibis.expr.types import (
     null,
     struct,
 )
-from xorq.vendor.ibis.util import deprecated, experimental
+from xorq.vendor.ibis.util import deprecated
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
-    from pathlib import Path
+    from collections.abc import Iterable
 
     import pandas as pd
     import polars as pl
@@ -161,10 +160,6 @@ __all__ = (
     "range",
     "range_window",
     "rank",
-    "read_csv",
-    "read_delta",
-    "read_json",
-    "read_parquet",
     "row_number",
     "rows_window",
     "schema",
@@ -1463,228 +1458,6 @@ def row_number() -> ir.IntegerColumn:
     return ops.RowNumber().to_expr()
 
 
-def read_csv(
-    sources: str | Path | Sequence[str | Path],
-    table_name: str | None = None,
-    **kwargs: Any,
-) -> ir.Table:
-    """Lazily load a CSV or set of CSVs.
-
-    This function delegates to the `read_csv` method on the current default
-    backend (DuckDB or `ibis.config.default_backend`).
-
-    Parameters
-    ----------
-    sources
-        A filesystem path or URL or list of same.  Supports CSV and TSV files.
-    table_name
-        A name to refer to the table.  If not provided, a name will be generated.
-    kwargs
-        Backend-specific keyword arguments for the file type. For the DuckDB
-        backend used by default, please refer to:
-
-        * CSV/TSV: https://duckdb.org/docs/data/csv/overview.html#parameters.
-
-    Returns
-    -------
-    ir.Table
-        Table expression representing a file
-
-    Examples
-    --------
-    >>> import ibis
-    >>> ibis.options.interactive = True
-    >>> lines = '''a,b
-    ... 1,d
-    ... 2,
-    ... ,f
-    ... '''
-    >>> with open("/tmp/lines.csv", mode="w") as f:
-    ...     nbytes = f.write(lines)  # nbytes is unused
-    >>> t = ibis.read_csv("/tmp/lines.csv")
-    >>> t
-    ┏━━━━━━━┳━━━━━━━━┓
-    ┃ a     ┃ b      ┃
-    ┡━━━━━━━╇━━━━━━━━┩
-    │ int64 │ string │
-    ├───────┼────────┤
-    │     1 │ d      │
-    │     2 │ NULL   │
-    │  NULL │ f      │
-    └───────┴────────┘
-
-    """
-    from xorq.vendor.ibis.config import _default_backend
-
-    con = _default_backend()
-    return con.read_csv(sources, table_name=table_name, **kwargs)
-
-
-@experimental
-def read_json(
-    sources: str | Path | Sequence[str | Path],
-    table_name: str | None = None,
-    **kwargs: Any,
-) -> ir.Table:
-    """Lazily load newline-delimited JSON data.
-
-    This function delegates to the `read_json` method on the current default
-    backend (DuckDB or `ibis.config.default_backend`).
-
-    Parameters
-    ----------
-    sources
-        A filesystem path or URL or list of same.
-    table_name
-        A name to refer to the table.  If not provided, a name will be generated.
-    kwargs
-        Backend-specific keyword arguments for the file type. See
-        https://duckdb.org/docs/extensions/json.html for details.
-
-    Returns
-    -------
-    ir.Table
-        Table expression representing a file
-
-    Examples
-    --------
-    >>> import ibis
-    >>> ibis.options.interactive = True
-    >>> lines = '''
-    ... {"a": 1, "b": "d"}
-    ... {"a": 2, "b": null}
-    ... {"a": null, "b": "f"}
-    ... '''
-    >>> with open("/tmp/lines.json", mode="w") as f:
-    ...     nbytes = f.write(lines)  # nbytes is unused
-    >>> t = ibis.read_json("/tmp/lines.json")
-    >>> t
-    ┏━━━━━━━┳━━━━━━━━┓
-    ┃ a     ┃ b      ┃
-    ┡━━━━━━━╇━━━━━━━━┩
-    │ int64 │ string │
-    ├───────┼────────┤
-    │     1 │ d      │
-    │     2 │ NULL   │
-    │  NULL │ f      │
-    └───────┴────────┘
-
-    """
-    from xorq.vendor.ibis.config import _default_backend
-
-    con = _default_backend()
-    return con.read_json(sources, table_name=table_name, **kwargs)
-
-
-def read_parquet(
-    sources: str | Path | Sequence[str | Path],
-    table_name: str | None = None,
-    **kwargs: Any,
-) -> ir.Table:
-    """Lazily load a parquet file or set of parquet files.
-
-    This function delegates to the `read_parquet` method on the current default
-    backend (DuckDB or `ibis.config.default_backend`).
-
-    Parameters
-    ----------
-    sources
-        A filesystem path or URL or list of same.
-    table_name
-        A name to refer to the table.  If not provided, a name will be generated.
-    kwargs
-        Backend-specific keyword arguments for the file type. For the DuckDB
-        backend used by default, please refer to:
-
-        * Parquet: https://duckdb.org/docs/data/parquet
-
-    Returns
-    -------
-    ir.Table
-        Table expression representing a file
-
-    Examples
-    --------
-    >>> import ibis
-    >>> import pandas as pd
-    >>> ibis.options.interactive = True
-    >>> df = pd.DataFrame({"a": [1, 2, 3], "b": list("ghi")})
-    >>> df
-       a  b
-    0  1  g
-    1  2  h
-    2  3  i
-    >>> df.to_parquet("/tmp/data.parquet")
-    >>> t = ibis.read_parquet("/tmp/data.parquet")
-    >>> t
-    ┏━━━━━━━┳━━━━━━━━┓
-    ┃ a     ┃ b      ┃
-    ┡━━━━━━━╇━━━━━━━━┩
-    │ int64 │ string │
-    ├───────┼────────┤
-    │     1 │ g      │
-    │     2 │ h      │
-    │     3 │ i      │
-    └───────┴────────┘
-
-    """
-    from xorq.vendor.ibis.config import _default_backend
-
-    con = _default_backend()
-    return con.read_parquet(sources, table_name=table_name, **kwargs)
-
-
-def read_delta(
-    source: str | Path, table_name: str | None = None, **kwargs: Any
-) -> ir.Table:
-    """Lazily load a Delta Lake table.
-
-    Parameters
-    ----------
-    source
-        A filesystem path or URL.
-    table_name
-        A name to refer to the table.  If not provided, a name will be generated.
-    kwargs
-        Backend-specific keyword arguments for the file type.
-
-    Returns
-    -------
-    ir.Table
-        Table expression representing a file
-
-    Examples
-    --------
-    >>> import ibis
-    >>> import pandas as pd
-    >>> ibis.options.interactive = True
-    >>> df = pd.DataFrame({"a": [1, 2, 3], "b": list("ghi")})
-    >>> df
-       a  b
-    0  1  g
-    1  2  h
-    2  3  i
-    >>> import deltalake as dl
-    >>> dl.write_deltalake("/tmp/data.delta", df, mode="overwrite")
-    >>> t = ibis.read_delta("/tmp/data.delta")
-    >>> t
-    ┏━━━━━━━┳━━━━━━━━┓
-    ┃ a     ┃ b      ┃
-    ┡━━━━━━━╇━━━━━━━━┩
-    │ int64 │ string │
-    ├───────┼────────┤
-    │     1 │ g      │
-    │     2 │ h      │
-    │     3 │ i      │
-    └───────┴────────┘
-
-    """
-    from xorq.vendor.ibis.config import _default_backend
-
-    con = _default_backend()
-    return con.read_delta(source, table_name=table_name, **kwargs)
-
-
 def set_backend(backend: str | BaseBackend) -> None:
     """Set the default Ibis backend.
 
@@ -1740,9 +1513,9 @@ def get_backend(expr: Expr | None = None) -> BaseBackend:
 
     """
     if expr is None:
-        from xorq.vendor.ibis.config import _default_backend
+        from xorq.config import _backend_init
 
-        return _default_backend()
+        return _backend_init()
     return expr._find_backend(use_default=True)
 
 

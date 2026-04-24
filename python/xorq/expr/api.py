@@ -51,8 +51,6 @@ if TYPE_CHECKING:
     import pandas as pd
     import pyarrow as pa
 
-EXCLUDE = ("read_csv", "read_parquet")
-
 __all__ = (
     "execute",
     "calc_split_column",
@@ -72,7 +70,7 @@ __all__ = (
     "deferred_read_parquet",
     "get_object_metadata",
     "bind_params",
-    *(member for member in api.__all__ if member not in EXCLUDE),
+    *api.__all__,
 )
 
 

@@ -9,6 +9,8 @@ from pytest import param
 
 import xorq.api as xo
 import xorq.vendor.ibis.expr.types as ir
+from xorq.backends.xorq_datafusion import Backend
+from xorq.config import _backend_init, options
 from xorq.tests.conftest import TEST_TABLES
 
 
@@ -130,6 +132,26 @@ def test_write(alltypes, df, tmp_path, extension, write, read):
 )
 def test_deferred_read(method):
     assert hasattr(xo, method)
+
+
+def test_default_backend_is_datafusion():
+    assert isinstance(options.default_backend, Backend)
+
+
+def test_default_backend_is_singleton():
+    first = _backend_init()
+    second = _backend_init()
+    assert first is second
+
+
+def test_get_backend_no_args_returns_default():
+    backend = xo.get_backend()
+    assert backend is options.default_backend
+
+
+def test_get_backend_with_expr_returns_expr_backend(con):
+    t = con.table("functional_alltypes")
+    assert xo.get_backend(t) is con
 
 
 @pytest.mark.benchmark
