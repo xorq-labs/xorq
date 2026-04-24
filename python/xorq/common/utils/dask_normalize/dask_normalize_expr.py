@@ -537,14 +537,12 @@ def normalize_backend(con):
     )
 
 
-@dask.base.normalize_token.register(ir.Schema)
 def normalize_schema(schema):
     return normalize_seq_with_caller(
         schema.to_pandas(),
     )
 
 
-@dask.base.normalize_token.register(ir.Namespace)
 def normalize_namespace(ns):
     return normalize_seq_with_caller(
         ns.catalog,

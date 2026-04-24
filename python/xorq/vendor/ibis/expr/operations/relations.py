@@ -399,6 +399,13 @@ class Namespace(Concrete):
     catalog: Optional[str] = None
     database: Optional[str] = None
 
+    def __dask_tokenize__(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
+            normalize_seq_with_caller,
+        )
+
+        return normalize_seq_with_caller(self.catalog, self.database)
+
 
 @public
 class UnboundTable(PhysicalTable):
