@@ -1033,6 +1033,8 @@ class DataViewScreen(Screen):
         self._cursor_column_index = 0
         self._stack_browser_visible = False
         self._command_mode = None
+        self._active_proc = None
+        self._proc_lock = threading.Lock()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -1060,6 +1062,9 @@ class DataViewScreen(Screen):
         label = self._row_data.aliases_display or self._row_data.hash[:12]
         self.query_one("#data-view-status", Static).update(f" Loading {label}...")
         self._load_data()
+
+    def on_unmount(self) -> None:
+        self._kill_active_proc()
 
     def _catalog_base_cmd(self, subcommand: str) -> list[str]:
         """Shared ``xorq catalog --path <repo> <subcommand> <entry>`` prefix."""
@@ -1095,11 +1100,28 @@ class DataViewScreen(Screen):
         import pyarrow as pa  # noqa: PLC0415
 
         cmd = self._catalog_run_cmd(code)
-        proc = subprocess.run(cmd, capture_output=True)
+        with self._proc_lock:
+            prior = self._active_proc
+            if prior is not None and prior.poll() is None:
+                prior.kill()
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self._active_proc = proc
+        try:
+            stdout, stderr = proc.communicate()
+        finally:
+            with self._proc_lock:
+                if self._active_proc is proc:
+                    self._active_proc = None
         if proc.returncode != 0:
-            raise RuntimeError(proc.stderr.decode().strip())
-        reader = pa.ipc.open_stream(proc.stdout)
+            raise RuntimeError(stderr.decode().strip())
+        reader = pa.ipc.open_stream(stdout)
         return reader.read_pandas()
+
+    def _kill_active_proc(self) -> None:
+        with self._proc_lock:
+            proc = self._active_proc
+        if proc is not None and proc.poll() is None:
+            proc.kill()
 
     @work(thread=True, exit_on_error=False)
     def _load_data(self) -> None:
