@@ -494,7 +494,6 @@ def normalize_cached_node(node):
     )
 
 
-@dask.base.normalize_token.register(xops.NamedScalarParameter)
 def normalize_named_scalar_parameter(node):
     return normalize_seq_with_caller(
         node.label,
@@ -731,7 +730,7 @@ def normalize_op(op, compiler=None):
         udfs,
         tuple(map(normalize_inmemorytable, mems)),
         *(
-            (tuple(map(normalize_named_scalar_parameter, named_params)),)
+            (tuple(map(dask.base.normalize_token, named_params)),)
             if named_params
             else ()
         ),
