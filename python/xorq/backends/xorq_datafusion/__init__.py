@@ -9,9 +9,7 @@ import pyarrow_hotfix  # noqa: F401
 from sqlglot import exp, parse_one
 
 from xorq.backends.xorq_datafusion.datafusion import Backend as DataFusionBackend
-from xorq.common.collections import SourceDict
 from xorq.internal import SessionConfig, WindowUDF
-from xorq.vendor.ibis.expr import schema as sch
 from xorq.vendor.ibis.expr import types as ir
 
 
@@ -19,28 +17,8 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
-def _get_datafusion_table(con, table_name, database="public"):
-    default = con.catalog()
-    public = default.database(database)
-    return public.table(table_name)
-
-
-def _get_datafusion_dataframe(con, expr, **kwargs):
-    con._register_udfs(expr)
-    con._register_in_memory_tables(expr)
-
-    table_expr = expr.as_table()
-    raw_sql = con.compile(table_expr, **kwargs)
-
-    return con.con.sql(raw_sql)
-
-
 class Backend(DataFusionBackend):
     name = "xorq_datafusion"
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._sources = SourceDict()
 
     def register(
         self,
@@ -48,69 +26,11 @@ class Backend(DataFusionBackend):
         table_name: str | None = None,
         **kwargs: Any,
     ) -> ir.Table:
-        # FIXME: make sure all paths set the correct backend, table_or_expr pairs
-        table_or_expr = None
-        if isinstance(source, ir.Expr) and hasattr(source, "to_pyarrow_batches"):
-            table_or_expr = source.op()
+        if isinstance(source, ir.Expr):
+            from xorq.expr.relations import into_backend  # noqa: PLC0415
 
-            backends, has_unbound = source._find_backends()
-            backend = None
-            if not backends:
-                if not has_unbound:
-                    # presumes MemoryTable?
-                    source = super().execute(source)
-                    table_or_expr = None
-            elif len(backends) > 1:
-                raise ValueError("Multiple backends found for this expression")
-            else:
-                backend = backends[0]
-
-            if isinstance(backend, Backend):
-                if table_or_expr in backend._sources:
-                    old_table_expr, table_or_expr = (
-                        table_or_expr,
-                        backend._sources.get_table_or_op(table_or_expr),
-                    )
-                    backend = backend._sources.get_backend(old_table_expr)
-                source = table_or_expr.to_expr()
-
-            if isinstance(backend, DataFusionBackend):
-                source = _get_datafusion_dataframe(backend, source)
-
-        registered_table = super().register(source, table_name=table_name, **kwargs)
-        self._sources[registered_table.op()] = table_or_expr or registered_table.op()
-
-        return registered_table
-
-    def read_parquet(
-        self, path: str | Path, table_name: str | None = None, **kwargs: Any
-    ) -> ir.Table:
-        registered_table = super().read_parquet(path, table_name=table_name, **kwargs)
-        self._sources[registered_table.op()] = registered_table.op()
-        return registered_table
-
-    def read_csv(
-        self, path: str | Path, table_name: str | None = None, **kwargs: Any
-    ) -> ir.Table:
-        registered_table = super().read_csv(path, table_name=table_name, **kwargs)
-        self._sources[registered_table.op()] = registered_table.op()
-        return registered_table
-
-    def read_json(
-        self, path: str | Path, table_name: str | None = None, **kwargs: Any
-    ) -> ir.Table:
-        registered_table = super().read_json(path, table_name=table_name, **kwargs)
-        self._sources[registered_table.op()] = registered_table.op()
-        return registered_table
-
-    def read_delta(
-        self, source_table: str | Path, table_name: str | None = None, **kwargs: Any
-    ) -> ir.Table:
-        registered_table = super().read_delta(
-            source_table, table_name=table_name, **kwargs
-        )
-        self._sources[registered_table.op()] = registered_table.op()
-        return registered_table
+            return into_backend(source, self, table_name)
+        return super().register(source, table_name=table_name, **kwargs)
 
     def read_postgres(
         self, uri: str, *, table_name: str | None = None, database: str = "public"
@@ -138,25 +58,7 @@ class Backend(DataFusionBackend):
         parsed = urllib.parse.urlparse(uri)
         backend = backend._from_url(parsed, database=database)
         table = backend.table(table_name)
-        registered_table = super().register_table_provider(table, table_name=table_name)
-        self._sources[registered_table.op()] = table.op()
-        return registered_table
-
-    def create_table(
-        self,
-        name: str,
-        obj: pd.DataFrame | pa.Table | ir.Table | None = None,
-        *,
-        schema: sch.Schema | None = None,
-        database: str | None = None,
-        temp: bool = False,
-        overwrite: bool = False,
-    ):
-        registered_table = super().create_table(
-            name, obj, schema=schema, database=database, temp=temp, overwrite=overwrite
-        )
-        self._sources[registered_table.op()] = registered_table.op()
-        return registered_table
+        return super().register_table_provider(table, table_name=table_name)
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
         batch_reader = self.to_pyarrow_batches(expr, **kwargs)
@@ -168,31 +70,6 @@ class Backend(DataFusionBackend):
         batch_reader = self.to_pyarrow_batches(expr, **kwargs)
         arrow_table = batch_reader.read_all()
         return expr.__pyarrow_result__(arrow_table)
-
-    def to_pyarrow_batches(
-        self,
-        expr: ir.Expr,
-        *,
-        chunk_size: int = 1_000_000,
-        **kwargs: Any,
-    ) -> pa.ipc.RecordBatchReader:
-        return super().to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
-
-    def do_connect(self, config: SessionConfig | None = None) -> None:
-        """Creates a connection.
-
-        Parameters
-        ----------
-        config
-            Mapping of table names to files.
-
-        Examples
-        --------
-        >>> import xorq.api as xo
-        >>> con = xo.connect()
-
-        """
-        super().do_connect(config=config)
 
     def _extract_catalog(self, query):
         tables = parse_one(query).find_all(exp.Table)
