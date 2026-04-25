@@ -21,6 +21,7 @@ import xorq.vendor.ibis.expr.operations as ops
 from xorq.common.utils.dask_normalize.dask_normalize_expr import (
     normalize_backend,
     normalize_remote_table,
+    stable_read_kwarg_tpls,
 )
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_seq_with_caller,
@@ -38,9 +39,10 @@ from xorq.vendor.ibis.expr import types as ir
 def snapshot_normalize_read(read):
     """Normalize Read for snapshot caching using path identity only, not file modification stats."""
     read_kwargs = dict(read.read_kwargs)
-    # Materialized build-bundle reads carry a content-hash-named read_path that is
-    # stable across environments. Their hash_path is an absolute tmpdir path that
-    # changes every run, so prefer read_path when available.
+    # Prefer read_path when present: materialized build-bundle reads rewrite
+    # hash_path to an absolute tmpdir path that changes every run, while
+    # read_path is the content-hash-named filename and is stable across runs.
+    # For non-bundle reads only hash_path is set, so fall through to it.
     path = read_kwargs.get("read_path") or read_kwargs["hash_path"]
     match path:
         case list() | tuple() if len(path) == 1:
@@ -51,9 +53,7 @@ def snapshot_normalize_read(read):
             tpls = (("path", str(path)),)
         case _:
             raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
-    tpls += tuple(
-        (k, v) for k, v in read.read_kwargs if k in ("mode", "schema", "temporary")
-    )
+    tpls += stable_read_kwarg_tpls(read)
     return normalize_seq_with_caller(
         read.schema,
         tpls,
@@ -63,7 +63,7 @@ def snapshot_normalize_read(read):
 
 def _rename_remote_table(node, kwargs):
     if isinstance(node, RemoteTable):
-        # FIXME: how to verify that we're always within a normalization_context?
+        # FIXME: how to verify that we're always within a SnapshotStrategy.normalization_context?
         name = dask.base.tokenize(node)
         return RemoteTable(
             name=name,
@@ -78,13 +78,18 @@ def _rename_remote_table(node, kwargs):
 
 @frozen
 class CacheStrategy:
+    name_prefix = ""
+
     key_prefix = field(
         validator=instance_of(str),
         factory=functools.partial(options.get, "cache.key_prefix"),
     )
 
+    def calc_key(self, expr: ir.Expr):
+        return self.key_prefix + self.name_prefix + self._compute_token(expr)
+
     @abstractmethod
-    def calc_key(self, expr):
+    def _compute_token(self, expr: ir.Expr) -> str:
         pass
 
     def __dask_tokenize__(self):
@@ -93,17 +98,18 @@ class CacheStrategy:
 
 @frozen
 class ModificationTimeStrategy(CacheStrategy):
-    def calc_key(self, expr: ir.Expr):
-        return self.key_prefix + expr.ls.tokenized
+    def _compute_token(self, expr: ir.Expr):
+        return expr.ls.tokenized
 
 
 @frozen
 class SnapshotStrategy(CacheStrategy):
-    def calc_key(self, expr: ir.Expr):
+    name_prefix = "snapshot-"
+
+    def _compute_token(self, expr: ir.Expr):
         with self.normalization_context(expr):
             replaced = self.replace_remote_table(expr)
-            tokenized = replaced.ls.tokenized
-            return self.key_prefix + "-".join(("snapshot", tokenized))
+            return replaced.ls.tokenized
 
     @contextlib.contextmanager
     def normalization_context(self, expr):

@@ -47,15 +47,21 @@ class Cache:
     strategy_typ = None
     storage_typ = None
 
+    @classmethod
+    def _resolve_storage_typ(cls):
+        # subclasses override to defer optional imports (e.g. GCSCache)
+        return cls.storage_typ
+
     def __attrs_post_init__(self):
         if not isinstance(self.strategy, self.strategy_typ):
             raise TypeError(
                 f"expected strategy of type {self.strategy_typ.__name__}, "
                 f"got {type(self.strategy).__name__}"
             )
-        if not isinstance(self.storage, self.storage_typ):
+        storage_typ = self._resolve_storage_typ()
+        if not isinstance(self.storage, storage_typ):
             raise TypeError(
-                f"expected storage of type {self.storage_typ.__name__}, "
+                f"expected storage of type {storage_typ.__name__}, "
                 f"got {type(self.storage).__name__}"
             )
 
@@ -203,27 +209,17 @@ class SourceSnapshotCache(Cache):
 @frozen
 class GCSCache(Cache):
     strategy_typ = ModificationTimeStrategy
-    storage_typ = None
 
-    def __attrs_post_init__(self):
+    @classmethod
+    def _resolve_storage_typ(cls):
         from xorq.common.utils.gcloud_utils import GCStorage  # noqa: PLC0415
 
-        if not isinstance(self.strategy, self.strategy_typ):
-            raise TypeError(
-                f"expected strategy of type {self.strategy_typ.__name__}, "
-                f"got {type(self.strategy).__name__}"
-            )
-        if not isinstance(self.storage, GCStorage):
-            raise TypeError(
-                f"expected storage of type GCStorage, got {type(self.storage).__name__}"
-            )
+        return GCStorage
 
     @classmethod
     def from_kwargs(cls, bucket_name, source):
-        from xorq.common.utils.gcloud_utils import GCStorage  # noqa: PLC0415
-
         strategy = cls.strategy_typ()
-        storage = GCStorage(bucket_name=bucket_name, source=source)
+        storage = cls._resolve_storage_typ()(bucket_name=bucket_name, source=source)
         return cls(strategy=strategy, storage=storage)
 
 

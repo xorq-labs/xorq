@@ -1,3 +1,7 @@
+import os
+
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 import xorq.api as xo
@@ -49,3 +53,23 @@ def test_snapshot_strategy_calc_key_with_hashing_tag_over_remote_table():
     strategy = SnapshotStrategy()
     key = strategy.calc_key(tagged)
     assert key.startswith(f"{strategy.key_prefix}snapshot-")
+
+
+def test_snapshot_strategy_calc_key_invariant_under_mtime(tmp_path):
+    """SnapshotStrategy keys must depend on path identity, not file modification stats."""
+    path = tmp_path / "data.parquet"
+    pq.write_table(pa.table({"a": [1, 2, 3]}), path)
+
+    con = xo.datafusion.connect()
+    t = con.read_parquet(path, table_name="t")
+
+    strategy = SnapshotStrategy()
+    key1 = strategy.calc_key(t)
+
+    # bump the file's mtime/atime; content and path are unchanged
+    stat = path.stat()
+    os.utime(path, (stat.st_atime + 10_000, stat.st_mtime + 10_000))
+    SnapshotStrategy.cached_normalize_read.cache_clear()
+
+    key2 = strategy.calc_key(t)
+    assert key1 == key2
