@@ -18,10 +18,11 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from textual.widgets import DataTable, Static, Tree
+from textual.widgets import DataTable, Input, Static, Tree
 
 import xorq.api as xo
 from xorq.caching import ParquetSnapshotCache
+from xorq.catalog.bind import _eval_code
 from xorq.catalog.tests.testing import (
     Assert,
     Press,
@@ -35,6 +36,8 @@ from xorq.catalog.tui import (
     CatalogScreen,
     CatalogTUI,
     DataViewScreen,
+    ExprStack,
+    ExprStep,
     GitLogRowData,
     RevisionRowData,
     _build_git_log_rows,
@@ -861,3 +864,311 @@ def test_memtable_cached_lifecycle(catalog, tmp_path):
 
     entry.expr.execute()
     assert CatalogRowData(entry=entry).cached is True
+
+
+# ---------------------------------------------------------------------------
+# 12. ExprStack: pure unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_expr_step_is_frozen():
+    step = ExprStep(
+        verb="filter", user_input="source.x > 1", code="source.filter(source.x > 1)"
+    )
+    with pytest.raises(AttributeError):
+        step.verb = "mutate"
+
+
+def test_expr_stack_initial_state():
+    base = xo.memtable({"x": [1, 2, 3]})
+    stack = ExprStack(base_expr=base)
+    assert stack.cursor == 0
+    assert stack.steps == ()
+    assert stack.current_code == ""
+    assert not stack.can_undo
+    assert not stack.can_redo
+
+
+def test_expr_stack_push():
+    base = xo.memtable({"x": [1, 2, 3]})
+    stack = ExprStack(base_expr=base)
+    step = ExprStep(
+        verb="filter", user_input="source.x > 1", code="source.filter(source.x > 1)"
+    )
+    stack2 = stack.push(step)
+    assert stack2.cursor == 1
+    assert len(stack2.steps) == 1
+    assert stack2.steps[0] is step
+    # original unchanged (immutable)
+    assert stack.cursor == 0
+    assert len(stack.steps) == 0
+
+
+def test_expr_stack_undo_redo():
+    base = xo.memtable({"x": [1, 2, 3]})
+    step = ExprStep(
+        verb="filter", user_input="source.x > 1", code="source.filter(source.x > 1)"
+    )
+    stack = ExprStack(base_expr=base).push(step)
+    assert stack.can_undo
+    assert not stack.can_redo
+
+    undone = stack.undo()
+    assert undone.cursor == 0
+    assert not undone.can_undo
+    assert undone.can_redo
+
+    redone = undone.redo()
+    assert redone.cursor == 1
+    assert redone.can_undo
+    assert not redone.can_redo
+
+
+def test_expr_stack_undo_at_zero():
+    base = xo.memtable({"x": [1, 2, 3]})
+    stack = ExprStack(base_expr=base)
+    assert stack.undo().cursor == 0
+
+
+def test_expr_stack_redo_at_end():
+    base = xo.memtable({"x": [1, 2, 3]})
+    step = ExprStep(
+        verb="filter", user_input="source.x > 1", code="source.filter(source.x > 1)"
+    )
+    stack = ExprStack(base_expr=base).push(step)
+    assert stack.redo().cursor == 1
+
+
+def test_expr_stack_fork_discards_after_cursor():
+    base = xo.memtable({"x": [1, 2, 3]})
+    step1 = ExprStep(
+        verb="filter", user_input="source.x > 1", code="source.filter(source.x > 1)"
+    )
+    step2 = ExprStep(
+        verb="mutate", user_input="y=source.x * 2", code="source.mutate(y=source.x * 2)"
+    )
+    stack = ExprStack(base_expr=base).push(step1).push(step2)
+    assert stack.cursor == 2
+
+    # Undo to step 1, then push a new step — step2 should be discarded
+    undone = stack.undo()
+    assert undone.cursor == 1
+    step3 = ExprStep(verb="select", user_input='"x"', code='source.select("x")')
+    forked = undone.push(step3)
+    assert forked.cursor == 2
+    assert len(forked.steps) == 2
+    assert forked.steps[1] is step3  # step2 was replaced
+
+
+def test_expr_stack_current_code():
+    base = xo.memtable({"x": [1, 2, 3]})
+    step1 = ExprStep(
+        verb="filter", user_input="source.x > 1", code="source.filter(source.x > 1)"
+    )
+    step2 = ExprStep(
+        verb="mutate", user_input="y=source.x * 2", code="source.mutate(y=source.x * 2)"
+    )
+    stack = ExprStack(base_expr=base).push(step1).push(step2)
+    code = stack.current_code
+    # Each step is wrapped in a lambda so its `source` binds to the prior result.
+    assert code == (
+        "(lambda source: source.mutate(y=source.x * 2))"
+        "((lambda source: source.filter(source.x > 1))(source))"
+    )
+
+
+def test_expr_stack_current_code_single_step():
+    base = xo.memtable({"x": [1, 2, 3]})
+    step = ExprStep(
+        verb="filter", user_input="source.x > 1", code="source.filter(source.x > 1)"
+    )
+    stack = ExprStack(base_expr=base).push(step)
+    assert stack.current_code == "(lambda source: source.filter(source.x > 1))(source)"
+
+
+def test_expr_stack_current_code_evaluable():
+    """current_code must be a single expression that _eval_code can evaluate."""
+
+    base = xo.memtable({"x": [1, 2, 3], "y": [10, 20, 30]})
+    step1 = ExprStep(
+        verb="filter", user_input="source.x > 1", code="source.filter(source.x > 1)"
+    )
+    step2 = ExprStep(
+        verb="filter", user_input="source.y < 25", code="source.filter(source.y < 25)"
+    )
+    stack = ExprStack(base_expr=base).push(step1).push(step2)
+    result = _eval_code(stack.current_code, base)
+    df = result.execute()
+    assert len(df) == 1
+    assert list(df["x"]) == [2]
+    assert list(df["y"]) == [20]
+
+
+def test_expr_stack_current_code_inner_source_rebinds():
+    """Every `source` in a step must bind to the prior step's result, not only the first."""
+
+    base = xo.memtable({"x": [1, 2, 3], "y": [10, 20, 30]})
+    step1 = ExprStep(
+        verb="freeform",
+        user_input='source.select("x")',
+        code='source.select("x")',
+    )
+    # This step references source.x; after select("x"), source.y is gone.
+    # If `source` inside the mutate bound to the original base, this would
+    # silently succeed using base.x rather than the selected projection.
+    step2 = ExprStep(
+        verb="freeform",
+        user_input="source.mutate(z=source.x * 10)",
+        code="source.mutate(z=source.x * 10)",
+    )
+    stack = ExprStack(base_expr=base).push(step1).push(step2)
+    result = _eval_code(stack.current_code, base)
+    df = result.execute()
+    assert list(df.columns) == ["x", "z"]
+    assert list(df["z"]) == [10, 20, 30]
+
+
+# ---------------------------------------------------------------------------
+# 13. DataViewScreen compose: pilot tests
+# ---------------------------------------------------------------------------
+
+
+def test_data_view_has_command_input_hidden(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+
+            await run_script(
+                pilot,
+                Press(("j",)),
+                Press(("e",)),
+            )
+            await settle(pilot)
+            assert isinstance(app.screen, DataViewScreen)
+
+            cmd = app.screen.query_one("#command-input", Input)
+            assert cmd.display is False
+
+    _run(_test())
+
+
+def test_data_view_colon_opens_freeform_input(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+
+            await run_script(
+                pilot,
+                Press(("j",)),
+                Press(("e",)),
+            )
+            await settle(pilot)
+            data_screen = app.screen
+            assert isinstance(data_screen, DataViewScreen)
+
+            data_table = data_screen.query_one("#data-view-table", DataTable)
+            await wait_until(pilot, lambda: data_table.row_count > 0)
+
+            await pilot.press(":")
+            await settle(pilot)
+
+            cmd = data_screen.query_one("#command-input", Input)
+            assert cmd.display is not False
+            assert ":" in str(cmd.border_title)
+
+    _run(_test())
+
+
+def test_data_view_escape_closes_command_input(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+
+            await run_script(
+                pilot,
+                Press(("j",)),
+                Press(("e",)),
+            )
+            await settle(pilot)
+            data_screen = app.screen
+            data_table = data_screen.query_one("#data-view-table", DataTable)
+            await wait_until(pilot, lambda: data_table.row_count > 0)
+
+            # Open command input
+            await pilot.press(":")
+            await settle(pilot)
+
+            cmd = data_screen.query_one("#command-input", Input)
+            assert cmd.display is not False
+
+            # Escape closes it
+            await pilot.press("escape")
+            await settle(pilot)
+            assert cmd.display is False
+            # Still on DataViewScreen
+            assert isinstance(app.screen, DataViewScreen)
+
+    _run(_test())
+
+
+def test_data_view_stack_browser_toggle(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+
+            await run_script(
+                pilot,
+                Press(("j",)),
+                Press(("e",)),
+            )
+            await settle(pilot)
+            data_screen = app.screen
+            assert isinstance(data_screen, DataViewScreen)
+
+            data_table = data_screen.query_one("#data-view-table", DataTable)
+            await wait_until(pilot, lambda: data_table.row_count > 0)
+
+            panel = data_screen.query_one("#stack-browser-panel")
+            assert panel.display is False
+
+            await run_script(
+                pilot,
+                Press(("s",)),
+                Assert(lambda p: panel.display is not False),
+                Press(("s",)),
+                Assert(lambda p: panel.display is False),
+            )
+
+    _run(_test())
+
+
+def test_data_view_undo_redo_no_crash_when_empty(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+
+            await run_script(
+                pilot,
+                Press(("j",)),
+                Press(("e",)),
+            )
+            await settle(pilot)
+            data_screen = app.screen
+            assert isinstance(data_screen, DataViewScreen)
+
+            data_table = data_screen.query_one("#data-view-table", DataTable)
+            await wait_until(pilot, lambda: data_table.row_count > 0)
+
+            # Undo/redo with empty stack should not crash
+            await pilot.press("u")
+            await settle(pilot)
+            await pilot.press("ctrl+r")
+            await settle(pilot)
+            assert isinstance(app.screen, DataViewScreen)
+
+    _run(_test())
