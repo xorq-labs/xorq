@@ -1133,7 +1133,9 @@ class DataViewScreen(Screen):
             df = self._run_catalog_subprocess()
             self.app.call_from_thread(self._on_data_loaded, df)
         except Exception as e:
-            logger.exception("data_view_load_failed", entry=self._row_data.hash[:12])
+            logger.exception(
+                "data_view_load_failed", entry_hash=self._row_data.hash[:12]
+            )
             self.app.call_from_thread(self._render_error, str(e))
 
     def _on_data_loaded(self, df) -> None:
@@ -1217,7 +1219,7 @@ class DataViewScreen(Screen):
                 "stack_execute_failed",
                 cursor=stack.cursor,
                 steps=len(stack.steps),
-                code=stack.current_code,
+                code=code,
             )
             self.app.call_from_thread(self._on_stack_execute_failed, stack, str(e))
             return
