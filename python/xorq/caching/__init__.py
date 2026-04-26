@@ -49,7 +49,12 @@ class Cache:
 
     @classmethod
     def _resolve_storage_typ(cls):
-        # subclasses override to defer optional imports (e.g. GCSCache)
+        # Indirection so `import xorq.caching` doesn't require optional deps:
+        # GCSCache overrides this to import GCStorage only when a GCSCache is
+        # actually constructed. Subclasses without optional deps just return
+        # cls.storage_typ. Note that cls.storage_typ stays as a class attr so
+        # __attrs_post_init__/from_kwargs can still introspect it on classes
+        # that don't need lazy resolution.
         return cls.storage_typ
 
     def __attrs_post_init__(self):
@@ -121,7 +126,6 @@ class Cache:
         return normalize_seq_with_caller(
             self.strategy,
             self.storage,
-            self.strategy.key_prefix,
             caller="normalize_cache",
         )
 
@@ -208,6 +212,9 @@ class SourceSnapshotCache(Cache):
 @public
 @frozen
 class GCSCache(Cache):
+    # storage_typ deliberately not set: GCStorage requires google-cloud-storage,
+    # which is an optional dep. Resolving it lazily via _resolve_storage_typ
+    # keeps `import xorq.caching` working without it installed.
     strategy_typ = ModificationTimeStrategy
 
     @classmethod
@@ -218,6 +225,8 @@ class GCSCache(Cache):
 
     @classmethod
     def from_kwargs(cls, bucket_name, source):
+        # Overridden because Cache.from_kwargs uses cls.storage_typ directly,
+        # which is None here.
         strategy = cls.strategy_typ()
         storage = cls._resolve_storage_typ()(bucket_name=bucket_name, source=source)
         return cls(strategy=strategy, storage=storage)

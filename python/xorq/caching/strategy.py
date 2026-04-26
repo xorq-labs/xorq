@@ -61,21 +61,6 @@ def snapshot_normalize_read(read):
     )
 
 
-def _rename_remote_table(node, kwargs):
-    if isinstance(node, RemoteTable):
-        # FIXME: how to verify that we're always within a SnapshotStrategy.normalization_context?
-        name = dask.base.tokenize(node)
-        return RemoteTable(
-            name=name,
-            schema=node.schema,
-            source=node.source,
-            remote_expr=node.remote_expr,
-            namespace=node.namespace,
-        )
-    # kwargs is None when no children were rewritten (graph.py convention)
-    return node.__recreate__(kwargs) if kwargs else node
-
-
 @frozen
 class CacheStrategy:
     name_prefix = ""
@@ -93,7 +78,7 @@ class CacheStrategy:
         pass
 
     def __dask_tokenize__(self):
-        return (type(self).__name__,)
+        return (type(self).__name__, self.key_prefix)
 
 
 @frozen
@@ -145,7 +130,22 @@ class SnapshotStrategy(CacheStrategy):
     @staticmethod
     @functools.cache
     def cached_replace_remote_table(op):
-        return op.replace(_rename_remote_table)
+        return op.replace(SnapshotStrategy._rename_remote_table)
+
+    @staticmethod
+    def _rename_remote_table(node, kwargs):
+        if isinstance(node, RemoteTable):
+            # FIXME: how to verify we're inside SnapshotStrategy.normalization_context?
+            name = dask.base.tokenize(node)
+            return RemoteTable(
+                name=name,
+                schema=node.schema,
+                source=node.source,
+                remote_expr=node.remote_expr,
+                namespace=node.namespace,
+            )
+        # kwargs is None when no children were rewritten (graph.py convention)
+        return node.__recreate__(kwargs) if kwargs else node
 
     @staticmethod
     def normalize_backend(con):

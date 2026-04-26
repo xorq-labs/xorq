@@ -53,6 +53,9 @@ def test_snapshot_strategy_calc_key_with_hashing_tag_over_remote_table():
     strategy = SnapshotStrategy()
     key = strategy.calc_key(tagged)
     assert key.startswith(f"{strategy.key_prefix}snapshot-")
+    # RemoteTable.name is non-deterministic; SnapshotStrategy.replace_remote_table
+    # must rewrite it so repeated calc_key calls on the same expr agree.
+    assert strategy.calc_key(tagged) == key
 
 
 def test_snapshot_strategy_calc_key_invariant_under_mtime(tmp_path):

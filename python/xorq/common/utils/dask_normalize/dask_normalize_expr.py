@@ -405,6 +405,11 @@ def normalize_ibis_datatype(datatype):
     return normalize_seq_with_caller(datatype.name.lower(), *datatype.args)
 
 
+# read_kwargs that change *what* the read returns (and so must participate in
+# cache identity), as opposed to kwargs that only locate the bytes (`hash_path`,
+# `read_path`) — those are handled by the per-strategy path-extraction logic —
+# or that name the materialized table (`table_name`) — that's an output label,
+# not an input.
 _STABLE_READ_KWARG_KEYS = ("mode", "schema", "temporary")
 
 
