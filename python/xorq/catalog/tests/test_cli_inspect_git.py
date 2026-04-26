@@ -1,11 +1,8 @@
-# Tests for: info, list, list-aliases, get, check, log, replay, clone,
-#            push/pull/sync, CLI option validation, tui, schema commands
 import json
 import shutil
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
 
 from xorq.catalog.catalog import (
     Catalog,
@@ -22,11 +19,6 @@ from xorq.catalog.zip_utils import (
     write_zip,
 )
 from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES
-
-
-@pytest.fixture
-def runner():
-    yield CliRunner()
 
 
 # --- info command ---

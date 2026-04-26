@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 import toolz
+from click.testing import CliRunner
 from git import (
     Blob,
     Repo,
@@ -27,6 +28,7 @@ from xorq.ibis_yaml.packager import (
     WheelPackager,
     find_file_upwards,
 )
+from xorq.vendor.ibis.expr import operations as ops
 
 
 # Fake wheel name for tests that construct synthetic archives.
@@ -205,6 +207,29 @@ def root_repo(tmpdir):
     repo.index.add(["README.md"])
     repo.index.commit("initial commit")
     yield repo
+
+
+@pytest.fixture
+def runner():
+    yield CliRunner()
+
+
+@pytest.fixture
+def catalog_with_source_and_transform(catalog_path):
+    """Populate a catalog with a source entry and an unbound transform entry."""
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+
+    source = xo.memtable(
+        {"user_id": [1, 2, 3], "amount": [10.0, 20.0, 30.0], "name": ["a", "b", "c"]}
+    )
+    source_entry = catalog.add(source, aliases=("src",))
+
+    schema = source.schema()
+    unbound = ops.UnboundTable(name="placeholder", schema=schema).to_expr()
+    transform = unbound.filter(unbound.amount > 0).select("user_id", "amount")
+    transform_entry = catalog.add(transform, aliases=("trn",))
+
+    return catalog_path, source_entry.name, transform_entry.name
 
 
 @pytest.fixture
