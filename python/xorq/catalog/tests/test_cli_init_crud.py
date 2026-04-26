@@ -1,9 +1,7 @@
-# Tests for: init, add, remove, add-alias, remove-alias CLI commands
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
 
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
@@ -12,11 +10,6 @@ from xorq.catalog.tests.conftest import (
     make_build_zip,
 )
 from xorq.catalog.zip_utils import extract_build_zip_context
-
-
-@pytest.fixture
-def runner():
-    yield CliRunner()
 
 
 # --- init command ---
