@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+shell="${1:-bash}"
+
+case "$shell" in
+    bash)
+        cat <<'BASH'
+_devcontainer() {
+    local cur prev words cword
+    _init_completion || return
+
+    local subcmds="up down reset clean status logs exec claude claude-dangerously-skip-permissions audit completions"
+    local global_opts="-w --workspace"
+
+    local i=1 subcmd=""
+    while [ $i -lt $cword ]; do
+        case "${words[i]}" in
+            -w|--workspace) ((i+=2)); continue ;;
+            -*) ((i++)); continue ;;
+            *) subcmd="${words[i]}"; break ;;
+        esac
+    done
+
+    if [ -z "$subcmd" ]; then
+        if [[ "$cur" == -* ]]; then
+            COMPREPLY=($(compgen -W "$global_opts" -- "$cur"))
+        elif [[ "$prev" == -w || "$prev" == --workspace ]]; then
+            _filedir -d
+        else
+            COMPREPLY=($(compgen -W "$subcmds" -- "$cur"))
+        fi
+        return
+    fi
+
+    case "$subcmd" in
+        exec)
+            COMPREPLY=($(compgen -c -- "$cur"))
+            ;;
+        audit)
+            COMPREPLY=($(compgen -W "--summary --new --all --clear" -- "$cur"))
+            ;;
+        completions)
+            COMPREPLY=($(compgen -W "bash zsh fish" -- "$cur"))
+            ;;
+    esac
+}
+BASH
+        printf 'complete -F _devcontainer devcontainer\n'
+        ;;
+    zsh)
+        echo '#compdef devcontainer'
+        cat <<'ZSH'
+_devcontainer() {
+    local -a subcmds=(
+        'up:start the dev container'
+        'down:stop the dev container'
+        'reset:destroy container and all volumes'
+        'clean:reset + remove images and host-side artifacts'
+        'exec:run a command in the dev container'
+        'claude:run claude in the dev container'
+        'claude-dangerously-skip-permissions:run claude with --dangerously-skip-permissions'
+        'audit:show permission audit log'
+        'status:show whether the container is running'
+        'logs:show container logs'
+        'completions:emit shell completions'
+    )
+    _arguments -s \
+        '(-w --workspace)'{-w,--workspace}'[workspace directory]:dir:_directories' \
+        '1:subcommand:->subcmd' \
+        '*::arg:->args'
+    case $state in
+        subcmd) _describe 'subcommand' subcmds ;;
+        args)
+            case $words[1] in
+                exec) _command_names ;;
+                audit) _values 'mode' --summary --new --all --clear ;;
+                completions) _values 'shell' bash zsh fish ;;
+            esac
+            ;;
+    esac
+}
+_devcontainer "$@"
+ZSH
+        ;;
+    fish)
+        cat <<'FISH'
+set -l cmds up down reset clean status logs exec claude claude-dangerously-skip-permissions audit completions
+complete -c devcontainer -f
+complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -s w -l workspace -ra '(__fish_complete_directories)' -d 'workspace directory'
+complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a up -d 'start the dev container'
+complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a down -d 'stop the dev container'
+complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a reset -d 'destroy container and all volumes'
+complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a clean -d 'reset + remove images and host-side artifacts'
+complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a exec -d 'run a command in the dev container'
+complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a claude -d 'run claude in the dev container'
+complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a claude-dangerously-skip-permissions -d 'run claude with --dangerously-skip-permissions'
+complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a audit -d 'show permission audit log'
+complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a status -d 'show whether the container is running'
+complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a logs -d 'show container logs'
+complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a completions -d 'emit shell completions'
+complete -c devcontainer -n "__fish_seen_subcommand_from audit" -a "--summary --new --all --clear"
+complete -c devcontainer -n "__fish_seen_subcommand_from completions" -a "bash zsh fish"
+FISH
+        ;;
+    *)
+        echo "Unsupported shell: $shell (try bash, zsh, or fish)" >&2
+        exit 1
+        ;;
+esac

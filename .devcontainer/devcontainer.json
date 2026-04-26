@@ -1,0 +1,30 @@
+{
+  // per-project: container name
+  "name": "xorq",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/src",
+  "remoteUser": "vscode",
+  // per-project: forwarded ports and labels
+  "forwardPorts": [5432, 8080, 31337],
+  "portsAttributes": {
+    "5432": {"label": "PostgreSQL"},
+    "8080": {"label": "Trino"},
+    "31337": {"label": "GizmoSQL"}
+  },
+  // per-project: IDE extensions and settings
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "eamodio.gitlens",
+        "tamasfe.even-better-toml"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/workspaces/src/.venv/bin/python"
+      }
+    }
+  }
+}

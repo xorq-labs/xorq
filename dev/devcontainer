@@ -1,0 +1,296 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "${1:-}" = "completions" ]; then
+    shift
+    exec "$(dirname "$0")/devcontainer-completions" "$@"
+fi
+
+if [ "$(uname -s)" != "Linux" ]; then
+    echo "error: devcontainer requires Linux (uses GNU coreutils)" >&2
+    exit 1
+fi
+
+while [[ "${1:-}" == -* ]]; do
+    case "$1" in
+        -w|--workspace)
+            shift
+            if [ $# -eq 0 ]; then
+                echo "error: --workspace requires an argument" >&2
+                exit 1
+            fi
+            DEV_WORKSPACE="$1"; shift ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+done
+
+MAIN_TREE="$(git worktree list --porcelain | head -1 | sed 's/^worktree //')"
+COMPOSE_FILE="$MAIN_TREE/.devcontainer/docker-compose.yml"
+
+if [ ! -f "$COMPOSE_FILE" ]; then
+    echo "error: $COMPOSE_FILE not found" >&2
+    echo "The .devcontainer/ directory must exist in the main checkout: $MAIN_TREE" >&2
+    exit 1
+fi
+
+PROJECT_ENV="$MAIN_TREE/dev/project.env"
+[ -f "$PROJECT_ENV" ] && . "$PROJECT_ENV"
+PROJECT_NAME="${PROJECT_NAME:-$(basename "$MAIN_TREE")}"
+# not configurable — compose, Dockerfile, and setup-claude all assume this path
+CONTAINER_WORKSPACE="/workspaces/src"
+
+DEV_WORKSPACE="${DEV_WORKSPACE:-.}"
+if [ ! -d "$DEV_WORKSPACE" ]; then
+    echo "error: workspace directory does not exist: $DEV_WORKSPACE" >&2
+    exit 1
+fi
+export DEV_WORKSPACE="$(cd "$DEV_WORKSPACE" && pwd)"
+export DEV_UID="$(id -u)"
+export DEV_GID="$(id -g)"
+export DEV_MAIN_GIT="$MAIN_TREE/.git"
+export DEV_MAIN_TREE="$MAIN_TREE"
+export DEV_HOST_USER="$(whoami)"
+export DEV_PROJECT_NAME="$PROJECT_NAME"
+export DEV_CONTAINER_WORKSPACE="$CONTAINER_WORKSPACE"
+# SSH agent forwarding: the container can sign with any key loaded in the
+# host agent.  For tighter control, use `ssh-add -c` (confirm each use)
+# or load only the keys you need before starting the container.
+if [ -S "${SSH_AUTH_SOCK:-}" ]; then
+    export DEV_SSH_AUTH_SOCK="$SSH_AUTH_SOCK"
+else
+    export DEV_SSH_AUTH_SOCK="/dev/null"
+    echo "warning: no SSH agent detected — git over SSH won't work inside the container" >&2
+fi
+
+SOPS_AGE_DIR="${HOME}/.config/sops/age"
+if [ -d "$SOPS_AGE_DIR" ]; then
+    export DEV_SOPS_AGE_DIR="$SOPS_AGE_DIR"
+else
+    # mount an empty directory so the container sees a keyless dir, not a device file
+    DEV_SOPS_AGE_EMPTY="/tmp/devcontainer-empty-sops-age"
+    mkdir -p "$DEV_SOPS_AGE_EMPTY"
+    export DEV_SOPS_AGE_DIR="$DEV_SOPS_AGE_EMPTY"
+    echo "warning: no sops age key found — sops-encrypted envrc secrets won't decrypt inside the container" >&2
+fi
+
+if [ "$DEV_WORKSPACE" = "$MAIN_TREE" ]; then
+    export DEV_WORKTREE="main"
+else
+    export DEV_WORKTREE="$(basename "$DEV_WORKSPACE")"
+fi
+
+CONTAINER_NAME="${PROJECT_NAME}-dev-$(basename "$DEV_WORKSPACE")"
+LOCKFILE="/tmp/devcontainer-${CONTAINER_NAME}.lock"
+
+dc() {
+    docker compose -f "$COMPOSE_FILE" -p "$CONTAINER_NAME" "$@"
+}
+
+dc_exec() {
+    dc exec \
+        -e DEV_WORKTREE="$DEV_WORKTREE" \
+        app "$@"
+}
+
+is_running() {
+    dc ps --status running --format '{{.Service}}' 2>/dev/null | grep -q '^app$'
+}
+
+# requires GNU date -d and stat -c (Linux only)
+# only checks Dockerfile and docker-compose.yml — changes to COPY'd files
+# (setup-claude.py, audit-hook, setup-env.sh) require manual rebuild via reset
+image_stale() {
+    local container_id
+    container_id="$(dc ps -q 2>/dev/null | head -1)" || return 0
+    [ -z "$container_id" ] && return 0
+    local container_ts
+    container_ts="$(docker inspect --format '{{.Created}}' "$container_id" 2>/dev/null)" || return 0
+    container_ts="$(date -d "$container_ts" +%s 2>/dev/null)" || return 0
+    local devcontainer_dir="$MAIN_TREE/.devcontainer"
+    for f in "$devcontainer_dir/Dockerfile" "$devcontainer_dir/docker-compose.yml"; do
+        [ -f "$f" ] && [ "$(stat -c %Y "$f")" -gt "$container_ts" ] && return 0
+    done
+    return 1
+}
+
+require_tty() {
+    if [ ! -t 0 ]; then
+        echo "error: '$1' requires an interactive terminal (TTY)" >&2
+        exit 1
+    fi
+}
+
+setup_claude() {
+    local host_project_key container_project_key
+    host_project_key="$(echo "$DEV_WORKSPACE" | sed 's|/|-|g')"
+    container_project_key="$(echo "$CONTAINER_WORKSPACE" | sed 's|/|-|g')"
+
+    # named volume root is owned by root; fix so vscode can write
+    dc exec -u root app chown -R vscode:vscode /home/vscode/.claude
+
+    dc exec \
+        -e DEV_CONTAINER_WORKSPACE="$CONTAINER_WORKSPACE" \
+        -e DEV_HOST_PROJECT_KEY="$host_project_key" \
+        -e DEV_CONTAINER_PROJECT_KEY="$container_project_key" \
+        app python3 /usr/local/bin/setup-claude
+}
+
+setup_git() {
+    local name email
+    name="$(git config user.name 2>/dev/null || true)"
+    email="$(git config user.email 2>/dev/null || true)"
+    if [ -n "$name" ]; then
+        dc_exec git config --global user.name "$name"
+    fi
+    if [ -n "$email" ]; then
+        dc_exec git config --global user.email "$email"
+    fi
+}
+
+setup_gh() {
+    local hosts="$HOME/.config/gh/hosts.yml"
+    if [ -f "$hosts" ]; then
+        dc_exec mkdir -p /home/vscode/.config/gh
+        docker cp "$hosts" "$(dc ps -q app)":/home/vscode/.config/gh/hosts.yml
+    fi
+}
+
+# per-project: first-run setup — chown build artifacts, install deps
+setup() {
+    dc exec -u root app chown vscode:vscode "$CONTAINER_WORKSPACE/.venv"
+    dc exec app setup-env
+    echo "Dev container ready: $CONTAINER_NAME"
+}
+
+# per-project: re-sync dependencies when lockfile changes
+sync_if_needed() {
+    local lock_mtime stamp_mtime
+    lock_mtime="$(dc_exec stat -c %Y uv.lock 2>/dev/null)" || return 0
+    stamp_mtime="$(dc_exec stat -c %Y .venv/.last-sync 2>/dev/null)" || stamp_mtime=0
+    if [ "$lock_mtime" -gt "$stamp_mtime" ]; then
+        dc_exec bash -c 'uv sync --all-extras --all-groups && touch .venv/.last-sync'
+    fi
+}
+
+ensure_up() {
+    exec 9>"$LOCKFILE"
+    if ! flock -n 9; then
+        echo "Another devcontainer operation is in progress, waiting..."
+        flock 9
+    fi
+
+    if ! is_running; then
+        dc up --build -d
+        setup
+    elif image_stale; then
+        read -rp "Devcontainer config changed. Running container will be stopped. Continue? [y/N] " answer
+        if [[ "$answer" != [yY]* ]]; then
+            exit 0
+        fi
+        dc down
+        dc up --build -d
+        setup
+    fi
+    setup_git
+    setup_gh
+    setup_claude
+    sync_if_needed
+
+    exec 9>&-
+}
+
+case "${1:-up}" in
+    up)
+        ensure_up
+        ;;
+    down)
+        if is_running; then
+            read -rp "Running container will be stopped. Continue? [y/N] " answer
+            if [[ "$answer" != [yY]* ]]; then
+                exit 0
+            fi
+        fi
+        dc down
+        ;;
+    reset)
+        read -rp "This will destroy the container and all volumes (venv, uv cache). Continue? [y/N] " answer
+        if [[ "$answer" != [yY]* ]]; then
+            exit 0
+        fi
+        dc down --volumes
+        ;;
+    clean)
+        read -rp "This will destroy the container, volumes, images, and host-side artifacts. Continue? [y/N] " answer
+        if [[ "$answer" != [yY]* ]]; then
+            exit 0
+        fi
+        dc down --volumes --rmi local
+        rm -rf "$DEV_WORKSPACE/.claude/container-audit"
+        rm -rf "$DEV_WORKSPACE/.claude/container-sessions"
+        rm -f "$LOCKFILE"
+        echo "Cleaned: $CONTAINER_NAME"
+        ;;
+    exec)
+        shift
+        if [ $# -eq 0 ]; then
+            require_tty exec
+            set -- bash
+        fi
+        ensure_up
+        dc_exec "$@"
+        ;;
+    claude)
+        shift
+        ensure_up
+        dc_exec claude "$@"
+        ;;
+    claude-dangerously-skip-permissions)
+        shift
+        ensure_up
+        dc_exec claude --dangerously-skip-permissions "$@"
+        ;;
+    audit)
+        shift
+        audit_log="$DEV_WORKSPACE/.claude/container-audit/audit.jsonl"
+        if [ "${1:-}" = "--clear" ]; then
+            rm -f "$audit_log"
+            echo "Audit log cleared."
+            exit 0
+        fi
+        if [ ! -f "$audit_log" ]; then
+            echo "No audit log found at $audit_log"
+            exit 0
+        fi
+        python3 "$MAIN_TREE/.devcontainer/audit-report.py" "$audit_log" "${1:---summary}"
+        ;;
+    status)
+        if is_running; then
+            echo "running: $CONTAINER_NAME (workspace: $DEV_WORKSPACE)"
+        else
+            echo "stopped"
+        fi
+        ;;
+    logs)
+        shift
+        dc logs "$@"
+        ;;
+    *)
+        cat >&2 <<'USAGE'
+Usage: devcontainer [-w dir] <command>
+
+Commands:
+  up                                  start the dev container (default)
+  down                                stop the dev container
+  reset                               destroy container and all volumes
+  clean                               reset + remove images and host-side artifacts
+  status                              show whether the container is running
+  logs [args...]                      show container logs
+  exec [cmd...]                       run a command (default: bash)
+  claude [args...]                    run claude
+  claude-dangerously-skip-permissions run claude with --dangerously-skip-permissions
+  audit [--summary|--new|--all|--clear]  show permission audit log
+  completions [bash|zsh|fish]         emit shell completions
+USAGE
+        exit 1
+        ;;
+esac
