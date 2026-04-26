@@ -1,2 +1,2 @@
-uv sync --all-extras --all-groups && source ../.venv/bin/activate
+uv sync --all-extras --all-groups && source $direnv_root/.venv/bin/activate
 xorq install-completion 2>/dev/null || true
