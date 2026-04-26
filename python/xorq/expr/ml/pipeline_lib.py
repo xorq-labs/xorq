@@ -961,6 +961,17 @@ class Pipeline:
         return self.__class__.from_instance(remapped)
 
 
+_FITTED_PIPELINE_REEMIT_METHODS: dict[FittedPipelineTagKey, str] = {
+    FittedPipelineTagKey.TRANSFORM: "transform",
+    FittedPipelineTagKey.PREDICT: "predict",
+    FittedPipelineTagKey.PREDICT_PROBA: "predict_proba",
+    FittedPipelineTagKey.DECISION_FUNCTION: "decision_function",
+    FittedPipelineTagKey.FEATURE_IMPORTANCES: "feature_importances",
+}
+# ALL_STEPS and TRAINING are interior tags stamped as side-effects of
+# Pipeline.fit — not reemit entry points.
+
+
 @frozen
 class FittedPipeline:
     fitted_steps = field(
@@ -1015,6 +1026,40 @@ class FittedPipeline:
         if not pipeline_tags:
             raise ValueError("No FittedPipeline tag found on expr")
         return cls.from_tag_node(pipeline_tags[0])
+
+    def reemit(self, tag_node, rebuild_subexpr):
+        """Re-emit *tag_node*'s subtree under current code.
+
+        Refits the pipeline on the rebuilt training subtree so the
+        outer tag's ``training_hash`` and step kwargs refresh, rebuilds
+        catalog subtrees inside the tag's parent (so inner Reads
+        resolve to the target catalog's files), and re-stamps the outer
+        pipeline tag on the rebuilt parent with fresh kwargs from the
+        refitted pipeline.
+
+        The internal transform/predict expression structure is
+        preserved — we do not re-invoke the response method, since the
+        original predict/transform input is not recoverable from the
+        tag subtree alone.
+        """
+        tag_key = FittedPipelineTagKey(tag_node.metadata["tag"])
+        if tag_key not in _FITTED_PIPELINE_REEMIT_METHODS:
+            raise RuntimeError(
+                f"rebuild: FittedPipeline tag {tag_key!r} is not a reemit entry point"
+            )
+
+        new_training = rebuild_subexpr(self.expr)
+        refitted = self.pipeline.fit(
+            new_training,
+            features=self.fitted_steps[0].features,
+            target=self.fitted_steps[0].target,
+            cache=self.fitted_steps[0].cache,
+        )
+        new_parent = rebuild_subexpr(tag_node.parent.to_expr())
+        new_kwargs = refitted.get_tag_kwargs(tag_key) | refitted.get_tag_kwargs(
+            FittedPipelineTagKey.ALL_STEPS
+        )
+        return new_parent.tag(str(tag_key), **new_kwargs)
 
     @property
     def pipeline(self):

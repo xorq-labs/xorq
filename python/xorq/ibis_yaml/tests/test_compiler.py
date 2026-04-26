@@ -1033,3 +1033,97 @@ def test_join_order_permutations_catalog_roundtrip(tmp_path, three_tables_mixed,
         actual.sort_values(list(actual.columns), ignore_index=True),
         expected.sort_values(list(expected.columns), ignore_index=True),
     )
+
+
+def _build_fitted_pipeline_entry(catalog):
+    """Build a FittedPipeline predict entry exercising the tokenize side-channel
+    (see scripts/diag_tag_bad_read.py). Returns the ``preds`` entry."""
+    from xorq.catalog.bind import bind  # noqa: PLC0415
+    from xorq.vendor.ibis.expr import operations as ops  # noqa: PLC0415
+
+    sk_pipeline = pytest.importorskip("sklearn.pipeline")
+    sk_preprocessing = pytest.importorskip("sklearn.preprocessing")
+    sk_linear_model = pytest.importorskip("sklearn.linear_model")
+
+    training = catalog.add(
+        xo.memtable({"f": [1.0, 2.0, 3.0, 4.0], "t": [0.0, 0.0, 1.0, 1.0]}),
+        aliases=("training",),
+    )
+    scoring = catalog.add(
+        xo.memtable({"f": [1.5, 2.5], "t": [0.0, 1.0]}),
+        aliases=("scoring",),
+    )
+    unbound = ops.UnboundTable(name="p", schema=training.expr.schema()).to_expr()
+    identity = catalog.add(unbound.select("f", "t"), aliases=("identity",))
+    sk = sk_pipeline.make_pipeline(
+        sk_preprocessing.StandardScaler(),
+        sk_linear_model.LinearRegression(),
+    )
+    pipeline = xo.Pipeline.from_instance(sk)
+    fitted = pipeline.fit(bind(training, identity), features=("f",), target="t")
+    predict_expr = fitted.predict(bind(scoring, identity))
+    _ = scoring  # referenced in predict_expr graph; silence unused-warnings
+    return catalog.add(predict_expr, aliases=("preds",))
+
+
+def test_tokenize_survives_side_channel_read(tmp_path):
+    """Canonical repro: the FittedPipeline UDF closure hosts a pre-d2m Expr
+    whose Read has a catalog-relative `hash_path`. Before Plan B,
+    ``normalize_read`` would raise NotImplementedError on that path. With
+    ``read_path`` preferred, tokenize goes through the stable content-addressed
+    key."""
+    repo = Catalog.init_repo_path(tmp_path / "repo")
+    catalog = Catalog(backend=GitBackend(repo=repo))
+    preds = _build_fitted_pipeline_entry(catalog)
+
+    token = dask.base.tokenize(preds.lazy_expr)
+    assert isinstance(token, str) and token
+
+
+def test_tokenize_stable_across_reload(tmp_path):
+    """Loading the same catalog entry twice produces distinct extract tempdirs
+    (`xorq-catalog-*`), so `hash_path` differs between reloads. The stable,
+    catalog-relative `read_path` must make the tokens match anyway."""
+    repo = Catalog.init_repo_path(tmp_path / "repo")
+    catalog = Catalog(backend=GitBackend(repo=repo))
+    preds = _build_fitted_pipeline_entry(catalog)
+
+    load1 = preds.lazy_expr
+    load2 = preds.lazy_expr
+    assert load1 is not load2
+    assert dask.base.tokenize(load1) == dask.base.tokenize(load2)
+
+
+def test_tokenize_non_catalog_read_unchanged(parquet_dir):
+    """User-created `deferred_read_parquet` has no `read_path` kwarg and must
+    keep taking the existing `hash_path` branch (path-existence check +
+    content-md5sum). Non-catalog Reads are unaffected by Plan B."""
+    parquet_path = parquet_dir / "awards_players.parquet"
+    backend = xo.duckdb.connect()
+    t = deferred_read_parquet(parquet_path, backend, table_name="awards_players")
+
+    reads = tuple(walk_nodes((Read,), t))
+    assert reads, "deferred_read_parquet must produce a Read"
+    assert "read_path" not in dict(reads[0].read_kwargs)
+
+    assert dask.base.tokenize(t) == dask.base.tokenize(t)
+
+
+def test_tokenize_missing_path_still_raises(parquet_dir):
+    """A Read without `read_path` whose `hash_path` is a bogus relative path
+    must still raise NotImplementedError. The read_path-preferring branch only
+    kicks in when the catalog contract is in effect."""
+    parquet_path = parquet_dir / "awards_players.parquet"
+    backend = xo.duckdb.connect()
+    t = deferred_read_parquet(parquet_path, backend, table_name="awards_players")
+    op = t.op()
+    bogus = tuple(
+        (k, "memtables/does-not-exist.parquet" if k == "hash_path" else v)
+        for k, v in op.read_kwargs
+    )
+    bad = op.__recreate__(
+        dict(zip(op.__argnames__, op.__args__)) | {"read_kwargs": bogus}
+    )
+
+    with pytest.raises(NotImplementedError, match="memtables/does-not-exist"):
+        dask.base.tokenize(bad.to_expr())

@@ -559,6 +559,19 @@ def log(ctx, as_json):
 @click.option(
     "--dry-run", is_flag=True, help="Show what would be replayed without executing."
 )
+@click.option(
+    "--rebuild",
+    is_flag=True,
+    help=(
+        "Rebuild each entry under current code. Entries with no catalog "
+        "references are re-added from their stored expression; entries "
+        "containing catalog references (Composed, or ExprBuilder wrapping a "
+        "composition) have the catalog subtree recomposed against their "
+        "(already rebuilt) dependencies in the target catalog — outer "
+        "builder wrappings pass through untouched. Updates build_metadata "
+        "and entry hashes. Fetches annex content for every entry."
+    ),
+)
 @click.pass_context
 def replay(
     ctx,
@@ -570,6 +583,7 @@ def replay(
     preserve_commits,
     force,
     dry_run,
+    rebuild,
 ):
     """Replay catalog operations into a target catalog."""
     from xorq.catalog.catalog import Catalog
@@ -577,7 +591,7 @@ def replay(
 
     with click_context_catalog(ctx):
         source = ctx.obj.make_catalog(init=False)
-        replayer = Replayer(from_catalog=source)
+        replayer = Replayer(from_catalog=source, rebuild=rebuild)
         if dry_run:
             replayer.print_plan()
             return
