@@ -26,6 +26,13 @@ These are created locally by copying templates or by other tooling. Never commit
 | `.env.catalog.*` | Catalog backend connection config |
 | `.env.user.*` | Per-developer dotenv overrides |
 
+## Path conventions
+
+- **`$direnv_root`** — exported by the root `.envrc`; points to the repo root. Use it for paths that must survive worktree copies (e.g. `$direnv_root/.venv`).
+- **`$this_dir`** — set locally via `this_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}")")` at the top of a fragment. Use it for paths relative to `.envrcs/` itself (e.g. `$this_dir/.env.secrets.concatenated.sops-encrypted`).
+
+Prefer these over bare relative paths like `../.venv` or `.env.foo`, which break when the evaluation directory isn't what you expect.
+
 ## How it fits together
 
 ```
