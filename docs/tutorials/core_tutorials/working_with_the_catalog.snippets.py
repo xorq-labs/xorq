@@ -18,23 +18,21 @@ import stat as _stat
 import tempfile as _tempfile
 from pathlib import Path as _Path
 
-_workdir   = _Path(_tempfile.mkdtemp(prefix="xorq-catalog-tutorial-"))
-_USER_A    = _workdir / "userA" / "flights-catalog"
-_USER_B    = _workdir / "userB" / "flights-catalog"
+_workdir = _Path(_tempfile.mkdtemp(prefix="xorq-catalog-tutorial-"))
+_USER_A = _workdir / "userA" / "flights-catalog"
+_USER_B = _workdir / "userB" / "flights-catalog"
 _USER_A.parent.mkdir(parents=True, exist_ok=True)
 _USER_B.parent.mkdir(parents=True, exist_ok=True)
 # --- end fixtures ---
 
 # %% --- Publish the catalog (User A)
-from pathlib import Path
-
 import xorq.api as xo
 from boring_semantic_layer import to_semantic_table, to_tagged
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.annex import LOCAL_ANNEX
 
 catalog = Catalog.from_repo_path(
-    _USER_A,                # tutorial: Path("~/work/flights-catalog").expanduser()
+    _USER_A,  # tutorial: Path("~/work/flights-catalog").expanduser()
     init=True,
     annex=LOCAL_ANNEX,
 )
