@@ -220,21 +220,21 @@ A common pattern: `flights-model-dev`, `flights-model-staging`, `flights-model-p
 
 ## Recover the prod model on a fresh machine
 
-The whole point of going through the catalog is that someone else (or your future self, or a build worker) can pick the model up without your Python file. Recover it with `from_tagged`:
+The whole point of going through the catalog is that someone else (or your future self, or a build worker) can pick the model up without your Python file. Recover it with `from_tagged` — same pattern as in the dev tutorial:
 
 ```python
 from boring_semantic_layer import from_tagged
 
-entry = catalog.get_catalog_entry("flights-model-prod", maybe_alias=True)
-recovered_prod = from_tagged(entry.expr)
+flights_entry = catalog.get_catalog_entry("flights-model-prod", maybe_alias=True)
+flights_model = from_tagged(flights_entry.expr)
 
-print("Recovered:", type(recovered_prod).__name__)
-print("Recovered dims:    ", tuple(recovered_prod.dimensions))
-print("Recovered measures:", tuple(recovered_prod.measures))
+print("Recovered:", type(flights_model).__name__)
+print("Recovered dims:    ", tuple(flights_model.dimensions))
+print("Recovered measures:", tuple(flights_model.measures))
 
 # Issue a brand-new query the original script never wrote
 print(
-    recovered_prod.query(
+    flights_model.query(
         dimensions=("destination",),
         measures=("flight_count", "total_distance"),
     ).execute().head()
@@ -317,10 +317,10 @@ catalog = Catalog.from_repo_path(catalog_dir, init=True)
 catalog.add(tagged_prod, aliases=("flights-model-prod",), sync=False)
 
 # 6. Recover and run a new query
-entry = catalog.get_catalog_entry("flights-model-prod", maybe_alias=True)
-recovered_prod = from_tagged(entry.expr)
+flights_entry = catalog.get_catalog_entry("flights-model-prod", maybe_alias=True)
+flights_model = from_tagged(flights_entry.expr)
 
-print(recovered_prod.query(
+print(flights_model.query(
     dimensions=("destination",),
     measures=("flight_count", "total_distance"),
 ).execute().head())
@@ -363,7 +363,7 @@ The first query materializes the join to a parquet file; every subsequent query 
 - Use `xo.deferred_read_parquet` for prod sources so the cataloged entry is self-contained and reproducible elsewhere.
 - Real data unlocks new dimensions (`carrier_name`) and measures (`avg_arr_delay`) that weren't worth fabricating in dev.
 - Prod gets its own catalog alias (`flights-model-prod`), living alongside the dev entry in the same git-backed catalog.
-- `from_tagged(entry.expr)` recovers the model on a fresh machine — it pulls the parquet from R2 and answers any query the model knows how to answer.
+- `from_tagged(flights_entry.expr)` recovers the model on a fresh machine — it pulls the parquet from R2 and answers any query the model knows how to answer.
 
 ## Next steps
 
