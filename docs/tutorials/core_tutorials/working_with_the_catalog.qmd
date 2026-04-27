@@ -1,0 +1,209 @@
+---
+title: "Working with the catalog"
+description: "Share a catalog to GitHub, accept changes from a collaborator via pull request, and swap profiles when recovering entries"
+icon: "code-branch"
+headline: "A catalog is just a git repo"
+---
+
+In [Build a semantic catalog](build_a_semantic_catalog.qmd) you tagged a BSL flights model and dropped it into a local catalog. That catalog is a regular git repository — every entry, alias, and revision is a git commit. The moment you push it to a remote, anyone with access can clone it, query the model, propose changes, and run the model against their own backend.
+
+This tutorial walks you through the collaboration loop end-to-end. You'll play both sides:
+
+- **User A** publishes the catalog to GitHub.
+- **User B** clones it, recovers the model, and proposes a new entry via pull request.
+- **User A** reviews, merges, and pulls the changes back.
+
+You'll also see how to swap the connection profile at recovery time, so a downstream user can run the cataloged expression against their own backend without modifying the entry.
+
+## Prerequisites
+
+You need:
+
+- Completed [Build a semantic catalog](build_a_semantic_catalog.qmd) — the local catalog from that tutorial is the starting point here
+- Xorq with BSL and DuckDB: `pip install "xorq[bsl,duckdb]"`
+- Git installed locally and authenticated with GitHub (the `gh` CLI is convenient but not required)
+
+## A catalog is a git repo
+
+Open the catalog directory you created in the previous tutorial and run `git log` — you'll see one commit per `catalog.add(...)` call. The entries are stored as content-addressed zip archives under `.xorq/`, the aliases are symlinks, and `catalog.yaml` is the index. There's nothing magical about sharing it: pushing the directory to a git remote is enough.
+
+That means GitHub's permission model, branch protection rules, and pull requests Just Work on a catalog. There is no separate "catalog server" to run.
+
+## Publish the catalog to GitHub (User A)
+
+Create an empty repository on GitHub (web UI or `gh repo create`), then point your local catalog at it. Wherever your catalog directory lives — for the foundation tutorial it was a temp dir; for this one we'll assume you've moved it to a stable path like `~/work/flights-catalog`.
+
+```bash
+# In the catalog directory
+git remote add origin https://github.com/<you>/flights-catalog.git
+git push -u origin main
+```
+
+::: {.callout-tip}
+### Why `git push` and not `catalog.push()`?
+Xorq exposes `catalog.push()` and `xorq catalog push`, which are convenient once a remote is established. For the very first push of a new branch, plain `git push -u origin main` sets the upstream tracking ref so subsequent pushes know where to go. After that, either tool works.
+:::
+
+Verify the remote sees what you expect:
+
+```bash
+gh repo view --web   # opens the repo on GitHub
+```
+
+You should see two top-level items: `.xorq/` (where entries and aliases live) and `catalog.yaml` (the index). Click into `.xorq/aliases/` and you'll see `flights-model.zip` — the alias from the foundation tutorial.
+
+## Clone the catalog (User B)
+
+Switch hats. User B has only the GitHub URL. They clone the catalog with one call:
+
+```python
+from pathlib import Path
+
+from xorq.catalog.catalog import Catalog
+
+catalog = Catalog.clone_from(
+    "https://github.com/<you>/flights-catalog.git",
+    Path("~/work/flights-catalog-clone").expanduser(),
+)
+
+print("Aliases:", catalog.list_aliases())
+# ['flights-model']
+```
+
+Or, equivalently, from the command line:
+
+```bash
+xorq catalog clone https://github.com/<you>/flights-catalog.git \
+  --path ~/work/flights-catalog-clone
+xorq catalog --path ~/work/flights-catalog-clone list-aliases
+```
+
+User B never saw User A's Python file, never saw the original `to_semantic_table(...)` call. All they have is a git clone — and that's enough.
+
+## Recover and query the model (User B)
+
+The recovery pattern is identical to the foundation tutorial: pull the entry, hand its expression to `from_tagged`, and the live `SemanticModel` comes back ready to query.
+
+```python
+from boring_semantic_layer import from_tagged
+
+flights_entry = catalog.get_catalog_entry("flights-model", maybe_alias=True)
+flights_model = from_tagged(flights_entry.expr)
+
+print(
+    flights_model.query(
+        dimensions=("origin",),
+        measures=("flight_count", "avg_dep_delay"),
+    ).execute().head()
+)
+```
+
+The cataloged expression encodes how to fetch the underlying parquet (a `deferred_read_parquet` of the public R2 URL), so User B's machine pulls the data on first execution — no shared filesystem, no out-of-band data transfer.
+
+## Propose a change via pull request (User B)
+
+User B wants to publish a refined view: same model, but filtered to American Airlines only. Because the catalog is a git repo, they branch, commit, push, and open a PR — exactly like any other code change.
+
+```bash
+cd ~/work/flights-catalog-clone
+git checkout -b add-aa-only-model
+```
+
+Build the new entry in Python:
+
+```python
+from boring_semantic_layer import to_semantic_table, to_tagged
+import xorq.api as xo
+
+BASE_URL = "https://pub-a45a6a332b4646f2a6f44775695c64df.r2.dev"
+flights = xo.deferred_read_parquet(f"{BASE_URL}/flights.parquet", table_name="flights")
+
+# Same model shape, restricted to AA
+aa_flights = flights.filter(flights.carrier == "AA")
+aa_model = (
+    to_semantic_table(aa_flights)
+    .with_dimensions(
+        origin=lambda t: t.origin,
+        destination=lambda t: t.destination,
+    )
+    .with_measures(
+        flight_count=lambda t: t.count(),
+        avg_dep_delay=lambda t: t.dep_delay.mean(),
+    )
+)
+
+aa_model_expr = to_tagged(aa_model)
+catalog.add(aa_model_expr, aliases=("flights-aa-only",), sync=False)
+```
+
+::: {.callout-note}
+### `sync=False`
+Passing `sync=False` keeps the add local — it commits to the working branch but doesn't push to the remote. You'll push the branch yourself in the next step, after reviewing the diff.
+:::
+
+Push the branch and open the PR:
+
+```bash
+git log --oneline -3   # confirm: "add: <hash> (aliases flights-aa-only)"
+git push origin add-aa-only-model
+gh pr create --title "Add AA-only flights model" \
+             --body  "Adds an AA-filtered view of the flights model under alias flights-aa-only."
+```
+
+User A reviews the PR on GitHub. Because each `catalog.add(...)` is a single commit, the diff is small and readable: a new entry zip in `.xorq/entries/`, a new alias symlink in `.xorq/aliases/`, and an update to `catalog.yaml`.
+
+## Pull the merged change (User A)
+
+Once the PR is merged, User A pulls:
+
+```python
+catalog_a = Catalog.from_repo_path(Path("~/work/flights-catalog").expanduser(), init=False)
+catalog_a.pull()
+
+print("Aliases now:", catalog_a.list_aliases())
+# ['flights-model', 'flights-aa-only']
+```
+
+The same alias is now visible everywhere the catalog is cloned. Anyone with access can recover and query `flights-aa-only` exactly the way they recover `flights-model`.
+
+## Swap the profile at recovery time
+
+The catalog stores expressions, not connections. When User A built the entry they used some default xorq backend; when User B recovers it, they may want to execute against a different profile — perhaps a DuckDB session they've configured locally, or a Postgres instance with extra resources.
+
+A **profile** in xorq is a named connection configuration: `con_name` plus connection kwargs, serialized to disk. Save one with `Profile.from_con(con).save(alias=...)`, load it with `Profile.load(...)`.
+
+```python
+from xorq.vendor.ibis.backends.profiles import Profile
+import xorq.api as xo
+
+# Capture User B's preferred connection as a named profile
+local_con = xo.connect()                      # any xorq-supported backend
+Profile.from_con(local_con).save(alias="local_dev", clobber=True)
+
+# Later — possibly in a different script — load the profile and bind the entry to it
+profile = Profile.load("local_dev")
+expr = catalog.load("flights-model", con=profile.get_con())
+
+print(expr.execute().head())
+```
+
+`catalog.load(name, con=...)` returns the cataloged expression bound to whichever connection you pass. The entry on disk is unchanged; the swap is purely a runtime decision.
+
+::: {.callout-note}
+### `catalog.load` vs `from_tagged`
+`from_tagged(entry.expr)` rebuilds the BSL `SemanticModel` so you can call `.query(...)` against it — that's the right tool when you want the semantic-layer interface back. `catalog.load(name, con=...)` skips the BSL layer and gives you the underlying Xorq expression bound to a connection of your choosing — that's the right tool when you want to redirect execution to a specific backend without touching the entry. They compose: profiles for the connection, BSL for the dimensions and measures.
+:::
+
+## What you learned
+
+- A xorq catalog is a regular git repo. Sharing it is `git push`; cloning it is `git clone` (or `Catalog.clone_from`).
+- Collaboration uses the GitHub workflow you already know: branch, commit, push, open a PR. Each `catalog.add(...)` is one commit, so reviews stay readable.
+- `Catalog.clone_from(url, path)` and `catalog.pull()` give a downstream user the same entries, aliases, and revisions as the publisher.
+- `from_tagged(flights_entry.expr)` recovers the BSL model on the consumer side — exactly the same call as in the foundation tutorial, regardless of where the entry came from.
+- `catalog.load(name, con=...)` rebinds a cataloged expression to a different connection at recovery time. Combined with named `Profile`s, downstream users can pick their own execution backend without modifying the entry.
+
+## Next steps
+
+- [Your first build](your_first_build.qmd) — package the cataloged model into a portable build artifact.
+- [Switch backends](switch_backends.qmd) — see what kinds of profiles xorq supports.
+- [Explore caching](explore_caching.qmd) — keep the recovered query path fast for downstream users.
