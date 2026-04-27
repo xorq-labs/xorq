@@ -405,6 +405,19 @@ def normalize_ibis_datatype(datatype):
     return normalize_seq_with_caller(datatype.name.lower(), *datatype.args)
 
 
+# read_kwargs that change *what* the read returns (and so must participate in
+# cache identity), as opposed to kwargs that only locate the bytes (`hash_path`,
+# `read_path`) — those are handled by the per-strategy path-extraction logic —
+# or that name the materialized table (`table_name`) — that's an output label,
+# not an input.
+_STABLE_READ_KWARG_KEYS = ("mode", "schema", "temporary")
+
+
+def stable_read_kwarg_tpls(read):
+    """Read.read_kwargs entries that are part of the cache identity across all strategies."""
+    return tuple((k, v) for k, v in read.read_kwargs if k in _STABLE_READ_KWARG_KEYS)
+
+
 @dask.base.normalize_token.register(rel.Read)
 def normalize_read(read):
     read_kwargs = dict(read.read_kwargs)
@@ -435,16 +448,7 @@ def normalize_read(read):
         raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
     else:
         raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
-    tpls += tuple(
-        (k, v)
-        for k, v in read.read_kwargs
-        if k
-        in (
-            "mode",
-            "schema",
-            "temporary",
-        )
-    )
+    tpls += stable_read_kwarg_tpls(read)
     return normalize_seq_with_caller(
         read.schema,
         tpls,

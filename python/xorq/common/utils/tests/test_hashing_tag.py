@@ -76,7 +76,7 @@ def test_find_by_expr_hash_works_for_hashing_tag():
     strategy = SnapshotStrategy()
     ht_hash = compute_expr_hash(ht, strategy=strategy)
 
-    found = find_by_expr_hash(ht, ht_hash, typs=(HashingTag,))
+    found = find_by_expr_hash(ht, ht_hash, typs=(HashingTag,), strategy=strategy)
     assert found is not None
     assert isinstance(found, HashingTag)
 

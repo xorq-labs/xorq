@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import functools
 
 from attr import (
     field,
@@ -27,7 +26,6 @@ from xorq.caching.strategy import (
 )
 from xorq.common.exceptions import XorqError
 from xorq.common.utils.otel_utils import tracer
-from xorq.config import options
 from xorq.vendor.ibis.expr import types as ir
 
 
@@ -45,25 +43,39 @@ __all__ = [  # noqa: PLE0604
 class Cache:
     strategy = field(validator=instance_of(CacheStrategy))
     storage = field(validator=instance_of(CacheStorage))
-    key_prefix = field(
-        validator=instance_of(str),
-        factory=functools.partial(options.get, "cache.key_prefix"),
-    )
 
     strategy_typ = None
     storage_typ = None
 
+    @classmethod
+    def _resolve_storage_typ(cls):
+        # Indirection so `import xorq.caching` doesn't require optional deps:
+        # GCSCache overrides this to import GCStorage only when a GCSCache is
+        # actually constructed. Subclasses without optional deps just return
+        # cls.storage_typ. Note that cls.storage_typ stays as a class attr so
+        # __attrs_post_init__/from_kwargs can still introspect it on classes
+        # that don't need lazy resolution.
+        return cls.storage_typ
+
     def __attrs_post_init__(self):
-        assert isinstance(self.strategy, self.strategy_typ)
-        assert isinstance(self.storage, self.storage_typ)
+        if not isinstance(self.strategy, self.strategy_typ):
+            raise TypeError(
+                f"expected strategy of type {self.strategy_typ.__name__}, "
+                f"got {type(self.strategy).__name__}"
+            )
+        storage_typ = self._resolve_storage_typ()
+        if not isinstance(self.storage, storage_typ):
+            raise TypeError(
+                f"expected storage of type {storage_typ.__name__}, "
+                f"got {type(self.storage).__name__}"
+            )
 
     def calc_key(self, expr):
         # the order here matters: must check is_cached before calling maybe_prevent_cross_source_caching
         if expr.ls.is_cached and expr.ls.cache is self:
             expr = expr.ls.uncached_one
         expr = maybe_prevent_cross_source_caching(expr, self)
-        # FIXME: let strategy solely determine key by giving it key_prefix
-        return self.key_prefix + self.strategy.calc_key(expr)
+        return self.strategy.calc_key(expr)
 
     def key_exists(self, key):
         return self.storage.exists(key)
@@ -112,7 +124,9 @@ class Cache:
         )
 
         return normalize_seq_with_caller(
-            self.strategy, self.storage, self.key_prefix, caller="normalize_cache"
+            self.strategy,
+            self.storage,
+            caller="normalize_cache",
         )
 
     @classmethod
@@ -198,21 +212,23 @@ class SourceSnapshotCache(Cache):
 @public
 @frozen
 class GCSCache(Cache):
+    # storage_typ deliberately not set: GCStorage requires google-cloud-storage,
+    # which is an optional dep. Resolving it lazily via _resolve_storage_typ
+    # keeps `import xorq.caching` working without it installed.
     strategy_typ = ModificationTimeStrategy
-    storage_typ = None
 
-    def __attrs_post_init__(self):
+    @classmethod
+    def _resolve_storage_typ(cls):
         from xorq.common.utils.gcloud_utils import GCStorage  # noqa: PLC0415
 
-        assert isinstance(self.strategy, self.strategy_typ)
-        assert isinstance(self.storage, GCStorage)
+        return GCStorage
 
     @classmethod
     def from_kwargs(cls, bucket_name, source):
-        from xorq.common.utils.gcloud_utils import GCStorage  # noqa: PLC0415
-
+        # Overridden because Cache.from_kwargs uses cls.storage_typ directly,
+        # which is None here.
         strategy = cls.strategy_typ()
-        storage = GCStorage(bucket_name=bucket_name, source=source)
+        storage = cls._resolve_storage_typ()(bucket_name=bucket_name, source=source)
         return cls(strategy=strategy, storage=storage)
 
 
