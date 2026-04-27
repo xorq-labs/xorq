@@ -9,6 +9,7 @@ code or a version bump on a dependency.
 
 from __future__ import annotations
 
+import importlib.util
 import shutil
 import subprocess
 import sys
@@ -30,8 +31,6 @@ EXTRA_REQUIREMENTS = {
 
 
 def _has_module(name: str) -> bool:
-    import importlib.util
-
     return importlib.util.find_spec(name) is not None
 
 

@@ -12,11 +12,11 @@ import xorq.api as xo
 
 flights = xo.memtable(
     {
-        "origin":      ["JFK", "LAX", "ORD", "JFK", "LAX", "ORD", "JFK", "LAX"],
+        "origin": ["JFK", "LAX", "ORD", "JFK", "LAX", "ORD", "JFK", "LAX"],
         "destination": ["LAX", "ORD", "JFK", "ORD", "JFK", "LAX", "LAX", "JFK"],
-        "carrier":     ["AA",  "UA",  "AA",  "UA",  "AA",  "UA",  "AA",  "UA"],
-        "dep_delay":   [10.0, -5.0,  30.0,  15.0, -2.0,  45.0,   5.0,  20.0],
-        "distance":    [2475, 1745,   740,  1300, 2475,  1745,  2475,  2475],
+        "carrier": ["AA", "UA", "AA", "UA", "AA", "UA", "AA", "UA"],
+        "dep_delay": [10.0, -5.0, 30.0, 15.0, -2.0, 45.0, 5.0, 20.0],
+        "distance": [2475, 1745, 740, 1300, 2475, 1745, 2475, 2475],
     },
     name="flights",
 )
