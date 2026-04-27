@@ -213,8 +213,7 @@ input {
 }
 
 pre code {
-    background: $white !important;
-    color: $black !important;
+    background: rgba(5, 24, 26, 0.04) !important;
 }
 
 div.cell-output > pre {
@@ -222,7 +221,12 @@ div.cell-output > pre {
 }
 
 pre.sourceCode {
-    border: 1px solid $gray-300 !important;
+    border: none !important;
+    border-left: 2px solid $gray-300 !important;
+}
+
+.code-copy-button {
+    display: none !important;
 }
 
 pre>code.sourceCode {
@@ -398,24 +402,95 @@ pre>code.sourceCode {
 }
 
 
-/* ALT Riviera - Regular */
+/* ALT Riviera - Display/Heading Font */
 @font-face {
   font-family: 'ALT Riviera';
-  src: url('/style/fonts/ALTRiviera-Regular.ttf') format('ttf'),
-       url('/style/fonts/ALTRiviera-Regular.otf') format('otf');
-  font-weight: 400;
+  src: url('style/fonts/ALTRiviera-Regular.ttf') format('truetype'),
+       url('style/fonts/ALTRiviera-Regular.otf') format('opentype');
+  font-weight: 300 700;
   font-style: normal;
   font-display: swap;
 }
 
-/* FK Grotesk Mono - Medium */
+/* FK Grotesk Mono - Monospace/UI Font */
 @font-face {
   font-family: 'FK Grotesk Mono';
-  src: url('/style/fonts/FKGroteskMono-Regular.woff2') format('woff2'),
-       url('/style/fonts/FKGroteskMono-Regular.woff') format('woff');
-  font-weight: 500;
+  src: url('style/fonts/FKGroteskMono-Regular.woff2') format('woff2'),
+       url('style/fonts/FKGroteskMono-Regular.woff') format('woff');
+  font-weight: 300 700;
   font-style: normal;
   font-display: swap;
+}
+
+/* CSS custom properties — matches xorq-website design tokens (light theme) */
+:root {
+  --xorq-midnight: #05181A;
+  --xorq-blue-sky: #C1F0FF;
+  --xorq-cloud: #F0FBFF;
+  --xorq-success: #2BBE75;
+  --xorq-warning: #F5CA2C;
+  --xorq-danger: #FF4757;
+  --xorq-info: #4AA8EC;
+
+  --font-heading: 'ALT Riviera', Georgia, serif;
+  --font-body: 'ALT Riviera', Georgia, serif;
+  --font-mono: 'FK Grotesk Mono', monospace;
+
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+  --font-size-3xl: 1.875rem;
+  --font-size-4xl: 2.25rem;
+
+  --font-weight-light: 300;
+  --font-weight-normal: 400;
+  --font-weight-bold: 700;
+
+  --line-height-tight: 1.25;
+  --line-height-snug: 1.375;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.625;
+
+  --letter-spacing-tight: -0.05em;
+  --letter-spacing-wide: 0.05em;
+  --letter-spacing-wider: 0.1em;
+
+  --spacing-1: 0.25rem;
+  --spacing-2: 0.5rem;
+  --spacing-3: 0.75rem;
+  --spacing-4: 1rem;
+  --spacing-5: 1.25rem;
+  --spacing-6: 1.5rem;
+  --spacing-8: 2rem;
+  --spacing-10: 2.5rem;
+  --spacing-12: 3rem;
+  --spacing-16: 4rem;
+
+  --border-width-thin: 1px;
+  --border-width-medium: 2px;
+  --border-radius-sm: 3px;
+  --border-radius-md: 6px;
+
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.2s ease;
+  --transition-slow: 0.3s ease;
+
+  --color-bg-primary: var(--xorq-cloud);
+  --color-bg-secondary: #ffffff;
+  --color-text-primary: var(--xorq-midnight);
+  --color-text-secondary: rgba(5, 24, 26, 0.8);
+  --color-text-muted: rgba(5, 24, 26, 0.6);
+  --color-accent: var(--xorq-midnight);
+  --color-link: var(--xorq-info);
+  --color-link-hover: var(--xorq-midnight);
+  --color-border: rgba(5, 24, 26, 0.1);
+  --color-border-hover: rgba(5, 24, 26, 0.2);
+  --color-code-bg: rgba(5, 24, 26, 0.04);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 
 
