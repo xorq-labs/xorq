@@ -1,0 +1,372 @@
+---
+title: "Move a pipeline from dev to prod"
+description: "Swap in-memory tables for real parquet sources, enrich with related tables, and catalog the production model"
+icon: "arrow-up-right-from-square"
+headline: "From toy data to real data, same model"
+---
+
+In [Build a semantic catalog](build_a_semantic_catalog.qmd) you built a BSL semantic model over an in-memory `flights` table. That's the right way to start: the data is fast, deterministic, and offline. But at some point you need the model to point at *real* data — a parquet file in object storage, a Postgres table, a warehouse mart.
+
+This tutorial walks the model from a dev memtable to the real FAA on-time-performance dataset (≈345k rows, hosted on a public R2 bucket), enriches it with a carriers lookup, and catalogs the production model. The semantic layer doesn't change. What changes is what's underneath it.
+
+After completing this tutorial, you understand which parts of a BSL pipeline have to change when you move to prod, why `xo.deferred_read_parquet` matters for catalog round-trips, and how to publish a prod model alongside its dev sibling.
+
+::: {.callout-warning}
+### Internet connection required
+The flights parquet is ≈12 MB and lives on a public R2 bucket. You need an active internet connection.
+:::
+
+## Prerequisites
+
+You need:
+
+- Completed [Build a semantic catalog](build_a_semantic_catalog.qmd) — the dev pipeline this tutorial graduates from
+- Xorq installed with the BSL extra: `pip install "xorq[bsl]"`
+
+## What changes between dev and prod
+
+Three things change:
+
+1. **The source.** `xo.memtable(...)` becomes `xo.deferred_read_parquet(url)`.
+2. **The shape.** Real data has more columns and more rows; you can join in lookup tables (carrier names, airport metadata) that wouldn't have been worth fabricating in dev.
+3. **The catalog entry.** Prod gets its own alias so the dev entry stays usable for tests and demos.
+
+What stays the same — and this is the point of the semantic layer — is the model definition: dimensions, measures, and queries are written once and bind to whichever table you hand them.
+
+## Recap: the dev pipeline
+
+From the previous tutorial, the dev model looks like this:
+
+```python
+import xorq.api as xo
+from boring_semantic_layer import to_semantic_table
+
+dev_flights = xo.memtable(
+    {
+        "origin":      ["JFK", "LAX", "ORD", "JFK", "LAX", "ORD", "JFK", "LAX"],
+        "destination": ["LAX", "ORD", "JFK", "ORD", "JFK", "LAX", "LAX", "JFK"],
+        "carrier":     ["AA",  "UA",  "AA",  "UA",  "AA",  "UA",  "AA",  "UA"],
+        "dep_delay":   [10.0, -5.0,  30.0,  15.0, -2.0,  45.0,   5.0,  20.0],
+        "distance":    [2475, 1745,   740,  1300, 2475,  1745,  2475,  2475],
+    },
+    name="flights",
+)
+
+dev_model = (
+    to_semantic_table(dev_flights)
+    .with_dimensions(
+        origin=lambda t: t.origin,
+        destination=lambda t: t.destination,
+        carrier=lambda t: t.carrier,
+    )
+    .with_measures(
+        flight_count=lambda t: t.count(),
+        avg_dep_delay=lambda t: t.dep_delay.mean(),
+        total_distance=lambda t: t.distance.sum(),
+    )
+)
+```
+
+Eight rows, three carriers, three airports. You'll keep this around — it's still useful for unit tests — but now we'll build a sibling `prod_model` against the real source.
+
+## Swap the memtable for real parquet
+
+Create a new file `flights_prod.py`. The first change is the source: `xo.deferred_read_parquet(url)` instead of an inline memtable.
+
+```python
+# flights_prod.py
+import xorq.api as xo
+
+BASE_URL = "https://pub-a45a6a332b4646f2a6f44775695c64df.r2.dev"
+
+# <1>
+flights  = xo.deferred_read_parquet(f"{BASE_URL}/flights.parquet",  table_name="flights")
+carriers = xo.deferred_read_parquet(f"{BASE_URL}/carriers.parquet", table_name="carriers")
+
+print(flights.schema())
+print("Row count:", flights.count().execute())
+```
+1. `deferred_read_parquet` is the Xorq-native read. It records the URL as part of the expression graph so the catalog can reproduce the read on a different machine. This matters: a `con.read_parquet(...)` registered on a local connection doesn't survive the catalog round-trip — you'd recover an empty model. `deferred_read_parquet` does.
+
+::: {.callout-tip}
+### Why `deferred_read_parquet` is the prod-safe choice
+The catalog stores expressions, not connections. When a colleague pulls your prod entry, their machine doesn't have your in-memory tables or your duckdb session. A deferred read encodes "go fetch this URL and parse it" inside the expression, so the entry is self-contained.
+:::
+
+The flights schema has `origin`, `destination`, `carrier`, `dep_delay`, `arr_delay`, `distance`, `cancelled`, `diverted`, plus departure/arrival timestamps and taxi times. `flights.count().execute()` returns 344,827.
+
+## Enrich with the carriers join
+
+In dev, `carrier` was just a two-letter code. In prod, you have a carriers lookup that turns `AA` into `American` — a much friendlier dimension for downstream consumers.
+
+```python
+# <1>
+flights_enriched = flights.inner_join(
+    carriers, flights.carrier == carriers.code
+).select(
+    flights.origin,
+    flights.destination,
+    flights.carrier,
+    carriers.nickname.name("carrier_name"),
+    flights.dep_delay,
+    flights.arr_delay,
+    flights.distance,
+)
+```
+1. The model only needs columns it groups by or aggregates over. Projecting them explicitly here keeps the cataloged entry's schema small and easy to read.
+
+::: {.callout-note}
+### Dev/prod parity, but not identity
+The dev model only had `dep_delay` and `distance`. Prod has `arr_delay` too, plus `carrier_name`. That's fine: the dev model is a subset of the prod surface area. Your dev tests still pass against the prod model — they just don't exercise every dimension and measure.
+:::
+
+## Build the production model
+
+Now wire up the semantic model the same way you did in dev. Same `to_semantic_table`, same `with_dimensions` / `with_measures` shape — pointing at the enriched real table, with the extra dimension and measure that real data unlocks.
+
+```python
+from boring_semantic_layer import to_semantic_table
+
+prod_model = (
+    to_semantic_table(flights_enriched)
+    .with_dimensions(
+        origin=lambda t: t.origin,
+        destination=lambda t: t.destination,
+        carrier=lambda t: t.carrier,
+        carrier_name=lambda t: t.carrier_name,    # <1>
+    )
+    .with_measures(
+        flight_count=lambda t: t.count(),
+        avg_dep_delay=lambda t: t.dep_delay.mean(),
+        avg_arr_delay=lambda t: t.arr_delay.mean(),  # <2>
+        total_distance=lambda t: t.distance.sum(),
+    )
+)
+
+print("Dimensions:", tuple(prod_model.dimensions))
+print("Measures:  ", tuple(prod_model.measures))
+```
+1. New dimension that only exists once we have the carriers join.
+2. New measure that only exists once `arr_delay` is available — the dev memtable didn't have it.
+
+## Re-run the queries against real data
+
+The query API is the same. Same call sites, real numbers:
+
+```python
+print(
+    prod_model.query(
+        dimensions=("origin",),
+        measures=("flight_count", "avg_dep_delay"),
+    ).execute().head()
+)
+```
+
+```
+  origin  flight_count  avg_dep_delay
+0    ATL         17875      10.985455
+1    CLT          7099       6.208903
+2    LBB           425       4.225882
+3    SLC          2741       6.389274
+4    ORF           888       7.543919
+```
+
+And the carrier breakdown — now with friendly names:
+
+```python
+print(
+    prod_model.query(
+        dimensions=("carrier_name",),
+        measures=("flight_count", "avg_arr_delay", "total_distance"),
+    ).execute().head()
+)
+```
+
+```
+          carrier_name  flight_count  avg_arr_delay  total_distance
+0  Continental Express         16074       7.327237         7676766
+1            Northwest         33580       5.153812        33376503
+2                  ATA          3033       5.627761         2645227
+3                USAir         37683       5.256031        23721642
+4                Delta         32130       5.575288        21547874
+```
+
+Same calling convention as the dev model. Different scale, real-world numbers.
+
+## Catalog the prod model
+
+Tag the model with `to_tagged(model)`, then add it to the catalog with a prod-specific alias. The dev entry, if you cataloged one earlier, is untouched — both live in the same git-backed catalog under different aliases.
+
+```python
+import tempfile
+from pathlib import Path
+
+from boring_semantic_layer import to_tagged
+from xorq.catalog.catalog import Catalog
+
+tagged_prod = to_tagged(prod_model)
+
+catalog_dir = Path(tempfile.mkdtemp()) / "flights-catalog"
+catalog = Catalog.from_repo_path(catalog_dir, init=True)
+catalog.add(tagged_prod, aliases=("flights-model-prod",), sync=False)
+
+print("Aliases:", catalog.list_aliases())
+```
+
+::: {.callout-tip}
+### Aliases as deployment slots
+A common pattern: `flights-model-dev`, `flights-model-staging`, `flights-model-prod` all in the same catalog. Each points at a different content-addressed entry. Promoting a model to prod is just a matter of moving the alias, which is a single git commit.
+:::
+
+## Recover the prod model on a fresh machine
+
+The whole point of going through the catalog is that someone else (or your future self, or a build worker) can pick the model up without your Python file. Recover it with `from_tagged`:
+
+```python
+from boring_semantic_layer import from_tagged
+
+entry = catalog.get_catalog_entry("flights-model-prod", maybe_alias=True)
+recovered_prod = from_tagged(entry.expr)
+
+print("Recovered:", type(recovered_prod).__name__)
+print("Recovered dims:    ", tuple(recovered_prod.dimensions))
+print("Recovered measures:", tuple(recovered_prod.measures))
+
+# Issue a brand-new query the original script never wrote
+print(
+    recovered_prod.query(
+        dimensions=("destination",),
+        measures=("flight_count", "total_distance"),
+    ).execute().head()
+)
+```
+
+```
+  destination  flight_count  total_distance
+0         ACY            18            9756
+1         BGR            98           25848
+2         CMH          1714          965319
+3         EWR          5137         3962067
+4         GRB            47           15012
+```
+
+The recovered model fetched the parquet from R2, performed the carrier join, and answered a query the original `flights_prod.py` never even wrote. That's the prod payoff: the model is now a self-describing, versionable artifact.
+
+## Putting it all together
+
+Here's the complete `flights_prod.py`:
+
+```python
+# flights_prod.py
+import tempfile
+from pathlib import Path
+
+from boring_semantic_layer import to_semantic_table, to_tagged, from_tagged
+
+import xorq.api as xo
+from xorq.catalog.catalog import Catalog
+
+
+BASE_URL = "https://pub-a45a6a332b4646f2a6f44775695c64df.r2.dev"
+
+# 1. Deferred reads — survive the catalog round-trip
+flights  = xo.deferred_read_parquet(f"{BASE_URL}/flights.parquet",  table_name="flights")
+carriers = xo.deferred_read_parquet(f"{BASE_URL}/carriers.parquet", table_name="carriers")
+
+# 2. Enrich
+flights_enriched = flights.inner_join(
+    carriers, flights.carrier == carriers.code
+).select(
+    flights.origin,
+    flights.destination,
+    flights.carrier,
+    carriers.nickname.name("carrier_name"),
+    flights.dep_delay,
+    flights.arr_delay,
+    flights.distance,
+)
+
+# 3. Production semantic model
+prod_model = (
+    to_semantic_table(flights_enriched)
+    .with_dimensions(
+        origin=lambda t: t.origin,
+        destination=lambda t: t.destination,
+        carrier=lambda t: t.carrier,
+        carrier_name=lambda t: t.carrier_name,
+    )
+    .with_measures(
+        flight_count=lambda t: t.count(),
+        avg_dep_delay=lambda t: t.dep_delay.mean(),
+        avg_arr_delay=lambda t: t.arr_delay.mean(),
+        total_distance=lambda t: t.distance.sum(),
+    )
+)
+
+# 4. Sanity-check queries
+print(prod_model.query(
+    dimensions=("origin",),
+    measures=("flight_count", "avg_dep_delay"),
+).execute().head())
+
+# 5. Tag and catalog under a prod alias
+tagged_prod = to_tagged(prod_model)
+
+catalog_dir = Path(tempfile.mkdtemp()) / "flights-catalog"
+catalog = Catalog.from_repo_path(catalog_dir, init=True)
+catalog.add(tagged_prod, aliases=("flights-model-prod",), sync=False)
+
+# 6. Recover and run a new query
+entry = catalog.get_catalog_entry("flights-model-prod", maybe_alias=True)
+recovered_prod = from_tagged(entry.expr)
+
+print(recovered_prod.query(
+    dimensions=("destination",),
+    measures=("flight_count", "total_distance"),
+).execute().head())
+```
+
+Run it:
+
+```bash
+python flights_prod.py
+```
+
+## When (and when not) to graduate
+
+Move the model to prod when:
+
+- The dev shape is stable. If you're still adding and removing dimensions every day, prod will only churn its catalog history.
+- A consumer needs the model. The catalog is overkill until somebody other than the author wants to reach the model.
+- Real-data scale matters. If 8 rows of memtable data answers every question you have, you don't yet need prod.
+
+Keep the dev model around even after promoting. It's a fast, offline test fixture: unit tests on a memtable run in milliseconds, and catch breakage in `with_dimensions` / `with_measures` definitions before you spend money on a 345k-row scan.
+
+## Speed up repeat queries with caching
+
+Each query against `prod_model` re-reads the parquet and re-runs the join. For a tutorial that's fine; for a real workflow, attach a cache:
+
+```python
+from xorq.caching import ParquetStorage
+
+cache = ParquetStorage(source=xo.connect())
+cached_enriched = flights_enriched.cache(storage=cache)
+
+prod_model = to_semantic_table(cached_enriched).with_dimensions(...).with_measures(...)
+```
+
+The first query materializes the join to a parquet file; every subsequent query reads from there. See [Explore caching](explore_caching.qmd) for details.
+
+## What you learned
+
+- The same BSL model definition runs against an in-memory dev table and a real prod parquet file — only the source changes.
+- Use `xo.deferred_read_parquet` for prod sources so the cataloged entry is self-contained and reproducible elsewhere.
+- Real data unlocks new dimensions (`carrier_name`) and measures (`avg_arr_delay`) that weren't worth fabricating in dev.
+- Prod gets its own catalog alias (`flights-model-prod`), living alongside the dev entry in the same git-backed catalog.
+- `from_tagged(entry.expr)` recovers the model on a fresh machine — it pulls the parquet from R2 and answers any query the model knows how to answer.
+
+## Next steps
+
+- [Explore caching](explore_caching.qmd) — make the carrier join cheap to re-query.
+- [Your first build](your_first_build.qmd) — package the prod model as a portable build artifact.
+- [Switch backends](switch_backends.qmd) — point the same model at Postgres, DuckDB, or DataFusion.
