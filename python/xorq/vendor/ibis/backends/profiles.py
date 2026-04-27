@@ -181,9 +181,8 @@ class Profile:
 
     @con_name.validator
     def validate_con_name(self, attr, value):
-        entry_points = _load_entry_points()
-        if not any(ep.name == value for ep in entry_points):
-            installed = sorted(ep.name for ep in entry_points)
+        installed = sorted(ep.name for ep in _load_entry_points())
+        if value not in installed:
             raise ValueError(
                 f"Unknown backend {value!r}; installed backends: {installed}"
             )

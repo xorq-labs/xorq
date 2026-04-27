@@ -130,6 +130,11 @@ def test_profile_hash_order_independence():
     assert cloned.hash_name.split("_")[0] == profile1.hash_name.split("_")[0]
 
 
+def test_profile_unknown_backend_raises():
+    with pytest.raises(ValueError, match="Unknown backend 'nonexistent'"):
+        Profile(con_name="nonexistent", kwargs_tuple=())
+
+
 def test_parse_env_vars_empty_dict():
     """Test with empty dictionary."""
     assert maybe_substitute_env_vars({}) == {}
