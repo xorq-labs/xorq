@@ -7,15 +7,20 @@ headline: "Define once, query many"
 
 This tutorial shows you how to build a semantic model over an FAA-style flights dataset using the **Boring Semantic Layer (BSL)**, query it through Xorq, and store it in the catalog so anyone (or any future build) can recover the model and issue new queries against it.
 
-After completing this tutorial, you understand how a BSL model becomes an `ExprBuilder` in Xorq, how to query dimensions and measures, and how the catalog preserves the model itself — not just the result of one query.
+After completing this tutorial, you understand how to define dimensions and measures with BSL, query them through Xorq, and round-trip the model through the catalog so a downstream consumer can recover it and ask their own questions.
 
 ## Prerequisites
 
 You need:
 
-- Xorq installed with the BSL extra: `pip install "xorq[bsl]"`
+- Xorq installed with BSL and DuckDB: `pip install "xorq[bsl,duckdb]"`
 - Basic familiarity with Xorq expressions ([Your first expression](../../getting_started/your_first_expression.qmd) recommended)
 - Completed [Your first build](your_first_build.qmd) so the catalog vocabulary is familiar
+
+::: {.callout-note}
+### Why DuckDB?
+The catalog stores the in-memory `flights` table as a parquet file alongside the entry. Reading that parquet back when you recover the model uses DuckDB by default, so it has to be installed.
+:::
 
 ::: {.callout-tip}
 ### What is BSL?
@@ -109,14 +114,33 @@ by_origin = model.query(
 print(by_origin.execute())
 ```
 
+::: {.callout-note}
+### The same query, without BSL
+Because `query(...)` lowers to ordinary Xorq, the equivalent without the semantic layer is just `group_by` + `agg`:
+
+```python
+by_origin_plain = flights.group_by("origin").agg(
+    flight_count=flights.count(),
+    avg_dep_delay=flights.dep_delay.mean(),
+)
+```
+
+`by_origin_plain.execute()` returns the same DataFrame. The semantic-layer version pays off as soon as you have a *second* query: `dep_delay.mean()` doesn't have to be re-typed (or kept in sync between callers), and consumers ask for `avg_dep_delay` by name without knowing how it's computed.
+:::
+
 You see one row per origin airport, with the count and average delay:
 
 ```
   origin  flight_count  avg_dep_delay
-0    JFK             3      15.000000
-1    LAX             3       4.333333
-2    ORD             2      37.500000
+0    LAX             3       4.333333
+1    ORD             2      37.500000
+2    JFK             3      10.000000
 ```
+
+::: {.callout-note}
+### Row order
+BSL doesn't sort the result — the row order you see depends on the backend's hash layout. Add `.order_by("origin")` before `.execute()` if you want a stable order.
+:::
 
 Now ask a different question — total distance flown by each carrier:
 
@@ -132,52 +156,61 @@ print(by_carrier.execute())
 ```
   carrier  flight_count  total_distance
 0      AA             4            8165
-1      UA             4            6535
+1      UA             4            7265
 ```
 
 Notice: same model, two completely different queries. The model is the contract — `query(...)` is the conversation.
 
-## Tag the expression
-
-So far, `by_origin` is a plain Xorq expression. To preserve the **model** (not just this one query) in the catalog, call `.to_tagged()`. This stamps a tag onto the expression that records the BSL model behind it.
+::: {.callout-tip}
+### What if you ask for something that doesn't exist?
+Try requesting a dimension or measure the model never registered:
 
 ```python
-tagged_expr = by_origin.to_tagged()
-
-print("Expression kind:", tagged_expr.ls.kind)
-# ExprKind.ExprBuilder
+model.query(dimensions=("airport",), measures=("flight_count",)).execute()
 ```
 
-`ExprBuilder` is the kind that tells the catalog: *this isn't just a query result, it's an expression with a recoverable domain object behind it*. When this entry is loaded later, `expr.ls.builder` returns the original `SemanticModel`.
+You get an error immediately, not silently-wrong results:
 
-::: {.callout-note}
-### Why tag instead of just saving the model?
-The catalog speaks the language of expressions: schemas, lineage, content hashes. By tagging, the model travels through the same pipes as everything else — `xorq build`, `xorq run`, lineage tools — and the recovery hook lets you get the rich Python object back when you need it.
+```
+XorqTypeError: Column 'airport' is not found in table. Existing columns:
+'origin', 'destination', 'carrier', 'dep_delay', 'distance'.
+```
+
+This is the second payoff of the semantic layer. Dimensions and measures are a closed vocabulary: `airport` doesn't exist, so the query fails before it touches the data. Without the model, a typo in `group_by("airport")` would give the same error — but a typo in a hand-written measure (say, `dep_delay.mean()` vs. `dep_delay.sum()`) wouldn't fail at all; it would just return a quietly-wrong number. By naming the aggregation `avg_dep_delay` once, on the model, every caller gets the right one or none at all.
 :::
 
-## Add the model to a catalog
+## Catalog the model
 
-Now create a catalog and add the tagged expression. The catalog is git-backed, so the directory you point it at becomes a versioned store of every entry you add.
+To preserve the model itself — not just one query result — turn it into a Xorq-tagged expression with `to_tagged(model)`, then add it to the catalog. The catalog is git-backed, so the directory you point it at becomes a versioned store of every entry you add.
 
 ```python
 import tempfile
 from pathlib import Path
 
+from boring_semantic_layer import to_tagged
 from xorq.catalog.catalog import Catalog
 
 # <1>
+tagged_model = to_tagged(model)
+
+# <2>
 catalog_dir = Path(tempfile.mkdtemp()) / "flights-catalog"
 catalog = Catalog.from_repo_path(catalog_dir, init=True)
 
-# <2>
-catalog.add(tagged_expr, aliases=("flights-by-origin",), sync=False)
+# <3>
+catalog.add(tagged_model, aliases=("flights-model",), sync=False)
 
 print("Catalog at:", catalog_dir)
-print("Entries:   ", catalog.list())
 print("Aliases:   ", catalog.list_aliases())
 ```
-1. `Catalog.from_repo_path(..., init=True)` initializes a fresh git repo at that path. For a shared catalog, use `Catalog.from_name("my-catalog")` or `Catalog.clone_from("git@...")` instead.
-2. The alias `flights-by-origin` is the human-readable handle. Internally each entry has a content-addressed hash; the alias just points at it.
+1. `to_tagged(model)` serializes the dimensions, measures, and underlying table into a Xorq expression with BSL metadata attached. You're cataloging *the model*, not the result of one of its queries.
+2. `Catalog.from_repo_path(..., init=True)` initializes a fresh git repo at that path. For a shared catalog, use `Catalog.from_name("my-catalog")` or `Catalog.clone_from("git@...")` instead.
+3. The alias `flights-model` is the human-readable handle. Internally each entry has a content-addressed hash; the alias just points at it.
+
+::: {.callout-note}
+### Why go through the catalog?
+The catalog speaks the language of expressions: schemas, lineage, content hashes, deferred reads. By tagging the model and storing it as a catalog entry, the model travels through the same pipes as everything else — `xorq build`, `xorq run`, lineage tools — and `from_tagged` lets you get the rich Python object back when you need it.
+:::
 
 ::: {.callout-tip}
 ### Pointing at a real catalog
@@ -186,27 +219,27 @@ For team use, replace the temp directory with a path to a checked-out git repo, 
 
 ## Recover the model from the catalog
 
-Here's the payoff. Pull the entry back out of the catalog and recover the original `SemanticModel`:
+Here's the payoff. Pull the entry back out of the catalog and rebuild the original `SemanticModel` with `from_tagged`:
 
 ```python
+from boring_semantic_layer import from_tagged
+
 # <1>
-entry = catalog.get_catalog_entry("flights-by-origin", maybe_alias=True)
-print("Entry kind:        ", entry.kind)
-print("Builder metadata:  ", entry.metadata.builders)
+flights_entry = catalog.get_catalog_entry("flights-model", maybe_alias=True)
 
 # <2>
-recovered_model = entry.expr.ls.builder
-print("Recovered type:    ", type(recovered_model).__name__)
-print("Recovered dims:    ", tuple(recovered_model.dimensions))
-print("Recovered measures:", tuple(recovered_model.measures))
+flights_model = from_tagged(flights_entry.expr)
+print("Recovered type:    ", type(flights_model).__name__)
+print("Recovered dims:    ", tuple(flights_model.dimensions))
+print("Recovered measures:", tuple(flights_model.measures))
 ```
-1. The entry's `kind` is `ExprBuilder` and `metadata.builders` carries the sidecar JSON the BSL handler emitted (dimension names, measure names, source schema).
-2. `entry.expr.ls.builder` invokes the registered tag handler's `from_tag_node` hook, which rebuilds a live `SemanticModel` — same dimensions, same measures, same underlying table.
+1. `flights_entry` is the catalog handle — content hash, alias, sidecar metadata, and the cataloged expression on `.expr`.
+2. `from_tagged(...)` reads the BSL metadata off the cataloged expression and reconstructs a live `SemanticModel`: same dimensions, same measures, same underlying table.
 
 The recovered model is a fully usable BSL object. Run a brand-new query that the original Python file never even mentioned:
 
 ```python
-by_destination = recovered_model.query(
+by_destination = flights_model.query(
     dimensions=("destination",),
     measures=("flight_count", "total_distance"),
 )
@@ -216,12 +249,12 @@ print(by_destination.execute())
 
 ```
   destination  flight_count  total_distance
-0         JFK             3            6695
-1         LAX             3            7425
+0         JFK             3            5690
+1         LAX             3            6695
 2         ORD             2            3045
 ```
 
-This is the property that makes the catalog interesting: you stored *one* query, but you got back the model behind it, and now you can ask anything the model knows how to answer.
+This is the property that makes the catalog interesting: you stored the model, and now any consumer can ask anything the model's dimensions and measures are designed to answer.
 
 ## Putting it all together
 
@@ -232,7 +265,7 @@ Here's the complete `flights_catalog.py`:
 import tempfile
 from pathlib import Path
 
-from boring_semantic_layer import to_semantic_table
+from boring_semantic_layer import to_semantic_table, to_tagged, from_tagged
 
 import xorq.api as xo
 from xorq.catalog.catalog import Catalog
@@ -266,28 +299,31 @@ model = (
 )
 
 # 3. Query
-by_origin = model.query(
+print(model.query(
     dimensions=("origin",),
     measures=("flight_count", "avg_dep_delay"),
-)
-print(by_origin.execute())
+).execute())
 
-# 4. Tag and catalog
-tagged_expr = by_origin.to_tagged()
+print(model.query(
+    dimensions=("carrier",),
+    measures=("flight_count", "total_distance"),
+).execute())
+
+# 4. Tag the model and add it to the catalog
+tagged_model = to_tagged(model)
 
 catalog_dir = Path(tempfile.mkdtemp()) / "flights-catalog"
 catalog = Catalog.from_repo_path(catalog_dir, init=True)
-catalog.add(tagged_expr, aliases=("flights-by-origin",), sync=False)
+catalog.add(tagged_model, aliases=("flights-model",), sync=False)
 
-# 5. Recover and re-query
-entry = catalog.get_catalog_entry("flights-by-origin", maybe_alias=True)
-recovered_model = entry.expr.ls.builder
+# 5. Recover the model and run a new query
+flights_entry = catalog.get_catalog_entry("flights-model", maybe_alias=True)
+flights_model = from_tagged(flights_entry.expr)
 
-by_destination = recovered_model.query(
+print(flights_model.query(
     dimensions=("destination",),
     measures=("flight_count", "total_distance"),
-)
-print(by_destination.execute())
+).execute())
 ```
 
 Run it:
@@ -300,8 +336,8 @@ python flights_catalog.py
 
 - The Boring Semantic Layer turns a Xorq table into a `SemanticModel` with named dimensions and measures.
 - `model.query(dimensions=..., measures=...)` produces an ordinary Xorq expression, so `.execute()` runs on any Xorq backend.
-- `.to_tagged()` stamps the model onto the expression and makes it an `ExprBuilder` — a catalog-aware artifact.
-- `entry.expr.ls.builder` recovers the original `SemanticModel` from a cataloged entry, so consumers of the catalog can issue *their own* queries against the same model.
+- Asking for a dimension or measure the model didn't register raises an error before any data is touched — typos in measure definitions can't return quietly-wrong numbers.
+- `to_tagged(model)` produces a catalog-ready expression, and `from_tagged(entry.expr)` reconstructs the live `SemanticModel` on the other side.
 
 The point of the BSL + catalog combination is decoupling: the team that owns the data publishes the model once, and every downstream user gets a typed, queryable object instead of a frozen result set.
 
