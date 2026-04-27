@@ -91,6 +91,22 @@ class Annex:
     def annex_objects_path(self):
         return self.annex_path.joinpath("objects")
 
+    @property
+    def annex_uuid(self):
+        """The local repo's git-annex UUID (set by ``git annex init``)."""
+        result = subprocess.run(
+            ["git", "config", "--get", "annex.uuid"],
+            cwd=self.repo_path,
+            capture_output=True,
+            text=True,
+        )
+        out = result.stdout.strip()
+        if result.returncode != 0 or not out:
+            raise AnnexError(
+                f"could not read annex.uuid at {self.repo_path}: {result.stderr}"
+            )
+        return out
+
     def _do(self, *args):
         returncode, stdout, stderr = _do_inside(self.repo_path, *args, env=self.env)
         if returncode != 0:
@@ -255,12 +271,42 @@ class Annex:
     def uninit(self):
         self._do("uninit")
 
+    def _augment_fileprefix(self, remote_config):
+        """Return *remote_config* with ``{name}/{annex_uuid}/`` appended to ``fileprefix``.
+
+        The remote name namespaces the catalog; the annex UUID specializes
+        within that namespace so multiple annex repos sharing a remote name
+        write to different subdirs without colliding.
+        Idempotent — if the suffix is already present (or the config has no
+        ``fileprefix`` field), the input is returned unchanged.
+        """
+        if not hasattr(remote_config, "fileprefix"):
+            return remote_config
+        suffix = f"{remote_config.name}/{self.annex_uuid}/"
+        current = remote_config.fileprefix or ""
+        if current.endswith(suffix):
+            return remote_config
+        base = current if not current or current.endswith("/") else f"{current}/"
+        return attr.evolve(remote_config, fileprefix=f"{base}{suffix}")
+
+    def initremote(self, remote_config):
+        """Run ``git annex initremote`` with the annex-uuid suffix appended."""
+        augmented = self._augment_fileprefix(remote_config)
+        augmented.initremote(self.repo_path)
+        return augmented
+
+    def enableremote(self, remote_config):
+        """Run ``git annex enableremote`` with the annex-uuid suffix appended."""
+        augmented = self._augment_fileprefix(remote_config)
+        augmented.enableremote(self.repo_path)
+        return augmented
+
     @staticmethod
     def init_repo_path(repo_path, remote_config=None):
         require_git_annex()
         _check_output_do_inside(repo_path, "init", check_stderr=False)
         if remote_config:
-            remote_config.initremote(repo_path)
+            Annex(repo_path=Path(repo_path)).initremote(remote_config)
 
 
 def teardown_local(git_annex):
