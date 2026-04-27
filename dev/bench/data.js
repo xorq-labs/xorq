@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777283756033,
+  "lastUpdate": 1777297623749,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -8382,6 +8382,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.007242088008985346",
             "extra": "mean: 200.3758449999964 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2ae292c977d58890d76bbd992f1c41ce2d284b88",
+          "message": "fix(docs): improve code contrast, syntax highlighting, and config correctness (#1860)\n\n- Light mode: code block bg changed from near-cyan #F0FBFF to pure white\n#FFFFFF for clear separation from the light-cyan page background\n- Dark mode: code block bg changed from body-same #05181A to elevated\n#0D2B2E so source blocks are visually distinct\n- Remove forced colour overrides on pre-code in both modes so per-token\nsyntax colours from the highlight style are no longer masked\n- Add highlight-style: {light: github, dark: github-dark} to _quarto.yml\n- Add execute.freeze: auto for faster incremental doc builds\n- Fix @font-face format strings: 'ttf'→'truetype', 'otf'→'opentype'\n- Fix @media (max-width: 576px) scope bug in typography-spacing.html:\nh2–h5 mobile font-size rules were outside the media query and applied\nglobally; closing brace moved to correct position\n- Rename duplicate \"Data Operations\" quartodoc section to \"Window and\nSelectors\" to eliminate ambiguous duplicate title\n- Remove broken sidebar links: reference/ls.qmd and\nreference/FittedStep.qmd (neither file exists nor is generated)\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-27T15:42:41+02:00",
+          "tree_id": "733c5c192e7ea377a3b8200ae6e696f9be9999f3",
+          "url": "https://github.com/xorq-labs/xorq/commit/2ae292c977d58890d76bbd992f1c41ce2d284b88"
+        },
+        "date": 1777297619975,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.536853776437246,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005313911518409066",
+            "extra": "mean: 104.85638381818387 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.486073894267945,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013962203017081554",
+            "extra": "mean: 222.91206600001487 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.5425422363380046,
+            "unit": "iter/sec",
+            "range": "stddev: 0.24583525510048465",
+            "extra": "mean: 1.8431744719999983 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.8697784895991836,
+            "unit": "iter/sec",
+            "range": "stddev: 0.028422305876122607",
+            "extra": "mean: 258.41272380000646 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.485641698214419,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020552580806570242",
+            "extra": "mean: 222.9335438000021 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.4952511700071724,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012005238155330169",
+            "extra": "mean: 286.10247200001595 msec\nrounds: 5"
           }
         ]
       }
