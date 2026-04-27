@@ -1,0 +1,312 @@
+---
+title: "Build a semantic catalog"
+description: "Use the Boring Semantic Layer (BSL) to define a flights model, query it, and catalog it as a recoverable artifact"
+icon: "diagram-3"
+headline: "Define once, query many"
+---
+
+This tutorial shows you how to build a semantic model over an FAA-style flights dataset using the **Boring Semantic Layer (BSL)**, query it through Xorq, and store it in the catalog so anyone (or any future build) can recover the model and issue new queries against it.
+
+After completing this tutorial, you understand how a BSL model becomes an `ExprBuilder` in Xorq, how to query dimensions and measures, and how the catalog preserves the model itself — not just the result of one query.
+
+## Prerequisites
+
+You need:
+
+- Xorq installed with the BSL extra: `pip install "xorq[bsl]"`
+- Basic familiarity with Xorq expressions ([Your first expression](../../getting_started/your_first_expression.qmd) recommended)
+- Completed [Your first build](your_first_build.qmd) so the catalog vocabulary is familiar
+
+::: {.callout-tip}
+### What is BSL?
+The [Boring Semantic Layer](https://github.com/boringdata/boring-semantic-layer) is a small, declarative semantic layer that lets you attach **dimensions** (groupings) and **measures** (aggregations) to a table once, then issue many different queries without repeating the SQL or the Python. Xorq integrates with BSL so a `SemanticModel` can be stamped onto an expression and stored in the catalog.
+:::
+
+## What you'll build
+
+A reusable semantic model over flights data with:
+
+- Three dimensions: `origin`, `destination`, `carrier`
+- Three measures: `flight_count`, `avg_dep_delay`, `total_distance`
+
+You'll query it two different ways, then catalog the model so a colleague can pull it down and ask their own questions — without ever seeing your original Python file.
+
+## Create the flights dataset
+
+Start with a small FAA-style flights table. The columns mirror what you'd find in the FAA On-Time Performance dataset (or `nycflights13`): an origin airport, a destination airport, a carrier code, departure delay in minutes, and route distance in miles.
+
+Create a file called `flights_catalog.py`:
+
+```python
+# flights_catalog.py
+import xorq.api as xo
+
+# <1>
+flights = xo.memtable(
+    {
+        "origin":      ["JFK", "LAX", "ORD", "JFK", "LAX", "ORD", "JFK", "LAX"],
+        "destination": ["LAX", "ORD", "JFK", "ORD", "JFK", "LAX", "LAX", "JFK"],
+        "carrier":     ["AA",  "UA",  "AA",  "UA",  "AA",  "UA",  "AA",  "UA"],
+        "dep_delay":   [10.0, -5.0,  30.0,  15.0, -2.0,  45.0,   5.0,  20.0],
+        "distance":    [2475, 1745,   740,  1300, 2475,  1745,  2475,  2475],
+    },
+    name="flights",
+)
+```
+1. `xo.memtable` builds a deferred Xorq table from inline data. Nothing executes yet — `flights` is an expression you can pass to BSL.
+
+::: {.callout-note}
+### Why an in-memory table?
+For the tutorial we keep the data inline so you can run the whole thing offline. In production, swap `xo.memtable(...)` for a real source — `con.read_parquet(...)`, a Postgres table, or a pinned dataset. The semantic model on top doesn't change.
+:::
+
+## Define the semantic model
+
+A BSL `SemanticModel` is a table plus a vocabulary of dimensions and measures. You build it by wrapping the Xorq expression with `to_semantic_table` and chaining `.with_dimensions(...)` and `.with_measures(...)`.
+
+Append to `flights_catalog.py`:
+
+```python
+from boring_semantic_layer import to_semantic_table
+
+# <1>
+model = (
+    to_semantic_table(flights)
+    .with_dimensions(
+        origin=lambda t: t.origin,
+        destination=lambda t: t.destination,
+        carrier=lambda t: t.carrier,
+    )
+    .with_measures(
+        flight_count=lambda t: t.count(),
+        avg_dep_delay=lambda t: t.dep_delay.mean(),
+        total_distance=lambda t: t.distance.sum(),
+    )
+)
+
+print("Dimensions:", tuple(model.dimensions))
+print("Measures:  ", tuple(model.measures))
+```
+1. Each dimension and measure is a lambda that takes the table and returns an expression. BSL stores the lambda — it doesn't run it until you query.
+
+::: {.callout-tip}
+### Dimensions vs. measures
+A **dimension** is a column you can group by (or filter on). A **measure** is an aggregation: counts, means, sums, anything that collapses rows. The split is what lets BSL turn `query(dimensions=..., measures=...)` into the right `group_by(...).agg(...)` for you.
+:::
+
+## Query the model
+
+A model is useless until you ask it questions. `model.query(...)` returns a regular Xorq expression — the same kind you'd get from `table.group_by(...).agg(...)` — so `.execute()` runs it on your backend.
+
+Add a first query: average departure delay by origin airport.
+
+```python
+by_origin = model.query(
+    dimensions=("origin",),
+    measures=("flight_count", "avg_dep_delay"),
+)
+
+print(by_origin.execute())
+```
+
+You see one row per origin airport, with the count and average delay:
+
+```
+  origin  flight_count  avg_dep_delay
+0    JFK             3      15.000000
+1    LAX             3       4.333333
+2    ORD             2      37.500000
+```
+
+Now ask a different question — total distance flown by each carrier:
+
+```python
+by_carrier = model.query(
+    dimensions=("carrier",),
+    measures=("flight_count", "total_distance"),
+)
+
+print(by_carrier.execute())
+```
+
+```
+  carrier  flight_count  total_distance
+0      AA             4            8165
+1      UA             4            6535
+```
+
+Notice: same model, two completely different queries. The model is the contract — `query(...)` is the conversation.
+
+## Tag the expression
+
+So far, `by_origin` is a plain Xorq expression. To preserve the **model** (not just this one query) in the catalog, call `.to_tagged()`. This stamps a tag onto the expression that records the BSL model behind it.
+
+```python
+tagged_expr = by_origin.to_tagged()
+
+print("Expression kind:", tagged_expr.ls.kind)
+# ExprKind.ExprBuilder
+```
+
+`ExprBuilder` is the kind that tells the catalog: *this isn't just a query result, it's an expression with a recoverable domain object behind it*. When this entry is loaded later, `expr.ls.builder` returns the original `SemanticModel`.
+
+::: {.callout-note}
+### Why tag instead of just saving the model?
+The catalog speaks the language of expressions: schemas, lineage, content hashes. By tagging, the model travels through the same pipes as everything else — `xorq build`, `xorq run`, lineage tools — and the recovery hook lets you get the rich Python object back when you need it.
+:::
+
+## Add the model to a catalog
+
+Now create a catalog and add the tagged expression. The catalog is git-backed, so the directory you point it at becomes a versioned store of every entry you add.
+
+```python
+import tempfile
+from pathlib import Path
+
+from xorq.catalog.catalog import Catalog
+
+# <1>
+catalog_dir = Path(tempfile.mkdtemp()) / "flights-catalog"
+catalog = Catalog.from_repo_path(catalog_dir, init=True)
+
+# <2>
+catalog.add(tagged_expr, aliases=("flights-by-origin",), sync=False)
+
+print("Catalog at:", catalog_dir)
+print("Entries:   ", catalog.list())
+print("Aliases:   ", catalog.list_aliases())
+```
+1. `Catalog.from_repo_path(..., init=True)` initializes a fresh git repo at that path. For a shared catalog, use `Catalog.from_name("my-catalog")` or `Catalog.clone_from("git@...")` instead.
+2. The alias `flights-by-origin` is the human-readable handle. Internally each entry has a content-addressed hash; the alias just points at it.
+
+::: {.callout-tip}
+### Pointing at a real catalog
+For team use, replace the temp directory with a path to a checked-out git repo, push commits with `sync=True`, and your colleagues can clone it. Aliases survive across machines because they live in git.
+:::
+
+## Recover the model from the catalog
+
+Here's the payoff. Pull the entry back out of the catalog and recover the original `SemanticModel`:
+
+```python
+# <1>
+entry = catalog.get_catalog_entry("flights-by-origin", maybe_alias=True)
+print("Entry kind:        ", entry.kind)
+print("Builder metadata:  ", entry.metadata.builders)
+
+# <2>
+recovered_model = entry.expr.ls.builder
+print("Recovered type:    ", type(recovered_model).__name__)
+print("Recovered dims:    ", tuple(recovered_model.dimensions))
+print("Recovered measures:", tuple(recovered_model.measures))
+```
+1. The entry's `kind` is `ExprBuilder` and `metadata.builders` carries the sidecar JSON the BSL handler emitted (dimension names, measure names, source schema).
+2. `entry.expr.ls.builder` invokes the registered tag handler's `from_tag_node` hook, which rebuilds a live `SemanticModel` — same dimensions, same measures, same underlying table.
+
+The recovered model is a fully usable BSL object. Run a brand-new query that the original Python file never even mentioned:
+
+```python
+by_destination = recovered_model.query(
+    dimensions=("destination",),
+    measures=("flight_count", "total_distance"),
+)
+
+print(by_destination.execute())
+```
+
+```
+  destination  flight_count  total_distance
+0         JFK             3            6695
+1         LAX             3            7425
+2         ORD             2            3045
+```
+
+This is the property that makes the catalog interesting: you stored *one* query, but you got back the model behind it, and now you can ask anything the model knows how to answer.
+
+## Putting it all together
+
+Here's the complete `flights_catalog.py`:
+
+```python
+# flights_catalog.py
+import tempfile
+from pathlib import Path
+
+from boring_semantic_layer import to_semantic_table
+
+import xorq.api as xo
+from xorq.catalog.catalog import Catalog
+
+
+# 1. Source table
+flights = xo.memtable(
+    {
+        "origin":      ["JFK", "LAX", "ORD", "JFK", "LAX", "ORD", "JFK", "LAX"],
+        "destination": ["LAX", "ORD", "JFK", "ORD", "JFK", "LAX", "LAX", "JFK"],
+        "carrier":     ["AA",  "UA",  "AA",  "UA",  "AA",  "UA",  "AA",  "UA"],
+        "dep_delay":   [10.0, -5.0,  30.0,  15.0, -2.0,  45.0,   5.0,  20.0],
+        "distance":    [2475, 1745,   740,  1300, 2475,  1745,  2475,  2475],
+    },
+    name="flights",
+)
+
+# 2. Semantic model
+model = (
+    to_semantic_table(flights)
+    .with_dimensions(
+        origin=lambda t: t.origin,
+        destination=lambda t: t.destination,
+        carrier=lambda t: t.carrier,
+    )
+    .with_measures(
+        flight_count=lambda t: t.count(),
+        avg_dep_delay=lambda t: t.dep_delay.mean(),
+        total_distance=lambda t: t.distance.sum(),
+    )
+)
+
+# 3. Query
+by_origin = model.query(
+    dimensions=("origin",),
+    measures=("flight_count", "avg_dep_delay"),
+)
+print(by_origin.execute())
+
+# 4. Tag and catalog
+tagged_expr = by_origin.to_tagged()
+
+catalog_dir = Path(tempfile.mkdtemp()) / "flights-catalog"
+catalog = Catalog.from_repo_path(catalog_dir, init=True)
+catalog.add(tagged_expr, aliases=("flights-by-origin",), sync=False)
+
+# 5. Recover and re-query
+entry = catalog.get_catalog_entry("flights-by-origin", maybe_alias=True)
+recovered_model = entry.expr.ls.builder
+
+by_destination = recovered_model.query(
+    dimensions=("destination",),
+    measures=("flight_count", "total_distance"),
+)
+print(by_destination.execute())
+```
+
+Run it:
+
+```bash
+python flights_catalog.py
+```
+
+## What you learned
+
+- The Boring Semantic Layer turns a Xorq table into a `SemanticModel` with named dimensions and measures.
+- `model.query(dimensions=..., measures=...)` produces an ordinary Xorq expression, so `.execute()` runs on any Xorq backend.
+- `.to_tagged()` stamps the model onto the expression and makes it an `ExprBuilder` — a catalog-aware artifact.
+- `entry.expr.ls.builder` recovers the original `SemanticModel` from a cataloged entry, so consumers of the catalog can issue *their own* queries against the same model.
+
+The point of the BSL + catalog combination is decoupling: the team that owns the data publishes the model once, and every downstream user gets a typed, queryable object instead of a frozen result set.
+
+## Next steps
+
+- [Your first build](your_first_build.qmd) — package the cataloged model into a portable build artifact.
+- [Explore caching](explore_caching.qmd) — cache the underlying table so repeated BSL queries don't re-read the source.
+- [Understand deferred execution](understand_deferred_execution.qmd) — the foundation that makes `query(...)` cheap and composable.
