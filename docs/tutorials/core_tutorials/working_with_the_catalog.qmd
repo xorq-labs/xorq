@@ -22,27 +22,57 @@ You need:
 - Completed [Build a semantic catalog](build_a_semantic_catalog.qmd) — the local catalog from that tutorial is the starting point here
 - Xorq with BSL and DuckDB: `pip install "xorq[bsl,duckdb]"`
 - Git installed locally and authenticated with GitHub (the `gh` CLI is convenient but not required)
+- **git-annex** installed locally — `brew install git-annex` on macOS, `apt install git-annex` on Debian/Ubuntu, or see [git-annex.branchable.com](https://git-annex.branchable.com/install/) for other platforms
 
-## A catalog is a git repo
+::: {.callout-tip}
+### Why git-annex?
+Catalog entries are content-addressed zip archives that can grow well past what git is happy storing in-tree (compiled artifacts, materialized parquet, model weights). xorq uses **git-annex** to keep that content out of the git history and in a content-addressed object store, while the metadata, aliases, and revision graph still travel through plain git. Every `xorq catalog ...` workflow assumes annex is present — `catalog.push()`, `catalog.pull()`, and `Catalog.clone_from(...)` all coordinate the git side and the annex side for you.
 
-Open the catalog directory you created in the previous tutorial and run `git log` — you'll see one commit per `catalog.add(...)` call. The entries are stored as content-addressed zip archives under `.xorq/`, the aliases are symlinks, and `catalog.yaml` is the index. There's nothing magical about sharing it: pushing the directory to a git remote is enough.
+Recommend git-annex even when your entries are small. It costs nothing extra for a small catalog and saves you the migration when an entry eventually isn't small.
+:::
 
-That means GitHub's permission model, branch protection rules, and pull requests Just Work on a catalog. There is no separate "catalog server" to run.
+## A catalog is a git-annex repo
+
+Open the catalog directory you created in the previous tutorial and run `git log` — you'll see one commit per `catalog.add(...)` call. The entries are stored as annexed content under `.xorq/entries/` (each one a content-addressed zip the annex tracks by hash), the aliases are symlinks under `.xorq/aliases/`, and `catalog.yaml` is the plain-git index. Sharing the catalog means pushing both halves: the git history (via your remote) and the annex content (via a special remote like S3, GCS, or another git host with annex support).
+
+That means GitHub's permission model, branch protection rules, and pull requests Just Work on a catalog — and a separately-configured object-store remote handles the entry content.
 
 ## Publish the catalog to GitHub (User A)
 
-Create an empty repository on GitHub (web UI or `gh repo create`), then point your local catalog at it. Wherever your catalog directory lives — for the foundation tutorial it was a temp dir; for this one we'll assume you've moved it to a stable path like `~/work/flights-catalog`.
+If you haven't already, recreate the catalog with annex enabled — the foundation tutorial used a default that auto-detects, and we want it explicit here. Wherever your catalog directory lives, point it at a stable path like `~/work/flights-catalog`:
+
+```python
+from pathlib import Path
+from xorq.catalog.catalog import Catalog
+from xorq.catalog.annex import LOCAL_ANNEX
+
+catalog = Catalog.from_repo_path(
+    Path("~/work/flights-catalog").expanduser(),
+    init=True,
+    annex=LOCAL_ANNEX,    # <1>
+)
+```
+1. `LOCAL_ANNEX` enables git-annex without configuring a special content remote yet — content lives in the repo's local annex object store. You'll add a remote next so others can fetch it.
+
+Now create an empty repository on GitHub (web UI or `gh repo create`) and wire it in. The very first push needs `-u` to set upstream tracking; after that, `catalog.push()` handles the git-and-annex coordination together:
 
 ```bash
 # In the catalog directory
 git remote add origin https://github.com/<you>/flights-catalog.git
 git push -u origin main
+git push origin git-annex      # publish the annex metadata branch
 ```
 
-::: {.callout-tip}
-### Why `git push` and not `catalog.push()`?
-Xorq exposes `catalog.push()` and `xorq catalog push`, which are convenient once a remote is established. For the very first push of a new branch, plain `git push -u origin main` sets the upstream tracking ref so subsequent pushes know where to go. After that, either tool works.
+::: {.callout-note}
+### Storing entry content
+GitHub stores the git side of the catalog (history, aliases, manifests, the `git-annex` metadata branch). To store entry **content** so collaborators can fetch it, configure a git-annex special remote. The simplest options are an S3 bucket (`xorq catalog init --env-prefix XORQ_CATALOG_S3_`) or a GCS bucket (`--gcs`); see the catalog CLI's `init` and `embed-readonly` commands for details. For a single-host demo, a directory remote (`git annex initremote local-store type=directory directory=/path/to/store`) works without cloud creds.
 :::
+
+From here on, ongoing publishes use `catalog.push()`:
+
+```python
+catalog.push()   # git push + annex content sync
+```
 
 Verify the remote sees what you expect:
 
@@ -50,11 +80,11 @@ Verify the remote sees what you expect:
 gh repo view --web   # opens the repo on GitHub
 ```
 
-You should see two top-level items: `.xorq/` (where entries and aliases live) and `catalog.yaml` (the index). Click into `.xorq/aliases/` and you'll see `flights-model.zip` — the alias from the foundation tutorial.
+You should see two top-level items: `.xorq/` (where aliases and metadata live) and `catalog.yaml` (the index). Click into `.xorq/aliases/` and you'll see `flights-model.zip` — the alias from the foundation tutorial. The bytes behind that alias live in your annex special remote, not in the GitHub blob store.
 
 ## Clone the catalog (User B)
 
-Switch hats. User B has only the GitHub URL. They clone the catalog with one call:
+Switch hats. User B also has git-annex installed (it's a hard prerequisite for catalog consumers, not just publishers). They clone the catalog with one call — `Catalog.clone_from` auto-detects the annex branch and initializes the local annex on first run:
 
 ```python
 from pathlib import Path
@@ -78,14 +108,21 @@ xorq catalog clone https://github.com/<you>/flights-catalog.git \
 xorq catalog --path ~/work/flights-catalog-clone list-aliases
 ```
 
+::: {.callout-note}
+### What `clone` fetches (and what it doesn't)
+`Catalog.clone_from(...)` pulls the git history and the `git-annex` metadata branch, but **not** the entry content itself. That keeps clones fast and lets a downstream user pull only the entries they actually need. The next step materializes the content for the entry we're about to use.
+:::
+
 User B never saw User A's Python file, never saw the original `to_semantic_table(...)` call. All they have is a git clone — and that's enough.
 
 ## Recover and query the model (User B)
 
-The recovery pattern is identical to the foundation tutorial: pull the entry, hand its expression to `from_tagged`, and the live `SemanticModel` comes back ready to query.
+Fetch the annex content for the alias we want, then recover the model the same way the foundation tutorial did. `catalog.fetch_entries(...)` resolves the alias, asks git-annex for the underlying object, and pulls it from whichever special remote was configured — all in one call:
 
 ```python
 from boring_semantic_layer import from_tagged
+
+catalog.fetch_entries("flights-model")    # <1>
 
 flights_entry = catalog.get_catalog_entry("flights-model", maybe_alias=True)
 flights_model = from_tagged(flights_entry.expr)
@@ -97,6 +134,7 @@ print(
     ).execute().head()
 )
 ```
+1. No-op for plain-git catalogs; for annex-backed catalogs (everything in this tutorial) it materializes the entry zip locally so `flights_entry.expr` can read it.
 
 The cataloged expression encodes how to fetch the underlying parquet (a `deferred_read_parquet` of the public R2 URL), so User B's machine pulls the data on first execution — no shared filesystem, no out-of-band data transfer.
 
@@ -141,20 +179,27 @@ catalog.add(aa_model_expr, aliases=("flights-aa-only",), sync=False)
 Passing `sync=False` keeps the add local — it commits to the working branch but doesn't push to the remote. You'll push the branch yourself in the next step, after reviewing the diff.
 :::
 
-Push the branch and open the PR:
+Push the branch (and the annex content for the new entry) and open the PR:
 
 ```bash
-git log --oneline -3   # confirm: "add: <hash> (aliases flights-aa-only)"
-git push origin add-aa-only-model
+git log --oneline -3                    # confirm: "add: <hash> (aliases flights-aa-only)"
+git push origin add-aa-only-model       # publish the git side of the change
+git push origin git-annex               # publish the new annex metadata
+git annex copy --to=origin .            # publish the new entry's content
 gh pr create --title "Add AA-only flights model" \
              --body  "Adds an AA-filtered view of the flights model under alias flights-aa-only."
 ```
 
-User A reviews the PR on GitHub. Because each `catalog.add(...)` is a single commit, the diff is small and readable: a new entry zip in `.xorq/entries/`, a new alias symlink in `.xorq/aliases/`, and an update to `catalog.yaml`.
+::: {.callout-tip}
+### `catalog.push()` does the same dance
+Once your branch is set up, `catalog.push()` performs the git push and the annex content sync in one call. The raw-git form above is shown so the steps are visible — for steady-state use, prefer the catalog API.
+:::
+
+User A reviews the PR on GitHub. Because each `catalog.add(...)` is a single commit, the diff is small and readable: a new annex pointer under `.xorq/entries/`, a new alias symlink in `.xorq/aliases/`, and an update to `catalog.yaml`. The actual entry bytes live in the annex remote — GitHub never holds them, but the metadata it does hold is enough for any reviewer to inspect what changed.
 
 ## Pull the merged change (User A)
 
-Once the PR is merged, User A pulls:
+Once the PR is merged, User A pulls. `catalog.pull()` brings the git history up to date and refreshes the annex metadata branch; `fetch_entries(...)` materializes the new entry's content from the annex remote when you actually need it:
 
 ```python
 catalog_a = Catalog.from_repo_path(Path("~/work/flights-catalog").expanduser(), init=False)
@@ -162,6 +207,8 @@ catalog_a.pull()
 
 print("Aliases now:", catalog_a.list_aliases())
 # ['flights-model', 'flights-aa-only']
+
+catalog_a.fetch_entries("flights-aa-only")    # materialize the new entry
 ```
 
 The same alias is now visible everywhere the catalog is cloned. Anyone with access can recover and query `flights-aa-only` exactly the way they recover `flights-model`.
@@ -196,9 +243,9 @@ print(expr.execute().head())
 
 ## What you learned
 
-- A xorq catalog is a regular git repo. Sharing it is `git push`; cloning it is `git clone` (or `Catalog.clone_from`).
-- Collaboration uses the GitHub workflow you already know: branch, commit, push, open a PR. Each `catalog.add(...)` is one commit, so reviews stay readable.
-- `Catalog.clone_from(url, path)` and `catalog.pull()` give a downstream user the same entries, aliases, and revisions as the publisher.
+- A xorq catalog is a git-annex repo: plain git for history, aliases, and metadata; git-annex for content-addressed entry storage. Both publishers and consumers need git-annex installed.
+- Sharing it is `git push` + `git annex copy --to=origin` (or just `catalog.push()`); cloning is `Catalog.clone_from(...)` followed by `catalog.fetch_entries(...)` to materialize the entries you actually want.
+- Collaboration uses the GitHub workflow you already know: branch, commit, push, open a PR. Each `catalog.add(...)` is one commit, and the diff is just metadata — content stays in the annex remote.
 - `from_tagged(flights_entry.expr)` recovers the BSL model on the consumer side — exactly the same call as in the foundation tutorial, regardless of where the entry came from.
 - `catalog.load(name, con=...)` rebinds a cataloged expression to a different connection at recovery time. Combined with named `Profile`s, downstream users can pick their own execution backend without modifying the entry.
 
