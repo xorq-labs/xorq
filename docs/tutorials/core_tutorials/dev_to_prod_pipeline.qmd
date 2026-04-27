@@ -171,6 +171,11 @@ print(
 4    ORF           888       7.543919
 ```
 
+::: {.callout-note}
+### Your `.head()` will show different airports
+BSL doesn't sort — the first five rows depend on the backend's hash layout, not on any meaningful ranking. The numbers per airport are correct; the *which* five you see will differ from this output. Add `.order_by("flight_count", desc=True)` (or any other column) before `.head()` if you want a stable, meaningful slice.
+:::
+
 And the carrier breakdown — now with friendly names:
 
 ```python
