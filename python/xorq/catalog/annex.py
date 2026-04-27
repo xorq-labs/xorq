@@ -271,18 +271,30 @@ class Annex:
     def uninit(self):
         self._do("uninit")
 
-    def _augment_fileprefix(self, remote_config):
-        """Return *remote_config* with ``{name}/{annex_uuid}/`` appended to ``fileprefix``.
+    def _remote_uuid_for_name(self, name):
+        """Look up a special remote's UUID by name from ``remote.log``.
 
-        The remote name namespaces the catalog; the annex UUID specializes
-        within that namespace so multiple annex repos sharing a remote name
-        write to different subdirs without colliding.
+        Returns ``None`` if no remote with that name has been registered yet.
+        """
+        for remote_uuid, config in self.remote_log.items():
+            if config.get("name") == name:
+                return remote_uuid
+        return None
+
+    def _augment_fileprefix(self, remote_config, remote_uuid):
+        """Return *remote_config* with ``{name}/{remote_uuid}/`` appended to ``fileprefix``.
+
+        The remote name namespaces the catalog within the bucket; the
+        special remote's own UUID specializes within that namespace so
+        independent catalogs sharing a name write to different subdirs.
+        Because the remote UUID is stable across all clones of a catalog,
+        clones agree on the path and content-addressed dedup works.
         Idempotent — if the suffix is already present (or the config has no
         ``fileprefix`` field), the input is returned unchanged.
         """
         if not hasattr(remote_config, "fileprefix"):
             return remote_config
-        suffix = f"{remote_config.name}/{self.annex_uuid}/"
+        suffix = f"{remote_config.name}/{remote_uuid}/"
         current = remote_config.fileprefix or ""
         if current.endswith(suffix):
             return remote_config
@@ -290,14 +302,29 @@ class Annex:
         return attr.evolve(remote_config, fileprefix=f"{base}{suffix}")
 
     def initremote(self, remote_config):
-        """Run ``git annex initremote`` with the annex-uuid suffix appended."""
-        augmented = self._augment_fileprefix(remote_config)
-        augmented.initremote(self.repo_path)
+        """Initialize a special remote with a pre-generated UUID baked into fileprefix.
+
+        Generates the remote UUID up front and passes it to ``git annex
+        initremote`` via ``uuid=<value>`` so the ``{name}/{uuid}/`` subdir
+        convention is enforced from the very first write — no orphaned
+        ``annex-uuid`` sentinel at the parent prefix.
+        """
+        remote_uuid = str(uuid.uuid4())
+        augmented = self._augment_fileprefix(remote_config, remote_uuid)
+        augmented.initremote(self.repo_path, uuid=remote_uuid)
         return augmented
 
     def enableremote(self, remote_config):
-        """Run ``git annex enableremote`` with the annex-uuid suffix appended."""
-        augmented = self._augment_fileprefix(remote_config)
+        """Enable a special remote, augmenting fileprefix with ``{name}/{uuid}/``.
+
+        Looks up the remote's UUID from ``remote.log`` so the augmentation
+        is stable across clones.  Falls back to ``initremote`` when the
+        remote does not yet exist in ``remote.log``.
+        """
+        remote_uuid = self._remote_uuid_for_name(remote_config.name)
+        if remote_uuid is None:
+            return self.initremote(remote_config)
+        augmented = self._augment_fileprefix(remote_config, remote_uuid)
         augmented.enableremote(self.repo_path)
         return augmented
 
@@ -368,7 +395,7 @@ LOCAL_ANNEX = LocalAnnexConfig()
 
 class RemoteConfig(AnnexConfig, abc.ABC):
     @abc.abstractmethod
-    def initremote(self, repo_path): ...
+    def initremote(self, repo_path, *, uuid=None): ...
 
     def enableremote(self, repo_path): ...  # noqa: B027
 
@@ -420,12 +447,14 @@ class DirectoryRemoteConfig(RemoteConfig):
             params.append(f"autoenable={self.autoenable}")
         return params
 
-    def initremote(self, repo_path):
+    def initremote(self, repo_path, *, uuid=None):
         Path(self.directory).mkdir(exist_ok=True, parents=True)
+        extra = (f"uuid={uuid}",) if uuid is not None else ()
         _check_output_do_inside(
             repo_path,
             "initremote",
             *self._remote_params,
+            *extra,
             check_stderr=False,
         )
 
@@ -477,11 +506,13 @@ class RsyncRemoteConfig(RemoteConfig):
                 params.append(f"{key}={value}")
         return params
 
-    def initremote(self, repo_path):
+    def initremote(self, repo_path, *, uuid=None):
+        extra = (f"uuid={uuid}",) if uuid is not None else ()
         _check_output_do_inside(
             repo_path,
             "initremote",
             *self._remote_params,
+            *extra,
             check_stderr=False,
         )
 
@@ -668,11 +699,13 @@ class S3RemoteConfig(RemoteConfig):
         ]
         return params
 
-    def initremote(self, repo_path):
+    def initremote(self, repo_path, *, uuid=None):
+        extra = (f"uuid={uuid}",) if uuid is not None else ()
         _check_output_do_inside(
             repo_path,
             "initremote",
             *self.initremote_params,
+            *extra,
             check_stderr=False,
             env=self.env,
         )
