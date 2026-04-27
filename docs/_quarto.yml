@@ -3,6 +3,7 @@ project:
 
 execute:
   mermaid: true
+  freeze: auto
   
 website:
   page-navigation: true
@@ -213,8 +214,6 @@ website:
               contents:
                 - reference/connect.qmd
                 - reference/execute.qmd
-                - href: reference/ls.qmd
-                  text: "ls"
                 - reference/memtable.qmd
                 - reference/deferred_read_csv.qmd
                 - reference/deferred_read_parquet.qmd
@@ -266,7 +265,6 @@ website:
                 - reference/Step.qmd
                 - reference/Pipeline.qmd
                 - reference/FittedPipeline.qmd
-                - reference/FittedStep.qmd
                 - reference/deferred_fit_predict.qmd
                 - reference/deferred_fit_transform.qmd
                 - reference/calc_split_column.qmd
@@ -316,6 +314,9 @@ format:
       dark:  ["darkly", "style/dark.scss"]
       light: ["flatly", "style/light.scss"]
     toc: true
+    highlight-style:
+      light: github
+      dark: github-dark
     code-copy: true
     code-overflow: wrap
     code-annotations: hover
@@ -434,8 +435,8 @@ quartodoc:
          - SourceCache
          - SourceSnapshotCache
 
-    - title: Data Operations
-      desc: "Table, column, and value types"
+    - title: Window and Selectors
+      desc: "Window functions and column selectors"
       contents:
         - name: window
           dynamic: true

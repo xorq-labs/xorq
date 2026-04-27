@@ -161,12 +161,11 @@ div.cell-output > pre {
 }
 
 pre.sourceCode {
-    background: $black !important;
+    background: #0d2b2e !important;
 }
 
 pre code {
-    background: $black !important;
-    color: $white !important;
+    background: #0d2b2e !important;
 }
 
 .sourceCode {
@@ -396,8 +395,8 @@ pre code {
 /* ALT Riviera - Regular */
 @font-face {
   font-family: 'ALT Riviera';
-  src: url('/style/fonts/ALTRiviera-Regular.ttf') format('ttf'),
-       url('/style/fonts/ALTRiviera-Regular.otf') format('otf');
+  src: url('/style/fonts/ALTRiviera-Regular.ttf') format('truetype'),
+       url('/style/fonts/ALTRiviera-Regular.otf') format('opentype');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
