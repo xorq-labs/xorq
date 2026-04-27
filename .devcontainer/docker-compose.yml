@@ -1,0 +1,55 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        USER_UID: "${DEV_UID:-1000}"
+        USER_GID: "${DEV_GID:-1000}"
+        HOST_USER: "${DEV_HOST_USER:-}"
+        CONTAINER_WORKSPACE: "${DEV_CONTAINER_WORKSPACE:?DEV_CONTAINER_WORKSPACE is required}"
+    user: vscode
+    working_dir: ${DEV_CONTAINER_WORKSPACE:?DEV_CONTAINER_WORKSPACE is required}
+    volumes:
+      - ${DEV_WORKSPACE:?DEV_WORKSPACE is required}:${DEV_CONTAINER_WORKSPACE:?DEV_CONTAINER_WORKSPACE is required}:cached
+      # mounted at its HOST path so worktree .git files (gitdir: /home/user/…)
+      # resolve inside the container without rewriting paths;
+      # must be writable — git write operations (add, commit, fetch) write to
+      # .git/worktrees/, .git/objects/, and .git/refs/
+      - ${DEV_MAIN_GIT:?DEV_MAIN_GIT is required}:${DEV_MAIN_GIT}:cached
+      - ${DEV_MAIN_TREE:?DEV_MAIN_TREE is required}:${DEV_MAIN_TREE}:cached
+      # per-project: cached build/dependency volumes
+      - uv-cache:/home/vscode/.cache/uv
+      - venv:${DEV_CONTAINER_WORKSPACE:?DEV_CONTAINER_WORKSPACE is required}/.venv
+      # per-project: persistent test data
+      - ibis-testing-data:${DEV_CONTAINER_WORKSPACE:?DEV_CONTAINER_WORKSPACE is required}/ci/ibis-testing-data
+      # SSH agent forwarding (no-op when DEV_SSH_AUTH_SOCK is /dev/null)
+      - ${DEV_SSH_AUTH_SOCK:-/dev/null}:/home/vscode/.ssh/agent.sock
+      # sops age key (no-op when dir doesn't exist on host)
+      - ${DEV_SOPS_AGE_DIR:-/dev/null}:/home/vscode/.config/sops/age:ro
+      # Claude: host config read-only for baseline inheritance
+      - ${HOME}/.claude:/home/vscode/.claude-host:ro
+      - ${HOME}/.claude.json:/home/vscode/.claude-host.json:ro
+      # Claude: container-isolated config (setup-claude copies baseline in)
+      - claude-home:/home/vscode/.claude
+    tmpfs:
+      - /home/vscode/.claude/shell-snapshots
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # per-project: host services accessible via host.docker.internal
+    environment:
+      - POSTGRES_HOST=host.docker.internal
+      - SSH_AUTH_SOCK=/home/vscode/.ssh/agent.sock
+    command: sleep infinity
+
+volumes:
+  # per-project, shared across worktrees (content-addressed)
+  uv-cache:
+    name: ${DEV_PROJECT_NAME:-xorq}-uv-cache
+  # per-worktree: virtualenv paths are workspace-specific
+  venv:
+  # per-project, shared across worktrees (read-mostly test fixtures)
+  ibis-testing-data:
+    name: ${DEV_PROJECT_NAME:-xorq}-ibis-testing-data
+  # per-worktree: session symlinks and project keys are workspace-specific
+  claude-home:

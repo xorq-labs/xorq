@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""PreToolUse audit hook — appends one JSONL line per tool invocation."""
+
+import json
+import os
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+log_path = sys.argv[1] if len(sys.argv) > 1 else "/tmp/audit-hook.jsonl"
+err_path = Path(log_path).with_suffix(".errors")
+
+try:
+    entry = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "tool": os.environ.get("CLAUDE_TOOL_NAME", ""),
+        "input": json.loads(os.environ.get("CLAUDE_TOOL_INPUT", "{}")),
+    }
+    with open(log_path, "a") as f:
+        json.dump(entry, f, separators=(",", ":"))
+        f.write("\n")
+except Exception as exc:
+    with open(err_path, "a") as f:
+        f.write(f"{datetime.now(timezone.utc).isoformat()} {exc}\n")

@@ -12,6 +12,7 @@ fi
 manifest="$here/.envrcs/.worktree-manifest"
 : > "$manifest"
 
+# per-project: env/secrets files to copy into worktrees
 for f in "$main"/.envrcs/.envrc.secrets "$main"/.envrcs/.envrc.user "$main"/.envrcs/.env.*; do
     if [ -e "$f" ]; then
         cp -Pv "$f" "$here/.envrcs/"
@@ -27,7 +28,7 @@ for target in .gitignore; do
     fi
 done
 
-# Symlink shared directories from main worktree
+# per-project: shared directories to symlink from main worktree
 for target in .claude ci/ibis-testing-data; do
     if [ -e "$main/$target" ] && [ ! -e "$here/$target" ]; then
         mkdir -p "$(dirname "$here/$target")"
