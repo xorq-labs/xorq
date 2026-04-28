@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777396596700,
+  "lastUpdate": 1777407689302,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -8778,6 +8778,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0035452810666904613",
             "extra": "mean: 157.6600298333138 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "62e2d10b2918a7348846ede837b819bbae250328",
+          "message": "feat(tui): add interactive expression composition to DataViewScreen (#1808)\n\n## Summary\n\nBuilds on #1797 — adds interactive expression composition in a\nfull-screen data view.\n\n- **DataViewScreen**: full-screen explorer opened with `e` from the\ncatalog, with VisiData-style column cursor (`h/j/k/l`), column sort\n(`[`/`]`), and drop column (`d`).\n- **ExprStack**: immutable undo/redo stack that chains Ibis ops into a\nsingle evaluable expression. Each step is wrapped as `(lambda source:\nstep_code)(prior)` so every `source` identifier inside a step binds to\nthe prior step's result.\n- **`:` freeform prompt**: one input accepts any Ibis expression (e.g.\n`source.filter(source.x > 1)`). Column names and Ibis `Table` methods\n(introspected at runtime) tab-complete via `SuggestFromList`.\n- **Stack browser** (`s`), **undo** (`u`), **redo** (`ctrl+r`).\n- **Persist** (`w`) saves the composed expression via `xorq catalog\ncompose` subprocess; execution goes through `xorq catalog run -c`,\nserialized with `@work(exclusive=True)` and a stack-identity guard so\nrapid keystrokes cancel prior workers and stale results never clobber\nnewer state.\n- **Errors** from the subprocess surface as Textual notifications, not\ninside the command input.\n- **Layout**: unified panel borders (muted teal, brightening on\n`:focus-within`) and decluttered footer (nav/duplicate-quit hidden, view\ntoggles moved to the end).\n\n## Test plan\n- [x] ExprStack push/undo/redo/fork and code-chaining semantics,\nincluding inner-`source` rebinding across steps\n- [x] `:` opens the freeform prompt and `escape` closes it\n- [x] Column-cursor navigation, sort, and drop bindings\n- [x] Stack browser toggle (`s`)\n- [x] Persist round-trip through `xorq catalog compose`\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-04-28T16:17:23-04:00",
+          "tree_id": "92ad769e6950e5129185358241077137498bc11d",
+          "url": "https://github.com/xorq-labs/xorq/commit/62e2d10b2918a7348846ede837b819bbae250328"
+        },
+        "date": 1777407686363,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.469429676735432,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020294640029166817",
+            "extra": "mean: 118.07170472728372 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.540008215399226,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02095566908857444",
+            "extra": "mean: 220.2639185999942 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6512547355076347,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15464813474720848",
+            "extra": "mean: 1.5354974719999972 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.355959502975302,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04609268189838063",
+            "extra": "mean: 229.57054566667998 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.322404742975923,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03538692049170897",
+            "extra": "mean: 231.35269820000985 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.458335945546502,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04914764735221656",
+            "extra": "mean: 224.29893400000842 msec\nrounds: 6"
           }
         ]
       }
