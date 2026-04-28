@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777383311295,
+  "lastUpdate": 1777396596700,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -8712,6 +8712,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0044455628593514694",
             "extra": "mean: 207.1931786666615 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "be4d108d4a27ed6c6109f77477352d6540e0504f",
+          "message": "fix(cache): snapshot strategy uses path identity (#1861)\n\n## Problem\n\nSnapshotStrategy was delegating to `normalize_read`, which calls\n`normalize_read_path_stat` (mtime/size/inode), making snapshot keys\nsensitive to file changes — defeating the point of a snapshot strategy.\n\n## Changes\n\n**Core fix: path-identity normalization**\n- Introduce `snapshot_normalize_read` that keys on path identity only\n(file path, mode, schema, temporary), ignoring mtime/size/inode.\n- Prefer `read_path` over `hash_path` for materialized build-bundle\nreads, since `hash_path` is an absolute tmpdir path that changes every\nrun.\n\n**Push `key_prefix` down to `CacheStrategy`**\n- Move `key_prefix` field from `Cache` to `CacheStrategy` base class so\nthe strategy solely determines the full cache key.\n- Remove the `FIXME` in `Cache.calc_key` — it no longer prepends\n`key_prefix` itself.\n- Include `key_prefix` in `CacheStrategy.__dask_tokenize__` so\nstrategies with different prefixes produce different tokens.\n\n**Guard `_rename_remote_table` with `ContextVar`**\n- Extract `_rename_remote_table` to module level and gate it behind an\n`_in_normalization_context` `ContextVar`.\n- Raises `RuntimeError` if called outside\n`SnapshotStrategy.normalization_context`, resolving the previous `FIXME`\nabout verifying context.\n\n**Replace bare `assert` with `TypeError`**\n- `Cache.__attrs_post_init__` and `GCSCache.__attrs_post_init__` now\nraise `TypeError` with a descriptive message instead of using `assert`.\n\n**Tests**\n- Add `test_snapshot_strategy_key_is_path_identity`: regression test\nproving snapshot keys are stable across file rewrites (clears\n`@functools.cache` between runs to simulate a fresh process).\n- Add `test_rename_remote_table_outside_normalization_context_raises`:\nverifies the `ContextVar` guard.\n- Fix `test_find_by_expr_hash_works_for_hashing_tag` to pass strategy\nconsistently when computing and searching by hash.\n- Update snapshot key fixtures and build-file-stability expected values.\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-04-28T13:11:44-04:00",
+          "tree_id": "3e8c5d53b4c4a8c14c2ae5894ed65a14ca3bb288",
+          "url": "https://github.com/xorq-labs/xorq/commit/be4d108d4a27ed6c6109f77477352d6540e0504f"
+        },
+        "date": 1777396593720,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 12.16444858660782,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004025905386561676",
+            "extra": "mean: 82.2067677692294 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 5.700390323396609,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01057854422992754",
+            "extra": "mean: 175.42658366666805 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.8682812153614607,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09932902207393424",
+            "extra": "mean: 1.151700603800009 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 6.2876515239806166,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00926244630741057",
+            "extra": "mean: 159.04189285714665 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 5.833200263452369,
+            "unit": "iter/sec",
+            "range": "stddev: 0.024604669504363293",
+            "extra": "mean: 171.4324821428558 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 6.342761707309397,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0035452810666904613",
+            "extra": "mean: 157.6600298333138 msec\nrounds: 6"
           }
         ]
       }
