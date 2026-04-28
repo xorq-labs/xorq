@@ -27,6 +27,19 @@ uv run pre-commit install
 > [!IMPORTANT]
 > Rename `.gitignore.template` to `.gitignore` 
 
+## Dev container
+
+As an alternative to setting up a local environment, you can use the dev container. It works with both the main checkout and git worktrees. See [`.devcontainer/README.md`](.devcontainer/README.md) for full usage, worktree setup, tab completion, and Claude isolation details.
+
+**Quick start** (Linux x86_64, requires Docker + bash + git + Python 3):
+
+```bash
+devcontainer up      # start (builds on first run)
+devcontainer exec    # open a shell
+devcontainer claude  # run claude
+devcontainer down    # stop
+```
+
 ## Running the test suite
 Install the [just](https://github.com/casey/just#installation) command runner, if needed.
 Download example data to run the tests successfully.
