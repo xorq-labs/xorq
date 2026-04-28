@@ -7,7 +7,7 @@ from functools import cache, cached_property
 from pathlib import Path
 from typing import Literal
 
-from attr import field, frozen
+from attr import evolve, field, frozen
 from attr.validators import instance_of, optional
 from pygments.style import Style as PygmentsStyle
 from pygments.token import (
@@ -23,13 +23,16 @@ from pygments.token import (
 from rich.syntax import Syntax
 from textual import on, work
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
+from textual.suggester import SuggestFromList
 from textual.theme import Theme
 from textual.widgets import (
     DataTable,
     Footer,
     Header,
+    Input,
     Static,
     Tree,
 )
@@ -238,6 +241,70 @@ class RevisionRowData:
 VIEW_LIMIT = 50_000
 
 
+@cache
+def _ibis_table_method_names() -> tuple[str, ...]:
+    """Public method names on the ibis Table class, for tab-completion."""
+    from xorq.vendor.ibis.expr.types.relations import Table  # noqa: PLC0415
+
+    return tuple(name for name in dir(Table) if not name.startswith("_"))
+
+
+@frozen
+class ExprStep:
+    """A single user-applied Ibis operation."""
+
+    verb: str = field(validator=instance_of(str))
+    user_input: str = field(validator=instance_of(str))
+    code: str = field(validator=instance_of(str))
+
+
+@frozen
+class ExprStack:
+    """Immutable operation stack with undo/redo cursor."""
+
+    base_expr: object = field(repr=False)
+    steps: tuple[ExprStep, ...] = field(factory=tuple)
+    cursor: int = field(default=0, validator=instance_of(int))
+
+    def push(self, step: ExprStep) -> "ExprStack":
+        """Apply new step, discard any steps after cursor (fork)."""
+        return evolve(
+            self,
+            steps=self.steps[: self.cursor] + (step,),
+            cursor=self.cursor + 1,
+        )
+
+    def undo(self) -> "ExprStack":
+        return evolve(self, cursor=max(0, self.cursor - 1))
+
+    def redo(self) -> "ExprStack":
+        return evolve(self, cursor=min(len(self.steps), self.cursor + 1))
+
+    @property
+    def can_undo(self) -> bool:
+        return self.cursor > 0
+
+    @property
+    def can_redo(self) -> bool:
+        return self.cursor < len(self.steps)
+
+    @property
+    def current_code(self) -> str:
+        """Single evaluable expression chaining all active steps.
+
+        Each step is wrapped in a ``(lambda source: step_code)(prior)`` call,
+        so every ``source`` identifier in the step binds to the prior step's
+        result via the same namespace mechanism ``_eval_code`` uses — no
+        string substitution of ``source`` inside user code.
+        """
+        if self.cursor == 0:
+            return ""
+        result = "source"
+        for step in self.steps[: self.cursor]:
+            result = f"(lambda source: {step.code})({result})"
+        return result
+
+
 def _entry_info(entry: CatalogEntry) -> tuple[int | None, bool | None]:
     path = get_cache_key_path(entry.projected_cache_key)
     cached = Path(path).exists() if path is not None else None
@@ -363,19 +430,19 @@ def _revision_pair(i, rev_entry, commit):
 
 class CatalogScreen(Screen):
     BINDINGS = (
-        ("q", "quit_app", "Quit"),
-        ("ctrl+c", "quit_app", "Quit"),
-        ("h", "tree_collapse", "Collapse"),
-        ("j", "cursor_down", "Down"),
-        ("k", "cursor_up", "Up"),
-        ("l", "tree_expand", "Expand"),
-        ("tab", "focus_next_panel", "Next"),
-        ("shift+tab", "focus_prev_panel", "Prev"),
-        ("1", "view_sql", "SQL"),
-        ("2", "view_data", "Data"),
-        ("e", "open_data_view", "Explore"),
-        ("v", "toggle_revisions", "Revisions"),
-        ("g", "toggle_git_log", "Git Log"),
+        Binding("q", "quit_app", "Quit"),
+        Binding("ctrl+c", "quit_app", "Quit", show=False),
+        Binding("h", "tree_collapse", "Collapse", show=False),
+        Binding("j", "cursor_down", "Down", show=False),
+        Binding("k", "cursor_up", "Up", show=False),
+        Binding("l", "tree_expand", "Expand", show=False),
+        Binding("tab", "focus_next_panel", "Next", show=False),
+        Binding("shift+tab", "focus_prev_panel", "Prev", show=False),
+        Binding("e", "open_data_view", "Explore"),
+        Binding("v", "toggle_revisions", "Revisions"),
+        Binding("g", "toggle_git_log", "Git Log"),
+        Binding("1", "view_sql", "SQL"),
+        Binding("2", "view_data", "Data"),
     )
 
     FOCUS_CYCLE = (
@@ -931,46 +998,76 @@ class CatalogScreen(Screen):
 
 
 class DataViewScreen(Screen):
-    """Full-screen data viewer for a single catalog entry."""
+    """Full-screen data viewer with interactive expression composition.
+
+    Column-level verbs (sort, drop) and a freeform `:` prompt each push an
+    Ibis call onto an undo/redo ExprStack; the full chain is re-evaluated via
+    ``xorq catalog run -c`` on every change.
+    """
 
     BINDINGS = (
-        ("escape", "go_back", "Back"),
-        ("q", "go_back", "Back"),
-        ("h", "scroll_left", "Left"),
-        ("j", "cursor_down", "Down"),
-        ("k", "cursor_up", "Up"),
-        ("l", "scroll_right", "Right"),
-        ("g", "scroll_top", "Top"),
-        ("shift+g", "scroll_bottom", "Bottom"),
-        ("[", "sort_prev", "Sort ←"),
-        ("]", "sort_next", "Sort →"),
+        Binding("escape", "cancel_or_back", "Back"),
+        Binding("q", "cancel_or_back", "Back", show=False),
+        Binding("h", "cursor_left", "Col ←", show=False),
+        Binding("j", "cursor_down", "Down", show=False),
+        Binding("k", "cursor_up", "Up", show=False),
+        Binding("l", "cursor_right", "Col →", show=False),
+        Binding("g", "scroll_top", "Top", show=False),
+        Binding("shift+g", "scroll_bottom", "Bottom", show=False),
+        Binding("[", "sort_desc", "Sort ↓", show=False),
+        Binding("]", "sort_asc", "Sort ↑", show=False),
+        Binding("d", "drop_column", "Drop"),
+        Binding("u", "undo", "Undo"),
+        Binding("ctrl+r", "redo", "Redo"),
+        Binding("s", "toggle_stack_browser", "Stack"),
+        Binding("w", "persist", "Save"),
+        Binding(":", "open_freeform", "Expr"),
     )
 
     def __init__(self, entry, row_data):
         super().__init__()
         self._entry = entry
         self._row_data = row_data
+        self._stack = None
         self._df = None
-        self._sort_column_index = -1
+        self._cursor_column_index = 0
+        self._stack_browser_visible = False
+        self._command_mode = None
+        self._active_proc = None
+        self._proc_lock = threading.Lock()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         yield Static("", id="data-view-status")
-        yield DataTable(id="data-view-table")
+        with Horizontal(id="data-view-split"):
+            yield DataTable(id="data-view-table")
+            with Vertical(id="stack-browser-panel"):
+                yield Static("", id="stack-browser-content")
+        yield Input(id="command-input", placeholder="")
         yield Footer()
 
     def on_mount(self) -> None:
         table = self.query_one("#data-view-table", DataTable)
-        table.cursor_type = "row"
+        table.cursor_type = "cell"
         table.zebra_stripes = True
         table.loading = True
+
+        stack_panel = self.query_one("#stack-browser-panel")
+        stack_panel.border_title = "Expression Stack"
+        stack_panel.display = False
+
+        cmd_input = self.query_one("#command-input", Input)
+        cmd_input.display = False
 
         label = self._row_data.aliases_display or self._row_data.hash[:12]
         self.query_one("#data-view-status", Static).update(f" Loading {label}...")
         self._load_data()
 
-    def _catalog_run_cmd(self) -> list[str]:
-        """Build the xorq catalog run subprocess command."""
+    def on_unmount(self) -> None:
+        self._kill_active_proc()
+
+    def _catalog_base_cmd(self, subcommand: str) -> list[str]:
+        """Shared ``xorq catalog --path <repo> <subcommand> <entry>`` prefix."""
         catalog = self.app._catalog
         entry_name = (
             self._row_data.aliases[0] if self._row_data.aliases else self._entry.name
@@ -980,8 +1077,13 @@ class DataViewScreen(Screen):
             "catalog",
             "--path",
             str(catalog.repo_path),
-            "run",
+            subcommand,
             entry_name,
+        ]
+
+    def _catalog_run_cmd(self, code=None) -> list[str]:
+        """Build the xorq catalog run subprocess command."""
+        cmd = self._catalog_base_cmd("run") + [
             "--limit",
             str(VIEW_LIMIT),
             "-o",
@@ -989,21 +1091,42 @@ class DataViewScreen(Screen):
             "-f",
             "arrow",
         ]
+        if code:
+            cmd.extend(["-c", code])
+        return cmd
 
-    def _run_catalog_subprocess(self):
+    def _run_catalog_subprocess(self, code=None):
         """Run xorq catalog run and return a pandas DataFrame."""
         import pyarrow as pa  # noqa: PLC0415
 
-        cmd = self._catalog_run_cmd()
-        proc = subprocess.run(cmd, capture_output=True)
+        cmd = self._catalog_run_cmd(code)
+        with self._proc_lock:
+            prior = self._active_proc
+            if prior is not None and prior.poll() is None:
+                prior.kill()
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self._active_proc = proc
+        try:
+            stdout, stderr = proc.communicate()
+        finally:
+            with self._proc_lock:
+                if self._active_proc is proc:
+                    self._active_proc = None
         if proc.returncode != 0:
-            raise RuntimeError(proc.stderr.decode().strip())
-        reader = pa.ipc.open_stream(proc.stdout)
+            raise RuntimeError(stderr.decode().strip())
+        reader = pa.ipc.open_stream(stdout)
         return reader.read_pandas()
+
+    def _kill_active_proc(self) -> None:
+        with self._proc_lock:
+            proc = self._active_proc
+        if proc is not None and proc.poll() is None:
+            proc.kill()
 
     @work(thread=True, exit_on_error=False)
     def _load_data(self) -> None:
         try:
+            self._stack = ExprStack(base_expr=self._entry)
             df = self._run_catalog_subprocess()
             self.app.call_from_thread(self._on_data_loaded, df)
         except Exception as e:
@@ -1011,7 +1134,9 @@ class DataViewScreen(Screen):
 
     def _on_data_loaded(self, df) -> None:
         self._df = df
+        self._cursor_column_index = 0
         self._render_table()
+        self._update_command_suggester()
 
     def _render_table(self) -> None:
         df = self._df
@@ -1035,25 +1160,156 @@ class DataViewScreen(Screen):
                     ),
                     key=str(i),
                 )
-            table.cursor_type = "row"
-            label = self._row_data.aliases_display or self._row_data.hash[:12]
-            sort_info = ""
-            if self._sort_column_index >= 0:
-                col_name = df.columns[self._sort_column_index]
-                sort_info = f" | sorted by {col_name}"
-            self.query_one("#data-view-status", Static).update(
-                f" {label} \u2014 {len(df)} rows \u00d7 {len(df.columns)} cols{sort_info}"
-            )
+            table.cursor_type = "cell"
+            self._update_status_bar()
+
+    def _update_status_bar(self) -> None:
+        df = self._df
+        if df is None:
+            return
+        label = self._row_data.aliases_display or self._row_data.hash[:12]
+        stack = self._stack
+        step_info = ""
+        if stack and stack.cursor > 0:
+            step = stack.steps[stack.cursor - 1]
+            step_info = f" | step {stack.cursor}/{len(stack.steps)} {step.verb}"
+        col_info = ""
+        cols = df.columns
+        idx = self._cursor_column_index
+        if 0 <= idx < len(cols):
+            col_info = f" | [{cols[idx]}]"
+        self.query_one("#data-view-status", Static).update(
+            f" {label} \u2014 {len(df)} rows \u00d7 {len(cols)} cols{col_info}{step_info}"
+        )
 
     def _render_error(self, message) -> None:
         self.query_one("#data-view-status", Static).update(f" Error: {message}")
         self.query_one("#data-view-table", DataTable).loading = False
 
+    def _update_command_suggester(self) -> None:
+        """Update tab-completion suggestions from current expression columns."""
+        cols = tuple(self._df.columns) if self._df is not None else ()
+        self.query_one("#command-input", Input).suggester = SuggestFromList(
+            cols + _ibis_table_method_names(), case_sensitive=False
+        )
+
+    # --- Stack operations ---
+
+    def _push_step(self, verb: str, user_input: str, code: str) -> None:
+        """Push a step and re-execute in background."""
+        step = ExprStep(verb=verb, user_input=user_input, code=code)
+        self._stack = self._stack.push(step)
+        self._execute_current()
+
+    @work(thread=True, exit_on_error=False, exclusive=True, group="execute_current")
+    def _execute_current(self) -> None:
+        """Evaluate current stack expression via subprocess."""
+        stack = self._stack
+        try:
+            code = stack.current_code or None
+            df = self._run_catalog_subprocess(code)
+        except Exception as e:
+            self.app.call_from_thread(self._on_stack_execute_failed, stack, str(e))
+            return
+        self.app.call_from_thread(self._on_stack_executed, stack, df)
+
+    def _on_stack_executed(self, stack, df) -> None:
+        if self._stack is not stack:
+            return
+        self._df = df
+        self._cursor_column_index = 0
+        self._render_table()
+        self._update_command_suggester()
+        self._render_stack_browser()
+
+    def _on_stack_execute_failed(self, stack, message) -> None:
+        if self._stack is not stack:
+            return
+        self._stack = stack.undo()
+        self._show_command_error(message)
+        self._render_stack_browser()
+
+    def _show_command_error(self, message) -> None:
+        self.app.notify(message, title="Error", severity="error", timeout=6)
+
+    # --- Command input ---
+
+    def _close_command_input(self) -> None:
+        self.query_one("#command-input", Input).display = False
+        self._command_mode = None
+        self.query_one("#data-view-table", DataTable).focus()
+
+    @on(Input.Submitted, "#command-input")
+    def _on_command_submitted(self, event: Input.Submitted) -> None:
+        user_input = event.value.strip()
+        mode = self._command_mode
+        self._close_command_input()
+
+        if mode == "save":
+            self._do_persist(user_input or None)
+        elif user_input:
+            self._push_step("freeform", user_input, user_input)
+
+    # --- Freeform action ---
+
+    def action_open_freeform(self) -> None:
+        if self._stack is None:
+            return
+        self._command_mode = "freeform"
+        cmd = self.query_one("#command-input", Input)
+        cmd.value = ""
+        cmd.placeholder = ":\u25b8 type expression, Tab to complete, Enter to apply"
+        cmd.border_title = ":\u25b8"
+        cmd.display = True
+        cmd.focus()
+
+    # --- Instant actions (no input required) ---
+
+    def action_sort_asc(self) -> None:
+        if self._stack is None or self._df is None:
+            return
+        col = self._df.columns[self._cursor_column_index]
+        code = f'source.order_by("{col}")'
+        self._push_step("order_by", f'"{col}"', code)
+
+    def action_sort_desc(self) -> None:
+        if self._stack is None or self._df is None:
+            return
+        col = self._df.columns[self._cursor_column_index]
+        code = f'source.order_by(ibis.desc("{col}"))'
+        self._push_step("order_by", f'ibis.desc("{col}")', code)
+
+    def action_drop_column(self) -> None:
+        if self._stack is None or self._df is None:
+            return
+        col = self._df.columns[self._cursor_column_index]
+        code = f'source.drop("{col}")'
+        self._push_step("drop", f'"{col}"', code)
+
+    # --- Undo / Redo ---
+
+    def action_undo(self) -> None:
+        if self._stack is None or not self._stack.can_undo:
+            return
+        self._stack = self._stack.undo()
+        self._execute_current()
+
+    def action_redo(self) -> None:
+        if self._stack is None or not self._stack.can_redo:
+            return
+        self._stack = self._stack.redo()
+        self._execute_current()
+
     # --- Navigation ---
 
-    def action_go_back(self) -> None:
-        self._df = None
-        self.app.pop_screen()
+    def action_cancel_or_back(self) -> None:
+        cmd = self.query_one("#command-input", Input)
+        if cmd.display:
+            self._close_command_input()
+        else:
+            self._df = None
+            self._stack = None
+            self.app.pop_screen()
 
     def action_cursor_down(self) -> None:
         self.query_one("#data-view-table", DataTable).action_cursor_down()
@@ -1061,11 +1317,11 @@ class DataViewScreen(Screen):
     def action_cursor_up(self) -> None:
         self.query_one("#data-view-table", DataTable).action_cursor_up()
 
-    def action_scroll_left(self) -> None:
-        self.query_one("#data-view-table", DataTable).action_scroll_left()
+    def action_cursor_left(self) -> None:
+        self.query_one("#data-view-table", DataTable).action_cursor_left()
 
-    def action_scroll_right(self) -> None:
-        self.query_one("#data-view-table", DataTable).action_scroll_right()
+    def action_cursor_right(self) -> None:
+        self.query_one("#data-view-table", DataTable).action_cursor_right()
 
     def action_scroll_top(self) -> None:
         table = self.query_one("#data-view-table", DataTable)
@@ -1076,145 +1332,167 @@ class DataViewScreen(Screen):
         if table.row_count > 0:
             table.move_cursor(row=table.row_count - 1)
 
-    # --- Sorting ---
+    @on(DataTable.CellHighlighted, "#data-view-table")
+    def _on_cell_highlighted(self, event: DataTable.CellHighlighted) -> None:
+        col = event.coordinate.column
+        if self._df is not None and 0 <= col < len(self._df.columns):
+            self._cursor_column_index = col
+            self._update_status_bar()
 
-    def action_sort_prev(self) -> None:
-        if self._df is None:
+    # --- Stack browser ---
+
+    def action_toggle_stack_browser(self) -> None:
+        self._stack_browser_visible = not self._stack_browser_visible
+        panel = self.query_one("#stack-browser-panel")
+        panel.display = self._stack_browser_visible
+        if self._stack_browser_visible:
+            self._render_stack_browser()
+
+    def _render_stack_browser(self) -> None:
+        if not self._stack_browser_visible or self._stack is None:
             return
-        ncols = len(self._df.columns)
-        if self._sort_column_index <= 0:
-            self._sort_column_index = ncols - 1
-        else:
-            self._sort_column_index -= 1
-        self._apply_sort()
+        stack = self._stack
+        label = self._row_data.aliases_display or self._row_data.hash[:12]
+        base_marker = "\u2192 " if stack.cursor == 0 else "  "
+        step_lines = tuple(
+            "{}{:<3} {:<9} {}{}".format(
+                "\u2192 " if (i + 1) == stack.cursor else "  ",
+                i + 1,
+                step.verb,
+                step.user_input,
+                "  (undone)" if (i + 1) > stack.cursor else "",
+            )
+            for i, step in enumerate(stack.steps)
+        )
+        code = stack.current_code
+        code_lines = (
+            ("\u2014 code equivalent:", code) if code else ("(no transforms applied)",)
+        )
+        lines = (f"{base_marker}0  base: {label}", *step_lines, "", *code_lines)
+        self.query_one("#stack-browser-content", Static).update("\n".join(lines))
 
-    def action_sort_next(self) -> None:
-        if self._df is None:
+    # --- Persist to catalog ---
+
+    def action_persist(self) -> None:
+        if self._stack is None or self._stack.cursor == 0:
             return
-        ncols = len(self._df.columns)
-        self._sort_column_index = (self._sort_column_index + 1) % ncols
-        self._apply_sort()
+        self._command_mode = "save"
+        cmd = self.query_one("#command-input", Input)
+        cmd.value = ""
+        cmd.placeholder = "alias name (leave empty to save without alias)"
+        cmd.border_title = "save\u25b8"
+        cmd.display = True
+        cmd.focus()
 
-    def _apply_sort(self) -> None:
-        col = self._df.columns[self._sort_column_index]
-        self._df = self._df.sort_values(by=col, na_position="last")
-        self._render_table()
+    def _do_persist(self, alias=None) -> None:
+        if self._stack is None or self._stack.cursor == 0:
+            return
+        self._persist_to_catalog(alias)
+
+    def _catalog_compose_cmd(self, code: str, alias: str | None) -> list[str]:
+        cmd = self._catalog_base_cmd("compose") + ["-c", code]
+        if alias:
+            cmd.extend(["-a", alias])
+        return cmd
+
+    @work(thread=True, exit_on_error=False)
+    def _persist_to_catalog(self, alias) -> None:
+        try:
+            code = self._stack.current_code
+            cmd = self._catalog_compose_cmd(code, alias)
+            proc = subprocess.run(cmd, capture_output=True)
+            if proc.returncode != 0:
+                raise RuntimeError(proc.stderr.decode().strip())
+            msg = f"Saved as '{alias}'" if alias else "Saved"
+            self.app.call_from_thread(self._show_persist_success, msg)
+        except Exception as e:
+            self.app.call_from_thread(self._show_command_error, f"Save failed: {e}")
+
+    def _show_persist_success(self, message) -> None:
+        self.query_one("#data-view-status", Static).update(f" \u2713 {message}")
 
 
 class CatalogTUI(App):
     TITLE = "xorq catalog"
     CSS = """
-    #main-split {
-        height: 1fr;
+    #main-split { height: 1fr; }
+    #left-column { width: 2fr; }
+    #right-column { width: 3fr; }
+
+    #catalog-panel,
+    #revisions-panel,
+    #git-log-panel,
+    #sql-panel,
+    #info-panel,
+    #schema-panel,
+    #data-preview-panel,
+    DataViewScreen #stack-browser-panel {
+        border: solid #3d6670;
+        border-title-color: #7aa8b2;
+        border-subtitle-color: #7aa8b2;
     }
-    #left-column {
-        width: 2fr;
-    }
-    #right-column {
-        width: 3fr;
-    }
-    #catalog-panel {
-        height: 2fr;
-        border: solid #C1F0FF;
-        border-title-color: #C1F0FF;
-        background: $surface;
-    }
-    #catalog-tree {
-        height: 1fr;
-    }
-    #revisions-panel {
-        height: 1fr;
-        border: solid #5abfb5;
-        border-title-color: #5abfb5;
-        border-subtitle-color: #5abfb5;
-    }
-    #revisions-preview-table {
-        height: 1fr;
-    }
-    #git-log-panel {
-        height: 1fr;
-        border: solid #4AA8EC;
-        border-title-color: #4AA8EC;
-    }
-    #git-log-table {
-        height: 1fr;
-    }
-    #sql-panel {
-        height: 2fr;
-        border: solid #2BBE75;
-        border-title-color: #2BBE75;
-        border-subtitle-color: #2BBE75;
-    }
-    #sql-panel:focus-within {
-        border: double #2BBE75;
-    }
-    #sql-preview {
-        height: auto;
-        padding: 1 2;
-    }
-    DataTable:focus {
-        border: none;
-    }
-    Tree:focus {
-        border: none;
-    }
-    #info-panel {
-        height: auto;
-        max-height: 6;
-        border: solid #5abfb5;
-        border-title-color: #5abfb5;
-        padding: 0 1;
-    }
-    #info-content {
-        height: auto;
-    }
-    #schema-panel {
-        height: 1fr;
-        border: solid #4AA8EC;
-        border-title-color: #4AA8EC;
-        border-subtitle-color: #4AA8EC;
-    }
-    #schema-split {
-        height: 1fr;
-    }
-    #schema-in-half {
-        width: 1fr;
-    }
-    #schema-out-half {
-        width: 1fr;
-    }
-    #schema-in-table {
-        height: 1fr;
-    }
-    #schema-preview-table {
-        height: 1fr;
-    }
-    #data-preview-panel {
-        height: 2fr;
+    #catalog-panel:focus-within,
+    #revisions-panel:focus-within,
+    #git-log-panel:focus-within,
+    #sql-panel:focus-within,
+    #info-panel:focus-within,
+    #schema-panel:focus-within,
+    #data-preview-panel:focus-within,
+    DataViewScreen #stack-browser-panel:focus-within {
         border: solid #C1F0FF;
         border-title-color: #C1F0FF;
         border-subtitle-color: #C1F0FF;
     }
-    #data-preview-status {
-        height: 1;
-        padding: 0 2;
-    }
-    #data-preview-table {
-        height: 1fr;
-    }
+
+    #catalog-panel { height: 2fr; background: $surface; }
+    #catalog-tree { height: 1fr; }
+    #revisions-panel { height: 1fr; }
+    #revisions-preview-table { height: 1fr; }
+    #git-log-panel { height: 1fr; }
+    #git-log-table { height: 1fr; }
+    #sql-panel { height: 2fr; }
+    #sql-preview { height: auto; padding: 1 2; }
+
+    DataTable:focus { border: none; }
+    Tree:focus { border: none; }
+
+    #info-panel { height: auto; max-height: 6; padding: 0 1; }
+    #info-content { height: auto; }
+
+    #schema-panel { height: 1fr; }
+    #schema-split { height: 1fr; }
+    #schema-in-half { width: 1fr; }
+    #schema-out-half { width: 1fr; }
+    #schema-in-table { height: 1fr; }
+    #schema-preview-table { height: 1fr; }
+
+    #data-preview-panel { height: 2fr; }
+    #data-preview-status { height: 1; padding: 0 2; }
+    #data-preview-table { height: 1fr; }
+
     #status-bar {
         dock: bottom;
         height: 1;
         padding: 0 2;
         background: $surface;
     }
+
     DataViewScreen #data-view-status {
         height: 1;
         padding: 0 2;
         background: $surface;
     }
-    DataViewScreen #data-view-table {
-        height: 1fr;
+    DataViewScreen #data-view-split { height: 1fr; }
+    DataViewScreen #data-view-table { height: 1fr; }
+    DataViewScreen #stack-browser-panel { width: 40; padding: 0 1; }
+    DataViewScreen #stack-browser-content { height: auto; }
+
+    DataViewScreen #command-input {
+        dock: bottom;
+        height: 3;
+        border: solid #2BBE75;
+        border-title-color: #2BBE75;
+        padding: 0 1;
     }
     """
 
