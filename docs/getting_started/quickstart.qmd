@@ -234,7 +234,7 @@ Run the server with your build hash:
 xorq serve-unbound builds/$BUILD_HASH \
   --host localhost \
   --port 8001 \
-  --to_unbind_hash da8ba93cc97709f4ad9502e16d71e8e3
+  --to_unbind_hash d9cebcfbeeadc40f4a39814357716481
 ```
 
 ### Windows (PowerShell)
@@ -242,12 +242,12 @@ xorq serve-unbound builds/$BUILD_HASH \
 xorq serve-unbound builds/$env:BUILD_HASH `
   --host localhost `
   --port 8001 `
-  --to_unbind_hash da8ba93cc97709f4ad9502e16d71e8e3
+  --to_unbind_hash d9cebcfbeeadc40f4a39814357716481
 ```
 
 ### Windows (CMD)
 ```cmd
-xorq serve-unbound builds/%BUILD_HASH% --host localhost --port 8001 --to_unbind_hash da8ba93cc97709f4ad9502e16d71e8e3
+xorq serve-unbound builds/%BUILD_HASH% --host localhost --port 8001 --to_unbind_hash d9cebcfbeeadc40f4a39814357716481
 ```
 
 :::
