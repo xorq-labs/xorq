@@ -1,0 +1,370 @@
+---
+title: "Deploy a pipeline on a schedule"
+description: "Take a working xorq expression from your laptop to a server that runs it every morning under cron"
+icon: "rocket-takeoff"
+headline: "From `xorq run` to a cron line"
+---
+
+You have a xorq expression. It pulls data from somewhere, joins it against a table, computes a few derived columns, and aggregates to a result. You can run it locally with `xorq run` and the numbers look right. The next sentence out of your mouth is: *"I need this to run every morning on a server."*
+
+This tutorial walks the whole path: how to lay out the repo, what to install on a vanilla Linux box, how to handle secrets and dev/prod splits, what the cron line actually looks like, where the output goes, and how you find out when it breaks. The reason it works without a managed scheduler is that a xorq build is a self-contained, content-addressed artifact — once it exists, "deploying" is mostly choosing where on disk it lives and what time of day to invoke `xorq run` on it.
+
+## Prerequisites
+
+You need:
+
+- Xorq installed: `pip install xorq` (or `uv add xorq`)
+- A working expression in a `.py` file with a top-level binding (this tutorial uses one as the running example, but bring your own if you have one)
+- Completed [Your first build](your_first_build.qmd) — you should be comfortable with `xorq build` and `xorq run`
+- A Linux server you can SSH into (any small VPS works — the example uses a €4.50/month Hetzner CX22, but a `t3.small` on EC2 or a DigitalOcean droplet is the same shape)
+- Git, with the pipeline code in a repo you can clone onto the server
+
+## The pipeline we're deploying
+
+For concreteness, here's the pipeline we'll work with. It:
+
+1. Reads a Postgres table of open bets.
+2. Calls the Polymarket REST API (via a UDXF) to fetch current market odds for each bet.
+3. Computes per-bet current value and aggregates to a daily P&L row.
+4. Writes the result as a parquet file.
+
+Saved as `pipeline.py` in the git repo, with a top-level `expr = ...` binding:
+
+```python
+# pipeline.py
+import json
+import os
+import urllib.request
+
+import pandas as pd
+
+import xorq.api as xo
+from xorq.expr.relations import flight_udxf
+
+
+# 1. Open bets live in Postgres. The connection's profile travels with the
+#    build artifact; only the env vars it references need to be set at run time.
+pg = xo.postgres.connect_env()
+open_bets = pg.table("open_bets")
+#   columns: bet_id, market_id, side, stake, entry_odds
+
+
+# 2. A UDXF that fetches current Polymarket odds for each open bet.
+#    Runs in an Arrow Flight server, separately from the query engine —
+#    the right shape for per-row network IO.
+def fetch_odds(df: pd.DataFrame) -> pd.DataFrame:
+    api_key = os.environ["POLYMARKET_API_KEY"]
+    prices = []
+    for mid in df["market_id"]:
+        req = urllib.request.Request(
+            f"https://clob.polymarket.com/markets/{mid}",
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        body = json.loads(urllib.request.urlopen(req, timeout=10).read())
+        prices.append(float(body["outcomes"][0]["price"]))
+    return df.assign(current_odds=prices)
+
+
+schema_in = xo.schema({
+    "bet_id": "int64",
+    "market_id": "string",
+    "side": "string",
+    "stake": "float64",
+    "entry_odds": "float64",
+})
+schema_out = xo.schema(dict(schema_in) | {"current_odds": "float64"})
+
+valued = flight_udxf(
+    open_bets,
+    process_df=fetch_odds,
+    maybe_schema_in=schema_in,
+    maybe_schema_out=schema_out,
+    name="polymarket_enrich",
+)
+
+
+# 3. Compute P&L per bet, then aggregate to one row.
+run_date = xo.param("run_date", "date")
+
+valued = valued.mutate(
+    pnl=(valued.current_odds / valued.entry_odds - 1) * valued.stake,
+)
+
+expr = valued.aggregate(
+    run_date=run_date,
+    open_bet_count=valued.bet_id.count(),
+    total_stake=valued.stake.sum(),
+    pnl=valued.pnl.sum(),
+)
+```
+
+Three things worth noticing before we go any further:
+
+- **No credentials in the source.** `xo.postgres.connect_env()` reads `POSTGRES_HOST` etc. from the environment at run time, and the API key is a plain `os.environ` lookup inside the UDXF. The build artifact is safe to commit; the secrets stay on whichever machine runs it.
+- **`run_date` is an `xo.param`, not a hardcoded `today()`.** That's what makes the pipeline replayable from cron — yesterday's output and today's output are determined by an explicit input, not by what the calendar says when the script executes.
+- **The network call is a `flight_udxf`, not an inline UDF.** UDXFs run in their own Arrow Flight server, separately from whatever backend is executing the query. That's the right shape for per-row external IO; if Polymarket calls ever need their own scaling story (rate limits, retries, a shared cache), the Flight server is where that lives, with no change to `pipeline.py`.
+
+Locally, you build it once with `xorq build pipeline.py -e expr` (which produces a versioned artifact under `builds/<hash>/`) and run it with:
+
+```bash
+xorq run builds/<hash> -o /tmp/pnl.parquet --params run_date=2026-04-24
+```
+
+We want the same `xorq run` step to happen every day at 06:00 UTC on a server, with the output landing somewhere a dashboard can read.
+
+## 1. Repo layout
+
+The first question is: what goes where? A deployed xorq pipeline actually involves two git repos:
+
+- **Your pipeline repo** — source `.py` file(s), `pyproject.toml`, `uv.lock`, and deploy scripts. This is what you iterate on.
+- **The catalog** — a separate git repo of input-addressed `.zip` build artifacts. Each artifact is the output of `xorq build` and contains the canonicalized expression as YAML, the connection profiles it references, any inline data as parquet, and metadata. Think of it as a lockfile *and* a build cache for your pipeline logic.
+
+The deploy unit is the build artifact, not `pipeline.py`. You build locally, add to the catalog, and the server runs the artifact directly — the source `.py` doesn't need to be on the server at all.
+
+There are two patterns supported by the catalog CLI today. You can keep the catalog locally under `~/.local/share/xorq/catalogs/<name>` and reference it by name — simple for a single developer, but awkward for deploys because the server doesn't have your `~/.local/share`.
+
+The pattern this tutorial recommends for deploys is **catalog as a git submodule** of your pipeline repo at `.xorq/catalogs/<name>`. Two properties fall out of this for free:
+
+- One `git clone --recurse-submodules` pulls both the pipeline code and a pinned version of the catalog onto the server.
+- The submodule commit SHA is your version pin. When you bump the catalog, you commit a new SHA in the parent repo, and that's the audit trail.
+
+```
+pipeline-repo/
+├── pipeline.py
+├── pyproject.toml
+├── uv.lock
+├── deploy/
+│   ├── run.sh
+│   └── crontab
+└── .xorq/catalogs/
+    └── polymarket/   ← git submodule, holds built artifacts
+```
+
+You set this up once, from inside the pipeline repo:
+
+```bash
+# Initialize a new catalog and attach it as a submodule of the current repo.
+# `-r .` is the parent repo to add the submodule to; `-n` is the catalog name.
+xorq catalog -n polymarket -r . init
+
+# Build the expression locally.
+xorq build pipeline.py -e expr
+# → builds/<hash>/
+
+# Add the build artifact to the catalog with a `prod` alias.
+xorq catalog -n polymarket -r . add builds/<hash> --alias prod
+```
+
+That's the whole catalog setup. From here on, every time you change `pipeline.py`, you re-run `xorq build` and `xorq catalog ... add` — the submodule SHA in the parent repo moves forward, and that new SHA *is* the version you'll deploy.
+
+:::{.callout-tip}
+### Why a separate repo for the catalog?
+The pipeline repo and the catalog have different lifecycles. Source code changes constantly during development; build artifacts are the discrete points where you decided "this is the version that runs in production." Keeping them in different repos means PR review on `pipeline.py` doesn't have to grep through binary diffs, and rolling back to a previous artifact is a one-line submodule SHA bump rather than a `git revert` of source.
+:::
+
+## 2. Server setup
+
+### What size box?
+
+Sizing a server starts with how much data the pipeline actually moves. Our example is small by any reasonable measure: the open-bets table is on the order of hundreds to low thousands of rows, the Polymarket API responses are tens of KB per market, and the daily output is a single P&L row. Peak working-set memory is well under 100 MB even with no cleverness.
+
+The implication: any server you can rent for the price of a coffee is overkill. The reason to pay for more is rarely RAM or CPU; it's predictability — a busy shared instance can have noisy-neighbor latency. For a pipeline that runs in seconds, that doesn't matter; for one that runs for an hour, it does.
+
+This tutorial uses a Hetzner CX22 — 2 vCPU, 4 GB RAM, €4.50/month. That's about 40× more memory than this pipeline needs, which is the right margin for "I don't want to think about this again." EC2 works the same way; use a `t3.small` and adapt the user-data script. Pick Ubuntu 24.04 LTS for the image.
+
+### First-time setup
+
+On first login as root:
+
+```bash
+adduser --gecos "" pipeline
+usermod -aG sudo pipeline
+rsync --archive --chown=pipeline:pipeline ~/.ssh /home/pipeline
+```
+
+Then as `pipeline`:
+
+```bash
+sudo apt update && sudo apt install -y build-essential git curl
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.bashrc
+```
+
+Clone the repo and install xorq:
+
+```bash
+git clone --recurse-submodules git@github.com:you/pipeline-repo.git
+cd pipeline-repo
+uv sync
+```
+
+Your `pyproject.toml` should list `xorq` as a dependency. The catalog submodule already contains the latest build artifact, so you can run it directly. To verify end-to-end:
+
+```bash
+uv run xorq --version
+uv run xorq catalog -n polymarket -r . run prod -o /tmp/pnl.parquet --params run_date=2026-04-24
+```
+
+If the second command produces a parquet file, you're 80% of the way there. The rest is plumbing.
+
+## 3. Secrets and dev/prod
+
+The pipeline needs credentials: a Postgres URL, a Polymarket API key. The point of the next section is that *neither of them lives in your repo*, on your laptop or on the server.
+
+### Profiles are baked into the build artifact
+
+When you `xorq build pipeline.py`, the build process walks every backend the expression touches, extracts each one's connection profile, and writes them into the artifact as `profiles.yaml`. The profile structure travels with the build, but the secrets do not — they are stored as `${VAR}` references that get resolved at `xorq run` time.
+
+What does a baked profile look like? Effectively this:
+
+```yaml
+# inside builds/<hash>/profiles.yaml
+postgres_<hash>:
+  con_name: postgres
+  kwargs_dict:
+    host: ${POSTGRES_HOST}
+    port: ${POSTGRES_PORT}
+    database: ${POSTGRES_DB}
+    user: ${POSTGRES_USER}
+    password: ${POSTGRES_PASSWORD}
+```
+
+The `${VAR}` references stay as references in the YAML. Xorq will refuse to save a profile with a plaintext secret in the first place — the profile saver checks for exposed secrets and raises if it sees a password that doesn't look like an env var reference.
+
+:::{.callout-important}
+### Why this matters
+The same build artifact that you tested locally against your dev database is bit-for-bit the same artifact that runs in production. The thing that makes one a dev run and the other a prod run is *which environment variables are set when you invoke `xorq run`*. You're not building a "dev version" and a "prod version" of the pipeline — that's an entire class of "but it worked on my laptop" bugs you don't have to worry about.
+:::
+
+### What the server needs
+
+Just env vars. Put them in `/etc/pipeline/env.prod` (mode 600, owned by `pipeline`):
+
+```
+POSTGRES_HOST=db.internal
+POSTGRES_PORT=5432
+POSTGRES_DB=pnl
+POSTGRES_USER=pipeline
+POSTGRES_PASSWORD=...
+POLYMARKET_API_KEY=...
+```
+
+The wrapper script in the next section sources this file before calling `xorq run`.
+
+### Dev vs prod, the easy way
+
+Because env vars are resolved at run time, the *same* build artifact can run against dev and prod:
+
+```
++--------------------+    same artifact    +--------------------+
+| dev workstation    | -----------------> | prod server         |
+| POSTGRES_HOST=     |                    | POSTGRES_HOST=      |
+|   localhost        |                    |   db.internal       |
++--------------------+                    +--------------------+
+```
+
+The discipline is in the env files, not the build. Keep `.env.dev` on your laptop, `/etc/pipeline/env.prod` on the server, and never let them mix.
+
+## 4. Running via cron
+
+This is the part that turns "a command that works" into "a pipeline."
+
+`deploy/run.sh` in the pipeline repo:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd /home/pipeline/pipeline-repo
+
+set -a
+source /etc/pipeline/env.prod
+set +a
+
+OUT=/var/lib/pipeline/pnl-$(date -u +%Y%m%d).parquet
+mkdir -p "$(dirname "$OUT")"
+
+uv run xorq catalog -n polymarket -r . run prod \
+  --output-path "$OUT" \
+  --format parquet \
+  --params run_date=$(date -u +%Y-%m-%d)
+```
+
+The crontab (`crontab -e` as `pipeline`):
+
+```
+# m  h  dom mon dow  command
+  0  6  *   *   *    /home/pipeline/pipeline-repo/deploy/run.sh >> /var/log/pipeline/cron.log 2>&1
+```
+
+Three things to notice:
+
+- **`uv run` handles the virtualenv.** No `source .venv/bin/activate` dance. This is most of why `uv` shines for cron.
+- **`--params run_date=...`** passes the logical date into the expression. Use this instead of `date('now')` inside the pipeline — it means the same command is deterministic and replayable, and a backfill is a bash loop over dates rather than a "wait, what does the pipeline assume about wall-clock time?" investigation.
+- **Resolving the alias.** `xorq catalog ... run prod` looks up the `prod` alias in the submodule catalog and runs the entry it points at. Bump the alias locally, `git push`, `git pull` on the server, and the next cron tick picks up the new version.
+
+## 5. Output and downstream
+
+Here's the most honest gap in today's story: **xorq has no "write to a destination table" primitive.** `xorq run` writes to disk. It supports parquet, csv, json, or arrow; parquet is the default. That's it.
+
+For our pipeline, that means:
+
+1. `xorq run` writes `/var/lib/pipeline/pnl-20260424.parquet`.
+2. A follow-up SQL statement loads it into Postgres.
+
+The follow-up fits in one line appended to `run.sh`:
+
+```bash
+psql "$POSTGRES_URL" -c "INSERT INTO pnl_daily SELECT * FROM parquet_scan('$OUT')"
+```
+
+(Postgres via the `parquet_fdw` extension, or `\copy` from a CSV if you'd rather. DuckDB/MotherDuck and Snowflake have native `COPY INTO` from parquet.)
+
+This is not elegant. It is also not much code, and you get a parquet file you can retain for audit — which turns out to be useful every single time you need to reconstruct what the dashboard said three weeks ago.
+
+## 6. Monitoring
+
+Xorq writes per-run logs whether you ask it to or not. Look at `~/.local/share/xorq/runs/<expr_hash>/<run_id>/` on the server after a run — you'll find:
+
+- `run.jsonl` — an append-only event log of what happened during the run.
+- `meta.json` — a summary written at completion, with status, duration, row counts, and bytes written.
+
+That `meta.json` is the minimum-viable monitoring surface. A three-line bash check in `run.sh` covers the common case:
+
+```bash
+META=$(find ~/.local/share/xorq/runs -name meta.json -newer /tmp/last-run -print -quit)
+STATUS=$(jq -r .status "$META")
+[ "$STATUS" = "ok" ] || curl -X POST -d "Pipeline failed: $META" "$SLACK_WEBHOOK_URL"
+touch /tmp/last-run
+```
+
+For anything fancier — per-stage timing, distributed traces, Prometheus metrics — xorq has OpenTelemetry instrumentation wired into the CLI. It's there if you want it; you don't need it on day one.
+
+:::{.callout-note}
+### Log hygiene
+The per-run directory tree grows forever by default. Add a companion cron to clean it up:
+
+```
+0 3 * * 0  find /home/pipeline/.local/share/xorq/runs -mtime +30 -delete
+```
+:::
+
+## What you learned
+
+You took a working xorq expression and put it on a server, on a schedule. Specifically:
+
+- A **build artifact**, not a `.py` file, is the deploy unit. It's content-addressed, self-contained, and travels with the connection profiles it needs.
+- The **catalog as a git submodule** of the pipeline repo gives you a single `git clone --recurse-submodules` deploy and a versioned audit trail via the submodule SHA.
+- **Profiles bake `${VAR}` references**, not secrets. The same artifact runs against dev and prod; only the env file changes.
+- **`xorq run` plus cron** replaces a managed scheduler for a single pipeline running on a server. The wrapper script sources the env, calls the catalog alias, and writes parquet to disk.
+- **Run logs land on disk per run.** A three-line jq check is enough to alert on failure. OTel is there when you outgrow that.
+
+Total cost of everything in this tutorial: €4.50/month for the server, $0 for the software, an afternoon of yak-shaving the first time. If you've been putting off moving your pipeline off your laptop because "I don't have Airflow set up" — you don't need it.
+
+## Next steps
+
+Now that the pipeline runs on a schedule:
+
+- [Working with the catalog](working_with_the_catalog.qmd) shows you how to share the catalog with collaborators via GitHub, including swapping profiles at recovery time.
+- [Explore caching](explore_caching.qmd) introduces caching strategies that make repeated runs cheaper — useful if your pipeline reads expensive sources.
+- [Switch backends](switch_backends.qmd) walks through running the same expression against different engines, which is how you'd promote a DuckDB-tested pipeline to a Snowflake-running one without rewriting it.

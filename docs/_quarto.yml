@@ -63,6 +63,10 @@ website:
       collapse-level: 2
       pinned: true
       contents:
+        - id: core-tutorials-section
+          section: "Core tutorials"
+          contents:
+            - href: tutorials/core_tutorials/deploy_a_pipeline.qmd
         - id: ml-tutorials-section
           section: "ML tutorials"
           contents:
