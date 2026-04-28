@@ -261,7 +261,7 @@ With your pipeline running locally, the next step is to serve a UDXF expression 
 
 ::: {.callout-note}
 ### New terminal setup
-Open a new terminal window. Activate the same virtual environment (`.venv`) and navigate to the same directory (`penguins_example`) where your server is running.
+Open a new terminal window. Activate the same virtual environment (`.venv`) and navigate to your project directory.
 :::
 
 Create a file called `udxf_example.py`:
