@@ -54,7 +54,12 @@ cp dev/project.env.example dev/project.env
 # edit dev/project.env
 ```
 
-This file is gitignored. Both `devcontainer` and `new-worktree` source it when present. The container workspace is always `/workspaces/src` — this is threaded through compose, the Dockerfile, and setup-claude as `DEV_CONTAINER_WORKSPACE` so the value lives in one place, but changing it is not supported.
+This file is gitignored. Both `devcontainer` and `new-worktree` source it when present. Recognised keys:
+
+- `PROJECT_NAME` — overrides the per-project namespace described above.
+- `MODEL_VERSION` — pins the Claude model inside the container (written into `~/.claude/settings.json` as `model`). Leave unset to use Claude Code's default.
+
+The container workspace is always `/workspaces/src` — this is threaded through compose, the Dockerfile, and setup-claude as `DEV_CONTAINER_WORKSPACE` so the value lives in one place, but changing it is not supported.
 
 **Note:** `exec` with no arguments opens a bash shell and requires an interactive terminal (TTY). With an explicit command (e.g., `exec pytest`), no TTY is needed.
 

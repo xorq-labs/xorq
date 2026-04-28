@@ -62,6 +62,7 @@ export DEV_MAIN_TREE="$MAIN_TREE"
 export DEV_HOST_USER="$(whoami)"
 export DEV_PROJECT_NAME="$PROJECT_NAME"
 export DEV_CONTAINER_WORKSPACE="$CONTAINER_WORKSPACE"
+[ -n "${MODEL_VERSION:-}" ] && export DEV_MODEL_VERSION="$MODEL_VERSION"
 # SSH agent forwarding: the container can sign with any key loaded in the
 # host agent.  For tighter control, use `ssh-add -c` (confirm each use)
 # or load only the keys you need before starting the container.
