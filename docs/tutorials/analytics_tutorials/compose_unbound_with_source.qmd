@@ -206,4 +206,9 @@ You separated the two halves of a pipeline along a clean seam:
 
 `xorq catalog compose` is the verb that joins them, and the result is itself a catalog entry — meaning the next person can pick it up where you left off.
 
+:::{.callout-note}
+### Runnable counterpart
+[`examples/compose_unbound_with_source.py`](https://github.com/xorq-labs/xorq/blob/main/examples/compose_unbound_with_source.py) reproduces the binding in pure Python — it builds the unbound `exp_smooth` transform, points a `deferred_read_csv` at a generated CSV, and runs the same source-replacement that `xorq catalog compose` performs internally. It's part of the test suite, so the code stays in sync with the tutorial.
+:::
+
 The catalog is where you store your internal company toolbox of transforms that are generically applicable.
