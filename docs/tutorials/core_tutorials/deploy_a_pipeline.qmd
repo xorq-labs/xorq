@@ -133,6 +133,8 @@ pipeline-repo/
 ├── pipeline.py
 ├── pyproject.toml
 ├── uv.lock
+├── Dockerfile
+├── compose.yaml
 ├── deploy/
 │   ├── run.sh
 │   └── crontab
@@ -172,7 +174,9 @@ The implication: any server you can rent for the price of a coffee is overkill. 
 
 This tutorial uses a Hetzner CX22 — 2 vCPU, 4 GB RAM, €4.50/month. That's about 40× more memory than this pipeline needs, which is the right margin for "I don't want to think about this again." EC2 works the same way; use a `t3.small` and adapt the user-data script. Pick Ubuntu 24.04 LTS for the image.
 
-### First-time setup
+### What goes on the server
+
+The server needs three things and only three things: Docker, your pipeline repo (which the catalog submodule pulls in for free), and an env file with secrets. Everything else — Python, xorq, the database driver, system libraries — lives inside the container image. That keeps the server itself almost stateless: a fresh box with Docker installed and the repo cloned is one `docker compose run` away from a working pipeline.
 
 On first login as root:
 
@@ -182,30 +186,79 @@ usermod -aG sudo pipeline
 rsync --archive --chown=pipeline:pipeline ~/.ssh /home/pipeline
 ```
 
-Then as `pipeline`:
+Then as `pipeline`, install Docker and add yourself to the `docker` group:
 
 ```bash
-sudo apt update && sudo apt install -y build-essential git curl
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source ~/.bashrc
+sudo apt update && sudo apt install -y docker.io docker-compose-v2 git
+sudo usermod -aG docker pipeline
+newgrp docker   # pick up the new group without logging out
 ```
 
-Clone the repo and install xorq:
+Clone the pipeline repo:
 
 ```bash
 git clone --recurse-submodules git@github.com:you/pipeline-repo.git
 cd pipeline-repo
-uv sync
 ```
 
-Your `pyproject.toml` should list `xorq` as a dependency. The catalog submodule already contains the latest build artifact, so you can run it directly. To verify end-to-end:
+### The image: `Dockerfile`
+
+The image is just xorq plus the dependencies your UDXFs need. The pipeline source and the catalog submodule are *not* baked into the image — they come in via a bind mount at run time, so updating the catalog is a `git pull`, not a rebuild. The image only changes when `pyproject.toml` changes.
+
+```dockerfile
+# Dockerfile
+FROM python:3.13-slim
+
+RUN pip install --no-cache-dir uv
+
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev
+
+ENV PATH="/app/.venv/bin:${PATH}"
+ENTRYPOINT ["xorq"]
+```
+
+`pyproject.toml` lists `xorq` plus anything the UDXF imports (`pandas`, in our case). `uv sync --frozen` reproduces the lockfile exactly — same image hash for the same lockfile.
+
+### The service: `compose.yaml`
+
+```yaml
+# compose.yaml
+services:
+  pipeline:
+    build: .
+    image: pipeline:local
+    env_file:
+      - /etc/pipeline/env.prod   # <1>
+    volumes:
+      - .:/work:ro                              # <2>
+      - /var/lib/pipeline/output:/output        # <3>
+      - /var/lib/pipeline/runs:/runs            # <4>
+    environment:
+      XORQ_RUNS_LOGS_DIR: /runs                 # <5>
+    working_dir: /work
+```
+1. Secrets live on the host, not in the image and not in the repo. See §3 for what goes in this file.
+2. The pipeline repo (including the catalog submodule) is mounted read-only into the container — `git pull` is enough to ship a new build artifact.
+3. Output parquet files land on the host at `/var/lib/pipeline/output/`, where the §5 DB-loader step picks them up.
+4. xorq's per-run log directory is mounted to a host path so the §6 monitoring check can read it without `docker exec`.
+5. Tells xorq to write run logs to the mounted path instead of the default `~/.local/share/xorq/runs/`.
+
+Build the image and verify end-to-end:
 
 ```bash
-uv run xorq --version
-uv run xorq catalog -n polymarket -r . run prod -o /tmp/pnl.parquet --params run_date=2026-04-24
+sudo mkdir -p /var/lib/pipeline/{output,runs} && sudo chown -R pipeline:pipeline /var/lib/pipeline
+
+docker compose build
+docker compose run --rm pipeline --version
+docker compose run --rm pipeline \
+  catalog -n polymarket -r . run prod \
+  -o /output/pnl-test.parquet \
+  --params run_date=2026-04-24
 ```
 
-If the second command produces a parquet file, you're 80% of the way there. The rest is plumbing.
+If the second command produces `/var/lib/pipeline/output/pnl-test.parquet` on the host, you're 80% of the way there. The rest is plumbing.
 
 ## 3. Secrets and dev/prod
 
@@ -249,7 +302,7 @@ POSTGRES_PASSWORD=...
 POLYMARKET_API_KEY=...
 ```
 
-The wrapper script in the next section sources this file before calling `xorq run`.
+`compose.yaml` references this file via `env_file`, so Docker loads it into the container's environment on every `docker compose run`. The host shell never has the secrets in scope.
 
 ### Dev vs prod, the easy way
 
@@ -277,17 +330,15 @@ set -euo pipefail
 
 cd /home/pipeline/pipeline-repo
 
-set -a
-source /etc/pipeline/env.prod
-set +a
+DATE=$(date -u +%Y-%m-%d)
+STAMP=$(date -u +%Y%m%d)
+OUT_CTR=/output/pnl-${STAMP}.parquet
 
-OUT=/var/lib/pipeline/pnl-$(date -u +%Y%m%d).parquet
-mkdir -p "$(dirname "$OUT")"
-
-uv run xorq catalog -n polymarket -r . run prod \
-  --output-path "$OUT" \
-  --format parquet \
-  --params run_date=$(date -u +%Y-%m-%d)
+docker compose run --rm pipeline \
+  catalog -n polymarket -r . run prod \
+    --output-path "$OUT_CTR" \
+    --format parquet \
+    --params run_date="$DATE"
 ```
 
 The crontab (`crontab -e` as `pipeline`):
@@ -299,9 +350,9 @@ The crontab (`crontab -e` as `pipeline`):
 
 Three things to notice:
 
-- **`uv run` handles the virtualenv.** No `source .venv/bin/activate` dance. This is most of why `uv` shines for cron.
+- **`docker compose run --rm` handles the environment.** The image has xorq and its deps; the `env_file` in `compose.yaml` injects secrets; the `:ro` mount of the repo brings the catalog submodule in. There's no virtualenv activation, no `apt install`, no "did the server have the right Python version" — the container is the answer to all of those.
 - **`--params run_date=...`** passes the logical date into the expression. Use this instead of `date('now')` inside the pipeline — it means the same command is deterministic and replayable, and a backfill is a bash loop over dates rather than a "wait, what does the pipeline assume about wall-clock time?" investigation.
-- **Resolving the alias.** `xorq catalog ... run prod` looks up the `prod` alias in the submodule catalog and runs the entry it points at. Bump the alias locally, `git push`, `git pull` on the server, and the next cron tick picks up the new version.
+- **Resolving the alias.** `xorq catalog ... run prod` looks up the `prod` alias in the submodule catalog and runs the entry it points at. Bump the alias locally, `git push`, `git pull` on the server, and the next cron tick picks up the new version — *no `docker compose build` needed*, because the catalog comes in via the read-only bind mount.
 
 ## 5. Output and downstream
 
@@ -309,30 +360,45 @@ Here's the most honest gap in today's story: **xorq has no "write to a destinati
 
 For our pipeline, that means:
 
-1. `xorq run` writes `/var/lib/pipeline/pnl-20260424.parquet`.
+1. `xorq run` writes `/var/lib/pipeline/output/pnl-20260424.parquet` on the host (via the `:/output` mount in `compose.yaml`).
 2. A follow-up SQL statement loads it into Postgres.
 
-The follow-up fits in one line appended to `run.sh`:
+The follow-up fits in a few lines appended to `run.sh`. Easiest is to run `psql` in the same compose project — add a one-shot service that points at the same env file:
 
-```bash
-psql "$POSTGRES_URL" -c "INSERT INTO pnl_daily SELECT * FROM parquet_scan('$OUT')"
+```yaml
+# compose.yaml (additional service)
+  psql:
+    image: postgres:16-alpine
+    env_file:
+      - /etc/pipeline/env.prod
+    volumes:
+      - /var/lib/pipeline/output:/output:ro
+    entrypoint: ["psql"]
 ```
 
-(Postgres via the `parquet_fdw` extension, or `\copy` from a CSV if you'd rather. DuckDB/MotherDuck and Snowflake have native `COPY INTO` from parquet.)
+Then in `run.sh`:
+
+```bash
+docker compose run --rm psql \
+  "host=$POSTGRES_HOST dbname=$POSTGRES_DB user=$POSTGRES_USER" \
+  -c "INSERT INTO pnl_daily SELECT * FROM parquet_scan('$OUT_CTR')"
+```
+
+(Postgres needs the `parquet_fdw` extension for `parquet_scan`; on a server you control, install it once. DuckDB/MotherDuck and Snowflake have native `COPY INTO` from parquet, which is even simpler.)
 
 This is not elegant. It is also not much code, and you get a parquet file you can retain for audit — which turns out to be useful every single time you need to reconstruct what the dashboard said three weeks ago.
 
 ## 6. Monitoring
 
-Xorq writes per-run logs whether you ask it to or not. Look at `~/.local/share/xorq/runs/<expr_hash>/<run_id>/` on the server after a run — you'll find:
+Xorq writes per-run logs whether you ask it to or not. Because `compose.yaml` sets `XORQ_RUNS_LOGS_DIR=/runs` and mounts `/var/lib/pipeline/runs` to that path, you'll find them on the host at `/var/lib/pipeline/runs/<expr_hash>/<run_id>/` — no `docker exec` required:
 
 - `run.jsonl` — an append-only event log of what happened during the run.
 - `meta.json` — a summary written at completion, with status, duration, row counts, and bytes written.
 
-That `meta.json` is the minimum-viable monitoring surface. A three-line bash check in `run.sh` covers the common case:
+That `meta.json` is the minimum-viable monitoring surface. A three-line bash check in `run.sh` (after the `docker compose run`) covers the common case:
 
 ```bash
-META=$(find ~/.local/share/xorq/runs -name meta.json -newer /tmp/last-run -print -quit)
+META=$(find /var/lib/pipeline/runs -name meta.json -newer /tmp/last-run -print -quit)
 STATUS=$(jq -r .status "$META")
 [ "$STATUS" = "ok" ] || curl -X POST -d "Pipeline failed: $META" "$SLACK_WEBHOOK_URL"
 touch /tmp/last-run
@@ -345,7 +411,7 @@ For anything fancier — per-stage timing, distributed traces, Prometheus metric
 The per-run directory tree grows forever by default. Add a companion cron to clean it up:
 
 ```
-0 3 * * 0  find /home/pipeline/.local/share/xorq/runs -mtime +30 -delete
+0 3 * * 0  find /var/lib/pipeline/runs -mtime +30 -delete
 ```
 :::
 
@@ -356,8 +422,9 @@ You took a working xorq expression and put it on a server, on a schedule. Specif
 - A **build artifact**, not a `.py` file, is the deploy unit. It's content-addressed, self-contained, and travels with the connection profiles it needs.
 - The **catalog as a git submodule** of the pipeline repo gives you a single `git clone --recurse-submodules` deploy and a versioned audit trail via the submodule SHA.
 - **Profiles bake `${VAR}` references**, not secrets. The same artifact runs against dev and prod; only the env file changes.
-- **`xorq run` plus cron** replaces a managed scheduler for a single pipeline running on a server. The wrapper script sources the env, calls the catalog alias, and writes parquet to disk.
-- **Run logs land on disk per run.** A three-line jq check is enough to alert on failure. OTel is there when you outgrow that.
+- **A two-file Docker setup** (`Dockerfile` for xorq + deps, `compose.yaml` for env_file and bind mounts) keeps the server itself nearly stateless. The image only changes when `pyproject.toml` does; everything else is `git pull`.
+- **`docker compose run` plus cron** replaces a managed scheduler for a single pipeline running on a server. The wrapper script invokes the compose service, which writes parquet to a host-mounted directory.
+- **Run logs land on a host-mounted volume per run.** A three-line jq check is enough to alert on failure. OTel is there when you outgrow that.
 
 Total cost of everything in this tutorial: €4.50/month for the server, $0 for the software, an afternoon of yak-shaving the first time. If you've been putting off moving your pipeline off your laptop because "I don't have Airflow set up" — you don't need it.
 
