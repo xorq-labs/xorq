@@ -137,7 +137,7 @@ builds/12287e173c17
 
 The build creates a directory (like `builds/12287e173c17`) containing your serialized pipeline. This hash uniquely identifies your build.
 
-![](../images/quickstart/build-output-hash.png)
+![Terminal output showing the build command completing and writing the serialized pipeline to a builds directory with a content-addressed hash.](../images/quickstart/build-output-hash.png)
 
 Save this hash as an environment variable:
 
@@ -187,32 +187,32 @@ Skip the first tab and go straight to "Save to file." Running without an output 
 xorq run builds/$BUILD_HASH
 ```
 
-Runs the pipeline and displays results in your terminal.
+This runs the pipeline and displays results in your terminal.
 
 ### Save to file (macOS/Linux)
 ```bash
 xorq run builds/$BUILD_HASH -o predictions.parquet
 ```
 
-Runs the pipeline and saves results to `predictions.parquet`.
+This runs the pipeline and saves results to `predictions.parquet`.
 
 ### Save to file (Windows PowerShell)
 ```powershell
 xorq run builds/$env:BUILD_HASH -o predictions.parquet
 ```
 
-Runs the pipeline and saves results to `predictions.parquet`.
+This runs the pipeline and saves results to `predictions.parquet`.
 
 ### Save to file (Windows CMD)
 ```cmd
 xorq run builds/%BUILD_HASH% -o predictions.parquet
 ```
 
-Runs the pipeline and saves results to `predictions.parquet`.
+This runs the pipeline and saves results to `predictions.parquet`.
 
 :::
 
-The command saves prediction results to `predictions.parquet`. You can open this file with pandas, DuckDB, or Polars.
+With your pipeline results saved, the next step is to deploy the pipeline as a live API endpoint.
 
 ## Step 5: Deploy your pipeline as an API endpoint
 
@@ -252,7 +252,7 @@ xorq serve-unbound builds/%BUILD_HASH% --host localhost --port 8001 --to_unbind_
 
 :::
 
-The command saves prediction results to `predictions.parquet`. You can open this file with any Parquet-compatible tool. Compatible tools include pandas, DuckDB, or Polars.
+The server starts and listens for incoming requests on the specified host and port.
 
 With your pipeline running locally, the next step is to serve a UDXF expression as an endpoint.
 
@@ -312,9 +312,9 @@ Build the expression:
 xorq build udxf_example.py --expr-name expr
 ```
 
-This creates a second `<HASH>` in your `builds/<HASH>/` directory with your serialized UDXF expression. 
+This creates a second build directory in `builds/<BUILD_HASH>/` with your serialized UDXF expression.
 
-![](../images/quickstart/second-hash.png)
+![Terminal output showing a second build hash generated for the UDXF expression.](../images/quickstart/second-hash.png)
 
 ### Start the Flight server
 
