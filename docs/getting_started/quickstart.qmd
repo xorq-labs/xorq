@@ -15,7 +15,8 @@ In this quickstart, you:
 2. Initialize a project
 3. Build a pipeline expression
 4. Run your pipeline and save results
-5. Serve a UDXF expression as an endpoint
+5. Deploy your pipeline as an API endpoint
+6. Serve a UDXF expression as an endpoint
 
 The entire process takes about five minutes. By the end, you understand how Xorq transforms Python code into executable, servable pipelines.
 
@@ -256,14 +257,14 @@ The command saves prediction results to `predictions.parquet`. You can open this
 With your pipeline running locally, the next step is to serve a UDXF expression as an endpoint.
 
 
-## Step 5: Serve a UDXF expression
+## Step 6: Serve a UDXF expression
 
 ::: {.callout-note}
 ### New terminal setup
 Open a new terminal window. Activate the same virtual environment (`.venv`) and navigate to the same directory (`penguins_example`) where your server is running.
 :::
 
-Create a file called `query_endpoint.py`:
+Create a file called `udxf_example.py`:
 
 ```python
 # udxf_example.py
@@ -365,15 +366,20 @@ python query_udxf.py
 **Output:**
 ```
 Executing via Flight do_exchange...
-  predicted
-0    Adelie
-1    Adelie
-2    Adelie
-3    Adelie
-4    Adelie
+   value  doubled
+0     42       84
+1     17       34
+2     63      126
+3      8       16
+4     91      182
+5     55      110
+6     29       58
+7     74      148
+8     36       72
+9     12       24
 ```
 
-Your pipeline now runs as a live API. You sent penguin measurements to the server, the server executed your trained model, and you received species predictions back—all via Flight protocol.
+Your UDXF now runs as a live API. You sent integer values to the server, the server applied the doubling transformation, and you received the results back—all via Flight protocol.
 
 ## What you built
 
