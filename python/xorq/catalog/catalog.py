@@ -56,7 +56,11 @@ from xorq.catalog.git_utils import (
     commit_context,
 )
 from xorq.catalog.zip_utils import BuildZip, make_zip_context, with_pure_suffix
+from xorq.common.utils.logging_utils import get_logger
 from xorq.ibis_yaml.enums import DumpFiles, ExprKind
+
+
+logger = get_logger(__name__)
 
 
 abspath = toolz.compose(Path.absolute, Path)
@@ -103,6 +107,11 @@ popen_shell = partial(Popen, shell=True)
 def _has_annex_branch(repo):
     """Check whether a Repo has a git-annex branch (local or remote-tracking)."""
     return any(ref.name.endswith(ANNEX_BRANCH) for ref in repo.refs)
+
+
+def _has_local_annex_branch(repo):
+    """Check whether a Repo has a local git-annex branch (i.e. a checked-out head)."""
+    return ANNEX_BRANCH in repo.heads
 
 
 def _try_resolve_annex_remote(repo_path, **remote_kwargs):
@@ -307,9 +316,18 @@ class Catalog:
         """Push to all git remotes after verifying consistency."""
         self.assert_consistency()
         results = tuple(map(Remote.push, self._git_remotes))
-        for remote in self._git_remotes:
-            remote.push(ANNEX_BRANCH)
-        return results
+        if _has_local_annex_branch(self.repo):
+            annex_results = tuple(
+                remote.push(ANNEX_BRANCH) for remote in self._git_remotes
+            )
+        else:
+            annex_results = ()
+            logger.debug(
+                "skipping annex branch push: no local branch",
+                annex_branch=ANNEX_BRANCH,
+                repo_path=str(self.repo_path),
+            )
+        return results + annex_results
 
     def pull(self):
         """Pull from all git remotes."""

@@ -205,6 +205,24 @@ def test_clone_from_no_annex_branch(tmpdir):
     assert cloned.list()
 
 
+def test_push_skips_missing_annex_branch(tmpdir):
+    """Catalog.push() succeeds when the local repo has no git-annex branch."""
+
+    bare_path = Path(tmpdir).joinpath("bare")
+    GitRepo.init(bare_path, bare=True, initial_branch=MAIN_BRANCH)
+
+    origin_path = Path(tmpdir).joinpath("origin")
+    catalog = Catalog.from_repo_path(origin_path, init=True)
+    remote = catalog.repo.create_remote("origin", str(bare_path))
+    remote.push(MAIN_BRANCH, set_upstream=True)
+
+    with build_expr_context_zip(xo.memtable({"plain": ["plain"]})) as zip_path:
+        catalog.add(zip_path, sync=False)
+
+    assert "git-annex" not in catalog.repo.heads
+    catalog.push()
+
+
 def test_clone_from_false_forces_plain_git(repo_cloned_bare, tmpdir):
     """annex=False forces GitBackend even when git-annex branch exists."""
 
