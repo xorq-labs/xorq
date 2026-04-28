@@ -157,7 +157,9 @@ xorq build pipeline.py -e expr
 xorq catalog -n polymarket -r . add builds/<hash> --alias prod
 ```
 
-That's the whole catalog setup. From here on, every time you change `pipeline.py`, you re-run `xorq build` and `xorq catalog ... add` — the submodule SHA in the parent repo moves forward, and that new SHA *is* the version you'll deploy.
+That's the local catalog setup. The `xorq catalog ... add` step writes a commit inside the submodule but does not push anything yet — the *server* sees the new alias only once both the catalog has been pushed and the parent repo's submodule pointer has been bumped and pushed. The full publish-and-pull loop (committing inside the submodule, bumping the parent SHA, the matching `git pull --recurse-submodules` on the server) lives in [Working with the catalog](working_with_the_catalog.qmd); from this tutorial's perspective, the only thing you need to know is that `add` is necessary but not sufficient.
+
+From here on, every time you change `pipeline.py`, you re-run `xorq build` and `xorq catalog ... add`, then push both repos — the submodule SHA in the parent repo moves forward, and that new SHA *is* the version you'll deploy.
 
 :::{.callout-tip}
 ### Why a separate repo for the catalog?
@@ -352,7 +354,7 @@ Three things to notice:
 
 - **`docker compose run --rm` handles the environment.** The image has xorq and its deps; the `env_file` in `compose.yaml` injects secrets; the `:ro` mount of the repo brings the catalog submodule in. There's no virtualenv activation, no `apt install`, no "did the server have the right Python version" — the container is the answer to all of those.
 - **`--params run_date=...`** passes the logical date into the expression. Use this instead of `date('now')` inside the pipeline — it means the same command is deterministic and replayable, and a backfill is a bash loop over dates rather than a "wait, what does the pipeline assume about wall-clock time?" investigation.
-- **Resolving the alias.** `xorq catalog ... run prod` looks up the `prod` alias in the submodule catalog and runs the entry it points at. Bump the alias locally, `git push`, `git pull` on the server, and the next cron tick picks up the new version — *no `docker compose build` needed*, because the catalog comes in via the read-only bind mount.
+- **Resolving the alias.** `xorq catalog ... run prod` looks up the `prod` alias in the submodule catalog and runs the entry it points at. Bump the alias locally, push both the catalog and the parent repo, then `git pull --recurse-submodules` on the server (plain `git pull` updates the parent's submodule pointer but doesn't fetch new submodule contents), and the next cron tick picks up the new version — *no `docker compose build` needed*, because the catalog comes in via the read-only bind mount.
 
 ## 5. Output and downstream
 
