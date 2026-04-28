@@ -1,0 +1,176 @@
+---
+title: 'Compute Fannie Mae vintage default curves'
+description: "Group loans by origination cohort and loan age to plot cumulative 90+ DPD rates"
+icon: "chart-line"
+headline: "Cohort analysis on a multi-GB mortgage panel"
+---
+
+This tutorial shows how to compute cumulative 90+ days-past-due (DPD) rates by origination cohort and loan age across the Fannie Mae Single-Family Loan Performance dataset. The full panel is too large to fit in pandas memory, so you'll stream it through DuckDB, aggregate in-engine, and only materialize the small `(vintage, age)` summary at the end.
+
+After completing this tutorial, you'll know how to express cohort-style analyses in Xorq, and how `.cache()` keeps iteration fast when you're tweaking plots.
+
+## Prerequisites
+
+You need:
+
+- Xorq installed: `pip install "xorq[examples]"`
+- Fannie Mae Single-Family Loan Performance Data, registered as parquet. Fannie Mae publishes the data as quarterly text files at [capitalmarkets.fanniemae.com](https://capitalmarkets.fanniemae.com/credit-risk-transfer/single-family-credit-risk-transfer/fannie-mae-single-family-loan-performance-data) (free account required).
+- Basic familiarity with groupby aggregations.
+
+:::{.callout-note}
+### Staging the data
+Fannie Mae ships pipe-delimited `.txt` files with no header row. The full schema is published alongside the data. Convert each quarterly file to parquet once (using `pandas.read_csv` with the published column list, or your warehouse's bulk loader) and partition by origination year. The rest of this tutorial assumes a parquet glob like `s3://your-bucket/fnma/perf/*.parquet` or a local path.
+:::
+
+## Read the panel
+
+Here's what you need to know: `deferred_read_parquet` registers the file with a backend without scanning it. Nothing executes until you call `.execute()`.
+
+```python
+# vintage_curves.py
+import xorq.api as xo
+
+con = xo.connect()
+
+perf = xo.deferred_read_parquet(
+    "s3://your-bucket/fnma/perf/*.parquet",  # <1>
+    con=con,
+    table_name="perf",
+)
+```
+1. Replace with your local path or warehouse table. The expression below works the same either way.
+
+The `perf` expression carries the schema but no data. You can inspect columns with `perf.schema()` to confirm the load worked.
+
+## Define the default flag
+
+`DLQ_STATUS` is a string column with values `"0"`, `"1"`, `"2"`, `"3"`, ..., plus `"X"` for unknown. A loan is 90+ DPD when the numeric value is at least 3.
+
+```python
+dlq_int = perf.DLQ_STATUS.try_cast("int")  # <1>
+is_90 = dlq_int.fill_null(0) >= 3           # <2>
+
+flagged = perf.mutate(
+    vintage=perf.ORIG_DATE.truncate("Q"),
+    is_90=is_90,
+)
+```
+1. `try_cast` returns NULL for non-numeric codes like `"X"` instead of raising.
+2. Treating `"X"` as `0` is one defensible choice. Another is `dlq_int.notnull() & (dlq_int >= 3)`, which excludes unknown-status months from the numerator and denominator. Pick the one that matches your reporting convention.
+
+## Roll up to loan-age curves
+
+Cohort curves answer "what fraction of loans originated in quarter `Q` had ever been 90+ DPD by month `M` of their life?" That's a two-stage aggregation: first per loan, then per cohort.
+
+```python
+ever_90 = (
+    flagged
+    .group_by(["LOAN_ID", "vintage", "LOAN_AGE"])  # <1>
+    .agg(is_90=xo._.is_90.max())                    # <2>
+)
+
+curve = (
+    ever_90
+    .group_by(["vintage", "LOAN_AGE"])
+    .agg(
+        default_rate=xo._.is_90.mean(),             # <3>
+        n_loans=xo._.LOAN_ID.nunique(),
+    )
+    .order_by(["vintage", "LOAN_AGE"])
+)
+```
+1. The first stage flattens the monthly panel: one row per `(loan, age)`.
+2. `.max()` of a boolean is "ever true" — captures whether the loan was 90+ DPD as of that age.
+3. `.mean()` of a boolean over loans in the cohort is the cohort default rate.
+
+:::{.callout-tip}
+### Why two stages
+Computing `default_rate` directly from the monthly panel would over-weight loans that linger in delinquency. Collapsing to `(loan, age)` first ensures every loan contributes one observation per age bucket.
+:::
+
+## Cache the summary
+
+The `(vintage, age)` table is small — typically a few thousand rows. Cache it so the next iteration of your plotting code doesn't re-scan the multi-GB panel.
+
+```python
+from xorq.caching import ParquetCache
+
+cache = ParquetCache.from_kwargs(source=con, relative_path="./fnma-cache")
+cached_curve = curve.cache(cache=cache)
+
+result = cached_curve.execute()
+print(result.head())
+```
+
+The cache key is derived from the expression hash. Change any upstream filter or aggregation and the next `.execute()` recomputes; leave it untouched and subsequent calls hit the cache.
+
+## Plot the curves
+
+```python
+import matplotlib.pyplot as plt
+
+for vintage, group in result.groupby("vintage"):
+    plt.plot(group["LOAN_AGE"], group["default_rate"], label=str(vintage)[:7])
+
+plt.xlabel("Loan age (months)")
+plt.ylabel("Cumulative 90+ DPD rate")
+plt.legend(title="Origination quarter")
+plt.show()
+```
+
+You should see the 2006–2008 vintages spike sharply between months 12 and 36, while 2010+ vintages stay near the floor — the textbook GFC fingerprint.
+
+## Complete example
+
+```python
+# vintage_curves.py
+import xorq.api as xo
+from xorq.caching import ParquetCache
+
+con = xo.connect()
+cache = ParquetCache.from_kwargs(source=con, relative_path="./fnma-cache")
+
+perf = xo.deferred_read_parquet(
+    "s3://your-bucket/fnma/perf/*.parquet",
+    con=con,
+    table_name="perf",
+)
+
+dlq_int = perf.DLQ_STATUS.try_cast("int")
+flagged = perf.mutate(
+    vintage=perf.ORIG_DATE.truncate("Q"),
+    is_90=dlq_int.fill_null(0) >= 3,
+)
+
+ever_90 = (
+    flagged
+    .group_by(["LOAN_ID", "vintage", "LOAN_AGE"])
+    .agg(is_90=xo._.is_90.max())
+)
+
+curve = (
+    ever_90
+    .group_by(["vintage", "LOAN_AGE"])
+    .agg(
+        default_rate=xo._.is_90.mean(),
+        n_loans=xo._.LOAN_ID.nunique(),
+    )
+    .order_by(["vintage", "LOAN_AGE"])
+    .cache(cache=cache)
+)
+
+result = curve.execute()
+print(result.head())
+```
+
+## What you learned
+
+- Loaded a multi-GB parquet panel as a deferred expression
+- Used `try_cast` to handle non-numeric domain codes safely
+- Wrote a two-stage aggregation (per-loan, then per-cohort) so each loan contributes one observation per age
+- Cached the small summary so plot iteration doesn't re-scan the panel
+
+## Next steps
+
+- [Build a PD classifier with macro joins](fannie_mae_pd_classifier.qmd) extends this dataset with cross-engine joins and trains a default model.
+- [Cache expression results](../../getting_started/cache_expression_results.qmd) covers cache invalidation and storage backends in more depth.

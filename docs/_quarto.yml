@@ -86,6 +86,8 @@ website:
             - href: tutorials/analytics_tutorials/create_your_first_udf.qmd
             # - href: tutorials/analytics_tutorials/use_window_functions.qmd
             - href: tutorials/analytics_tutorials/work_with_schemas.qmd
+            - href: tutorials/analytics_tutorials/fannie_mae_vintage_curves.qmd
+            - href: tutorials/analytics_tutorials/fannie_mae_pd_classifier.qmd
 
 
     - id: guides

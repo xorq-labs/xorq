@@ -1,0 +1,175 @@
+---
+title: 'Build a PD classifier with macro joins'
+description: "Predict 90+ DPD within 12 months of origination, joining across Postgres and DuckDB"
+icon: "wand-magic-sparkles"
+headline: "Multi-engine ML on the Fannie Mae panel"
+---
+
+This tutorial extends the [vintage curves tutorial](fannie_mae_vintage_curves.qmd) into a probability-of-default (PD) model. Origination data lives in Postgres, a state-by-quarter macro panel (HPI, unemployment) lives in DuckDB, and you'll join them in a single Xorq expression — no manual data movement.
+
+You'll then train an XGBoost classifier as an aggregate UDF and score the held-out set as an expression scalar UDF, so the model is pickled through the plan and applied per batch inside the engine.
+
+## Prerequisites
+
+You need:
+
+- Xorq installed with the Postgres extra: `pip install "xorq[examples,postgres]"`
+- XGBoost: `pip install xgboost`
+- Fannie Mae acquisition + monthly performance tables loaded into Postgres as `fnma_acquisition` and `fnma_perf_monthly` (see the [vintage curves tutorial](fannie_mae_vintage_curves.qmd) for staging notes).
+- A macro panel parquet file with columns `state`, `quarter`, `hpi`, `unemp`. Public sources: FHFA HPI by state, BLS state unemployment.
+
+## Connect to both backends
+
+```python
+# pd_classifier.py
+import xorq.api as xo
+from xorq.expr.relations import into_backend
+
+pg = xo.postgres.connect_env()  # <1>
+db = xo.duckdb.connect()
+
+acq = pg.table("fnma_acquisition")
+perf = pg.table("fnma_perf_monthly")
+macro = xo.deferred_read_parquet(
+    "s3://your-bucket/macro/state_quarter.parquet",
+    con=db,
+    table_name="macro",
+)
+```
+1. `connect_env()` reads connection details from standard `PG*` environment variables. See the [profiles guide](../../api_reference/backends/profiles_api.qmd) for alternatives.
+
+## Build the label
+
+The target is "ever 90+ DPD in the first 12 months of life." That's a per-loan aggregation over the monthly panel.
+
+```python
+dlq_int = perf.DLQ_STATUS.try_cast("int")
+labels = (
+    perf.filter(perf.LOAN_AGE <= 12)
+    .group_by("LOAN_ID")
+    .agg(event_occurred=(dlq_int.fill_null(0) >= 3).max())
+)
+```
+
+## Join across engines
+
+Origination + label live in Postgres; macro lives in DuckDB. `into_backend(macro, pg)` registers the DuckDB table inside the Postgres connection so the join runs in one engine — Xorq handles the data movement via Arrow.
+
+```python
+origination = acq.mutate(orig_q=acq.ORIG_DATE.truncate("Q"))
+
+training = (
+    origination
+    .join(labels, "LOAN_ID")
+    .join(
+        into_backend(macro, pg),                       # <1>
+        [
+            origination.STATE == macro.state,
+            origination.orig_q == macro.quarter,
+        ],
+    )
+)
+```
+1. Move the macro table to Postgres for the join. You could equally pull origination to DuckDB by wrapping the other side — pick whichever engine is closer to where you want the result.
+
+:::{.callout-tip}
+### Why this matters
+Without `into_backend`, you'd extract both sides to pandas, merge in Python, and lose query pushdown. With it, you write one expression and Xorq decides where each operator runs.
+:::
+
+## Define the UDFs
+
+Training is an **aggregate UDF**: it consumes a DataFrame and returns a single artifact (the pickled model). Scoring is an **expression scalar UDF**: it consumes per-batch features and the trained model, and returns predictions.
+
+```python
+import pickle
+
+import toolz
+import xgboost as xgb
+
+import xorq.expr.datatypes as dt
+import xorq.expr.udf as udf
+from xorq.common.utils.toolz_utils import curry
+from xorq.expr.udf import make_pandas_expr_udf
+
+
+features = ("CSCORE_B", "OLTV", "DTI", "ORIG_RATE", "ORIG_UPB", "hpi", "unemp")
+target = "event_occurred"
+
+
+@curry
+def fit(df, features=features, target=target):
+    X, y = df[list(features)], df[target]
+    return xgb.train(
+        {"objective": "binary:logistic", "max_depth": 5, "eta": 0.1},
+        xgb.DMatrix(X, y),
+        num_boost_round=200,
+    )
+
+
+@curry
+def score(model, df, features=features):
+    return model.predict(xgb.DMatrix(df[list(features)]))
+```
+
+## Wire training and scoring into the plan
+
+```python
+train, test = xo.train_test_splits(  # <1>
+    training,
+    unique_key="LOAN_ID",
+    test_sizes=0.2,
+    random_seed=42,
+)
+
+model_udaf = udf.agg.pandas_df(  # <2>
+    fn=toolz.compose(pickle.dumps, fit),
+    schema=training[features + (target,)].schema(),
+    return_type=dt.binary,
+    name="model",
+)
+
+predict_udf = make_pandas_expr_udf(  # <3>
+    computed_kwargs_expr=model_udaf.on_expr(train),
+    fn=score,
+    schema=training[features].schema(),
+    return_type=dt.dtype("float32"),
+    name="pd_hat",
+)
+
+scored = test.mutate(predict_udf.on_expr(test).name("pd_hat"))
+
+result = scored.execute()
+print(result.head())
+```
+1. `train_test_splits` keyed on `LOAN_ID` ensures a loan never leaks across folds — every monthly observation for a given loan lands in the same split.
+2. `udf.agg.pandas_df` wraps the fit function and pickles the model. `on_expr(train)` binds it to the training expression.
+3. `make_pandas_expr_udf` takes the trained model (via `computed_kwargs_expr`) and a per-batch scoring function. The model is computed once and reused across batches.
+
+## Evaluate
+
+```python
+from sklearn.metrics import roc_auc_score
+
+auc = roc_auc_score(result["event_occurred"], result["pd_hat"])
+print(f"Test AUC: {auc:.3f}")
+```
+
+A reasonable target on this dataset with these features is AUC in the 0.78–0.82 range. Better calibration usually comes from richer features (e.g., DTI bucketing, geographic FE) rather than model tuning.
+
+:::{.callout-warning}
+### Out-of-time validation matters
+Random splits leak temporal information — your 2009 macro features are still in the training set. For a serious PD model, train on originations through year `Y` and score on year `Y+1`. The AUC will drop, sometimes dramatically.
+:::
+
+## What you learned
+
+- Joined data across Postgres and DuckDB with `into_backend`, no pandas merge in the middle
+- Built a label expression from a per-loan rollup of the monthly panel
+- Trained and scored a model entirely inside the expression graph using the aggregate-UDF + expression-scalar-UDF pattern
+- Used `train_test_splits` keyed on a loan ID to prevent leakage
+
+## Next steps
+
+- [Cache expression results](../../getting_started/cache_expression_results.qmd) — cache the joined training table so model iteration doesn't replay the cross-engine join.
+- [Deploy your first model](../ml_tutorials/deploy_your_first_model.qmd) — serve the trained UDF behind Arrow Flight.
