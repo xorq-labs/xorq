@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import functools
 import pathlib
 from abc import (
@@ -61,9 +62,21 @@ def snapshot_normalize_read(read):
     )
 
 
+# Tracks whether the caller is inside SnapshotStrategy.normalization_context.
+# _rename_remote_table calls dask.base.tokenize, which depends on the patched
+# normalizers that context installs; calling it outside would cache a wrong
+# RemoteTable name forever (cached_replace_remote_table is process-global).
+_in_normalization_context: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "xorq_snapshot_in_normalization_context", default=False
+)
+
+
 def _rename_remote_table(node, kwargs):
     if isinstance(node, RemoteTable):
-        # FIXME: how to verify that we're always within a normalization_context?
+        if not _in_normalization_context.get():
+            raise RuntimeError(
+                "_rename_remote_table called outside SnapshotStrategy.normalization_context"
+            )
         name = dask.base.tokenize(node)
         return RemoteTable(
             name=name,
@@ -113,17 +126,21 @@ class SnapshotStrategy(CacheStrategy):
         # normalize_scalar_udf recursively tokenizes computed_kwargs_expr, both
         # of which share sub-expressions that get re-tokenized without caching.
         typs = map(type, expr.ls.backends)
-        with patch_normalize_op_caching():
-            with patch_normalize_token(*typs, f=self.normalize_backend):
-                with patch_normalize_token(
-                    ops.DatabaseTable,
-                    f=self.normalize_databasetable,
-                ):
+        token = _in_normalization_context.set(True)
+        try:
+            with patch_normalize_op_caching():
+                with patch_normalize_token(*typs, f=self.normalize_backend):
                     with patch_normalize_token(
-                        Read,
-                        f=self.cached_normalize_read,
+                        ops.DatabaseTable,
+                        f=self.normalize_databasetable,
                     ):
-                        yield
+                        with patch_normalize_token(
+                            Read,
+                            f=self.cached_normalize_read,
+                        ):
+                            yield
+        finally:
+            _in_normalization_context.reset(token)
 
     def replace_remote_table(self, expr):
         """replace remote table with deterministic name ***strictly for key calculation***"""
@@ -134,6 +151,8 @@ class SnapshotStrategy(CacheStrategy):
     @staticmethod
     @functools.cache
     def cached_normalize_read(op):
+        # Wrapped function must be pure over `op` (no file I/O, no clock): the
+        # process-global cache assumes equal ops always produce equal results.
         return snapshot_normalize_read(op)
 
     @staticmethod

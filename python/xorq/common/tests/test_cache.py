@@ -1,8 +1,10 @@
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 import xorq.api as xo
 from xorq.caching import ParquetCache
-from xorq.caching.strategy import SnapshotStrategy
+from xorq.caching.strategy import ModificationTimeStrategy, SnapshotStrategy
 from xorq.expr.relations import RemoteTable
 
 
@@ -40,6 +42,36 @@ def test_default_connection(tmp_path, parquet_dir):
     assert get_node.to_expr().execute is not None
 
 
+def test_snapshot_strategy_key_is_path_identity(tmp_path):
+    # Regression test: SnapshotStrategy must key on path identity only, not on
+    # mtime/size/inode. Without this, snapshot keys flip whenever the underlying
+    # file is rewritten, defeating the purpose of the strategy.
+    #
+    # SnapshotStrategy.cached_normalize_read is @functools.cache'd on op identity,
+    # which would mask the bug in a single process. Clear it between runs to
+    # simulate a fresh process — that is where the bug actually bit users.
+    path = tmp_path / "data.parquet"
+    pq.write_table(pa.table({"a": [1, 2, 3]}), path)
+
+    con = xo.connect()
+    snapshot = SnapshotStrategy()
+    mtime = ModificationTimeStrategy()
+
+    expr = xo.deferred_read_parquet(path, con=con, table_name="t")
+    snapshot_before = snapshot.calc_key(expr)
+    mtime_before = mtime.calc_key(expr)
+    SnapshotStrategy.cached_normalize_read.cache_clear()
+
+    pq.write_table(pa.table({"a": list(range(50))}), path)
+    expr = xo.deferred_read_parquet(path, con=con, table_name="t")
+
+    assert snapshot.calc_key(expr) == snapshot_before
+    # Sanity: ModificationTimeStrategy *should* notice the change. If it doesn't,
+    # the test setup isn't actually exercising stat sensitivity and the snapshot
+    # invariant above is vacuous.
+    assert mtime.calc_key(expr) != mtime_before
+
+
 def test_snapshot_strategy_calc_key_with_hashing_tag_over_remote_table():
     t = xo.memtable({"a": [1, 2, 3]})
     con = t._find_backend()
@@ -49,3 +81,17 @@ def test_snapshot_strategy_calc_key_with_hashing_tag_over_remote_table():
     strategy = SnapshotStrategy()
     key = strategy.calc_key(tagged)
     assert key.startswith(f"{strategy.key_prefix}snapshot-")
+
+
+def test_rename_remote_table_outside_normalization_context_raises():
+    # _rename_remote_table tokenizes via dask, which depends on the patched
+    # normalizers that normalization_context installs. Calling outside the
+    # context would poison cached_replace_remote_table forever, so we guard.
+    from xorq.caching.strategy import _rename_remote_table  # noqa: PLC0415
+
+    t = xo.memtable({"a": [1, 2, 3]})
+    con = t._find_backend()
+    rt_op = RemoteTable.from_expr(con, t)
+
+    with pytest.raises(RuntimeError, match="normalization_context"):
+        _rename_remote_table(rt_op, None)
