@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777382795598,
+  "lastUpdate": 1777383311295,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -8646,6 +8646,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.03486965891232594",
             "extra": "mean: 281.17813359999104 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2085bf5a923cdfd78d3c02b97a56fd74ae8889ed",
+          "message": "feat: add devcontainer with worktree support (#1859)\n\n## Summary\n- Adds `.devcontainer/` config and `dev/devcontainer` wrapper script for\nrunning dev containers against the main checkout or any git worktree\n- Container: Python 3.12, uv, just, sops, direnv, Node 20, Claude Code\n(versions pinned in `.devcontainer/Dockerfile`)\n- All remote installs verified against pinned SHA-256 checksums\n- Remaps container UID/GID to match host user; symlinks host homedir to\n`/home/vscode` so Claude Code resolves paths correctly\n- Mounts main checkout's `.git` at its host path so worktree `.git`\npointers resolve natively — no `GIT_DIR`/`GIT_WORK_TREE` env vars needed\n- Named volumes for uv cache, `.venv` (isolated from host), and\n`ibis-testing-data`\n- **Claude isolation:** host `~/.claude` and `~/.claude.json` are\nmounted read-only at `~/.claude-host{,.json}`; the container's\n`~/.claude` is an isolated `claude-home` volume. On each entry,\n`setup-claude` copies credentials, global/project permissions,\n`CLAUDE.md`, and project memory in — host **hooks are deliberately\nskipped** (they reference host paths). A `PreToolUse` audit hook logs\nevery tool call to `.claude/container-audit/audit.jsonl`; review with\n`devcontainer audit`. Tmpfs over `shell-snapshots` prevents host env\ncontamination.\n- Uses `docker compose` directly — no Node/npx dependency on the host\n- Auto-starts container on `exec`/`claude`; auto-rebuilds when\n`Dockerfile`, `docker-compose.yml`, `setup-claude.py`, `audit-hook`, or\n`setup-env.sh` change\n- Confirms before stopping a running container (`down`) or destroying\nvolumes (`reset`)\n\n## `dev/devcontainer` subcommands\n```bash\ndevcontainer up                                          # build & start\ndevcontainer down                                        # stop (prompts if running)\ndevcontainer reset                                       # destroy container + all volumes\ndevcontainer clean                                       # reset + remove images and host-side artifacts\ndevcontainer status                                      # show whether the container is running\ndevcontainer logs                                        # show container logs\ndevcontainer exec                                        # bash shell\ndevcontainer exec uv run pytest -m core                  # run a command\ndevcontainer claude                                      # run claude\ndevcontainer claude-dangerously-skip-permissions         # run claude unattended\ndevcontainer audit                                       # tool usage summary + new permissions\ndevcontainer completions bash                            # emit shell completions\ndevcontainer -w ../xorq-fix-foo claude                   # target a different worktree\n```\n\nTab completion for bash/zsh/fish:\n```bash\neval \"$(devcontainer completions bash)\"\n```\n\n## Project overrides\n\n`dev/project.env` is gitignored; copy `dev/project.env.example` and edit\nto override:\n\n- `PROJECT_NAME` — namespaces the container and shared docker volumes\n(defaults to the basename of the main checkout)\n- `MODEL_VERSION` — pins the Claude model inside the container (written\ninto `~/.claude/settings.json` as `model`); leave unset for the Claude\nCode default\n\n## Commits\n1. **refactor(direnv):** `PATH_add dev` in root `.envrc` so\n`devcontainer`/`new-worktree` are on PATH. Fix `../.venv` →\n`$direnv_root/.venv`. Document path conventions.\n2. **feat(devcontainer):** Container infrastructure, wrapper script,\ncompletions, audit tooling, and Claude isolation setup.\n3. **feat(devcontainer):** Allow model version override via\n`DEV_MODEL_VERSION` env var (sourced from `MODEL_VERSION` in\n`dev/project.env`).\n4. **docs(devcontainer):** Clarify prerequisites, toolchain, and runtime\nbehavior in `.devcontainer/README.md`.\n\n## Test plan\n- [ ] Build devcontainer from worktree, verify `uv sync` completes\n- [ ] Verify Claude Code starts and can run bash commands\n- [ ] Verify `git` commands work inside container (including `git clone`\nof unrelated repos)\n- [ ] Verify host file edits are visible inside the container\n- [ ] Modify Dockerfile, run `devcontainer exec bash` — verify\nauto-rebuild prompt\n- [ ] Repeat for `setup-claude.py` / `audit-hook` / `setup-env.sh` edits\n- [ ] Test from main checkout (non-worktree)\n- [ ] Verify `devcontainer reset` destroys volumes\n- [ ] Verify `devcontainer clean` removes images and host-side artifacts\n- [ ] Verify tab completions work\n- [ ] Set `MODEL_VERSION=...` in `dev/project.env`; verify it appears in\ncontainer `~/.claude/settings.json`\n- [ ] Verify `devcontainer audit` shows tool calls\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-28T15:31:01+02:00",
+          "tree_id": "f0dbbd8dbbc893636ac8584350e7ab852a7d7edd",
+          "url": "https://github.com/xorq-labs/xorq/commit/2085bf5a923cdfd78d3c02b97a56fd74ae8889ed"
+        },
+        "date": 1777383308835,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.394973966279632,
+            "unit": "iter/sec",
+            "range": "stddev: 0.021971346675941177",
+            "extra": "mean: 135.22698045454976 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.815745035115762,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05903508442572861",
+            "extra": "mean: 262.0720176000077 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6164096152047911,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2157698289704684",
+            "extra": "mean: 1.622297860599997 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.413833985900944,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04931835558245684",
+            "extra": "mean: 226.56040149998566 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.171681433329575,
+            "unit": "iter/sec",
+            "range": "stddev: 0.031745691723691884",
+            "extra": "mean: 239.71149666667202 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.8264137190000325,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0044455628593514694",
+            "extra": "mean: 207.1931786666615 msec\nrounds: 6"
           }
         ]
       }
