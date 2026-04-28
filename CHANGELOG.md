@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.21] - 2026-04-28
+### Details
+#### Added
+- Add `run-cached` command mirroring `xorq run-cached` by @hussainsultan in [#1841](https://github.com/xorq-labs/xorq/pull/1841)
+- Add tests for catalog run-cached by @hussainsultan in [#1862](https://github.com/xorq-labs/xorq/pull/1862)
+
+#### Changed
+- Run examples once by @mesejo in [#1865](https://github.com/xorq-labs/xorq/pull/1865)
+- Cache strategies, storage, and backend invalidation by @paddymul in [#1836](https://github.com/xorq-labs/xorq/pull/1836)
+- Make new-worktree project-agnostic by @dlovell in [#1870](https://github.com/xorq-labs/xorq/pull/1870)
+- Update dependency gitpython to v3.1.47 [security] by @renovate[bot] in [#1874](https://github.com/xorq-labs/xorq/pull/1874)
+
+#### Fixed
+- Wire RotatingFileHandler so xorq.log actually rotates by @dlovell in [#1857](https://github.com/xorq-labs/xorq/pull/1857)
+- Preserve symlinks when copying envrc secrets by @dlovell in [#1854](https://github.com/xorq-labs/xorq/pull/1854)
+- Copy .gitignore instead of symlinking by @dlovell in [#1863](https://github.com/xorq-labs/xorq/pull/1863)
+- Validate required fields before constructing RemoteConfig by @dlovell in [#1780](https://github.com/xorq-labs/xorq/pull/1780)
+- Make Annex.env hashable for TUI cache compatibility by @dlovell in [#1868](https://github.com/xorq-labs/xorq/pull/1868)
+- Raise informative ValueError for unknown backend by @dlovell in [#1875](https://github.com/xorq-labs/xorq/pull/1875)
+- Improve code contrast, syntax highlighting, and config correctness by @mesejo in [#1860](https://github.com/xorq-labs/xorq/pull/1860)
+
 ## [0.3.20] - 2026-04-21
 ### Details
 #### Added
