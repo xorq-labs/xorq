@@ -88,7 +88,7 @@ class CacheStrategy:
         pass
 
     def __dask_tokenize__(self):
-        return (type(self).__name__,)
+        return (type(self).__name__, self.key_prefix)
 
 
 @frozen
