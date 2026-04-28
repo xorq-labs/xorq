@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777373197790,
+  "lastUpdate": 1777373425099,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -8514,6 +8514,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.00838523450522083",
             "extra": "mean: 201.73003439999775 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "57c26e0c898e0ea4ec8f07070b6b6186f5ef4777",
+          "message": "ci(docs): cache test data, quarto, npm and start only postgres (#1882)\n\n- Cache ibis-testing-data keyed on justfile hash; skip download on hit\n- Cache quarto installation at fixed version key (1.8.24)\n- Start only the postgres service instead of full docker compose stack\n- Add setup-node with npm cache before netlify-cli install (preview\nonly)\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-28T12:46:27+02:00",
+          "tree_id": "133536323427b5f5109b0f9abd03077ec45b2e47",
+          "url": "https://github.com/xorq-labs/xorq/commit/57c26e0c898e0ea4ec8f07070b6b6186f5ef4777"
+        },
+        "date": 1777373422629,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.625265430420196,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003766325159123896",
+            "extra": "mean: 94.11529589999645 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.904443456866215,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004291092558981813",
+            "extra": "mean: 203.8967333999949 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6647713713121277,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1888242870812848",
+            "extra": "mean: 1.5042765725999856 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.114027671018135,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012178927653619222",
+            "extra": "mean: 195.54059233334442 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.9391673053716603,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03359308568250786",
+            "extra": "mean: 253.86075849998707 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 5.054975925664351,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004730355274720635",
+            "extra": "mean: 197.8248788333398 msec\nrounds: 6"
           }
         ]
       }
