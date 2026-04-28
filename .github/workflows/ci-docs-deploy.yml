@@ -28,7 +28,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: cache ibis test data
+        id: cache-test-data
+        uses: actions/cache@v4
+        with:
+          path: ci/ibis-testing-data
+          key: ibis-testing-data-${{ hashFiles('justfile') }}
+
       - name: download test data
+        if: steps.cache-test-data.outputs.cache-hit != 'true'
         run: just download-data
 
       - uses: actions/setup-python@v5
@@ -44,12 +52,18 @@ jobs:
         run: uv sync --all-extras --all-groups
         working-directory: ${{ github.workspace }}
 
+      - name: cache quarto
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/quarto
+          key: quarto-1.8.24
+
       - uses: quarto-dev/quarto-actions/setup@v2
         with:
           version: 1.8.24
 
       - name: start services
-        run: docker compose up --build --wait
+        run: docker compose up postgres --wait --remove-orphans
 
       - name: build api docs
         run: just docs-apigen --verbose
