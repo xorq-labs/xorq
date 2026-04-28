@@ -94,6 +94,7 @@ def expected_smoothed(values, alpha=ALPHA):
 
 
 def main():
+    1/0
     transform_expr = make_unbound_transform()
 
     # The unbound transform is what the catalog stores: it has the shape of
