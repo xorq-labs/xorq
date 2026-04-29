@@ -156,8 +156,8 @@ class Options(Config):
     graphviz_repr : bool
         Render expressions as GraphViz PNGs when running in a Jupyter notebook.
     default_backend : Optional[ibis.backends.BaseBackend]
-        The default backend to use for execution, defaults to DuckDB if not
-        set.
+        The default backend to use for execution. xorq lazily initialises this
+        to an ``xorq_datafusion`` backend on first use if unset.
     sql: SQL
         SQL-related options.
     clickhouse : Config | None
@@ -189,6 +189,17 @@ class Options(Config):
 
 
 options = Options()
+
+
+def _default_backend() -> Any:
+    """Return the default backend, lazily initialising it via the outer xorq layer.
+
+    Single seam through which vendored code obtains the default backend so the
+    rest of the vendor tree does not import ``xorq.config`` directly.
+    """
+    from xorq.config import default_backend  # noqa: PLC0415
+
+    return default_backend()
 
 
 @public

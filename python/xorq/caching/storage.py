@@ -27,7 +27,7 @@ from xorq.common.utils.defer_utils import (
 from xorq.common.utils.func_utils import (
     if_not_none,
 )
-from xorq.config import _backend_init, options
+from xorq.config import default_backend, options
 from xorq.vendor import ibis
 
 
@@ -86,7 +86,7 @@ def _write_parquet(path, batch_reader, parquet_metadata=None):
 class ParquetStorage(CacheStorage):
     source = field(
         validator=instance_of(ibis.backends.BaseBackend),
-        factory=_backend_init,
+        factory=default_backend,
     )
     relative_path = field(
         validator=instance_of(Path),
@@ -186,7 +186,7 @@ class ParquetDummyStorage(ParquetStorage):
 class SourceStorage(CacheStorage):
     source = field(
         validator=instance_of(ibis.backends.BaseBackend),
-        factory=_backend_init,
+        factory=default_backend,
     )
 
     def __dask_tokenize__(self):

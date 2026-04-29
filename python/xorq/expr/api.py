@@ -39,9 +39,11 @@ from xorq.expr.relations import (
     Tag,
     register_and_transform_remote_tables,
 )
+from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.expr import api
 from xorq.vendor.ibis.expr.api import *  # noqa: F403
 from xorq.vendor.ibis.expr.sql import SQLString
+from xorq.vendor.ibis.expr.types import Expr
 
 
 if TYPE_CHECKING:
@@ -54,9 +56,11 @@ if TYPE_CHECKING:
 __all__ = (
     "execute",
     "calc_split_column",
+    "get_backend",
     "read_postgres",
     "read_pyarrow_stream",
     "register",
+    "set_backend",
     "train_test_splits",
     "to_parquet",
     "to_csv",
@@ -74,15 +78,80 @@ __all__ = (
 )
 
 
+def set_backend(backend: str | BaseBackend) -> None:
+    """Set the default xorq backend.
+
+    Parameters
+    ----------
+    backend
+        May be a backend name or URL, or an existing backend instance.
+
+    Examples
+    --------
+    You can pass the backend as a name:
+
+    >>> import xorq
+    >>> xorq.set_backend("datafusion")  # doctest: +SKIP
+
+    Or as a URI:
+
+    >>> xorq.set_backend(
+    ...     "postgres://user:password@hostname:5432"
+    ... )  # quartodoc: +SKIP # doctest: +SKIP
+
+    Or as an existing backend instance:
+
+    >>> con = xorq.connect()  # doctest: +SKIP
+    >>> xorq.set_backend(con)  # doctest: +SKIP
+
+    """
+    from xorq.config import options  # noqa: PLC0415
+    from xorq.loader import load_backend  # noqa: PLC0415
+    from xorq.vendor.ibis.backends import connect as ibis_connect  # noqa: PLC0415
+
+    if isinstance(backend, str):
+        if backend.isidentifier():
+            backend = load_backend(backend).connect()
+        else:
+            # URL path also dispatches through the ``xorq.backends`` entry
+            # points (see ``xorq.loader.load_backend``), so the resulting
+            # backend is a xorq backend, not the vendored ibis one.
+            backend = ibis_connect(backend)
+
+    options.default_backend = backend
+
+
+def get_backend(expr: Expr | None = None) -> BaseBackend:
+    """Get the xorq backend to use for a given expression.
+
+    Parameters
+    ----------
+    expr
+        An expression to get the backend from. If not passed, the default
+        backend is returned.
+
+    Returns
+    -------
+    BaseBackend
+        The backend.
+
+    """
+    if expr is None:
+        from xorq.config import default_backend  # noqa: PLC0415
+
+        return default_backend()
+    return expr._find_backend(use_default=True)
+
+
 def read_pyarrow_stream(
     source,
     con=None,
     table_name=None,
     **kwargs,
 ) -> ir.Table:
-    from xorq.config import _backend_init  # noqa: PLC0415
+    from xorq.config import default_backend  # noqa: PLC0415
 
-    con = con or _backend_init()
+    con = con or default_backend()
     rbr = pa.ipc.open_stream(source, **kwargs)
     return con.read_record_batches(rbr, table_name=table_name)
 
@@ -92,9 +161,9 @@ def register(
     table_name: str | None = None,
     **kwargs: Any,
 ):
-    from xorq.config import _backend_init  # noqa: PLC0415
+    from xorq.config import default_backend  # noqa: PLC0415
 
-    con = _backend_init()
+    con = default_backend()
     return con.register(source, table_name=table_name, **kwargs)
 
 
@@ -103,9 +172,9 @@ def read_postgres(
     table_name: str | None = None,
     **kwargs: Any,
 ):
-    from xorq.config import _backend_init  # noqa: PLC0415
+    from xorq.config import default_backend  # noqa: PLC0415
 
-    con = _backend_init()
+    con = default_backend()
     return con.read_postgres(uri, table_name=table_name, **kwargs)
 
 
@@ -578,9 +647,9 @@ def get_plans(expr):
 
 
 def get_object_metadata(path: str, **kwargs: Any) -> dict:
-    from xorq.config import _backend_init  # noqa: PLC0415
+    from xorq.config import default_backend  # noqa: PLC0415
 
-    con = _backend_init()
+    con = default_backend()
 
     suffix = extract_suffix(path).lstrip(".")
 

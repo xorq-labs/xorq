@@ -54,7 +54,7 @@ from xorq.common.utils.node_utils import (
     recreate,
     update_read_kwargs,
 )
-from xorq.config import _backend_init
+from xorq.config import default_backend
 from xorq.expr.api import deferred_read_parquet
 from xorq.expr.operations import _MISSING
 from xorq.expr.relations import (
@@ -341,7 +341,9 @@ def hydrate_cons(hash_to_profile_kwargs, lazy=False):
     return profiles
 
 
-def make_read_op(parquet_path, read_kwargs, con=_backend_init()):  # noqa: B008
+def make_read_op(parquet_path, read_kwargs, con=None):
+    if con is None:
+        con = default_backend()
     op = deferred_read_parquet(parquet_path, con, **read_kwargs).op()
     args = dict(zip(op.__argnames__, op.__args__))
     op = op.__recreate__(args)
@@ -692,7 +694,7 @@ class ExprLoader:
                 df = (
                     pq.read_schema(path).empty_table().to_pandas()
                     if read_only_parquet_metadata
-                    else _backend_init().read_parquet(path).execute()
+                    else default_backend().read_parquet(path).execute()
                 )
                 return ibis.memtable(df, schema=dr.schema, name=dr.name).op()
             resolved_kwargs = update_read_kwargs(dr.read_kwargs, (("hash_path", path),))

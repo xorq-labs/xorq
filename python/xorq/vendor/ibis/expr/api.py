@@ -18,7 +18,7 @@ import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.exceptions import XorqInputError
 from xorq.vendor.ibis import selectors, util
-from xorq.vendor.ibis.backends import BaseBackend, connect
+from xorq.vendor.ibis.backends import connect
 from xorq.vendor.ibis.common.deferred import Deferred, _, deferrable
 from xorq.vendor.ibis.common.dispatch import lazy_singledispatch
 from xorq.vendor.ibis.common.grounds import Concrete
@@ -134,7 +134,6 @@ __all__ = (
     "geo_y",
     "geo_y_max",
     "geo_y_min",
-    "get_backend",
     "greatest",
     "ifelse",
     "infer_dtype",
@@ -164,7 +163,6 @@ __all__ = (
     "rows_window",
     "schema",
     "selectors",
-    "set_backend",
     "struct",
     "table",
     "time",
@@ -1456,68 +1454,6 @@ def row_number() -> ir.IntegerColumn:
 
     """
     return ops.RowNumber().to_expr()
-
-
-def set_backend(backend: str | BaseBackend) -> None:
-    """Set the default xorq backend.
-
-    Parameters
-    ----------
-    backend
-        May be a backend name or URL, or an existing backend instance.
-
-    Examples
-    --------
-    You can pass the backend as a name:
-
-    >>> import xorq
-    >>> xorq.set_backend("datafusion")
-
-    Or as a URI
-
-    >>> xorq.set_backend(
-    ...     "postgres://user:password@hostname:5432"
-    ... )  # quartodoc: +SKIP # doctest: +SKIP
-
-    Or as an existing backend instance
-
-    >>> import xorq
-    >>> xorq.set_backend(xorq.connect())
-
-    """
-    from xorq.vendor import ibis
-
-    if isinstance(backend, str) and backend.isidentifier():
-        try:
-            backend_type = getattr(ibis, backend)
-        except AttributeError:
-            pass
-        else:
-            backend = backend_type.connect()
-    if isinstance(backend, str):
-        backend = ibis.connect(backend)
-
-    ibis.options.default_backend = backend
-
-
-def get_backend(expr: Expr | None = None) -> BaseBackend:
-    """Get the current Ibis backend to use for a given expression.
-
-    expr
-        An expression to get the backend from. If not passed, the default
-        backend is returned.
-
-    Returns
-    -------
-    BaseBackend
-        The Ibis backend.
-
-    """
-    if expr is None:
-        from xorq.config import _backend_init  # noqa: PLC0415
-
-        return _backend_init()
-    return expr._find_backend(use_default=True)
 
 
 def window(

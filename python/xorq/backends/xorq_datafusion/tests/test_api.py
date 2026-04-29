@@ -7,7 +7,7 @@ from xorq.api import SessionConfig
 
 @pytest.mark.xfail(reason="No purpose with no registration api")
 def test_executed_on_original_backend(parquet_dir, csv_dir, mocker):
-    con = xo.config._backend_init()
+    con = xo.config.default_backend()
     spy = mocker.spy(con, "execute")
 
     parquet_table = con.read_parquet(parquet_dir / "batting.parquet")[

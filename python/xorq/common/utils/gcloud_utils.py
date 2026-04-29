@@ -12,7 +12,7 @@ from google.cloud import storage
 from toolz import curry
 
 from xorq.caching.storage import CacheStorage
-from xorq.config import _backend_init
+from xorq.config import default_backend
 from xorq.vendor.ibis.backends import BaseBackend
 
 
@@ -56,7 +56,7 @@ class GCStorage(CacheStorage):
     bucket_name: str = field(validator=instance_of(str))
     source = field(
         validator=instance_of(BaseBackend),
-        factory=_backend_init,
+        factory=default_backend,
     )
     fs: gcsfs.GCSFileSystem = field(init=False)
 

@@ -379,7 +379,7 @@ class Expr(Immutable, Coercible):
         BaseBackend
             A backend that is attached to the expression
         """
-        from xorq.config import _backend_init
+        from xorq.vendor.ibis.config import _default_backend
 
         backends, has_unbound = self._find_backends()
 
@@ -393,7 +393,7 @@ class Expr(Immutable, Coercible):
                         "using bound tables instead."
                     )
                 elif use_default:
-                    backend = _backend_init()
+                    backend = _default_backend()
                     return backend
                 else:
                     raise XorqError(

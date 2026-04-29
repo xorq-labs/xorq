@@ -45,9 +45,9 @@ def find_backend(op: ops.Node, use_default=False) -> tuple[BaseBackend, bool]:
             backends.add(table.source)
 
     if not backends and use_default:
-        from xorq.config import _backend_init  # noqa: PLC0415
+        from xorq.config import default_backend  # noqa: PLC0415
 
-        con = _backend_init()
+        con = default_backend()
         backends.add(con)
 
     return (

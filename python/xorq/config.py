@@ -4,12 +4,12 @@ import ast
 import pathlib
 from typing import Any, Optional
 
-from xorq.backends.xorq_datafusion import connect
 from xorq.common.utils.env_utils import (
     EnvConfigable,
     env_templates_dir,
 )
 from xorq.vendor import ibis
+from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.config import Config
 from xorq.vendor.ibis.config import Options as IbisOptions
 
@@ -167,8 +167,10 @@ class Options(IbisOptions):
     ----------
     cache : Cache
         Options controlling caching.
-    default_backend : Optional[xorq.backends.xorq_datafusion.Backend]
-        The default backend to use for execution.
+    default_backend : Optional[xorq.vendor.ibis.backends.BaseBackend]
+        The default backend to use for execution. Defaults to a lazily
+        initialised xorq_datafusion backend; may be set to any BaseBackend
+        instance (e.g. via ``xorq.set_backend``).
     repr : Repr
         Options controlling expression printing.
     """
@@ -177,6 +179,7 @@ class Options(IbisOptions):
     repr: Repr = Repr()
     sql: SQL = SQL()
     pins: Pins = Pins()
+    default_backend: Optional[BaseBackend] = None
     debug: bool = bool(ast.literal_eval(env_config.XORQ_DEBUG or 0))
 
     @property
@@ -192,9 +195,12 @@ class Options(IbisOptions):
 options = Options()
 
 
-def _backend_init():
+def default_backend():
+    """Return the lazily initialised default backend (xorq_datafusion)."""
     if (backend := options.default_backend) is not None:
         return backend
+
+    from xorq.backends.xorq_datafusion import connect  # noqa: PLC0415
 
     options.default_backend = con = connect()
     return con

@@ -34,7 +34,9 @@ class Example(Concrete):
         backend: BaseBackend | None = None,
     ) -> ir.Table:
         if backend is None:
-            backend = ibis.get_backend()
+            from xorq.vendor.ibis.config import _default_backend  # noqa: PLC0415
+
+            backend = _default_backend()
 
         name = self.name
 
@@ -140,7 +142,9 @@ class Zones(Concrete):
         backend: BaseBackend | None = None,
     ) -> ir.Table:
         if backend is None:
-            backend = ibis.get_backend()
+            from xorq.vendor.ibis.config import _default_backend  # noqa: PLC0415
+
+            backend = _default_backend()
 
         name = self.name
 

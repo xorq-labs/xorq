@@ -13,7 +13,7 @@ from xorq.backends.xorq_datafusion import connect as xo_connect
 from xorq.common.utils.inspect_utils import (
     get_arguments,
 )
-from xorq.config import _backend_init
+from xorq.config import default_backend
 from xorq.expr.relations import (
     Read,
 )
@@ -170,7 +170,7 @@ def deferred_read_csv(
     deferred_read_csv.method_name = method_name = "read_csv"
 
     if con is None:
-        con = _backend_init()
+        con = default_backend()
 
     method = getattr(con, method_name)
 
@@ -242,7 +242,7 @@ def deferred_read_parquet(
 
     deferred_read_parquet.method_name = method_name = "read_parquet"
     if con is None:
-        con = _backend_init()
+        con = default_backend()
     method = getattr(con, method_name)
     if table_name is None:
         table_name = gen_name(f"xorq-{method_name}")
