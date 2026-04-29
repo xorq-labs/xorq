@@ -1,7 +1,10 @@
 # Paths under the main worktree to symlink into new worktrees.
 # One path per line, relative to the main worktree root. Lines starting
 # with '#' and blank lines are ignored.
-.claude
+#
+# Note: `.claude` is always symlinked by setup-worktree itself (audit
+# logs and session captures are devcontainer infrastructure, not
+# project-specific) — don't list it here.
 #
 # `ci/ibis-testing-data` is backed by a docker named volume mounted at
 # the main worktree's path (see compose.override.yml + external-volumes.txt);
