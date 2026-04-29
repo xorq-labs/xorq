@@ -73,8 +73,8 @@ def two_clones(tmpdir):
     """
     workdir = Path(tmpdir)
     origin_path = workdir / "origin.git"
-    user_a_path = workdir / "userA"
-    user_b_path = workdir / "userB"
+    user_a_path = workdir / "user-a"
+    user_b_path = workdir / "user-b"
 
     GitRepo.init(origin_path, bare=True, initial_branch=MAIN_BRANCH)
 
