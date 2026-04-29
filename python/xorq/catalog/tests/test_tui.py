@@ -1190,7 +1190,14 @@ def test_tui_options_defaults():
 
 def test_tui_options_apply_column_widths(catalog):
     async def _test():
-        with options.tui({"left_ratio": 5, "right_ratio": 7, "revisions_open": True}):
+        with options.tui(
+            {
+                "left_ratio": 5,
+                "right_ratio": 7,
+                "revisions_open": True,
+                "git_log_open": True,
+            }
+        ):
             app = _make_tui(catalog)
             async with app.run_test(size=(120, 40)) as pilot:
                 await settle(pilot)
@@ -1198,5 +1205,6 @@ def test_tui_options_apply_column_widths(catalog):
                 assert str(screen.query_one("#left-column").styles.width) == "5fr"
                 assert str(screen.query_one("#right-column").styles.width) == "7fr"
                 assert screen.query_one("#revisions-panel").display is True
+                assert screen.query_one("#git-log-panel").display is True
 
     _run(_test())

@@ -819,7 +819,7 @@ class CatalogScreen(Screen):
 
             branch.add_leaf(self._styled_leaf_label(row_data), data=row_data.row_key)
 
-    def _styled_leaf_label(self, row_data) -> Text:
+    def _styled_leaf_label(self, row_data: CatalogRowData) -> Text:
         is_new = row_data.row_key in self._new_keys
         cache_icon = _format_cached(row_data.cached)
         ncols = len(row_data.schema_out)
