@@ -153,6 +153,24 @@ def _try_resolve_annex_remote(repo_path, **remote_kwargs):
     return None
 
 
+class CatalogMergeConflict(Exception):
+    """Raised by ``Catalog.pull`` when a merge leaves files unresolved.
+
+    The ``conflicted`` attribute is a tuple of repo-relative paths still
+    in the unmerged state — typically alias symlinks under
+    ``.xorq/aliases/``. The merge is left in-progress in the working
+    tree so the user can resolve it (see xorq-labs/xorq#1886 for the
+    recovery recipe).
+    """
+
+    def __init__(self, conflicted):
+        self.conflicted = tuple(conflicted)
+        super().__init__(
+            f"catalog.pull() left {len(self.conflicted)} path(s) in conflict: "
+            f"{', '.join(self.conflicted)}"
+        )
+
+
 @frozen
 class Catalog:
     """A git-backed registry for versioned build artifacts.
