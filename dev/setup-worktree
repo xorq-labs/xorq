@@ -51,6 +51,16 @@ for target in .gitignore; do
     fi
 done
 
+# Always-symlinked devcontainer infrastructure (audit logs and session captures
+# must aggregate in the main checkout regardless of project).
+for target in .claude; do
+    if [ -e "$main/$target" ] && [ ! -e "$here/$target" ]; then
+        mkdir -p "$(dirname "$here/$target")"
+        ln -sv "$main/$target" "$here/$target"
+        echo "$target" >> "$manifest"
+    fi
+done
+
 # Symlink paths listed in project/worktree-symlinks.txt.
 while IFS= read -r target; do
     [ -z "$target" ] && continue
