@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777459755963,
+  "lastUpdate": 1777477139063,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -8910,6 +8910,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0024771862252244204",
             "extra": "mean: 200.2728999999988 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "75d84d25bc2b0d457c726b1a4134cc3bbfcdd9f2",
+          "message": "fix(catalog): guard annex branch push when branch is missing (#1892)\n\n## Summary\n- Skip pushing the annex branch in `Catalog.push()` when it does not\nexist locally, avoiding a `GitCommandError` for repos where annex has\nnot been initialized.\n- Add a `_has_local_annex_branch(repo)` helper alongside the existing\n`_has_annex_branch`, so the local-vs-any-ref distinction is explicit and\nreusable.\n- Log a debug line on skip so the silent absence of the annex branch is\nobservable in logs.\n- Fold the per-remote annex push results into `push()`'s return value\n(previously discarded), giving callers visibility into annex push\nstatus.\n\n## Test plan\n- [x] New regression test `test_push_skips_missing_annex_branch` —\nplain-git catalog with no annex branch, bare remote, `push()` succeeds.\n- [x] Existing `test_catalog_clone_from_push` (annex backend) still\npasses — annex branch still pushed to all remotes when present.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-29T11:34:59-04:00",
+          "tree_id": "37c58a5b44e3acbdd03e2fe42aeea81b3d70233e",
+          "url": "https://github.com/xorq-labs/xorq/commit/75d84d25bc2b0d457c726b1a4134cc3bbfcdd9f2"
+        },
+        "date": 1777477135368,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.057603363856085,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017510659894894882",
+            "extra": "mean: 110.40448116666823 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.5498715960394267,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08382533453478624",
+            "extra": "mean: 392.17661060001774 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7014028984522263,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1661163504302274",
+            "extra": "mean: 1.4257140970000024 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.422523737321852,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06317689872310725",
+            "extra": "mean: 412.79265279997617 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.4773210130067786,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05850996417253555",
+            "extra": "mean: 403.6618568000108 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.782047938521967,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06421333543962024",
+            "extra": "mean: 359.4474365999872 msec\nrounds: 5"
           }
         ]
       }
