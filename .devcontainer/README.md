@@ -58,21 +58,42 @@ devcontainer -w ../xorq-my-feature up
 devcontainer up
 ```
 
-## Overriding project defaults
+## Project configuration
 
-`PROJECT_NAME` defaults to the basename of the main checkout (e.g. `xorq` if you cloned into `xorq/`, `src` if you cloned into `src/`). It scopes the container name and the shared docker volumes (`<PROJECT_NAME>-uv-cache`, `<PROJECT_NAME>-ibis-testing-data`). To override, copy the example and edit:
+All editable bits live in **`.devcontainer/project/`**. Everything outside that directory (the Dockerfile, `docker-compose.yml`, `dev/devcontainer`, `audit-report.py`, etc.) is generic and can be copied unchanged into another project.
 
-```bash
-cp dev/project.env.example dev/project.env
-# edit dev/project.env
-```
+| File | Role |
+|---|---|
+| `install-system.sh` | apt packages and language toolchain (runs as root during `docker build`) |
+| `setup-env.sh` | first-run + sync-on-lockfile-change hooks (runs in-container as `vscode`) |
+| `compose.override.yml` | extra named volumes, env vars, and the `EXTRA_PATH` build arg |
+| `worktree-symlinks.txt` | paths under the main worktree to symlink into new worktrees |
+| `worktree-copies.txt` | paths to copy (not symlink) into new worktrees; globs allowed |
+| `audit-prefixes.txt` | bash command prefixes that should be grouped by their first two words |
+| `project.env.example` | template for the gitignored `project.env` overrides |
 
-This file is gitignored. Both `devcontainer` and `new-worktree` source it when present. Recognised keys:
+Copy `project.env.example` to `project.env` (gitignored) to set:
 
-- `PROJECT_NAME` — overrides the per-project namespace described above.
+- `PROJECT_NAME` — overrides the per-project namespace (defaults to the basename of the main checkout). Scopes the container name and shared docker volumes (`<PROJECT_NAME>-uv-cache`, etc.).
 - `MODEL_VERSION` — pins the Claude model inside the container (written into `~/.claude/settings.json` as `model`). Leave unset to use Claude Code's default.
 
-The container workspace is always `/workspaces/src` — this is threaded through compose, the Dockerfile, and setup-claude as `DEV_CONTAINER_WORKSPACE` so the value lives in one place, but changing it is not supported.
+The container workspace is always `/workspaces/src` — threaded through compose, the Dockerfile, and setup-claude as `DEV_CONTAINER_WORKSPACE`, but changing it is not supported.
+
+## Adapting to another project
+
+Drop `.devcontainer/` and `dev/` into your project, then edit `.devcontainer/project/`:
+
+1. **`install-system.sh`** — apt packages and language toolchain. The default installs `build-essential libpq-dev direnv` and `uv` for a Python project. Replace with whatever your project needs (e.g. `golang-go`, `rustup`, `bun`).
+2. **`setup-env.sh`** — what runs after the container starts. The default does `uv sync`, installs pre-commit hooks, sets up `direnv`, and seeds `.envrcs/.envrc.user`. Both subcommands (`first-run`, `sync-if-needed`) are called by `dev/devcontainer`; keep their interface and replace the bodies.
+3. **`compose.override.yml`** — named volumes, host-service env vars, and the `EXTRA_PATH` build arg (defaults to the Python venv's bin dir). Delete or rename volumes you don't need.
+4. **`worktree-symlinks.txt`** / **`worktree-copies.txt`** — what `setup-worktree` propagates from the main worktree.
+5. **`audit-prefixes.txt`** — bash commands that should be grouped two-words-deep in the audit report.
+6. **`devcontainer.json`** (one level up) — VS Code's entry point. Edit `name`, `forwardPorts`, and `customizations.vscode` for your project. This is the only editable file outside `project/`; it can't import sub-files because of the devcontainer.json spec.
+7. **`Dockerfile`** — only edit `BASE_IMAGE` (default `mcr.microsoft.com/devcontainers/python:3.12-bookworm`) if you need a non-Python base image. Override via a build arg in `compose.override.yml` rather than editing the Dockerfile in place.
+
+If `install-system.sh` is empty or `compose.override.yml` is missing, the container still builds — they're optional layers on top of the generic image.
+
+Two worktree paths are hardcoded in `dev/setup-worktree` rather than living in `worktree-{symlinks,copies}.txt`: `.gitignore` is always copied (git opens it with `O_NOFOLLOW`, so a symlink would `ELOOP`), and `.claude` is always symlinked (audit logs and session captures are devcontainer infrastructure that must aggregate in the main checkout regardless of project).
 
 ## Tab completion
 

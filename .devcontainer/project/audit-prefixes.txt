@@ -1,0 +1,9 @@
+# Bash command prefixes that should be grouped by their first two words
+# in the audit report (e.g. `git status`, `uv run`).
+# One prefix per line. Lines starting with '#' and blank lines are ignored.
+git
+env
+uv
+npm
+pytest
+pre-commit

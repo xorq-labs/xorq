@@ -10,17 +10,40 @@ if [ "$main" = "$here" ]; then
 fi
 
 manifest="$here/.envrcs/.worktree-manifest"
+mkdir -p "$here/.envrcs"
 : > "$manifest"
 
-# per-project: env/secrets files to copy into worktrees
-for f in "$main"/.envrcs/.envrc.secrets "$main"/.envrcs/.envrc.user "$main"/.envrcs/.env.*; do
-    if [ -e "$f" ]; then
-        cp -Pv "$f" "$here/.envrcs/"
-        echo ".envrcs/$(basename "$f")" >> "$manifest"
-    fi
-done
+# Read a config list (one path per line, '#' comments, blanks skipped, globs allowed).
+read_paths() {
+    local file="$1"
+    [ -f "$file" ] || return 0
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%%#*}"
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [ -z "$line" ] && continue
+        echo "$line"
+    done < "$file"
+}
 
-# Copy files that git opens with O_NOFOLLOW (symlinks cause ELOOP)
+# Copy paths listed in project/worktree-copies.txt (globs expanded against $main).
+# Patterns are interpreted as shell globs ONLY — the `for f in ...$pattern` loop
+# leaves $pattern unquoted to allow `*`/`?`/`[...]` expansion. Shell substitutions
+# (`$(...)`, backticks, `~`, `$VAR`) are not supported and not safe to use here;
+# the file is treated as data, not script.
+while IFS= read -r pattern; do
+    [ -z "$pattern" ] && continue
+    for f in "$main"/$pattern; do
+        if [ -e "$f" ]; then
+            rel="${f#$main/}"
+            mkdir -p "$here/$(dirname "$rel")"
+            cp -Pv "$f" "$here/$rel"
+            echo "$rel" >> "$manifest"
+        fi
+    done
+done < <(read_paths "$main/.devcontainer/project/worktree-copies.txt")
+
+# Files that git opens with O_NOFOLLOW (symlinks cause ELOOP) — must be copies.
 for target in .gitignore; do
     if [ -e "$main/$target" ] && [ ! -e "$here/$target" ]; then
         cp -v "$main/$target" "$here/$target"
@@ -28,29 +51,25 @@ for target in .gitignore; do
     fi
 done
 
-# per-project: shared directories to symlink from main worktree
-for target in .claude ci/ibis-testing-data; do
+# Symlink paths listed in project/worktree-symlinks.txt.
+while IFS= read -r target; do
+    [ -z "$target" ] && continue
     if [ -e "$main/$target" ] && [ ! -e "$here/$target" ]; then
         mkdir -p "$(dirname "$here/$target")"
         ln -sv "$main/$target" "$here/$target"
         echo "$target" >> "$manifest"
     fi
-done
+done < <(read_paths "$main/.devcontainer/project/worktree-symlinks.txt")
 
-# Symlink user-defined extras from main worktree
-extra="$main/.envrcs/.worktree-symlinks"
-if [ -f "$extra" ]; then
-    while IFS= read -r target || [ -n "$target" ]; do
-        target="${target%%#*}"          # strip inline comments
-        target="${target// /}"          # trim whitespace
-        [ -z "$target" ] && continue    # skip blank lines
-        if [ -e "$main/$target" ] && [ ! -e "$here/$target" ]; then
-            mkdir -p "$(dirname "$here/$target")"
-            ln -sv "$main/$target" "$here/$target"
-            echo "$target" >> "$manifest"
-        fi
-    done < "$extra"
-fi
+# Per-developer extras (gitignored).
+while IFS= read -r target; do
+    [ -z "$target" ] && continue
+    if [ -e "$main/$target" ] && [ ! -e "$here/$target" ]; then
+        mkdir -p "$(dirname "$here/$target")"
+        ln -sv "$main/$target" "$here/$target"
+        echo "$target" >> "$manifest"
+    fi
+done < <(read_paths "$main/.envrcs/.worktree-symlinks")
 
 echo "Manifest written to .envrcs/.worktree-manifest"
 echo "To remove: dev/cleanup-worktree"

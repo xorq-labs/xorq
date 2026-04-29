@@ -26,6 +26,7 @@ done
 
 MAIN_TREE="$(git worktree list --porcelain | head -1 | sed 's/^worktree //')"
 COMPOSE_FILE="$MAIN_TREE/.devcontainer/docker-compose.yml"
+COMPOSE_OVERRIDE="$MAIN_TREE/.devcontainer/project/compose.override.yml"
 
 if [ ! -f "$COMPOSE_FILE" ]; then
     echo "error: $COMPOSE_FILE not found" >&2
@@ -33,7 +34,7 @@ if [ ! -f "$COMPOSE_FILE" ]; then
     exit 1
 fi
 
-PROJECT_ENV="$MAIN_TREE/dev/project.env"
+PROJECT_ENV="$MAIN_TREE/.devcontainer/project/project.env"
 [ -f "$PROJECT_ENV" ] && . "$PROJECT_ENV"
 PROJECT_NAME="${PROJECT_NAME:-$(basename "$MAIN_TREE")}"
 # not configurable — compose, Dockerfile, and setup-claude all assume this path
@@ -95,7 +96,9 @@ if command -v socat >/dev/null 2>&1; then
 fi
 
 dc() {
-    docker compose -f "$COMPOSE_FILE" -p "$CONTAINER_NAME" "$@"
+    local files=(-f "$COMPOSE_FILE")
+    [ -f "$COMPOSE_OVERRIDE" ] && files+=(-f "$COMPOSE_OVERRIDE")
+    docker compose "${files[@]}" -p "$CONTAINER_NAME" "$@"
 }
 
 dc_exec() {
@@ -111,11 +114,23 @@ is_running() {
 config_hash() {
     local df="$MAIN_TREE/.devcontainer/Dockerfile"
     [ -f "$df" ] || { echo "error: $df not found" >&2; return 1; }
-    cat "$df" "$COMPOSE_FILE" \
-        "$MAIN_TREE/.devcontainer/setup-claude.py" \
-        "$MAIN_TREE/.devcontainer/audit-hook" \
-        "$MAIN_TREE/.devcontainer/setup-env.sh" \
-    | sha256sum | cut -d' ' -f1
+    local files=(
+        "$df"
+        "$COMPOSE_FILE"
+        "$MAIN_TREE/.devcontainer/setup-claude.py"
+        "$MAIN_TREE/.devcontainer/audit-hook"
+        "$MAIN_TREE/.devcontainer/project/install-system.sh"
+        "$MAIN_TREE/.devcontainer/project/setup-env.sh"
+    )
+    [ -f "$COMPOSE_OVERRIDE" ] && files+=("$COMPOSE_OVERRIDE")
+    {
+        cat "${files[@]}"
+        # Build args interpolated into compose at build time are baked into
+        # the image and don't show up in file-content hashing — include them
+        # explicitly so a change forces rebuild. Anything else baked via env
+        # interpolation must be added here.
+        printf 'DEV_CONTAINER_WORKSPACE=%s\n' "$DEV_CONTAINER_WORKSPACE"
+    } | sha256sum | cut -d' ' -f1
 }
 
 image_stale() {
@@ -244,26 +259,27 @@ setup_gh() {
     fi
 }
 
-# per-project: first-run setup — chown build artifacts, install deps
+# first-run setup — defined in .devcontainer/project/setup-env.sh
 setup() {
-    dc exec -u root app chown vscode:vscode "$CONTAINER_WORKSPACE/.venv"
-    dc exec app setup-env
+    dc exec app setup-env first-run
     echo "Dev container ready: $CONTAINER_NAME"
 }
 
-# per-project: re-sync dependencies when lockfile changes
+# re-sync dependencies when lockfile changes — also project-defined
 sync_if_needed() {
-    local lock_mtime stamp_mtime
-    lock_mtime="$(dc_exec stat -c %Y uv.lock 2>/dev/null)" || return 0
-    stamp_mtime="$(dc_exec stat -c %Y .venv/.last-sync 2>/dev/null)" || stamp_mtime=0
-    if [ "$lock_mtime" -gt "$stamp_mtime" ]; then
-        dc_exec bash -c 'uv sync --all-extras --all-groups && touch .venv/.last-sync'
-    fi
+    dc_exec setup-env sync-if-needed
 }
 
 ensure_shared_volumes() {
-    docker volume create "${PROJECT_NAME}-uv-cache" >/dev/null 2>&1 || true
-    docker volume create "${PROJECT_NAME}-ibis-testing-data" >/dev/null 2>&1 || true
+    local list="$MAIN_TREE/.devcontainer/project/external-volumes.txt"
+    [ -f "$list" ] || return 0
+    while IFS= read -r name; do
+        name="${name%%#*}"
+        name="${name#"${name%%[![:space:]]*}"}"
+        name="${name%"${name##*[![:space:]]}"}"
+        [ -z "$name" ] && continue
+        docker volume create "${PROJECT_NAME}-${name}" >/dev/null 2>&1 || true
+    done < "$list"
 }
 
 ensure_up() {

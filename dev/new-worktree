@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-[ -f "$SCRIPT_DIR/project.env" ] && . "$SCRIPT_DIR/project.env"
-
 branch="${1:?usage: new-worktree <branch-name>}"
 root=$(git rev-parse --show-toplevel)
+project_env="$root/.devcontainer/project/project.env"
+[ -f "$project_env" ] && . "$project_env"
 : "${PROJECT_NAME:=$(basename "$root")}"
 dest="$(dirname "$root")/${PROJECT_NAME}-${branch//\//-}"
 

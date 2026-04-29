@@ -1,2 +1,5 @@
 README.md
 audit-report.py
+project/*
+!project/install-system.sh
+!project/setup-env.sh

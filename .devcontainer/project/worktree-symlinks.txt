@@ -1,0 +1,9 @@
+# Paths under the main worktree to symlink into new worktrees.
+# One path per line, relative to the main worktree root. Lines starting
+# with '#' and blank lines are ignored.
+.claude
+#
+# `ci/ibis-testing-data` is backed by a docker named volume mounted at
+# the main worktree's path (see compose.override.yml + external-volumes.txt);
+# this symlink lets sibling worktrees resolve into that same directory.
+ci/ibis-testing-data
