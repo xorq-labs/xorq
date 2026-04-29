@@ -26,6 +26,7 @@ from attr.validators import (
 )
 from git import (
     Blob,
+    PushInfo,
     Remote,
     Repo,
 )
@@ -64,6 +65,36 @@ logger = get_logger(__name__)
 
 
 abspath = toolz.compose(Path.absolute, Path)
+
+
+_PUSH_REJECTED_MASK = (
+    PushInfo.REJECTED
+    | PushInfo.REMOTE_REJECTED
+    | PushInfo.REMOTE_FAILURE
+    | PushInfo.ERROR
+)
+
+
+class CatalogPushError(RuntimeError):
+    """Raised when ``catalog.push()`` cannot publish to a remote.
+
+    Wraps GitPython's ``PushInfo`` rejection signals. Without this, the
+    catalog API silently returned success on rejected pushes — callers
+    would believe their entries were published when the remote ref had
+    not actually moved.
+    """
+
+
+def _assert_push_accepted(push_info_list, remote_name):
+    rejected = [info for info in push_info_list if info.flags & _PUSH_REJECTED_MASK]
+    if not rejected:
+        return
+    details = "; ".join(
+        f"{info.local_ref}: {info.summary.strip()}" for info in rejected
+    )
+    raise CatalogPushError(
+        f"push to remote {remote_name!r} was rejected: {details}"
+    )
 
 
 def _ensure_wheel_artifacts(build_dir, project_path=None):
@@ -313,13 +344,23 @@ class Catalog:
             self.backend.fetch_content(*paths)
 
     def push(self):
-        """Push to all git remotes after verifying consistency."""
+        """Push to all git remotes after verifying consistency.
+
+        Raises ``CatalogPushError`` if any remote rejects the push (e.g.
+        the branch has diverged). Both the main branch and the annex
+        branch are checked — partial success leaves the remote in a
+        half-state and is also reported as a failure.
+        """
         self.assert_consistency()
-        results = tuple(map(Remote.push, self._git_remotes))
+        results = tuple(remote.push() for remote in self._git_remotes)
+        for remote, infos in zip(self._git_remotes, results):
+            _assert_push_accepted(infos, remote.name)
         if _has_local_annex_branch(self.repo):
             annex_results = tuple(
                 remote.push(ANNEX_BRANCH) for remote in self._git_remotes
             )
+            for remote, infos in zip(self._git_remotes, annex_results):
+                _assert_push_accepted(infos, remote.name)
         else:
             annex_results = ()
             logger.debug(
