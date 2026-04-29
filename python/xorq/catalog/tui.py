@@ -201,6 +201,7 @@ class CatalogRowData:
     @cached_property
     def info_text(self) -> str:
         parts = [
+            f"Hash: {self.hash}",
             f"Lineage: {self.lineage_text}",
             f"Cache: {self.cache_info_text}",
         ]
@@ -818,25 +819,26 @@ class CatalogScreen(Screen):
         is_new = row_data.row_key in self._new_keys
         cache_icon = _format_cached(row_data.cached)
         ncols = len(row_data.schema_out)
+        short_hash = row_data.hash[:8]
 
         label = Text()
         if is_new:
             label.append(f"{cache_icon} ", style="bold #FF69B4")
             if row_data.aliases_display:
                 label.append(row_data.aliases_display, style="bold #FF69B4")
-                label.append(f" — {row_data.hash[:12]}", style="#FF69B4")
+                label.append(f" {short_hash}", style="dim #FF69B4")
             else:
-                label.append(row_data.hash[:12], style="bold #FF69B4")
-            label.append(f"  {ncols} cols", style="dim #FF69B4")
+                label.append(short_hash, style="bold #FF69B4")
+            label.append(f" ·{ncols}", style="dim #FF69B4")
         else:
             cache_color = {"●": "#2BBE75", "○": "#F5CA2C"}.get(cache_icon, "dim")
             label.append(f"{cache_icon} ", style=cache_color)
             if row_data.aliases_display:
                 label.append(row_data.aliases_display, style="bold #C1F0FF")
-                label.append(f" — {row_data.hash[:12]}", style="dim #5abfb5")
+                label.append(f" {short_hash}", style="dim #5abfb5")
             else:
-                label.append(row_data.hash[:12], style="#C1F0FF")
-            label.append(f"  {ncols} cols", style="dim")
+                label.append(short_hash, style="#C1F0FF")
+            label.append(f" ·{ncols}", style="dim")
         return label
 
     def _settle_new_labels(self, keys: set[str]) -> None:
@@ -1558,6 +1560,9 @@ class CatalogTUI(App):
 
     #catalog-panel { height: 2fr; background: $surface; }
     #catalog-tree { height: 1fr; }
+    #catalog-tree > .tree--guides { color: #3d6670; }
+    #catalog-tree > .tree--guides-hover { color: #5abfb5; }
+    #catalog-tree > .tree--guides-selected { color: #C1F0FF; }
     #revisions-panel { height: 1fr; }
     #revisions-preview-table { height: 1fr; }
     #git-log-panel { height: 1fr; }
