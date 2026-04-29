@@ -1,13 +1,15 @@
+from __future__ import annotations
+
 import ast
 import pathlib
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
-from xorq.backends.xorq_datafusion import connect
 from xorq.common.utils.env_utils import (
     EnvConfigable,
     env_templates_dir,
 )
 from xorq.vendor import ibis
+from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.config import Config
 from xorq.vendor.ibis.config import Options as IbisOptions
 
@@ -27,7 +29,7 @@ class Cache(Config):
 
     """
 
-    default_relative_path: Union[str, pathlib.Path] = pathlib.Path(
+    default_relative_path: str | pathlib.Path = pathlib.Path(
         env_config.XORQ_DEFAULT_RELATIVE_PATH
     )
     key_prefix: str = env_config.XORQ_CACHE_KEY_PREFIX
@@ -165,17 +167,19 @@ class Options(IbisOptions):
     ----------
     cache : Cache
         Options controlling caching.
-    backend : Optional[xorq.backends.xorq_datafusion.Backend]
-        The backend to use for execution.
+    default_backend : Optional[xorq.vendor.ibis.backends.BaseBackend]
+        The default backend to use for execution. Defaults to a lazily
+        initialised xorq_datafusion backend; may be set to any BaseBackend
+        instance (e.g. via ``xorq.set_backend``).
     repr : Repr
         Options controlling expression printing.
     """
 
     cache: Cache = Cache()
-    backend: Optional[Any] = None
     repr: Repr = Repr()
     sql: SQL = SQL()
     pins: Pins = Pins()
+    default_backend: Optional[BaseBackend] = None
     debug: bool = bool(ast.literal_eval(env_config.XORQ_DEBUG or 0))
 
     @property
@@ -191,9 +195,19 @@ class Options(IbisOptions):
 options = Options()
 
 
-def _backend_init():
-    if (backend := options.backend) is not None:
+def default_backend():
+    """Return the lazily initialised default backend (xorq_datafusion)."""
+    if (backend := options.default_backend) is not None:
         return backend
 
-    options.backend = con = connect()
+    from xorq.backends.xorq_datafusion import connect  # noqa: PLC0415
+
+    con = connect()
+    # Pin idx to a stable sentinel so the default backend's profile name is
+    # identical across processes and test orderings. Otherwise it varies with
+    # whatever the global itertools.count() factory has consumed, and leaks
+    # into profiles.yaml, expr.yaml profile refs, and cache keys derived from
+    # the default backend.
+    con._profile = con._profile.clone(idx=-1)
+    options.default_backend = con
     return con
