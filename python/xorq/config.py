@@ -202,5 +202,12 @@ def default_backend():
 
     from xorq.backends.xorq_datafusion import connect  # noqa: PLC0415
 
-    options.default_backend = con = connect()
+    con = connect()
+    # Pin idx to a stable sentinel so the default backend's profile name is
+    # identical across processes and test orderings. Otherwise it varies with
+    # whatever the global itertools.count() factory has consumed, and leaks
+    # into profiles.yaml, expr.yaml profile refs, and cache keys derived from
+    # the default backend.
+    con._profile = con._profile.clone(idx=-1)
+    options.default_backend = con
     return con
