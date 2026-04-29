@@ -2,6 +2,7 @@ import math
 import re
 import subprocess
 import threading
+from collections import Counter
 from datetime import datetime
 from functools import cache, cached_property
 from pathlib import Path
@@ -96,23 +97,24 @@ XORQ_DARK = Theme(
 
 KIND_ORDER = ("source", "expr", "unbound_expr", "composed")
 
-KIND_ICONS = {
-    "source": "⊞",
-    "expr": "⊕",
-    "unbound_expr": "⊘",
-    "composed": "⊛",
+
+@frozen
+class KindStyle:
+    icon: str = field(validator=instance_of(str))
+    color: str = field(validator=instance_of(str))
+
+
+KIND_STYLES: dict[str, KindStyle] = {
+    "source": KindStyle(icon="⊞", color=XORQ_DARK.primary),
+    "expr": KindStyle(icon="⊕", color=XORQ_DARK.success),
+    "unbound_expr": KindStyle(icon="⊘", color=XORQ_DARK.warning),
+    "composed": KindStyle(icon="⊛", color=XORQ_DARK.secondary),
 }
 
-KIND_COLORS = {
-    "source": XORQ_DARK.primary,
-    "expr": XORQ_DARK.success,
-    "unbound_expr": XORQ_DARK.warning,
-    "composed": XORQ_DARK.secondary,
-}
-
-CACHE_COLORS = {
-    "●": XORQ_DARK.success,
-    "○": XORQ_DARK.warning,
+CACHE_STYLE: dict[bool | None, tuple[str, str]] = {
+    True: ("●", XORQ_DARK.success),
+    False: ("○", XORQ_DARK.warning),
+    None: ("—", "dim"),
 }
 
 FLASH_NEW = XORQ_DARK.variables["flash-new"]
@@ -126,23 +128,16 @@ GIT_LOG_COLUMNS = ("HASH", "DATE", "MESSAGE")
 
 
 def _styled_branch_label(kind: str, count: int) -> Text:
-    icon = KIND_ICONS.get(kind, "·")
-    color = KIND_COLORS.get(kind, XORQ_DARK.primary)
+    style = KIND_STYLES[kind]
     label = Text()
-    label.append(f"{icon} ", style=f"bold {color}")
-    label.append(f"{kind} ", style=f"bold {color}")
-    label.append(f"({count})", style=f"dim {color}")
+    label.append(f"{style.icon} ", style=f"bold {style.color}")
+    label.append(f"{kind} ", style=f"bold {style.color}")
+    label.append(f"({count})", style=f"dim {style.color}")
     return label
 
 
 def _format_cached(value: bool | None) -> str:
-    match value:
-        case True:
-            return "●"
-        case False:
-            return "○"
-        case _:
-            return "—"
+    return CACHE_STYLE[value][0]
 
 
 def get_cache_key_path(cache_key: CacheKey | None) -> str | None:
@@ -835,7 +830,7 @@ class CatalogScreen(Screen):
 
     def _styled_leaf_label(self, row_data: CatalogRowData) -> Text:
         is_new = row_data.row_key in self._new_keys
-        cache_icon = _format_cached(row_data.cached)
+        cache_icon, cache_color = CACHE_STYLE[row_data.cached]
         ncols = len(row_data.schema_out)
         short_hash = row_data.hash[:8]
 
@@ -849,7 +844,6 @@ class CatalogScreen(Screen):
                 label.append(short_hash, style=f"bold {FLASH_NEW}")
             label.append(f" ·{ncols}", style=f"dim {FLASH_NEW}")
         else:
-            cache_color = CACHE_COLORS.get(cache_icon, "dim")
             label.append(f"{cache_icon} ", style=cache_color)
             if row_data.aliases_display:
                 label.append(
@@ -866,25 +860,18 @@ class CatalogScreen(Screen):
         for branch in tree.root.children:
             for leaf in branch.children:
                 if leaf.data in keys:
-                    row_data = self._row_cache.get(leaf.data)
-                    if row_data:
-                        leaf.set_label(self._styled_leaf_label(row_data))
+                    leaf.set_label(self._styled_leaf_label(self._row_cache[leaf.data]))
 
     def _render_status(self, stamp, repo_path) -> None:
         rows = self._row_cache.values()
         count = len(self._row_cache)
-        kind_counts = {}
-        cached_count = 0
-        for r in rows:
-            kind_counts[r.kind] = kind_counts.get(r.kind, 0) + 1
-            if r.cached:
-                cached_count += 1
+        kind_counts = Counter(r.kind for r in rows)
+        cached_count = sum(1 for r in rows if r.cached)
         kinds_str = ", ".join(
             f"{kind_counts[k]} {k}" for k in KIND_ORDER if k in kind_counts
         )
-        parts = [f" {count} entries"]
-        if kinds_str:
-            parts[0] += f" ({kinds_str})"
+        header = f" {count} entries" + (f" ({kinds_str})" if kinds_str else "")
+        parts = [header]
         if cached_count:
             parts.append(f"{cached_count} cached")
         parts.append(str(repo_path))
