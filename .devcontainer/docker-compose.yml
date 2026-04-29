@@ -23,8 +23,6 @@ services:
       - venv:${DEV_CONTAINER_WORKSPACE:?DEV_CONTAINER_WORKSPACE is required}/.venv
       # per-project: persistent test data
       - ibis-testing-data:${DEV_CONTAINER_WORKSPACE:?DEV_CONTAINER_WORKSPACE is required}/ci/ibis-testing-data
-      # SSH agent forwarding (empty dir when no agent on host)
-      - ${DEV_SSH_AUTH_SOCK}:/home/vscode/.ssh/agent.sock
       # sops age key (no-op when dir doesn't exist on host)
       - ${DEV_SOPS_AGE_DIR:-/dev/null}:/home/vscode/.config/sops/age:ro
       # Claude: host config read-only for baseline inheritance
@@ -34,12 +32,15 @@ services:
       - claude-home:/home/vscode/.claude
     tmpfs:
       - /home/vscode/.claude/shell-snapshots
+      # SSH agent forwarding: socat bridges host agent over TCP via host.docker.internal
+      # (the actual socket is created at runtime by the devcontainer script)
+      - /run/ssh-agent:uid=${DEV_UID:-1000},gid=${DEV_GID:-1000},mode=0700
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # per-project: host services accessible via host.docker.internal
     environment:
       - POSTGRES_HOST=host.docker.internal
-      - SSH_AUTH_SOCK=/home/vscode/.ssh/agent.sock
+      - SSH_AUTH_SOCK=/run/ssh-agent/agent.sock
     command: sleep infinity
 
 volumes:

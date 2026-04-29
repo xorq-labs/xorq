@@ -29,6 +29,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x -o /tmp/nodesour
         direnv \
         nodejs \
         gh \
+        socat \
     && rm -rf /var/lib/apt/lists/*
 
 # per-project: uv (Python package manager)
