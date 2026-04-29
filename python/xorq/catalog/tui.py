@@ -42,6 +42,7 @@ from xorq.caching.storage import resolve_parquet_cache_path
 from xorq.catalog.catalog import CatalogEntry
 from xorq.common.utils.caching_utils import CacheKey
 from xorq.common.utils.logging_utils import get_logger
+from xorq.config import options
 
 
 logger = get_logger(__name__)
@@ -486,7 +487,7 @@ class CatalogScreen(Screen):
         self._refresh_interval = refresh_interval
         self._row_cache: dict[str, CatalogRowData] = {}
         self._new_keys: set[str] = set()
-        self._git_log_visible = False
+        self._git_log_visible = options.tui.git_log_open
         self._git_log_loaded = False
         self._refresh_lock = threading.Lock()
         self._active_view: Literal["sql", "data"] = "sql"
@@ -565,11 +566,14 @@ class CatalogScreen(Screen):
             Text("← Select an expression", style="dim")
         )
         self.query_one("#revisions-panel").border_title = "Revisions"
-        self.query_one("#revisions-panel").display = False
+        self.query_one("#revisions-panel").display = options.tui.revisions_open
 
         git_log_panel = self.query_one("#git-log-panel")
         git_log_panel.border_title = "Git Log"
-        git_log_panel.display = False
+        git_log_panel.display = options.tui.git_log_open
+
+        self.query_one("#left-column").styles.width = f"{options.tui.left_ratio}fr"
+        self.query_one("#right-column").styles.width = f"{options.tui.right_ratio}fr"
 
         data_panel = self.query_one("#data-preview-panel")
         data_panel.border_title = "Data Preview"

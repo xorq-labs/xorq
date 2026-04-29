@@ -46,6 +46,7 @@ from xorq.catalog.tui import (
     get_cache_key_path,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
+from xorq.config import TUI, options
 
 
 def _run(coro):
@@ -1170,5 +1171,32 @@ def test_data_view_undo_redo_no_crash_when_empty(catalog, entry_a):
             await pilot.press("ctrl+r")
             await settle(pilot)
             assert isinstance(app.screen, DataViewScreen)
+
+    _run(_test())
+
+
+# ---------------------------------------------------------------------------
+# 5. TUI options
+# ---------------------------------------------------------------------------
+
+
+def test_tui_options_defaults():
+    cfg = TUI()
+    assert cfg.left_ratio == 2
+    assert cfg.right_ratio == 3
+    assert cfg.revisions_open is False
+    assert cfg.git_log_open is False
+
+
+def test_tui_options_apply_column_widths(catalog):
+    async def _test():
+        with options.tui({"left_ratio": 5, "right_ratio": 7, "revisions_open": True}):
+            app = _make_tui(catalog)
+            async with app.run_test(size=(120, 40)) as pilot:
+                await settle(pilot)
+                screen = app.screen
+                assert str(screen.query_one("#left-column").styles.width) == "5fr"
+                assert str(screen.query_one("#right-column").styles.width) == "7fr"
+                assert screen.query_one("#revisions-panel").display is True
 
     _run(_test())

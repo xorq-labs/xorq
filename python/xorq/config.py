@@ -160,6 +160,31 @@ class Pins(Config):
         return path
 
 
+class TUI(Config):
+    """xorq catalog TUI layout options.
+
+    Attributes
+    ----------
+    left_ratio : int
+        Width fraction of the left column (catalog tree side).
+    right_ratio : int
+        Width fraction of the right column (SQL / Info / Schema side).
+    revisions_open : bool
+        Whether the Revisions panel is shown at startup.
+    git_log_open : bool
+        Whether the Git log panel is shown at startup.
+    """
+
+    left_ratio: int = int(env_config.XORQ_TUI_LEFT_RATIO or 2)
+    right_ratio: int = int(env_config.XORQ_TUI_RIGHT_RATIO or 3)
+    revisions_open: bool = bool(
+        ast.literal_eval(env_config.XORQ_TUI_REVISIONS_OPEN or "False")
+    )
+    git_log_open: bool = bool(
+        ast.literal_eval(env_config.XORQ_TUI_GIT_LOG_OPEN or "False")
+    )
+
+
 class Options(IbisOptions):
     """xorq configuration options
 
@@ -173,12 +198,15 @@ class Options(IbisOptions):
         instance (e.g. via ``xorq.set_backend``).
     repr : Repr
         Options controlling expression printing.
+    tui : TUI
+        Options controlling the catalog TUI layout.
     """
 
     cache: Cache = Cache()
     repr: Repr = Repr()
     sql: SQL = SQL()
     pins: Pins = Pins()
+    tui: TUI = TUI()
     default_backend: Optional[BaseBackend] = None
     debug: bool = bool(ast.literal_eval(env_config.XORQ_DEBUG or 0))
 
