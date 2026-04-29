@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777407689302,
+  "lastUpdate": 1777459755963,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -8844,6 +8844,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.04914764735221656",
             "extra": "mean: 224.29893400000842 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "098a3e001cffb6627b37fbfbf2b19d0aac64e9cd",
+          "message": "refactor(devcontainer): replace SSH socket bind-mount with socat TCP bridge (#1893)\n\n## Summary\n- Replaces the SSH agent socket bind-mount with a socat TCP bridge over\n`host.docker.internal`, fixing compatibility with Docker Desktop and\nhost socket path changes\n- Adds `devcontainer refresh-ssh` subcommand to restart forwarding\nwithout touching the container\n- Installs `socat` in the container image; checks for it on the host at\nruntime with a clear warning if missing\n\n## Changes\n- **Dockerfile**: adds `socat` to apt packages\n- **docker-compose.yml**: removes socket bind-mount, adds\n`/run/ssh-agent` tmpfs, sets `SSH_AUTH_SOCK` to the new path\n- **dev/devcontainer**: replaces `DEV_SSH_AUTH_SOCK` export with\n`setup_ssh_forward`/`stop_ssh_forward` functions using a host↔container\nsocat bridge; adds `refresh-ssh` subcommand; calls `stop_ssh_forward` in\n`down`/`reset`/`clean`\n- **dev/devcontainer-completions**: adds `refresh-ssh` to bash, zsh, and\nfish completions\n\n## Test plan\n- [ ] `devcontainer up` — verify `ssh-add -l` works inside the container\nafter script returns\n- [ ] `devcontainer refresh-ssh` — verify it re-establishes the bridge\n- [ ] `devcontainer down` / `reset` — verify host socat process is\ncleaned up\n- [ ] Run without `socat` on host — verify warning and graceful\ndegradation\n- [ ] Run without `SSH_AUTH_SOCK` — verify warning\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-29T12:45:15+02:00",
+          "tree_id": "71ac3a3803515fe933b3a29417925d833f13a25e",
+          "url": "https://github.com/xorq-labs/xorq/commit/098a3e001cffb6627b37fbfbf2b19d0aac64e9cd"
+        },
+        "date": 1777459753325,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.22155878763302,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007282251197669579",
+            "extra": "mean: 97.83243640000308 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.834155095547704,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010424219069061446",
+            "extra": "mean: 206.86138119999669 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.638121237693576,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11868706991585563",
+            "extra": "mean: 1.5671003266000014 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.963724427643461,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011267783594759419",
+            "extra": "mean: 201.46162716667013 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.726143272217106,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03382685062911042",
+            "extra": "mean: 268.3740068333407 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.9931867966160475,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0024771862252244204",
+            "extra": "mean: 200.2728999999988 msec\nrounds: 5"
           }
         ]
       }
