@@ -18,11 +18,6 @@ services:
       # .git/worktrees/, .git/objects/, and .git/refs/
       - ${DEV_MAIN_GIT:?DEV_MAIN_GIT is required}:${DEV_MAIN_GIT}:cached
       - ${DEV_MAIN_TREE:?DEV_MAIN_TREE is required}:${DEV_MAIN_TREE}:cached
-      # per-project: cached build/dependency volumes
-      - uv-cache:/home/vscode/.cache/uv
-      - venv:${DEV_CONTAINER_WORKSPACE:?DEV_CONTAINER_WORKSPACE is required}/.venv
-      # per-project: persistent test data
-      - ibis-testing-data:${DEV_CONTAINER_WORKSPACE:?DEV_CONTAINER_WORKSPACE is required}/ci/ibis-testing-data
       # sops age key (no-op when dir doesn't exist on host)
       - ${DEV_SOPS_AGE_DIR:-/dev/null}:/home/vscode/.config/sops/age:ro
       # Claude: host config read-only for baseline inheritance
@@ -37,22 +32,10 @@ services:
       - /run/ssh-agent:uid=${DEV_UID:-1000},gid=${DEV_GID:-1000},mode=0700
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # per-project: host services accessible via host.docker.internal
     environment:
-      - POSTGRES_HOST=host.docker.internal
       - SSH_AUTH_SOCK=/run/ssh-agent/agent.sock
     command: sleep infinity
 
 volumes:
-  # per-project: shared across worktrees (content-addressed)
-  uv-cache:
-    name: ${DEV_PROJECT_NAME:?DEV_PROJECT_NAME is required}-uv-cache
-    external: true
-  # per-worktree: virtualenv paths are workspace-specific
-  venv:
-  # per-project: shared across worktrees (read-mostly test fixtures)
-  ibis-testing-data:
-    name: ${DEV_PROJECT_NAME:?DEV_PROJECT_NAME is required}-ibis-testing-data
-    external: true
   # per-worktree: session symlinks and project keys are workspace-specific
   claude-home:

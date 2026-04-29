@@ -1,0 +1,6 @@
+# Paths under the main worktree to copy (not symlink) into new worktrees.
+# One path per line, relative to the main worktree root. Globs allowed.
+# Lines starting with '#' and blank lines are ignored.
+.envrcs/.envrc.secrets
+.envrcs/.envrc.user
+.envrcs/.env.*

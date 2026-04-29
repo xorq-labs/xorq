@@ -7,6 +7,17 @@ from collections import Counter
 from pathlib import Path
 
 
+def load_two_word_prefixes():
+    path = Path(__file__).parent / "project" / "audit-prefixes.txt"
+    prefixes = set()
+    if path.exists():
+        for line in path.read_text().splitlines():
+            line = line.split("#", 1)[0].strip()
+            if line:
+                prefixes.add(line)
+    return prefixes
+
+
 def main():
     audit_log = sys.argv[1]
     mode = sys.argv[2] if len(sys.argv) > 2 else "--summary"
@@ -19,6 +30,8 @@ def main():
                 baseline.add(perm)
     except (FileNotFoundError, json.JSONDecodeError):
         pass
+
+    two_word_prefixes = load_two_word_prefixes()
 
     tool_counts = Counter()
     bash_prefixes = Counter()
@@ -42,11 +55,7 @@ def main():
                 if not parts:
                     continue
                 prefix = parts[0]
-                # per-project: bash commands that use two-word prefixes
-                if (
-                    prefix in ("git", "env", "uv", "npm", "pytest", "pre-commit")
-                    and len(parts) > 1
-                ):
+                if prefix in two_word_prefixes and len(parts) > 1:
                     prefix = f"{parts[0]} {parts[1]}"
                 bash_prefixes[prefix] += 1
                 patterns.add(f"Bash({prefix}:*)")

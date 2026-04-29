@@ -1,0 +1,6 @@
+# Volume names (basenames) declared `external: true` in compose.override.yml.
+# dev/devcontainer pre-creates each as `${PROJECT_NAME}-<basename>` before
+# `dc up`, so a fresh checkout doesn't error on missing external volumes.
+# One basename per line; '#' comments and blank lines are ignored.
+uv-cache
+ibis-testing-data
