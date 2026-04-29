@@ -178,6 +178,34 @@ def test_catalog_clone_from_push(repo_cloned_bare, tmpdir):
     assert before != after
 
 
+def test_push_surfaces_remote_rejection(repo_cloned_bare, tmpdir):
+    """catalog.push() must surface a remote rejection rather than returning silently.
+
+    Scenario: two clones from the same bare remote, both add a different
+    entry. User A pushes first (clean fast-forward). User B's local main
+    has now diverged from origin/main, so the next push is rejected by
+    the remote with "fetch first". xorq#1898 — today catalog.push()
+    returns normally despite GitPython reporting REJECTED|ERROR on the
+    main ref.
+    """
+    user_a = Catalog.clone_from(
+        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("a")
+    )
+    user_b = Catalog.clone_from(
+        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("b")
+    )
+
+    with build_expr_context_zip(xo.memtable({"a-only": ["a"]})) as zp:
+        user_a.add(zp, sync=False)
+    user_a.push()
+
+    with build_expr_context_zip(xo.memtable({"b-only": ["b"]})) as zp:
+        user_b.add(zp, sync=False)
+
+    with pytest.raises(Exception, match="(?i)reject"):
+        user_b.push()
+
+
 # ---------------------------------------------------------------------------
 # clone_from auto-detection
 # ---------------------------------------------------------------------------
