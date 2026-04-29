@@ -961,15 +961,17 @@ class Pipeline:
         return self.__class__.from_instance(remapped)
 
 
-_FITTED_PIPELINE_REEMIT_METHODS: dict[FittedPipelineTagKey, str] = {
-    FittedPipelineTagKey.TRANSFORM: "transform",
-    FittedPipelineTagKey.PREDICT: "predict",
-    FittedPipelineTagKey.PREDICT_PROBA: "predict_proba",
-    FittedPipelineTagKey.DECISION_FUNCTION: "decision_function",
-    FittedPipelineTagKey.FEATURE_IMPORTANCES: "feature_importances",
-}
 # ALL_STEPS and TRAINING are interior tags stamped as side-effects of
-# Pipeline.fit — not reemit entry points.
+# Pipeline.fit, not reemit entry points.
+_FITTED_PIPELINE_REEMIT_TAGS: frozenset[FittedPipelineTagKey] = frozenset(
+    {
+        FittedPipelineTagKey.TRANSFORM,
+        FittedPipelineTagKey.PREDICT,
+        FittedPipelineTagKey.PREDICT_PROBA,
+        FittedPipelineTagKey.DECISION_FUNCTION,
+        FittedPipelineTagKey.FEATURE_IMPORTANCES,
+    }
+)
 
 
 @frozen
@@ -1038,14 +1040,46 @@ class FittedPipeline:
         refitted pipeline.
 
         The internal transform/predict expression structure is
-        preserved — we do not re-invoke the response method, since the
+        preserved; we do not re-invoke the response method, since the
         original predict/transform input is not recoverable from the
         tag subtree alone.
         """
+        from xorq.catalog.bind import CatalogTag  # noqa: PLC0415
+        from xorq.expr.relations import HashingTag  # noqa: PLC0415
+
         tag_key = FittedPipelineTagKey(tag_node.metadata["tag"])
-        if tag_key not in _FITTED_PIPELINE_REEMIT_METHODS:
+        if tag_key not in _FITTED_PIPELINE_REEMIT_TAGS:
             raise RuntimeError(
                 f"rebuild: FittedPipeline tag {tag_key!r} is not a reemit entry point"
+            )
+
+        # Refuse rebuild when the training subtree itself contains catalog
+        # refs. The model UDFs in `tag_node.parent` close over the original
+        # training expression via `computed_kwargs_expr`, and rebuild_subexpr
+        # only translates Reads it can reach by graph walk; it does not
+        # descend into UDF closures. So if we proceed:
+        #   - new_training would be the catalog-translated training expr,
+        #   - refitted's tag_kwargs would advertise a fresh training_hash,
+        #   - but the model UDF inside new_parent would still reference the
+        #     OLD training expression (whose Reads point at source-catalog
+        #     paths that may not exist in the target).
+        # The result is silent provenance/execution divergence. Doing this
+        # correctly requires recursively rebuilding inside ScalarUDF
+        # closures, punted to a follow-up.
+        catalog_tags = frozenset(CatalogTag)
+        training_catalog_tags = tuple(
+            n
+            for n in walk_nodes((HashingTag,), self.expr)
+            if n.metadata.get("tag") in catalog_tags
+        )
+        if training_catalog_tags:
+            raise RuntimeError(
+                "rebuild: FittedPipeline whose training subtree contains "
+                "catalog references is not yet supported. Model UDFs close "
+                "over the original training expression and rebuild_subexpr "
+                "does not descend into UDF closures, so the rebuilt entry "
+                "would fit on the translated training data but still "
+                "reference the source catalog's reads at execution time."
             )
 
         new_training = rebuild_subexpr(self.expr)

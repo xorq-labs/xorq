@@ -37,22 +37,6 @@ def target_path(tmpdir):
     return Path(tmpdir).joinpath("target-repo")
 
 
-@pytest.fixture
-def saved_registry():
-    """Save and restore the builder handler registry around a test."""
-    import xorq.expr.builders as _builders_mod  # noqa: PLC0415
-    from xorq.expr.builders import _FROM_TAG_NODE_REGISTRY  # noqa: PLC0415
-
-    saved = dict(_FROM_TAG_NODE_REGISTRY)
-    saved_keys = _builders_mod._BUILTIN_KEYS
-    saved_init = _builders_mod._initialized
-    yield
-    _FROM_TAG_NODE_REGISTRY.clear()
-    _FROM_TAG_NODE_REGISTRY.update(saved)
-    _builders_mod._BUILTIN_KEYS = saved_keys
-    _builders_mod._initialized = saved_init
-
-
 def _replay_rebuild(source_catalog_obj, target_path, on_unrebuilt_builder="raise"):
     target = Catalog.from_repo_path(target_path, init=True)
     Replayer(
@@ -123,15 +107,18 @@ def test_rebuild_rewrites_remote_expr_not_just_metadata(source_catalog, target_p
 def test_rebuild_expr_for_target_returns_input_when_no_catalog_tags(source_catalog):
     from types import SimpleNamespace  # noqa: PLC0415
 
-    from xorq.catalog.replay import _rebuild_expr_for_target  # noqa: PLC0415
+    from xorq.catalog.replay import (  # noqa: PLC0415
+        RebuildContext,
+        _rebuild_expr_for_target,
+    )
 
     catalog, _source, _transform, _bound = source_catalog
-    # Stub a minimal source_entry so lazy_expr is a stable object — the
+    # Stub a minimal source_entry so lazy_expr is a stable object; the
     # real CatalogEntry.lazy_expr reloads from zip on each access, which
     # defeats identity comparison.
     expr = xo.memtable({"x": [1, 2, 3]})
     stub = SimpleNamespace(lazy_expr=expr, catalog=catalog, name="stub")
-    result = _rebuild_expr_for_target(stub, catalog, remap={})
+    result = _rebuild_expr_for_target(stub, catalog, RebuildContext(rebuild=True))
     assert result is expr
 
 
@@ -150,7 +137,7 @@ def test_bind_is_hash_deterministic(source_catalog, tmpdir):
     b_tr = b_cat.add(transform_entry.lazy_expr)
     b = b_cat.add(bind(b_src, b_tr))
     assert a.name == b.name, (
-        "bind() is non-deterministic — gen_name is leaking into entry hash"
+        "bind() is non-deterministic; gen_name is leaking into entry hash"
     )
 
 
@@ -164,7 +151,7 @@ def test_rebuild_matches_fresh_bind(source_catalog, target_path, tmpdir):
 
     # Re-add into a SCRATCH catalog so add()'s exist_ok-collision behavior
     # cannot mask a name mismatch. Sanity-check that source/transform hash
-    # is content-pure first — otherwise the bind comparison below is moot.
+    # is content-pure first; otherwise the bind comparison below is moot.
     # Aliases must match too: _make_source_tag falls back to the first
     # alias of the source entry, and rebuild pins that alias explicitly.
     scratch = Catalog.from_repo_path(Path(tmpdir).joinpath("scratch"), init=True)
@@ -195,7 +182,7 @@ def test_rebuild_chained_bind_of_bind(tmpdir):
     t2_entry = catalog.add(t2, aliases=("t2",))
 
     # bound1 = bind(source, t1); bound2 = bind(bound1_as_source, t2) via a
-    # fresh source entry — the interesting case is chained transforms in
+    # fresh source entry. The interesting case is chained transforms in
     # one bind() call, which ExprComposer handles as transforms=(t1, t2).
     bound = bind(source_entry, t1_entry, t2_entry)
     catalog.add(bound, aliases=("chained",))
@@ -302,7 +289,7 @@ def test_rebuild_preserves_outer_builder_wrapping(tmpdir, saved_registry):
         )
     )
 
-    # Build a fresh catalog that has no pre-existing bound entry — Tag is
+    # Build a fresh catalog that has no pre-existing bound entry. Tag is
     # transparent to dask.tokenize, so composed.tag(...) and composed hash
     # to the same entry name; if bound were pre-added, the Tag-wrapped
     # expression would collide.
@@ -367,7 +354,7 @@ def test_rebuild_pure_builder_without_catalog_refs(tmpdir, saved_registry):
     )
     new_pure = target.get_catalog_entry("pure", maybe_alias=True)
     src_entry = catalog.get_catalog_entry("pure", maybe_alias=True)
-    # Same content hash — no catalog-tag rewrite should have run.
+    # Same content hash: no catalog-tag rewrite should have run.
     assert dask.base.tokenize(new_pure.lazy_expr) == dask.base.tokenize(
         src_entry.lazy_expr
     )
@@ -377,14 +364,14 @@ def test_rebuild_pure_builder_without_catalog_refs(tmpdir, saved_registry):
 def test_rebuild_raises_when_recipe_references_unknown_target_entry(
     source_catalog, target_path
 ):
-    from xorq.catalog.replay import AddEntry  # noqa: PLC0415
+    from xorq.catalog.replay import AddEntry, RebuildContext  # noqa: PLC0415
 
     catalog, _source, _transform, bound_entry = source_catalog
     target = Catalog.from_repo_path(target_path, init=True)
 
     op = AddEntry(entry_hash=bound_entry.name, aliases=("bound1",))
     with pytest.raises(RuntimeError, match="not been rebuilt in target"):
-        op.do(catalog, target, rebuild=True, remap={})
+        op.do(catalog, target, RebuildContext(rebuild=True))
 
 
 def test_rebuild_preserves_aliases(source_catalog, target_path):
@@ -398,7 +385,7 @@ def test_rebuild_preserves_aliases(source_catalog, target_path):
 
 
 def test_remove_entry_translates_via_remap(tmpdir):
-    from xorq.catalog.replay import RemoveEntry  # noqa: PLC0415
+    from xorq.catalog.replay import RebuildContext, RemoveEntry  # noqa: PLC0415
 
     src_repo = Catalog.init_repo_path(Path(tmpdir).joinpath("src"))
     src = Catalog(backend=GitBackend(repo=src_repo))
@@ -407,12 +394,12 @@ def test_remove_entry_translates_via_remap(tmpdir):
     entry = tgt.add(xo.memtable({"a": [1]}))
 
     op = RemoveEntry(entry_name="OLD_HASH", aliases=())
-    op.do(src, tgt, rebuild=True, remap={"OLD_HASH": entry.name})
+    op.do(src, tgt, RebuildContext(rebuild=True, remap={"OLD_HASH": entry.name}))
     assert entry.name not in tgt.list()
 
 
 def test_add_alias_translates_via_remap(tmpdir):
-    from xorq.catalog.replay import AddAlias  # noqa: PLC0415
+    from xorq.catalog.replay import AddAlias, RebuildContext  # noqa: PLC0415
 
     src_repo = Catalog.init_repo_path(Path(tmpdir).joinpath("src"))
     src = Catalog(backend=GitBackend(repo=src_repo))
@@ -421,7 +408,7 @@ def test_add_alias_translates_via_remap(tmpdir):
     entry = tgt.add(xo.memtable({"a": [1]}))
 
     op = AddAlias(alias="my-alias", entry_name="OLD_HASH")
-    op.do(src, tgt, rebuild=True, remap={"OLD_HASH": entry.name})
+    op.do(src, tgt, RebuildContext(rebuild=True, remap={"OLD_HASH": entry.name}))
     resolved = tgt.get_catalog_entry("my-alias", maybe_alias=True)
     assert resolved.name == entry.name
 
@@ -451,12 +438,12 @@ def test_rebuild_raises_on_unknown_op_touching_catalog_paths(tmpdir):
     target_path = Path(tmpdir).joinpath("target")
     target = Catalog.from_repo_path(target_path, init=True)
     replayer = Replayer(from_catalog=catalog, rebuild=True, verify=False)
-    with pytest.raises(RuntimeError, match="Cannot rebuild unknown op"):
+    with pytest.raises(RuntimeError, match="rebuild: cannot rebuild unknown op"):
         replayer.replay(target)
 
 
 def test_rebuild_applies_non_catalog_unknown_op(tmpdir):
-    from xorq.catalog.replay import UnknownOp  # noqa: PLC0415
+    from xorq.catalog.replay import RebuildContext, UnknownOp  # noqa: PLC0415
 
     repo = Catalog.init_repo_path(Path(tmpdir).joinpath("src"))
     catalog = Catalog(backend=GitBackend(repo=repo))
@@ -470,8 +457,23 @@ def test_rebuild_applies_non_catalog_unknown_op(tmpdir):
         message="add readme",
         hexsha=commit.hexsha,
     )
-    op.do(catalog, target, rebuild=True, remap={})
+    op.do(catalog, target, RebuildContext(rebuild=True))
     assert (Path(target.repo.working_dir) / "README.md").read_text() == "hello"
+
+
+def test_replay_refuses_non_pristine_target(source_catalog, tmpdir):
+    """Replaying into a target that already has its own catalog history would
+    cause `_rewrite_noop_commits` to overwrite unrelated commits with the
+    source's init metadata. Replayer must refuse before any rewriting runs.
+    """
+    catalog, *_ = source_catalog
+    target_path = Path(tmpdir).joinpath("target-with-history")
+    target = Catalog.from_repo_path(target_path, init=True)
+    # Add a real entry to the target so it's no longer pristine.
+    target.add(xo.memtable({"x": [1]}), aliases=("preexisting",))
+
+    with pytest.raises(RuntimeError, match="not pristine"):
+        Replayer(from_catalog=catalog).replay(target)
 
 
 def test_rebuild_applies_changed_reemit(tmpdir, saved_registry):
@@ -501,7 +503,7 @@ def test_rebuild_applies_changed_reemit(tmpdir, saved_registry):
     raw = xo.memtable({"user_id": [1, 2, 3], "amount": [-5.0, 10.0, 20.0]})
     src_entry = catalog.add(raw.tag("cc_handler"), aliases=("cc",))
 
-    # Swap to v2 — same schema, different filter (> 15 instead of > 0).
+    # Swap to v2: same schema, different filter (> 15 instead of > 0).
     def reemit_v2(tag_node, rebuild_subexpr):
         inner = tag_node.parent.to_expr()
         return inner.filter(inner.amount > 15)
@@ -516,12 +518,14 @@ def test_rebuild_applies_changed_reemit(tmpdir, saved_registry):
     )
 
     # Drive replay manually so we can inspect the remap built during rebuild.
+    from xorq.catalog.replay import RebuildContext  # noqa: PLC0415
+
     target_path = Path(tmpdir).joinpath("tgt")
     target = Catalog.from_repo_path(target_path, init=True)
     replayer = Replayer(from_catalog=catalog, rebuild=True)
-    remap: dict = {}
+    ctx = RebuildContext(rebuild=True)
     for op in replayer.ops:
-        op.do(catalog, target, rebuild=True, remap=remap)
+        op.do(catalog, target, ctx)
     target.assert_consistency()
 
     tgt_entry = target.get_catalog_entry("cc", maybe_alias=True)
@@ -531,7 +535,7 @@ def test_rebuild_applies_changed_reemit(tmpdir, saved_registry):
     assert tgt_entry.name != src_entry.name
 
     # (b) Remap records the translation, and the translated name is in target.
-    assert remap.get(src_entry.name) == tgt_entry.name
+    assert ctx.remap.get(src_entry.name) == tgt_entry.name
     assert tgt_entry.name in target.list()
 
     # (c) Execution reflects v2 behavior: only the single row with amount > 15.

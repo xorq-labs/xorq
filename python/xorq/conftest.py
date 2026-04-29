@@ -6,6 +6,27 @@ import pandas as pd
 import pytest
 
 import xorq.api as xo
+from xorq.expr.builders import _FROM_TAG_NODE_REGISTRY
+
+
+@pytest.fixture
+def saved_registry():
+    """Snapshot the builder ``TagHandler`` registry around a test.
+
+    Tests that call ``register_tag_handler`` mutate process-global state in
+    ``xorq.expr.builders``; this fixture restores that state afterward so
+    tests don't leak handlers into each other or into builtin lookups.
+    """
+    import xorq.expr.builders as _builders_mod  # noqa: PLC0415
+
+    saved = dict(_FROM_TAG_NODE_REGISTRY)
+    saved_keys = _builders_mod._BUILTIN_KEYS
+    saved_init = _builders_mod._initialized
+    yield
+    _FROM_TAG_NODE_REGISTRY.clear()
+    _FROM_TAG_NODE_REGISTRY.update(saved)
+    _builders_mod._BUILTIN_KEYS = saved_keys
+    _builders_mod._initialized = saved_init
 
 
 # ensure registration of numpy and pandas objects for tokenization purposes

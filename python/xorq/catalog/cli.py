@@ -562,15 +562,7 @@ def log(ctx, as_json):
 @click.option(
     "--rebuild",
     is_flag=True,
-    help=(
-        "Rebuild each entry under current code. Entries with no catalog "
-        "references are re-added from their stored expression; entries "
-        "containing catalog references (Composed, or ExprBuilder wrapping a "
-        "composition) have the catalog subtree recomposed against their "
-        "(already rebuilt) dependencies in the target catalog — outer "
-        "builder wrappings pass through untouched. Updates build_metadata "
-        "and entry hashes. Fetches annex content for every entry."
-    ),
+    help="Rebuild each entry under current code (refreshes build_metadata and entry hashes).",
 )
 @click.pass_context
 def replay(
@@ -585,7 +577,15 @@ def replay(
     dry_run,
     rebuild,
 ):
-    """Replay catalog operations into a target catalog."""
+    """Replay catalog operations into a target catalog.
+
+    With ``--rebuild``, each entry is re-added under current code:
+    entries with no catalog references are re-added from their stored
+    expression; entries containing catalog references (Composed, or
+    ExprBuilder wrapping a composition) have the catalog subtree
+    recomposed against their already-rebuilt dependencies in the
+    target catalog. Outer builder wrappings pass through untouched.
+    """
     from xorq.catalog.catalog import Catalog
     from xorq.catalog.replay import Replayer
 
