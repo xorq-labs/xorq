@@ -40,7 +40,10 @@ from textual.widgets import (
 from xorq.caching.storage import resolve_parquet_cache_path
 from xorq.catalog.catalog import CatalogEntry
 from xorq.common.utils.caching_utils import CacheKey
+from xorq.common.utils.logging_utils import get_logger
 
+
+logger = get_logger(__name__)
 
 DEFAULT_REFRESH_INTERVAL = 10
 
@@ -1130,6 +1133,9 @@ class DataViewScreen(Screen):
             df = self._run_catalog_subprocess()
             self.app.call_from_thread(self._on_data_loaded, df)
         except Exception as e:
+            logger.exception(
+                "data_view_load_failed", entry_hash=self._row_data.hash[:12]
+            )
             self.app.call_from_thread(self._render_error, str(e))
 
     def _on_data_loaded(self, df) -> None:
@@ -1205,10 +1211,16 @@ class DataViewScreen(Screen):
     def _execute_current(self) -> None:
         """Evaluate current stack expression via subprocess."""
         stack = self._stack
+        code = stack.current_code or None
         try:
-            code = stack.current_code or None
             df = self._run_catalog_subprocess(code)
         except Exception as e:
+            logger.exception(
+                "stack_execute_failed",
+                cursor=stack.cursor,
+                steps=len(stack.steps),
+                code=code,
+            )
             self.app.call_from_thread(self._on_stack_execute_failed, stack, str(e))
             return
         self.app.call_from_thread(self._on_stack_executed, stack, df)
@@ -1397,8 +1409,8 @@ class DataViewScreen(Screen):
 
     @work(thread=True, exit_on_error=False)
     def _persist_to_catalog(self, alias) -> None:
+        code = self._stack.current_code
         try:
-            code = self._stack.current_code
             cmd = self._catalog_compose_cmd(code, alias)
             proc = subprocess.run(cmd, capture_output=True)
             if proc.returncode != 0:
@@ -1406,6 +1418,7 @@ class DataViewScreen(Screen):
             msg = f"Saved as '{alias}'" if alias else "Saved"
             self.app.call_from_thread(self._show_persist_success, msg)
         except Exception as e:
+            logger.exception("catalog_compose_failed", alias=alias, code=code)
             self.app.call_from_thread(self._show_command_error, f"Save failed: {e}")
 
     def _show_persist_success(self, message) -> None:
