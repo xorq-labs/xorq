@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777477139063,
+  "lastUpdate": 1777482939177,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -8976,6 +8976,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.06421333543962024",
             "extra": "mean: 359.4474365999872 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c04db1640fe9a924bd01c39c6d5ec42044fcc948",
+          "message": "refactor: consolidate default backend to xorq_datafusion  (#1866)\n\n## Summary\n\nConsolidate the xorq default backend around `xorq_datafusion`, dropping\nthe vendored ibis DuckDB fallback. Rename and relocate the\ndefault-backend plumbing so the public surface lives in the xorq layer,\nand pin the default backend's profile identity so snapshot tests are\ndeterministic.\n\n## Default backend\n\n- Remove the vendored ibis `_default_backend()` function and the\ntop-level `read_csv`, `read_parquet`, `read_json`, `read_delta` helpers\nthat bootstrapped DuckDB as the fallback.\n- Rename `xorq.config._backend_init` to `xorq.config.default_backend`\nand migrate every internal call site (caching/, common/utils/,\nexamples/, expr/api.py, tests/, vendor/ibis/expr/types/core.py). No\nbackward-compat alias is kept.\n- Make the `xorq_datafusion.connect` import lazy inside\n`default_backend` so importing `xorq.config` no longer eagerly loads the\ndatafusion backend.\n- Override `Options.default_backend` in `xorq.config.Options` with a\ntighter `Optional[BaseBackend]` annotation (vendor inherits\n`Optional[Any]` from upstream ibis).\n- Re-introduce a thin `_default_backend` delegator in\n`xorq.vendor.ibis.config` so the rest of the vendor tree only knows\nabout a single named seam to obtain the default backend.\n\n## Public API\n\n- Promote `get_backend` and `set_backend` from\n`xorq.vendor.ibis.expr.api` to `xorq.expr.api` so the user-facing\naccessors live in the xorq layer.\n- `xorq.expr.api.__all__` no longer excludes `read_csv`/`read_parquet`;\nthose vendor-level helpers are gone (see breaking change below).\n\n## Determinism fix\n\n- Pin the default backend's `Profile.idx` to a stable sentinel (`-1`) on\nfirst creation. Otherwise lazy initialisation makes the idx depend on\nwhatever the global `itertools.count()` factory has consumed by the time\nof first use, which leaks into `profiles.yaml`, `expr.yaml` profile\nrefs, and cache keys derived from the default backend — causing snapshot\ndrift across processes, environments, and test orderings.\n- Refresh `test_build_file_stability_and_relocatability` snapshot to the\nnow-deterministic output.\n\n## Affected modules\n\n- `vendor/ibis/config.py`: drop the DuckDB bootstrap; thin delegator\nonly\n- `vendor/ibis/expr/api.py`: drop file-reading top-level functions and\ntheir `__all__` entries; remove `get_backend`/`set_backend` (promoted)\n- `config.py`: rename `Options.backend` → `Options.default_backend`; pin\nprofile idx\n- `expr/api.py`: hoist `get_backend`/`set_backend`; drop EXCLUDE filter\n- `backends/{databricks,postgres,sqlite}`: replace\n`read_parquet`/`read_csv` imports with `default_backend()` calls\n- `ibis_yaml/compiler.py`: same replacement in `ExprLoader`\n- `tests/test_api.py`: add tests for datafusion singleton and\n`get_backend()` contract\n\n## BREAKING CHANGE\n\n`xorq.read_parquet`, `xorq.read_csv`, `xorq.read_json`, and\n`xorq.read_delta` no longer delegate to DuckDB. Use\n`xorq.config.default_backend().read_parquet(...)` or connect to an\nexplicit backend.\n\n## Test plan\n\n- [x] Snapshot tests deterministic across isolated, full-file, and\n`pytest-xdist -n 4 --dist loadfile` runs locally\n- [x] `test_api.py` (default backend singleton,\n`get_backend`/`set_backend` contract) passes\n- [x] `caching/tests/` passes\n- [ ] CI green on this branch\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-04-29T13:11:24-04:00",
+          "tree_id": "7f1c7303524ef3171336c1596ae7f07e0c957539",
+          "url": "https://github.com/xorq-labs/xorq/commit/c04db1640fe9a924bd01c39c6d5ec42044fcc948"
+        },
+        "date": 1777482936962,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.440970503649377,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014081265022714411",
+            "extra": "mean: 134.391071636362 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.6502046315488132,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05566005518615264",
+            "extra": "mean: 377.3293534000004 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6405945136086344,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18186690849262657",
+            "extra": "mean: 1.561049897800001 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.6850461123267055,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04383156458931731",
+            "extra": "mean: 372.43308240001056 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.6615013483434597,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04530081340580423",
+            "extra": "mean: 375.72778260000064 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.5825887022476284,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0608330506169037",
+            "extra": "mean: 387.20838479998747 msec\nrounds: 5"
           }
         ]
       }
