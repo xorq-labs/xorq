@@ -63,17 +63,11 @@ export DEV_HOST_USER="$(whoami)"
 export DEV_PROJECT_NAME="$PROJECT_NAME"
 export DEV_CONTAINER_WORKSPACE="$CONTAINER_WORKSPACE"
 [ -n "${MODEL_VERSION:-}" ] && export DEV_MODEL_VERSION="$MODEL_VERSION"
-# SSH agent forwarding: the container can sign with any key loaded in the
-# host agent.  For tighter control, use `ssh-add -c` (confirm each use)
-# or load only the keys you need before starting the container.
-if [ -S "${SSH_AUTH_SOCK:-}" ]; then
-    export DEV_SSH_AUTH_SOCK="$SSH_AUTH_SOCK"
-else
-    DEV_SSH_AUTH_SOCK_EMPTY="/tmp/devcontainer-empty-ssh-sock"
-    mkdir -p "$DEV_SSH_AUTH_SOCK_EMPTY"
-    export DEV_SSH_AUTH_SOCK="$DEV_SSH_AUTH_SOCK_EMPTY"
-    echo "warning: no SSH agent detected — git over SSH won't work inside the container" >&2
-fi
+# SSH agent forwarding: socat bridges the host agent into the container
+# over TCP via host.docker.internal, so the container never bind-mounts
+# the socket directly.  `devcontainer refresh-ssh` restarts the bridge
+# without touching the container.  For tighter control, use `ssh-add -c`
+# (confirm each use) or load only the keys you need.
 
 SOPS_AGE_DIR="${HOME}/.config/sops/age"
 if [ -d "$SOPS_AGE_DIR" ]; then
@@ -94,6 +88,11 @@ fi
 
 CONTAINER_NAME="${PROJECT_NAME}-dev-$(basename "$DEV_WORKSPACE")"
 LOCKFILE="/tmp/devcontainer-${CONTAINER_NAME}.lock"
+
+HAS_SOCAT=false
+if command -v socat >/dev/null 2>&1; then
+    HAS_SOCAT=true
+fi
 
 dc() {
     docker compose -f "$COMPOSE_FILE" -p "$CONTAINER_NAME" "$@"
@@ -140,6 +139,73 @@ require_tty() {
     if [ ! -t 0 ]; then
         echo "error: '$1' requires an interactive terminal (TTY)" >&2
         exit 1
+    fi
+}
+
+ssh_forward_port() {
+    local hash
+    hash="$(echo "$CONTAINER_NAME" | cksum | cut -d' ' -f1)"
+    echo $(( (hash % 16384) + 49152 ))
+}
+
+SSH_FORWARD_PIDFILE="/tmp/devcontainer-ssh-forward-${CONTAINER_NAME}.pid"
+
+stop_ssh_forward() {
+    if [ -f "$SSH_FORWARD_PIDFILE" ]; then
+        local pid
+        pid="$(cat "$SSH_FORWARD_PIDFILE")"
+        kill "$pid" 2>/dev/null || true
+        rm -f "$SSH_FORWARD_PIDFILE"
+    fi
+    if is_running; then
+        dc_exec bash -c 'pkill -f "socat UNIX-LISTEN:/run/ssh-agent/" 2>/dev/null' || true
+    fi
+}
+
+setup_ssh_forward() {
+    if [ "$HAS_SOCAT" != "true" ]; then
+        echo "warning: socat not found on host — SSH agent forwarding disabled (apt install socat)" >&2
+        return 0
+    fi
+    if [ ! -S "${SSH_AUTH_SOCK:-}" ]; then
+        echo "warning: no SSH agent detected — git over SSH won't work inside the container" >&2
+        return 0
+    fi
+
+    stop_ssh_forward
+
+    local port
+    port="$(ssh_forward_port)"
+
+    local bridge_ip
+    bridge_ip="$(docker network inspect bridge --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}')"
+    if [ -z "$bridge_ip" ]; then
+        echo "error: could not determine Docker bridge gateway IP" >&2
+        return 1
+    fi
+
+    socat "TCP-LISTEN:${port},bind=${bridge_ip},reuseaddr,fork" \
+          "UNIX-CONNECT:${SSH_AUTH_SOCK}" &
+    local host_pid=$!
+    echo "$host_pid" > "$SSH_FORWARD_PIDFILE"
+
+    sleep 0.2
+    if ! kill -0 "$host_pid" 2>/dev/null; then
+        echo "error: host-side SSH forwarder failed to start (port $port may be in use)" >&2
+        rm -f "$SSH_FORWARD_PIDFILE"
+        return 1
+    fi
+
+    dc_exec bash -c "
+        nohup socat \
+            UNIX-LISTEN:/run/ssh-agent/agent.sock,fork,unlink-early,mode=600 \
+            TCP:host.docker.internal:${port} \
+            </dev/null >/dev/null 2>&1 &
+    "
+
+    sleep 0.3
+    if ! dc_exec ssh-add -l >/dev/null 2>&1; then
+        echo "warning: SSH agent bridge started but ssh-add -l failed inside the container" >&2
     fi
 }
 
@@ -218,6 +284,7 @@ ensure_up() {
     fi
     setup_git
     setup_gh
+    setup_ssh_forward
     setup_claude
     sync_if_needed
 
@@ -235,6 +302,7 @@ case "${1:-up}" in
                 exit 0
             fi
         fi
+        stop_ssh_forward
         dc down
         ;;
     reset)
@@ -242,6 +310,7 @@ case "${1:-up}" in
         if [[ "$answer" != [yY]* ]]; then
             exit 0
         fi
+        stop_ssh_forward
         dc down --volumes
         ;;
     clean)
@@ -249,6 +318,7 @@ case "${1:-up}" in
         if [[ "$answer" != [yY]* ]]; then
             exit 0
         fi
+        stop_ssh_forward
         dc down --volumes --rmi local
         docker images --format '{{.Repository}}:{{.Tag}}' \
             | grep "^${CONTAINER_NAME}:" \
@@ -279,6 +349,14 @@ case "${1:-up}" in
         ensure_up
         echo "Entering claude in $CONTAINER_NAME (--dangerously-skip-permissions)..."
         dc_exec claude --dangerously-skip-permissions "$@"
+        ;;
+    refresh-ssh)
+        if ! is_running; then
+            echo "error: container is not running" >&2
+            exit 1
+        fi
+        setup_ssh_forward
+        echo "SSH agent forwarded into $CONTAINER_NAME"
         ;;
     audit)
         shift
@@ -319,6 +397,8 @@ Commands:
   exec [cmd...]                       run a command (default: bash)
   claude [args...]                    run claude
   claude-dangerously-skip-permissions run claude with --dangerously-skip-permissions
+  refresh-ssh                         re-forward SSH agent (runs automatically on up/exec/claude;
+                                        use standalone when agent changes mid-session)
   audit [--summary|--new|--all|--clear]  show permission audit log (default: --summary)
   completions [bash|zsh|fish]         emit shell completions
 USAGE
