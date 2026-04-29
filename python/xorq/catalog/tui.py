@@ -86,6 +86,12 @@ XORQ_DARK = Theme(
     surface="#0a2a2e",
     panel="#0f3338",
     dark=True,
+    variables={
+        "flash-new": "#FF69B4",
+        "subdued": "#5abfb5",
+        "panel-dim": "#3d6670",
+        "panel-dim-fg": "#7aa8b2",
+    },
 )
 
 KIND_ORDER = ("source", "expr", "unbound_expr", "composed")
@@ -98,11 +104,19 @@ KIND_ICONS = {
 }
 
 KIND_COLORS = {
-    "source": "#C1F0FF",
-    "expr": "#2BBE75",
-    "unbound_expr": "#F5CA2C",
-    "composed": "#4AA8EC",
+    "source": XORQ_DARK.primary,
+    "expr": XORQ_DARK.success,
+    "unbound_expr": XORQ_DARK.warning,
+    "composed": XORQ_DARK.secondary,
 }
+
+CACHE_COLORS = {
+    "●": XORQ_DARK.success,
+    "○": XORQ_DARK.warning,
+}
+
+FLASH_NEW = XORQ_DARK.variables["flash-new"]
+SUBDUED = XORQ_DARK.variables["subdued"]
 
 SCHEMA_PREVIEW_COLUMNS = ("NAME", "TYPE")
 
@@ -113,7 +127,7 @@ GIT_LOG_COLUMNS = ("HASH", "DATE", "MESSAGE")
 
 def _styled_branch_label(kind: str, count: int) -> Text:
     icon = KIND_ICONS.get(kind, "·")
-    color = KIND_COLORS.get(kind, "#C1F0FF")
+    color = KIND_COLORS.get(kind, XORQ_DARK.primary)
     label = Text()
     label.append(f"{icon} ", style=f"bold {color}")
     label.append(f"{kind} ", style=f"bold {color}")
@@ -202,9 +216,9 @@ class CatalogRowData:
     @cached_property
     def info_text(self) -> str:
         parts = [
-            f"Hash: {self.hash}",
             f"Lineage: {self.lineage_text}",
             f"Cache: {self.cache_info_text}",
+            f"Hash: {self.hash}",
         ]
         return "\n".join(parts)
 
@@ -827,21 +841,23 @@ class CatalogScreen(Screen):
 
         label = Text()
         if is_new:
-            label.append(f"{cache_icon} ", style="bold #FF69B4")
+            label.append(f"{cache_icon} ", style=f"bold {FLASH_NEW}")
             if row_data.aliases_display:
-                label.append(row_data.aliases_display, style="bold #FF69B4")
-                label.append(f" {short_hash}", style="dim #FF69B4")
+                label.append(row_data.aliases_display, style=f"bold {FLASH_NEW}")
+                label.append(f" {short_hash}", style=f"dim {FLASH_NEW}")
             else:
-                label.append(short_hash, style="bold #FF69B4")
-            label.append(f" ·{ncols}", style="dim #FF69B4")
+                label.append(short_hash, style=f"bold {FLASH_NEW}")
+            label.append(f" ·{ncols}", style=f"dim {FLASH_NEW}")
         else:
-            cache_color = {"●": "#2BBE75", "○": "#F5CA2C"}.get(cache_icon, "dim")
+            cache_color = CACHE_COLORS.get(cache_icon, "dim")
             label.append(f"{cache_icon} ", style=cache_color)
             if row_data.aliases_display:
-                label.append(row_data.aliases_display, style="bold #C1F0FF")
-                label.append(f" {short_hash}", style="dim #5abfb5")
+                label.append(
+                    row_data.aliases_display, style=f"bold {XORQ_DARK.primary}"
+                )
+                label.append(f" {short_hash}", style=f"dim {SUBDUED}")
             else:
-                label.append(short_hash, style="#C1F0FF")
+                label.append(short_hash, style=XORQ_DARK.primary)
             label.append(f" ·{ncols}", style="dim")
         return label
 
@@ -864,7 +880,7 @@ class CatalogScreen(Screen):
             if r.cached:
                 cached_count += 1
         kinds_str = ", ".join(
-            f"{c} {k}" for k, c in sorted(kind_counts.items(), key=lambda x: -x[1])
+            f"{kind_counts[k]} {k}" for k in KIND_ORDER if k in kind_counts
         )
         parts = [f" {count} entries"]
         if kinds_str:
@@ -1545,9 +1561,9 @@ class CatalogTUI(App):
     #schema-panel,
     #data-preview-panel,
     DataViewScreen #stack-browser-panel {
-        border: solid #3d6670;
-        border-title-color: #7aa8b2;
-        border-subtitle-color: #7aa8b2;
+        border: solid $panel-dim;
+        border-title-color: $panel-dim-fg;
+        border-subtitle-color: $panel-dim-fg;
     }
     #catalog-panel:focus-within,
     #revisions-panel:focus-within,
@@ -1557,16 +1573,16 @@ class CatalogTUI(App):
     #schema-panel:focus-within,
     #data-preview-panel:focus-within,
     DataViewScreen #stack-browser-panel:focus-within {
-        border: double #C1F0FF;
-        border-title-color: #C1F0FF;
-        border-subtitle-color: #C1F0FF;
+        border: double $accent;
+        border-title-color: $accent;
+        border-subtitle-color: $accent;
     }
 
     #catalog-panel { height: 2fr; background: $surface; }
     #catalog-tree { height: 1fr; }
-    #catalog-tree > .tree--guides { color: #3d6670; }
-    #catalog-tree > .tree--guides-hover { color: #5abfb5; }
-    #catalog-tree > .tree--guides-selected { color: #C1F0FF; }
+    #catalog-tree > .tree--guides { color: $panel-dim; }
+    #catalog-tree > .tree--guides-hover { color: $subdued; }
+    #catalog-tree > .tree--guides-selected { color: $accent; }
     #revisions-panel { height: 1fr; }
     #revisions-preview-table { height: 1fr; }
     #git-log-panel { height: 1fr; }

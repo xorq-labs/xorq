@@ -46,6 +46,7 @@ from xorq.catalog.tui import (
     get_cache_key_path,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
+from xorq.common.utils.env_utils import EnvConfigable, env_templates_dir
 from xorq.config import TUI, options
 
 
@@ -1186,6 +1187,16 @@ def test_tui_options_defaults():
     assert cfg.right_ratio == 3
     assert cfg.revisions_open is False
     assert cfg.git_log_open is False
+
+
+def test_tui_env_var_override(monkeypatch):
+    monkeypatch.setenv("XORQ_TUI_LEFT_RATIO", "7")
+    monkeypatch.setenv("XORQ_TUI_REVISIONS_OPEN", "True")
+    fresh = EnvConfigable.subclass_from_env_file(
+        env_templates_dir.joinpath(".env.xorq.template")
+    ).from_env()
+    assert fresh.XORQ_TUI_LEFT_RATIO == "7"
+    assert fresh.XORQ_TUI_REVISIONS_OPEN == "True"
 
 
 def test_tui_options_apply_column_widths(catalog):
