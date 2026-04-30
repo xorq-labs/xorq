@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import gzip
-import os
 from urllib.request import Request, urlopen
 
 import pandas as pd
@@ -282,18 +281,3 @@ def test_expr_over_same_table_multiple_times(parquet_dir, get_con):
     assert (first := expr.execute()) is not None
     assert (second := expr.execute()) is not None
     assert_frame_equal(first.sort_values(col), second.sort_values(col))
-
-
-@pytest.mark.postgres
-def test_read_postgres():
-    uri = (
-        f"postgres://{os.environ['POSTGRES_USER']}:"
-        f"{os.environ['POSTGRES_PASSWORD']}@"
-        f"{os.environ['POSTGRES_HOST']}:"
-        f"{os.environ['POSTGRES_PORT']}/"
-        f"{os.environ['POSTGRES_DATABASE']}"
-    )
-    t = xo.read_postgres(uri, table_name="astronauts")
-    res = xo.execute(t)
-
-    assert not res.empty

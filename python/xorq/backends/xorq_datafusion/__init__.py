@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import urllib.parse
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -29,36 +28,11 @@ class Backend(DataFusionBackend):
         if isinstance(source, ir.Expr):
             from xorq.expr.relations import into_backend  # noqa: PLC0415
 
+            backends, _ = source._find_backends()
+            if len(backends) > 1:
+                raise ValueError("Multiple backends found in expression")
             return into_backend(source, self, table_name)
         return super().register(source, table_name=table_name, **kwargs)
-
-    def read_postgres(
-        self, uri: str, *, table_name: str | None = None, database: str = "public"
-    ) -> ir.Table:
-        """Register a table from a postgres instance into a DuckDB table.
-
-        Parameters
-        ----------
-        uri
-            A postgres URI of the form `postgres://user:password@host:port`
-        table_name
-            The table to read
-        database
-            PostgreSQL database (schema) where `table_name` resides
-
-        Returns
-        -------
-        ir.Table
-            The just-registered table.
-
-        """
-        from xorq.backends.postgres import Backend  # noqa: PLC0415
-
-        backend = Backend()
-        parsed = urllib.parse.urlparse(uri)
-        backend = backend._from_url(parsed, database=database)
-        table = backend.table(table_name)
-        return super().register_table_provider(table, table_name=table_name)
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
         batch_reader = self.to_pyarrow_batches(expr, **kwargs)
