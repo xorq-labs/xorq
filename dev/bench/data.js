@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777556877228,
+  "lastUpdate": 1777577932521,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -9240,6 +9240,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.07155607322728429",
             "extra": "mean: 431.8963208000014 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3a12e8431a7379d1a47a0a6ea23c77619c252ce8",
+          "message": "fix(devcontainer): close flock fd before spawning socat SSH forwarder (#1904)\n\n## Summary\n- The background `socat` process launched by `setup_ssh_forward`\ninherits file descriptor 9 (the `flock` lockfile fd from `ensure_up`),\npreventing any concurrent `devcontainer` invocation for the same\nworkspace from acquiring the lock until the first session exits.\n- Fix: add `9>&-` to the socat launch to close the inherited fd before\nthe child process starts.\n\n## Test plan\n- [ ] Run `devcontainer claude-dangerously-skip-permissions` — verify it\nstarts normally\n- [ ] While the first session is running, run `devcontainer\nclaude-dangerously-skip-permissions` again in a second terminal for the\nsame workspace — verify it proceeds without \"Another devcontainer\noperation is in progress, waiting...\"\n- [ ] Verify SSH agent forwarding still works inside the container\n(`ssh-add -l`)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-30T15:35:08-04:00",
+          "tree_id": "6a95f9ef84a704eddb032a59a7803e96e916b006",
+          "url": "https://github.com/xorq-labs/xorq/commit/3a12e8431a7379d1a47a0a6ea23c77619c252ce8"
+        },
+        "date": 1777577929718,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.857838830615739,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01774821638564474",
+            "extra": "mean: 112.89435483333203 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.7356745832794553,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07357517718399238",
+            "extra": "mean: 365.5405529999939 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7532245546196167,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1528425106576263",
+            "extra": "mean: 1.3276253327999996 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.574849080988828,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05631177534301018",
+            "extra": "mean: 388.37227679999273 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.131854458879872,
+            "unit": "iter/sec",
+            "range": "stddev: 0.033742506825365295",
+            "extra": "mean: 319.2996396000012 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.2082824177040936,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027627422235801773",
+            "extra": "mean: 311.69325820001177 msec\nrounds: 5"
           }
         ]
       }
