@@ -55,10 +55,15 @@ def _param(script: Path) -> pytest.param:
 
 
 @pytest.mark.parametrize("script", [_param(s) for s in SCRIPTS])
-def test_tutorial_snippet_runs(script: Path) -> None:
+def test_tutorial_snippet_runs(script: Path, tmp_path: Path) -> None:
+    # Run from a fresh tempdir with no pyproject.toml ancestor — this matches
+    # what a reader in a scratch directory experiences. Each snippet handles
+    # its own project setup (mirroring the `uv init` step in the tutorials),
+    # so a passing test means the tutorial works for someone outside the
+    # xorq source tree, not just for someone who happens to be inside it.
     result = subprocess.run(
         [sys.executable, str(script)],
-        cwd=script.parent,
+        cwd=tmp_path,
         capture_output=True,
         text=True,
         timeout=600,
