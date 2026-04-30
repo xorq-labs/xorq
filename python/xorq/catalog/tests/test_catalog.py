@@ -207,6 +207,42 @@ def test_push_surfaces_remote_rejection(repo_cloned_bare, tmpdir):
         user_b.push()
 
 
+def test_push_aggregates_failures_across_remotes(tmpdir):
+    """A push that fails on multiple remotes reports all of them.
+
+    Earlier behavior raised on the first rejection, hiding later failures
+    and skipping the annex push on remaining remotes — the aggregation
+    fix in xorq#1899 must surface every remote's failure in one error.
+    """
+    bare_1 = Path(tmpdir).joinpath("bare_1")
+    bare_2 = Path(tmpdir).joinpath("bare_2")
+    GitRepo.init(bare_1, bare=True, initial_branch=MAIN_BRANCH)
+    GitRepo.init(bare_2, bare=True, initial_branch=MAIN_BRANCH)
+
+    seed = Catalog.from_repo_path(Path(tmpdir).joinpath("seed"), init=True)
+    with build_expr_context_zip(xo.memtable({"seed": ["seed"]})) as zp:
+        seed.add(zp, sync=False)
+    seed.repo.create_remote("r1", str(bare_1)).push(MAIN_BRANCH, set_upstream=True)
+    seed.repo.create_remote("r2", str(bare_2)).push(MAIN_BRANCH, set_upstream=True)
+
+    local = Catalog.clone_from(
+        str(bare_1), Path(tmpdir).joinpath("local"), annex=False
+    )
+    local.repo.create_remote("r2", str(bare_2)).fetch()
+
+    with build_expr_context_zip(xo.memtable({"advance": ["advance"]})) as zp:
+        seed.add(zp, sync=False)
+    seed.push()
+
+    with build_expr_context_zip(xo.memtable({"local-only": ["local"]})) as zp:
+        local.add(zp, sync=False)
+    with pytest.raises(CatalogPushError) as exc_info:
+        local.push()
+    msg = str(exc_info.value)
+    assert "origin" in msg
+    assert "r2" in msg
+
+
 # ---------------------------------------------------------------------------
 # clone_from auto-detection
 # ---------------------------------------------------------------------------
