@@ -846,9 +846,10 @@ def compose(ctx, entries, code, alias, cache_dir, dry_run, raw_rename_params):
             entry_name = build_path.name
             aliases = (alias,) if alias else ()
             alias_existed = alias and catalog.catalog_yaml.contains_alias(alias)
-            catalog_entry = catalog.add(build_path, aliases=aliases, exist_ok=True)
+            entry_existed = catalog.contains(entry_name)
+            catalog.add(build_path, aliases=aliases, exist_ok=True)
             label = alias or entry_name
-            if catalog_entry is None:
+            if entry_existed:
                 if alias and not alias_existed:
                     click.echo(
                         f"Entry {entry_name!r} already exists; alias {alias!r} added",

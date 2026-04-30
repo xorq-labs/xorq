@@ -123,10 +123,11 @@ def test_rebuild_expr_for_target_returns_input_when_no_catalog_tags(source_catal
 
 
 def test_bind_is_hash_deterministic(source_catalog, tmpdir):
-    # Use two separate catalogs: Catalog.add(exist_ok=True) returns None when
-    # an entry already exists, so a second add into the same catalog can't
-    # reveal the hash. Scratch catalogs populated with the same source and
-    # transform will produce matching hashes iff bind() is deterministic.
+    # Use two separate catalogs: re-adding the same content into one catalog
+    # would raise (exist_ok=False) or no-op against the existing entry, so a
+    # second add can't independently reveal the hash. Scratch catalogs
+    # populated with the same source and transform will produce matching
+    # hashes iff bind() is deterministic.
     _, source_entry, transform_entry, _ = source_catalog
     a_cat = Catalog.from_repo_path(Path(tmpdir).joinpath("det-a"), init=True)
     a_src = a_cat.add(source_entry.lazy_expr)
@@ -612,3 +613,68 @@ def test_cli_replay_rebuild_is_not_silently_ignored(tmpdir, saved_registry):
     # Execution reflects v2 (amount > 15), not v1 (amount > 0): one row, 20.0.
     rows = tgt_entry.expr.execute()["amount"].tolist()
     assert rows == [20.0]
+
+
+def test_rebuild_collision_records_remap_to_existing_entry(tmpdir, saved_registry):
+    """A code change that collapses two source entries to the same content
+    must not crash rebuild and must leave both remap entries pointing at the
+    one surviving target entry. Without the fix, the second AddEntry's
+    `to_catalog.add(...)` returned None and `new_entry.name` raised
+    AttributeError; even patched, an unrecorded remap would break any later
+    AddAlias for the colliding source."""
+    from xorq.expr.builders import TagHandler, register_tag_handler  # noqa: PLC0415
+
+    # v1 reemit preserves the parent expression, so distinct source data
+    # produces distinct rebuilt content.
+    def reemit_v1(tag_node, rebuild_subexpr):
+        return tag_node.parent.to_expr()
+
+    register_tag_handler(
+        TagHandler(
+            tag_names=("collide_handler",),
+            extract_metadata=lambda tag_node: {"type": "collide_handler"},
+            reemit=reemit_v1,
+        )
+    )
+
+    repo = Catalog.init_repo_path(Path(tmpdir).joinpath("src"))
+    catalog = Catalog(backend=GitBackend(repo=repo))
+    raw_a = xo.memtable({"user_id": [1, 2, 3], "amount": [10.0, 20.0, 30.0]})
+    raw_b = xo.memtable({"user_id": [4, 5, 6], "amount": [40.0, 50.0, 60.0]})
+    src_a = catalog.add(raw_a.tag("collide_handler"), aliases=("ca",))
+    src_b = catalog.add(raw_b.tag("collide_handler"), aliases=("cb",))
+    assert src_a.name != src_b.name  # distinct under v1
+
+    # v2 reemit collapses every input to the same canonical literal. Both
+    # rebuilt entries now share the same content hash.
+    canonical = xo.memtable({"user_id": [0], "amount": [0.0]})
+
+    def reemit_v2(tag_node, rebuild_subexpr):
+        return canonical
+
+    register_tag_handler(
+        TagHandler(
+            tag_names=("collide_handler",),
+            extract_metadata=lambda tag_node: {"type": "collide_handler"},
+            reemit=reemit_v2,
+        ),
+        override=True,
+    )
+
+    # Drive replay manually so we can inspect the remap.
+    from xorq.catalog.replay import RebuildContext  # noqa: PLC0415
+
+    target_path = Path(tmpdir).joinpath("tgt")
+    target = Catalog.from_repo_path(target_path, init=True)
+    replayer = Replayer(from_catalog=catalog, rebuild=True)
+    ctx = RebuildContext(rebuild=True)
+    for op in replayer.ops:
+        op.do(catalog, target, ctx)
+    target.assert_consistency()
+
+    tgt_a = target.get_catalog_entry("ca", maybe_alias=True)
+    tgt_b = target.get_catalog_entry("cb", maybe_alias=True)
+    assert tgt_a.name == tgt_b.name
+    assert ctx.remap[src_a.name] == tgt_a.name
+    assert ctx.remap[src_b.name] == tgt_b.name
+    assert {"ca", "cb"} <= set(target.list_aliases())

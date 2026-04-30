@@ -840,7 +840,7 @@ class CatalogAddition:
                 raise ValueError(f"Entry '{self.name}' already exists in catalog")
             for catalog_alias in self.catalog_aliases:
                 catalog_alias._add()
-            return None
+            return CatalogEntry(self.name, self.catalog, require_exists=True)
         self.ensure_dirs()
         catalog_entry = self.catalog_entry
         catalog_entry.metadata_path.write_text(yaml12.format_yaml(self.metadata))
