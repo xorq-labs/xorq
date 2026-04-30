@@ -32,6 +32,7 @@ hygiene smell, not a merge conflict, and is filed as #1901.)
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -61,6 +62,16 @@ def _remove_alias(catalog, alias):
 
 def _alias_target_hash(catalog, alias):
     return CatalogAlias.from_name(alias, catalog).catalog_entry.name
+
+
+# Git commit SHAs include the author/commit timestamp at second
+# resolution.  When both clones perform the same operation against the
+# same content within the same wall-clock second, their commits hash to
+# the same SHA and `cat_b.pull()` becomes a trivial fast-forward no-op
+# instead of exercising the divergent-merge path the test is meant to
+# describe.  Sleep just over a second to guarantee divergent SHAs even
+# when the operations are otherwise identical.
+_FORCE_DIVERGENT_TIMESTAMP = 1.05
 
 
 @pytest.fixture
@@ -116,6 +127,7 @@ def test_case_02_add_same_entry(two_clones):
     auto-merge in stock git; resolver does not need to fire."""
     cat_a, cat_b = two_clones
     name_x_a = _add_expr_entry(cat_a, "x", value=1)
+    time.sleep(_FORCE_DIVERGENT_TIMESTAMP)
     name_x_b = _add_expr_entry(cat_b, "x", value=1)
     assert name_x_a == name_x_b, "test setup: same content must hash the same"
     cat_a.push()
@@ -154,6 +166,7 @@ def test_case_04_remove_same_entry(two_clones):
     cat_b.pull()
 
     cat_a.remove(name_x, sync=False)
+    time.sleep(_FORCE_DIVERGENT_TIMESTAMP)
     cat_b.remove(name_x, sync=False)
     cat_a.push()
 
@@ -206,6 +219,7 @@ def test_case_08_add_same_alias_same_target(two_clones):
     diverges."""
     cat_a, cat_b = two_clones
     name_x_a = _add_expr_entry(cat_a, "x", value=1, aliases=("shared",))
+    time.sleep(_FORCE_DIVERGENT_TIMESTAMP)
     name_x_b = _add_expr_entry(cat_b, "x", value=1, aliases=("shared",))
     assert name_x_a == name_x_b
     cat_a.push()
@@ -225,6 +239,7 @@ def test_case_10_remove_same_alias(two_clones):
     cat_b.pull()
 
     _remove_alias(cat_a, "shared")
+    time.sleep(_FORCE_DIVERGENT_TIMESTAMP)
     _remove_alias(cat_b, "shared")
     cat_a.push()
 
