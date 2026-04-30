@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777554104828,
+  "lastUpdate": 1777556877228,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -9174,6 +9174,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.07598085395740456",
             "extra": "mean: 405.55298419999417 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a3dc9cff95f9b51e43df280bc0839e196d7d09f7",
+          "message": "feat(catalog/tui): log subprocess errors to xorq.log (#1872)\n\n## Summary\n\nRoutes DataViewScreen subprocess errors through the existing\n`xorq.common.utils.logging_utils.get_logger` so they land in\n`~/.config/xorq/xorq.log` (rotating, JSON, level via `XORQ_LOG_LEVEL`)\nin addition to the on-screen notification.\n\nLogged sites in `python/xorq/catalog/tui.py`:\n- `_load_data` — initial table load (`data_view_load_failed`, includes\n`entry_hash`)\n- `_execute_current` — stack re-execute via `xorq catalog run -c`\n(`stack_execute_failed`, includes `cursor`, `steps`, `code`)\n- `_persist_to_catalog` — save via `xorq catalog compose`\n(`catalog_compose_failed`, includes `alias`, `code`)\n\nEach call uses `logger.exception(...)` with structured fields so the\nfull traceback is captured. User-facing `notify` / status-bar behavior\nis unchanged.\n\n`code` is assigned outside the `try` in `_execute_current` and\n`_persist_to_catalog` so the new `logger.exception(..., code=code)` call\ncannot raise `UnboundLocalError` if the source assignment itself fails.\n\n## Test plan\n- [ ] Trigger a compose failure (e.g. `:` an invalid expression, then\n`w`) and confirm a `catalog_compose_failed` event with traceback appears\nin `~/.config/xorq/xorq.log`\n- [ ] Trigger a stack-execute failure and confirm `stack_execute_failed`\nis logged\n- [ ] Confirm `XORQ_LOG_LEVEL=OFF` suppresses the new log lines\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-04-30T09:43:48-04:00",
+          "tree_id": "bb4090eb7d5dc28af9edb8f4f8ef3b0cf5394902",
+          "url": "https://github.com/xorq-labs/xorq/commit/a3dc9cff95f9b51e43df280bc0839e196d7d09f7"
+        },
+        "date": 1777556873740,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.507647288967878,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01783397966452522",
+            "extra": "mean: 105.17849154546805 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.3585057127619193,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08156466445371262",
+            "extra": "mean: 423.99727700000085 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6829681891421893,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1867869272022921",
+            "extra": "mean: 1.4641970386000025 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.466106127155853,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08368891382201335",
+            "extra": "mean: 405.4975529999979 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.45533072426583,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07110823175611408",
+            "extra": "mean: 407.2771094000018 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.3153704994469515,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07155607322728429",
+            "extra": "mean: 431.8963208000014 msec\nrounds: 5"
           }
         ]
       }
