@@ -243,6 +243,51 @@ def test_push_aggregates_failures_across_remotes(tmpdir):
     assert "r2" in msg
 
 
+@pytest.mark.parametrize("op", ["push", "pull", "fetch", "sync"])
+def test_multi_remote_raises_configuration_error(tmpdir, op):
+    """ADR-0009: catalog refuses to operate on configurations with 2+ git remotes.
+
+    push/pull/fetch/sync each must raise rather than attempt best-effort
+    multi-remote semantics. The error message names both remotes so the
+    user can see what the catalog discovered.
+    """
+    bare_1 = Path(tmpdir).joinpath("bare_1")
+    bare_2 = Path(tmpdir).joinpath("bare_2")
+    GitRepo.init(bare_1, bare=True, initial_branch=MAIN_BRANCH)
+    GitRepo.init(bare_2, bare=True, initial_branch=MAIN_BRANCH)
+
+    catalog = Catalog.from_repo_path(Path(tmpdir).joinpath("local"), init=True)
+    catalog.repo.create_remote("r1", str(bare_1))
+    catalog.repo.create_remote("r2", str(bare_2))
+
+    with pytest.raises(Exception, match="(?i)single git remote|configuration") as exc_info:
+        getattr(catalog, op)()
+    msg = str(exc_info.value)
+    assert "r1" in msg
+    assert "r2" in msg
+
+
+def test_set_remote_replaces_existing(tmpdir):
+    """ADR-0009: Catalog.set_remote replaces any existing git remote rather than appending.
+
+    Successive calls must leave the catalog with exactly one git remote,
+    so users can reconfigure without ever creating the multi-remote
+    configuration that triggers CatalogConfigurationError.
+    """
+    bare_1 = Path(tmpdir).joinpath("bare_1")
+    bare_2 = Path(tmpdir).joinpath("bare_2")
+    GitRepo.init(bare_1, bare=True, initial_branch=MAIN_BRANCH)
+    GitRepo.init(bare_2, bare=True, initial_branch=MAIN_BRANCH)
+
+    catalog = Catalog.from_repo_path(Path(tmpdir).joinpath("local"), init=True)
+    catalog.set_remote("origin", str(bare_1))
+    assert len(catalog._git_remotes) == 1
+
+    catalog.set_remote("origin", str(bare_2))
+    assert len(catalog._git_remotes) == 1
+    assert catalog._git_remotes[0].url == str(bare_2)
+
+
 # ---------------------------------------------------------------------------
 # clone_from auto-detection
 # ---------------------------------------------------------------------------
