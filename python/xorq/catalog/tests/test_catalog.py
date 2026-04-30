@@ -25,6 +25,7 @@ from xorq.catalog.catalog import (
     Catalog,
     CatalogAddition,
     CatalogAlias,
+    CatalogConfigurationError,
     CatalogEntry,
     CatalogPushError,
 )
@@ -207,12 +208,14 @@ def test_push_surfaces_remote_rejection(repo_cloned_bare, tmpdir):
         user_b.push()
 
 
+@pytest.mark.skip(reason="multi-remote unsupported per ADR-0009")
 def test_push_aggregates_failures_across_remotes(tmpdir):
     """A push that fails on multiple remotes reports all of them.
 
-    Earlier behavior raised on the first rejection, hiding later failures
-    and skipping the annex push on remaining remotes — the aggregation
-    fix in xorq#1899 must surface every remote's failure in one error.
+    Multi-remote configurations are now refused at the API boundary
+    (see test_multi_remote_raises_configuration_error). This test is
+    preserved against future multi-remote re-introduction so the
+    bare-repo + two-remote + diverged-history setup is not lost.
     """
     bare_1 = Path(tmpdir).joinpath("bare_1")
     bare_2 = Path(tmpdir).joinpath("bare_2")
@@ -260,7 +263,7 @@ def test_multi_remote_raises_configuration_error(tmpdir, op):
     catalog.repo.create_remote("r1", str(bare_1))
     catalog.repo.create_remote("r2", str(bare_2))
 
-    with pytest.raises(Exception, match="(?i)single git remote|configuration") as exc_info:
+    with pytest.raises(CatalogConfigurationError, match="(?i)single git remote") as exc_info:
         getattr(catalog, op)()
     msg = str(exc_info.value)
     assert "r1" in msg

@@ -79,6 +79,15 @@ class CatalogPushError(RuntimeError):
     """Raised when ``catalog.push()`` cannot publish to a remote."""
 
 
+class CatalogConfigurationError(RuntimeError):
+    """Raised when the catalog's underlying repo violates a supported configuration.
+
+    Currently fires only when the catalog finds more than one git remote on
+    a sync-side operation (``push`` / ``pull`` / ``fetch`` / ``sync``); the
+    catalog supports exactly one git remote per ADR-0009.
+    """
+
+
 def _collect_push_failures(push_info_list, remote_name):
     return [
         f"{remote_name}/{info.local_ref}: {(info.summary or '').strip()}"
@@ -314,8 +323,37 @@ class Catalog:
 
         return tuple(r for r in self.repo.remotes if _has_fetch_refspec(r))
 
+    def _assert_single_git_remote(self):
+        """Refuse multi-remote configurations (ADR-0009).
+
+        Zero remotes (local-only) and one remote are supported. Two or more
+        raises ``CatalogConfigurationError`` with a message that names every
+        remote found, so the user can see what triggered the failure.
+        """
+        if len(self._git_remotes) > 1:
+            names = ", ".join(r.name for r in self._git_remotes)
+            raise CatalogConfigurationError(
+                f"catalog supports a single git remote (ADR-0009); "
+                f"found {len(self._git_remotes)}: {names}. "
+                f"Use Catalog.set_remote(name, url) to replace existing remotes, "
+                f"or open an issue if you have a multi-remote use case."
+            )
+
+    def set_remote(self, name, url):
+        """Configure the catalog's git remote, replacing any existing git remotes.
+
+        The catalog supports exactly one git remote (ADR-0009). Calling
+        ``set_remote`` deletes every git remote currently on the underlying
+        repo and creates a new one with the given *name* and *url*. Returns
+        the new ``Remote``.
+        """
+        for existing in self._git_remotes:
+            self.repo.delete_remote(existing)
+        return self.repo.create_remote(name, url)
+
     def fetch(self):
-        """Fetch from all git remotes (excludes annex-only special remotes)."""
+        """Fetch from the configured git remote (no-op if no remote is configured)."""
+        self._assert_single_git_remote()
         return tuple(map(Remote.fetch, self._git_remotes))
 
     def fetch_entries(self, *entries):
@@ -334,38 +372,41 @@ class Catalog:
             self.backend.fetch_content(*paths)
 
     def push(self):
-        """Push to all git remotes after verifying consistency.
+        """Push to the configured git remote after verifying consistency.
 
-        Pushes every ref to every remote, collects every rejection or
-        transport failure across the whole batch, and raises a single
-        ``CatalogPushError`` listing all of them. Skipping ahead on the
-        first failure would hide later ones and could leave a remote
-        with main pushed but annex not.
+        Pushes ``main`` then ``git-annex`` (if a local annex branch exists),
+        collects every rejection or transport failure across both branches,
+        and raises a single ``CatalogPushError`` listing all of them.
+        Bailing on the first failure would hide later ones and could leave
+        the remote with ``main`` pushed but ``git-annex`` not.
+
+        No-op when no git remote is configured.
         """
         self.assert_consistency()
-        results = tuple(remote.push() for remote in self._git_remotes)
+        self._assert_single_git_remote()
+        if not self._git_remotes:
+            return ()
+        (remote,) = self._git_remotes
+        main_result = remote.push()
+        failures = _collect_push_failures(main_result, remote.name)
         if _has_local_annex_branch(self.repo):
-            annex_results = tuple(
-                remote.push(ANNEX_BRANCH) for remote in self._git_remotes
-            )
+            annex_result = remote.push(ANNEX_BRANCH)
+            failures.extend(_collect_push_failures(annex_result, remote.name))
+            results = (main_result, annex_result)
         else:
-            annex_results = ()
             logger.debug(
                 "skipping annex branch push: no local branch",
                 annex_branch=ANNEX_BRANCH,
                 repo_path=str(self.repo_path),
             )
-        failures = []
-        for remote, infos in zip(self._git_remotes, results):
-            failures.extend(_collect_push_failures(infos, remote.name))
-        for remote, infos in zip(self._git_remotes, annex_results):
-            failures.extend(_collect_push_failures(infos, remote.name))
+            results = (main_result,)
         if failures:
             raise CatalogPushError(f"push failed: {'; '.join(failures)}")
-        return results + annex_results
+        return results
 
     def pull(self):
-        """Pull from all git remotes."""
+        """Pull from the configured git remote (no-op if no remote is configured)."""
+        self._assert_single_git_remote()
         return tuple(map(Remote.pull, self._git_remotes))
 
     @contextmanager
