@@ -139,6 +139,10 @@ def test_pull_remote_deleted_catalog_yaml_does_not_silently_drop_entries(two_clo
     destroys every entry the deleter side never explicitly removed."""
     cat_a, cat_b = two_clones
 
+    # Capture cat_b's pre-pull state so we can verify the failed pull
+    # didn't silently rewrite the local catalog.yaml.
+    pre_pull_entries = cat_b.list()
+
     # cat_a manually deletes catalog.yaml — bypasses the catalog API
     # entirely (Catalog.push asserts consistency, so we can't use it
     # to push a corrupt state).  Push the broken commit to origin.
@@ -155,11 +159,13 @@ def test_pull_remote_deleted_catalog_yaml_does_not_silently_drop_entries(two_clo
         cat_b.pull()
 
     # Pre-fix: pull silently "succeeds" but cat_b's catalog.yaml is
-    # rewritten with the empty-defaults theirs side, which drops the
-    # boot entry from the entries list.  Post-fix: pre-flight refuses
-    # the merge, cat_b's tree is untouched, and boot survives.
-    assert "boot" in cat_b.list(), (
-        f"pull silently dropped entries: cat_b.list() == {cat_b.list()}"
+    # rewritten with the empty-defaults theirs side, which drops every
+    # pre-existing entry from the entries list.  Post-fix: pre-flight
+    # refuses the merge, cat_b's tree is untouched, and the original
+    # entries survive.
+    assert all(e in cat_b.list() for e in pre_pull_entries), (
+        f"pull silently dropped entries: cat_b.list() == {cat_b.list()}, "
+        f"expected to contain {pre_pull_entries}"
     )
 
 

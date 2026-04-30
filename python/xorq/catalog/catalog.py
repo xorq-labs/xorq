@@ -531,6 +531,16 @@ class Catalog:
         - HEAD must be on a branch (the catalog API never detaches HEAD
           on its own — this only fails if the repo was put in detached
           state outside xorq).  Raises ``CatalogPullError``.
+        - ``catalog.yaml`` in both ours (HEAD) and the remote tip must
+          exist, parse, and have the expected dict-or-list shape.  The
+          resolver assumes well-formed input on both sides; without
+          this check, a ``catalog.yaml`` deleted on the remote tip
+          would be silently treated as "theirs removed every entry"
+          and the 3-way list merge would drop every prior entry, while
+          a malformed or scalar-shaped yaml would leak a bare
+          ``ValueError`` / ``AttributeError`` from inside the
+          resolver.  Raises ``CatalogPullError`` naming the corrupt
+          side.
         - A non-conflict ``git merge`` failure (e.g. the remote ref
           doesn't exist, the working tree is dirty, a hook rejected the
           merge commit) re-raises the original ``GitCommandError``
@@ -550,10 +560,26 @@ class Catalog:
         (remote,) = remotes
         branch = self.repo.active_branch.name
         fetch_result = remote.fetch()
+        self._validate_catalog_yaml_in_commit(self.repo.head.commit, "ours")
+        try:
+            remote_commit = self.repo.commit(f"{remote.name}/{branch}")
+        except Exception:
+            # Remote ref didn't resolve (e.g. remote has no branches
+            # yet).  Skip the theirs-side pre-flight and let `git
+            # merge` raise the actionable ref-missing error below.
+            remote_commit = None
+        if remote_commit is not None:
+            self._validate_catalog_yaml_in_commit(
+                remote_commit, f"remote {remote.name!r}"
+            )
         try:
             self.repo.git.merge(f"{remote.name}/{branch}", "--no-edit")
         except GitCommandError:
             if not (Path(self.repo.git_dir) / "MERGE_HEAD").exists():
+                # `git merge` failed for a non-conflict reason (missing
+                # remote ref, dirty tree, hook reject, ...).  No merge
+                # is in progress, so don't try to resolve or commit —
+                # surface the original error.
                 raise
             self._resolve_yaml_conflict_if_any()
             unmerged = tuple(self.repo.index.unmerged_blobs().keys())
@@ -585,6 +611,43 @@ class Catalog:
         }
         self.catalog_yaml.set_contents(merged)
         self.repo.git.add(yaml_relpath)
+
+    def _validate_catalog_yaml_in_commit(self, commit, side_label):
+        """Pre-flight check that ``catalog.yaml`` in *commit*'s tree
+        exists, parses, and has the expected dict-or-list shape.
+
+        Raises ``CatalogPullError`` (with *side_label* in the message)
+        if the file is missing, fails to parse, or parses to anything
+        other than a dict (current schema) or a list (legacy schema).
+        See the ``pull`` docstring for the failure modes this guards
+        against.
+        """
+        yaml_relpath = str(self.catalog_yaml.yaml_relpath)
+        blob = next(
+            (
+                b
+                for b in commit.tree.list_traverse()
+                if isinstance(b, Blob) and b.path == yaml_relpath
+            ),
+            None,
+        )
+        if blob is None:
+            raise CatalogPullError(
+                f"{side_label} commit {commit.hexsha[:8]} is missing {yaml_relpath}"
+            )
+        try:
+            raw = yaml12.parse_yaml(blob.data_stream.read().decode())
+        except Exception as e:
+            raise CatalogPullError(
+                f"{side_label} commit {commit.hexsha[:8]} has malformed "
+                f"{yaml_relpath}: {e}"
+            ) from e
+        if not isinstance(raw, (dict, list)):
+            raise CatalogPullError(
+                f"{side_label} commit {commit.hexsha[:8]} has unexpected "
+                f"{yaml_relpath} shape: {type(raw).__name__} "
+                f"(expected dict or list)"
+            )
 
     @contextmanager
     def synchronizing(self):
