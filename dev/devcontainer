@@ -261,12 +261,19 @@ sync_if_needed() {
     fi
 }
 
+ensure_shared_volumes() {
+    docker volume create "${PROJECT_NAME}-uv-cache" >/dev/null 2>&1 || true
+    docker volume create "${PROJECT_NAME}-ibis-testing-data" >/dev/null 2>&1 || true
+}
+
 ensure_up() {
     exec 9>"$LOCKFILE"
     if ! flock -n 9; then
         echo "Another devcontainer operation is in progress, waiting..."
         flock 9
     fi
+
+    ensure_shared_volumes
 
     if ! is_running; then
         dc up --build -d

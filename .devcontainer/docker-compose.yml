@@ -47,10 +47,12 @@ volumes:
   # per-project: shared across worktrees (content-addressed)
   uv-cache:
     name: ${DEV_PROJECT_NAME:?DEV_PROJECT_NAME is required}-uv-cache
+    external: true
   # per-worktree: virtualenv paths are workspace-specific
   venv:
   # per-project: shared across worktrees (read-mostly test fixtures)
   ibis-testing-data:
     name: ${DEV_PROJECT_NAME:?DEV_PROJECT_NAME is required}-ibis-testing-data
+    external: true
   # per-worktree: session symlinks and project keys are workspace-specific
   claude-home:
