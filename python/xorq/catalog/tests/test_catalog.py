@@ -21,13 +21,15 @@ from xorq.catalog.annex import (
     _do_inside,
 )
 from xorq.catalog.backend import GitAnnexBackend, GitBackend
+from xorq.catalog import (
+    CatalogConfigurationError,
+    CatalogPushError,
+)
 from xorq.catalog.catalog import (
     Catalog,
     CatalogAddition,
     CatalogAlias,
-    CatalogConfigurationError,
     CatalogEntry,
-    CatalogPushError,
 )
 from xorq.catalog.constants import MAIN_BRANCH, CatalogInfix
 from xorq.catalog.expr_utils import (
@@ -208,44 +210,6 @@ def test_push_surfaces_remote_rejection(repo_cloned_bare, tmpdir):
         user_b.push()
 
 
-@pytest.mark.skip(reason="multi-remote unsupported per ADR-0009")
-def test_push_aggregates_failures_across_remotes(tmpdir):
-    """A push that fails on multiple remotes reports all of them.
-
-    Multi-remote configurations are now refused at the API boundary
-    (see test_multi_remote_raises_configuration_error). This test is
-    preserved against future multi-remote re-introduction so the
-    bare-repo + two-remote + diverged-history setup is not lost.
-    """
-    bare_1 = Path(tmpdir).joinpath("bare_1")
-    bare_2 = Path(tmpdir).joinpath("bare_2")
-    GitRepo.init(bare_1, bare=True, initial_branch=MAIN_BRANCH)
-    GitRepo.init(bare_2, bare=True, initial_branch=MAIN_BRANCH)
-
-    seed = Catalog.from_repo_path(Path(tmpdir).joinpath("seed"), init=True)
-    with build_expr_context_zip(xo.memtable({"seed": ["seed"]})) as zp:
-        seed.add(zp, sync=False)
-    seed.repo.create_remote("r1", str(bare_1)).push(MAIN_BRANCH, set_upstream=True)
-    seed.repo.create_remote("r2", str(bare_2)).push(MAIN_BRANCH, set_upstream=True)
-
-    local = Catalog.clone_from(
-        str(bare_1), Path(tmpdir).joinpath("local"), annex=False
-    )
-    local.repo.create_remote("r2", str(bare_2)).fetch()
-
-    with build_expr_context_zip(xo.memtable({"advance": ["advance"]})) as zp:
-        seed.add(zp, sync=False)
-    seed.push()
-
-    with build_expr_context_zip(xo.memtable({"local-only": ["local"]})) as zp:
-        local.add(zp, sync=False)
-    with pytest.raises(CatalogPushError) as exc_info:
-        local.push()
-    msg = str(exc_info.value)
-    assert "origin" in msg
-    assert "r2" in msg
-
-
 @pytest.mark.parametrize("op", ["push", "pull", "fetch", "sync"])
 def test_multi_remote_raises_configuration_error(tmpdir, op):
     """ADR-0009: catalog refuses to operate on configurations with 2+ git remotes.
@@ -289,6 +253,35 @@ def test_set_remote_replaces_existing(tmpdir):
     catalog.set_remote("origin", str(bare_2))
     assert len(catalog._git_remotes) == 1
     assert catalog._git_remotes[0].url == str(bare_2)
+
+
+def test_set_remote_preserves_annex_special_remote(tmpdir):
+    """set_remote replaces only git remotes; annex special remotes survive.
+
+    `_git_remotes` filters by fetch refspec, so a remote configured with no
+    fetch line (the shape of a git-annex special remote — credentials live
+    in remote.log on the git-annex branch, not in .git/config) is not a
+    git remote for ADR-0009 purposes. set_remote must not delete it.
+    """
+    bare = Path(tmpdir).joinpath("bare")
+    GitRepo.init(bare, bare=True, initial_branch=MAIN_BRANCH)
+
+    catalog = Catalog.from_repo_path(Path(tmpdir).joinpath("local"), init=True)
+
+    section = 'remote "s3-bucket"'
+    with catalog.repo.config_writer() as cw:
+        cw.add_section(section)
+        cw.set(section, "annex-uuid", "fake-uuid")
+
+    assert "s3-bucket" in {r.name for r in catalog.repo.remotes}
+    assert "s3-bucket" not in {r.name for r in catalog._git_remotes}
+
+    catalog.set_remote("origin", str(bare))
+
+    remote_names = {r.name for r in catalog.repo.remotes}
+    assert "s3-bucket" in remote_names
+    assert "origin" in remote_names
+    assert {r.name for r in catalog._git_remotes} == {"origin"}
 
 
 # ---------------------------------------------------------------------------

@@ -227,8 +227,8 @@ def init(ctx, env_file, env_prefix, gcs, remote_url):
         if remote_url:
             from xorq.catalog.constants import DEFAULT_REMOTE
 
-            catalog.repo.create_remote(DEFAULT_REMOTE, remote_url)
-            click.echo(f"Added remote {DEFAULT_REMOTE} -> {remote_url}")
+            remote = catalog.set_remote(DEFAULT_REMOTE, remote_url)
+            click.echo(f"Set remote {remote.name} -> {remote_url}")
 
 
 @cli.command()
@@ -393,7 +393,7 @@ def get(ctx, name, output):
 @cli.command()
 @click.pass_context
 def push(ctx):
-    """Push catalog to remote(s)."""
+    """Push catalog to the configured git remote."""
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog.push()
@@ -403,7 +403,7 @@ def push(ctx):
 @cli.command()
 @click.pass_context
 def pull(ctx):
-    """Pull catalog from remote(s)."""
+    """Pull catalog from the configured git remote."""
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog.pull()
@@ -418,6 +418,29 @@ def sync(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog.sync()
         click.echo("Synced.")
+
+
+@cli.command("set-remote")
+@click.argument("url")
+@click.option(
+    "--name",
+    default=None,
+    help="Remote name (defaults to 'origin').",
+)
+@click.pass_context
+def set_remote(ctx, url, name):
+    """Configure the catalog's git remote (replaces any existing remotes).
+
+    The catalog supports exactly one git remote (ADR-0009). This command
+    deletes every existing git remote on the underlying repo and creates
+    a new one pointing at URL.
+    """
+    from xorq.catalog.constants import DEFAULT_REMOTE
+
+    with click_context_catalog(ctx):
+        catalog = ctx.obj.make_catalog(init=False)
+        remote = catalog.set_remote(name or DEFAULT_REMOTE, url)
+        click.echo(f"Set remote {remote.name} -> {url}")
 
 
 @cli.command()

@@ -90,7 +90,7 @@ class CatalogConfigurationError(RuntimeError):
 
 def _collect_push_failures(push_info_list, remote_name):
     return [
-        f"{remote_name}/{info.local_ref}: {(info.summary or '').strip()}"
+        f"{remote_name}/{info.local_ref or '?'}: {(info.summary or '').strip()}"
         for info in push_info_list
         if info.flags & _PUSH_REJECTED_MASK
     ]
@@ -313,12 +313,13 @@ class Catalog:
     @property
     def _git_remotes(self):
         """Remotes that are real git remotes (have a fetch refspec), excluding annex special remotes."""
+        from configparser import NoOptionError, NoSectionError  # noqa: PLC0415
 
         def _has_fetch_refspec(remote):
             try:
                 remote.config_reader.get("fetch")
                 return True
-            except (KeyError, Exception):
+            except (NoOptionError, NoSectionError):
                 return False
 
         return tuple(r for r in self.repo.remotes if _has_fetch_refspec(r))
@@ -374,16 +375,19 @@ class Catalog:
     def push(self):
         """Push to the configured git remote after verifying consistency.
 
-        Pushes ``main`` then ``git-annex`` (if a local annex branch exists),
-        collects every rejection or transport failure across both branches,
-        and raises a single ``CatalogPushError`` listing all of them.
-        Bailing on the first failure would hide later ones and could leave
-        the remote with ``main`` pushed but ``git-annex`` not.
+        Pushes ``main``, then ``git-annex`` (if a local annex branch
+        exists), then raises a single ``CatalogPushError`` listing every
+        rejection or transport failure observed across both pushes. Both
+        pushes are attempted regardless of which (if either) failed:
+        bailing after a ``main`` failure would skip ``git-annex``, and
+        bailing after a successful ``main`` push would mask an annex
+        rejection — leaving the remote referencing annex keys that aren't
+        on its ``git-annex`` branch.
 
         No-op when no git remote is configured.
         """
-        self.assert_consistency()
         self._assert_single_git_remote()
+        self.assert_consistency()
         if not self._git_remotes:
             return ()
         (remote,) = self._git_remotes
