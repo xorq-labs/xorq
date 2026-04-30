@@ -31,6 +31,7 @@ from git import (
     Remote,
     Repo,
 )
+from git.exc import GitCommandError
 
 from xorq.catalog.annex import (
     LOCAL_ANNEX,
@@ -151,6 +152,44 @@ def _try_resolve_annex_remote(repo_path, **remote_kwargs):
         if remote_kwargs:
             raise
     return None
+
+
+def _parse_catalog_yaml_blob(blob):
+    """Parse a ``catalog.yaml`` blob from a merge stage; return defaults
+    when the blob is missing (the file did not exist in that stage)."""
+    if blob is None:
+        return {CatalogInfix.ENTRY: [], CatalogInfix.ALIAS: []}
+    raw = yaml12.parse_yaml(blob.data_stream.read().decode())
+    if isinstance(raw, list):
+        # Legacy on-disk format predates the entries/aliases dict schema.
+        return {CatalogInfix.ENTRY: raw, CatalogInfix.ALIAS: []}
+    return {
+        CatalogInfix.ENTRY: raw.get(str(CatalogInfix.ENTRY), []),
+        CatalogInfix.ALIAS: raw.get(str(CatalogInfix.ALIAS), []),
+    }
+
+
+def _three_way_list_merge(base, ours, theirs):
+    """3-way merge of ordered lists treated as sets with ours-first ordering.
+
+    An item in ``base`` that's been dropped by one side is treated as a
+    removal and excluded from the result.  Items added by either side
+    survive.  Duplicates collapse.
+    """
+    base_set = set(base)
+    ours_set = set(ours)
+    theirs_set = set(theirs)
+    result = []
+    seen = set()
+    for item in (*ours, *theirs):
+        if item in seen:
+            continue
+        if item in base_set and (item not in ours_set or item not in theirs_set):
+            # present in base and dropped by at least one side -> remove
+            continue
+        result.append(item)
+        seen.add(item)
+    return result
 
 
 class CatalogMergeConflict(Exception):
@@ -429,8 +468,60 @@ class Catalog:
         return results
 
     def pull(self):
-        """Pull from the configured git remote (no-op if no remote is configured)."""
-        return tuple(map(Remote.pull, self._validated_git_remotes()))
+        """Fetch and merge from the configured git remote; raise on unmerged paths.
+
+        Replaces ``git pull`` (which inherits the user's ``pull.rebase``
+        config and bails on divergent branches by default) with explicit
+        ``git fetch`` + ``git merge``.  When the merge leaves
+        ``catalog.yaml`` conflicted (typical when both sides appended
+        to the entries or aliases lists), a Python 3-way list-merge
+        resolves it: items present in the merge base and removed by
+        one side are propagated as removals; items added by either
+        side survive; duplicates are collapsed.  Anything still
+        unmerged after that — typically alias symlinks at the same
+        path with diverging targets — surfaces as
+        ``CatalogMergeConflict`` with the conflicted paths; the merge
+        is left in-progress so the user can resolve it.
+        """
+        branch = self.repo.active_branch.name
+        fetch_results = []
+        for remote in self._validated_git_remotes():
+            fetch_results.append(remote.fetch())
+            try:
+                self.repo.git.merge(f"{remote.name}/{branch}", "--no-edit")
+                continue
+            except GitCommandError:
+                pass
+            self._resolve_yaml_conflict_if_any()
+            unmerged = tuple(self.repo.index.unmerged_blobs().keys())
+            if unmerged:
+                raise CatalogMergeConflict(unmerged) from None
+            self.repo.git.commit("--no-edit")
+        return tuple(fetch_results)
+
+    def _resolve_yaml_conflict_if_any(self):
+        yaml_relpath = str(self.catalog_yaml.yaml_relpath)
+        unmerged = self.repo.index.unmerged_blobs()
+        if yaml_relpath not in unmerged:
+            return
+        stages = {stage: blob for stage, blob in unmerged[yaml_relpath]}
+        base = _parse_catalog_yaml_blob(stages.get(1))
+        ours = _parse_catalog_yaml_blob(stages.get(2))
+        theirs = _parse_catalog_yaml_blob(stages.get(3))
+        merged = {
+            str(CatalogInfix.ENTRY): _three_way_list_merge(
+                base[CatalogInfix.ENTRY],
+                ours[CatalogInfix.ENTRY],
+                theirs[CatalogInfix.ENTRY],
+            ),
+            str(CatalogInfix.ALIAS): _three_way_list_merge(
+                base[CatalogInfix.ALIAS],
+                ours[CatalogInfix.ALIAS],
+                theirs[CatalogInfix.ALIAS],
+            ),
+        }
+        self.catalog_yaml.set_contents(merged)
+        self.repo.git.add(yaml_relpath)
 
     @contextmanager
     def synchronizing(self):
