@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777552736990,
+  "lastUpdate": 1777554104828,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -9108,6 +9108,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.012791203330877552",
             "extra": "mean: 336.8245123999941 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a11d08955598121594261cfd2cea35339abc4d52",
+          "message": "fix(devcontainer): eliminate shared volume ownership warning (#1897)\n\n## Summary\n- Mark `uv-cache` and `ibis-testing-data` volumes as `external: true` in\n`docker-compose.yml` so Docker Compose doesn't track per-project\nownership\n- Add `ensure_shared_volumes()` in `dev/devcontainer` to pre-create\nthese volumes before `dc up`, so the external declaration never fails on\na fresh machine\n- Eliminates the `volume \"xorq-ibis-testing-data\" already exists but was\ncreated for project ...` warning when running devcontainers from\ndifferent worktrees\n\n## Test plan\n- [ ] `devcontainer up` from a worktree that previously triggered the\nwarning — no warning\n- [ ] `devcontainer reset` + `devcontainer up` on a fresh setup —\nvolumes are pre-created, container starts cleanly\n- [ ] Second worktree `devcontainer up` — no ownership warning\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-04-30T14:57:17+02:00",
+          "tree_id": "aa26e66aeff21654b02f22904cb0fef90ca7fb29",
+          "url": "https://github.com/xorq-labs/xorq/commit/a11d08955598121594261cfd2cea35339abc4d52"
+        },
+        "date": 1777554102480,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.102410141990545,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0049824436472812325",
+            "extra": "mean: 98.98628009998447 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.039630584376736,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06107576920886562",
+            "extra": "mean: 490.28486219997376 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6186261151157587,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16325873681039313",
+            "extra": "mean: 1.6164852656000108 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.847561692351305,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01532778709103981",
+            "extra": "mean: 351.17764180001814 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.4131637410248685,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04735680067662727",
+            "extra": "mean: 414.3937615999903 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.465769058444064,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07598085395740456",
+            "extra": "mean: 405.55298419999417 msec\nrounds: 5"
           }
         ]
       }
