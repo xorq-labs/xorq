@@ -5,7 +5,33 @@ The tutorial walks readers through several partial blocks and finishes with a
 (skipping the deliberate-error demonstration) so the snippets file mirrors the
 reader's experience top-to-bottom; the final unified script in the tutorial is
 the same code in one piece, so we don't repeat it here.
+
+The tutorial tells readers to ``uv init`` a project directory before running
+the script. We mimic that here by chdir'ing into a fresh tempdir with a
+minimal pyproject.toml — that way the snippet runs whether the test launched
+us from the repo root or somewhere unrelated, matching what a reader who
+followed the setup steps will see.
 """
+
+# %% --- test fixture: stand in for `uv init`
+import os as _os
+import shutil as _shutil
+import tempfile as _tempfile
+from pathlib import Path as _Path
+
+_workdir = _Path(_tempfile.mkdtemp(prefix="xorq-build-tutorial-"))
+(_workdir / "pyproject.toml").write_text(
+    '[project]\nname = "flights-tutorial"\nversion = "0.0.0"\n'
+    "[tool.setuptools]\npackages = []\n"
+)
+# `catalog.add` builds a wheel of the current project to embed in the entry,
+# which needs a requirements.txt (or uv.lock) sidecar. A reader who ran
+# `uv init && uv add "xorq[bsl,duckdb]"` gets a uv.lock automatically; here
+# we shortcut with an empty requirements.txt since the smoke test only cares
+# that the API surface runs end-to-end.
+(_workdir / "requirements.txt").write_text("")
+_os.chdir(_workdir)
+# --- end fixture ---
 
 # %% --- Create the flights dataset
 import xorq.api as xo
@@ -45,7 +71,7 @@ print("Measures:  ", tuple(flights_model.measures))
 by_origin = flights_model.query(
     dimensions=("origin",),
     measures=("flight_count", "avg_dep_delay"),
-)
+).order_by("origin")
 
 print(by_origin.execute())
 
@@ -60,7 +86,7 @@ print(by_origin_plain.execute())
 by_carrier = flights_model.query(
     dimensions=("carrier",),
     measures=("flight_count", "total_distance"),
-)
+).order_by("carrier")
 
 print(by_carrier.execute())
 
@@ -106,6 +132,10 @@ print("Recovered measures:", tuple(flights_model.measures))
 by_destination = flights_model.query(
     dimensions=("destination",),
     measures=("flight_count", "total_distance"),
-)
+).order_by("destination")
 
 print(by_destination.execute())
+
+# %% --- cleanup (fixture)
+_os.chdir(_workdir.parent)
+_shutil.rmtree(_workdir, ignore_errors=True)

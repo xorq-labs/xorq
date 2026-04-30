@@ -13,13 +13,30 @@ After completing this tutorial, you understand how to define dimensions and meas
 
 You need:
 
-- Xorq installed with BSL and DuckDB: `pip install "xorq[bsl,duckdb]"`
+- [`uv`](https://docs.astral.sh/uv/) installed (xorq's recommended runner)
 - Basic familiarity with Xorq expressions ([Your first expression](../../getting_started/your_first_expression.qmd) recommended)
 - Completed [Your first build](your_first_build.qmd) so the catalog vocabulary is familiar
+
+## Set up a project directory
+
+`catalog.add(...)` needs a `pyproject.toml` in the working directory (or an ancestor) so it can pin the xorq version embedded in the entry. Create a fresh project and pull in xorq with the BSL and DuckDB extras:
+
+```bash
+mkdir flights-tutorial && cd flights-tutorial
+uv init --no-readme
+uv add "xorq[bsl,duckdb]"
+```
+
+The rest of the tutorial assumes commands are run from inside `flights-tutorial/`.
 
 ::: {.callout-note}
 ### Why DuckDB?
 The catalog stores the in-memory `flights` table as a parquet file alongside the entry. Reading that parquet back when you recover the model uses DuckDB by default, so it has to be installed.
+:::
+
+::: {.callout-note}
+### Why a project directory?
+If you run the script from a directory without a `pyproject.toml`, `catalog.add(...)` raises `cannot locate a pyproject.toml ...`. `uv init` creates one for you; if you're not using uv, an empty `pyproject.toml` next to your script is enough — or pass `project_path=` to `catalog.add(...)` explicitly.
 :::
 
 ::: {.callout-tip}
@@ -109,7 +126,7 @@ Add a first query: average departure delay by origin airport.
 by_origin = flights_model.query(
     dimensions=("origin",),
     measures=("flight_count", "avg_dep_delay"),
-)
+).order_by("origin")
 
 print(by_origin.execute())
 ```
@@ -132,14 +149,14 @@ You see one row per origin airport, with the count and average delay:
 
 ```
   origin  flight_count  avg_dep_delay
-0    LAX             3       4.333333
-1    ORD             2      37.500000
-2    JFK             3      10.000000
+0    JFK             3      10.000000
+1    LAX             3       4.333333
+2    ORD             2      37.500000
 ```
 
 ::: {.callout-note}
 ### Row order
-BSL doesn't sort the result — the row order you see depends on the backend's hash layout. Add `.order_by("origin")` before `.execute()` if you want a stable order.
+BSL doesn't sort the result — the row order you see depends on the backend's hash layout. The `.order_by("origin")` above is what makes this output reproducible; without it, the rows can come back in any order. Every `query(...)` block below this point is sorted for the same reason.
 :::
 
 Now ask a different question — total distance flown by each carrier:
@@ -148,7 +165,7 @@ Now ask a different question — total distance flown by each carrier:
 by_carrier = flights_model.query(
     dimensions=("carrier",),
     measures=("flight_count", "total_distance"),
-)
+).order_by("carrier")
 
 print(by_carrier.execute())
 ```
@@ -242,7 +259,7 @@ The recovered model is a fully usable BSL object. Run a brand-new query that the
 by_destination = flights_model.query(
     dimensions=("destination",),
     measures=("flight_count", "total_distance"),
-)
+).order_by("destination")
 
 print(by_destination.execute())
 ```
@@ -302,12 +319,12 @@ flights_model = (
 print(flights_model.query(
     dimensions=("origin",),
     measures=("flight_count", "avg_dep_delay"),
-).execute())
+).order_by("origin").execute())
 
 print(flights_model.query(
     dimensions=("carrier",),
     measures=("flight_count", "total_distance"),
-).execute())
+).order_by("carrier").execute())
 
 # 4. Tag the model and add it to the catalog
 flights_model_expr = to_tagged(flights_model)
@@ -323,13 +340,13 @@ flights_model = from_tagged(flights_entry.expr)
 print(flights_model.query(
     dimensions=("destination",),
     measures=("flight_count", "total_distance"),
-).execute())
+).order_by("destination").execute())
 ```
 
 Run it:
 
 ```bash
-python flights_catalog.py
+uv run python flights_catalog.py
 ```
 
 ## What you learned

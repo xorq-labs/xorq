@@ -19,8 +19,8 @@ You'll also see how to swap the connection profile at recovery time, so a downst
 
 You need:
 
-- Completed [Build a semantic catalog](build_a_semantic_catalog.qmd) — the local catalog from that tutorial is the starting point here
-- Xorq with BSL and DuckDB: `pip install "xorq[bsl,duckdb]"`
+- Completed [Build a semantic catalog](build_a_semantic_catalog.qmd) — same model definition, same project layout. We'll recreate the catalog at a stable path here, since the foundation tutorial used a temp directory.
+- A `flights-tutorial/` project directory with `xorq[bsl,duckdb]` installed (the foundation tutorial sets this up)
 - Git installed locally and authenticated with GitHub (the `gh` CLI is convenient but not required)
 - **git-annex** installed locally — `brew install git-annex` on macOS, `apt install git-annex` on Debian/Ubuntu, or see [git-annex.branchable.com](https://git-annex.branchable.com/install/) for other platforms
 
@@ -39,22 +39,30 @@ That means GitHub's permission model, branch protection rules, and pull requests
 
 ## Publish the catalog to GitHub (User A)
 
-If you haven't already, recreate the catalog with annex enabled — the foundation tutorial used a default that auto-detects, and we want it explicit here. Wherever your catalog directory lives, point it at a stable path like `~/work/flights-catalog`:
+Recreate the catalog at a stable path (`~/work/flights-catalog`) so the rest of the tutorial has somewhere persistent to point at, and pass `annex=LOCAL_ANNEX` explicitly — the foundation tutorial relied on auto-detection and we want it explicit here.
 
 ```python
 from pathlib import Path
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.annex import LOCAL_ANNEX
 
-catalog = Catalog.from_repo_path(
-    Path("~/work/flights-catalog").expanduser(),
-    init=True,
-    annex=LOCAL_ANNEX,    # <1>
-)
-```
-1. `LOCAL_ANNEX` enables git-annex without configuring a special content remote yet — content lives in the repo's local annex object store. You'll add a remote next so others can fetch it.
+catalog_dir = Path("~/work/flights-catalog").expanduser()
+catalog_dir.parent.mkdir(parents=True, exist_ok=True)    # <1>
 
-Now create an empty repository on GitHub (web UI or `gh repo create`) and wire it in. The very first push needs `-u` to set upstream tracking; after that, `catalog.push()` handles the git-and-annex coordination together:
+catalog = Catalog.from_repo_path(
+    catalog_dir,
+    init=True,
+    annex=LOCAL_ANNEX,    # <2>
+)
+
+# Re-add the model from the foundation tutorial
+# (the to_semantic_table / to_tagged code is unchanged)
+# catalog.add(flights_model_expr, aliases=("flights-model",), sync=False)
+```
+1. `Catalog.from_repo_path(..., init=True)` creates the leaf directory but not its parent, so make sure `~/work/` exists first.
+2. `LOCAL_ANNEX` enables git-annex with content stored in the repo's local annex object store. To let collaborators fetch entry content you'll configure a *special* remote (S3, GCS, or a directory) — see the callout below; the GitHub remote you add next only carries git history and annex metadata.
+
+Now create an empty repository on GitHub and wire it in. The simplest path is the web UI ("New repository" → leave empty); `gh repo create <you>/flights-catalog --public --source=. --remote=origin` does the same thing in one shot. The first push needs `-u` to set upstream tracking; after that, `catalog.push()` handles git-and-annex coordination:
 
 ```bash
 # In the catalog directory
@@ -117,12 +125,15 @@ User B never saw User A's Python file, never saw the original `to_semantic_table
 
 ## Recover and query the model (User B)
 
-Fetch the annex content for the alias we want, then recover the model the same way the foundation tutorial did. `catalog.fetch_entries(...)` resolves the alias, asks git-annex for the underlying object, and pulls it from whichever special remote was configured — all in one call:
+Fetch the annex content for the entry we want, then recover the model the same way the foundation tutorial did. `catalog.fetch_entries(...)` asks git-annex for the underlying object and pulls it from whichever special remote was configured:
 
 ```python
 from boring_semantic_layer import from_tagged
 
-catalog.fetch_entries("flights-model")    # <1>
+# Look up the content-addressed entry name, then fetch it.
+# (Aliases can't be used here yet — see callout below.)
+entry_name = catalog.list()[0]
+catalog.fetch_entries(entry_name)    # <1>
 
 flights_entry = catalog.get_catalog_entry("flights-model", maybe_alias=True)
 flights_model = from_tagged(flights_entry.expr)
@@ -131,10 +142,15 @@ print(
     flights_model.query(
         dimensions=("origin",),
         measures=("flight_count", "avg_dep_delay"),
-    ).execute().head()
+    ).order_by("origin").execute().head()
 )
 ```
 1. No-op for plain-git catalogs; for annex-backed catalogs (everything in this tutorial) it materializes the entry zip locally so `flights_entry.expr` can read it.
+
+::: {.callout-warning}
+### Alias resolution requires local content
+Both `catalog.fetch_entries(alias)` and `catalog.get_catalog_entry(alias, maybe_alias=True)` raise `ValueError` until the entry's content is local. So the only thing that works against a freshly-cloned catalog is to look up the entry name via `catalog.list()` and fetch by name. Once content is local, alias resolution works everywhere. Tracked in [xorq#1891](https://github.com/xorq-labs/xorq/issues/1891).
+:::
 
 The cataloged expression encodes how to fetch the underlying parquet (a `deferred_read_parquet` of the public R2 URL), so User B's machine pulls the data on first execution — no shared filesystem, no out-of-band data transfer.
 
@@ -208,7 +224,10 @@ catalog_a.pull()
 print("Aliases now:", catalog_a.list_aliases())
 # ['flights-model', 'flights-aa-only']
 
-catalog_a.fetch_entries("flights-aa-only")    # materialize the new entry
+# Use catalog.list() to find the new entry's name, then fetch by name
+# (same workaround as in the recover step — see xorq#1891).
+new_entries = [n for n in catalog_a.list() if n != entry_name]
+catalog_a.fetch_entries(*new_entries)    # materialize the new entry
 ```
 
 The same alias is now visible everywhere the catalog is cloned. Anyone with access can recover and query `flights-aa-only` exactly the way they recover `flights-model`.
