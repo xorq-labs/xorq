@@ -504,7 +504,7 @@ class Catalog:
         unmerged = self.repo.index.unmerged_blobs()
         if yaml_relpath not in unmerged:
             return
-        stages = {stage: blob for stage, blob in unmerged[yaml_relpath]}
+        stages = dict(unmerged[yaml_relpath])
         base = _parse_catalog_yaml_blob(stages.get(1))
         ours = _parse_catalog_yaml_blob(stages.get(2))
         theirs = _parse_catalog_yaml_blob(stages.get(3))
