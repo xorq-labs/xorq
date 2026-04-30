@@ -46,9 +46,7 @@ def two_clones(tmpdir):
     cat_a.repo.create_remote(name="origin", url=str(origin_path))
     cat_a.repo.git.push("-u", "origin", MAIN_BRANCH)
 
-    cat_b = Catalog.clone_from(
-        url=str(origin_path), repo_path=user_b_path, annex=False
-    )
+    cat_b = Catalog.clone_from(url=str(origin_path), repo_path=user_b_path, annex=False)
     return cat_a, cat_b
 
 
