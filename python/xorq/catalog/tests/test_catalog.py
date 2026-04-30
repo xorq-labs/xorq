@@ -12,6 +12,10 @@ from git import Repo as GitRepo
 import xorq.api as xo
 import xorq.catalog.catalog as catalog_mod
 from xorq.caching import ParquetSnapshotCache
+from xorq.catalog import (
+    CatalogConfigurationError,
+    CatalogPushError,
+)
 from xorq.catalog.annex import (
     LOCAL_ANNEX,
     Annex,
@@ -21,10 +25,6 @@ from xorq.catalog.annex import (
     _do_inside,
 )
 from xorq.catalog.backend import GitAnnexBackend, GitBackend
-from xorq.catalog import (
-    CatalogConfigurationError,
-    CatalogPushError,
-)
 from xorq.catalog.catalog import (
     Catalog,
     CatalogAddition,
