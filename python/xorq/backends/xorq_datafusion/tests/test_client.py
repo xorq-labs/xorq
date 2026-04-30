@@ -21,14 +21,6 @@ def test_register_record_batch_reader(alltypes_df):
     assert_frame_equal(actual, alltypes_df)
 
 
-def test_register_expr(alltypes_df):
-    con = xo.connect()
-    t = con.register(alltypes_df, "alltypes")
-    t2 = con.register(t, "alltypes2")
-    actual = xo.execute(t2)
-    assert_frame_equal(actual, alltypes_df)
-
-
 def test_execute_nonnull():
     schema = pa.schema((pa.field("x", pa.int64(), nullable=False),))
     tab = pa.table({"x": [1, 2, 3]}, schema=schema)

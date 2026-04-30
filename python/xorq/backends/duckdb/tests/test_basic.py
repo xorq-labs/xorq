@@ -101,8 +101,8 @@ def test_sql_execution(con, duckdb_con, awards_players, batting):
     predicate = ["playerID"]
     result_order = ["playerID", "yearID", "lgID", "stint"]
 
-    expr = con.register(left, "batting").join(
-        make_right(con.register(ddb_players, "players")),
+    expr = left.join(
+        make_right(ddb_players),
         predicate,
         how="inner",
     )

@@ -25,13 +25,6 @@ class Backend(DataFusionBackend):
         table_name: str | None = None,
         **kwargs: Any,
     ) -> ir.Table:
-        if isinstance(source, ir.Expr):
-            from xorq.expr.relations import into_backend  # noqa: PLC0415
-
-            backends, _ = source._find_backends()
-            if len(backends) > 1:
-                raise ValueError("Multiple backends found in expression")
-            return into_backend(source, self, table_name)
         return super().register(source, table_name=table_name, **kwargs)
 
     def execute(self, expr: ir.Expr, **kwargs: Any):

@@ -266,7 +266,7 @@ def test_expr_over_same_table_multiple_times(parquet_dir, get_con):
     col = "id"
 
     astronauts_name = f"{ls_con.name}_{table_name}"
-    astronauts = ls_con.register(astronauts_path, table_name=astronauts_name)
+    astronauts = ls_con.read_parquet(astronauts_path, table_name=astronauts_name)
 
     if other_con.name == "postgres":
         t = other_con.table(table_name)
@@ -274,7 +274,7 @@ def test_expr_over_same_table_multiple_times(parquet_dir, get_con):
         t = other_con.read_parquet(astronauts_path, table_name=table_name)
 
     ls_table_name = f"{other_con.name}_{table_name}"
-    other = ls_con.register(t, ls_table_name)
+    other = t.into_backend(ls_con, ls_table_name)
 
     expr = astronauts[[col]].distinct().join(other[[col]].distinct(), col)
 
