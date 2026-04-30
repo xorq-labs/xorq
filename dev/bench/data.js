@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777482939177,
+  "lastUpdate": 1777552736990,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -9042,6 +9042,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0608330506169037",
             "extra": "mean: 387.20838479998747 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5ec263d7204855fadd38d2c6ab09ca509b7336cc",
+          "message": "perf(catalog): split test_cli.py (#1871)\n\n**Summary**\n- Split python/xorq/catalog/tests/test_cli.py (1767 lines, 113 tests)\ninto four focused files — test_cli_init_crud.py,\ntest_cli_inspect_git.py, test_cli_params.py, test_cli_run_compose.py —\nto distribute\ncatalog CLI tests across parallel workers in CI.\n- Hoisted shared fixtures (runner, catalog_with_source_and_transform)\nfrom inline test setup into conftest.py.\n- Added caching for ibis test data and quarto in both doc CI workflows\n(ci-docs-deploy.yml, ci-docs-preview.yml), reducing redundant downloads\non every run.\n- Trimmed doc CI service startup from docker compose up --build --wait\nto docker compose up postgres --wait --remove-orphans — docs only need\npostgres.\n- Added setup-node@v4 with npm cache before netlify-cli install in the\npreview workflow (previously missing).\n**Why four physical files instead of --dist=loadscope or default\n--dist=load?**\n--dist=loadfile is set globally for the core backend because the\npostgres pg fixture has a TOCTOU race in remove_unexpected_tables(): it\niterates tables to drop, then iterates again for views, and a\nconcurrent worker can create a postgres table between those two loops,\ncausing a DROP VIEW on a table → psycopg.errors.WrongObjectType.\nSwitching to --dist=load globally would reintroduce that race.\n--dist=loadscope is not a viable alternative here — it groups by class\nfirst, then by module. The catalog tests have no classes, so all 113\nflat functions in a single file would still be assigned to a single\nworker.\n  It's equivalent to loadfile on a flat module.\npytest-xdist has no per-directory dist-mode override, so a per-package\nexception isn't possible. Splitting into four files is the only\npractical way to distribute catalog CLI tests across workers within\nthe existing constraints. With --dist=loadfile and four files, each file\ngets its own worker.\n**Test plan**\n\n- All 113 catalog CLI tests are present across the four new files (28 +\n40 + 13 + 32 = 113)\n  - No duplicate test names across split files\n- core backend CI passes with -n auto --dist=loadfile\n- Doc build CI completes with cached data and postgres-only service\nstartup\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-04-30T08:34:45-04:00",
+          "tree_id": "ae0613f91294b774741300bfbc909c4a5a9ebf5e",
+          "url": "https://github.com/xorq-labs/xorq/commit/5ec263d7204855fadd38d2c6ab09ca509b7336cc"
+        },
+        "date": 1777552734280,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.4773388082387156,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01620645196267344",
+            "extra": "mean: 133.73741990909593 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.7222344716421847,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04435018928263821",
+            "extra": "mean: 367.3452857999962 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6630250800053067,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1966229502639327",
+            "extra": "mean: 1.5082385722000082 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.970146805559043,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0213126441725591",
+            "extra": "mean: 336.6836945999978 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.010331977122613,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018080801355949763",
+            "extra": "mean: 332.1892759999969 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.9689050623858857,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012791203330877552",
+            "extra": "mean: 336.8245123999941 msec\nrounds: 5"
           }
         ]
       }
