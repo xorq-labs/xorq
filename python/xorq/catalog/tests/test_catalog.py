@@ -26,6 +26,7 @@ from xorq.catalog.catalog import (
     CatalogAddition,
     CatalogAlias,
     CatalogEntry,
+    CatalogPushError,
 )
 from xorq.catalog.constants import MAIN_BRANCH, CatalogInfix
 from xorq.catalog.expr_utils import (
@@ -202,7 +203,7 @@ def test_push_surfaces_remote_rejection(repo_cloned_bare, tmpdir):
     with build_expr_context_zip(xo.memtable({"b-only": ["b"]})) as zp:
         user_b.add(zp, sync=False)
 
-    with pytest.raises(Exception, match="(?i)reject"):
+    with pytest.raises(CatalogPushError, match="(?i)reject"):
         user_b.push()
 
 

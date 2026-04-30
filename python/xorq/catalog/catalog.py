@@ -76,25 +76,15 @@ _PUSH_REJECTED_MASK = (
 
 
 class CatalogPushError(RuntimeError):
-    """Raised when ``catalog.push()`` cannot publish to a remote.
-
-    Wraps GitPython's ``PushInfo`` rejection signals. Without this, the
-    catalog API silently returned success on rejected pushes — callers
-    would believe their entries were published when the remote ref had
-    not actually moved.
-    """
+    """Raised when ``catalog.push()`` cannot publish to a remote."""
 
 
-def _assert_push_accepted(push_info_list, remote_name):
-    rejected = [info for info in push_info_list if info.flags & _PUSH_REJECTED_MASK]
-    if not rejected:
-        return
-    details = "; ".join(
-        f"{info.local_ref}: {info.summary.strip()}" for info in rejected
-    )
-    raise CatalogPushError(
-        f"push to remote {remote_name!r} was rejected: {details}"
-    )
+def _collect_push_failures(push_info_list, remote_name):
+    return [
+        f"{remote_name}/{info.local_ref}: {(info.summary or '').strip()}"
+        for info in push_info_list
+        if info.flags & _PUSH_REJECTED_MASK
+    ]
 
 
 def _ensure_wheel_artifacts(build_dir, project_path=None):
@@ -346,21 +336,18 @@ class Catalog:
     def push(self):
         """Push to all git remotes after verifying consistency.
 
-        Raises ``CatalogPushError`` if any remote rejects the push (e.g.
-        the branch has diverged). Both the main branch and the annex
-        branch are checked — partial success leaves the remote in a
-        half-state and is also reported as a failure.
+        Pushes every ref to every remote, collects every rejection or
+        transport failure across the whole batch, and raises a single
+        ``CatalogPushError`` listing all of them. Skipping ahead on the
+        first failure would hide later ones and could leave a remote
+        with main pushed but annex not.
         """
         self.assert_consistency()
         results = tuple(remote.push() for remote in self._git_remotes)
-        for remote, infos in zip(self._git_remotes, results):
-            _assert_push_accepted(infos, remote.name)
         if _has_local_annex_branch(self.repo):
             annex_results = tuple(
                 remote.push(ANNEX_BRANCH) for remote in self._git_remotes
             )
-            for remote, infos in zip(self._git_remotes, annex_results):
-                _assert_push_accepted(infos, remote.name)
         else:
             annex_results = ()
             logger.debug(
@@ -368,6 +355,13 @@ class Catalog:
                 annex_branch=ANNEX_BRANCH,
                 repo_path=str(self.repo_path),
             )
+        failures = []
+        for remote, infos in zip(self._git_remotes, results):
+            failures.extend(_collect_push_failures(infos, remote.name))
+        for remote, infos in zip(self._git_remotes, annex_results):
+            failures.extend(_collect_push_failures(infos, remote.name))
+        if failures:
+            raise CatalogPushError(f"push failed: {'; '.join(failures)}")
         return results + annex_results
 
     def pull(self):
