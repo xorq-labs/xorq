@@ -6,7 +6,7 @@
 
 ## Context
 
-A `Catalog` is a git repository — usually with a git-annex sidecar branch — that holds versioned build artifacts. `Catalog.push()`, `Catalog.pull()`, and `Catalog.fetch()` operate over `self._git_remotes`, which is *every* git remote on the underlying repo that has a fetch refspec (`catalog.py:304-315`). Nothing in the catalog API restricts a user to one remote; if `git remote add r2 …` is run on the working tree, the next `catalog.push()` will dutifully push to both `origin` and `r2`.
+A `Catalog` is a git repository — usually with a git-annex sidecar branch — that holds versioned build artifacts. `Catalog.push()`, `Catalog.pull()`, and `Catalog.fetch()` operate over `self._git_remotes`, which is *every* git remote on the underlying repo that has a fetch refspec (see the `Catalog._git_remotes` property in `python/xorq/catalog/catalog.py`). Nothing in the catalog API restricts a user to one remote; if `git remote add r2 …` is run on the working tree, the next `catalog.push()` will dutifully push to both `origin` and `r2`.
 
 Issue [#1898](https://github.com/letsql/xorq/issues/1898) surfaced a silent failure mode in this design: when a push to one remote was rejected (non-fast-forward), `catalog.push()` returned without raising. The fix landed in three commits on this branch:
 
@@ -18,11 +18,11 @@ Issue [#1898](https://github.com/letsql/xorq/issues/1898) surfaced a silent fail
 
 The aggregation fix exists because the obvious "fail fast on the first rejected push" implementation has a worse failure mode than the bug it replaces: with two git remotes, rejecting on `origin` skips the push of `origin`'s annex branch *and* the entire push to `r2`, so a retry sees inconsistent state across the two remotes. Aggregation patches that — but it patches *one* of an open-ended set of multi-remote consistency problems we have not enumerated:
 
-- **Atomicity (between remotes).** `push()` to N remotes is N independent operations. Any non-empty subset can succeed while the rest fail, leaving remotes out of sync. Aggregating the error tells the user *that* this happened, not how to recover. Note: single-remote does not give us atomicity either — `main` and `git-annex` are pushed in two separate operations (`catalog.py:346, 349`), so even one remote can be left half-pushed. Single-remote shrinks the inconsistency surface from `2N` operations to `2`; it does not eliminate it.
-- **Annex content placement.** `git-annex` tracks per-key location across remotes. With multiple git remotes plus a special remote, "where does the content live" stops being a yes/no question. `Catalog.fetch_entries` (`catalog.py:321-334`) just calls `backend.fetch_content`; it does not reason about which remote satisfies which key.
-- **Pull semantics.** `Catalog.pull()` calls `Remote.pull` on each remote in turn (`catalog.py:367-369`). With divergent histories on two remotes, the first pull succeeds and the second fails (or merges) silently with respect to the catalog's consistency invariants.
-- **`assert_consistency` against which remote?** Mutating operations (`add`, `remove`, `add_alias`) wrap their work in `synchronizing` (`catalog.py:371-375`), which pulls from every remote then pushes to every remote; `assert_consistency` runs inside the wrapped block (e.g. `_add_zip` at `catalog.py:233-239`). With multiple remotes, "the catalog is consistent with the remote" is undefined — we may have pulled from `origin` and pushed to `r2`, with `r1` untouched.
-- **`remote_config` is singular.** The git-annex `RemoteConfig` resolution (`catalog.py:200-211`) reads one config from `remote.log`. The data model already assumes a single source of truth for credentials and bucket location.
+- **Atomicity (between remotes).** `push()` to N remotes is N independent operations. Any non-empty subset can succeed while the rest fail, leaving remotes out of sync. Aggregating the error tells the user *that* this happened, not how to recover. Note: single-remote does not give us atomicity either — `main` and `git-annex` are pushed in two separate operations inside `Catalog.push`, so even one remote can be left half-pushed. Single-remote shrinks the inconsistency surface from `2N` operations to `2`; it does not eliminate it.
+- **Annex content placement.** `git-annex` tracks per-key location across remotes. With multiple git remotes plus a special remote, "where does the content live" stops being a yes/no question. `Catalog.fetch_entries` just calls `backend.fetch_content`; it does not reason about which remote satisfies which key.
+- **Pull semantics.** `Catalog.pull` calls `Remote.pull` on each remote in turn. With divergent histories on two remotes, the first pull succeeds and the second fails (or merges) silently with respect to the catalog's consistency invariants.
+- **`assert_consistency` against which remote?** Mutating operations (`add`, `remove`, `add_alias`) wrap their work in `Catalog.synchronizing`, which pulls from every remote then pushes to every remote; `assert_consistency` runs inside the wrapped block (e.g. `Catalog._add_zip`). With multiple remotes, "the catalog is consistent with the remote" is undefined — we may have pulled from `origin` and pushed to `r2`, with `r1` untouched.
+- **`remote_config` is singular.** The git-annex `RemoteConfig` resolution in `_try_resolve_annex_remote` reads one config from `remote.log`. The data model already assumes a single source of truth for credentials and bucket location.
 
 We have no users today asking for multi-remote, no design for what the operations above *should* do, and no test coverage beyond the push-failure aggregation case. The aggregation fix is correct given the current API, but committing to it as a supported surface area locks in design debt we have not paid down.
 
@@ -49,7 +49,7 @@ The catalog officially supports exactly one git remote. Configurations with two 
 
 ### What "git remote" means here
 
-This ADR constrains *git* remotes — entries in `repo.remotes` with a fetch refspec, as enumerated by `Catalog._git_remotes` (`catalog.py:304-315`). The git-annex *special* remote (the S3 / directory / etc. configured via `RemoteConfig` and stored in `remote.log`) is unrelated and remains singular as it always has been. A catalog continues to look like:
+This ADR constrains *git* remotes — entries in `repo.remotes` with a fetch refspec, as enumerated by `Catalog._git_remotes`. The git-annex *special* remote (the S3 / directory / etc. configured via `RemoteConfig` and stored in `remote.log`) is unrelated and remains singular as it always has been. A catalog continues to look like:
 
 ```
 catalog repo  ──push/pull──>  one git remote (e.g. github.com/org/catalog.git)
@@ -59,11 +59,11 @@ catalog repo  ──push/pull──>  one git remote (e.g. github.com/org/catalo
 
 ### Implementation sketch
 
-Add a `_assert_single_git_remote` guard called at the top of `push`, `pull`, `fetch`, and `sync`. (Putting it inside `synchronizing` is tempting but insufficient: `push`/`pull`/`fetch` are public methods callers invoke directly without going through `synchronizing`, and `sync` enters `synchronizing` *itself*, so the guard must run before the context manager body.) The guard raises `CatalogConfigurationError` when `len(self._git_remotes) > 1` and is a no-op otherwise. The aggregation loop in `push()` (`catalog.py:336-365`) collapses to a single-remote push-and-collect.
+Add a `_assert_single_git_remote` guard called at the top of `push`, `pull`, `fetch`, and `sync`. (Putting it inside `synchronizing` is tempting but insufficient: `push`/`pull`/`fetch` are public methods callers invoke directly without going through `synchronizing`, and `sync` enters `synchronizing` *itself*, so the guard must run before the context manager body.) The guard raises `CatalogConfigurationError` when `len(self._git_remotes) > 1` and is a no-op otherwise. The aggregation loop in `Catalog.push` collapses to a single-remote push-and-collect.
 
 Add a `Catalog.set_remote(name, url)` method that replaces (rather than appends) the catalog's git remote. This is the supported way to configure a remote: it makes the contract discoverable instead of relying on users to know that bare `git remote add` is forbidden. Raw `git remote add` against the working tree remains the configuration that triggers `CatalogConfigurationError`.
 
-The existing test `test_push_aggregates_failures_across_remotes` (`test_catalog.py:210`) is marked `pytest.skip("multi-remote unsupported per ADR-0009")` rather than deleted, so the bare-repo + two-remote + diverged-history setup is preserved against any future multi-remote re-introduction. A new test asserts `CatalogConfigurationError` is raised when a second git remote is added.
+A new test (`test_multi_remote_raises_configuration_error` in `python/xorq/catalog/tests/test_catalog.py`) parametrizes `push`/`pull`/`fetch`/`sync` against a catalog with two git remotes and asserts each raises `CatalogConfigurationError`. The earlier `test_push_aggregates_failures_across_remotes` covering multi-remote aggregation is removed; if multi-remote support is later re-introduced, the bare-repo + two-remote + diverged-history setup it relied on is straightforward to re-derive.
 
 ### Escape hatch
 
@@ -119,7 +119,7 @@ Rejected on the same grounds as the flag option: a warning that's easy to ignore
 ### Negative
 
 - Users who today rely on multi-remote (we believe there are none, but we have not surveyed) will see a hard error after upgrading. Mitigation: the error message names the remotes and links to a contact path; the local-only path (zero remotes) is preserved.
-- The aggregation fix from `6b2ab300` is reverted as part of this change. If multi-remote support is later re-introduced, the aggregation logic would need to be re-derived (~30 lines); the test is preserved via `pytest.skip` so the bare-repo + two-remote + diverged-history setup is not lost.
+- The aggregation fix from `6b2ab300` is reverted as part of this change. If multi-remote support is later re-introduced, both the aggregation logic (~30 lines) and the bare-repo + two-remote + diverged-history test setup would need to be re-derived; neither is preserved in tree.
 - "One git remote" is enforced at the catalog API boundary, not at the underlying git repository. A user who runs `git remote add` directly on the working tree and then operates on the repo with raw git can still create the inconsistent states described in Context. We accept this — the catalog is opinionated, the underlying git repo is not. The error fires on every subsequent `push`/`pull`/`fetch`/`sync` call, not just the first one, so the misconfiguration is loud and persistent rather than one-shot.
 
 ## References
@@ -127,5 +127,5 @@ Rejected on the same grounds as the flag option: a warning that's easy to ignore
 - Issue [#1898](https://github.com/letsql/xorq/issues/1898) — silent push rejection
 - Commit `fe3f608b` — raise on rejected push
 - Commit `6b2ab300` — aggregate push failures across all remotes (to be reverted by this ADR)
-- Commit `0b40bb35` — multi-remote aggregation test (to be `pytest.skip`-ed and preserved against future multi-remote re-introduction; a new test asserting `CatalogConfigurationError` replaces it as live coverage)
+- Commit `0b40bb35` — multi-remote aggregation test (removed by this ADR; replaced by `test_multi_remote_raises_configuration_error` as live coverage)
 - [ADR-0003](0003-optional-git-annex-backend.md) — git-annex backend (related; unaffected by this decision since it concerns the *special* remote, not git remotes)
