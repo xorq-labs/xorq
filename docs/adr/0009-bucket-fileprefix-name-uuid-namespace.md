@@ -54,15 +54,25 @@ Without pre-generation, the bucket would receive an `annex-uuid` sentinel at the
 
 ### Idempotency
 
-`Annex._augment_fileprefix(rc, remote_uuid)` is a no-op when `rc.fileprefix` already ends with `{name}/{remote_uuid}/`, so subsequent `enableremote` calls (e.g. xorq's `_try_resolve_annex_remote` runs one on every `Catalog.from_repo_path`) do not re-suffix. Across clones, the remote UUID is identical, so the idempotency check holds.
+`S3RemoteConfig.augment_fileprefix(remote_uuid)` is a no-op when `self.fileprefix` already ends with `{name}/{remote_uuid}/`, so subsequent `enableremote` calls (e.g. xorq's `_try_resolve_annex_remote` runs one on every `Catalog.from_repo_path`) do not re-suffix. Across clones, the remote UUID is identical, so the idempotency check holds.
+
+### Refusing to auto-migrate un-suffixed catalogs
+
+`Annex.enableremote(rc)` reads the existing `fileprefix` for the remote out of `remote.log` and asks the config to verify it via `rc.verify_fileprefix(remote_uuid, existing_fileprefix)`. For S3, the verifier raises `AnnexError` when the existing prefix is not already namespaced by `{name}/{remote_uuid}/`. This is deliberate: silently rewriting `remote.log` on first open would mutate shared state on the `git-annex` branch and orphan bucket objects under the old prefix without warning. The error message points at ADR-0009 and tells the operator to copy bucket objects from the old prefix to one ending in `{name}/{remote_uuid}/` (e.g. `aws s3 cp --recursive`) and then update `remote.log` before reopening.
+
+For `Directory` and `Rsync` remotes the verifier is a no-op — those backends already isolate via the directory or URL itself, so the namespacing question does not apply.
 
 ### Fallback in `enableremote`
 
-`Annex.enableremote(rc)` looks up the remote UUID in `remote.log`. When the remote does not yet exist (`Catalog.init_repo_path(repo_path, annex=rc)` on a fresh repo) the lookup returns `None` and `enableremote` delegates to `initremote` — preserving the existing API for callers that don't differentiate between "create" and "enable".
+`Annex.enableremote(rc)` looks up the remote UUID by name in `remote.log`. When the lookup misses, the fallback to `initremote` is *only* allowed when `remote.log` is empty — i.e. a genuinely fresh annex repo (`Catalog.init_repo_path(repo_path, annex=rc)`). A non-empty `remote.log` without a matching name raises `AnnexError`, so a typo'd remote name cannot accidentally create a parallel remote next to the existing one.
 
 ### Subclass interface change
 
-`RemoteConfig.initremote(repo_path)` is extended to `initremote(repo_path, *, uuid=None)`. Each subclass (`Directory`, `Rsync`, `S3`) appends `uuid={value}` to its CLI args when supplied. The keyword is opt-in: callers that don't pass `uuid` keep the prior auto-generated behavior.
+`RemoteConfig.initremote(repo_path)` is extended to `initremote(repo_path, *, remote_uuid)`. The keyword is required: every call site goes through `Annex.initremote`, which always pre-generates the UUID via `uuid.uuid4()` and passes it down. Each subclass (`Directory`, `Rsync`, `S3`) emits `uuid={value}` in its CLI args.
+
+### Where `augment_fileprefix` / `verify_fileprefix` live
+
+Both methods live on `RemoteConfig` as no-op defaults, and are overridden on `S3RemoteConfig` only. `Annex.enableremote` and `Annex.initremote` dispatch through the config rather than introspecting fields, so adding a future remote type with its own namespacing scheme is a one-class change.
 
 ## Alternatives considered
 
@@ -103,7 +113,7 @@ The `uuid=<value>` parameter on `initremote` is the supported alternative and pr
 
 ### Negative
 
-- **Existing catalogs whose `remote.log` carries a non-suffixed `fileprefix` will be auto-upgraded.** On the first `from_repo_path` after this change, `enableremote` rewrites `remote.log` to include `{name}/{uuid}/`. Objects already in the bucket at the old path become unreachable until they are migrated. The migration is `gcloud storage cp -r` (or `aws s3 cp --recursive`) from the old prefix to the new prefix; it is not automated.
+- **Existing catalogs whose `remote.log` carries a non-suffixed `fileprefix` cannot be opened until migrated.** `Annex.enableremote` raises `AnnexError` referencing this ADR; the operator must copy bucket objects from the old prefix to one ending in `{name}/{remote_uuid}/` (e.g. `aws s3 cp --recursive` or `gcloud storage cp -r`) and update `remote.log` before reopening. This is preferable to a silent auto-rewrite that would orphan objects in the bucket without warning.
 - **`fileprefix` in `remote.log` no longer matches what the user typed in env vars.** Reading `remote.log` directly (e.g. for debugging) requires understanding that the value is the *resolved* path, not the *configured* base prefix.
 - **The `uuid=<value>` initremote parameter ties xorq to a specific git-annex feature.** It is documented and stable, but if a future git-annex version removes it the patch would need to fall back to the deferred two-phase approach.
 

@@ -246,6 +246,37 @@ def test_remote_log_available_after_init(tmpdir):
     assert config["type"] == "directory"
 
 
+def test_enableremote_falls_back_to_initremote_on_empty_remote_log(tmpdir):
+    """enableremote on a fresh annex repo (no remote.log) creates the remote."""
+    repo_path = Path(tmpdir).joinpath("repo")
+    Catalog.from_repo_path(repo_path, init=True, annex=LOCAL_ANNEX)
+    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir.mkdir()
+    rc = DirectoryRemoteConfig(name="newdir", directory=str(remote_dir))
+
+    Annex.from_repo_path(repo_path).enableremote(rc)
+
+    remote_log = Annex.from_repo_path(repo_path).remote_log
+    assert remote_log
+    assert next(iter(remote_log.values()))["name"] == "newdir"
+
+
+def test_enableremote_raises_when_name_missing_from_nonempty_remote_log(tmpdir):
+    """enableremote refuses to silently create a second remote next to an existing one."""
+    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir.mkdir()
+    existing = DirectoryRemoteConfig(name="existing", directory=str(remote_dir))
+    repo_path = Path(tmpdir).joinpath("repo")
+    Catalog.from_repo_path(repo_path, init=True, annex=existing)
+
+    other_dir = Path(tmpdir).joinpath("other-store")
+    other_dir.mkdir()
+    other = DirectoryRemoteConfig(name="other", directory=str(other_dir))
+
+    with pytest.raises(AnnexError, match="not registered"):
+        Annex.from_repo_path(repo_path).enableremote(other)
+
+
 def test_from_repo_path_no_annex(tmpdir):
     """from_repo_path with annex=None on a plain-git repo returns GitBackend."""
     repo_path = Path(tmpdir).joinpath("plain-repo")

@@ -114,7 +114,7 @@ def _try_resolve_annex_remote(repo_path, **remote_kwargs):
     unavailable or the remote cannot be enabled.
     """
     try:
-        tmp_annex = Annex(repo_path=Path(repo_path))
+        tmp_annex = Annex.from_repo_path(repo_path)
         rc = tmp_annex.resolve_remote_config(**remote_kwargs)
         if rc is not None:
             tmp_annex.enableremote(rc)
@@ -186,7 +186,7 @@ class Catalog:
         Calls ``enableremote`` to write the config to remote.log on the
         git-annex branch.  Use ``catalog.remote_config`` to read it back.
         """
-        Annex(repo_path=self.repo_path).enableremote(remote_config)
+        Annex.from_repo_path(self.repo_path).enableremote(remote_config)
 
     def embed_readonly(self, readonly_config):
         """Embed read-only credentials into the git-annex branch.
@@ -526,12 +526,12 @@ class Catalog:
         # resolve remote config with graceful degradation
         remote_config = annex if isinstance(annex, RemoteConfig) else None
         if remote_config is not None:
-            Annex(repo_path=Path(repo_path)).enableremote(remote_config)
+            Annex.from_repo_path(repo_path).enableremote(remote_config)
         else:
             remote_config = _try_resolve_annex_remote(repo_path, **remote_kwargs)
 
         env = getattr(remote_config, "env", None)
-        annex_obj = Annex(repo_path=Path(repo.working_dir), env=env)
+        annex_obj = Annex.from_repo_path(repo.working_dir, env=env)
         backend = GitAnnexBackend(repo=repo, annex=annex_obj)
         catalog = cls(backend=backend)
         if check_consistency:
@@ -590,10 +590,10 @@ class Catalog:
             else:
                 # ensure the special remote is enabled locally (e.g. after
                 # git submodule add, which clones but doesn't enableremote)
-                Annex(repo_path=Path(repo_path)).enableremote(remote_config)
+                Annex.from_repo_path(repo_path).enableremote(remote_config)
 
         env = getattr(remote_config, "env", None)
-        annex_obj = Annex(repo_path=Path(repo.working_dir), env=env)
+        annex_obj = Annex.from_repo_path(repo.working_dir, env=env)
         backend = GitAnnexBackend(repo=repo, annex=annex_obj)
         catalog = cls(backend=backend)
         if check_consistency:

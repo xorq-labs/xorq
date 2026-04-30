@@ -91,22 +91,6 @@ class Annex:
     def annex_objects_path(self):
         return self.annex_path.joinpath("objects")
 
-    @property
-    def annex_uuid(self):
-        """The local repo's git-annex UUID (set by ``git annex init``)."""
-        result = subprocess.run(
-            ["git", "config", "--get", "annex.uuid"],
-            cwd=self.repo_path,
-            capture_output=True,
-            text=True,
-        )
-        out = result.stdout.strip()
-        if result.returncode != 0 or not out:
-            raise AnnexError(
-                f"could not read annex.uuid at {self.repo_path}: {result.stderr}"
-            )
-        return out
-
     def _do(self, *args):
         returncode, stdout, stderr = _do_inside(self.repo_path, *args, env=self.env)
         if returncode != 0:
@@ -271,60 +255,58 @@ class Annex:
     def uninit(self):
         self._do("uninit")
 
-    def _remote_uuid_for_name(self, name):
-        """Look up a special remote's UUID by name from ``remote.log``.
-
-        Returns ``None`` if no remote with that name has been registered yet.
-        """
-        for remote_uuid, config in self.remote_log.items():
-            if config.get("name") == name:
-                return remote_uuid
-        return None
-
-    def _augment_fileprefix(self, remote_config, remote_uuid):
-        """Return *remote_config* with ``{name}/{remote_uuid}/`` appended to ``fileprefix``.
-
-        The remote name namespaces the catalog within the bucket; the
-        special remote's own UUID specializes within that namespace so
-        independent catalogs sharing a name write to different subdirs.
-        Because the remote UUID is stable across all clones of a catalog,
-        clones agree on the path and content-addressed dedup works.
-        Idempotent — if the suffix is already present (or the config has no
-        ``fileprefix`` field), the input is returned unchanged.
-        """
-        if not hasattr(remote_config, "fileprefix"):
-            return remote_config
-        suffix = f"{remote_config.name}/{remote_uuid}/"
-        current = remote_config.fileprefix or ""
-        if current.endswith(suffix):
-            return remote_config
-        base = current if not current or current.endswith("/") else f"{current}/"
-        return attr.evolve(remote_config, fileprefix=f"{base}{suffix}")
+    @classmethod
+    def from_repo_path(cls, repo_path, **kwargs):
+        """Construct an ``Annex`` from a repo path (``str`` or ``Path``)."""
+        return cls(repo_path=Path(repo_path), **kwargs)
 
     def initremote(self, remote_config):
         """Initialize a special remote with a pre-generated UUID baked into fileprefix.
 
         Generates the remote UUID up front and passes it to ``git annex
-        initremote`` via ``uuid=<value>`` so the ``{name}/{uuid}/`` subdir
-        convention is enforced from the very first write — no orphaned
-        ``annex-uuid`` sentinel at the parent prefix.
+        initremote`` via ``uuid=<value>`` so any name/uuid namespacing the
+        config wants to apply (see ``RemoteConfig.augment_fileprefix``) is
+        enforced from the very first write — no orphaned ``annex-uuid``
+        sentinel at the parent prefix.
         """
         remote_uuid = str(uuid.uuid4())
-        augmented = self._augment_fileprefix(remote_config, remote_uuid)
-        augmented.initremote(self.repo_path, uuid=remote_uuid)
+        augmented = remote_config.augment_fileprefix(remote_uuid)
+        augmented.initremote(self.repo_path, remote_uuid=remote_uuid)
         return augmented
 
     def enableremote(self, remote_config):
-        """Enable a special remote, augmenting fileprefix with ``{name}/{uuid}/``.
+        """Enable an existing special remote.
 
-        Looks up the remote's UUID from ``remote.log`` so the augmentation
-        is stable across clones.  Falls back to ``initremote`` when the
-        remote does not yet exist in ``remote.log``.
+        Looks up the remote's UUID from ``remote.log`` so any namespacing
+        is stable across clones.  Refuses to operate on a remote whose
+        existing ``remote.log`` fileprefix is not properly namespaced
+        (catalog initialized before the namespacing scheme — bucket
+        objects must be migrated first; see ADR-0009).  Falls back to
+        ``initremote`` only when ``remote.log`` is empty (genuinely fresh
+        repo); a non-empty ``remote.log`` without a matching name is an
+        error so callers cannot accidentally create a second remote.
         """
-        remote_uuid = self._remote_uuid_for_name(remote_config.name)
+        remote_log = self.remote_log
+        remote_uuid = next(
+            (
+                ru
+                for ru, cfg in remote_log.items()
+                if cfg.get("name") == remote_config.name
+            ),
+            None,
+        )
         if remote_uuid is None:
+            if remote_log:
+                names = sorted({cfg.get("name") for cfg in remote_log.values()})
+                raise AnnexError(
+                    f"remote {remote_config.name!r} is not registered in this "
+                    f"catalog's remote.log (existing remotes: {names}). "
+                    "Use initremote to create a new remote."
+                )
             return self.initremote(remote_config)
-        augmented = self._augment_fileprefix(remote_config, remote_uuid)
+        existing_fileprefix = remote_log[remote_uuid].get("fileprefix", "")
+        remote_config.verify_fileprefix(remote_uuid, existing_fileprefix)
+        augmented = remote_config.augment_fileprefix(remote_uuid)
         augmented.enableremote(self.repo_path)
         return augmented
 
@@ -333,7 +315,7 @@ class Annex:
         require_git_annex()
         _check_output_do_inside(repo_path, "init", check_stderr=False)
         if remote_config:
-            Annex(repo_path=Path(repo_path)).initremote(remote_config)
+            Annex.from_repo_path(repo_path).initremote(remote_config)
 
 
 def teardown_local(git_annex):
@@ -395,9 +377,25 @@ LOCAL_ANNEX = LocalAnnexConfig()
 
 class RemoteConfig(AnnexConfig, abc.ABC):
     @abc.abstractmethod
-    def initremote(self, repo_path, *, uuid=None): ...
+    def initremote(self, repo_path, *, remote_uuid): ...
 
     def enableremote(self, repo_path): ...  # noqa: B027
+
+    def augment_fileprefix(self, remote_uuid):
+        """Return self with ``{name}/{remote_uuid}/`` namespacing applied.
+
+        Default is a no-op — only remotes that store content under a
+        configurable bucket prefix (S3) override this to namespace the
+        prefix.  Directory and rsync remotes already isolate via the
+        directory/URL itself, so namespacing is unnecessary.
+        """
+        return self
+
+    def verify_fileprefix(self, remote_uuid, existing_fileprefix):
+        """Raise ``AnnexError`` if *existing_fileprefix* is not properly namespaced.
+
+        Default is a no-op for the same reason ``augment_fileprefix`` is.
+        """
 
     @abc.abstractmethod
     def validate_config(self, repo_path): ...
@@ -447,14 +445,13 @@ class DirectoryRemoteConfig(RemoteConfig):
             params.append(f"autoenable={self.autoenable}")
         return params
 
-    def initremote(self, repo_path, *, uuid=None):
+    def initremote(self, repo_path, *, remote_uuid):
         Path(self.directory).mkdir(exist_ok=True, parents=True)
-        extra = (f"uuid={uuid}",) if uuid is not None else ()
         _check_output_do_inside(
             repo_path,
             "initremote",
             *self._remote_params,
-            *extra,
+            f"uuid={remote_uuid}",
             check_stderr=False,
         )
 
@@ -506,13 +503,12 @@ class RsyncRemoteConfig(RemoteConfig):
                 params.append(f"{key}={value}")
         return params
 
-    def initremote(self, repo_path, *, uuid=None):
-        extra = (f"uuid={uuid}",) if uuid is not None else ()
+    def initremote(self, repo_path, *, remote_uuid):
         _check_output_do_inside(
             repo_path,
             "initremote",
             *self._remote_params,
-            *extra,
+            f"uuid={remote_uuid}",
             check_stderr=False,
         )
 
@@ -699,16 +695,56 @@ class S3RemoteConfig(RemoteConfig):
         ]
         return params
 
-    def initremote(self, repo_path, *, uuid=None):
-        extra = (f"uuid={uuid}",) if uuid is not None else ()
+    def initremote(self, repo_path, *, remote_uuid):
         _check_output_do_inside(
             repo_path,
             "initremote",
             *self.initremote_params,
-            *extra,
+            f"uuid={remote_uuid}",
             check_stderr=False,
             env=self.env,
         )
+
+    def _fileprefix_suffix(self, remote_uuid):
+        return f"{self.name}/{remote_uuid}/"
+
+    def augment_fileprefix(self, remote_uuid):
+        """Return self with ``{name}/{remote_uuid}/`` appended to ``fileprefix``.
+
+        The remote name namespaces the catalog within the bucket; the
+        special remote's own UUID specializes within that namespace so
+        independent catalogs sharing a name write to different subdirs.
+        Because the remote UUID is stable across all clones of a catalog,
+        clones agree on the path and content-addressed dedup works.
+        Idempotent — if the suffix is already present the input is
+        returned unchanged.
+        """
+        suffix = self._fileprefix_suffix(remote_uuid)
+        current = self.fileprefix or ""
+        if current.endswith(suffix):
+            return self
+        base = current if not current or current.endswith("/") else f"{current}/"
+        return attr.evolve(self, fileprefix=f"{base}{suffix}")
+
+    def verify_fileprefix(self, remote_uuid, existing_fileprefix):
+        """Raise if *existing_fileprefix* in remote.log is not properly namespaced.
+
+        Catalogs initialized before the namespacing scheme have a flat
+        fileprefix in remote.log; opening such a catalog without
+        migrating bucket objects would orphan their content.  See
+        ADR-0009 for the migration path.
+        """
+        suffix = self._fileprefix_suffix(remote_uuid)
+        if not (existing_fileprefix or "").endswith(suffix):
+            raise AnnexError(
+                f"S3 remote {self.name!r} has fileprefix "
+                f"{existing_fileprefix!r} in remote.log, which is not namespaced "
+                f"by {suffix!r}. This catalog was initialized before the "
+                "name+remote-uuid namespacing scheme; bucket objects must be "
+                f"copied from {existing_fileprefix!r} to a path ending in "
+                f"{suffix!r} (and remote.log updated to match) before reopening. "
+                "See ADR-0009."
+            )
 
     def enableremote(self, repo_path):
         _check_output_do_inside(
