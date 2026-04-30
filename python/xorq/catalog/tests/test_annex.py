@@ -432,27 +432,56 @@ def test_rsync_augment_fileprefix_is_noop():
 
 
 def test_s3_verify_fileprefix_passes_when_namespaced(s3_secrets):
-    rc = S3RemoteConfig(name="mys3", bucket="b", **s3_secrets)
+    rc = S3RemoteConfig(name="mys3", bucket="b", fileprefix="annex-only/", **s3_secrets)
     rc.verify_fileprefix(_DUMMY_UUID, f"annex-only/mys3/{_DUMMY_UUID}/")
+
+
+def test_s3_verify_fileprefix_passes_with_no_base(s3_secrets):
+    rc = S3RemoteConfig(name="mys3", bucket="b", **s3_secrets)
+    rc.verify_fileprefix(_DUMMY_UUID, f"mys3/{_DUMMY_UUID}/")
 
 
 def test_s3_verify_fileprefix_raises_when_unnamespaced(s3_secrets):
     rc = S3RemoteConfig(name="mys3", bucket="b", **s3_secrets)
-    with pytest.raises(AnnexError, match="ADR-0009"):
+    with pytest.raises(AnnexError, match="not namespaced"):
         rc.verify_fileprefix(_DUMMY_UUID, "annex-only/")
 
 
 def test_s3_verify_fileprefix_raises_on_empty(s3_secrets):
     rc = S3RemoteConfig(name="mys3", bucket="b", **s3_secrets)
-    with pytest.raises(AnnexError, match="ADR-0009"):
+    with pytest.raises(AnnexError, match="not namespaced"):
         rc.verify_fileprefix(_DUMMY_UUID, "")
 
 
 def test_s3_verify_fileprefix_raises_on_wrong_uuid(s3_secrets):
     rc = S3RemoteConfig(name="mys3", bucket="b", **s3_secrets)
     other_uuid = "22222222-2222-4222-8222-222222222222"
-    with pytest.raises(AnnexError, match="ADR-0009"):
+    with pytest.raises(AnnexError, match="not namespaced"):
         rc.verify_fileprefix(_DUMMY_UUID, f"annex-only/mys3/{other_uuid}/")
+
+
+def test_s3_verify_fileprefix_raises_on_base_mismatch(s3_secrets):
+    """Existing has the right suffix but a different base than configured."""
+    rc = S3RemoteConfig(name="mys3", bucket="b", fileprefix="new-base/", **s3_secrets)
+    with pytest.raises(AnnexError, match="different base prefix"):
+        rc.verify_fileprefix(_DUMMY_UUID, f"old-base/mys3/{_DUMMY_UUID}/")
+
+
+def test_s3_verify_fileprefix_raises_when_existing_has_base_but_config_does_not(
+    s3_secrets,
+):
+    """Empty configured base must not silently rewrite a non-empty existing base."""
+    rc = S3RemoteConfig(name="mys3", bucket="b", **s3_secrets)
+    with pytest.raises(AnnexError, match="different base prefix"):
+        rc.verify_fileprefix(_DUMMY_UUID, f"some-base/mys3/{_DUMMY_UUID}/")
+
+
+def test_s3_verify_fileprefix_error_includes_adr_path(s3_secrets):
+    rc = S3RemoteConfig(name="mys3", bucket="b", **s3_secrets)
+    with pytest.raises(
+        AnnexError, match="docs/adr/0009-bucket-fileprefix-name-uuid-namespace.md"
+    ):
+        rc.verify_fileprefix(_DUMMY_UUID, "")
 
 
 def test_directory_verify_fileprefix_is_noop():

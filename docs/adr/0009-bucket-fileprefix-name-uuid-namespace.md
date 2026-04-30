@@ -58,7 +58,12 @@ Without pre-generation, the bucket would receive an `annex-uuid` sentinel at the
 
 ### Refusing to auto-migrate un-suffixed catalogs
 
-`Annex.enableremote(rc)` reads the existing `fileprefix` for the remote out of `remote.log` and asks the config to verify it via `rc.verify_fileprefix(remote_uuid, existing_fileprefix)`. For S3, the verifier raises `AnnexError` when the existing prefix is not already namespaced by `{name}/{remote_uuid}/`. This is deliberate: silently rewriting `remote.log` on first open would mutate shared state on the `git-annex` branch and orphan bucket objects under the old prefix without warning. The error message points at ADR-0009 and tells the operator to copy bucket objects from the old prefix to one ending in `{name}/{remote_uuid}/` (e.g. `aws s3 cp --recursive`) and then update `remote.log` before reopening.
+`Annex.enableremote(rc)` reads the existing `fileprefix` for the remote out of `remote.log` and asks the config to verify it via `rc.verify_fileprefix(remote_uuid, existing_fileprefix)`. For S3, the verifier raises `AnnexError` in two cases:
+
+1. **Suffix missing** — the existing prefix does not end with `{name}/{remote_uuid}/` (catalog initialized before the namespacing scheme).
+2. **Base prefix mismatch** — the suffix is present but the existing prefix does not equal what `augment_fileprefix(remote_uuid)` would produce from `self.fileprefix`. This catches the case where the operator changed `XORQ_CATALOG_S3_FILEPREFIX` after the catalog was initialized; without this check, `enableremote` would silently rewrite `remote.log` to use the new base and orphan bucket objects under the old base.
+
+Both checks are deliberate: silently rewriting `remote.log` on first open would mutate shared state on the `git-annex` branch and orphan bucket objects under the previous prefix without warning. The error message points at this ADR by path and tells the operator to copy bucket objects from the existing prefix to the expected one (e.g. `aws s3 cp --recursive`) and then update `remote.log` before reopening.
 
 For `Directory` and `Rsync` remotes the verifier is a no-op — those backends already isolate via the directory or URL itself, so the namespacing question does not apply.
 

@@ -833,6 +833,60 @@ def test_s3_remote_minio(tmpdir):
     assert entry.catalog_path.exists()
 
 
+@pytest.mark.s3
+def test_s3_fileprefix_namespaced_in_remote_log(tmpdir):
+    """initremote bakes ``{base}{name}/{remote_uuid}/`` into remote.log,
+    enableremote of the same config is a no-op, and a re-config with a
+    mismatched base raises AnnexError (ADR-0009)."""
+    base_prefix = "annex-only/"
+    remote_config = S3RemoteConfig.from_env(
+        name="mys3",
+        bucket=f"test-annex-{uuid.uuid4().hex[:12]}",
+        host="minio",
+        port="9000",
+        aws_access_key_id="accesskey",
+        aws_secret_access_key="secretkey",
+        protocol="http",
+        requeststyle="path",
+        signature="v2",
+        fileprefix=base_prefix,
+    )
+    result = subprocess.run(
+        [
+            "curl",
+            "-sf",
+            f"http://{remote_config.host}:{remote_config.port}/minio/health/live",
+        ],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        pytest.skip("minio not reachable")
+    repo_path = Path(tmpdir).joinpath("repo")
+    repo_path.mkdir(parents=True)
+    repo = GitRepo.init(repo_path, initial_branch=MAIN_BRANCH)
+    repo.index.commit("initial commit")
+    subprocess.run(
+        ["git", "config", "annex.security.allowed-ip-addresses", "all"],
+        cwd=repo_path,
+        check=True,
+    )
+    Annex.init_repo_path(repo_path, remote_config=remote_config)
+
+    annex = Annex(repo_path=repo_path, env=remote_config.env)
+    [(remote_uuid, cfg)] = annex.remote_log.items()
+    expected = f"{base_prefix}{remote_config.name}/{remote_uuid}/"
+    assert cfg["fileprefix"] == expected
+
+    # re-enabling with the same config is a no-op (verify passes)
+    annex.enableremote(remote_config)
+    assert annex.remote_log[remote_uuid]["fileprefix"] == expected
+
+    # changing the base prefix must fail rather than silently rewriting
+    mismatched = evolve(remote_config, fileprefix="other-base/")
+    with pytest.raises(AnnexError, match="different base prefix"):
+        annex.enableremote(mismatched)
+
+
 def test_from_repo_path_enables_special_remote_on_clone(tmpdir):
     """from_repo_path enables the special remote on a fresh clone.
 

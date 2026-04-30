@@ -30,6 +30,8 @@ GIT_ANNEX_COMMAND = "git-annex"
 
 POLL_TIMEOUT_SECONDS = 30.0
 
+_ADR_0009_PATH = "docs/adr/0009-bucket-fileprefix-name-uuid-namespace.md"
+
 
 class AnnexError(RuntimeError):
     """Raised when a git-annex command fails."""
@@ -77,6 +79,9 @@ class Annex:
         converter=lambda v: tuple(v.items()) if isinstance(v, dict) else v,
     )
     poll_interval_seconds = field(validator=instance_of(float), default=0.001)
+    # cached remote.log dict, populated on first read and invalidated after writes.
+    # Mutated via object.__setattr__ to bypass frozen.
+    _remote_log_cache = field(init=False, default=None, eq=False, repr=False)
 
     def __attrs_post_init__(self):
         require_git_annex()
@@ -158,21 +163,32 @@ class Annex:
 
     @property
     def remote_log(self):
-        """Parse the git-annex branch's remote.log into {uuid: {key: value}}."""
+        """Parse the git-annex branch's remote.log into {uuid: {key: value}}.
+
+        Cached for the lifetime of the instance; ``initremote``/``enableremote``
+        invalidate the cache after writing.
+        """
+        cached = self._remote_log_cache
+        if cached is not None:
+            return cached
         self._merge_annex_branch()
         branch = Repo(self.repo_path).commit(ANNEX_BRANCH)
         try:
             blob = branch.tree / "remote.log"
         except KeyError:
-            # no git-annex in the repo
-            return {}
-        result = {}
-        for line in blob.data_stream[3].read().decode().strip().splitlines():
-            parts = line.split()
-            uuid = parts[0]
-            config = dict(part.split("=", 1) for part in parts[1:] if "=" in part)
-            result[uuid] = config
+            result = {}
+        else:
+            result = {}
+            for line in blob.data_stream[3].read().decode().strip().splitlines():
+                parts = line.split()
+                uuid_ = parts[0]
+                config = dict(part.split("=", 1) for part in parts[1:] if "=" in part)
+                result[uuid_] = config
+        object.__setattr__(self, "_remote_log_cache", result)
         return result
+
+    def _invalidate_remote_log(self):
+        object.__setattr__(self, "_remote_log_cache", None)
 
     # Maps AWS env-var names (as stored in Annex.env) back to attrs field names
     # so resolve_remote_config can recover credentials from self.env.
@@ -272,6 +288,7 @@ class Annex:
         remote_uuid = str(uuid.uuid4())
         augmented = remote_config.augment_fileprefix(remote_uuid)
         augmented.initremote(self.repo_path, remote_uuid=remote_uuid)
+        self._invalidate_remote_log()
         return augmented
 
     def enableremote(self, remote_config):
@@ -297,7 +314,9 @@ class Annex:
         )
         if remote_uuid is None:
             if remote_log:
-                names = sorted({cfg.get("name") for cfg in remote_log.values()})
+                names = sorted(
+                    filter(None, {cfg.get("name") for cfg in remote_log.values()})
+                )
                 raise AnnexError(
                     f"remote {remote_config.name!r} is not registered in this "
                     f"catalog's remote.log (existing remotes: {names}). "
@@ -308,6 +327,7 @@ class Annex:
         remote_config.verify_fileprefix(remote_uuid, existing_fileprefix)
         augmented = remote_config.augment_fileprefix(remote_uuid)
         augmented.enableremote(self.repo_path)
+        self._invalidate_remote_log()
         return augmented
 
     @staticmethod
@@ -716,8 +736,10 @@ class S3RemoteConfig(RemoteConfig):
         independent catalogs sharing a name write to different subdirs.
         Because the remote UUID is stable across all clones of a catalog,
         clones agree on the path and content-addressed dedup works.
-        Idempotent — if the suffix is already present the input is
-        returned unchanged.
+        Idempotent for the *same* ``remote_uuid`` — if the suffix is
+        already present the input is returned unchanged. Calling with a
+        different ``remote_uuid`` re-appends, so callers must thread the
+        same UUID throughout a catalog's lifetime.
         """
         suffix = self._fileprefix_suffix(remote_uuid)
         current = self.fileprefix or ""
@@ -727,23 +749,41 @@ class S3RemoteConfig(RemoteConfig):
         return attr.evolve(self, fileprefix=f"{base}{suffix}")
 
     def verify_fileprefix(self, remote_uuid, existing_fileprefix):
-        """Raise if *existing_fileprefix* in remote.log is not properly namespaced.
+        """Raise if *existing_fileprefix* in remote.log disagrees with what
+        augmenting *self* with *remote_uuid* would produce.
 
-        Catalogs initialized before the namespacing scheme have a flat
-        fileprefix in remote.log; opening such a catalog without
-        migrating bucket objects would orphan their content.  See
-        ADR-0009 for the migration path.
+        Two failure modes are distinguished:
+
+        * **Suffix missing**: catalog initialized before the
+          name+remote-uuid namespacing scheme; bucket objects must be
+          migrated.
+        * **Base prefix mismatch**: existing remote was initialized with
+          a different ``XORQ_CATALOG_S3_FILEPREFIX`` than is currently
+          configured. Continuing would silently rewrite ``remote.log``
+          and orphan bucket objects under the previous base.
         """
         suffix = self._fileprefix_suffix(remote_uuid)
-        if not (existing_fileprefix or "").endswith(suffix):
+        existing = existing_fileprefix or ""
+        if not existing.endswith(suffix):
             raise AnnexError(
-                f"S3 remote {self.name!r} has fileprefix "
-                f"{existing_fileprefix!r} in remote.log, which is not namespaced "
-                f"by {suffix!r}. This catalog was initialized before the "
-                "name+remote-uuid namespacing scheme; bucket objects must be "
-                f"copied from {existing_fileprefix!r} to a path ending in "
-                f"{suffix!r} (and remote.log updated to match) before reopening. "
-                "See ADR-0009."
+                f"S3 remote {self.name!r} has fileprefix {existing!r} in "
+                f"remote.log, which is not namespaced by {suffix!r}. This "
+                "catalog was initialized before the name+remote-uuid "
+                "namespacing scheme; bucket objects must be copied from "
+                f"{existing!r} to a path ending in {suffix!r} (and "
+                f"remote.log updated to match) before reopening. "
+                f"See {_ADR_0009_PATH}."
+            )
+        expected = self.augment_fileprefix(remote_uuid).fileprefix
+        if existing != expected:
+            raise AnnexError(
+                f"S3 remote {self.name!r} has fileprefix {existing!r} in "
+                f"remote.log but the configured base prefix would produce "
+                f"{expected!r}. The existing remote uses a different base "
+                "prefix; either align your configuration to match the "
+                f"existing layout, or migrate bucket objects from "
+                f"{existing!r} to {expected!r} (and update remote.log) "
+                f"before reopening. See {_ADR_0009_PATH}."
             )
 
     def enableremote(self, repo_path):
