@@ -164,8 +164,8 @@ def _parse_catalog_yaml_blob(blob):
         # Legacy on-disk format predates the entries/aliases dict schema.
         return {CatalogInfix.ENTRY: raw, CatalogInfix.ALIAS: []}
     return {
-        CatalogInfix.ENTRY: raw.get(str(CatalogInfix.ENTRY), []),
-        CatalogInfix.ALIAS: raw.get(str(CatalogInfix.ALIAS), []),
+        CatalogInfix.ENTRY: raw.get(CatalogInfix.ENTRY, []),
+        CatalogInfix.ALIAS: raw.get(CatalogInfix.ALIAS, []),
     }
 
 
@@ -192,20 +192,62 @@ def _three_way_list_merge(base, ours, theirs):
     return result
 
 
+class CatalogPullError(RuntimeError):
+    """Raised by ``Catalog.pull`` for failures other than an unresolved
+    merge — e.g. a detached HEAD pre-flight check, or a non-conflict
+    ``git merge`` failure where re-raising the underlying error gives
+    the user the actionable message.
+
+    Distinct from ``CatalogMergeConflict``, which is raised specifically
+    when a merge leaves files unresolved and the recovery recipe applies.
+    Symmetric with ``CatalogPushError`` from #1899.
+    """
+
+
 class CatalogMergeConflict(Exception):
     """Raised by ``Catalog.pull`` when a merge leaves files unresolved.
 
     The ``conflicted`` attribute is a tuple of repo-relative paths still
-    in the unmerged state — typically alias symlinks under
-    ``.xorq/aliases/``. The merge is left in-progress in the working
-    tree so the user can resolve it (see xorq-labs/xorq#1886 for the
-    recovery recipe).
+    in the unmerged state — typically alias symlinks under ``aliases/``
+    (add/add with diverging targets, or modify/delete).  The
+    ``remote_name`` attribute is the name of the remote whose merge
+    raised, when known.  The merge is left in-progress in the working
+    tree so the user can resolve it.
+
+    Recovery options:
+
+    1. Abort the pull and keep your local state::
+
+        catalog.repo.git.merge("--abort")
+
+    2. Resolve manually, then commit::
+
+        # for each path in exc.conflicted, pick a side or write the
+        # resolved content, then:
+        catalog.repo.git.add(*exc.conflicted)
+        catalog.repo.git.commit("--no-edit")
+
+    3. Take theirs wholesale for the conflicted alias::
+
+        catalog.repo.git.checkout("--theirs", *exc.conflicted)
+        catalog.repo.git.add(*exc.conflicted)
+        catalog.repo.git.commit("--no-edit")
+
+    The catalog's ``catalog.yaml`` has already been auto-resolved and
+    staged before this exception is raised, so manual resolution only
+    needs to address the paths in ``conflicted``.
     """
 
-    def __init__(self, conflicted):
+    def __init__(self, conflicted, remote_name=None):
         self.conflicted = tuple(conflicted)
+        self.remote_name = remote_name
+        prefix = (
+            f"pull from remote {remote_name!r} "
+            if remote_name is not None
+            else "catalog.pull() "
+        )
         super().__init__(
-            f"catalog.pull() left {len(self.conflicted)} path(s) in conflict: "
+            f"{prefix}left {len(self.conflicted)} path(s) in conflict: "
             f"{', '.join(self.conflicted)}"
         )
 
@@ -468,7 +510,7 @@ class Catalog:
         return results
 
     def pull(self):
-        """Fetch and merge from the configured git remote; raise on unmerged paths.
+        """Fetch and merge from the catalog's git remote; raise on unmerged paths.
 
         Replaces ``git pull`` (which inherits the user's ``pull.rebase``
         config and bails on divergent branches by default) with explicit
@@ -480,24 +522,45 @@ class Catalog:
         side survive; duplicates are collapsed.  Anything still
         unmerged after that — typically alias symlinks at the same
         path with diverging targets — surfaces as
-        ``CatalogMergeConflict`` with the conflicted paths; the merge
-        is left in-progress so the user can resolve it.
+        ``CatalogMergeConflict`` with the conflicted paths and the
+        remote name; the merge is left in-progress so the user can
+        resolve it (see ``CatalogMergeConflict`` for recovery recipes).
+
+        Pre-flights:
+
+        - HEAD must be on a branch (the catalog API never detaches HEAD
+          on its own — this only fails if the repo was put in detached
+          state outside xorq).  Raises ``CatalogPullError``.
+        - A non-conflict ``git merge`` failure (e.g. the remote ref
+          doesn't exist, the working tree is dirty, a hook rejected the
+          merge commit) re-raises the original ``GitCommandError``
+          rather than swallowing it and falling through to a misleading
+          ``git commit --no-edit``.
+
+        A catalog has at most one git remote (see ADR on single-remote
+        catalogs).  No remote → no-op.
         """
+        if self.repo.head.is_detached:
+            raise CatalogPullError(
+                "catalog.pull() requires a checked-out branch; HEAD is detached"
+            )
+        remotes = self._validated_git_remotes()
+        if not remotes:
+            return ()
+        (remote,) = remotes
         branch = self.repo.active_branch.name
-        fetch_results = []
-        for remote in self._validated_git_remotes():
-            fetch_results.append(remote.fetch())
-            try:
-                self.repo.git.merge(f"{remote.name}/{branch}", "--no-edit")
-                continue
-            except GitCommandError:
-                pass
+        fetch_result = remote.fetch()
+        try:
+            self.repo.git.merge(f"{remote.name}/{branch}", "--no-edit")
+        except GitCommandError:
+            if not (Path(self.repo.git_dir) / "MERGE_HEAD").exists():
+                raise
             self._resolve_yaml_conflict_if_any()
             unmerged = tuple(self.repo.index.unmerged_blobs().keys())
             if unmerged:
-                raise CatalogMergeConflict(unmerged) from None
+                raise CatalogMergeConflict(unmerged, remote_name=remote.name) from None
             self.repo.git.commit("--no-edit")
-        return tuple(fetch_results)
+        return (fetch_result,)
 
     def _resolve_yaml_conflict_if_any(self):
         yaml_relpath = str(self.catalog_yaml.yaml_relpath)
@@ -509,12 +572,12 @@ class Catalog:
         ours = _parse_catalog_yaml_blob(stages.get(2))
         theirs = _parse_catalog_yaml_blob(stages.get(3))
         merged = {
-            str(CatalogInfix.ENTRY): _three_way_list_merge(
+            CatalogInfix.ENTRY: _three_way_list_merge(
                 base[CatalogInfix.ENTRY],
                 ours[CatalogInfix.ENTRY],
                 theirs[CatalogInfix.ENTRY],
             ),
-            str(CatalogInfix.ALIAS): _three_way_list_merge(
+            CatalogInfix.ALIAS: _three_way_list_merge(
                 base[CatalogInfix.ALIAS],
                 ours[CatalogInfix.ALIAS],
                 theirs[CatalogInfix.ALIAS],

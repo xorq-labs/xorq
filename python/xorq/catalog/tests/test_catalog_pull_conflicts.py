@@ -32,7 +32,8 @@ hygiene smell, not a merge conflict, and is filed as #1901.)
 
 from __future__ import annotations
 
-import time
+import os
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -66,12 +67,31 @@ def _alias_target_hash(catalog, alias):
 
 # Git commit SHAs include the author/commit timestamp at second
 # resolution.  When both clones perform the same operation against the
-# same content within the same wall-clock second, their commits hash to
-# the same SHA and `cat_b.pull()` becomes a trivial fast-forward no-op
-# instead of exercising the divergent-merge path the test is meant to
-# describe.  Sleep just over a second to guarantee divergent SHAs even
-# when the operations are otherwise identical.
-_FORCE_DIVERGENT_TIMESTAMP = 1.05
+# same content, their commits would hash to the same SHA and
+# `cat_b.pull()` would become a trivial fast-forward no-op instead of
+# exercising the divergent-merge path the test is meant to describe.
+# Pin cat_b's commit dates with `_commit_dates(_DIVERGENT_DATE)` to
+# guarantee divergent SHAs deterministically, without relying on
+# wall-clock drift.
+_DIVERGENT_DATE = "2030-01-01T00:00:00"
+
+
+@contextmanager
+def _commit_dates(date_str):
+    """Force git to use ``date_str`` for both author and committer dates
+    on commits made inside the context.  Restores prior env on exit."""
+    keys = ("GIT_AUTHOR_DATE", "GIT_COMMITTER_DATE")
+    saved = {k: os.environ.get(k) for k in keys}
+    for k in keys:
+        os.environ[k] = date_str
+    try:
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 @pytest.fixture
@@ -125,8 +145,8 @@ def test_case_02_add_same_entry(two_clones):
     auto-merge in stock git; resolver does not need to fire."""
     cat_a, cat_b = two_clones
     name_x_a = _add_expr_entry(cat_a, "x", value=1)
-    time.sleep(_FORCE_DIVERGENT_TIMESTAMP)
-    name_x_b = _add_expr_entry(cat_b, "x", value=1)
+    with _commit_dates(_DIVERGENT_DATE):
+        name_x_b = _add_expr_entry(cat_b, "x", value=1)
     assert name_x_a == name_x_b, "test setup: same content must hash the same"
     cat_a.push()
 
@@ -164,8 +184,8 @@ def test_case_04_remove_same_entry(two_clones):
     cat_b.pull()
 
     cat_a.remove(name_x, sync=False)
-    time.sleep(_FORCE_DIVERGENT_TIMESTAMP)
-    cat_b.remove(name_x, sync=False)
+    with _commit_dates(_DIVERGENT_DATE):
+        cat_b.remove(name_x, sync=False)
     cat_a.push()
 
     cat_b.pull()
@@ -217,8 +237,8 @@ def test_case_08_add_same_alias_same_target(two_clones):
     diverges."""
     cat_a, cat_b = two_clones
     name_x_a = _add_expr_entry(cat_a, "x", value=1, aliases=("shared",))
-    time.sleep(_FORCE_DIVERGENT_TIMESTAMP)
-    name_x_b = _add_expr_entry(cat_b, "x", value=1, aliases=("shared",))
+    with _commit_dates(_DIVERGENT_DATE):
+        name_x_b = _add_expr_entry(cat_b, "x", value=1, aliases=("shared",))
     assert name_x_a == name_x_b
     cat_a.push()
 
@@ -237,8 +257,8 @@ def test_case_10_remove_same_alias(two_clones):
     cat_b.pull()
 
     _remove_alias(cat_a, "shared")
-    time.sleep(_FORCE_DIVERGENT_TIMESTAMP)
-    _remove_alias(cat_b, "shared")
+    with _commit_dates(_DIVERGENT_DATE):
+        _remove_alias(cat_b, "shared")
     cat_a.push()
 
     cat_b.pull()
@@ -293,8 +313,8 @@ def test_case_12_remove_alias_and_add_unrelated(two_clones):
 def test_case_09_add_same_alias_different_targets(two_clones):
     """Both sides add the same alias name pointing at different entries.
     The yaml aliases: list dedupes trivially, but the symlink at
-    .xorq/aliases/<name>.zip is an add/add conflict on the same path
-    with diverging targets — the only genuine merge conflict we can't
+    aliases/<name>.zip is an add/add conflict on the same path with
+    diverging targets — the only genuine merge conflict we can't
     auto-resolve."""
     cat_a, cat_b = two_clones
     _add_expr_entry(cat_a, "x", value=1, aliases=("shared",))
@@ -304,14 +324,13 @@ def test_case_09_add_same_alias_different_targets(two_clones):
     with pytest.raises(CatalogMergeConflict) as excinfo:
         cat_b.pull()
 
-    conflicted = excinfo.value.conflicted
-    assert any("aliases" in p and "shared" in p for p in conflicted), conflicted
+    assert "aliases/shared.zip" in excinfo.value.conflicted, excinfo.value.conflicted
 
 
 def test_case_13_remove_alias_vs_repoint(two_clones):
     """Alias α exists in base. Ours removes α; theirs re-points α to a
-    different entry. The symlink at .xorq/aliases/α.zip is a
-    modify/delete conflict that survives any auto-resolve."""
+    different entry. The symlink at aliases/α.zip is a modify/delete
+    conflict that survives any auto-resolve."""
     cat_a, cat_b = two_clones
     _add_expr_entry(cat_a, "x", value=1, aliases=("alpha",))
     name_y = _add_expr_entry(cat_a, "y", value=2)
@@ -325,5 +344,4 @@ def test_case_13_remove_alias_vs_repoint(two_clones):
     with pytest.raises(CatalogMergeConflict) as excinfo:
         cat_b.pull()
 
-    conflicted = excinfo.value.conflicted
-    assert any("aliases" in p and "alpha" in p for p in conflicted), conflicted
+    assert "aliases/alpha.zip" in excinfo.value.conflicted, excinfo.value.conflicted
