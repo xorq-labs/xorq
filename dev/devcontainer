@@ -185,7 +185,7 @@ setup_ssh_forward() {
     fi
 
     socat "TCP-LISTEN:${port},bind=${bridge_ip},reuseaddr,fork" \
-          "UNIX-CONNECT:${SSH_AUTH_SOCK}" &
+          "UNIX-CONNECT:${SSH_AUTH_SOCK}" 9>&- &
     local host_pid=$!
     echo "$host_pid" > "$SSH_FORWARD_PIDFILE"
 
