@@ -1080,6 +1080,12 @@ class FittedPipeline:
                 "reference the source catalog's reads at execution time."
             )
 
+        # Asymmetry note: the catalog-refs guard above only walks `self.expr`
+        # (training), but rebuild *does* translate catalog refs in the predict
+        # input — that subtree is reached via `tag_node.parent` and rebuilt by
+        # the `rebuild_subexpr` call below. Training is the path that's
+        # unreachable through the graph walk (it's bound into the model UDF
+        # closure), which is why it's the one we refuse rather than translate.
         new_training = rebuild_subexpr(self.expr)
         refitted = self.pipeline.fit(
             new_training,

@@ -362,6 +362,54 @@ def test_rebuild_pure_builder_without_catalog_refs(tmpdir, saved_registry):
     assert new_pure.name == src_entry.name
 
 
+def test_rebuild_handles_dag_shared_catalog_tag(source_catalog, target_path):
+    """Same catalog-tagged subexpression reached via multiple paths in one
+    rebuild input. ``walk_nodes`` dedupes by node equality and ``claimed``
+    uses identity; ``replace_nodes`` then replaces every occurrence by
+    identity. The contract holds *because* an identity-shared tag is also
+    equality-shared, so both walk-side dedupe and splice-side replacement
+    converge on the same node.
+
+    Note: when source/transform content is unchanged, the rebuilt entry
+    hashes equal the originals (content-addressing). So we can't assert
+    "old names absent"; we assert "every catalog tag in the rebuilt
+    expression resolves to a real target entry, with no orphans."
+    """
+    from xorq.catalog.replay import RebuildContext, _rebuild_subexpr  # noqa: PLC0415
+
+    catalog, *_ = source_catalog
+    _, _, _, bound_entry = source_catalog
+    target = _replay_rebuild(catalog, target_path)
+
+    src_to_tgt = {
+        catalog.get_catalog_entry(
+            alias, maybe_alias=True
+        ).name: target.get_catalog_entry(alias, maybe_alias=True).name
+        for alias in ("my-source", "my-transform", "bound1")
+    }
+
+    # Reference the same loaded bound expression twice so the catalog tag is
+    # reached by both children of the union.
+    bound = bound_entry.lazy_expr
+    shared = bound.filter(bound.amount > 0).union(bound.filter(bound.amount > 1))
+
+    ctx = RebuildContext(rebuild=True, remap=src_to_tgt)
+    rebuilt = _rebuild_subexpr(shared, from_catalog=catalog, to_catalog=target, ctx=ctx)
+
+    rebuilt_tag_names = {
+        ht.metadata.get("entry_name")
+        for ht in walk_nodes(HashingTag, rebuilt)
+        if ht.metadata.get("tag") in frozenset(CatalogTag)
+        and ht.metadata.get("entry_name")
+    }
+    assert rebuilt_tag_names, "expected at least one catalog tag in rebuilt expr"
+    # Every catalog tag in the rebuilt expression points at a real target
+    # entry — no orphan references.
+    assert rebuilt_tag_names <= set(target.list())
+    # The rebuilt expression must still execute (proves no half-spliced state).
+    rebuilt.execute()
+
+
 def test_rebuild_raises_when_recipe_references_unknown_target_entry(
     source_catalog, target_path
 ):

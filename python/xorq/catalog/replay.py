@@ -84,7 +84,7 @@ def _translate(name, remap):
     errors with full provenance. The strict equivalent on the recipe-rebuild
     path is :meth:`ExprComposer.with_inputs_translated`'s ``lookup``.
     """
-    return remap.get(name, name) if remap is not None else name
+    return remap.get(name, name)
 
 
 @contextmanager
@@ -740,6 +740,11 @@ def _rewrite_noop_commits(repo, noop_ops):
                 pass
             raise
     else:
+        if repo.head.is_detached:
+            raise RuntimeError(
+                "replay: cannot rewrite noop commits on a detached HEAD; "
+                "check out a branch in the target catalog before replaying."
+            )
         repo.git.update_ref(f"refs/heads/{repo.active_branch.name}", prev_sha)
 
 

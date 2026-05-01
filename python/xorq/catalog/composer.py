@@ -68,8 +68,8 @@ class ExprComposer:
                 raise RuntimeError(
                     f"rebuild: recipe references {old_name!r} which has not been "
                     f"rebuilt in target (translated to {new_name!r}). This indicates "
-                    f"a non-topological op ordering or a reference to an entry "
-                    f"outside the source catalog."
+                    f"a reference to an entry outside the source catalog, or — "
+                    f"less commonly — a non-topological op ordering."
                 )
             return to_catalog.get_catalog_entry(new_name)
 
