@@ -3,7 +3,7 @@ if ! has nix_direnv_version || ! nix_direnv_version 2.4.0; then
 fi
 
 # https://github.com/nix-community/nix-direnv/pull/148#issuecomment-1049287263
-nix_direnv_watch_file ../nix/{commands.nix,xorq.nix,nix.conf}
+watch_file ../nix/{commands.nix,xorq.nix,nix.conf}
 
 # within this repo, we want to control the nix.conf contents
 export NIX_CONF_DIR=$(realpath ../nix)
