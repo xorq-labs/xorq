@@ -5983,6 +5983,7 @@ trino = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "adbc-driver-sqlite" },
     { name = "black" },
     { name = "blackdoc" },
     { name = "codespell", extra = ["hard-encoding-detection", "toml"] },
@@ -6093,6 +6094,7 @@ provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "quickgrove
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "adbc-driver-sqlite", specifier = ">=1.4.0" },
     { name = "black", specifier = "==26.3.1" },
     { name = "blackdoc", specifier = "==0.4.6" },
     { name = "codespell", extras = ["hard-encoding-detection", "toml"], specifier = "==2.4.2" },

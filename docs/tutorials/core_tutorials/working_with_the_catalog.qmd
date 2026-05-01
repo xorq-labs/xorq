@@ -57,7 +57,7 @@ git remote add origin https://github.com/<you>/flights-catalog.git
 git push -u origin main
 ```
 
-From here on, ongoing publishes use `catalog.push()`, which pushes every git remote configured on the repo:
+That first push has to use raw git: `catalog.push()` doesn't add remotes or set upstream tracking, so there's nothing for it to push to until `git remote add` + `git push -u` have run once. Every subsequent publish can use `catalog.push()`, which runs `git push` against every remote configured on the repo:
 
 ```python
 catalog.push()

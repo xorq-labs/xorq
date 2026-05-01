@@ -166,6 +166,7 @@ dev = [
     "pyopenssl>=24.3.0",
     "duckdb>=1.1.3",
     "datafusion>=43.1.0",
+    "adbc-driver-sqlite>=1.4.0",
     "scikit-learn<2.0.0,>=1.4.0",
     "xgboost>=1.6.1",
     "matplotlib>=3.8.0",
