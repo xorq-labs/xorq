@@ -3,6 +3,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+from configparser import NoOptionError, NoSectionError
 from contextlib import (
     contextmanager,
     nullcontext,
@@ -301,7 +302,6 @@ class Catalog:
     @property
     def _git_remotes(self):
         """Remotes that are real git remotes (have a fetch refspec), excluding annex special remotes."""
-        from configparser import NoOptionError, NoSectionError  # noqa: PLC0415
 
         def _has_fetch_refspec(remote):
             try:
