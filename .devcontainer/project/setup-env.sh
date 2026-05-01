@@ -11,11 +11,6 @@ cmd="${1:-first-run}"
 
 case "$cmd" in
     first-run)
-        # Named volume mounts come up root-owned; fix so vscode can write.
-        if [ -d .venv ] && [ ! -w .venv ]; then
-            sudo chown -R vscode:vscode .venv
-        fi
-
         echo "Installing dependencies..."
         uv sync --all-extras --all-groups
         touch .venv/.last-sync

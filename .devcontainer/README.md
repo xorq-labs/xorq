@@ -60,7 +60,7 @@ devcontainer up
 
 ## Project configuration
 
-All editable bits live in **`.devcontainer/project/`**. Everything outside that directory (the Dockerfile, `docker-compose.yml`, `dev/devcontainer`, `audit-report.py`, etc.) is generic and can be copied unchanged into another project.
+All editable bits live in **`.devcontainer/project/`**. Everything outside that directory (the Dockerfile, `docker-compose.yml`, `dev/devcontainer`, `audit-report.py`, `.devcontainer/lib/host-bridge.sh`, etc.) is generic and can be copied unchanged into another project.
 
 | File | Role |
 |---|---|
@@ -108,10 +108,8 @@ devcontainer completions fish | source
 
 ## `dev/devcontainer` vs `devcontainer.json`
 
-This project has two ways to start the container:
-
-1. **`dev/devcontainer`** (primary) — a shell script that calls `docker compose` directly. This is what the documentation above describes.
-2. **`devcontainer.json`** — consumed by VS Code's "Reopen in Container" and the official `devcontainer` CLI.
+> [!WARNING]
+> **Use `dev/devcontainer`. The VS Code "Reopen in Container" / official `devcontainer` CLI path is unsupported.** It will start a container, but most of what makes the dev environment work — UID/GID matching, host git/gh/SSH credentials, Claude config, sops keys, worktree support, dependency install — is implemented in `dev/devcontainer` and is **not** invoked by VS Code's path. The container will appear to start, then silently lack credentials, fail on permission errors, or run with stale state. We keep `devcontainer.json` only for IDE port forwarding and extension installation when used alongside an already-running container started via `dev/devcontainer`.
 
 The two paths diverge in what they provide:
 
@@ -119,14 +117,14 @@ The two paths diverge in what they provide:
 |---|---|---|
 | Build & run | `docker compose` via the script | VS Code / `devcontainer` CLI |
 | Toolchain (uv, just, sops, gh, node, claude) | Dockerfile — always applied | Dockerfile — always applied |
-| UID/GID matching | `DEV_UID`/`DEV_GID` build args | Not applied (uses image defaults) |
-| Git config, gh auth, Claude setup | `setup_git`, `setup_gh`, `setup_claude` in the script | Not applied |
-| Worktree support | Full (mount host `.git`, resolve worktree paths) | Not supported |
-| SSH agent forwarding | Mounted via compose env vars | Not applied |
-| sops age keys | Mounted read-only via compose | Not applied |
+| UID/GID matching | `DEV_UID`/`DEV_GID` build args | **Not applied** (uses image defaults) |
+| Git config, gh auth, Claude setup | `setup_git`, `setup_gh`, `setup_claude` (in `.devcontainer/lib/host-bridge.sh`) | **Not applied** |
+| Worktree support | Full (mount host `.git`, resolve worktree paths) | **Not supported** |
+| SSH agent forwarding | socat TCP bridge via `host.docker.internal` | **Not applied** |
+| sops age keys | Mounted read-only via compose | **Not applied** |
 | Port forwarding | Not handled (use `docker compose` ports) | `forwardPorts` in `devcontainer.json` |
 | VS Code extensions & settings | Not applied | `customizations.vscode` in `devcontainer.json` |
-| Dep sync on lockfile change | `sync_if_needed` in the script | Not applied |
+| Dep sync on lockfile change | `sync_if_needed` in the script | **Not applied** |
 | Image staleness check | Content hash of Dockerfile, compose, and COPY'd files | Handled by VS Code |
 
 ## Troubleshooting
