@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777635219951,
+  "lastUpdate": 1777635238098,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -9438,6 +9438,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.06817069512462207",
             "extra": "mean: 431.1845547999951 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5627d89197e539b1d3e231127e934c2c6ed6c07f",
+          "message": "chore(deps): update dependency notebook to v7.5.6 [security] (#1905)\n\nThis PR contains the following updates:\n\n| Package | Change |\n[Age](https://docs.renovatebot.com/merge-confidence/) |\n[Confidence](https://docs.renovatebot.com/merge-confidence/) |\n|---|---|---|---|\n| [notebook](https://redirect.github.com/jupyter/notebook) | `7.4.5` →\n`7.5.6` |\n![age](https://developer.mend.io/api/mc/badges/age/pypi/notebook/7.5.6?slim=true)\n|\n![confidence](https://developer.mend.io/api/mc/badges/confidence/pypi/notebook/7.4.5/7.5.6?slim=true)\n|\n\n---\n\n### Jupyter Notebook Vulnerable to Authentication Token Theft via\nCommandLinker XSS\n[CVE-2026-40171](https://nvd.nist.gov/vuln/detail/CVE-2026-40171) /\n[GHSA-rch3-82jr-f9w9](https://redirect.github.com/advisories/GHSA-rch3-82jr-f9w9)\n\n<details>\n<summary>More information</summary>\n\n#### Details\n##### Impact\n\nA stored Cross-Site Scripting (XSS) vulnerability in Jupyter Notebook\nallows attackers to steal authentication tokens from users who open\nmalicious notebook files and interact with elements that the attacker\ncan make look indistinguishable from legitimate controls (single click\ninteraction).\n\nThe vulnerability enables complete account takeover through the Jupyter\nREST API, allowing the attacker to:\n1. Read all files\n2. Modify/create files\n3. Access running kernels and execute arbitrary code\n4. Create terminals for shell access\n\n##### Patches\n\nJupyter Notebook 7.5.6 and JupyterLab 4.5.7 include patches for this\nvulnerability.\n\n##### Workarounds\n\nThe help extension can be disabled via CLI:\n\n```\njupyter labextension disable @&#8203;jupyter-notebook/help-extension\njupyter labextension disable @&#8203;jupyterlab/help-extension\n```\n\n##### Hardening\n\nThe patched versions include a toggle to disable the command linker\nfunctionality altogether, for example via `overrides.json`:\n\n```json\n{\n  \"@&#8203;jupyterlab/apputils-extension:sanitizer\": {\n    \"allowCommandLinker\": false\n  }\n}\n```\n\n##### Resources\n\n-\nhttps://jupyterlab.readthedocs.io/en/latest/user/commands.html#commands-in-markdown-output-and-files\n\n##### Acknowledgments\n\nReported by Daniel Teixeira - NVIDIA AI Red Team\n\n#### Severity\n- CVSS Score: 8.4 / 10 (High)\n- Vector String:\n`CVSS:4.0/AV:N/AC:L/AT:N/PR:H/UI:A/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N`\n\n#### References\n-\n[https://github.com/jupyter/notebook/security/advisories/GHSA-rch3-82jr-f9w9](https://redirect.github.com/jupyter/notebook/security/advisories/GHSA-rch3-82jr-f9w9)\n-\n[https://jupyterlab.readthedocs.io/en/latest/user/commands.html#commands-in-markdown-output-and-files](https://jupyterlab.readthedocs.io/en/latest/user/commands.html#commands-in-markdown-output-and-files)\n-\n[https://github.com/advisories/GHSA-rch3-82jr-f9w9](https://redirect.github.com/advisories/GHSA-rch3-82jr-f9w9)\n\nThis data is provided by the [GitHub Advisory\nDatabase](https://redirect.github.com/advisories/GHSA-rch3-82jr-f9w9)\n([CC-BY\n4.0](https://redirect.github.com/github/advisory-database/blob/main/LICENSE.md)).\n</details>\n\n---\n\n- [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check\nthis box\n\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0My4xNTkuMiIsInVwZGF0ZWRJblZlciI6IjQzLjE1OS4yIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6W119-->\n\nCo-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-01T13:29:58+02:00",
+          "tree_id": "5d577303f8cfa8114cb504807cf8ba5066ac86af",
+          "url": "https://github.com/xorq-labs/xorq/commit/5627d89197e539b1d3e231127e934c2c6ed6c07f"
+        },
+        "date": 1777635235729,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.69279888187099,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006489405494910846",
+            "extra": "mean: 103.16937472728941 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.6116328461746265,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04310031064406486",
+            "extra": "mean: 382.90221439998504 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6558439253141574,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15121338229594866",
+            "extra": "mean: 1.5247530112000163 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.3833478714137253,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05195552200737038",
+            "extra": "mean: 419.57786020000185 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.475840059464529,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05280427760566514",
+            "extra": "mean: 403.9033119999999 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.532907049669822,
+            "unit": "iter/sec",
+            "range": "stddev: 0.057783813256729565",
+            "extra": "mean: 394.8032756000089 msec\nrounds: 5"
           }
         ]
       }
