@@ -222,7 +222,6 @@ This is the second payoff of the semantic layer. Dimensions and measures are a c
 To preserve the model itself — not just one query result — turn it into a Xorq expression that carries the BSL metadata via `to_tagged(flights_model)`, then add that expression to the catalog. The catalog is git-backed, so the directory you point it at becomes a versioned store of every entry you add.
 
 ```python
-import tempfile
 from pathlib import Path
 
 from boring_semantic_layer import to_tagged
@@ -232,17 +231,17 @@ from xorq.catalog.catalog import Catalog
 flights_model_expr = to_tagged(flights_model)
 
 # <2>
-catalog_dir = Path(tempfile.mkdtemp()) / "flights-catalog"
+catalog_dir = Path("flights-catalog")
 catalog = Catalog.from_repo_path(catalog_dir, init=True)
 
 # <3>
 catalog.add(flights_model_expr, aliases=("flights-model",), sync=False)
 
-print("Catalog at:", catalog_dir)
+print("Catalog at:", catalog_dir.absolute())
 print("Aliases:   ", catalog.list_aliases())
 ```
 1. `to_tagged(flights_model)` serializes the dimensions, measures, and underlying table into a Xorq expression with BSL metadata attached. We bind it to `flights_model_expr` to make the role explicit: it's the *expression form* of the model, ready for the catalog. You're cataloging the model itself, not the result of one of its queries.
-2. `Catalog.from_repo_path(..., init=True)` initializes a fresh git repo at that path. For a shared catalog, use `Catalog.from_name("my-catalog")` or `Catalog.clone_from("git@...")` instead.
+2. A stable path inside the project directory. Use anywhere you like — but a real folder (not a temp dir) is what lets the *next* script find the catalog by path. `Catalog.from_repo_path(..., init=True)` initializes a fresh git repo there.
 3. The alias `flights-model` is the human-readable handle. Internally each entry has a content-addressed hash; the alias just points at it.
 
 ::: {.callout-note}
@@ -255,28 +254,31 @@ The catalog speaks the language of expressions: schemas, lineage, content hashes
 For team use, replace the temp directory with a path to a checked-out git repo, push commits with `sync=True`, and your colleagues can clone it. Aliases survive across machines because they live in git.
 :::
 
-## Recover the model from the catalog
+## Recover the model from a separate script
 
-Here's the payoff. Pull the entry back out of the catalog and rebuild the original `SemanticModel` with `from_tagged`:
+Here's the payoff. The catalog is now persisted at `./flights-catalog/` — a regular git directory you could commit, push, share, or back up. Switch hats: imagine you're a different person on the team. You have access to that directory, but you've never seen `flights_catalog.py` and don't know how the model was built. All you have is the alias.
+
+Create a *new* file alongside `flights_catalog.py`, called `recover_flights.py`:
 
 ```python
+# recover_flights.py
+from pathlib import Path
+
 from boring_semantic_layer import from_tagged
+from xorq.catalog.catalog import Catalog
 
 # <1>
-flights_entry = catalog.get_catalog_entry("flights-model", maybe_alias=True)
+catalog = Catalog.from_repo_path(Path("flights-catalog"), init=False)
 
 # <2>
+flights_entry = catalog.get_catalog_entry("flights-model", maybe_alias=True)
 flights_model = from_tagged(flights_entry.expr)
+
 print("Recovered type:    ", type(flights_model).__name__)
 print("Recovered dims:    ", tuple(flights_model.dimensions))
 print("Recovered measures:", tuple(flights_model.measures))
-```
-1. `flights_entry` is the catalog handle — content hash, alias, sidecar metadata, and the cataloged expression on `.expr`.
-2. `from_tagged(...)` reads the BSL metadata off the cataloged expression and reconstructs a live `SemanticModel`: same dimensions, same measures, same underlying table.
 
-The recovered model is a fully usable BSL object. Run a brand-new query that the original Python file never even mentioned:
-
-```python
+# <3>
 by_destination = flights_model.query(
     dimensions=("destination",),
     measures=("flight_count", "total_distance"),
@@ -284,26 +286,39 @@ by_destination = flights_model.query(
 
 print(by_destination.execute())
 ```
+1. `init=False` opens the existing catalog at the path. Note what's *not* imported: nothing from `flights_catalog.py`, no `to_semantic_table`, no inline `flights` data. The catalog directory is the only handoff.
+2. `flights_entry` is the catalog handle — content hash, alias, sidecar metadata, and the cataloged expression on `.expr`. `from_tagged(...)` reads the BSL metadata off that expression and reconstructs a live `SemanticModel`: same dimensions, same measures, same underlying table.
+3. A brand-new query that the original Python file never even mentioned. The model's vocabulary is enough.
+
+Run it:
+
+```bash
+python recover_flights.py
+```
 
 ```
+Recovered type:     SemanticModel
+Recovered dims:     ('origin', 'destination', 'carrier')
+Recovered measures: ('flight_count', 'avg_dep_delay', 'total_distance')
   destination  flight_count  total_distance
 0         JFK             3            5690
 1         LAX             3            6695
 2         ORD             2            3045
 ```
 
-This is the property that makes the catalog interesting: you stored the model, and now any consumer can ask anything the model's dimensions and measures are designed to answer.
+This is the property that makes the catalog interesting: you stored the model, and any consumer with access to the catalog directory can ask anything the model's dimensions and measures are designed to answer — without seeing or running your original code.
 
 ## Putting it all together
 
-Here's the complete `flights_catalog.py`:
+Two scripts, one shared catalog directory.
+
+`flights_catalog.py` — defines the model, queries it, publishes it:
 
 ```python
 # flights_catalog.py
-import tempfile
 from pathlib import Path
 
-from boring_semantic_layer import to_semantic_table, to_tagged, from_tagged
+from boring_semantic_layer import to_semantic_table, to_tagged
 
 import xorq.api as xo
 from xorq.catalog.catalog import Catalog
@@ -350,11 +365,22 @@ print(flights_model.query(
 # 4. Tag the model and add it to the catalog
 flights_model_expr = to_tagged(flights_model)
 
-catalog_dir = Path(tempfile.mkdtemp()) / "flights-catalog"
+catalog_dir = Path("flights-catalog")
 catalog = Catalog.from_repo_path(catalog_dir, init=True)
 catalog.add(flights_model_expr, aliases=("flights-model",), sync=False)
+```
 
-# 5. Recover the model and run a new query
+`recover_flights.py` — reads the catalog from scratch, recovers the model, runs a new query:
+
+```python
+# recover_flights.py
+from pathlib import Path
+
+from boring_semantic_layer import from_tagged
+from xorq.catalog.catalog import Catalog
+
+
+catalog = Catalog.from_repo_path(Path("flights-catalog"), init=False)
 flights_entry = catalog.get_catalog_entry("flights-model", maybe_alias=True)
 flights_model = from_tagged(flights_entry.expr)
 
@@ -364,10 +390,11 @@ print(flights_model.query(
 ).order_by("destination").execute())
 ```
 
-Run it:
+Run them:
 
 ```bash
 python flights_catalog.py
+python recover_flights.py
 ```
 
 ## What you learned

@@ -102,7 +102,6 @@ else:
     raise AssertionError("expected an error for unknown dimension 'airport'")
 
 # %% --- Catalog the model
-import tempfile
 from pathlib import Path
 
 from boring_semantic_layer import to_tagged
@@ -110,18 +109,25 @@ from xorq.catalog.catalog import Catalog
 
 flights_model_expr = to_tagged(flights_model)
 
-catalog_dir = Path(tempfile.mkdtemp()) / "flights-catalog"
+# Stable path inside the project — same shape as the prose, so a separate
+# script (recover_flights.py in the tutorial) can reopen by path below.
+catalog_dir = Path("flights-catalog")
 catalog = Catalog.from_repo_path(catalog_dir, init=True)
 
 catalog.add(flights_model_expr, aliases=("flights-model",), sync=False)
 
-print("Catalog at:", catalog_dir)
+print("Catalog at:", catalog_dir.absolute())
 print("Aliases:   ", catalog.list_aliases())
 
-# %% --- Recover the model and run a new query
+# %% --- Recover the model from a fresh Catalog handle (mirrors recover_flights.py)
+# In the prose this is a separate Python file with no in-memory state from the
+# publisher.  Here we simulate that by re-opening the catalog from its path
+# instead of reusing the `catalog` object above; init=False just opens.
 from boring_semantic_layer import from_tagged
 
-flights_entry = catalog.get_catalog_entry("flights-model", maybe_alias=True)
+recover_catalog = Catalog.from_repo_path(catalog_dir, init=False)
+
+flights_entry = recover_catalog.get_catalog_entry("flights-model", maybe_alias=True)
 
 flights_model = from_tagged(flights_entry.expr)
 print("Recovered type:    ", type(flights_model).__name__)
