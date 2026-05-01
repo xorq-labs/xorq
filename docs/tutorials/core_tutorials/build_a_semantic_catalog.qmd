@@ -30,6 +30,16 @@ uv add "xorq[bsl,duckdb]"
 The rest of the tutorial assumes commands are run from inside `flights-tutorial/`.
 
 ::: {.callout-note}
+### Running Python in the project venv
+`uv add` set up a `.venv` in `flights-tutorial/`; every Python invocation in this tutorial needs to use it. Two equivalent options:
+
+- **Recommended:** prefix each `python` command with `uv run` — e.g. `uv run python flights_catalog.py`. uv finds the project venv from `pyproject.toml` and uses it; no activation step.
+- **Or:** activate once per shell with `source .venv/bin/activate`, then call plain `python flights_catalog.py`. Run `deactivate` to leave the venv when you're done.
+
+The rest of the tutorial uses the `uv run python ...` form.
+:::
+
+::: {.callout-note}
 ### Why DuckDB?
 The catalog stores the in-memory `flights` table as a parquet file alongside the entry. Reading that parquet back when you recover the model uses DuckDB by default, so it has to be installed.
 :::
