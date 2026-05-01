@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777624730042,
+  "lastUpdate": 1777635219951,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -9372,6 +9372,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.06987491338366306",
             "extra": "mean: 413.5808558000008 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "paddy@paddymullen.com",
+            "name": "Paddy Mullen",
+            "username": "paddymul"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a5316ab2f0c7597c441258a239b00d0419587e73",
+          "message": "docs(tutorials): add BSL semantic catalog + catalog collaboration tutorials (#1878)\n\n## Summary\n\nAdds two new core tutorials covering the BSL + catalog story end-to-end:\n\n- **\\`build_a_semantic_catalog.qmd\\`** — define a Boring Semantic Layer\nmodel over an FAA-style flights memtable, query dimensions/measures, and\nround-trip the model through a local catalog using \\`to_tagged(model)\\`\n/ \\`from_tagged(entry.expr)\\`. Includes side-by-side callouts comparing\nBSL queries to plain xorq, and showing how an unknown dimension fails\nfast.\n- **\\`working_with_the_catalog.qmd\\`** — picks up where the foundation\ntutorial leaves off and walks the catalog lifecycle: pushing it to\nGitHub, a teammate cloning and proposing a new entry via PR, pulling the\nmerged change back, and swapping the connection profile at recovery time\nwith \\`catalog.load(name, con=...)\\`. Recommends git-annex throughout\n(with platform install commands and a callout on S3/GCS/directory\nspecial remotes for content storage).\n\nThe naming is consistent across both tutorials: \\`flights_model\\` (live\nSemanticModel), \\`flights_model_expr\\` (catalog-ready tagged\nexpression), \\`flights_entry\\` (catalog handle).\n\n## Test plan\n\n- [x] Foundation tutorial: ran the full \\`flights_catalog.py\\` script in\na clean \\`uv venv\\` with \\`pip install \\\"xorq[bsl,duckdb]\\\"\\` — every\noutput block in the tutorial is real run output (memtable round-trip via\nparquet + duckdb).\n- [x] Collaboration tutorial: verified the underlying API surface\nend-to-end against a local bare-repo stand-in for GitHub:\n\\`Catalog.from_repo_path(..., init=True)\\`, \\`Catalog.clone_from\\`,\n\\`catalog.add\\`, \\`catalog.pull\\`, \\`catalog.add_alias\\`,\n\\`Profile.from_con/save/load\\`, \\`catalog.load(con=...)\\`. Real FAA\nflights parquet (≈345k rows) recovered through the catalog round-trip\nand queried correctly.\n- [ ] Annex-enabled flow not re-verified end-to-end after the prose\nswitched to recommending git-annex throughout. The annex APIs used in\nthe tutorial (\\`annex=LOCAL_ANNEX\\`, \\`catalog.fetch_entries(...)\\`,\n\\`git annex copy --to=origin\\`) match the documented surface in\n\\`python/xorq/catalog/{catalog,annex,backend}.py\\`, but a full\nclone-fetch-recover-push round trip with annex on a bare server hasn't\nbeen replayed against the new prose.\n\n## Notes for review\n\n- The tutorials live under \\`docs/tutorials/core_tutorials/\\` and aren't\nyet wired into \\`docs/_quarto.yml\\`'s sidebar — happy to add that\nregistration in a follow-up commit if preferred.\n- The collaboration tutorial recommends \\`git-annex\\` as a hard\nprerequisite for both publishers and consumers, per discussion during\nauthoring.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-05-01T13:29:30+02:00",
+          "tree_id": "862e5ca9dc54643f85ee1cc52cda349d4a28f796",
+          "url": "https://github.com/xorq-labs/xorq/commit/a5316ab2f0c7597c441258a239b00d0419587e73"
+        },
+        "date": 1777635217237,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 6.944898199715557,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018775422565683347",
+            "extra": "mean: 143.99059154545375 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.677901573489855,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012791521176342309",
+            "extra": "mean: 373.4267196000019 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.61223980399907,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18714883981052957",
+            "extra": "mean: 1.6333469229999935 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.2184943845501555,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06027701157997235",
+            "extra": "mean: 450.7561555999928 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.198569182432754,
+            "unit": "iter/sec",
+            "range": "stddev: 0.056151551958994295",
+            "extra": "mean: 454.8412703999986 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.3191925333778474,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06817069512462207",
+            "extra": "mean: 431.1845547999951 msec\nrounds: 5"
           }
         ]
       }
