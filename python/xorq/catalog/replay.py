@@ -17,7 +17,8 @@ import re
 from contextlib import contextmanager
 from functools import cached_property
 
-from attr import field, frozen, validators
+from attr import field, frozen
+from attr.validators import deep_iterable, instance_of, optional
 
 from xorq.catalog.constants import CATALOG_YAML_NAME, CatalogInfix
 
@@ -27,11 +28,11 @@ from xorq.catalog.constants import CATALOG_YAML_NAME, CatalogInfix
 
 @frozen
 class CommitMetadata:
-    sha: str = field(validator=validators.instance_of(str))
-    author_name: str = field(validator=validators.instance_of(str))
-    author_email: str = field(validator=validators.instance_of(str))
-    authored_date: str = field(validator=validators.instance_of(str))
-    committed_date: str = field(validator=validators.instance_of(str))
+    sha: str = field(validator=instance_of(str))
+    author_name: str = field(validator=instance_of(str))
+    author_email: str = field(validator=instance_of(str))
+    authored_date: str = field(validator=instance_of(str))
+    committed_date: str = field(validator=instance_of(str))
 
     @contextmanager
     def git_env(self):
@@ -91,7 +92,7 @@ _RM_ALIAS_RE = re.compile(r"^rm alias: (?P<alias>.+)$")
 def _make_commit_metadata_field():
     return field(
         default=None,
-        validator=validators.optional(validators.instance_of(CommitMetadata)),
+        validator=optional(instance_of(CommitMetadata)),
     )
 
 
@@ -114,7 +115,7 @@ def _changed_paths(commit):
 class InitCatalog:
     """First commit: bare repo initialization."""
 
-    message: str = field(validator=validators.instance_of(str))
+    message: str = field(validator=instance_of(str))
     commit_metadata: CommitMetadata | None = _make_commit_metadata_field()
 
     def __str__(self):
@@ -140,7 +141,7 @@ class InitCatalog:
 class AddCatalogYAML:
     """Second commit: catalog.yaml creation."""
 
-    message: str = field(validator=validators.instance_of(str))
+    message: str = field(validator=instance_of(str))
     commit_metadata: CommitMetadata | None = _make_commit_metadata_field()
 
     def __str__(self):
@@ -171,11 +172,11 @@ class AddCatalogYAML:
 class AddEntry:
     """catalog.add(build_dir, aliases=(...))"""
 
-    entry_hash: str = field(validator=validators.instance_of(str))
+    entry_hash: str = field(validator=instance_of(str))
     aliases: tuple[str, ...] = field(
-        validator=validators.deep_iterable(
-            member_validator=validators.instance_of(str),
-            iterable_validator=validators.instance_of(tuple),
+        validator=deep_iterable(
+            member_validator=instance_of(str),
+            iterable_validator=instance_of(tuple),
         )
     )
     commit_metadata: CommitMetadata | None = _make_commit_metadata_field()
@@ -222,8 +223,8 @@ class AddEntry:
 class AddAlias:
     """catalog.add_alias(entry, alias)"""
 
-    alias: str = field(validator=validators.instance_of(str))
-    entry_name: str = field(validator=validators.instance_of(str))
+    alias: str = field(validator=instance_of(str))
+    entry_name: str = field(validator=instance_of(str))
     commit_metadata: CommitMetadata | None = _make_commit_metadata_field()
 
     def __str__(self):
@@ -256,11 +257,11 @@ class AddAlias:
 class RemoveEntry:
     """catalog.remove(entry) -- removes entry and its aliases."""
 
-    entry_name: str = field(validator=validators.instance_of(str))
+    entry_name: str = field(validator=instance_of(str))
     aliases: tuple[str, ...] = field(
-        validator=validators.deep_iterable(
-            member_validator=validators.instance_of(str),
-            iterable_validator=validators.instance_of(tuple),
+        validator=deep_iterable(
+            member_validator=instance_of(str),
+            iterable_validator=instance_of(tuple),
         )
     )
     commit_metadata: CommitMetadata | None = _make_commit_metadata_field()
@@ -296,7 +297,7 @@ class RemoveEntry:
 class RemoveAlias:
     """CatalogAlias.remove()"""
 
-    alias: str = field(validator=validators.instance_of(str))
+    alias: str = field(validator=instance_of(str))
     commit_metadata: CommitMetadata | None = _make_commit_metadata_field()
 
     def __str__(self):
@@ -330,8 +331,8 @@ class RemoveAlias:
 class UnknownOp:
     """Commit that doesn't match any known catalog operation."""
 
-    message: str = field(validator=validators.instance_of(str))
-    hexsha: str = field(validator=validators.instance_of(str))
+    message: str = field(validator=instance_of(str))
+    hexsha: str = field(validator=instance_of(str))
     commit_metadata: CommitMetadata | None = _make_commit_metadata_field()
 
     def __str__(self):
