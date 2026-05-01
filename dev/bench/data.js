@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777577932521,
+  "lastUpdate": 1777624730042,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -9306,6 +9306,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.027627422235801773",
             "extra": "mean: 311.69325820001177 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "608b9f3e2a46d04b9bb8dafec456ef5752903740",
+          "message": "feat(catalog): namespace annex fileprefix by remote name + UUID (#1895)\n\n## Summary\n\nSplit out from #1847. Namespaces git-annex special-remote `fileprefix`\nby `{name}/{remote-uuid}/` so multiple catalogs can share a bucket and\ncontent-addressed dedup works across clones.\n\n### Changes\n\n- `Annex.initremote` / `Annex.enableremote` wrap `RemoteConfig` calls\nand append `{name}/{uuid}/` to `fileprefix`. Idempotent — re-running on\nan already-suffixed config is a no-op.\n- The suffix uses the **special remote's own UUID** (stable across\nclones), not the local repo UUID. The local-UUID scheme broke as soon as\na catalog had a second clone: clones read `remote.log`, found a\n`fileprefix` not ending in their own local UUID, and re-augmented\nforever, ratcheting `remote.log`. It also defeated content-addressed\ndedup, since two clones uploading the same key wrote to different paths.\n- The remote UUID is pre-generated with `uuid.uuid4()` and passed to\n`git-annex` via `uuid=<value>` so the `{name}/{uuid}/` subdir is\nenforced from the very first write — no orphaned `annex-uuid` sentinel\nat the parent prefix.\n- `Annex.enableremote` falls back to `initremote` when `remote.log` has\nno matching entry, preserving existing call sites that pass `annex=rc`\nto `Catalog.{init,from}_repo_path` on a fresh repo.\n- `S3RemoteConfig` / `RsyncRemoteConfig` / `DirectoryRemoteConfig`\n`initremote` gain a `uuid=` kwarg.\n- ADR 0009 documents the namespacing scheme.\n- `.env.catalog.s3.template` updated to reflect the new fileprefix\nconvention.\n\n## Test plan\n- [ ] Existing annex tests pass (no behavior changes outside the new\nnamespacing path).\n- [ ] Manual: init two catalogs with the same S3 remote-name into\ndifferent repos, confirm they write to distinct `{name}/{uuid}/`\nsubdirs.\n- [ ] Manual: clone a catalog, confirm `enableremote` reuses the remote\nUUID and writes to the same path as the origin clone (so dedup works).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-05-01T10:34:44+02:00",
+          "tree_id": "821e67d6fe9a700dd38ae200b686e99a2110af78",
+          "url": "https://github.com/xorq-labs/xorq/commit/608b9f3e2a46d04b9bb8dafec456ef5752903740"
+        },
+        "date": 1777624726771,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.325602157653094,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007276924257017833",
+            "extra": "mean: 96.84665211111427 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.301062088986725,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06477746926925977",
+            "extra": "mean: 434.5819284000072 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6679929360024958,
+            "unit": "iter/sec",
+            "range": "stddev: 0.20783960084258168",
+            "extra": "mean: 1.4970218187999875 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.337163514607276,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04848284064236937",
+            "extra": "mean: 427.86907880000626 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.3095264579238366,
+            "unit": "iter/sec",
+            "range": "stddev: 0.055274099431608895",
+            "extra": "mean: 432.9891941999904 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.417906888039275,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06987491338366306",
+            "extra": "mean: 413.5808558000008 msec\nrounds: 5"
           }
         ]
       }
