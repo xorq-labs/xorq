@@ -20,14 +20,16 @@ You'll also see how to swap the connection profile at recovery time, so a downst
 You need:
 
 - Completed [Build a semantic catalog](build_a_semantic_catalog.qmd) — same model definition, same project layout. We'll recreate the catalog at a stable path here, since the foundation tutorial used a temp directory.
-- User A's `flights-tutorial/` project directory (from the foundation tutorial), with `xorq[bsl,duckdb,sqlite]` installed. The foundation tutorial installed `xorq[bsl,duckdb]`; the `sqlite` extra adds `adbc-driver-sqlite`, which we use in the profile-swap section to demonstrate executing the cataloged expression against a different backend than the one User A built it with. From inside `flights-tutorial/`: `uv add "xorq[bsl,duckdb,sqlite]"`. (User B gets their own project; you'll create it later in the tutorial.)
+- User A's `flights-tutorial/` project directory from the foundation tutorial. This tutorial assumes it lives at `~/flights-tutorial/` so it sits as a sibling of User B's `~/flights-tutorial-userb/` (created later in the tutorial). If you put it somewhere else, either move it now (`mv path/to/flights-tutorial ~/flights-tutorial`) or substitute your actual path wherever you see `~/flights-tutorial` below. (User B gets their own project; you'll create it later in the tutorial.)
+- The `sqlite` extra installed in that project. The foundation tutorial installed `xorq[bsl,duckdb]`; we add `sqlite` here to demonstrate the profile-swap section against a different backend than the one User A built the entry with. From inside `~/flights-tutorial/`:
+  ```bash
+  uv add "xorq[bsl,duckdb,sqlite]"
+  ```
 - Git installed locally and authenticated with GitHub (the `gh` CLI is convenient but not required).
 
 ::: {.callout-note}
 ### A catalog is a git repo
 xorq's catalog stores entries as files in a git repository: `catalog.yaml` is the index, `aliases/` holds alias pointers, `entries/` holds the entry zips themselves, and `metadata/` holds a sidecar yaml per entry. Every `catalog.add(...)` is one git commit. That means GitHub's permission model, branch protection rules, and pull requests Just Work — there's no separate object store, no extra service to provision.
-
-For larger entries (model weights, materialized parquet at scale) xorq supports a `git-annex`-backed mode that keeps the bytes out of git history. We're not using it here — small BSL models fit comfortably in plain git, and skipping annex keeps the collaboration loop one moving piece simpler.
 :::
 
 ## Publish the catalog to GitHub (User A)
@@ -37,7 +39,7 @@ For larger entries (model weights, materialized parquet at scale) xorq supports 
 You don't need a GitHub account to work through this tutorial — a local bare git repo behaves the same way for `clone`/`push`/`pull`. Each remote-using step below has a **Local bare repo** tab next to the GitHub one; pick one and stay on it.
 :::
 
-Recreate the catalog at a stable path (`~/work/flights-catalog-usera`) so the rest of the tutorial has somewhere persistent to point at, then re-add the flights model the same way the foundation tutorial did. Save the snippet below as `publish_catalog.py` in User A's `flights-tutorial/` project directory and run it with `uv run python publish_catalog.py` from there:
+Recreate the catalog at a stable path (`~/work/flights-catalog-usera`) so the rest of the tutorial has somewhere persistent to point at, then re-add the flights model the same way the foundation tutorial did. Save the snippet below as `publish_catalog.py` in User A's `~/flights-tutorial/` project directory and run it with `uv run python publish_catalog.py` from there:
 
 ```python
 # publish_catalog.py
@@ -81,17 +83,29 @@ catalog.add(flights_model_expr, aliases=("flights-model",), sync=False)
 ```
 1. `Catalog.from_repo_path(..., init=True)` creates the leaf directory but not its parent, so make sure `~/work/` exists first.
 
+::: {.callout-note}
+### Expect wheel-build output on `catalog.add(...)`
+Each `catalog.add(...)` packages your project as a wheel and stores it inside the entry, so the cataloged expression keeps a frozen record of the dependencies it was built against. You'll see `Building wheel...`, `running egg_info`, and `Successfully built ...whl` in the output, plus a `UserWarning` about local filesystem paths from the inline `memtable` — both are expected and not errors.
+:::
+
 Wire up a remote. The first push needs `-u` to set upstream tracking:
 
 ::: {.panel-tabset}
 
 ### GitHub
-Create an empty repository on GitHub (web UI: "New repository" → leave empty; or one-shot CLI: `gh repo create <you>/flights-catalog --public --source=. --remote=origin`), then run these in the catalog directory:
+Create an empty repository on GitHub (web UI: "New repository" → leave empty), then run these in the catalog directory:
 
 ```bash
 cd ~/work/flights-catalog-usera
 git remote add origin https://github.com/<you>/flights-catalog.git
 git push -u origin main
+```
+
+Or, equivalently, with the `gh` CLI from inside the catalog directory — `--source=.` means "create the repo from this working directory", so the `cd` matters:
+
+```bash
+cd ~/work/flights-catalog-usera
+gh repo create <you>/flights-catalog --public --source=. --remote=origin --push
 ```
 
 ### Local bare repo
@@ -111,7 +125,7 @@ git push -u origin main
 
 :::
 
-That first push has to use raw git: `catalog.push()` doesn't add remotes or set upstream tracking, so there's nothing for it to push to until `git remote add` + `git push -u` have run once. Every subsequent publish can use `catalog.push()`, which runs `git push` against every remote configured on the repo. Either append it to the bottom of `publish_catalog.py` (where `catalog` is already in scope), or run it as its own one-off — save the snippet below as `push_catalog.py` in User A's `flights-tutorial/` project and run `uv run python push_catalog.py` from there:
+That first push has to use raw git: `catalog.push()` doesn't add remotes or set upstream tracking, so there's nothing for it to push to until `git remote add` + `git push -u` have run once. Every subsequent publish can use `catalog.push()`, which runs `git push` against every remote configured on the repo. Either append it to the bottom of `publish_catalog.py` (where `catalog` is already in scope), or run it as its own one-off — save the snippet below as `push_catalog.py` in User A's `~/flights-tutorial/` project and run `uv run python push_catalog.py` from there:
 
 ```python
 # push_catalog.py
@@ -187,10 +201,10 @@ print("Aliases:", catalog.list_aliases())
 # ['flights-model']
 ```
 
-Or, equivalently, from the command line:
+The same thing is available from the command line — pick one or the other; running both will fail on the second clone because the directory already exists:
 
 ```bash
-uv run xorq catalog clone https://github.com/<you>/flights-catalog.git  --path ~/work/flights-catalog-userb
+uv run xorq catalog clone https://github.com/<you>/flights-catalog.git --path ~/work/flights-catalog-userb
 uv run xorq catalog --path ~/work/flights-catalog-userb list-aliases
 ```
 
@@ -212,10 +226,10 @@ print("Aliases:", catalog.list_aliases())
 # ['flights-model']
 ```
 
-Or, equivalently, from the command line:
+The same thing is available from the command line — pick one or the other; running both will fail on the second clone because the directory already exists:
 
 ```bash
-uv run xorq catalog clone "file://$HOME/work/flights-catalog-remote.git"   --path ~/work/flights-catalog-userb
+uv run xorq catalog clone "file://$HOME/work/flights-catalog-remote.git" --path ~/work/flights-catalog-userb
 uv run xorq catalog --path ~/work/flights-catalog-userb list-aliases
 ```
 
@@ -358,7 +372,7 @@ git push origin main
 
 :::
 
-Once main has moved on the remote, User A pulls. `catalog.pull()` runs `git pull` against every git remote, fast-forwarding the local main. Save the snippet below as `pull_catalog.py` in User A's `flights-tutorial/` project and run it with `uv run python pull_catalog.py` from there:
+Once main has moved on the remote, User A pulls. `catalog.pull()` runs `git pull` against every git remote, fast-forwarding the local main. Save the snippet below as `pull_catalog.py` in User A's `~/flights-tutorial/` project and run it with `uv run python pull_catalog.py` from there:
 
 ```python
 # pull_catalog.py
@@ -372,6 +386,11 @@ catalog_a.pull()
 print("Aliases now:", catalog_a.list_aliases())
 # ['flights-model', 'flights-aa-only']
 ```
+
+::: {.callout-note}
+### On the local-bare-repo path, `pull()` is effectively a no-op
+You merged in your local clone and pushed up — your local `main` is already at the merged tip, so there's nothing for `pull()` to fast-forward. The script is still worth running because it's the same one-liner User A would use after a teammate clicked "Merge pull request" on GitHub; here it just confirms the new alias is visible.
+:::
 
 The same alias is now visible everywhere the catalog is cloned. Anyone with access can recover and query `flights-aa-only` exactly the way they recover `flights-model`.
 
@@ -399,8 +418,10 @@ Profile.from_con(sqlite_con).save(alias="local_dev_sqlite", clobber=True)
 
 # Later — possibly in a different script — load the profile and bind the entry to it
 profile = Profile.load("local_dev_sqlite")
-expr = catalog.load("flights-model", con=profile.get_con())
+con = profile.get_con()
+expr = catalog.load("flights-model", con=con)
 
+print("Executing against backend:", con.name)
 print(
     expr.group_by("origin")
         .agg(
@@ -413,13 +434,14 @@ print(
 ```
 
 ```
+Executing against backend: sqlite
   origin  flight_count  avg_dep_delay
 0    JFK             3      10.000000
 1    LAX             3       4.333333
 2    ORD             2      37.500000
 ```
 
-The aggregation runs against SQLite even though User A built and cataloged the entry against `xorq_datafusion`. `catalog.load(name, con=...)` returns the underlying Xorq expression — the flights table, in this case — bound to whichever connection you pass; you compose any group-by / aggregation you like on top, and `.execute()` ships the work to the chosen backend. The entry on disk is unchanged; the swap is purely a runtime decision.
+The `Executing against backend: sqlite` line is the proof: User A cataloged the entry against `xorq_datafusion`, User B loaded it bound to a SQLite connection, and `.execute()` shipped the work to SQLite. `catalog.load(name, con=...)` returns the underlying Xorq expression — the flights table, in this case — bound to whichever connection you pass; you compose any group-by / aggregation you like on top, and `.execute()` runs it on the chosen backend. The entry on disk is unchanged; the swap is purely a runtime decision.
 
 ::: {.callout-note}
 ### `catalog.load` vs `from_tagged`
