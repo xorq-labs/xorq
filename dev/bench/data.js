@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777635343135,
+  "lastUpdate": 1777650595731,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -9570,6 +9570,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.05088718148967766",
             "extra": "mean: 337.28783899999826 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "paddy@paddymullen.com",
+            "name": "Paddy Mullen",
+            "username": "paddymul"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "101bafdda7aecb9519aec6d6ff87bebb6345f05c",
+          "message": "Revert #1878: BSL semantic catalog + catalog collaboration tutorials (#1919)\n\n## Summary\n- Reverts #1878 (commit a5316ab2) which added the BSL semantic catalog\nand catalog collaboration tutorials.\n- The PR merged before testing was complete; reverting so the tutorials\ncan be re-landed once verified.\n\n## Test plan\n- [ ] CI passes on the revert\n- [ ] Re-open follow-up PR with the tutorials once they've been fully\ntested locally\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-05-01T17:45:41+02:00",
+          "tree_id": "ec61cb436426b6a38a34f548b0c09c77df840665",
+          "url": "https://github.com/xorq-labs/xorq/commit/101bafdda7aecb9519aec6d6ff87bebb6345f05c"
+        },
+        "date": 1777650592033,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.764503571223022,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013471669074214546",
+            "extra": "mean: 114.09659336363957 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.367323215336777,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0936011440583246",
+            "extra": "mean: 422.41802620000044 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.641046214664234,
+            "unit": "iter/sec",
+            "range": "stddev: 0.24035908057623576",
+            "extra": "mean: 1.5599499335999951 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.730953028592595,
+            "unit": "iter/sec",
+            "range": "stddev: 0.038689410206299533",
+            "extra": "mean: 366.17253740001274 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.8490904857273525,
+            "unit": "iter/sec",
+            "range": "stddev: 0.023727580090377252",
+            "extra": "mean: 350.98920340001314 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.7484615553782104,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04146973518929601",
+            "extra": "mean: 363.83990819998644 msec\nrounds: 5"
           }
         ]
       }
