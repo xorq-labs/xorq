@@ -47,6 +47,7 @@ from xorq.catalog.constants import (
     PREFERRED_SUFFIX,
     CatalogInfix,
 )
+from xorq.catalog.exceptions import CatalogConfigurationError, CatalogPushError
 from xorq.catalog.expr_utils import (
     build_expr_context,
     build_expr_context_zip,
@@ -73,19 +74,6 @@ _PUSH_REJECTED_MASK = (
     | PushInfo.REMOTE_FAILURE
     | PushInfo.ERROR
 )
-
-
-class CatalogPushError(RuntimeError):
-    """Raised when ``catalog.push()`` cannot publish to a remote."""
-
-
-class CatalogConfigurationError(RuntimeError):
-    """Raised when the catalog's underlying repo violates a supported configuration.
-
-    Currently fires only when the catalog finds more than one git remote on
-    a sync-side operation (``push`` / ``pull`` / ``fetch`` / ``sync``); the
-    catalog supports exactly one git remote per ADR-0009.
-    """
 
 
 def _collect_push_failures(push_info_list, remote_name):

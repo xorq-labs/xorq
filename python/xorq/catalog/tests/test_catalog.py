@@ -12,10 +12,6 @@ from git import Repo as GitRepo
 import xorq.api as xo
 import xorq.catalog.catalog as catalog_mod
 from xorq.caching import ParquetSnapshotCache
-from xorq.catalog import (
-    CatalogConfigurationError,
-    CatalogPushError,
-)
 from xorq.catalog.annex import (
     LOCAL_ANNEX,
     Annex,
@@ -32,6 +28,10 @@ from xorq.catalog.catalog import (
     CatalogEntry,
 )
 from xorq.catalog.constants import MAIN_BRANCH, CatalogInfix
+from xorq.catalog.exceptions import (
+    CatalogConfigurationError,
+    CatalogPushError,
+)
 from xorq.catalog.expr_utils import (
     _live_extract_dirs,
     build_expr_context_zip,
@@ -227,7 +227,9 @@ def test_multi_remote_raises_configuration_error(tmpdir, op):
     catalog.repo.create_remote("r1", str(bare_1))
     catalog.repo.create_remote("r2", str(bare_2))
 
-    with pytest.raises(CatalogConfigurationError, match="(?i)single git remote") as exc_info:
+    with pytest.raises(
+        CatalogConfigurationError, match="(?i)single git remote"
+    ) as exc_info:
         getattr(catalog, op)()
     msg = str(exc_info.value)
     assert "r1" in msg
