@@ -8,13 +8,7 @@
 
 A `Catalog` is a git repository — usually with a git-annex sidecar branch — that holds versioned build artifacts. `Catalog.push()`, `Catalog.pull()`, and `Catalog.fetch()` operate over `self._git_remotes`, which is *every* git remote on the underlying repo that has a fetch refspec (see the `Catalog._git_remotes` property in `python/xorq/catalog/catalog.py`). Nothing in the catalog API restricts a user to one remote; if `git remote add r2 …` is run on the working tree, the next `catalog.push()` will dutifully push to both `origin` and `r2`.
 
-Issue [#1898](https://github.com/letsql/xorq/issues/1898) surfaced a silent failure mode in this design: when a push to one remote was rejected (non-fast-forward), `catalog.push()` returned without raising. The fix landed in three commits on this branch:
-
-| Commit | Change |
-|--------|--------|
-| `fe3f608b` | Raise `CatalogPushError` when `PushInfo` flags include `REJECTED`/`REMOTE_REJECTED`/`REMOTE_FAILURE`/`ERROR` |
-| `6b2ab300` | Push every ref to every remote first, then aggregate all rejections into one error message — instead of bailing on the first failure |
-| `0b40bb35` | Test covering two-remote partial-failure aggregation |
+Issue [#1898](https://github.com/letsql/xorq/issues/1898) surfaced a silent failure mode in this design: when a push to one remote was rejected (non-fast-forward), `catalog.push()` returned without raising. The fix raises `CatalogPushError` whenever `PushInfo` flags include `REJECTED`/`REMOTE_REJECTED`/`REMOTE_FAILURE`/`ERROR`, and — to support multi-remote — pushes every ref to every remote first, then aggregates all rejections into one error message rather than bailing on the first failure. A two-remote partial-failure test covers the aggregation behavior.
 
 The aggregation fix exists because the obvious "fail fast on the first rejected push" implementation has a worse failure mode than the bug it replaces: with two git remotes, rejecting on `origin` skips the push of `origin`'s annex branch *and* the entire push to `r2`, so a retry sees inconsistent state across the two remotes. Aggregation patches that — but it patches *one* of an open-ended set of multi-remote consistency problems we have not enumerated:
 
@@ -119,13 +113,11 @@ Rejected on the same grounds as the flag option: a warning that's easy to ignore
 ### Negative
 
 - Users who today rely on multi-remote (we believe there are none, but we have not surveyed) will see a hard error after upgrading. Mitigation: the error message names the remotes and links to a contact path; the local-only path (zero remotes) is preserved.
-- The aggregation fix from `6b2ab300` is reverted as part of this change. If multi-remote support is later re-introduced, both the aggregation logic (~30 lines) and the bare-repo + two-remote + diverged-history test setup would need to be re-derived; neither is preserved in tree.
+- The aggregation fix is reverted as part of this change. If multi-remote support is later re-introduced, both the aggregation logic (~30 lines) and the bare-repo + two-remote + diverged-history test setup would need to be re-derived; neither is preserved in tree.
 - "One git remote" is enforced at the catalog API boundary, not at the underlying git repository. A user who runs `git remote add` directly on the working tree and then operates on the repo with raw git can still create the inconsistent states described in Context. We accept this — the catalog is opinionated, the underlying git repo is not. The error fires on every subsequent `push`/`pull`/`fetch`/`sync` call, not just the first one, so the misconfiguration is loud and persistent rather than one-shot.
 
 ## References
 
 - Issue [#1898](https://github.com/letsql/xorq/issues/1898) — silent push rejection
-- Commit `fe3f608b` — raise on rejected push
-- Commit `6b2ab300` — aggregate push failures across all remotes (to be reverted by this ADR)
-- Commit `0b40bb35` — multi-remote aggregation test (removed by this ADR; replaced by `test_multi_remote_raises_configuration_error` as live coverage)
+- PR [#1899](https://github.com/xorq-labs/xorq/pull/1899) — implements this ADR alongside the push-rejection fix
 - [ADR-0003](0003-optional-git-annex-backend.md) — git-annex backend (related; unaffected by this decision since it concerns the *special* remote, not git remotes)
