@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
@@ -12,20 +11,8 @@ from xorq.internal import SessionConfig, WindowUDF
 from xorq.vendor.ibis.expr import types as ir
 
 
-if TYPE_CHECKING:
-    import pandas as pd
-
-
 class Backend(DataFusionBackend):
     name = "xorq_datafusion"
-
-    def register(
-        self,
-        source: str | Path | pa.Table | pa.RecordBatch | pa.Dataset | pd.DataFrame,
-        table_name: str | None = None,
-        **kwargs: Any,
-    ) -> ir.Table:
-        return super().register(source, table_name=table_name, **kwargs)
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
         batch_reader = self.to_pyarrow_batches(expr, **kwargs)
