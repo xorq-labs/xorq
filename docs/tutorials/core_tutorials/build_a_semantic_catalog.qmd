@@ -116,6 +116,11 @@ print("Measures:  ", tuple(flights_model.measures))
 A **dimension** is a column you can group by (or filter on). A **measure** is an aggregation: counts, means, sums, anything that collapses rows. The split is what lets BSL turn `query(dimensions=..., measures=...)` into the right `group_by(...).agg(...)` for you.
 :::
 
+::: {.callout-tip}
+### Run as you go
+`flights_catalog.py` grows section by section through the rest of the tutorial. After each addition, run `uv run python flights_catalog.py` from your project directory — the output shown beneath each block (dimensions, measures, query results) is what you'll see when you do. The complete script is consolidated at the end in [Putting it all together](#putting-it-all-together).
+:::
+
 ## Query the model
 
 A model is useless until you ask it questions. `flights_model.query(...)` returns a regular Xorq expression — the same kind you'd get from `table.group_by(...).agg(...)` — so `.execute()` runs it on your backend.
