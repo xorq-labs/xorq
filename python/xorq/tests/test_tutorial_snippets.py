@@ -10,7 +10,6 @@ code or a version bump on a dependency.
 from __future__ import annotations
 
 import importlib.util
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -26,7 +25,11 @@ SCRIPTS = sorted(TUTORIALS_DIR.rglob("*.snippets.py"))
 # are evaluated lazily so missing optional deps just skip the test.
 EXTRA_REQUIREMENTS = {
     "build_a_semantic_catalog": ("boring_semantic_layer", "duckdb"),
-    "working_with_the_catalog": ("boring_semantic_layer",),
+    "working_with_the_catalog": (
+        "boring_semantic_layer",
+        "duckdb",
+        "adbc_driver_sqlite",
+    ),
 }
 
 
@@ -34,23 +37,14 @@ def _has_module(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
 
 
-def _has_git_annex() -> bool:
-    return shutil.which("git-annex") is not None
-
-
 def _param(script: Path) -> pytest.param:
-    slug = script.stem.replace(".snippets", "")
+    slug = script.name.removesuffix(".snippets.py")
     marks = [pytest.mark.library, pytest.mark.slow]
     for module in EXTRA_REQUIREMENTS.get(slug, ()):
         if not _has_module(module):
             marks.append(
                 pytest.mark.skip(reason=f"requires the '{module}' optional dependency")
             )
-    if slug == "working_with_the_catalog":
-        # Tutorial fetches a public parquet over the network and exercises
-        # git-annex on the bare-repo stand-in.
-        if not _has_git_annex():
-            marks.append(pytest.mark.skip(reason="requires git-annex on PATH"))
     return pytest.param(script, id=slug, marks=marks)
 
 
@@ -62,11 +56,11 @@ def test_tutorial_snippet_runs(script: Path, tmp_path: Path) -> None:
     # so a passing test means the tutorial works for someone outside the
     # xorq source tree, not just for someone who happens to be inside it.
     result = subprocess.run(
-        [sys.executable, str(script)],
+        [sys.executable, script],
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=600,
+        timeout=30,
     )
     assert result.returncode == 0, (
         f"{script.relative_to(REPO_ROOT)} exited {result.returncode}\n"

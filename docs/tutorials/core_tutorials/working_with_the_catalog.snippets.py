@@ -1,54 +1,47 @@
 """Code samples adapted from docs/tutorials/core_tutorials/working_with_the_catalog.qmd.
 
 The tutorial walks through pushing a catalog to GitHub and a teammate cloning
-it back over the network. Without a real remote (and without an S3/GCS special
-remote for git-annex content storage), the smoke test substitutes a
-peer-to-peer clone — User B clones directly from User A's local working tree.
-The API surface exercised is identical: ``Catalog.clone_from``,
-``catalog.fetch_entries``, ``catalog.get_catalog_entry``, ``from_tagged``,
-``catalog.add``, ``catalog.load(con=...)``, and the Profile API. What's
-*not* exercised here: pushing through a bare GitHub remote and the
-S3/GCS-backed annex content workflow — those are covered in the prose and
-require credentials this script doesn't have.
+it back over the network. Without a real GitHub remote, the smoke test stands
+in a local *bare* git repository to play the role of the GitHub-hosted origin:
+User A pushes to the bare repo, User B clones from it, User B pushes a feature
+branch back to it, and "merging the PR" becomes fast-forwarding ``main`` on
+the bare repo. End state is identical to a real merge — User A pulls and sees
+the new alias — so the API surface exercised here matches what a reader doing
+the live GitHub workflow would hit.
 
-Like build_a_semantic_catalog.snippets.py we chdir into a fresh tempdir with
-a minimal pyproject.toml so the snippet works regardless of where the test
-launched it from — that mirrors the ``uv init`` step the tutorials prescribe.
+What's still *not* exercised: the GitHub UI itself (branch protection, PR
+reviews, merge button). The prose covers those; the smoke test only verifies
+the xorq APIs that bracket the human-in-the-loop step.
 """
 
-# --- test fixtures: stand-in paths for User A and User B ---
+# %% --- test fixture: stand in for `uv init && uv add "xorq[bsl,duckdb,sqlite]"`
 import os as _os
 import shutil as _shutil
-import stat as _stat
+import subprocess as _subprocess
 import tempfile as _tempfile
 from pathlib import Path as _Path
-
 
 _workdir = _Path(_tempfile.mkdtemp(prefix="xorq-catalog-tutorial-"))
 (_workdir / "pyproject.toml").write_text(
     '[project]\nname = "flights-tutorial"\nversion = "0.0.0"\n'
+    'dependencies = ["xorq[bsl,duckdb,sqlite]"]\n'
     "[tool.setuptools]\npackages = []\n"
 )
-# Wheel packager needs requirements.txt or uv.lock; readers get one from
-# `uv add`, snippet shortcuts with an empty file (smoke-test scope only).
-(_workdir / "requirements.txt").write_text("")
+(_workdir / "requirements.txt").write_text("xorq[bsl,duckdb,sqlite]\n")
 _os.chdir(_workdir)
+
+# Stand-in for the GitHub-hosted origin: a bare repo both users push to.
+_BARE = _workdir / "remote.git"
+_subprocess.run(
+    ["git", "init", "--bare", "-b", "main", _BARE],
+    check=True,
+    capture_output=True,
+)
 
 _USER_A = _workdir / "userA" / "flights-catalog"
 _USER_B = _workdir / "userB" / "flights-catalog"
 _USER_A.parent.mkdir(parents=True, exist_ok=True)
-_USER_B.parent.mkdir(parents=True, exist_ok=True)
-# --- end fixtures ---
-
-
-def _force_remove(path):
-    """git-annex objects are read-only; chmod the tree before rmtree."""
-    for p in _Path(path).rglob("*"):
-        try:
-            p.chmod(_stat.S_IRWXU | _stat.S_IRWXG | _stat.S_IRWXO)
-        except (FileNotFoundError, PermissionError):
-            pass
-    _shutil.rmtree(path, ignore_errors=True)
+# --- end fixture ---
 
 
 try:
@@ -56,18 +49,18 @@ try:
     import xorq.api as xo
     from boring_semantic_layer import to_semantic_table, to_tagged
     from xorq.catalog.catalog import Catalog
-    from xorq.catalog.annex import LOCAL_ANNEX
 
-    catalog = Catalog.from_repo_path(
-        _USER_A,  # tutorial: Path("~/work/flights-catalog").expanduser()
-        init=True,
-        annex=LOCAL_ANNEX,
-    )
+    catalog = Catalog.from_repo_path(_USER_A, init=True)
 
-    BASE_URL = "https://pub-a45a6a332b4646f2a6f44775695c64df.r2.dev"
-    flights = xo.deferred_read_parquet(
-        f"{BASE_URL}/flights.parquet",
-        table_name="flights",
+    flights = xo.memtable(
+        {
+            "origin": ["JFK", "LAX", "ORD", "JFK", "LAX", "ORD", "JFK", "LAX"],
+            "destination": ["LAX", "ORD", "JFK", "ORD", "JFK", "LAX", "LAX", "JFK"],
+            "carrier": ["AA", "UA", "AA", "UA", "AA", "UA", "AA", "UA"],
+            "dep_delay": [10.0, -5.0, 30.0, 15.0, -2.0, 45.0, 5.0, 20.0],
+            "distance": [2475, 1745, 740, 1300, 2475, 1745, 2475, 2475],
+        },
+        name="flights",
     )
     flights_model = (
         to_semantic_table(flights)
@@ -79,46 +72,68 @@ try:
         .with_measures(
             flight_count=lambda t: t.count(),
             avg_dep_delay=lambda t: t.dep_delay.mean(),
+            total_distance=lambda t: t.distance.sum(),
         )
     )
     flights_model_expr = to_tagged(flights_model)
     catalog.add(flights_model_expr, aliases=("flights-model",), sync=False)
 
-    # Tutorial: `git remote add origin <github>` + `git push -u origin main`
-    # + `catalog.push()`. Skipped here — see fixtures comment.
+    # Tutorial: `gh repo create` + `git remote add origin <url>` + `git push -u origin main`.
+    # Smoke test: point origin at the local bare repo and push.
+    _subprocess.run(
+        ["git", "remote", "add", "origin", _BARE],
+        cwd=_USER_A,
+        check=True,
+        capture_output=True,
+    )
+    _subprocess.run(
+        ["git", "push", "-u", "origin", "main"],
+        cwd=_USER_A,
+        check=True,
+        capture_output=True,
+    )
 
     # %% --- Clone the catalog (User B)
-    # Tutorial: clone from https://github.com/.../flights-catalog.git.
-    # Smoke test: clone from User A's local working tree so git-annex can
-    # fetch content peer-to-peer without a configured special remote.
-    catalog = Catalog.clone_from(str(_USER_A), _USER_B)
+    catalog_b = Catalog.clone_from(_BARE, _USER_B)
 
-    print("Aliases:", catalog.list_aliases())
-    assert catalog.list_aliases() == ["flights-model"]
+    print("Aliases:", catalog_b.list_aliases())
+    assert catalog_b.list_aliases() == ["flights-model"]
 
     # %% --- Recover and query the model (User B)
     from boring_semantic_layer import from_tagged
 
-    # Until xorq#1891 lands, neither fetch_entries(alias) nor
-    # get_catalog_entry(alias, maybe_alias=True) works against a freshly
-    # cloned catalog; alias resolution requires content-local. So look up
-    # the entry name from catalog.list() first, fetch, then alias works.
-    entry_name = catalog.list()[0]
-    catalog.fetch_entries(entry_name)
+    flights_entry = catalog_b.get_catalog_entry("flights-model", maybe_alias=True)
+    flights_model_b = from_tagged(flights_entry.expr)
+    assert type(flights_model_b).__name__ == "SemanticModel"
+    assert tuple(flights_model_b.dimensions) == ("origin", "destination", "carrier")
 
-    flights_entry = catalog.get_catalog_entry("flights-model", maybe_alias=True)
-    flights_model = from_tagged(flights_entry.expr)
-    assert type(flights_model).__name__ == "SemanticModel"
-    assert tuple(flights_model.dimensions) == ("origin", "destination", "carrier")
-
-    # Tutorial executes a query against the live R2 URL; the smoke test
-    # asserts the recovered model has the right shape rather than fetching
-    # ~12 MB over the network on every CI run.
+    by_origin = flights_model_b.query(
+        dimensions=("origin",),
+        measures=("flight_count", "avg_dep_delay"),
+    ).order_by("origin")
+    print(by_origin.execute())
 
     # %% --- Propose a change (User B)
-    # Tutorial: branch, catalog.add, git push, gh pr create. The catalog.add
-    # is the load-bearing API call; the git plumbing is standard.
-    aa_flights = flights.filter(flights.carrier == "AA")
+    # Tutorial: branch + catalog.add + git push branch + gh pr create.
+    _subprocess.run(
+        ["git", "checkout", "-b", "add-aa-only-model"],
+        cwd=_USER_B,
+        check=True,
+        capture_output=True,
+    )
+
+    # User B reconstructs the same flights memtable they got from the foundation tutorial.
+    flights_b = xo.memtable(
+        {
+            "origin": ["JFK", "LAX", "ORD", "JFK", "LAX", "ORD", "JFK", "LAX"],
+            "destination": ["LAX", "ORD", "JFK", "ORD", "JFK", "LAX", "LAX", "JFK"],
+            "carrier": ["AA", "UA", "AA", "UA", "AA", "UA", "AA", "UA"],
+            "dep_delay": [10.0, -5.0, 30.0, 15.0, -2.0, 45.0, 5.0, 20.0],
+            "distance": [2475, 1745, 740, 1300, 2475, 1745, 2475, 2475],
+        },
+        name="flights",
+    )
+    aa_flights = flights_b.filter(flights_b.carrier == "AA")
     aa_model = (
         to_semantic_table(aa_flights)
         .with_dimensions(
@@ -130,29 +145,46 @@ try:
             avg_dep_delay=lambda t: t.dep_delay.mean(),
         )
     )
-
     aa_model_expr = to_tagged(aa_model)
-    catalog.add(aa_model_expr, aliases=("flights-aa-only",), sync=False)
-    assert set(catalog.list_aliases()) == {"flights-model", "flights-aa-only"}
+    catalog_b.add(aa_model_expr, aliases=("flights-aa-only",), sync=False)
+    assert set(catalog_b.list_aliases()) == {"flights-model", "flights-aa-only"}
+
+    _subprocess.run(
+        ["git", "push", "-u", "origin", "add-aa-only-model"],
+        cwd=_USER_B,
+        check=True,
+        capture_output=True,
+    )
+
+    # %% --- Merge the PR (the prose says: User A clicks Merge on GitHub).
+    # Equivalent on the bare repo: fast-forward main to the feature branch.
+    _subprocess.run(
+        ["git", "update-ref", "refs/heads/main", "refs/heads/add-aa-only-model"],
+        cwd=_BARE,
+        check=True,
+        capture_output=True,
+    )
 
     # %% --- Pull the merged change (User A)
-    # Tutorial: User A pulls from origin after the PR merges (catalog.pull()).
-    # Without a real bidirectional remote, the smoke test reopens User A's
-    # catalog to confirm catalog reopen + the API surface still work.
     catalog_a = Catalog.from_repo_path(_USER_A, init=False)
-    print("User A aliases:", catalog_a.list_aliases())
-    assert catalog_a.list_aliases() == ["flights-model"]
+    catalog_a.pull()
+    print("User A aliases after pull:", catalog_a.list_aliases())
+    assert set(catalog_a.list_aliases()) == {"flights-model", "flights-aa-only"}
 
     # %% --- Swap the profile at recovery time
     from xorq.vendor.ibis.backends.profiles import Profile
 
-    local_con = xo.connect()
-    Profile.from_con(local_con).save(alias="local_dev", clobber=True)
+    sqlite_con = xo.sqlite.connect()
+    Profile.from_con(sqlite_con).save(alias="local_dev_sqlite", clobber=True)
 
-    profile = Profile.load("local_dev")
-    expr = catalog.load("flights-model", con=profile.get_con())
+    profile = Profile.load("local_dev_sqlite")
+    expr = catalog_a.load("flights-model", con=profile.get_con())
 
-    assert expr.ls.kind == "composed"
+    result = expr.execute()
+    print(result.head())
+    # 8 rows of inline flights data, executed against SQLite instead of the
+    # default xorq_datafusion backend the entry was built on.
+    assert len(result) == 8
 finally:
     _os.chdir(_workdir.parent)
-    _force_remove(_workdir)
+    _shutil.rmtree(_workdir, ignore_errors=True)

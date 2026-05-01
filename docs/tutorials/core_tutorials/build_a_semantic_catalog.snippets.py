@@ -2,18 +2,21 @@
 
 The tutorial walks readers through several partial blocks and finishes with a
 "Putting it all together" full script. We execute the partial blocks in order
-(skipping the deliberate-error demonstration) so the snippets file mirrors the
-reader's experience top-to-bottom; the final unified script in the tutorial is
-the same code in one piece, so we don't repeat it here.
+so the snippets file mirrors the reader's experience top-to-bottom; the final
+unified script in the tutorial is the same code in one piece, so we don't
+repeat it here.
 
-The tutorial tells readers to ``uv init`` a project directory before running
-the script. We mimic that here by chdir'ing into a fresh tempdir with a
-minimal pyproject.toml — that way the snippet runs whether the test launched
-us from the repo root or somewhere unrelated, matching what a reader who
-followed the setup steps will see.
+The tutorial tells readers to ``uv init`` and ``uv add "xorq[bsl,duckdb]"`` in
+a project directory before running the script. We mimic that here by chdir'ing
+into a fresh tempdir with a pyproject.toml + requirements.txt that name xorq
+as a dep — that's the same shape the wheel packager sees in the reader's
+project, just hand-written instead of resolved by ``uv lock``. Skipping the
+real lockfile keeps the smoke test offline; if the wheel-build path ever
+starts to depend on a fully-resolved transitive lock, this fixture should be
+upgraded to run ``uv lock`` for real.
 """
 
-# %% --- test fixture: stand in for `uv init`
+# %% --- test fixture: stand in for `uv init && uv add "xorq[bsl,duckdb]"`
 import os as _os
 import shutil as _shutil
 import tempfile as _tempfile
@@ -22,14 +25,10 @@ from pathlib import Path as _Path
 _workdir = _Path(_tempfile.mkdtemp(prefix="xorq-build-tutorial-"))
 (_workdir / "pyproject.toml").write_text(
     '[project]\nname = "flights-tutorial"\nversion = "0.0.0"\n'
+    'dependencies = ["xorq[bsl,duckdb]"]\n'
     "[tool.setuptools]\npackages = []\n"
 )
-# `catalog.add` builds a wheel of the current project to embed in the entry,
-# which needs a requirements.txt (or uv.lock) sidecar. A reader who ran
-# `uv init && uv add "xorq[bsl,duckdb]"` gets a uv.lock automatically; here
-# we shortcut with an empty requirements.txt since the smoke test only cares
-# that the API surface runs end-to-end.
-(_workdir / "requirements.txt").write_text("")
+(_workdir / "requirements.txt").write_text("xorq[bsl,duckdb]\n")
 _os.chdir(_workdir)
 # --- end fixture ---
 
