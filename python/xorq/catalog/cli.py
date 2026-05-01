@@ -531,11 +531,13 @@ def show(ctx, name, as_json, as_raw):
             return
 
         meta = entry.metadata
-        type_label = (
-            "Partial (unbound)"
-            if entry.kind == ExprKind.UnboundExpr
-            else "Source (bound)"
-        )
+        type_label = {
+            ExprKind.UnboundExpr: "Partial (unbound)",
+            ExprKind.Source: "Source (bound)",
+            ExprKind.Expr: "Expression",
+            ExprKind.Composed: "Composed",
+            ExprKind.ExprBuilder: "Expression Builder",
+        }.get(entry.kind, str(entry.kind))
         click.echo(f"Name:    {entry.name}")
         aliases = tuple(a.alias for a in entry.aliases)
         if aliases:
@@ -557,6 +559,19 @@ def show(ctx, name, as_json, as_raw):
             for p in meta.params:
                 tail = f" = {p['default']!r}" if "default" in p else ""
                 click.echo(f"  {p['param_name']:<24} {p['type']}{tail}")
+        if meta.builders:
+            click.echo()
+            click.echo("Builders:")
+            for builder in meta.builders:
+                click.echo(f"  Type: {builder.get('type', 'unknown')}")
+                for key, value in builder.items():
+                    if key == "type":
+                        continue
+                    if isinstance(value, (list, tuple)):
+                        if value:
+                            click.echo(f"    {key}: {', '.join(str(v) for v in value)}")
+                    elif value is not None:
+                        click.echo(f"    {key}: {value}")
         for label, schema in (
             ("Schema In", meta.schema_in),
             ("Schema Out", meta.schema_out),
