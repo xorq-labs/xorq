@@ -289,13 +289,13 @@ ensure_up() {
         tag_image
         setup
     fi
+    exec 9>&-
+
     setup_git
     setup_gh
     setup_ssh_forward
     setup_claude
     sync_if_needed
-
-    exec 9>&-
 }
 
 case "${1:-up}" in
