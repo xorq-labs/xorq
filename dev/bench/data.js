@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777652296477,
+  "lastUpdate": 1777652864348,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -9768,6 +9768,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.06462301487213633",
             "extra": "mean: 394.78577479998194 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b23bbba419a22ce9c5c9685bd1d093a4284435b0",
+          "message": "ci: add downstream BSL compatibility check (#1915)\n\n## Summary\n- New `ci-downstream-bsl` workflow runs the boring-semantic-layer test\nsuite against xorq from the PR branch, catching regressions in the BSL\ncontract during catalog/replay/rebuild refactors.\n- Targets `boringdata/boring-semantic-layer:main` now that [PR\n244](https://github.com/boringdata/boring-semantic-layer/pull/244)\n(`feat: add reemit to BSL TagHandler for catalog rebuild`) has landed\nupstream.\n- BSL ref is overridable via the `bsl-ref` workflow_dispatch input or\nthe `BSL_REF` env var, so a contributor can point CI at their branch\nwhen prepping a coordinated xorq+BSL change.\n\n## Test plan\n- [ ] Workflow appears under Actions on this PR and runs to completion\n- [ ] BSL `make check` passes with xorq installed from this branch\n- [ ] `workflow_dispatch` with a `bsl-ref` override checks out the\nrequested ref\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-05-01T18:22:25+02:00",
+          "tree_id": "77c3767a1a331d0b3212c871e7a0910dd2bc2574",
+          "url": "https://github.com/xorq-labs/xorq/commit/b23bbba419a22ce9c5c9685bd1d093a4284435b0"
+        },
+        "date": 1777652860359,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.618106840226526,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01293913474549387",
+            "extra": "mean: 94.17874721428835 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.6990225796691085,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006322156711015604",
+            "extra": "mean: 270.34168579999687 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.9151371399754324,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1553603785700292",
+            "extra": "mean: 1.0927323964000037 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.8088161010215806,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008423839510182569",
+            "extra": "mean: 262.548774600009 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.4828012527951078,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05813801156381757",
+            "extra": "mean: 287.125198199999 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.0686359394774674,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0442933365248484",
+            "extra": "mean: 325.87769279997474 msec\nrounds: 5"
           }
         ]
       }
