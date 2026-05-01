@@ -63,6 +63,11 @@ website:
       collapse-level: 2
       pinned: true
       contents:
+        - id: core-tutorials-section
+          section: "Core tutorials"
+          contents:
+            - href: tutorials/core_tutorials/build_a_semantic_catalog.qmd
+            - href: tutorials/core_tutorials/working_with_the_catalog.qmd
         - id: ml-tutorials-section
           section: "ML tutorials"
           contents:
