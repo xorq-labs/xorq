@@ -128,6 +128,16 @@ def test_sql_execution(con, duckdb_con, awards_players, batting):
 
     assert_frame_equal(result, expected, check_like=True)
 
+    query = xo.to_sql(expr)
+    sql_result = (
+        con.sql(query)
+        .execute()
+        .fillna(np.nan)[left.columns]
+        .sort_values(result_order)
+        .reset_index(drop=True)
+    )
+    assert_frame_equal(sql_result, expected, check_like=True)
+
 
 def test_register_arbitrary_expression(con, duckdb_con):
     batting_table_name = "batting"
