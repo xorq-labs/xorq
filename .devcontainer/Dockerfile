@@ -1,5 +1,5 @@
 # per-project: base image
-FROM mcr.microsoft.com/devcontainers/python:3.12-bookworm
+FROM mcr.microsoft.com/devcontainers/python:3.14-bookworm
 
 ARG USER_UID=1000
 ARG USER_GID=1000
