@@ -211,6 +211,15 @@ def _rebuild_subexpr(expr, *, from_catalog, to_catalog, ctx):
         for descendant in walk_nodes((Tag, HashingTag), tag.to_expr()):
             claimed.add(id(descendant))
 
+    assert all(
+        id(a) not in {id(d) for d in walk_nodes((Tag, HashingTag), b.to_expr())}
+        for i, a in enumerate(outermost)
+        for b in outermost[i + 1 :]
+    ), (
+        "walk_nodes yielded a descendant before its ancestor — "
+        "parent-before-descendant order invariant violated"
+    )
+
     for tag in outermost:
         fresh = _rebuild_tag(tag)
         if fresh is None:

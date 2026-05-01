@@ -71,7 +71,12 @@ def bfs(node):
 
 
 def walk_nodes(node_types, expr):
-    # TODO should this function use an ordered set
+    """DFS walk yielding matching nodes in parent-before-descendant order.
+
+    Callers (e.g. ``_rebuild_subexpr``) depend on ancestors appearing before
+    their descendants.  Changing traversal strategy (BFS, reverse, etc.) will
+    break that invariant.
+    """
     visited = set()
     to_visit = [to_node(expr)]
     result = ()
