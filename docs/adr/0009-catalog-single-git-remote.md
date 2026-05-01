@@ -59,7 +59,7 @@ catalog repo  ──push/pull──>  one git remote (e.g. github.com/org/catalo
 
 ### Implementation sketch
 
-Add a `_assert_single_git_remote` guard called at the top of `push`, `pull`, `fetch`, and `sync`. (Putting it inside `synchronizing` is tempting but insufficient: `push`/`pull`/`fetch` are public methods callers invoke directly without going through `synchronizing`, and `sync` enters `synchronizing` *itself*, so the guard must run before the context manager body.) The guard raises `CatalogConfigurationError` when `len(self._git_remotes) > 1` and is a no-op otherwise. The aggregation loop in `Catalog.push` collapses to a single-remote push-and-collect.
+Add a `_assert_at_most_one_git_remote` guard called at the top of `push`, `pull`, `fetch`, and `sync`. (Putting it inside `synchronizing` is tempting but insufficient: `push`/`pull`/`fetch` are public methods callers invoke directly without going through `synchronizing`, and `sync` enters `synchronizing` *itself*, so the guard must run before the context manager body.) The guard raises `CatalogConfigurationError` when `len(self._git_remotes) > 1` and is a no-op otherwise. The aggregation loop in `Catalog.push` collapses to a single-remote push-and-collect.
 
 Add a `Catalog.set_remote(name, url)` method that replaces (rather than appends) the catalog's git remote. This is the supported way to configure a remote: it makes the contract discoverable instead of relying on users to know that bare `git remote add` is forbidden. Raw `git remote add` against the working tree remains the configuration that triggers `CatalogConfigurationError`.
 

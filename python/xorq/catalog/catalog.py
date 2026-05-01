@@ -69,7 +69,7 @@ logger = get_logger(__name__)
 abspath = toolz.compose(Path.absolute, Path)
 
 
-_PUSH_REJECTED_MASK = (
+_PUSH_FAILURE_FLAGS = (
     PushInfo.REJECTED
     | PushInfo.REMOTE_REJECTED
     | PushInfo.REMOTE_FAILURE
@@ -77,11 +77,11 @@ _PUSH_REJECTED_MASK = (
 )
 
 
-def _collect_push_failures(push_info_list, remote_name):
+def _format_push_failures(push_infos, remote_name):
     return [
         f"{remote_name}/{info.local_ref or '?'}: {(info.summary or '').strip()}"
-        for info in push_info_list
-        if info.flags & _PUSH_REJECTED_MASK
+        for info in push_infos
+        if info.flags & _PUSH_FAILURE_FLAGS
     ]
 
 
@@ -312,7 +312,7 @@ class Catalog:
 
         return tuple(r for r in self.repo.remotes if _has_fetch_refspec(r))
 
-    def _assert_single_git_remote(self):
+    def _assert_at_most_one_git_remote(self):
         """Refuse multi-remote configurations (ADR-0009).
 
         Zero remotes (local-only) and one remote are supported. Two or more
@@ -342,7 +342,7 @@ class Catalog:
 
     def fetch(self):
         """Fetch from the configured git remote (no-op if no remote is configured)."""
-        self._assert_single_git_remote()
+        self._assert_at_most_one_git_remote()
         return tuple(map(Remote.fetch, self._git_remotes))
 
     def fetch_entries(self, *entries):
@@ -374,16 +374,16 @@ class Catalog:
 
         No-op when no git remote is configured.
         """
-        self._assert_single_git_remote()
+        self._assert_at_most_one_git_remote()
         self.assert_consistency()
         if not self._git_remotes:
             return ()
         (remote,) = self._git_remotes
         main_result = remote.push()
-        failures = _collect_push_failures(main_result, remote.name)
+        failure_messages = _format_push_failures(main_result, remote.name)
         if _has_local_annex_branch(self.repo):
             annex_result = remote.push(ANNEX_BRANCH)
-            failures.extend(_collect_push_failures(annex_result, remote.name))
+            failure_messages.extend(_format_push_failures(annex_result, remote.name))
             results = (main_result, annex_result)
         else:
             logger.debug(
@@ -392,13 +392,13 @@ class Catalog:
                 repo_path=str(self.repo_path),
             )
             results = (main_result,)
-        if failures:
-            raise CatalogPushError(f"push failed: {'; '.join(failures)}")
+        if failure_messages:
+            raise CatalogPushError(f"push failed: {'; '.join(failure_messages)}")
         return results
 
     def pull(self):
         """Pull from the configured git remote (no-op if no remote is configured)."""
-        self._assert_single_git_remote()
+        self._assert_at_most_one_git_remote()
         return tuple(map(Remote.pull, self._git_remotes))
 
     @contextmanager

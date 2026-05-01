@@ -270,10 +270,10 @@ def test_set_remote_preserves_annex_special_remote(tmpdir):
 
     catalog = Catalog.from_repo_path(Path(tmpdir).joinpath("local"), init=True)
 
-    section = 'remote "s3-bucket"'
-    with catalog.repo.config_writer() as cw:
-        cw.add_section(section)
-        cw.set(section, "annex-uuid", "fake-uuid")
+    config_section = 'remote "s3-bucket"'
+    with catalog.repo.config_writer() as writer:
+        writer.add_section(config_section)
+        writer.set(config_section, "annex-uuid", "fake-uuid")
 
     assert "s3-bucket" in {r.name for r in catalog.repo.remotes}
     assert "s3-bucket" not in {r.name for r in catalog._git_remotes}
