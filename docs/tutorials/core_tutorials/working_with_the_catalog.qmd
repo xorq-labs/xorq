@@ -32,10 +32,13 @@ For larger entries (model weights, materialized parquet at scale) xorq supports 
 
 ## Publish the catalog to GitHub (User A)
 
-Recreate the catalog at a stable path (`~/work/flights-catalog`) so the rest of the tutorial has somewhere persistent to point at.
+Recreate the catalog at a stable path (`~/work/flights-catalog`) so the rest of the tutorial has somewhere persistent to point at, then re-add the flights model the same way the foundation tutorial did. From inside the `flights-tutorial/` project:
 
 ```python
 from pathlib import Path
+
+from boring_semantic_layer import to_semantic_table, to_tagged
+import xorq.api as xo
 from xorq.catalog.catalog import Catalog
 
 catalog_dir = Path("~/work/flights-catalog").expanduser()
@@ -43,9 +46,32 @@ catalog_dir.parent.mkdir(parents=True, exist_ok=True)    # <1>
 
 catalog = Catalog.from_repo_path(catalog_dir, init=True)
 
-# Re-add the model from the foundation tutorial
-# (the to_semantic_table / to_tagged code is unchanged)
-# catalog.add(flights_model_expr, aliases=("flights-model",), sync=False)
+# Same memtable + semantic model as the foundation tutorial
+flights = xo.memtable(
+    {
+        "origin":      ["JFK", "LAX", "ORD", "JFK", "LAX", "ORD", "JFK", "LAX"],
+        "destination": ["LAX", "ORD", "JFK", "ORD", "JFK", "LAX", "LAX", "JFK"],
+        "carrier":     ["AA",  "UA",  "AA",  "UA",  "AA",  "UA",  "AA",  "UA"],
+        "dep_delay":   [10.0, -5.0,  30.0,  15.0, -2.0,  45.0,   5.0,  20.0],
+        "distance":    [2475, 1745,   740,  1300, 2475,  1745,  2475,  2475],
+    },
+    name="flights",
+)
+flights_model = (
+    to_semantic_table(flights)
+    .with_dimensions(
+        origin=lambda t: t.origin,
+        destination=lambda t: t.destination,
+        carrier=lambda t: t.carrier,
+    )
+    .with_measures(
+        flight_count=lambda t: t.count(),
+        avg_dep_delay=lambda t: t.dep_delay.mean(),
+        total_distance=lambda t: t.distance.sum(),
+    )
+)
+flights_model_expr = to_tagged(flights_model)
+catalog.add(flights_model_expr, aliases=("flights-model",), sync=False)
 ```
 1. `Catalog.from_repo_path(..., init=True)` creates the leaf directory but not its parent, so make sure `~/work/` exists first.
 
