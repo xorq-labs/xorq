@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777650595731,
+  "lastUpdate": 1777651477833,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -9636,6 +9636,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.04146973518929601",
             "extra": "mean: 363.83990819998644 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "083bbaa513c3d91cd5b446f3924ef3f6537e9b99",
+          "message": "fix(profiles): raise informative ValueError for unknown backend (#1914)\n\nReplace the bare `assert` in Profile.validate_con_name with a ValueError\nthat names the rejected backend and lists the installed ones. The assert\nfailed silently under -O and gave no hint which backend was unavailable.\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-05-01T18:00:33+02:00",
+          "tree_id": "570233854458a004737dc17a4406f9c07d85368a",
+          "url": "https://github.com/xorq-labs/xorq/commit/083bbaa513c3d91cd5b446f3924ef3f6537e9b99"
+        },
+        "date": 1777651475488,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.11964651270917,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014653165217946509",
+            "extra": "mean: 140.45641145454562 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.92488970059607,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01677100733965196",
+            "extra": "mean: 341.893234399987 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6644546983932189,
+            "unit": "iter/sec",
+            "range": "stddev: 0.22964583856344167",
+            "extra": "mean: 1.5049934968000003 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.9035153875285653,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018509976539687008",
+            "extra": "mean: 344.41009139999323 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.8408173050703858,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03291071118362114",
+            "extra": "mean: 352.0113730000048 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.7490709480367985,
+            "unit": "iter/sec",
+            "range": "stddev: 0.062026124783844686",
+            "extra": "mean: 363.75925499999653 msec\nrounds: 5"
           }
         ]
       }
