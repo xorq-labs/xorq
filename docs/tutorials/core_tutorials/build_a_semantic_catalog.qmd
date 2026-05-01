@@ -25,9 +25,15 @@ You need:
 mkdir flights-tutorial && cd flights-tutorial
 uv init --no-readme
 uv add "xorq[bsl,duckdb]"
+git add . && git commit -m "initial commit"
 ```
 
 The rest of the tutorial assumes commands are run from inside `flights-tutorial/`.
+
+::: {.callout-note}
+### Why the initial commit?
+`uv init` creates a git repo but doesn't make a commit, so `HEAD` doesn't yet exist. xorq probes the surrounding git state at import time and prints `fatal: ambiguous argument 'HEAD'` to stderr when the probe fails. The probe is harmless — your script still runs — but the message is noisy enough that you'll want it out of the way before you start running the tutorial repeatedly.
+:::
 
 ::: {.callout-note}
 ### Activate the project venv
