@@ -961,8 +961,6 @@ class Pipeline:
         return self.__class__.from_instance(remapped)
 
 
-# ALL_STEPS and TRAINING are interior tags stamped as side-effects of
-# Pipeline.fit, not reemit entry points.
 _FITTED_PIPELINE_REEMIT_TAGS: frozenset[FittedPipelineTagKey] = frozenset(
     {
         FittedPipelineTagKey.TRANSFORM,
