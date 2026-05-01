@@ -98,6 +98,21 @@ setup_gh() {
     fi
 }
 
+setup_claude_credentials() {
+    local cred_dir="$HOME/.claude/credentials"
+    local cred_file="$HOME/.claude/.credentials.json"
+
+    mkdir -p "$cred_dir"
+
+    # First-time migration: move legacy credential file into the shared
+    # directory and leave a symlink.  The guard also repairs if anything
+    # (e.g. a future atomic-rename writer) ever replaces the symlink.
+    if [ -f "$cred_file" ] && [ ! -L "$cred_file" ]; then
+        mv "$cred_file" "$cred_dir/.credentials.json"
+        ln -s credentials/.credentials.json "$cred_file"
+    fi
+}
+
 setup_claude() {
     local host_project_key container_project_key
     host_project_key="$(echo "$DEV_WORKSPACE" | sed 's|/|-|g')"

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Set up Claude Code config inside the dev container.
 
-Copies host baseline (credentials, permissions, memory) into the container's
-isolated ~/.claude, installs a PreToolUse audit hook, and symlinks sessions
-to the workspace for host log capture.
+Sets up Claude Code config inside the container's isolated ~/.claude volume.
+Credentials are shared via a bind-mounted directory (not copied); permissions,
+memory, and global instructions are copied from the read-only host mount.
+Installs a PreToolUse audit hook and symlinks sessions for host log capture.
 
 Expected environment variables (set by dev/devcontainer):
     DEV_CONTAINER_WORKSPACE  — container workspace path (e.g. /workspaces/src)
@@ -30,12 +31,11 @@ REQUIRED_VARS = (
 )
 
 
-def copy_credentials():
-    src = HOST / ".credentials.json"
-    if src.exists():
-        dst = HOME / ".credentials.json"
-        shutil.copy2(src, dst)
-        dst.chmod(0o600)
+def link_credentials():
+    link = HOME / ".credentials.json"
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    link.symlink_to("credentials/.credentials.json")
 
 
 def copy_global_instructions():
@@ -176,7 +176,7 @@ def main():
 
     HOME.mkdir(parents=True, exist_ok=True)
 
-    copy_credentials()
+    link_credentials()
     copy_global_instructions()
     copy_user_prefs(workspace)
     setup_settings(workspace, host_project_key)

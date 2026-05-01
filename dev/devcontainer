@@ -186,6 +186,7 @@ ensure_up() {
         flock 9
     fi
 
+    setup_claude_credentials
     ensure_shared_volumes
 
     if ! is_running; then

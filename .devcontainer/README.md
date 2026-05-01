@@ -139,13 +139,13 @@ The two paths diverge in what they provide:
 
 ## Claude isolation & permission audit
 
-The container's `~/.claude` is isolated from the host. On each entry (`up`, `exec`, `claude`), `setup-claude` re-copies the following from the host so the container reflects your current host configuration:
+The container's `~/.claude` is a per-worktree Docker volume, isolated from the host. On each entry (`up`, `exec`, `claude`), `setup-claude` sets up the following:
 
-- **Credentials** — `~/.claude/.credentials.json`
-- **Global permissions and `CLAUDE.md`** — the `permissions` block from `~/.claude/settings.json`, plus `~/.claude/CLAUDE.md`
-- **Project permissions and memory** — the `permissions` block from `~/.claude/projects/<host-project-key>/settings.json` and `settings.local.json`, plus the project's `memory/` directory
+- **Credentials** — `~/.claude/credentials/` is bind-mounted read-write from the host. All containers and the host share a single `.credentials.json` via this mount, so OAuth token refreshes in any container are immediately visible everywhere. On first run, `setup_claude_credentials` migrates the host's `~/.claude/.credentials.json` into `~/.claude/credentials/` and leaves a symlink.
+- **Global permissions and `CLAUDE.md`** — the `permissions` block from `~/.claude/settings.json`, plus `~/.claude/CLAUDE.md` (copied from the read-only host mount)
+- **Project permissions and memory** — the `permissions` block from `~/.claude/projects/<host-project-key>/settings.json` and `settings.local.json`, plus the project's `memory/` directory (copied)
 
-Container-side Claude settings changes (e.g. permissions granted mid-session) are overwritten on the next entry. Host hooks are intentionally **not** copied — they reference host paths and binaries that don't exist inside the container. Only permissions, memory, and credentials cross the boundary.
+Container-side Claude settings changes (e.g. permissions granted mid-session) are overwritten on the next entry. Host hooks are intentionally **not** copied — they reference host paths and binaries that don't exist inside the container.
 
 A `PreToolUse` hook logs every tool invocation to `.claude/container-audit/audit.jsonl` in the workspace. Use the `audit` subcommand to review:
 
@@ -167,6 +167,8 @@ devcontainer audit --clear
 Container session logs are written to `.claude/container-sessions/` in the workspace, visible from the host.
 
 > [!NOTE]
-> **Volume persistence:** `down` stops the container but leaves Docker volumes intact, including the `claude-home` volume which contains copied credentials (API keys, gh token). Use `reset` to destroy all volumes and scrub credentials.
+> **Shared credentials:** The `~/.claude/credentials/` directory is bind-mounted read-write into every container. A container compromise gains write access to the host's credential file (read access was already possible via the read-only mount). This is a deliberate tradeoff to avoid cascading 401s from OAuth token refresh invalidating copies.
+>
+> **Volume persistence:** `down` stops the container but leaves Docker volumes intact. Credentials live on the host filesystem (not in the volume), so `reset` does not scrub them — revoke tokens via your OAuth provider if needed.
 >
 > **Host git access:** The host's `.git` directory is mounted read-write inside the container (required for git operations in worktrees). A container compromise could modify host git history, hooks, and refs.
