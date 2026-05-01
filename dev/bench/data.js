@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777635238098,
+  "lastUpdate": 1777635343135,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -9504,6 +9504,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.057783813256729565",
             "extra": "mean: 394.8032756000089 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "10d82e7c83f0fb12f85d7dc218ba84a70d799446",
+          "message": "chore(deps): update dependency ruff to v0.15.12 (#1907)\n\nThis PR contains the following updates:\n\n| Package | Change |\n[Age](https://docs.renovatebot.com/merge-confidence/) |\n[Confidence](https://docs.renovatebot.com/merge-confidence/) |\n|---|---|---|---|\n| [ruff](https://docs.astral.sh/ruff)\n([source](https://redirect.github.com/astral-sh/ruff),\n[changelog](https://redirect.github.com/astral-sh/ruff/blob/main/CHANGELOG.md))\n| `==0.15.9` → `==0.15.12` |\n![age](https://developer.mend.io/api/mc/badges/age/pypi/ruff/0.15.12?slim=true)\n|\n![confidence](https://developer.mend.io/api/mc/badges/confidence/pypi/ruff/0.15.9/0.15.12?slim=true)\n|\n\n---\n\n- [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check\nthis box\n\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0My4xNTkuMiIsInVwZGF0ZWRJblZlciI6IjQzLjE1OS4yIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6W119-->\n\nCo-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-01T13:32:11+02:00",
+          "tree_id": "61d2bd8015ca2025dce82445f4e61ef835d31865",
+          "url": "https://github.com/xorq-labs/xorq/commit/10d82e7c83f0fb12f85d7dc218ba84a70d799446"
+        },
+        "date": 1777635340285,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.93281155587027,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01763994777530678",
+            "extra": "mean: 126.05871108333608 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.1629999512765146,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01348315591178494",
+            "extra": "mean: 316.15555340000014 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7237689395181086,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2094121343523809",
+            "extra": "mean: 1.3816564174000177 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.5148933328639442,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06682295235963424",
+            "extra": "mean: 397.631178600011 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.569606084480177,
+            "unit": "iter/sec",
+            "range": "stddev: 0.055964360310696064",
+            "extra": "mean: 389.1647074000048 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.9648267277137292,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05088718148967766",
+            "extra": "mean: 337.28783899999826 msec\nrounds: 5"
           }
         ]
       }
