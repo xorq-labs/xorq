@@ -484,3 +484,68 @@ def test_schema_nonexistent(runner, catalog_path):
     assert result.exit_code != 0
     assert "not found" in result.output
     assert "list-aliases" in result.output
+
+
+# --- show command ---
+
+
+def test_show_command(runner, catalog_path, tmpdir):
+    archive = make_build_zip(tmpdir, "show-entry")
+    runner.invoke(cli, ["--path", catalog_path, "add", str(archive)])
+    result = runner.invoke(cli, ["--path", catalog_path, "show", archive.stem])
+    assert result.exit_code == 0, result.output
+    assert f"Name:    {archive.stem}" in result.output
+    assert "Type:" in result.output
+    assert "Source (bound)" in result.output
+    assert "Backends:" in result.output
+    assert "Content local:" in result.output
+    assert "Schema Out:" in result.output
+
+
+def test_show_by_alias(runner, catalog_path, tmpdir):
+    archive = make_build_zip(tmpdir, "show-alias")
+    runner.invoke(cli, ["--path", catalog_path, "add", str(archive)])
+    runner.invoke(cli, ["--path", catalog_path, "add-alias", archive.stem, "my-alias"])
+    result = runner.invoke(cli, ["--path", catalog_path, "show", "my-alias"])
+    assert result.exit_code == 0, result.output
+    assert f"Name:    {archive.stem}" in result.output
+    assert "Aliases: my-alias" in result.output
+
+
+def test_show_json(runner, catalog_path, tmpdir):
+    archive = make_build_zip(tmpdir, "show-json")
+    runner.invoke(cli, ["--path", catalog_path, "add", str(archive)])
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "show", archive.stem, "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert "expr_metadata" in data
+    assert "backends" in data
+    assert data["expr_metadata"]["kind"] == "source"
+
+
+def test_show_raw(runner, catalog_path, tmpdir):
+    archive = make_build_zip(tmpdir, "show-raw")
+    runner.invoke(cli, ["--path", catalog_path, "add", str(archive)])
+    result = runner.invoke(cli, ["--path", catalog_path, "show", archive.stem, "--raw"])
+    assert result.exit_code == 0, result.output
+    assert "expr_metadata:" in result.output
+    assert "backends:" in result.output
+
+
+def test_show_json_raw_mutually_exclusive(runner, catalog_path, tmpdir):
+    archive = make_build_zip(tmpdir, "show-mx")
+    runner.invoke(cli, ["--path", catalog_path, "add", str(archive)])
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "show", archive.stem, "--json", "--raw"]
+    )
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
+def test_show_nonexistent(runner, catalog_path):
+    result = runner.invoke(cli, ["--path", catalog_path, "show", "no-such-entry"])
+    assert result.exit_code != 0
+    assert "not found" in result.output
+    assert "list-aliases" in result.output

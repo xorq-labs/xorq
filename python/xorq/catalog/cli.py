@@ -494,6 +494,81 @@ def schema(ctx, name, as_json):
 
 
 @cli.command()
+@click.argument("name", shell_complete=_complete_entry_or_alias_names)
+@click.option("--json", "as_json", is_flag=True, default=False, help="Output as JSON.")
+@click.option(
+    "--raw",
+    "as_raw",
+    is_flag=True,
+    default=False,
+    help="Print the metadata sidecar file as-is (YAML).",
+)
+@click.pass_context
+def show(ctx, name, as_json, as_raw):
+    """Show full metadata for a catalog entry (name or alias)."""
+    import json as json_mod
+
+    from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
+
+    if as_json and as_raw:
+        raise click.UsageError("--json and --raw are mutually exclusive.")
+
+    with click_context_catalog(ctx):
+        catalog = ctx.obj.make_catalog(init=False)
+        try:
+            entry = catalog.get_catalog_entry(name, maybe_alias=True)
+        except (ValueError, AssertionError) as err:
+            raise click.ClickException(
+                f"Entry {name!r} not found — run 'xorq catalog list' or 'xorq catalog list-aliases' to see available entries and aliases."
+            ) from err
+
+        if as_raw:
+            click.echo(entry.metadata_path.read_text(), nl=False)
+            return
+
+        if as_json:
+            click.echo(json_mod.dumps(entry.sidecar_metadata, indent=2, default=str))
+            return
+
+        meta = entry.metadata
+        type_label = (
+            "Partial (unbound)"
+            if entry.kind == ExprKind.UnboundExpr
+            else "Source (bound)"
+        )
+        click.echo(f"Name:    {entry.name}")
+        aliases = tuple(a.alias for a in entry.aliases)
+        if aliases:
+            click.echo(f"Aliases: {', '.join(aliases)}")
+        click.echo(f"Type:    {type_label}")
+        if meta.root_tag:
+            click.echo(f"Root tag:      {meta.root_tag}")
+        backends = entry.backends
+        if backends:
+            click.echo(f"Backends:      {', '.join(backends)}")
+        click.echo(f"Content local: {'yes' if entry.is_content_local else 'no'}")
+        if meta.composed_from:
+            click.echo(f"Composed from: {len(meta.composed_from)}")
+        if meta.projected_cache_key and meta.projected_cache_key.key:
+            click.echo(f"Cache key:     {meta.projected_cache_key.key}")
+        if meta.params:
+            click.echo()
+            click.echo("Params:")
+            for p in meta.params:
+                tail = f" = {p['default']!r}" if "default" in p else ""
+                click.echo(f"  {p['param_name']:<24} {p['type']}{tail}")
+        for label, schema in (
+            ("Schema In", meta.schema_in),
+            ("Schema Out", meta.schema_out),
+        ):
+            if schema is not None:
+                click.echo()
+                click.echo(f"{label}:")
+                for col, dtype in schema.items():
+                    click.echo(f"  {col:<24} {dtype}")
+
+
+@cli.command()
 @click.pass_context
 def check(ctx):
     """Validate catalog consistency."""
