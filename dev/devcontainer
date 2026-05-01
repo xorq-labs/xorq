@@ -180,36 +180,39 @@ ensure_shared_volumes() {
 }
 
 ensure_up() {
-    exec 9>"$LOCKFILE"
-    if ! flock -n 9; then
-        echo "Another devcontainer operation is in progress, waiting..."
-        flock 9
-    fi
+    # Subshell scopes fd 9 so no child process can inherit the flock.
+    # Previous approach (exec 9>file / exec 9>&-) leaked fd 9 to long-lived
+    # children like socat, holding the lock across invocations.
+    (
+        flock -n 9 || {
+            echo "Another devcontainer operation is in progress, waiting..."
+            flock 9
+        }
 
-    setup_claude_credentials
-    ensure_shared_volumes
+        setup_claude_credentials
+        ensure_shared_volumes
 
-    if ! is_running; then
-        dc up --build -d
-        tag_image
-        setup
-    elif image_stale; then
-        read -rp "Devcontainer config changed. Running container will be stopped. Continue? [y/N] " answer
-        if [[ "$answer" != [yY]* ]]; then
-            exit 0
+        if ! is_running; then
+            dc up --build -d
+            tag_image
+            setup
+        elif image_stale; then
+            read -rp "Devcontainer config changed. Running container will be stopped. Continue? [y/N] " answer
+            if [[ "$answer" != [yY]* ]]; then
+                exit 0
+            fi
+            dc down
+            dc up --build -d
+            tag_image
+            setup
         fi
-        dc down
-        dc up --build -d
-        tag_image
-        setup
-    fi
+    ) 9>"$LOCKFILE"
+
     setup_git
     setup_gh
     setup_ssh_forward
     setup_claude
     sync_if_needed
-
-    exec 9>&-
 }
 
 case "${1:-up}" in
