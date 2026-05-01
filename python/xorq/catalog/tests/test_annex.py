@@ -1,11 +1,15 @@
 import pytest
 
 from xorq.catalog.annex import (
+    AnnexError,
     DirectoryRemoteConfig,
     RsyncRemoteConfig,
     S3RemoteConfig,
     remote_config_from_dict,
 )
+
+
+_DUMMY_UUID = "11111111-1111-4111-8111-111111111111"
 
 
 # ---------------------------------------------------------------------------
@@ -382,3 +386,131 @@ def test_remote_config_from_dict_dispatches_s3():
     d = {"type": "S3", "name": "s", "bucket": "b", "encryption": "none"}
     rc = remote_config_from_dict(d, aws_access_key_id="k", aws_secret_access_key="s")
     assert isinstance(rc, S3RemoteConfig)
+
+
+# ---------------------------------------------------------------------------
+# augment_fileprefix / verify_fileprefix
+# ---------------------------------------------------------------------------
+
+
+def test_s3_augment_fileprefix_appends_when_absent(s3_secrets):
+    rc = S3RemoteConfig(name="mys3", bucket="b", fileprefix="annex-only/", **s3_secrets)
+    out = rc.augment_fileprefix(_DUMMY_UUID)
+    assert out.fileprefix == f"annex-only/mys3/{_DUMMY_UUID}/"
+
+
+def test_s3_augment_fileprefix_idempotent(s3_secrets):
+    rc = S3RemoteConfig(
+        name="mys3",
+        bucket="b",
+        fileprefix=f"annex-only/mys3/{_DUMMY_UUID}/",
+        **s3_secrets,
+    )
+    assert rc.augment_fileprefix(_DUMMY_UUID) is rc
+
+
+def test_s3_augment_fileprefix_empty_base(s3_secrets):
+    rc = S3RemoteConfig(name="mys3", bucket="b", **s3_secrets)
+    out = rc.augment_fileprefix(_DUMMY_UUID)
+    assert out.fileprefix == f"mys3/{_DUMMY_UUID}/"
+
+
+def test_s3_augment_fileprefix_inserts_missing_slash(s3_secrets):
+    rc = S3RemoteConfig(name="mys3", bucket="b", fileprefix="annex-only", **s3_secrets)
+    out = rc.augment_fileprefix(_DUMMY_UUID)
+    assert out.fileprefix == f"annex-only/mys3/{_DUMMY_UUID}/"
+
+
+def test_directory_augment_fileprefix_is_noop():
+    rc = DirectoryRemoteConfig(name="mydir", directory="/tmp/store")
+    assert rc.augment_fileprefix(_DUMMY_UUID) is rc
+
+
+def test_rsync_augment_fileprefix_is_noop():
+    rc = RsyncRemoteConfig(name="myrsync", rsyncurl="host:/data")
+    assert rc.augment_fileprefix(_DUMMY_UUID) is rc
+
+
+def test_s3_verify_fileprefix_passes_when_namespaced(s3_secrets):
+    rc = S3RemoteConfig(name="mys3", bucket="b", fileprefix="annex-only/", **s3_secrets)
+    rc.verify_fileprefix(_DUMMY_UUID, f"annex-only/mys3/{_DUMMY_UUID}/")
+
+
+def test_s3_verify_fileprefix_passes_with_no_base(s3_secrets):
+    rc = S3RemoteConfig(name="mys3", bucket="b", **s3_secrets)
+    rc.verify_fileprefix(_DUMMY_UUID, f"mys3/{_DUMMY_UUID}/")
+
+
+def test_s3_verify_fileprefix_raises_when_unnamespaced(s3_secrets):
+    rc = S3RemoteConfig(name="mys3", bucket="b", **s3_secrets)
+    with pytest.raises(AnnexError, match="not namespaced"):
+        rc.verify_fileprefix(_DUMMY_UUID, "annex-only/")
+
+
+def test_s3_verify_fileprefix_raises_on_empty(s3_secrets):
+    rc = S3RemoteConfig(name="mys3", bucket="b", **s3_secrets)
+    with pytest.raises(AnnexError, match="not namespaced"):
+        rc.verify_fileprefix(_DUMMY_UUID, "")
+
+
+def test_s3_verify_fileprefix_raises_on_wrong_uuid(s3_secrets):
+    rc = S3RemoteConfig(name="mys3", bucket="b", **s3_secrets)
+    other_uuid = "22222222-2222-4222-8222-222222222222"
+    with pytest.raises(AnnexError, match="not namespaced"):
+        rc.verify_fileprefix(_DUMMY_UUID, f"annex-only/mys3/{other_uuid}/")
+
+
+def test_s3_verify_fileprefix_raises_on_base_mismatch(s3_secrets):
+    """Existing has the right suffix but a different base than configured."""
+    rc = S3RemoteConfig(name="mys3", bucket="b", fileprefix="new-base/", **s3_secrets)
+    with pytest.raises(AnnexError, match="different base prefix"):
+        rc.verify_fileprefix(_DUMMY_UUID, f"old-base/mys3/{_DUMMY_UUID}/")
+
+
+def test_s3_verify_fileprefix_raises_when_existing_has_base_but_config_does_not(
+    s3_secrets,
+):
+    """Empty configured base must not silently rewrite a non-empty existing base."""
+    rc = S3RemoteConfig(name="mys3", bucket="b", **s3_secrets)
+    with pytest.raises(AnnexError, match="different base prefix"):
+        rc.verify_fileprefix(_DUMMY_UUID, f"some-base/mys3/{_DUMMY_UUID}/")
+
+
+def test_s3_verify_fileprefix_error_includes_adr_path(s3_secrets):
+    rc = S3RemoteConfig(name="mys3", bucket="b", **s3_secrets)
+    with pytest.raises(
+        AnnexError, match="docs/adr/0009-bucket-fileprefix-name-uuid-namespace.md"
+    ):
+        rc.verify_fileprefix(_DUMMY_UUID, "")
+
+
+def test_directory_verify_fileprefix_is_noop():
+    rc = DirectoryRemoteConfig(name="mydir", directory="/tmp/store")
+    rc.verify_fileprefix(_DUMMY_UUID, "")  # does not raise
+
+
+def test_rsync_verify_fileprefix_is_noop():
+    rc = RsyncRemoteConfig(name="myrsync", rsyncurl="host:/data")
+    rc.verify_fileprefix(_DUMMY_UUID, "")  # does not raise
+
+
+# ---------------------------------------------------------------------------
+# initremote subclass interface — remote_uuid is required
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "rc",
+    [
+        DirectoryRemoteConfig(name="d", directory="/tmp"),
+        RsyncRemoteConfig(name="r", rsyncurl="host:/data"),
+    ],
+)
+def test_initremote_requires_remote_uuid_kwarg(rc, tmp_path):
+    with pytest.raises(TypeError):
+        rc.initremote(tmp_path)
+
+
+def test_s3_initremote_requires_remote_uuid_kwarg(s3_minimal, tmp_path):
+    with pytest.raises(TypeError):
+        s3_minimal.initremote(tmp_path)

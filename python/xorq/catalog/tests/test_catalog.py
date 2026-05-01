@@ -264,6 +264,37 @@ def test_remote_log_available_after_init(tmpdir):
     assert config["type"] == "directory"
 
 
+def test_enableremote_falls_back_to_initremote_on_empty_remote_log(tmpdir):
+    """enableremote on a fresh annex repo (no remote.log) creates the remote."""
+    repo_path = Path(tmpdir).joinpath("repo")
+    Catalog.from_repo_path(repo_path, init=True, annex=LOCAL_ANNEX)
+    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir.mkdir()
+    rc = DirectoryRemoteConfig(name="newdir", directory=str(remote_dir))
+
+    Annex.from_repo_path(repo_path).enableremote(rc)
+
+    remote_log = Annex.from_repo_path(repo_path).remote_log
+    assert remote_log
+    assert next(iter(remote_log.values()))["name"] == "newdir"
+
+
+def test_enableremote_raises_when_name_missing_from_nonempty_remote_log(tmpdir):
+    """enableremote refuses to silently create a second remote next to an existing one."""
+    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir.mkdir()
+    existing = DirectoryRemoteConfig(name="existing", directory=str(remote_dir))
+    repo_path = Path(tmpdir).joinpath("repo")
+    Catalog.from_repo_path(repo_path, init=True, annex=existing)
+
+    other_dir = Path(tmpdir).joinpath("other-store")
+    other_dir.mkdir()
+    other = DirectoryRemoteConfig(name="other", directory=str(other_dir))
+
+    with pytest.raises(AnnexError, match="not registered"):
+        Annex.from_repo_path(repo_path).enableremote(other)
+
+
 def test_from_repo_path_no_annex(tmpdir):
     """from_repo_path with annex=None on a plain-git repo returns GitBackend."""
     repo_path = Path(tmpdir).joinpath("plain-repo")
@@ -818,6 +849,60 @@ def test_s3_remote_minio(tmpdir):
     # get content back from S3
     annex.get()
     assert entry.catalog_path.exists()
+
+
+@pytest.mark.s3
+def test_s3_fileprefix_namespaced_in_remote_log(tmpdir):
+    """initremote bakes ``{base}{name}/{remote_uuid}/`` into remote.log,
+    enableremote of the same config is a no-op, and a re-config with a
+    mismatched base raises AnnexError (ADR-0009)."""
+    base_prefix = "annex-only/"
+    remote_config = S3RemoteConfig.from_env(
+        name="mys3",
+        bucket=f"test-annex-{uuid.uuid4().hex[:12]}",
+        host="minio",
+        port="9000",
+        aws_access_key_id="accesskey",
+        aws_secret_access_key="secretkey",
+        protocol="http",
+        requeststyle="path",
+        signature="v2",
+        fileprefix=base_prefix,
+    )
+    result = subprocess.run(
+        [
+            "curl",
+            "-sf",
+            f"http://{remote_config.host}:{remote_config.port}/minio/health/live",
+        ],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        pytest.skip("minio not reachable")
+    repo_path = Path(tmpdir).joinpath("repo")
+    repo_path.mkdir(parents=True)
+    repo = GitRepo.init(repo_path, initial_branch=MAIN_BRANCH)
+    repo.index.commit("initial commit")
+    subprocess.run(
+        ["git", "config", "annex.security.allowed-ip-addresses", "all"],
+        cwd=repo_path,
+        check=True,
+    )
+    Annex.init_repo_path(repo_path, remote_config=remote_config)
+
+    annex = Annex(repo_path=repo_path, env=remote_config.env)
+    [(remote_uuid, cfg)] = annex.remote_log.items()
+    expected = f"{base_prefix}{remote_config.name}/{remote_uuid}/"
+    assert cfg["fileprefix"] == expected
+
+    # re-enabling with the same config is a no-op (verify passes)
+    annex.enableremote(remote_config)
+    assert annex.remote_log[remote_uuid]["fileprefix"] == expected
+
+    # changing the base prefix must fail rather than silently rewriting
+    mismatched = evolve(remote_config, fileprefix="other-base/")
+    with pytest.raises(AnnexError, match="different base prefix"):
+        annex.enableremote(mismatched)
 
 
 def test_from_repo_path_enables_special_remote_on_clone(tmpdir):
