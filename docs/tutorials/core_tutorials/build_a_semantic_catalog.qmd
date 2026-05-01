@@ -23,16 +23,15 @@ You need:
 
 ```bash
 mkdir flights-tutorial && cd flights-tutorial
-uv init --no-readme
+uv init --bare
 uv add "xorq[bsl,duckdb]"
-git add . && git commit -m "initial commit"
 ```
 
 The rest of the tutorial assumes commands are run from inside `flights-tutorial/`.
 
 ::: {.callout-note}
-### Why the initial commit?
-`uv init` creates a git repo but doesn't make a commit, so `HEAD` doesn't yet exist. xorq probes the surrounding git state at import time and prints `fatal: ambiguous argument 'HEAD'` to stderr when the probe fails. The probe is harmless — your script still runs — but the message is noisy enough that you'll want it out of the way before you start running the tutorial repeatedly.
+### Why `--bare`?
+Plain `uv init` drops a sample `main.py` next to your `pyproject.toml` and runs `git init`. Both bite you later: setuptools' auto-discovery sees `main.py` + `flights_catalog.py` and refuses to build a wheel for `catalog.add(...)` (multiple top-level modules), and the empty git repo (no `HEAD`) makes xorq's import-time git probe write `fatal: ambiguous argument 'HEAD'` to stderr on every run. `--bare` skips both — only `pyproject.toml` is created.
 :::
 
 ::: {.callout-note}
