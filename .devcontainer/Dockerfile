@@ -62,8 +62,14 @@ COPY audit-hook /usr/local/bin/audit-hook
 COPY project/setup-env.sh /usr/local/bin/setup-env
 RUN chmod +x /usr/local/bin/setup-claude /usr/local/bin/audit-hook /usr/local/bin/setup-env
 
-RUN mkdir -p /home/vscode/.cache /home/vscode/.ssh \
-    && chown -R vscode:vscode /home/vscode/.cache /home/vscode/.ssh \
+# /home/vscode/.claude/.credentials.json is created here as a symlink into
+# the credentials/ bind-mount (declared in compose.yml). Image-baked so it
+# lands in the per-worktree claude-home named volume on first init; the
+# host-side migration in lib/host-bridge.sh handles the legacy file move.
+RUN mkdir -p /home/vscode/.cache /home/vscode/.ssh /home/vscode/.claude \
+    && ln -s credentials/.credentials.json /home/vscode/.claude/.credentials.json \
+    && chown -R vscode:vscode /home/vscode/.cache /home/vscode/.ssh /home/vscode/.claude \
+    && chown -h vscode:vscode /home/vscode/.claude/.credentials.json \
     && chmod 700 /home/vscode/.ssh
 
 RUN HOST_USER="$(basename "$HOST_USER")" && \

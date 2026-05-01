@@ -25,6 +25,8 @@ services:
       - ${HOME}/.claude.json:/home/vscode/.claude-host.json:ro
       # Claude: container-isolated config (setup-claude copies baseline in)
       - claude-home:/home/vscode/.claude
+      # Claude: shared credentials — all containers + host share one token
+      - ${HOME}/.claude/credentials:/home/vscode/.claude/credentials
     tmpfs:
       - /home/vscode/.claude/shell-snapshots
       # SSH agent forwarding: socat bridges host agent over TCP via host.docker.internal

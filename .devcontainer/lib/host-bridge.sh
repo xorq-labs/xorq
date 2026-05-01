@@ -112,13 +112,37 @@ setup_gh() {
     fi
 }
 
+setup_claude_credentials() {
+    # Host-side prep for the credentials bind-mount declared in compose.yml.
+    # Two responsibilities:
+    #   1. Ensure ~/.claude/credentials/ exists so the bind-mount source is
+    #      present (otherwise Docker creates it root-owned).
+    #   2. Migrate any legacy ~/.claude/.credentials.json into credentials/
+    #      and leave a host-side symlink so host claude-code follows the
+    #      same shared file.
+    # The container-side ~/.claude/.credentials.json symlink is image-baked
+    # in the Dockerfile and not managed here.
+    local cred_dir="$HOME/.claude/credentials"
+    local cred_file="$HOME/.claude/.credentials.json"
+
+    mkdir -p "$cred_dir"
+
+    if [ -f "$cred_file" ] && [ ! -L "$cred_file" ]; then
+        mv "$cred_file" "$cred_dir/.credentials.json"
+        ln -s credentials/.credentials.json "$cred_file"
+    fi
+}
+
 setup_claude() {
     local host_project_key container_project_key
     host_project_key="$(echo "$DEV_WORKSPACE" | sed 's|/|-|g')"
     container_project_key="$(echo "$CONTAINER_WORKSPACE" | sed 's|/|-|g')"
 
-    # named volume root is owned by root; fix so vscode can write
-    dc exec -u root app chown -R vscode:vscode /home/vscode/.claude
+    # Named volume root comes up root-owned; fix so vscode can write.
+    # Top-level only — recursing would descend into the credentials/ bind
+    # mount and rewrite ownership on host files. Image-baked contents
+    # (.credentials.json symlink, subdirs) are already vscode-owned.
+    dc exec -u root app chown vscode:vscode /home/vscode/.claude
 
     dc exec \
         -e DEV_CONTAINER_WORKSPACE="$CONTAINER_WORKSPACE" \
