@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777651477833,
+  "lastUpdate": 1777652296477,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -9702,6 +9702,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.062026124783844686",
             "extra": "mean: 363.75925499999653 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b4aa8649e66364632a0037bc27f424901dd32d6e",
+          "message": "fix(direnv): replace deprecated nix_direnv_watch_file with watch_file (#1916)\n\n## Summary\n- Replace deprecated `nix_direnv_watch_file` with the standard direnv\nbuilt-in `watch_file` in `.envrcs/.envrc.nix-config`\n- Eliminates the `` direnv: `nix_direnv_watch_file` is deprecated - use\n`watch_file` `` warning\n\n## Test plan\n- [ ] Run `direnv allow` and verify no deprecation warning is emitted\n- [ ] Confirm nix files are still watched (edit a watched file and\nverify direnv reloads)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-01T18:14:05+02:00",
+          "tree_id": "0548c7143349b547ff9e8c9ec94e4325a5f47228",
+          "url": "https://github.com/xorq-labs/xorq/commit/b4aa8649e66364632a0037bc27f424901dd32d6e"
+        },
+        "date": 1777652293249,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.28174582025105,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010730506693198593",
+            "extra": "mean: 97.25974727272367 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.5455209206065996,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05943214706142411",
+            "extra": "mean: 392.8468990000283 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6534488591012296,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2083026498424424",
+            "extra": "mean: 1.5303416419999962 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.327548371835305,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05943291226407824",
+            "extra": "mean: 429.63661339999817 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.408491397308927,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06322730023246242",
+            "extra": "mean: 415.1976632000128 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.533019333096917,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06462301487213633",
+            "extra": "mean: 394.78577479998194 msec\nrounds: 5"
           }
         ]
       }
