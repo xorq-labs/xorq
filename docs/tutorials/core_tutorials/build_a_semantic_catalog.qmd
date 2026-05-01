@@ -30,13 +30,14 @@ uv add "xorq[bsl,duckdb]"
 The rest of the tutorial assumes commands are run from inside `flights-tutorial/`.
 
 ::: {.callout-note}
-### Running Python in the project venv
-`uv add` set up a `.venv` in `flights-tutorial/`; every Python invocation in this tutorial needs to use it. Two equivalent options:
+### Activate the project venv
+`uv add` set up a `.venv` in `flights-tutorial/`. Activate it once in your shell so plain `python` uses it:
 
-- **Recommended:** prefix each `python` command with `uv run` — e.g. `uv run python flights_catalog.py`. uv finds the project venv from `pyproject.toml` and uses it; no activation step.
-- **Or:** activate once per shell with `source .venv/bin/activate`, then call plain `python flights_catalog.py`. Run `deactivate` to leave the venv when you're done.
+```bash
+source .venv/bin/activate
+```
 
-The rest of the tutorial uses the `uv run python ...` form.
+The rest of the tutorial assumes the venv is active.
 :::
 
 ::: {.callout-note}
@@ -128,7 +129,7 @@ A **dimension** is a column you can group by (or filter on). A **measure** is an
 
 ::: {.callout-tip}
 ### Run as you go
-`flights_catalog.py` grows section by section through the rest of the tutorial. After each addition, run `uv run python flights_catalog.py` from your project directory — the output shown beneath each block (dimensions, measures, query results) is what you'll see when you do. The complete script is consolidated at the end in [Putting it all together](#putting-it-all-together).
+`flights_catalog.py` grows section by section through the rest of the tutorial. After each addition, run `python flights_catalog.py` from your project directory — the output shown beneath each block (dimensions, measures, query results) is what you'll see when you do. The complete script is consolidated at the end in [Putting it all together](#putting-it-all-together).
 :::
 
 ## Query the model
@@ -361,7 +362,7 @@ print(flights_model.query(
 Run it:
 
 ```bash
-uv run python flights_catalog.py
+python flights_catalog.py
 ```
 
 ## What you learned
