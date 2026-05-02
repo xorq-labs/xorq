@@ -26,6 +26,10 @@ stop_ssh_forward() {
         kill "$pid" 2>/dev/null || true
         rm -f "$DEV_SSH_FORWARD_PIDFILE"
     fi
+    # Catch orphans whose PID file was lost (tmpfiles cleanup, manual rm, etc.)
+    local port
+    port="$(ssh_forward_port)"
+    pkill -f "socat TCP-LISTEN:${port},bind=" 2>/dev/null || true
     if is_running; then
         dc_exec bash -c 'pkill -f "socat UNIX-LISTEN:/run/ssh-agent/" 2>/dev/null' || true
     fi
@@ -46,14 +50,23 @@ setup_ssh_forward() {
     local port
     port="$(ssh_forward_port)"
 
-    local bridge_ip
-    bridge_ip="$(docker network inspect bridge --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}')"
-    if [ -z "$bridge_ip" ]; then
-        echo "error: could not determine Docker bridge gateway IP" >&2
-        return 1
+    # host.docker.internal inside the container reaches this host, but the
+    # address socat must bind to depends on the Docker runtime:
+    #   Linux-native:  host-gateway == bridge gateway (a real host IP)
+    #   Docker Desktop: host.docker.internal routes to host loopback
+    #   WSL2 + Desktop: same as Docker Desktop (bridge IP is VM-internal)
+    local bind_addr
+    if [ "$(uname -s)" = "Linux" ] && ! grep -qiF microsoft /proc/version 2>/dev/null; then
+        bind_addr="$(docker network inspect bridge --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null)" || true
+        if [ -z "$bind_addr" ]; then
+            echo "error: could not determine Docker bridge gateway IP — is the bridge network enabled?" >&2
+            return 1
+        fi
+    else
+        bind_addr="127.0.0.1"
     fi
 
-    socat "TCP-LISTEN:${port},bind=${bridge_ip},reuseaddr,fork" \
+    socat "TCP-LISTEN:${port},bind=${bind_addr},reuseaddr,fork" \
           "UNIX-CONNECT:${SSH_AUTH_SOCK}" &
     local host_pid=$!
     echo "$host_pid" > "$DEV_SSH_FORWARD_PIDFILE"
@@ -72,12 +85,12 @@ setup_ssh_forward() {
         return 1
     fi
 
-    dc_exec bash -c "
-        nohup socat \
-            UNIX-LISTEN:/run/ssh-agent/agent.sock,fork,unlink-early,mode=600 \
-            TCP:host.docker.internal:${port} \
-            </dev/null >/dev/null 2>&1 &
-    "
+    # -d (detached) is required: backgrounding via `bash -c "... &"` doesn't
+    # survive the exec session teardown — Docker SIGTERMs the process tree
+    # when the exec call returns, killing socat despite nohup.
+    dc exec -d app socat \
+        UNIX-LISTEN:/run/ssh-agent/agent.sock,fork,unlink-early,mode=600 \
+        TCP:host.docker.internal:${port}
 
     # Poll ssh-add -l until the bridge is reachable through the container.
     for i in $(seq 1 30); do
@@ -86,7 +99,8 @@ setup_ssh_forward() {
         fi
         sleep 0.1
     done
-    echo "warning: SSH agent bridge started but ssh-add -l never succeeded inside the container" >&2
+    echo "error: SSH agent bridge started but ssh-add -l never succeeded inside the container" >&2
+    return 1
 }
 
 setup_git() {
