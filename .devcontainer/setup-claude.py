@@ -103,10 +103,6 @@ def setup_settings(workspace, host_project_key):
         },
     }
 
-    model_version = os.environ.get("DEV_MODEL_VERSION")
-    if model_version:
-        container_settings["model"] = model_version
-
     with open(HOME / "settings.json", "w") as f:
         json.dump(container_settings, f, indent=2)
 

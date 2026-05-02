@@ -15,9 +15,9 @@ services:
       - POSTGRES_HOST=host.docker.internal
 
 volumes:
-  # shared across worktrees (content-addressed). external:true suppresses the
+  # external:true (shared across worktrees, content-addressed) suppresses the
   # cross-worktree ownership warning; dev/devcontainer pre-creates them via
-  # ensure_shared_volumes() reading project/external-volumes.txt.
+  # ensure_external_volumes() reading project/external-volumes.txt.
   uv-cache:
     name: ${DEV_PROJECT_NAME:?DEV_PROJECT_NAME is required}-uv-cache
     external: true

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-main=$(git worktree list --porcelain | head -1 | cut -d' ' -f2)
+. "$(dirname "$0")/../.devcontainer/lib/git.sh"
+main=$(dev_main_tree)
 here=$(git rev-parse --show-toplevel)
 
 if [ "$main" = "$here" ]; then
@@ -34,23 +35,18 @@ while IFS= read -r pattern; do
     done
 done < <(read_list "$main/.devcontainer/project/worktree-copies.txt")
 
-# Files that git opens with O_NOFOLLOW (symlinks cause ELOOP) — must be copies.
-for target in .gitignore; do
-    if [ -e "$main/$target" ] && [ ! -e "$here/$target" ]; then
-        cp -v "$main/$target" "$here/$target"
-        echo "$target" >> "$manifest"
-    fi
-done
+# .gitignore: git opens it with O_NOFOLLOW (a symlink would ELOOP) — must be a copy.
+if [ -e "$main/.gitignore" ] && [ ! -e "$here/.gitignore" ]; then
+    cp -v "$main/.gitignore" "$here/.gitignore"
+    echo ".gitignore" >> "$manifest"
+fi
 
-# Always-symlinked devcontainer infrastructure (audit logs and session captures
-# must aggregate in the main checkout regardless of project).
-for target in .claude; do
-    if [ -e "$main/$target" ] && [ ! -e "$here/$target" ]; then
-        mkdir -p "$(dirname "$here/$target")"
-        ln -sv "$main/$target" "$here/$target"
-        echo "$target" >> "$manifest"
-    fi
-done
+# .claude: audit logs and session captures must aggregate in the main checkout
+# (devcontainer infrastructure, not project-specific) — always a symlink.
+if [ -e "$main/.claude" ] && [ ! -e "$here/.claude" ]; then
+    ln -sv "$main/.claude" "$here/.claude"
+    echo ".claude" >> "$manifest"
+fi
 
 # Symlink paths listed in project/worktree-symlinks.txt.
 while IFS= read -r target; do

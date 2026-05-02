@@ -7,7 +7,7 @@ services:
         USER_UID: "${DEV_UID:-1000}"
         USER_GID: "${DEV_GID:-1000}"
         HOST_USER: "${DEV_HOST_USER:-}"
-        CONTAINER_WORKSPACE: "${DEV_CONTAINER_WORKSPACE:?DEV_CONTAINER_WORKSPACE is required}"
+        DEV_CONTAINER_WORKSPACE: "${DEV_CONTAINER_WORKSPACE:?DEV_CONTAINER_WORKSPACE is required}"
     user: vscode
     working_dir: ${DEV_CONTAINER_WORKSPACE:?DEV_CONTAINER_WORKSPACE is required}
     volumes:

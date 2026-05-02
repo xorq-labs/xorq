@@ -2,29 +2,29 @@
 # gh credentials, and Claude config setup.
 #
 # Sourced by dev/devcontainer. The sourcer is expected to provide:
-#   - dc(...)         — `docker compose ... -p $CONTAINER_NAME` wrapper
+#   - dc(...)         — `docker compose ... -p $DEV_CONTAINER_NAME` wrapper
 #   - dc_exec(...)    — `dc exec` with the standard env vars
 #   - is_running()    — boolean check that the app service is up
-# and to export:
-#   - CONTAINER_NAME           — used to derive a per-container SSH forward port
-#   - CONTAINER_WORKSPACE      — passed through to setup-claude
+# and to set (script-locals are fine — this lib is sourced, not exec'd):
+#   - DEV_CONTAINER_NAME       — used to derive a per-container SSH forward port
+#   - DEV_CONTAINER_WORKSPACE  — passed through to setup-claude
 #   - DEV_WORKSPACE            — host path of the workspace, used as project key
-#   - HAS_SOCAT                — set to "true" if socat is on PATH
+#   - DEV_HAS_SOCAT            — set to "true" if socat is on PATH
 
-SSH_FORWARD_PIDFILE="/tmp/devcontainer-ssh-forward-${CONTAINER_NAME}.pid"
+DEV_SSH_FORWARD_PIDFILE="/tmp/devcontainer-ssh-forward-${DEV_CONTAINER_NAME}.pid"
 
 ssh_forward_port() {
     local hash
-    hash="$(echo "$CONTAINER_NAME" | cksum | cut -d' ' -f1)"
+    hash="$(echo "$DEV_CONTAINER_NAME" | cksum | cut -d' ' -f1)"
     echo $(( (hash % 16384) + 49152 ))
 }
 
 stop_ssh_forward() {
-    if [ -f "$SSH_FORWARD_PIDFILE" ]; then
+    if [ -f "$DEV_SSH_FORWARD_PIDFILE" ]; then
         local pid
-        pid="$(cat "$SSH_FORWARD_PIDFILE")"
+        pid="$(cat "$DEV_SSH_FORWARD_PIDFILE")"
         kill "$pid" 2>/dev/null || true
-        rm -f "$SSH_FORWARD_PIDFILE"
+        rm -f "$DEV_SSH_FORWARD_PIDFILE"
     fi
     if is_running; then
         dc_exec bash -c 'pkill -f "socat UNIX-LISTEN:/run/ssh-agent/" 2>/dev/null' || true
@@ -32,7 +32,7 @@ stop_ssh_forward() {
 }
 
 setup_ssh_forward() {
-    if [ "${HAS_SOCAT:-false}" != "true" ]; then
+    if [ "${DEV_HAS_SOCAT:-false}" != "true" ]; then
         echo "warning: socat not found on host — SSH agent forwarding disabled (apt install socat)" >&2
         return 0
     fi
@@ -56,7 +56,7 @@ setup_ssh_forward() {
     socat "TCP-LISTEN:${port},bind=${bridge_ip},reuseaddr,fork" \
           "UNIX-CONNECT:${SSH_AUTH_SOCK}" &
     local host_pid=$!
-    echo "$host_pid" > "$SSH_FORWARD_PIDFILE"
+    echo "$host_pid" > "$DEV_SSH_FORWARD_PIDFILE"
 
     # Wait briefly for socat to fail-fast on bad args (e.g. port in use); if
     # it's still alive after the window, treat it as healthy. Bounded retry
@@ -68,7 +68,7 @@ setup_ssh_forward() {
     done
     if ! kill -0 "$host_pid" 2>/dev/null; then
         echo "error: host-side SSH forwarder failed to start (port $port may be in use)" >&2
-        rm -f "$SSH_FORWARD_PIDFILE"
+        rm -f "$DEV_SSH_FORWARD_PIDFILE"
         return 1
     fi
 
@@ -136,7 +136,7 @@ setup_claude_credentials() {
 setup_claude() {
     local host_project_key container_project_key
     host_project_key="$(echo "$DEV_WORKSPACE" | sed 's|/|-|g')"
-    container_project_key="$(echo "$CONTAINER_WORKSPACE" | sed 's|/|-|g')"
+    container_project_key="$(echo "$DEV_CONTAINER_WORKSPACE" | sed 's|/|-|g')"
 
     # Named volume root comes up root-owned; fix so vscode can write.
     # Top-level only — recursing would descend into the credentials/ bind
@@ -145,7 +145,7 @@ setup_claude() {
     dc exec -u root app chown vscode:vscode /home/vscode/.claude
 
     dc exec \
-        -e DEV_CONTAINER_WORKSPACE="$CONTAINER_WORKSPACE" \
+        -e DEV_CONTAINER_WORKSPACE="$DEV_CONTAINER_WORKSPACE" \
         -e DEV_HOST_PROJECT_KEY="$host_project_key" \
         -e DEV_CONTAINER_PROJECT_KEY="$container_project_key" \
         app python3 /usr/local/bin/setup-claude

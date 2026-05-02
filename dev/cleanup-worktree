@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+. "$(dirname "$0")/../.devcontainer/lib/git.sh"
 here=$(git rev-parse --show-toplevel)
-main=$(git worktree list --porcelain | head -1 | cut -d' ' -f2)
+main=$(dev_main_tree)
 manifest="$here/.envrcs/.worktree-manifest"
 
 if [ -f "$manifest" ]; then

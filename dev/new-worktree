@@ -2,15 +2,17 @@
 set -euo pipefail
 
 branch="${1:?usage: new-worktree <branch-name>}"
-root=$(git rev-parse --show-toplevel)
-project_env="$root/.devcontainer/project/project.env"
+. "$(dirname "$0")/../.devcontainer/lib/git.sh"
+main_tree="$(dev_main_tree)"
+project_env="$main_tree/.devcontainer/project/project.env"
 [ -f "$project_env" ] && . "$project_env"
-: "${PROJECT_NAME:=$(basename "$root")}"
-dest="$(dirname "$root")/${PROJECT_NAME}-${branch//\//-}"
+DEV_PROJECT_NAME="${PROJECT_NAME:-$(basename "$main_tree")}"
+unset PROJECT_NAME
+dest="$(dirname "$main_tree")/${DEV_PROJECT_NAME}-${branch//\//-}"
 
 git worktree add "$dest" "$branch" >&2
 cd "$dest"
-"$root/dev/setup-worktree" >&2
+"$main_tree/dev/setup-worktree" >&2
 direnv allow >&2
 
 echo "$dest"
