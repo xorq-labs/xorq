@@ -161,10 +161,77 @@ require_tty() {
 # config copy. Defined separately so this script stays focused on orchestration.
 . "$MAIN_TREE/.devcontainer/lib/host-bridge.sh"
 
-# first-run setup — defined in .devcontainer/project/setup-env.sh
+# Named-volume mount targets from the merged compose config — these come
+# up root-owned and need chowning before user-mode setup runs. Deriving
+# from compose means projects only declare volumes in compose.override.yml.
+named_volume_targets() {
+    local cfg
+    cfg="$(dc config --format=json)" || {
+        echo "error: 'docker compose config' failed — cannot derive named-volume mount targets" >&2
+        return 1
+    }
+    printf '%s' "$cfg" | python3 -c '
+import json, sys
+cfg = json.load(sys.stdin)
+for v in cfg.get("services", {}).get("app", {}).get("volumes") or []:
+    if v.get("type") == "volume" and v.get("target"):
+        print(v["target"])
+'
+}
+
+# First-run setup: chown root-owned named-volume mount points, set up the
+# host-path symlink for tools that persist absolute paths, then delegate
+# to the project's setup-env first-run.
 setup() {
-    # Named volume mounts come up root-owned; fix before user-mode setup runs.
-    dc exec -u root app sh -c "chown -R vscode:vscode $CONTAINER_WORKSPACE/.venv 2>/dev/null || true"
+    # Named volume mounts come up root-owned; fix targets and any parent
+    # dirs auto-created by docker (e.g. /home/vscode/.cache when only
+    # /home/vscode/.cache/uv is mounted). Ancestor walk is bounded to
+    # /home/vscode/* — anything above is system-owned by design, and
+    # workspace-rooted volumes' parents resolve into the host bind mount
+    # (touching them would rewrite host-file ownership).
+    #
+    # Targets are passed via stdin (one per line) rather than interpolated
+    # into the shell string so values from `docker compose config` can never
+    # be parsed as shell metacharacters.
+    named_volume_targets | dc exec -T -u root app sh -c '
+        while IFS= read -r d; do
+            [ -n "$d" ] || continue
+            chown -R vscode:vscode "$d" 2>/dev/null || true
+            p="$(dirname "$d")"
+            while [ "$p" != "/" ] && [ "$p" != "." ]; do
+                case "$p" in
+                    /home/vscode/*) ;;
+                    *) break ;;
+                esac
+                chown vscode:vscode "$p" 2>/dev/null || true
+                p="$(dirname "$p")"
+            done
+        done
+    '
+
+    # Make the host workspace path resolvable inside the container.
+    # Tools that persist absolute host paths (Nix gcroots, direnv state,
+    # some build systems) fail when the host path doesn't exist in the
+    # container. No-op when DEV_WORKSPACE == CONTAINER_WORKSPACE.
+    # Also skipped when DEV_WORKSPACE == DEV_MAIN_TREE: the compose
+    # volume DEV_MAIN_TREE:DEV_MAIN_TREE already bind-mounts the host
+    # path as a real directory, so ln would descend into it and collide
+    # with existing contents.
+    #
+    # Intermediate dirs created here may be root-owned when the host path
+    # isn't under /home/$HOST_USER (which the Dockerfile already symlinks
+    # into /home/vscode). Harmless — only the symlink itself is ever read.
+    if [ "$DEV_WORKSPACE" != "$CONTAINER_WORKSPACE" ] \
+        && [ "$DEV_WORKSPACE" != "$DEV_MAIN_TREE" ]; then
+        dc exec -u root \
+            -e DEV_WORKSPACE="$DEV_WORKSPACE" \
+            -e CONTAINER_WORKSPACE="$CONTAINER_WORKSPACE" \
+            app sh -c '
+                mkdir -p "$(dirname "$DEV_WORKSPACE")"
+                ln -sfn "$CONTAINER_WORKSPACE" "$DEV_WORKSPACE"
+            '
+    fi
+
     dc exec app setup-env first-run
     echo "Dev container ready: $CONTAINER_NAME"
 }
