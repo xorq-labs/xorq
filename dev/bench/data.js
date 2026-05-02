@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777652864348,
+  "lastUpdate": 1777709378159,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -9834,6 +9834,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0442933365248484",
             "extra": "mean: 325.87769279997474 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "159ea471c139c5cba30ff079076ea341172c18e5",
+          "message": "feat(catalog): tokenize-tolerant normalize_read via read_path (#1917)\n\n## Summary\n\nCatalog-stamped Reads carry a stable, content-addressed `read_path`\nalongside the per-load `hash_path`. Prefer `read_path` when present so\n`dask.base.tokenize` succeeds for Reads reached via side-channels (UDF\nclosures, `toolz.curry` partials, attrs state on `FittedStep` /\n`FittedPipeline`) whose `hash_path` never gets resolved by\n`deferred_reads_to_memtables`.\n\nUnblocks `get_expr_hash`, provenance, and `catalog replay --rebuild` for\nentries containing `FittedPipeline.predict(...)` expressions.\n\n> Split out of #1847 so the tokenization change can land independently\nof the rebuild feature.\n\n### Behavior change\n\nThis changes `dask.base.tokenize` output for catalog-stamped Reads. The\n`expr.yaml` hash in the build-stability snapshot drifts as a downstream\neffect (snapshot updated). Existing built artifacts will tokenize\ndifferently after upgrade — downstream caches keyed by\n`dask.base.tokenize(expr)` / `get_expr_hash` will see a one-time\ninvalidation. User-supplied deferred reads (no `read_path` kwarg)\ncontinue through the existing `hash_path`-based path unchanged.\n\n## Test plan\n\n- [x] `test_compiler.py` — 4 new tokenize-tolerant `normalize_read`\nround-trip tests:\n- `test_tokenize_survives_side_channel_read` — FittedPipeline UDF\nclosure carries a pre-d2m Read with a catalog-relative `hash_path`;\npreviously raised `NotImplementedError`, now tokenizes via stable\n`read_path`.\n- `test_tokenize_stable_across_reload` — two loads of the same catalog\nentry produce distinct extract tempdirs but matching tokens.\n- `test_tokenize_non_catalog_read_unchanged` — user-created\n`deferred_read_parquet` (no `read_path`) keeps the existing\npath-existence + content-md5sum branch.\n- `test_tokenize_missing_path_still_raises` — Reads without `read_path`\nwhose `hash_path` is bogus still raise `NotImplementedError`.\n- [x] Build-stability snapshot updated (`expected.json`) to reflect the\nnew `expr.yaml` hash.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-05-02T10:05:28+02:00",
+          "tree_id": "dd7ed2a7d01c4d84680282409d9ea26ce5c8b5f1",
+          "url": "https://github.com/xorq-labs/xorq/commit/159ea471c139c5cba30ff079076ea341172c18e5"
+        },
+        "date": 1777709374755,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.522430897343174,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014235404654237336",
+            "extra": "mean: 132.93575090908274 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.7738057572784562,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022332794116019704",
+            "extra": "mean: 360.5155110000055 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6644351484633954,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19841322147848967",
+            "extra": "mean: 1.5050377788000049 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.858456345601511,
+            "unit": "iter/sec",
+            "range": "stddev: 0.039017946563234505",
+            "extra": "mean: 349.83917160000146 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.802379397891824,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03378412652374748",
+            "extra": "mean: 356.8396201999917 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.720868310834671,
+            "unit": "iter/sec",
+            "range": "stddev: 0.048725528992553224",
+            "extra": "mean: 367.52973159999556 msec\nrounds: 5"
           }
         ]
       }
