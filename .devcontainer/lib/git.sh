@@ -5,5 +5,10 @@
 # the *current* worktree).
 
 dev_main_tree() {
-    git worktree list --porcelain | head -1 | sed 's/^worktree //'
+    local out
+    if ! out=$(git worktree list --porcelain 2>/dev/null); then
+        echo "error: not in a git repository (run from within a checkout)" >&2
+        return 1
+    fi
+    printf '%s\n' "$out" | head -1 | sed 's/^worktree //'
 }

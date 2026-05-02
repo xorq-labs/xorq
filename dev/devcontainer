@@ -31,7 +31,8 @@ while [[ "${1:-}" == -* ]]; do
 done
 
 . "$(dirname "$0")/../.devcontainer/lib/git.sh"
-export DEV_MAIN_TREE="$(dev_main_tree)"
+DEV_MAIN_TREE="$(dev_main_tree)" || exit 1
+export DEV_MAIN_TREE
 COMPOSE_FILE="$DEV_MAIN_TREE/.devcontainer/docker-compose.yml"
 COMPOSE_OVERRIDE="$DEV_MAIN_TREE/.devcontainer/project/compose.override.yml"
 
@@ -270,6 +271,12 @@ ensure_up() {
 
         setup_claude_credentials
         ensure_external_volumes
+        # Re-run setup-worktree to heal any stale symlinks (e.g., a target
+        # under main/ was deleted since `dev/new-worktree` ran). Idempotent:
+        # silent when nothing needs to change.
+        if [ "$DEV_WORKSPACE" != "$DEV_MAIN_TREE" ]; then
+            (cd "$DEV_WORKSPACE" && "$DEV_MAIN_TREE/dev/setup-worktree")
+        fi
 
         if ! is_running; then
             dc up --build -d
