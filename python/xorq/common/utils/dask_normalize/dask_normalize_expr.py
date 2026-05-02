@@ -408,33 +408,11 @@ def normalize_ibis_datatype(datatype):
 @dask.base.normalize_token.register(rel.Read)
 def normalize_read(read):
     read_kwargs = dict(read.read_kwargs)
-    path = read_kwargs["hash_path"]
-    if isinstance(path, (list, tuple)):
-        # normalize_filenames may have converted a single path to a list
-        path = path[0] if len(path) == 1 else path
-    if isinstance(path, (str, pathlib.Path)):
-        path = str(path)
-        if path.startswith(("http://", "https://")):
-            tpls = _normalize_path_stat(path)
-        elif path.startswith(("s3://", "gs://", "gcs://")):
-            tpls = _normalize_path_stat(
-                path, **{k: v for k, v in read_kwargs.items() if k != "hash_path"}
-            )
-        elif not pathlib.Path(path).is_absolute() and path == read_kwargs.get(
-            "read_path"
-        ):
-            # Build-bundled Read whose hash_path was rewritten to the relative
-            # read_path for deterministic YAML (see common.py register_node).
-            # The filename is already a content hash, so use it directly.
-            tpls = (("build-relative-path", path),)
-        elif (path := pathlib.Path(path)).exists():
-            tpls = read.normalize_method(path)
-        else:
-            raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
-    elif isinstance(path, (list, tuple)) and all(isinstance(el, str) for el in path):
-        raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
+    # Catalog stamps read_path as a stable content-addressed key; hash_path is per-load.
+    if (read_path := read_kwargs.get("read_path")) is not None:
+        tpls = (("read_path", str(read_path)),)
     else:
-        raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
+        tpls = _normalize_read_by_hash_path(read, read_kwargs)
     tpls += tuple(
         (k, v)
         for k, v in read.read_kwargs
@@ -450,6 +428,30 @@ def normalize_read(read):
         tpls,
         caller="normalize_read",
     )
+
+
+def _normalize_read_by_hash_path(read, read_kwargs):
+    path = read_kwargs["hash_path"]
+    if isinstance(path, (list, tuple)):
+        # normalize_filenames may have converted a single path to a list
+        path = path[0] if len(path) == 1 else path
+    if isinstance(path, (str, pathlib.Path)):
+        path = str(path)
+        if path.startswith(("http://", "https://")):
+            tpls = _normalize_path_stat(path)
+        elif path.startswith(("s3://", "gs://", "gcs://")):
+            tpls = _normalize_path_stat(
+                path, **{k: v for k, v in read_kwargs.items() if k != "hash_path"}
+            )
+        elif (path := pathlib.Path(path)).exists():
+            tpls = read.normalize_method(path)
+        else:
+            raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
+    elif isinstance(path, (list, tuple)) and all(isinstance(el, str) for el in path):
+        raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
+    else:
+        raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
+    return tpls
 
 
 @dask.base.normalize_token.register(ir.DatabaseTable)
