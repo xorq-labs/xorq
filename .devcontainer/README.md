@@ -60,7 +60,7 @@ devcontainer up
 
 ## Project configuration
 
-All editable bits live in **`.devcontainer/project/`**. Everything outside that directory (the Dockerfile, `docker-compose.yml`, `dev/devcontainer`, `audit-report.py`, `.devcontainer/lib/host-bridge.sh`, etc.) is generic and can be copied unchanged into another project.
+Project-specific configuration lives in **`.devcontainer/project/`**. Everything outside that directory (the Dockerfile, `docker-compose.yml`, `dev/devcontainer`, `audit-report.py`, `.devcontainer/lib/`, etc.) is generic and can be copied unchanged into another project — with one exception: `.devcontainer/devcontainer.json` is per-project and lives at the top level because the devcontainer.json spec doesn't support sub-file includes (see step 6 below).
 
 | File | Role |
 |---|---|
@@ -89,7 +89,7 @@ Drop `.devcontainer/` and `dev/` into your project, then edit `.devcontainer/pro
 4. **`worktree-symlinks.txt`** / **`worktree-copies.txt`** — what `setup-worktree` propagates from the main worktree.
 5. **`audit-prefixes.txt`** — bash commands that should be grouped two-words-deep in the audit report.
 6. **`devcontainer.json`** (one level up) — VS Code's entry point. Edit `name`, `forwardPorts`, and `customizations.vscode` for your project. This is the only editable file outside `project/`; it can't import sub-files because of the devcontainer.json spec.
-7. **`Dockerfile`** — only edit `BASE_IMAGE` (default `mcr.microsoft.com/devcontainers/python:3.12-bookworm`) if you need a non-Python base image. Override via a build arg in `compose.override.yml` rather than editing the Dockerfile in place.
+7. **`Dockerfile`** — exposes two build args you can override from `compose.override.yml` rather than editing it in place: `BASE_IMAGE` (default `mcr.microsoft.com/devcontainers/python:3.12-bookworm`) for non-Python base images, and `EXTRA_PATH` (default `/workspaces/src/.venv/bin`) prepended to the container `PATH` so project tools resolve.
 
 If `install-system.sh` is empty or `compose.override.yml` is missing, the container still builds — they're optional layers on top of the generic image.
 

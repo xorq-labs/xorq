@@ -13,18 +13,7 @@ manifest="$here/.envrcs/.worktree-manifest"
 mkdir -p "$here/.envrcs"
 : > "$manifest"
 
-# Read a config list (one path per line, '#' comments, blanks skipped, globs allowed).
-read_paths() {
-    local file="$1"
-    [ -f "$file" ] || return 0
-    while IFS= read -r line || [ -n "$line" ]; do
-        line="${line%%#*}"
-        line="${line#"${line%%[![:space:]]*}"}"
-        line="${line%"${line##*[![:space:]]}"}"
-        [ -z "$line" ] && continue
-        echo "$line"
-    done < "$file"
-}
+. "$main/.devcontainer/lib/list-file.sh"
 
 # Copy paths listed in project/worktree-copies.txt (globs expanded against $main).
 # Patterns are interpreted as shell globs ONLY — the `for f in ...$pattern` loop
@@ -33,6 +22,8 @@ read_paths() {
 # the file is treated as data, not script.
 while IFS= read -r pattern; do
     [ -z "$pattern" ] && continue
+    # Without `nullglob`, a non-matching glob expands to the literal pattern;
+    # the `-e` check below filters that case (and broken symlinks) out.
     for f in "$main"/$pattern; do
         if [ -e "$f" ]; then
             rel="${f#$main/}"
@@ -41,7 +32,7 @@ while IFS= read -r pattern; do
             echo "$rel" >> "$manifest"
         fi
     done
-done < <(read_paths "$main/.devcontainer/project/worktree-copies.txt")
+done < <(read_list "$main/.devcontainer/project/worktree-copies.txt")
 
 # Files that git opens with O_NOFOLLOW (symlinks cause ELOOP) — must be copies.
 for target in .gitignore; do
@@ -69,7 +60,7 @@ while IFS= read -r target; do
         ln -sv "$main/$target" "$here/$target"
         echo "$target" >> "$manifest"
     fi
-done < <(read_paths "$main/.devcontainer/project/worktree-symlinks.txt")
+done < <(read_list "$main/.devcontainer/project/worktree-symlinks.txt")
 
 # Per-developer extras (gitignored).
 while IFS= read -r target; do
@@ -79,7 +70,7 @@ while IFS= read -r target; do
         ln -sv "$main/$target" "$here/$target"
         echo "$target" >> "$manifest"
     fi
-done < <(read_paths "$main/.envrcs/.worktree-symlinks")
+done < <(read_list "$main/.envrcs/.worktree-symlinks")
 
 echo "Manifest written to .envrcs/.worktree-manifest"
 echo "To remove: dev/cleanup-worktree"

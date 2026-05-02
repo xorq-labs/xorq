@@ -160,6 +160,7 @@ require_tty() {
 # Generic host<->container bridge: SSH agent forwarding, host git/gh/Claude
 # config copy. Defined separately so this script stays focused on orchestration.
 . "$MAIN_TREE/.devcontainer/lib/host-bridge.sh"
+. "$MAIN_TREE/.devcontainer/lib/list-file.sh"
 
 # Named-volume mount targets from the merged compose config — these come
 # up root-owned and need chowning before user-mode setup runs. Deriving
@@ -242,15 +243,9 @@ sync_if_needed() {
 }
 
 ensure_shared_volumes() {
-    local list="$MAIN_TREE/.devcontainer/project/external-volumes.txt"
-    [ -f "$list" ] || return 0
     while IFS= read -r name; do
-        name="${name%%#*}"
-        name="${name#"${name%%[![:space:]]*}"}"
-        name="${name%"${name##*[![:space:]]}"}"
-        [ -z "$name" ] && continue
         docker volume create "${PROJECT_NAME}-${name}" >/dev/null 2>&1 || true
-    done < "$list"
+    done < <(read_list "$MAIN_TREE/.devcontainer/project/external-volumes.txt")
 }
 
 ensure_up() {

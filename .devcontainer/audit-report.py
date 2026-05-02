@@ -8,9 +8,7 @@ from pathlib import Path
 
 
 def load_two_word_prefixes():
-    # Resolved relative to this file's location — assumes the .devcontainer/
-    # layout (project/ as a sibling of audit-report.py). Returns an empty set
-    # silently if the file is missing.
+    # Format rules mirror lib/list-file.sh's read_list — keep in sync.
     path = Path(__file__).parent / "project" / "audit-prefixes.txt"
     prefixes = set()
     if path.exists():
