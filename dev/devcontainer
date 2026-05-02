@@ -154,10 +154,52 @@ require_tty() {
 # config copy. Defined separately so this script stays focused on orchestration.
 . "$MAIN_TREE/.devcontainer/lib/host-bridge.sh"
 
+# Named-volume mount targets from the merged compose config — these come
+# up root-owned and need chowning before user-mode setup runs. Deriving
+# from compose means projects only declare volumes in compose.override.yml.
+named_volume_targets() {
+    dc config --format=json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    cfg = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for v in cfg.get("services", {}).get("app", {}).get("volumes") or []:
+    if v.get("type") == "volume" and v.get("target"):
+        print(v["target"])
+'
+}
+
 # first-run setup — defined in .devcontainer/project/setup-env.sh
 setup() {
-    # Named volume mounts come up root-owned; fix before user-mode setup runs.
-    dc exec -u root app sh -c "chown -R vscode:vscode $CONTAINER_WORKSPACE/.venv 2>/dev/null || true"
+    # Named volume mounts come up root-owned; fix targets and any
+    # parent dirs auto-created by docker (e.g. /home/vscode/.cache when
+    # only /home/vscode/.cache/uv is mounted). Errors are tolerated since
+    # ancestors above $HOME are root-owned by design.
+    local targets
+    targets="$(named_volume_targets | tr '\n' ' ')"
+
+    # Make the host workspace path resolvable inside the container.
+    # Tools that persist absolute host paths (Nix gcroots, direnv state,
+    # some build systems) fail when the host path doesn't exist in the
+    # container. No-op when DEV_WORKSPACE == CONTAINER_WORKSPACE.
+    local host_link=""
+    [ "$DEV_WORKSPACE" != "$CONTAINER_WORKSPACE" ] && host_link="$DEV_WORKSPACE"
+
+    dc exec -u root app sh -c "
+        for d in $targets; do
+            chown -R vscode:vscode \"\$d\" 2>/dev/null || true
+            p=\"\$(dirname \"\$d\")\"
+            while [ \"\$p\" != \"/\" ] && [ \"\$p\" != \".\" ]; do
+                chown vscode:vscode \"\$p\" 2>/dev/null || true
+                p=\"\$(dirname \"\$p\")\"
+            done
+        done
+        if [ -n '$host_link' ]; then
+            mkdir -p '$(dirname "$DEV_WORKSPACE")'
+            ln -sfn '$CONTAINER_WORKSPACE' '$DEV_WORKSPACE'
+        fi
+    "
     dc exec app setup-env first-run
     echo "Dev container ready: $CONTAINER_NAME"
 }

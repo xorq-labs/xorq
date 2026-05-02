@@ -66,7 +66,7 @@ All editable bits live in **`.devcontainer/project/`**. Everything outside that 
 |---|---|
 | `install-system.sh` | apt packages and language toolchain (runs as root during `docker build`) |
 | `setup-env.sh` | first-run + sync-on-lockfile-change hooks (runs in-container as `vscode`) |
-| `compose.override.yml` | extra named volumes, env vars, and the `EXTRA_PATH` build arg |
+| `compose.override.yml` | extra named volumes, bind mounts, env vars, and the `EXTRA_PATH` build arg |
 | `worktree-symlinks.txt` | paths under the main worktree to symlink into new worktrees |
 | `worktree-copies.txt` | paths to copy (not symlink) into new worktrees; globs allowed |
 | `audit-prefixes.txt` | bash command prefixes that should be grouped by their first two words |
@@ -85,7 +85,7 @@ Drop `.devcontainer/` and `dev/` into your project, then edit `.devcontainer/pro
 
 1. **`install-system.sh`** — apt packages and language toolchain. The default installs `build-essential libpq-dev direnv` and `uv` for a Python project. Replace with whatever your project needs (e.g. `golang-go`, `rustup`, `bun`).
 2. **`setup-env.sh`** — what runs after the container starts. The default does `uv sync`, installs pre-commit hooks, sets up `direnv`, and seeds `.envrcs/.envrc.user`. Both subcommands (`first-run`, `sync-if-needed`) are called by `dev/devcontainer`; keep their interface and replace the bodies.
-3. **`compose.override.yml`** — named volumes, host-service env vars, and the `EXTRA_PATH` build arg (defaults to the Python venv's bin dir). Delete or rename volumes you don't need.
+3. **`compose.override.yml`** — named volumes, host bind mounts, env vars, and the `EXTRA_PATH` build arg (defaults to the Python venv's bin dir). All project-specific compose customization belongs here, not in `docker-compose.yml`. Named-volume mount targets are auto-chowned to `vscode` on first run, so adding a volume requires no changes outside this file. Delete or rename volumes you don't need.
 4. **`worktree-symlinks.txt`** / **`worktree-copies.txt`** — what `setup-worktree` propagates from the main worktree.
 5. **`audit-prefixes.txt`** — bash commands that should be grouped two-words-deep in the audit report.
 6. **`devcontainer.json`** (one level up) — VS Code's entry point. Edit `name`, `forwardPorts`, and `customizations.vscode` for your project. This is the only editable file outside `project/`; it can't import sub-files because of the devcontainer.json spec.
