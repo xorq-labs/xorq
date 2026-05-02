@@ -1,9 +1,7 @@
 # Paths under the main worktree to copy (not symlink) into new worktrees.
-# One path per line, relative to the main worktree root. Lines starting
-# with '#' and blank lines are ignored.
-#
-# Patterns are shell globs only (`*`, `?`, `[...]`). Shell substitutions
-# (`$(...)`, backticks, `~`, `$VAR`) are not supported.
+# Format: see .devcontainer/lib/list-file.sh. Patterns are interpreted as
+# shell globs (`*`, `?`, `[...]`) by setup-worktree; shell substitutions
+# (`$(...)`, backticks, `~`, `$VAR`) are not.
 .envrcs/.envrc.secrets
 .envrcs/.envrc.user
 .envrcs/.env.*

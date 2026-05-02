@@ -67,6 +67,7 @@ Project-specific configuration lives in **`.devcontainer/project/`**. Everything
 | `install-system.sh` | apt packages and language toolchain (runs as root during `docker build`) |
 | `setup-env.sh` | first-run + sync-on-lockfile-change hooks (runs in-container as `vscode`) |
 | `compose.override.yml` | extra named volumes, bind mounts, env vars, and the `EXTRA_PATH` build arg |
+| `external-volumes.txt` | basenames of named volumes declared `external: true` in `compose.override.yml`; pre-created as `${PROJECT_NAME}-<basename>` so a fresh checkout doesn't error |
 | `worktree-symlinks.txt` | paths under the main worktree to symlink into new worktrees |
 | `worktree-copies.txt` | paths to copy (not symlink) into new worktrees; globs allowed |
 | `audit-prefixes.txt` | bash command prefixes that should be grouped by their first two words |
@@ -85,13 +86,13 @@ Drop `.devcontainer/` and `dev/` into your project, then edit `.devcontainer/pro
 
 1. **`install-system.sh`** — apt packages and language toolchain. The default installs `build-essential libpq-dev direnv` and `uv` for a Python project. Replace with whatever your project needs (e.g. `golang-go`, `rustup`, `bun`).
 2. **`setup-env.sh`** — what runs after the container starts. The default does `uv sync`, installs pre-commit hooks, sets up `direnv`, and seeds `.envrcs/.envrc.user`. Both subcommands (`first-run`, `sync-if-needed`) are called by `dev/devcontainer`; keep their interface and replace the bodies.
-3. **`compose.override.yml`** — named volumes, host bind mounts, env vars, and the `EXTRA_PATH` build arg (defaults to the Python venv's bin dir). All project-specific compose customization belongs here, not in `docker-compose.yml`. Named-volume mount targets are auto-chowned to `vscode` on first run, so adding a volume requires no changes outside this file. Delete or rename volumes you don't need.
+3. **`compose.override.yml`** — named volumes, host bind mounts, env vars, and the `EXTRA_PATH` build arg (defaults to the Python venv's bin dir). All project-specific compose customization belongs here, not in `docker-compose.yml`. Named-volume mount targets are auto-chowned to `vscode` on first run, so adding a volume requires no changes outside this file. Delete or rename volumes you don't need. Cross-worktree volumes (`external: true`) must also be listed in `external-volumes.txt` so `dev/devcontainer` pre-creates them with the project-namespaced name.
 4. **`worktree-symlinks.txt`** / **`worktree-copies.txt`** — what `setup-worktree` propagates from the main worktree.
 5. **`audit-prefixes.txt`** — bash commands that should be grouped two-words-deep in the audit report.
 6. **`devcontainer.json`** (one level up) — VS Code's entry point. Edit `name`, `forwardPorts`, and `customizations.vscode` for your project. This is the only editable file outside `project/`; it can't import sub-files because of the devcontainer.json spec.
-7. **`Dockerfile`** — exposes two build args you can override from `compose.override.yml` rather than editing it in place: `BASE_IMAGE` (default `mcr.microsoft.com/devcontainers/python:3.12-bookworm`) for non-Python base images, and `EXTRA_PATH` (default `/workspaces/src/.venv/bin`) prepended to the container `PATH` so project tools resolve.
+7. **`Dockerfile`** — exposes build args you can override from `compose.override.yml` rather than editing the Dockerfile in place: `BASE_IMAGE` (default `mcr.microsoft.com/devcontainers/python:3.12-bookworm`) for non-Python base images; `EXTRA_PATH` (default `/workspaces/src/.venv/bin`) prepended to the container `PATH` so project tools resolve; and tool-version pins (`NODE_MAJOR`, `JUST_VERSION`, `SOPS_VERSION`, `CLAUDE_CODE_VERSION`) — bump these together with their `*_SHA256` checksum siblings.
 
-If `install-system.sh` is empty or `compose.override.yml` is missing, the container still builds — they're optional layers on top of the generic image.
+All `project/` files are optional. `install-system.sh` and `setup-env.sh` must exist (the Dockerfile `COPY`s them) but may be empty no-ops; `compose.override.yml` and the `*.txt` lists may be missing entirely — `read_list` treats a missing list as empty.
 
 Two worktree paths are hardcoded in `dev/setup-worktree` rather than living in `worktree-{symlinks,copies}.txt`: `.gitignore` is always copied (git opens it with `O_NOFOLLOW`, so a symlink would `ELOOP`), and `.claude` is always symlinked (audit logs and session captures are devcontainer infrastructure that must aggregate in the main checkout regardless of project).
 
