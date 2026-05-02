@@ -112,6 +112,8 @@ devcontainer completions fish | source
 
 > [!WARNING]
 > **Use `dev/devcontainer`. The VS Code "Reopen in Container" / official `devcontainer` CLI path is unsupported.** It will start a container, but most of what makes the dev environment work — UID/GID matching, host git/gh/SSH credentials, Claude config, sops keys, worktree support, dependency install — is implemented in `dev/devcontainer` and is **not** invoked by VS Code's path. The container will appear to start, then silently lack credentials, fail on permission errors, or run with stale state. We keep `devcontainer.json` only for IDE port forwarding and extension installation when used alongside an already-running container started via `dev/devcontainer`.
+>
+> An `initializeCommand` tripwire in `devcontainer.json` exits non-zero on the unsupported path so the failure surfaces with a pointer here instead of silently degrading. `dev/devcontainer` drives `docker compose` directly and never reads `devcontainer.json`, so the tripwire doesn't fire when starting via the supported entry point; VS Code attach to an already-running container also bypasses it (lifecycle commands only run on build/up).
 
 The two paths diverge in what they provide:
 
