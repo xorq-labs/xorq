@@ -10,8 +10,8 @@
 #   - a missing file is treated as empty
 #   - '#' has no escape — entries containing a literal '#' aren't expressible
 #
-# Python callers (audit-report.py) implement the same rules inline; keep
-# them in sync with this function.
+# Python callers (audit-report.py) invoke this function via subprocess
+# rather than reimplementing the format.
 
 read_list() {
     local file="$1"

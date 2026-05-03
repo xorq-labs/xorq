@@ -27,9 +27,11 @@ stop_ssh_forward() {
         rm -f "$DEV_SSH_FORWARD_PIDFILE"
     fi
     # Catch orphans whose PID file was lost (tmpfiles cleanup, manual rm, etc.)
+    # Pattern includes the full socat arg structure to avoid killing unrelated
+    # socat processes that happen to use the same port.
     local port
     port="$(ssh_forward_port)"
-    pkill -f "socat TCP-LISTEN:${port},bind=" 2>/dev/null || true
+    pkill -f "socat TCP-LISTEN:${port},bind=.+,reuseaddr,fork UNIX-CONNECT:" 2>/dev/null || true
     if is_running; then
         dc_exec bash -c 'pkill -f "socat UNIX-LISTEN:/run/ssh-agent/" 2>/dev/null' || true
     fi

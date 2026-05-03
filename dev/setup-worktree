@@ -22,34 +22,31 @@ changes=0
 is_present() { [ -e "$1" ] || [ -L "$1" ]; }
 
 # Stale symlink (target gone) → remove so the create step below can heal it.
-# Leaves real files/dirs and valid symlinks untouched.
+# Leaves real files/dirs and valid symlinks untouched. Returns 0 if healed.
 heal_stale_symlink() {
     if [ -L "$1" ] && [ ! -e "$1" ]; then
         rm -v "$1"
-        changes=$((changes + 1))
+        return 0
     fi
+    return 1
 }
 
 # Copy paths listed in project/worktree-copies.txt (globs expanded against $main).
-# Patterns are interpreted as shell globs ONLY — the `for f in ...$pattern` loop
-# leaves $pattern unquoted to allow `*`/`?`/`[...]` expansion. Shell substitutions
-# (`$(...)`, backticks, `~`, `$VAR`) are not supported and not safe to use here;
-# the file is treated as data, not script.
+# NUL-delimited subshell with nullglob handles filenames with spaces safely.
+# Shell substitutions (`$(...)`, backticks, `~`, `$VAR`) in patterns are not
+# supported — the file is treated as data, not script.
 while IFS= read -r pattern; do
     [ -z "$pattern" ] && continue
-    # Without `nullglob`, a non-matching glob expands to the literal pattern;
-    # the `-e` check below filters that case (and broken symlinks) out.
-    for f in "$main"/$pattern; do
-        if [ -e "$f" ]; then
-            rel="${f#$main/}"
-            if ! is_present "$here/$rel"; then
-                mkdir -p "$here/$(dirname "$rel")"
-                cp -Pv "$f" "$here/$rel"
-                changes=$((changes + 1))
-            fi
-            echo "$rel" >> "$manifest"
+    while IFS= read -r -d '' f; do
+        is_present "$f" || continue
+        rel="${f#"$main/"}"
+        if ! is_present "$here/$rel"; then
+            mkdir -p "$here/$(dirname "$rel")"
+            cp -Pv "$f" "$here/$rel"
+            changes=$((changes + 1))
         fi
-    done
+        echo "$rel" >> "$manifest"
+    done < <(shopt -s nullglob; IFS=; for f in "$main"/$pattern; do printf '%s\0' "$f"; done)
 done < <(read_list "$main/.devcontainer/project/worktree-copies.txt")
 
 # .gitignore: git opens it with O_NOFOLLOW (a symlink would ELOOP) — must be a copy.
@@ -63,7 +60,7 @@ fi
 
 link_from_main() {
     local target="$1"
-    heal_stale_symlink "$here/$target"
+    heal_stale_symlink "$here/$target" && changes=$((changes + 1))
     if [ -e "$main/$target" ]; then
         if ! is_present "$here/$target"; then
             mkdir -p "$(dirname "$here/$target")"

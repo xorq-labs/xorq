@@ -7,7 +7,7 @@ As an alternative to setting up a local environment, you can use the dev contain
 > [!IMPORTANT]
 > **Linux x86_64 only.** Installs amd64 binaries and uses GNU coreutils. macOS and Windows are not supported.
 
-**Toolchain (container):** Python 3.12 with uv 0.7.8, just 1.40.0, sops 3.9.4, gh, direnv, Node 20, and Claude Code 2.1.119. Versions are pinned in `.devcontainer/Dockerfile`.
+**Toolchain (container):** Python 3.12 with uv 0.7.8, just 1.40.0, sops 3.9.4, gh, direnv, Node 20, and Claude Code 2.1.119. Generic tool versions are pinned in `.devcontainer/Dockerfile`; project-specific versions (uv, direnv) are in `.devcontainer/project/install-system.sh`.
 
 **Setup:** The `devcontainer` script lives in `dev/`. Run `direnv allow` in the repo root to add it to your PATH, or invoke it directly as `./dev/devcontainer`.
 
@@ -70,13 +70,13 @@ Project-specific configuration lives in **`.devcontainer/project/`**. Everything
 | `external-volumes.txt` | basenames of named volumes declared `external: true` in `compose.override.yml`; pre-created as `${DEV_PROJECT_NAME}-<basename>` so a fresh checkout doesn't error |
 | `worktree-symlinks.txt` | paths under the main worktree to symlink into new worktrees |
 | `worktree-copies.txt` | paths to copy (not symlink) into new worktrees; globs allowed |
-| `audit-prefixes.txt` | bash command prefixes grouped two-words-deep in the audit report (e.g. `git status`, `uv run`) |
+| `audit-prefixes.txt` | first-word triggers for two-word grouping in the audit report (e.g. `git` → `git status`, `uv` → `uv run`) |
 | `project.env.example` | template for the gitignored `project.env` overrides |
 
 Copy `project.env.example` to `project.env` (gitignored) to set:
 
-- `PROJECT_NAME` — overrides the per-project namespace (defaults to the basename of the main checkout). Scopes the container name and shared docker volumes (`<PROJECT_NAME>-uv-cache`, etc.).
-- `MODEL_VERSION` — passed as `--model` on each `dev/devcontainer claude` invocation. Re-read from the host on every call, not baked into the container, so changes apply on the next launch. Leave unset to use Claude Code's default.
+- `PROJECT_NAME` — overrides the per-project namespace (defaults to the basename of the main checkout). Scopes the container name and shared docker volumes (`<PROJECT_NAME>-uv-cache`, etc.). Always read from the **main tree's** `project.env` to keep naming consistent across worktrees.
+- `MODEL_VERSION` — passed as `--model` on each `dev/devcontainer claude` invocation. Per-worktree: each worktree's `project.env` can set a different model (e.g. use a cheaper model for routine tasks). Re-read from the host on every call, not baked into the container. Leave unset to use Claude Code's default.
 
 The container workspace is always `/workspaces/src` — threaded through compose, the Dockerfile, and setup-claude as `DEV_CONTAINER_WORKSPACE`, but changing it is not supported.
 
@@ -89,7 +89,7 @@ Drop `.devcontainer/` and `dev/` into your project, then edit `.devcontainer/pro
 3. **`compose.override.yml`** — named volumes, host bind mounts, env vars, and the `EXTRA_PATH` build arg (defaults to the Python venv's bin dir). All project-specific compose customization belongs here, not in `docker-compose.yml`. Named-volume mount targets are auto-chowned to `vscode` on first run, so adding a volume requires no changes outside this file. Delete or rename volumes you don't need. Cross-worktree volumes (`external: true`) must also be listed in `external-volumes.txt` so `dev/devcontainer` pre-creates them with the project-namespaced name.
 4. **`worktree-symlinks.txt`** / **`worktree-copies.txt`** — what `setup-worktree` propagates from the main worktree.
 5. **`devcontainer.json`** (one level up) — VS Code's entry point. Edit `name`, `forwardPorts`, and `customizations.vscode` for your project. This is the only editable file outside `project/`; it can't import sub-files because of the devcontainer.json spec.
-6. **`Dockerfile`** — exposes build args you can override from `compose.override.yml` rather than editing the Dockerfile in place: `BASE_IMAGE` (default `mcr.microsoft.com/devcontainers/python:3.12-bookworm`) for non-Python base images; `EXTRA_PATH` (default `/workspaces/src/.venv/bin`) prepended to the container `PATH` so project tools resolve; and tool-version pins (`NODE_MAJOR`, `JUST_VERSION`, `SOPS_VERSION`, `CLAUDE_CODE_VERSION`) — bump these together with their `*_SHA256` checksum siblings.
+6. **`Dockerfile`** — exposes build args you can override from `compose.override.yml` rather than editing the Dockerfile in place: `BASE_IMAGE` (default `mcr.microsoft.com/devcontainers/python:3.12-bookworm`) for non-Python base images; `EXTRA_PATH` (empty by default, set to the Python venv's bin dir in the project override) prepended to the container `PATH` so project tools resolve; and tool-version pins (`NODE_MAJOR`, `JUST_VERSION`, `SOPS_VERSION`, `CLAUDE_CODE_VERSION`) — bump these together with their companion checksum args where present (`NODESOURCE_SHA256`, `JUST_INSTALLER_SHA256`, `SOPS_SHA256`; Claude Code is installed via npm and has no checksum arg).
 
 All `project/` files are optional. `install-system.sh` and `setup-env.sh` must exist (the Dockerfile `COPY`s them) but may be empty no-ops; `compose.override.yml` and the `*.txt` lists may be missing entirely — `read_list` treats a missing list as empty.
 
@@ -140,29 +140,19 @@ The two paths diverge in what they provide:
 - **Files in `.venv/` owned by root, or `Permission denied` writing to the workspace** — UID/GID drift between the host and the image. `devcontainer clean && devcontainer up` rebuilds with the current host UID/GID.
 - **`uv sync` runs every entry** — the lockfile is newer than `.venv/.last-sync`. Expected after `git pull`; harmless.
 - **Auto-rebuild prompt won't go away** — the content hash of `Dockerfile` / compose changed. Accept the rebuild, or `devcontainer clean` to reset state.
-- **Container claude can't see host OAuth token after upgrading from a pre-shared-credentials build** — the shared-credentials design relies on a `~/.claude/.credentials.json -> credentials/.credentials.json` symlink that's baked into the image and copied into the per-worktree `claude-home` named volume **only when the volume is first created**. Volumes that predate the symlink still hold the old plain file, and `dc down` / `dc up` doesn't repopulate them. Each worktree has its own `claude-home` volume, so repeat the fix for every worktree that was up before the upgrade — new worktrees and fresh checkouts aren't affected. Two ways to recover:
-
-    **Per-worktree, full reset** (simplest; also rebuilds the venv):
+- **Container claude can't see host OAuth token after upgrading from a pre-shared-credentials build** — the shared-credentials design relies on a `~/.claude/.credentials.json -> credentials/.credentials.json` symlink baked into the image and copied into the per-worktree `claude-home` named volume on first creation. Volumes that predate the symlink still hold the old plain file. Each worktree has its own `claude-home` volume, so repeat per worktree — new worktrees and fresh checkouts aren't affected. Two ways to recover:
 
     ```bash
+    # surgical: repair the symlink in a running container (keeps venv volume)
+    devcontainer fix-credentials
+
+    # full reset: destroy volumes and rebuild (also rebuilds the venv)
     devcontainer reset && devcontainer up
-    ```
-
-    **Per-worktree, surgical** (keeps the venv volume — repeat per worktree, with the container running):
-
-    ```bash
-    # find the container for this worktree
-    container=$(docker ps --filter "label=com.docker.compose.service=app" --format '{{.Names}}' | grep -- "-dev-$(basename "$PWD")-app-1")
-    docker exec -u root "$container" sh -c '
-        rm -f /home/vscode/.claude/.credentials.json
-        ln -s credentials/.credentials.json /home/vscode/.claude/.credentials.json
-        chown -h vscode:vscode /home/vscode/.claude/.credentials.json
-    '
     ```
 
 ## Claude isolation & permission audit
 
-The container's `~/.claude` is a per-worktree Docker volume, isolated from the host except for credentials (see the shared-credentials note below). On each entry (`up`, `exec`, `claude`), `setup-claude` sets up the following:
+The container's `~/.claude` is a per-worktree Docker volume, isolated from the host except for credentials (see the shared-credentials note below). On each entry (`up`, `exec`, `claude`, `claude-dangerously-skip-permissions`), `setup-claude` sets up the following:
 
 - **Credentials** — `~/.claude/credentials/` is bind-mounted read-write from the host. All containers and the host share a single `.credentials.json` via this mount, so OAuth token refreshes in any container are immediately visible everywhere. On first run, `setup_claude_credentials` migrates the host's `~/.claude/.credentials.json` into `~/.claude/credentials/` and leaves a symlink.
 - **Global permissions and `CLAUDE.md`** — the `permissions` block from `~/.claude/settings.json`, plus `~/.claude/CLAUDE.md` (copied from the read-only host mount)
@@ -195,3 +185,5 @@ Container session logs are written to `.claude/container-sessions/` in the works
 > **Volume persistence:** `down` stops the container but leaves Docker volumes intact. Credentials live on the host filesystem (not in the volume), so `reset` does not scrub them — revoke tokens via your OAuth provider if needed.
 >
 > **Host git access:** The host's `.git` directory is mounted read-write inside the container (required for git operations in worktrees). A container compromise could modify host git history, hooks, and refs.
+>
+> **SSH agent bridge (Linux-native):** On Linux-native Docker, the socat SSH-agent bridge binds to the Docker bridge gateway IP (e.g. `172.17.0.1`). Any container on the same bridge network can connect to this port and use the forwarded SSH key. On Docker Desktop and WSL2, the bridge binds to `127.0.0.1` and is not exposed. If you run untrusted sibling containers on the same Docker bridge, stop the bridge after your session (`devcontainer down` kills it) or isolate the dev container on a dedicated network.

@@ -62,25 +62,32 @@ else
     export DEV_WORKSPACE="$(cd "$DEV_WORKSPACE" && pwd)"
 fi
 
-# Read per-worktree config like .envrc — gitignored, copied (not symlinked)
-# into new worktrees, re-read on every host invocation so changes apply to
-# the next docker exec without persisting into the container.
-PROJECT_ENV="$DEV_WORKSPACE/.devcontainer/project/project.env"
-[ -f "$PROJECT_ENV" ] && . "$PROJECT_ENV"
+# PROJECT_NAME scopes container names and shared volumes — must be consistent
+# across worktrees, so always read from the main tree's project.env.
+_main_project_env="$DEV_MAIN_TREE/.devcontainer/project/project.env"
+[ -f "$_main_project_env" ] && . "$_main_project_env"
 DEV_PROJECT_NAME="${PROJECT_NAME:-$(basename "$DEV_MAIN_TREE")}"
 unset PROJECT_NAME
+# MODEL_VERSION can vary per worktree. Re-source the workspace's copy
+# (if different from main) so per-worktree overrides take effect.
+if [ "$DEV_WORKSPACE" != "$DEV_MAIN_TREE" ]; then
+    _ws_project_env="$DEV_WORKSPACE/.devcontainer/project/project.env"
+    [ -f "$_ws_project_env" ] && . "$_ws_project_env"
+    unset PROJECT_NAME
+fi
+[ -n "${MODEL_VERSION:-}" ] && export DEV_MODEL_VERSION="$MODEL_VERSION"
+unset MODEL_VERSION
 export DEV_UID="$(id -u)"
 export DEV_GID="$(id -g)"
 export DEV_MAIN_GIT="$DEV_MAIN_TREE/.git"
 export DEV_HOST_USER="$(whoami)"
 export DEV_PROJECT_NAME
 export DEV_CONTAINER_WORKSPACE
-[ -n "${MODEL_VERSION:-}" ] && export DEV_MODEL_VERSION="$MODEL_VERSION"
 # SSH agent forwarding: socat bridges the host agent into the container
 # over TCP via host.docker.internal, so the container never bind-mounts
 # the socket directly.  `devcontainer refresh-ssh` restarts the bridge
-# without touching the container.  For tighter control, use `ssh-add -c`
-# (confirm each use) or load only the keys you need.
+# without rebuilding or restarting the container.  For tighter control,
+# use `ssh-add -c` (confirm each use) or load only the keys you need.
 
 if [ -d "${HOME}/.config/sops/age" ]; then
     export DEV_SOPS_AGE_DIR="${HOME}/.config/sops/age"
@@ -261,8 +268,6 @@ ensure_external_volumes() {
 
 ensure_up() {
     # Subshell scopes fd 9 so no child process can inherit the flock.
-    # Previous approach (exec 9>file / exec 9>&-) leaked fd 9 to long-lived
-    # children like socat, holding the lock across invocations.
     (
         flock -n 9 || {
             echo "Another devcontainer operation is in progress, waiting..."
@@ -271,9 +276,6 @@ ensure_up() {
 
         setup_claude_credentials
         ensure_external_volumes
-        # Re-run setup-worktree to heal any stale symlinks (e.g., a target
-        # under main/ was deleted since `dev/new-worktree` ran). Idempotent:
-        # silent when nothing needs to change.
         if [ "$DEV_WORKSPACE" != "$DEV_MAIN_TREE" ]; then
             (cd "$DEV_WORKSPACE" && "$DEV_MAIN_TREE/dev/setup-worktree")
         fi
@@ -285,20 +287,22 @@ ensure_up() {
         elif image_stale; then
             read -rp "Devcontainer config changed. Running container will be stopped. Continue? [y/N] " answer
             if [[ "$answer" != [yY]* ]]; then
-                exit 0
+                exit 0  # exits the subshell, not the script
             fi
             dc down
             dc up --build -d
             tag_image
             setup
         fi
-    ) 9>"$DEV_LOCKFILE"
 
-    setup_git
-    setup_gh
-    setup_ssh_forward
-    setup_claude
-    sync_if_needed
+        setup_git
+        setup_gh
+        # Close flock fd so the backgrounded socat in setup_ssh_forward
+        # doesn't inherit it and hold the lock after the subshell exits.
+        setup_ssh_forward 9>&-
+        setup_claude
+        sync_if_needed
+    ) 9>"$DEV_LOCKFILE"
 }
 
 case "${1:-up}" in
@@ -372,6 +376,18 @@ case "${1:-up}" in
         setup_ssh_forward
         echo "SSH agent forwarded into $DEV_CONTAINER_NAME"
         ;;
+    fix-credentials)
+        if ! is_running; then
+            echo "error: container is not running (start with 'devcontainer up' first)" >&2
+            exit 1
+        fi
+        dc exec -u root app sh -c '
+            rm -f /home/vscode/.claude/.credentials.json
+            ln -s credentials/.credentials.json /home/vscode/.claude/.credentials.json
+            chown -h vscode:vscode /home/vscode/.claude/.credentials.json
+        '
+        echo "Credentials symlink repaired in $DEV_CONTAINER_NAME"
+        ;;
     audit)
         shift
         audit_log="$DEV_WORKSPACE/.claude/container-audit/audit.jsonl"
@@ -413,6 +429,8 @@ Commands:
   claude-dangerously-skip-permissions run claude with --dangerously-skip-permissions
   refresh-ssh                         re-forward SSH agent (runs automatically on up/exec/claude;
                                         use standalone when agent changes mid-session)
+  fix-credentials                     repair credentials symlink in a running container
+                                        (needed after upgrading from pre-shared-credentials build)
   audit [--summary|--new|--all|--clear]  show permission audit log (default: --summary)
   completions [bash|zsh|fish]         emit shell completions
 USAGE

@@ -2,21 +2,25 @@
 """Analyze the container audit log and report tool usage."""
 
 import json
+import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
 
 
-def load_two_word_prefixes():
-    # Format rules mirror lib/list-file.sh's read_list — keep in sync.
-    path = Path(__file__).parent / "project" / "audit-prefixes.txt"
-    prefixes = set()
-    if path.exists():
-        for line in path.read_text().splitlines():
-            line = line.split("#", 1)[0].strip()
-            if line:
-                prefixes.add(line)
-    return prefixes
+def load_grouped_prefixes():
+    list_file = Path(__file__).parent / "project" / "audit-prefixes.txt"
+    read_list = Path(__file__).parent / "lib" / "list-file.sh"
+    try:
+        result = subprocess.run(
+            ["bash", "-c", f'. "{read_list}" && read_list "{list_file}"'],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return set(result.stdout.splitlines())
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return set()
 
 
 def main():
@@ -32,7 +36,7 @@ def main():
     except (FileNotFoundError, json.JSONDecodeError):
         pass
 
-    two_word_prefixes = load_two_word_prefixes()
+    grouped_prefixes = load_grouped_prefixes()
 
     tool_counts = Counter()
     bash_prefixes = Counter()
@@ -56,7 +60,7 @@ def main():
                 if not parts:
                     continue
                 prefix = parts[0]
-                if prefix in two_word_prefixes and len(parts) > 1:
+                if prefix in grouped_prefixes and len(parts) > 1:
                     prefix = f"{parts[0]} {parts[1]}"
                 bash_prefixes[prefix] += 1
                 patterns.add(f"Bash({prefix}:*)")

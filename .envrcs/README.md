@@ -78,7 +78,7 @@ direnv allow
 ### What the scripts do
 
 - **`new-worktree <branch>`** — checks out an existing branch into a sibling worktree at `../xorq-<branch>` (slashes become dashes), runs `setup-worktree`, then `direnv allow`. Prints the worktree path on stdout.
-- **`setup-worktree`** — propagates files from the main worktree according to `.devcontainer/project/worktree-copies.txt` (copied; globs allowed) and `.devcontainer/project/worktree-symlinks.txt` (symlinked). Defaults: copies `.envrc.secrets`, `.envrc.user`, and `.env.*` from `.envrcs/`; symlinks `ci/ibis-testing-data`. Always symlinks `.claude` (devcontainer audit logs and session captures aggregate in the main checkout) and always copies `.gitignore` (git opens it with `O_NOFOLLOW`, so a symlink would `ELOOP`). Writes all created files to `.envrcs/.worktree-manifest`. Per-developer extras can be listed in the gitignored `.envrcs/.worktree-symlinks`.
+- **`setup-worktree`** — propagates files from the main worktree according to `.devcontainer/project/worktree-copies.txt` (copied; globs allowed) and `.devcontainer/project/worktree-symlinks.txt` (symlinked). Defaults: copies `.envrc.secrets`, `.envrc.user`, and `.env.*` from `.envrcs/` plus `.devcontainer/project/project.env`; symlinks `ci/ibis-testing-data`. Always symlinks `.claude` (devcontainer audit logs and session captures aggregate in the main checkout) and always copies `.gitignore` (git opens it with `O_NOFOLLOW`, so a symlink would `ELOOP`). Writes all created files to `.envrcs/.worktree-manifest`. Per-developer extras can be listed in the gitignored `.envrcs/.worktree-symlinks`.
 - **`cleanup-worktree`** — removes everything listed in `.envrcs/.worktree-manifest`, then runs `git worktree remove`.
 
 ### Clean removal

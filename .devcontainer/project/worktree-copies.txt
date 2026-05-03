@@ -1,7 +1,7 @@
 # Paths under the main worktree to copy (not symlink) into new worktrees.
 # Format: see .devcontainer/lib/list-file.sh. Patterns are interpreted as
 # shell globs (`*`, `?`, `[...]`) by setup-worktree; shell substitutions
-# (`$(...)`, backticks, `~`, `$VAR`) are not.
+# (`$(...)`, backticks, `~`, `$VAR`) are not. Entries must not contain spaces.
 .envrcs/.envrc.secrets
 .envrcs/.envrc.user
 .envrcs/.env.*
