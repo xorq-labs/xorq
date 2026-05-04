@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777921693827,
+  "lastUpdate": 1777922281122,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -10230,6 +10230,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.05325201578225702",
             "extra": "mean: 428.5800954000024 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c63d0884ad3a4892e6bad304ada1ffa77f90d8eb",
+          "message": "refactor(devcontainer): portable project/ layout, lib/ extraction, host bridge (#1922)\n\nReopens #1900 (original was closed against a since-deleted base branch).\n\n## Summary\n\n- **`project/` consolidation** — all per-project devcontainer config\nlives in `.devcontainer/project/`. Adapting to another project is a\none-directory job; everything outside `project/` (Dockerfile, compose,\n`dev/devcontainer`, `lib/`) is generic.\n- **`lib/` extraction** — reusable shell libraries pulled out of\n`dev/devcontainer` into `.devcontainer/lib/`: `host-bridge.sh`\n(SSH/GPG/git/gh/Claude credential forwarding), `host-mounts.sh`\n(bind-mount override generation), `list-file.sh` (shared parser for all\n`project/*.txt` data files), `git.sh` (main-tree resolver).\n- **SSH + GPG agent forwarding** — socat TCP bridges forward the host's\nSSH and GPG agents into the container via `host.docker.internal`. GPG\ncache is pre-warmed with a no-op sign so passphrase prompts don't\ninterrupt container sessions. `devcontainer refresh-gpg` re-warms\nwithout a restart.\n- **Host mounts** — `host-mounts.txt` (committed) and\n`host-mounts.local.txt` (gitignored) declare arbitrary bind-mounts from\nhost into container. Missing host paths are skipped with a warning.\n- **Shared credentials via bind-mount** — `~/.claude/credentials/` is\nbind-mounted read-write from the host instead of copied. All containers\nand the host share a single OAuth token; refreshes in any container are\nimmediately visible everywhere. `devcontainer fix-credentials` repairs\npre-migration volumes.\n- **VS Code tripwire** — `initializeCommand` in `devcontainer.json`\nexits non-zero when invoked via the unsupported \"Reopen in Container\"\npath, surfacing a pointer to the README instead of silently degrading.\n- **Genericized Dockerfile** — gains `BASE_IMAGE` and `EXTRA_PATH` build\nargs so project overrides live in `compose.override.yml`, not Dockerfile\nedits.\n- **DEV_* naming unification** — all script-internal variables use a\nconsistent `DEV_` prefix; main-tree resolution extracted to `lib/git.sh`\nso worktree-aware code doesn't re-derive paths.\n- **Hardened worktree setup** — clear error messages on failure,\nidempotent re-runs, `.claude` always symlinked into worktrees (audit\nlogs aggregate in the main checkout).\n- **Unified list-file parser** — `read_list` in `lib/list-file.sh` is\nthe single parser for all `project/*.txt` files (shell callers source\nit; `audit-report.py` invokes it via subprocess).\n- **chown targets derived from compose** — named-volume mount targets\nare read from `compose.override.yml` and auto-chowned on first run, so\nadding a volume requires no changes outside the compose file.\n- **flock fd scoping** — file-lock descriptors are scoped to subshells\nto prevent inheritance leaks into long-lived child processes.\n- **Audit hook stdin fix** — reads stdin per the Claude Code hook\nprotocol (was ignoring it).\n\n### `.devcontainer/project/` contents\n\n| File | Role |\n|---|---|\n| `install-system.sh` | apt packages and language toolchain (runs as\nroot during `docker build`) |\n| `setup-env.sh` | `first-run` and `sync-if-needed` subcommands (runs\nin-container as `vscode`) |\n| `compose.override.yml` | named volumes, bind mounts, env vars, and the\n`EXTRA_PATH` build arg |\n| `external-volumes.txt` | basenames of `external: true` volumes;\npre-created as `${DEV_PROJECT_NAME}-<basename>` |\n| `host-mounts.txt` | host-to-container bind mounts (committed,\nproject-wide) |\n| `host-mounts.local.txt` | host-to-container bind mounts (gitignored,\nper-developer) |\n| `worktree-symlinks.txt` / `worktree-copies.txt` | data-drives\n`dev/setup-worktree` |\n| `audit-prefixes.txt` | first-word triggers for two-word grouping in\nthe audit report |\n| `project.env.example` | template for the gitignored `project.env`\noverrides |\n\n### `.devcontainer/lib/` contents\n\n| File | Role |\n|---|---|\n| `host-bridge.sh` | SSH agent, GPG agent, git config, gh auth, Claude\nconfig forwarding |\n| `host-mounts.sh` | reads `host-mounts.txt` / `host-mounts.local.txt`,\ngenerates a compose override |\n| `list-file.sh` | shared `read_list` parser for all `project/*.txt`\ndata files |\n| `git.sh` | `dev_main_tree` resolver (always returns the main worktree,\nnot the current one) |\n\n## Test plan\n\n- [ ] `devcontainer clean && devcontainer up` — build succeeds, deps\ninstall, claude launches\n- [ ] `devcontainer up` from a fresh worktree — image reuse via\n`config_hash`, no rebuild\n- [ ] `dev/new-worktree feat/xxx` — `.envrcs/.envrc.*` copied, `.claude`\nand `ci/ibis-testing-data` symlinked, `.gitignore` copied\n- [ ] `devcontainer exec -- ssh -T git@github.com` — SSH agent\nforwarding works inside container\n- [ ] `devcontainer exec -- git -c gpg.program=gpg2 commit --allow-empty\n-m test -S` — GPG signing works inside container\n- [ ] `devcontainer refresh-gpg` — re-warms GPG cache without restart\n- [ ] Add entry to `host-mounts.txt`, `devcontainer up` — mount appears\nin container\n- [ ] Add entry to `host-mounts.local.txt` (gitignored) — mount appears,\nfile stays untracked\n- [ ] Remove a host path referenced in `host-mounts.txt` — skipped with\nwarning, container still starts\n- [ ] `devcontainer fix-credentials` — repairs symlink in pre-migration\nvolumes\n- [ ] VS Code \"Reopen in Container\" — tripwire fires, exits with README\npointer\n- [ ] `devcontainer audit --summary` — two-word prefixes load from\n`audit-prefixes.txt`\n- [ ] `devcontainer reset && devcontainer up` — `setup-env first-run`\nchowns named-volume mounts\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-05-04T15:13:16-04:00",
+          "tree_id": "646e47d4ba84a8caa9ef272fb9d2886f8be202f1",
+          "url": "https://github.com/xorq-labs/xorq/commit/c63d0884ad3a4892e6bad304ada1ffa77f90d8eb"
+        },
+        "date": 1777922277751,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.657536619537508,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02715766321109765",
+            "extra": "mean: 115.50629745455478 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.4576402538981754,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0630554876761348",
+            "extra": "mean: 406.8943769999919 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6246654802351865,
+            "unit": "iter/sec",
+            "range": "stddev: 0.20792419188857636",
+            "extra": "mean: 1.6008568292000063 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.2496469685253127,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05426715605615139",
+            "extra": "mean: 444.5141900000067 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.223578239293096,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07578454880761946",
+            "extra": "mean: 449.7255740000014 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.260237874250761,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06715581333277193",
+            "extra": "mean: 442.4313084000005 msec\nrounds: 5"
           }
         ]
       }
