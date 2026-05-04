@@ -83,10 +83,11 @@ export DEV_MAIN_GIT="$DEV_MAIN_TREE/.git"
 export DEV_HOST_USER="$(whoami)"
 export DEV_PROJECT_NAME
 export DEV_CONTAINER_WORKSPACE
-# SSH agent forwarding: socat bridges the host agent into the container
-# over TCP via host.docker.internal, so the container never bind-mounts
-# the socket directly.  `devcontainer refresh-ssh` restarts the bridge
-# without rebuilding or restarting the container.  For tighter control,
+# SSH and GPG agent forwarding: socat bridges the host agents into the
+# container over TCP via host.docker.internal, so the container never
+# bind-mounts the sockets directly.  `devcontainer refresh-ssh` and
+# `devcontainer refresh-gpg` restart the respective bridges without
+# rebuilding or restarting the container.  For tighter SSH control,
 # use `ssh-add -c` (confirm each use) or load only the keys you need.
 
 if [ -d "${HOME}/.config/sops/age" ]; then
@@ -116,6 +117,7 @@ fi
 dc() {
     local files=(-f "$COMPOSE_FILE")
     [ -f "$COMPOSE_OVERRIDE" ] && files+=(-f "$COMPOSE_OVERRIDE")
+    [ -n "${DEV_HOST_MOUNTS_OVERRIDE:-}" ] && files+=(-f "$DEV_HOST_MOUNTS_OVERRIDE")
     docker compose "${files[@]}" -p "$DEV_CONTAINER_NAME" "$@"
 }
 
@@ -141,6 +143,12 @@ config_hash() {
         "$DEV_MAIN_TREE/.devcontainer/project/setup-env.sh"
     )
     [ -f "$COMPOSE_OVERRIDE" ] && files+=("$COMPOSE_OVERRIDE")
+    local hm
+    for hm in \
+        "$DEV_MAIN_TREE/.devcontainer/project/host-mounts.txt" \
+        "$DEV_MAIN_TREE/.devcontainer/project/host-mounts.local.txt"; do
+        [ -f "$hm" ] && files+=("$hm")
+    done
     {
         cat "${files[@]}"
         # Build args interpolated into compose at build time are baked into
@@ -179,6 +187,9 @@ require_tty() {
 # config copy. Defined separately so this script stays focused on orchestration.
 . "$DEV_MAIN_TREE/.devcontainer/lib/host-bridge.sh"
 . "$DEV_MAIN_TREE/.devcontainer/lib/list-file.sh"
+. "$DEV_MAIN_TREE/.devcontainer/lib/host-mounts.sh"
+
+generate_host_mounts_override
 
 # Named-volume mount targets from the merged compose config — these come
 # up root-owned and need chowning before user-mode setup runs. Deriving
@@ -297,9 +308,11 @@ ensure_up() {
 
         setup_git
         setup_gh
-        # Close flock fd so the backgrounded socat in setup_ssh_forward
-        # doesn't inherit it and hold the lock after the subshell exits.
+        # Close flock fd so the backgrounded socat in setup_ssh_forward /
+        # setup_gpg_forward doesn't inherit it and hold the lock after
+        # the subshell exits.
         setup_ssh_forward 9>&-
+        setup_gpg_forward 9>&-
         setup_claude
         sync_if_needed
     ) 9>"$DEV_LOCKFILE"
@@ -317,6 +330,7 @@ case "${1:-up}" in
             fi
         fi
         stop_ssh_forward
+        stop_gpg_forward
         dc down
         ;;
     reset)
@@ -325,6 +339,7 @@ case "${1:-up}" in
             exit 0
         fi
         stop_ssh_forward
+        stop_gpg_forward
         dc down --volumes
         ;;
     clean)
@@ -333,6 +348,7 @@ case "${1:-up}" in
             exit 0
         fi
         stop_ssh_forward
+        stop_gpg_forward
         dc down --volumes --rmi local
         docker images --format '{{.Repository}}:{{.Tag}}' \
             | grep "^${DEV_CONTAINER_NAME}:" \
@@ -375,6 +391,14 @@ case "${1:-up}" in
         fi
         setup_ssh_forward
         echo "SSH agent forwarded into $DEV_CONTAINER_NAME"
+        ;;
+    refresh-gpg)
+        if ! is_running; then
+            echo "error: container is not running" >&2
+            exit 1
+        fi
+        setup_gpg_forward
+        echo "GPG agent forwarded into $DEV_CONTAINER_NAME"
         ;;
     fix-credentials)
         if ! is_running; then
@@ -429,6 +453,8 @@ Commands:
   claude-dangerously-skip-permissions run claude with --dangerously-skip-permissions
   refresh-ssh                         re-forward SSH agent (runs automatically on up/exec/claude;
                                         use standalone when agent changes mid-session)
+  refresh-gpg                         re-forward GPG agent (runs automatically on up/exec/claude;
+                                        use standalone when host gpg-agent restarts)
   fix-credentials                     repair credentials symlink in a running container
                                         (needed after upgrading from pre-shared-credentials build)
   audit [--summary|--new|--all|--clear]  show permission audit log (default: --summary)

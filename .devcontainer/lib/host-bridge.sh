@@ -1,12 +1,12 @@
-# Host-to-container bridge functions: SSH agent forwarding, host git config,
-# gh credentials, and Claude config setup.
+# Host-to-container bridge functions: SSH agent forwarding, GPG agent
+# forwarding, host git config, gh credentials, and Claude config setup.
 #
 # Sourced by dev/devcontainer. The sourcer is expected to provide:
 #   - dc(...)         — `docker compose ... -p $DEV_CONTAINER_NAME` wrapper
 #   - dc_exec(...)    — `dc exec` with the standard env vars
 #   - is_running()    — boolean check that the app service is up
 # and to set (script-locals are fine — this lib is sourced, not exec'd):
-#   - DEV_CONTAINER_NAME       — used to derive a per-container SSH forward port
+#   - DEV_CONTAINER_NAME       — used to derive per-container forward ports
 #   - DEV_CONTAINER_WORKSPACE  — passed through to setup-claude
 #   - DEV_WORKSPACE            — host path of the workspace, used as project key
 #   - DEV_HAS_SOCAT            — set to "true" if socat is on PATH
@@ -103,6 +103,124 @@ setup_ssh_forward() {
     done
     echo "error: SSH agent bridge started but ssh-add -l never succeeded inside the container" >&2
     return 1
+}
+
+## GPG agent forwarding ######################################################
+
+DEV_GPG_FORWARD_PIDFILE="/tmp/devcontainer-gpg-forward-${DEV_CONTAINER_NAME}.pid"
+
+gpg_forward_port() {
+    local hash
+    hash="$(echo "${DEV_CONTAINER_NAME}-gpg" | cksum | cut -d' ' -f1)"
+    echo $(( (hash % 16384) + 49152 ))
+}
+
+stop_gpg_forward() {
+    if [ -f "$DEV_GPG_FORWARD_PIDFILE" ]; then
+        local pid
+        pid="$(cat "$DEV_GPG_FORWARD_PIDFILE")"
+        kill "$pid" 2>/dev/null || true
+        rm -f "$DEV_GPG_FORWARD_PIDFILE"
+    fi
+    local port
+    port="$(gpg_forward_port)"
+    pkill -f "socat TCP-LISTEN:${port},bind=.+,reuseaddr,fork UNIX-CONNECT:" 2>/dev/null || true
+    if is_running; then
+        dc_exec bash -c 'pkill -f "socat UNIX-LISTEN:/run/gpg-agent/" 2>/dev/null' || true
+    fi
+}
+
+setup_gpg_forward() {
+    if [ "${DEV_HAS_SOCAT:-false}" != "true" ]; then
+        echo "warning: socat not found on host — GPG agent forwarding disabled (apt install socat)" >&2
+        return 0
+    fi
+
+    # agent-extra-socket is specifically designed for forwarding to remote machines
+    local host_gpg_socket
+    host_gpg_socket="$(gpgconf --list-dirs agent-extra-socket 2>/dev/null)" || true
+    if [ -z "$host_gpg_socket" ] || [ ! -S "$host_gpg_socket" ]; then
+        echo "warning: no GPG agent extra socket detected — SOPS PGP decryption won't work inside the container" >&2
+        echo "  (ensure gpg-agent is running: gpgconf --launch gpg-agent)" >&2
+        return 0
+    fi
+
+    # Warm gpg-agent's internal passphrase cache. The extra socket used for
+    # forwarding passes --no-allow-external-cache to pinentry, so the
+    # passphrase must be in gpg-agent's own cache — an external keyring
+    # (GNOME Keyring, macOS Keychain, etc.) won't be consulted.
+    #
+    # Two operations are needed: a sign (caches the signing key) and an
+    # encrypt-to-self + decrypt (caches the encryption subkey). SOPS
+    # uses decryption, so skipping the second leaves the container unable
+    # to decrypt secrets.
+    if ! echo | gpg -so /dev/null 2>/dev/null; then
+        echo "note: could not pre-cache GPG signing passphrase — you may be prompted inside the container" >&2
+    fi
+    local default_key
+    default_key="$(gpg --list-secret-keys --with-colons 2>/dev/null | awk -F: '/^sec/{print $5; exit}')"
+    if [ -n "$default_key" ]; then
+        if ! echo "warmup" | gpg -e -r "$default_key" 2>/dev/null | gpg -d >/dev/null 2>&1; then
+            echo "note: could not pre-cache GPG decryption passphrase — SOPS may prompt inside the container" >&2
+        fi
+    fi
+
+    stop_gpg_forward
+
+    local port
+    port="$(gpg_forward_port)"
+
+    local bind_addr
+    if [ "$(uname -s)" = "Linux" ] && ! grep -qiF microsoft /proc/version 2>/dev/null; then
+        bind_addr="$(docker network inspect bridge --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null)" || true
+        if [ -z "$bind_addr" ]; then
+            echo "error: could not determine Docker bridge gateway IP — is the bridge network enabled?" >&2
+            return 1
+        fi
+    else
+        bind_addr="127.0.0.1"
+    fi
+
+    socat "TCP-LISTEN:${port},bind=${bind_addr},reuseaddr,fork" \
+          "UNIX-CONNECT:${host_gpg_socket}" &
+    local host_pid=$!
+    echo "$host_pid" > "$DEV_GPG_FORWARD_PIDFILE"
+
+    local i
+    for i in $(seq 1 50); do
+        sleep 0.05
+        kill -0 "$host_pid" 2>/dev/null || break
+    done
+    if ! kill -0 "$host_pid" 2>/dev/null; then
+        echo "error: host-side GPG forwarder failed to start (port $port may be in use)" >&2
+        rm -f "$DEV_GPG_FORWARD_PIDFILE"
+        return 1
+    fi
+
+    # Kill any container-local gpg-agent so it doesn't compete for the socket
+    dc_exec gpgconf --kill gpg-agent 2>/dev/null || true
+
+    dc exec -d app socat \
+        UNIX-LISTEN:/run/gpg-agent/S.gpg-agent,fork,unlink-early,mode=600 \
+        TCP:host.docker.internal:${port}
+
+    # Point container gpg at the forwarded socket
+    dc_exec bash -c 'mkdir -p ~/.gnupg && chmod 700 ~/.gnupg && ln -sf /run/gpg-agent/S.gpg-agent ~/.gnupg/S.gpg-agent'
+
+    # GPG needs public keys in the local keyring to discover which secret
+    # keys the forwarded agent holds. Without this, gpg --list-secret-keys
+    # returns nothing and decryption fails with "No secret key".
+    gpg --export 2>/dev/null | dc exec -T app gpg --import 2>/dev/null || true
+
+    for i in $(seq 1 30); do
+        if dc_exec gpg --list-secret-keys 2>/dev/null | grep -q '^sec'; then
+            return 0
+        fi
+        sleep 0.1
+    done
+    echo "warning: GPG agent bridge started but no secret keys visible inside the container" >&2
+    echo "  (is the private key loaded on the host? check: gpg --list-secret-keys)" >&2
+    return 0
 }
 
 setup_git() {

@@ -125,6 +125,7 @@ The two paths diverge in what they provide:
 | Git config, gh auth, Claude setup | `setup_git`, `setup_gh`, `setup_claude` (in `.devcontainer/lib/host-bridge.sh`) | **Not applied** |
 | Worktree support | Full (mount host `.git`, resolve worktree paths) | **Not supported** |
 | SSH agent forwarding | socat TCP bridge via `host.docker.internal` | **Not applied** |
+| GPG agent forwarding | socat TCP bridge via `host.docker.internal` | **Not applied** |
 | sops age keys | Mounted read-only via compose | **Not applied** |
 | Port forwarding | Not handled (use `docker compose` ports) | `forwardPorts` in `devcontainer.json` |
 | VS Code extensions & settings | Not applied | `customizations.vscode` in `devcontainer.json` |
@@ -140,6 +141,14 @@ The two paths diverge in what they provide:
 - **Files in `.venv/` owned by root, or `Permission denied` writing to the workspace** — UID/GID drift between the host and the image. `devcontainer clean && devcontainer up` rebuilds with the current host UID/GID.
 - **`uv sync` runs every entry** — the lockfile is newer than `.venv/.last-sync`. Expected after `git pull`; harmless.
 - **Auto-rebuild prompt won't go away** — the content hash of `Dockerfile` / compose changed. Accept the rebuild, or `devcontainer clean` to reset state.
+- **GPG passphrase prompt inside the container despite the host not requiring one** — The GPG agent bridge uses the agent-extra-socket, which disables external-cache lookups in pinentry (GNOME Keyring, macOS Keychain, etc.). The setup pre-warms gpg-agent's internal cache with a no-op sign, but if the cache expires mid-session you'll be prompted again. Bump the TTL in your **host's** `~/.gnupg/gpg-agent.conf`:
+
+    ```
+    default-cache-ttl 28800
+    max-cache-ttl 28800
+    ```
+
+    Then restart the agent: `gpgconf --kill gpg-agent`. The values above give an 8-hour window. To re-warm without restarting the container: `devcontainer refresh-gpg`.
 - **Container claude can't see host OAuth token after upgrading from a pre-shared-credentials build** — the shared-credentials design relies on a `~/.claude/.credentials.json -> credentials/.credentials.json` symlink baked into the image and copied into the per-worktree `claude-home` named volume on first creation. Volumes that predate the symlink still hold the old plain file. Each worktree has its own `claude-home` volume, so repeat per worktree — new worktrees and fresh checkouts aren't affected. Two ways to recover:
 
     ```bash
@@ -186,4 +195,4 @@ Container session logs are written to `.claude/container-sessions/` in the works
 >
 > **Host git access:** The host's `.git` directory is mounted read-write inside the container (required for git operations in worktrees). A container compromise could modify host git history, hooks, and refs.
 >
-> **SSH agent bridge (Linux-native):** On Linux-native Docker, the socat SSH-agent bridge binds to the Docker bridge gateway IP (e.g. `172.17.0.1`). Any container on the same bridge network can connect to this port and use the forwarded SSH key. On Docker Desktop and WSL2, the bridge binds to `127.0.0.1` and is not exposed. If you run untrusted sibling containers on the same Docker bridge, stop the bridge after your session (`devcontainer down` kills it) or isolate the dev container on a dedicated network.
+> **SSH/GPG agent bridge (Linux-native):** On Linux-native Docker, the socat SSH-agent and GPG-agent bridges bind to the Docker bridge gateway IP (e.g. `172.17.0.1`). Any container on the same bridge network can connect to these ports and use the forwarded keys. On Docker Desktop and WSL2, the bridges bind to `127.0.0.1` and are not exposed. If you run untrusted sibling containers on the same Docker bridge, stop the bridges after your session (`devcontainer down` kills them) or isolate the dev container on a dedicated network.

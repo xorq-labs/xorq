@@ -32,6 +32,8 @@ services:
       # SSH agent forwarding: socat bridges host agent over TCP via host.docker.internal
       # (the actual socket is created at runtime by the devcontainer script)
       - /run/ssh-agent:uid=${DEV_UID:-1000},gid=${DEV_GID:-1000},mode=0700
+      # GPG agent forwarding: same socat bridge pattern as SSH
+      - /run/gpg-agent:uid=${DEV_UID:-1000},gid=${DEV_GID:-1000},mode=0700
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
