@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777886451248,
+  "lastUpdate": 1777886785483,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -9966,6 +9966,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0625199015929103",
             "extra": "mean: 501.56957040001095 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "036bc668c37b1311f531920b28d78eb6f4f3b20f",
+          "message": "chore(deps): update pre-commit hook astral-sh/ruff-pre-commit to v0.15.12 (#1912)\n\nThis PR contains the following updates:\n\n| Package | Type | Update | Change |\n|---|---|---|---|\n|\n[astral-sh/ruff-pre-commit](https://redirect.github.com/astral-sh/ruff-pre-commit)\n| repository | minor | `v0.14.10` → `v0.15.12` |\n\nNote: The `pre-commit` manager in Renovate is not supported by the\n`pre-commit` maintainers or community. Please do not report any problems\nthere, instead [create a Discussion in the Renovate\nrepository](https://redirect.github.com/renovatebot/renovate/discussions/new)\nif you have any questions.\n\n---\n\n- [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check\nthis box\n\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0My4xNTkuMiIsInVwZGF0ZWRJblZlciI6IjQzLjE1OS4yIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6W119-->\n\nCo-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-04T11:22:20+02:00",
+          "tree_id": "322ed24823b91cdbd0835e30349ade3adb214939",
+          "url": "https://github.com/xorq-labs/xorq/commit/036bc668c37b1311f531920b28d78eb6f4f3b20f"
+        },
+        "date": 1777886782669,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.4404354926142,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005594186208844158",
+            "extra": "mean: 95.78144520000365 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.2920820658566794,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08520748500436699",
+            "extra": "mean: 436.28455319999375 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6784812395189898,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1944101726646331",
+            "extra": "mean: 1.4738801042000091 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.3662459079810416,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05250137760887092",
+            "extra": "mean: 422.61034520001886 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.294837813925478,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08503786088843669",
+            "extra": "mean: 435.7606424000096 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.4348378931508745,
+            "unit": "iter/sec",
+            "range": "stddev: 0.055975559086849785",
+            "extra": "mean: 410.70496020000746 msec\nrounds: 5"
           }
         ]
       }
