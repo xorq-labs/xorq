@@ -217,13 +217,6 @@ class CatalogRowData:
         ]
         return "\n".join(parts)
 
-    @cached_property
-    def tree_label(self) -> str:
-        """Label for tree leaf node: 'alias — hash[:12]' or 'hash[:12]'."""
-        if self.aliases_display:
-            return f"{self.aliases_display} — {self.hash[:12]}"
-        return self.hash[:12]
-
     @property
     def row_key(self) -> str:
         return self.hash
@@ -495,6 +488,8 @@ class CatalogScreen(Screen):
         super().__init__()
         self._refresh_interval = refresh_interval
         self._row_cache: dict[str, CatalogRowData] = {}
+        # Written under _refresh_lock on worker thread; read on main thread
+        # only via call_from_thread callbacks or during locked render calls.
         self._new_keys: set[str] = set()
         self._git_log_visible = options.tui.git_log_open
         self._git_log_loaded = False
@@ -832,34 +827,34 @@ class CatalogScreen(Screen):
         is_new = row_data.row_key in self._new_keys
         cache_icon, cache_color = CACHE_STYLE[row_data.cached]
         ncols = len(row_data.schema_out)
-        short_hash = row_data.hash[:8]
+        short_hash = row_data.hash[:12]
+
+        if is_new:
+            icon_style = f"bold {FLASH_NEW}"
+            name_style = f"bold {FLASH_NEW}"
+            hash_style = f"dim {FLASH_NEW}"
+            badge_style = f"dim {FLASH_NEW}"
+        else:
+            icon_style = cache_color
+            name_style = f"bold {XORQ_DARK.primary}"
+            hash_style = f"dim {SUBDUED}"
+            badge_style = "dim"
 
         label = Text()
-        if is_new:
-            label.append(f"{cache_icon} ", style=f"bold {FLASH_NEW}")
-            if row_data.aliases_display:
-                label.append(row_data.aliases_display, style=f"bold {FLASH_NEW}")
-                label.append(f" {short_hash}", style=f"dim {FLASH_NEW}")
-            else:
-                label.append(short_hash, style=f"bold {FLASH_NEW}")
-            label.append(f" ·{ncols}", style=f"dim {FLASH_NEW}")
+        label.append(f"{cache_icon} ", style=icon_style)
+        if row_data.aliases_display:
+            label.append(row_data.aliases_display, style=name_style)
+            label.append(f" {short_hash}", style=hash_style)
         else:
-            label.append(f"{cache_icon} ", style=cache_color)
-            if row_data.aliases_display:
-                label.append(
-                    row_data.aliases_display, style=f"bold {XORQ_DARK.primary}"
-                )
-                label.append(f" {short_hash}", style=f"dim {SUBDUED}")
-            else:
-                label.append(short_hash, style=XORQ_DARK.primary)
-            label.append(f" ·{ncols}", style="dim")
+            label.append(short_hash, style=name_style if is_new else XORQ_DARK.primary)
+        label.append(f" ·{ncols}", style=badge_style)
         return label
 
     def _settle_new_labels(self, keys: set[str]) -> None:
         tree = self.query_one("#catalog-tree", Tree)
         for branch in tree.root.children:
             for leaf in branch.children:
-                if leaf.data in keys:
+                if leaf.data in keys and leaf.data in self._row_cache:
                     leaf.set_label(self._styled_leaf_label(self._row_cache[leaf.data]))
 
     def _render_status(self, stamp, repo_path) -> None:

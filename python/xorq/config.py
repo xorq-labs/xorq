@@ -175,8 +175,8 @@ class TUI(Config):
         Whether the Git log panel is shown at startup.
     """
 
-    left_ratio: int = int(env_config.XORQ_TUI_LEFT_RATIO or 2)
-    right_ratio: int = int(env_config.XORQ_TUI_RIGHT_RATIO or 3)
+    left_ratio: int = max(int(env_config.XORQ_TUI_LEFT_RATIO or 2), 1)
+    right_ratio: int = max(int(env_config.XORQ_TUI_RIGHT_RATIO or 3), 1)
     revisions_open: bool = bool(
         ast.literal_eval(env_config.XORQ_TUI_REVISIONS_OPEN or "False")
     )

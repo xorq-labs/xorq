@@ -173,17 +173,6 @@ def test_cached_with_parquet_snapshot(entry_cached):
     assert row_after.cached_display == "●"
 
 
-def test_tree_label_with_alias(entry_a, alias_for_a):
-    row = CatalogRowData(entry=entry_a, aliases=(alias_for_a,))
-    assert alias_for_a in row.tree_label
-    assert entry_a.name[:12] in row.tree_label
-
-
-def test_tree_label_without_alias(entry_a):
-    row = CatalogRowData(entry=entry_a)
-    assert row.tree_label == entry_a.name[:12]
-
-
 def test_catalog_row_data_is_frozen(entry_a):
     row = CatalogRowData(entry=entry_a)
     with pytest.raises(AttributeError):
