@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777886789226,
+  "lastUpdate": 1777887602444,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -10098,6 +10098,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0644343845770844",
             "extra": "mean: 429.595048200008 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "651fadcbd32e32cc5a17077e57a4316dd8688af7",
+          "message": "chore: remove codspeed (#1923)",
+          "timestamp": "2026-05-04T11:35:57+02:00",
+          "tree_id": "b5f5f1c8ba4d94bce295b7849138f9e237372339",
+          "url": "https://github.com/xorq-labs/xorq/commit/651fadcbd32e32cc5a17077e57a4316dd8688af7"
+        },
+        "date": 1777887599891,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.67506222879022,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00930836554162861",
+            "extra": "mean: 103.35850833334031 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.2073461230354954,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0663952456558341",
+            "extra": "mean: 453.0327118000059 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6644508988655504,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19826914474264115",
+            "extra": "mean: 1.5050021027999947 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.4142966423097754,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09066540613044459",
+            "extra": "mean: 414.1993085999957 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.5062696616290636,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08106084038818699",
+            "extra": "mean: 398.9993636000065 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.5067784517656877,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07607752384650363",
+            "extra": "mean: 398.91838040000493 msec\nrounds: 5"
           }
         ]
       }
