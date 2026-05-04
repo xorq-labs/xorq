@@ -511,6 +511,10 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         elif isinstance(source, ibis.expr.types.Table) and hasattr(
             source, "to_pyarrow_batches"
         ):
+            # IbisTableProvider.scan() calls backend.to_pyarrow_batches() synchronously.
+            # For same-connection DataFusion expressions, this nests a tokio runtime and
+            # panics. Subclasses must convert those to native DataFrames before reaching
+            # this path.
             self.con.deregister_table(table_ident)
             self.con.register_table_provider(table_ident, IbisTableProvider(source))
             return self.table(table_name)

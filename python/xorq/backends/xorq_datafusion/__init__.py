@@ -14,6 +14,23 @@ from xorq.vendor.ibis.expr import types as ir
 class Backend(DataFusionBackend):
     name = "xorq_datafusion"
 
+    def register(self, source, table_name=None, **kwargs):
+        if isinstance(source, ir.Expr) and hasattr(source, "to_pyarrow_batches"):
+            backends, has_unbound = source._find_backends()
+            if len(backends) > 1:
+                raise ValueError("Multiple backends found for this expression")
+            elif len(backends) == 1 and isinstance(backends[0], DataFusionBackend):
+                # Compile to a native DataFrame to avoid IbisTableProvider, which
+                # would cause a nested tokio runtime panic on execute_stream().
+                backend = backends[0]
+                backend._register_udfs(source)
+                backend._register_in_memory_tables(source)
+                raw_sql = backend.compile(source.as_table(), **kwargs)
+                source = backend.con.sql(raw_sql)
+            elif not backends and not has_unbound:
+                source = self.execute(source)
+        return super().register(source, table_name=table_name, **kwargs)
+
     def execute(self, expr: ir.Expr, **kwargs: Any):
         batch_reader = self.to_pyarrow_batches(expr, **kwargs)
         return expr.__pandas_result__(
