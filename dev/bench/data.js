@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777709378159,
+  "lastUpdate": 1777886451248,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -9900,6 +9900,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.048725528992553224",
             "extra": "mean: 367.52973159999556 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e6f81366edd54398a51dec4a4ac1f7111fd63233",
+          "message": "chore(deps): update dependency pre-commit to v4.6.0 (#1909)\n\nThis PR contains the following updates:\n\n| Package | Change |\n[Age](https://docs.renovatebot.com/merge-confidence/) |\n[Confidence](https://docs.renovatebot.com/merge-confidence/) |\n|---|---|---|---|\n| [pre-commit](https://redirect.github.com/pre-commit/pre-commit) |\n`==4.5.1` → `==4.6.0` |\n![age](https://developer.mend.io/api/mc/badges/age/pypi/pre-commit/4.6.0?slim=true)\n|\n![confidence](https://developer.mend.io/api/mc/badges/confidence/pypi/pre-commit/4.5.1/4.6.0?slim=true)\n|\n\n---\n\n- [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check\nthis box\n\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0My4xNTkuMiIsInVwZGF0ZWRJblZlciI6IjQzLjE1OS4yIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6W119-->\n\nCo-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-04T11:16:29+02:00",
+          "tree_id": "aed229decabe517a0bcb9d70d677d1e631abf899",
+          "url": "https://github.com/xorq-labs/xorq/commit/e6f81366edd54398a51dec4a4ac1f7111fd63233"
+        },
+        "date": 1777886448739,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.480223600725633,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006444112641959417",
+            "extra": "mean: 105.48274409091557 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.2820761961909763,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06023035554910533",
+            "extra": "mean: 438.19746320000377 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.5701413899277278,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2890825020477554",
+            "extra": "mean: 1.7539508930000012 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.3896308830847013,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08072029596228096",
+            "extra": "mean: 418.47467200002484 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.088748576766891,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11076652051704572",
+            "extra": "mean: 478.7555626000085 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 1.9937413651360105,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0625199015929103",
+            "extra": "mean: 501.56957040001095 msec\nrounds: 5"
           }
         ]
       }
