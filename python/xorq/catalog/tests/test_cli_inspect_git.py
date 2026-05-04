@@ -495,7 +495,7 @@ def test_show_command(runner, catalog_path, tmpdir):
     runner.invoke(cli, ["--path", catalog_path, "add", str(archive)])
     result = runner.invoke(cli, ["--path", catalog_path, "show", archive.stem])
     assert result.exit_code == 0, result.output
-    assert f"Name:    {archive.stem}" in result.output
+    assert f"Name:           {archive.stem}" in result.output
     assert "Type:" in result.output
     assert "Source (bound)" in result.output
     assert "Backends:" in result.output
@@ -509,8 +509,9 @@ def test_show_by_alias(runner, catalog_path, tmpdir):
     runner.invoke(cli, ["--path", catalog_path, "add-alias", archive.stem, "my-alias"])
     result = runner.invoke(cli, ["--path", catalog_path, "show", "my-alias"])
     assert result.exit_code == 0, result.output
-    assert f"Name:    {archive.stem}" in result.output
-    assert "Aliases: my-alias" in result.output
+    assert f"Name:           {archive.stem}" in result.output
+    assert "Aliases:" in result.output
+    assert "my-alias" in result.output
 
 
 def test_show_json(runner, catalog_path, tmpdir):
@@ -550,6 +551,25 @@ def test_show_nonexistent(runner, catalog_path):
     assert result.exit_code != 0
     assert "not found" in result.output
     assert "list-aliases" in result.output
+
+
+def test_show_json_default_str(runner, catalog_path, tmpdir):
+    archive = make_build_zip(tmpdir, "show-json-str")
+    runner.invoke(cli, ["--path", catalog_path, "add", str(archive)])
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    entry = catalog.get_catalog_entry(archive.stem)
+    sidecar = yaml12.parse_yaml(entry.metadata_path.read_text())
+    sidecar["custom_ts"] = "2026-01-01T00:00:00"
+    sidecar["custom_path"] = "/tmp/test"
+    entry.metadata_path.write_text(yaml12.format_yaml(sidecar))
+
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "show", archive.stem, "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["custom_ts"] == "2026-01-01T00:00:00"
+    assert data["custom_path"] == "/tmp/test"
 
 
 def test_show_renders_builders(runner, catalog_path, tmpdir):
