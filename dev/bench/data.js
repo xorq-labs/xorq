@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777887602444,
+  "lastUpdate": 1777921693827,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -10164,6 +10164,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.07607752384650363",
             "extra": "mean: 398.91838040000493 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7da78940225864b96b50b868ea8c9a283bc13f5b",
+          "message": "ci: move catalog tests to dedicated parallel workflow (#1903)\n\nCatalog tests (git-backend and git-annex) were running inside the core\nbackend job, blocking it and making parallelism harder. This PR offloads\nthem to a new workflow and speeds up CI.\n\nChanges:\n- Add `.github/workflows/ci-test-catalog.yml`: dedicated workflow for\n  `python/xorq/catalog/tests`, split into git and annex matrix jobs,\n  both run with `-n auto --dist=loadfile`; annex job installs git-annex\n  as a sys-dep; runs `just download-data` before tests (needed by\n  `test_tui.py` for `astronauts.parquet` via the `parquet_dir` fixture)\n- Exclude `python/xorq/catalog` from `ci-test.yml` via\n  `--ignore=python/xorq/catalog` on every backend (hard-coded, no\n  per-matrix key)\n- Reformat long pytest `run:` line in `ci-test.yml` with YAML block\n  scalar (`>`) for readability\n- `fail-fast: false` on the catalog matrix so the git and annex\n  partitions don't cancel each other on failure\n- Pass the `-k` filter via env var (`K_FILTER`) instead of GHA\n  expression interpolation, to avoid quoting hazards if the filter ever\n  contains a single quote\n- Tag codecov uploads with `flags: catalog-git` / `catalog-annex` for\n  partition-level coverage attribution\n- Comment the implicit partition assumption on the matrix: split relies\n  on the `backend_type` session fixture in\n  `python/xorq/catalog/tests/conftest.py` (`params=[\"git\", \"annex\"]`).\n  Tests that don't consume that fixture fall into the `git` job — new\n  tests that need the `git-annex` binary must consume `backend_type` or\n  otherwise carry `[annex]` in their nodeid\n- Drop `master` from `ci-test.yml` push trigger (remote only has `main`)\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-05-04T15:04:07-04:00",
+          "tree_id": "a0e25d5edca6563f35f6e82e8cefddf44feb5baf",
+          "url": "https://github.com/xorq-labs/xorq/commit/7da78940225864b96b50b868ea8c9a283bc13f5b"
+        },
+        "date": 1777921691226,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.740981092182329,
+            "unit": "iter/sec",
+            "range": "stddev: 0.021930719172384854",
+            "extra": "mean: 129.18259172728207 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.690460874489575,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030140467232419272",
+            "extra": "mean: 371.6835317999994 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6335279997540693,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19839366735854053",
+            "extra": "mean: 1.5784621996000054 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.350498255517516,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05890480549616532",
+            "extra": "mean: 425.44171120000556 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.3346616731782572,
+            "unit": "iter/sec",
+            "range": "stddev: 0.055634517128477744",
+            "extra": "mean: 428.32758660001673 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.3332861482208593,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05325201578225702",
+            "extra": "mean: 428.5800954000024 msec\nrounds: 5"
           }
         ]
       }
