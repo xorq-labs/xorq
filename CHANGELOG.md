@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+### Details
+#### Removed
+- **Breaking:** Remove `xo.read_postgres` from the public API. Use `postgres_con.table(name).into_backend(xo.connect())` instead by @mesejo in [#1867](https://github.com/xorq-labs/xorq/pull/1867)
+
+#### Changed
+- Remove `_sources` bookkeeping from `xorq_datafusion` backend; cross-backend registration now flows through `into_backend` / `RemoteTable` by @mesejo in [#1867](https://github.com/xorq-labs/xorq/pull/1867)
+
 ## [0.3.21] - 2026-04-28
 ### Details
 #### Added

@@ -69,6 +69,7 @@ def test_register_table_with_uppercase(con):
 
     uppercase_table_name = "UPPERCASE"
     t = con.register(db_t, uppercase_table_name)
+    assert uppercase_table_name in con.list_tables()
     assert xo.execute(t) is not None
 
 
@@ -83,6 +84,7 @@ def test_register_table_with_uppercase_multiple_times(con):
     db_t = db_con.create_table("lowercase_2", schema=expected_schema)
     t = con.register(db_t, uppercase_table_name)
 
+    assert uppercase_table_name in con.list_tables()
     assert xo.execute(t) is not None
     assert t.schema() == expected_schema
 
