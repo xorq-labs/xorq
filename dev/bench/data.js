@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777886785483,
+  "lastUpdate": 1777886789226,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -10032,6 +10032,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.055975559086849785",
             "extra": "mean: 410.70496020000746 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f662ab9cbc15a22661dd42ea08ef0ae911ec823b",
+          "message": "chore(deps): update pre-commit hook astral-sh/uv-pre-commit to v0.11.8 (#1913)\n\nThis PR contains the following updates:\n\n| Package | Type | Update | Change |\n|---|---|---|---|\n|\n[astral-sh/uv-pre-commit](https://redirect.github.com/astral-sh/uv-pre-commit)\n| repository | minor | `0.10.7` → `0.11.8` |\n\nNote: The `pre-commit` manager in Renovate is not supported by the\n`pre-commit` maintainers or community. Please do not report any problems\nthere, instead [create a Discussion in the Renovate\nrepository](https://redirect.github.com/renovatebot/renovate/discussions/new)\nif you have any questions.\n\n---\n\n- [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check\nthis box\n\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0My4xNTkuMiIsInVwZGF0ZWRJblZlciI6IjQzLjE1OS4yIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6W119-->\n\nCo-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-04T11:22:33+02:00",
+          "tree_id": "f4435d9e0e164a1bdfc571e830ee1575359bca2d",
+          "url": "https://github.com/xorq-labs/xorq/commit/f662ab9cbc15a22661dd42ea08ef0ae911ec823b"
+        },
+        "date": 1777886786946,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.706594994017264,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016610887093953156",
+            "extra": "mean: 103.02273872726305 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.2712602151670613,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05996096874285922",
+            "extra": "mean: 440.28420580001466 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6827708619019811,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1915924891624733",
+            "extra": "mean: 1.4646202053999786 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.481254038892288,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0775084575062032",
+            "extra": "mean: 403.0220139999983 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.461200993774957,
+            "unit": "iter/sec",
+            "range": "stddev: 0.049455066234306476",
+            "extra": "mean: 406.3057029999868 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.3277735723211284,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0644343845770844",
+            "extra": "mean: 429.595048200008 msec\nrounds: 5"
           }
         ]
       }
