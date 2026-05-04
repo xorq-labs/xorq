@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+. "$(dirname "$0")/../.devcontainer/lib/git.sh"
 here=$(git rev-parse --show-toplevel)
-main=$(git worktree list --porcelain | head -1 | cut -d' ' -f2)
+main=$(dev_main_tree)
 manifest="$here/.envrcs/.worktree-manifest"
 
 if [ -f "$manifest" ]; then
     cd "$here"
-    xargs rm -v < "$manifest"
+    xargs -d '\n' -r rm -v < "$manifest"
     # Remove any empty parent directories created by setup
     while IFS= read -r entry; do
         dir=$(dirname "$entry")

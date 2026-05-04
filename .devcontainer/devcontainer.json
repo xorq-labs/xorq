@@ -1,6 +1,12 @@
 {
   // per-project: container name
   "name": "xorq",
+  // Tripwire: VS Code "Reopen in Container" / `devcontainer up` go through
+  // this file but skip the bridge setup in dev/devcontainer (SSH agent,
+  // Claude config, UID/GID match). dev/devcontainer drives docker compose
+  // directly and never reads this file, so the exit only fires on the
+  // unsupported path. See .devcontainer/README.md.
+  "initializeCommand": "printf 'ERROR: use dev/devcontainer to start this container.\\nVS Code Reopen in Container / devcontainer CLI are unsupported.\\nSee .devcontainer/README.md.\\n' >&2; exit 1",
   "dockerComposeFile": "docker-compose.yml",
   "service": "app",
   "workspaceFolder": "/workspaces/src",

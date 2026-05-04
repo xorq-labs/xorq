@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Naming convention: DEV_* identifies dev-container infrastructure values
+# (paths, IDs, flags) — used as the canonical name for both script-locals
+# and exported env vars, Dockerfile build args, and compose interpolations.
+# User-facing config in project.env keeps unprefixed names (PROJECT_NAME,
+# MODEL_VERSION); they are translated to DEV_* on entry.
+
 if [ "${1:-}" = "completions" ]; then
     shift
     exec "$(dirname "$0")/devcontainer-completions" "$@"
@@ -24,20 +30,20 @@ while [[ "${1:-}" == -* ]]; do
     esac
 done
 
-MAIN_TREE="$(git worktree list --porcelain | head -1 | sed 's/^worktree //')"
-COMPOSE_FILE="$MAIN_TREE/.devcontainer/docker-compose.yml"
+. "$(dirname "$0")/../.devcontainer/lib/git.sh"
+DEV_MAIN_TREE="$(dev_main_tree)" || exit 1
+export DEV_MAIN_TREE
+COMPOSE_FILE="$DEV_MAIN_TREE/.devcontainer/docker-compose.yml"
+COMPOSE_OVERRIDE="$DEV_MAIN_TREE/.devcontainer/project/compose.override.yml"
 
 if [ ! -f "$COMPOSE_FILE" ]; then
     echo "error: $COMPOSE_FILE not found" >&2
-    echo "The .devcontainer/ directory must exist in the main checkout: $MAIN_TREE" >&2
+    echo "The .devcontainer/ directory must exist in the main checkout: $DEV_MAIN_TREE" >&2
     exit 1
 fi
 
-PROJECT_ENV="$MAIN_TREE/dev/project.env"
-[ -f "$PROJECT_ENV" ] && . "$PROJECT_ENV"
-PROJECT_NAME="${PROJECT_NAME:-$(basename "$MAIN_TREE")}"
 # not configurable — compose, Dockerfile, and setup-claude all assume this path
-CONTAINER_WORKSPACE="/workspaces/src"
+DEV_CONTAINER_WORKSPACE="/workspaces/src"
 
 DEV_WORKSPACE="${DEV_WORKSPACE:-.}"
 _CMD="${1:-up}"
@@ -55,47 +61,64 @@ else
     fi
     export DEV_WORKSPACE="$(cd "$DEV_WORKSPACE" && pwd)"
 fi
+
+# PROJECT_NAME scopes container names and shared volumes — must be consistent
+# across worktrees, so always read from the main tree's project.env.
+_main_project_env="$DEV_MAIN_TREE/.devcontainer/project/project.env"
+[ -f "$_main_project_env" ] && . "$_main_project_env"
+DEV_PROJECT_NAME="${PROJECT_NAME:-$(basename "$DEV_MAIN_TREE")}"
+unset PROJECT_NAME
+# MODEL_VERSION can vary per worktree. Re-source the workspace's copy
+# (if different from main) so per-worktree overrides take effect.
+if [ "$DEV_WORKSPACE" != "$DEV_MAIN_TREE" ]; then
+    _ws_project_env="$DEV_WORKSPACE/.devcontainer/project/project.env"
+    [ -f "$_ws_project_env" ] && . "$_ws_project_env"
+    unset PROJECT_NAME
+fi
+[ -n "${MODEL_VERSION:-}" ] && export DEV_MODEL_VERSION="$MODEL_VERSION"
+unset MODEL_VERSION
 export DEV_UID="$(id -u)"
 export DEV_GID="$(id -g)"
-export DEV_MAIN_GIT="$MAIN_TREE/.git"
-export DEV_MAIN_TREE="$MAIN_TREE"
+export DEV_MAIN_GIT="$DEV_MAIN_TREE/.git"
 export DEV_HOST_USER="$(whoami)"
-export DEV_PROJECT_NAME="$PROJECT_NAME"
-export DEV_CONTAINER_WORKSPACE="$CONTAINER_WORKSPACE"
-[ -n "${MODEL_VERSION:-}" ] && export DEV_MODEL_VERSION="$MODEL_VERSION"
-# SSH agent forwarding: socat bridges the host agent into the container
-# over TCP via host.docker.internal, so the container never bind-mounts
-# the socket directly.  `devcontainer refresh-ssh` restarts the bridge
-# without touching the container.  For tighter control, use `ssh-add -c`
-# (confirm each use) or load only the keys you need.
+export DEV_PROJECT_NAME
+export DEV_CONTAINER_WORKSPACE
+# SSH and GPG agent forwarding: socat bridges the host agents into the
+# container over TCP via host.docker.internal, so the container never
+# bind-mounts the sockets directly.  `devcontainer refresh-ssh` and
+# `devcontainer refresh-gpg` restart the respective bridges without
+# rebuilding or restarting the container.  For tighter SSH control,
+# use `ssh-add -c` (confirm each use) or load only the keys you need.
 
-SOPS_AGE_DIR="${HOME}/.config/sops/age"
-if [ -d "$SOPS_AGE_DIR" ]; then
-    export DEV_SOPS_AGE_DIR="$SOPS_AGE_DIR"
+if [ -d "${HOME}/.config/sops/age" ]; then
+    export DEV_SOPS_AGE_DIR="${HOME}/.config/sops/age"
 else
     # mount an empty directory so the container sees a keyless dir, not a device file
-    DEV_SOPS_AGE_EMPTY="/tmp/devcontainer-empty-sops-age"
-    mkdir -p "$DEV_SOPS_AGE_EMPTY"
-    export DEV_SOPS_AGE_DIR="$DEV_SOPS_AGE_EMPTY"
+    DEV_SOPS_AGE_DIR="/tmp/devcontainer-empty-sops-age"
+    mkdir -p "$DEV_SOPS_AGE_DIR"
+    export DEV_SOPS_AGE_DIR
     echo "warning: no sops age key found — sops-encrypted envrc secrets won't decrypt inside the container" >&2
 fi
 
-if [ "$DEV_WORKSPACE" = "$MAIN_TREE" ]; then
+if [ "$DEV_WORKSPACE" = "$DEV_MAIN_TREE" ]; then
     export DEV_WORKTREE="main"
 else
     export DEV_WORKTREE="$(basename "$DEV_WORKSPACE")"
 fi
 
-CONTAINER_NAME="${PROJECT_NAME}-dev-$(basename "$DEV_WORKSPACE")"
-LOCKFILE="/tmp/devcontainer-${CONTAINER_NAME}.lock"
+DEV_CONTAINER_NAME="${DEV_PROJECT_NAME}-dev-$(basename "$DEV_WORKSPACE")"
+DEV_LOCKFILE="/tmp/devcontainer-${DEV_CONTAINER_NAME}.lock"
 
-HAS_SOCAT=false
+DEV_HAS_SOCAT=false
 if command -v socat >/dev/null 2>&1; then
-    HAS_SOCAT=true
+    DEV_HAS_SOCAT=true
 fi
 
 dc() {
-    docker compose -f "$COMPOSE_FILE" -p "$CONTAINER_NAME" "$@"
+    local files=(-f "$COMPOSE_FILE")
+    [ -f "$COMPOSE_OVERRIDE" ] && files+=(-f "$COMPOSE_OVERRIDE")
+    [ -n "${DEV_HOST_MOUNTS_OVERRIDE:-}" ] && files+=(-f "$DEV_HOST_MOUNTS_OVERRIDE")
+    docker compose "${files[@]}" -p "$DEV_CONTAINER_NAME" "$@"
 }
 
 dc_exec() {
@@ -109,13 +132,31 @@ is_running() {
 }
 
 config_hash() {
-    local df="$MAIN_TREE/.devcontainer/Dockerfile"
+    local df="$DEV_MAIN_TREE/.devcontainer/Dockerfile"
     [ -f "$df" ] || { echo "error: $df not found" >&2; return 1; }
-    cat "$df" "$COMPOSE_FILE" \
-        "$MAIN_TREE/.devcontainer/setup-claude.py" \
-        "$MAIN_TREE/.devcontainer/audit-hook" \
-        "$MAIN_TREE/.devcontainer/setup-env.sh" \
-    | sha256sum | cut -d' ' -f1
+    local files=(
+        "$df"
+        "$COMPOSE_FILE"
+        "$DEV_MAIN_TREE/.devcontainer/setup-claude.py"
+        "$DEV_MAIN_TREE/.devcontainer/audit-hook"
+        "$DEV_MAIN_TREE/.devcontainer/project/install-system.sh"
+        "$DEV_MAIN_TREE/.devcontainer/project/setup-env.sh"
+    )
+    [ -f "$COMPOSE_OVERRIDE" ] && files+=("$COMPOSE_OVERRIDE")
+    local hm
+    for hm in \
+        "$DEV_MAIN_TREE/.devcontainer/project/host-mounts.txt" \
+        "$DEV_MAIN_TREE/.devcontainer/project/host-mounts.local.txt"; do
+        [ -f "$hm" ] && files+=("$hm")
+    done
+    {
+        cat "${files[@]}"
+        # Build args interpolated into compose at build time are baked into
+        # the image and don't show up in file-content hashing — include them
+        # explicitly so a change forces rebuild. Anything else baked via env
+        # interpolation must be added here.
+        printf 'DEV_CONTAINER_WORKSPACE=%s\n' "$DEV_CONTAINER_WORKSPACE"
+    } | sha256sum | cut -d' ' -f1
 }
 
 image_stale() {
@@ -125,13 +166,13 @@ image_stale() {
 
     local container_image tagged_image
     container_image="$(docker inspect --format '{{.Image}}' "$container_id")" || return 0
-    tagged_image="$(docker image inspect --format '{{.ID}}' "${CONTAINER_NAME}:$(config_hash)" 2>/dev/null)" || return 0
+    tagged_image="$(docker image inspect --format '{{.ID}}' "${DEV_CONTAINER_NAME}:$(config_hash)" 2>/dev/null)" || return 0
 
     [ "$container_image" != "$tagged_image" ]
 }
 
 tag_image() {
-    docker tag "$(dc images -q app)" "${CONTAINER_NAME}:$(config_hash)" \
+    docker tag "$(dc images -q app)" "${DEV_CONTAINER_NAME}:$(config_hash)" \
         || echo "warning: could not tag image — staleness check will re-trigger next run" >&2
 }
 
@@ -142,160 +183,139 @@ require_tty() {
     fi
 }
 
-ssh_forward_port() {
-    local hash
-    hash="$(echo "$CONTAINER_NAME" | cksum | cut -d' ' -f1)"
-    echo $(( (hash % 16384) + 49152 ))
-}
+# Generic host<->container bridge: SSH agent forwarding, host git/gh/Claude
+# config copy. Defined separately so this script stays focused on orchestration.
+. "$DEV_MAIN_TREE/.devcontainer/lib/host-bridge.sh"
+. "$DEV_MAIN_TREE/.devcontainer/lib/list-file.sh"
+. "$DEV_MAIN_TREE/.devcontainer/lib/host-mounts.sh"
 
-SSH_FORWARD_PIDFILE="/tmp/devcontainer-ssh-forward-${CONTAINER_NAME}.pid"
+generate_host_mounts_override
 
-stop_ssh_forward() {
-    if [ -f "$SSH_FORWARD_PIDFILE" ]; then
-        local pid
-        pid="$(cat "$SSH_FORWARD_PIDFILE")"
-        kill "$pid" 2>/dev/null || true
-        rm -f "$SSH_FORWARD_PIDFILE"
-    fi
-    if is_running; then
-        dc_exec bash -c 'pkill -f "socat UNIX-LISTEN:/run/ssh-agent/" 2>/dev/null' || true
-    fi
-}
-
-setup_ssh_forward() {
-    if [ "$HAS_SOCAT" != "true" ]; then
-        echo "warning: socat not found on host — SSH agent forwarding disabled (apt install socat)" >&2
-        return 0
-    fi
-    if [ ! -S "${SSH_AUTH_SOCK:-}" ]; then
-        echo "warning: no SSH agent detected — git over SSH won't work inside the container" >&2
-        return 0
-    fi
-
-    stop_ssh_forward
-
-    local port
-    port="$(ssh_forward_port)"
-
-    local bridge_ip
-    bridge_ip="$(docker network inspect bridge --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}')"
-    if [ -z "$bridge_ip" ]; then
-        echo "error: could not determine Docker bridge gateway IP" >&2
+# Named-volume mount targets from the merged compose config — these come
+# up root-owned and need chowning before user-mode setup runs. Deriving
+# from compose means projects only declare volumes in compose.override.yml.
+named_volume_targets() {
+    local cfg
+    cfg="$(dc config --format=json)" || {
+        echo "error: 'docker compose config' failed — cannot derive named-volume mount targets" >&2
         return 1
-    fi
-
-    socat "TCP-LISTEN:${port},bind=${bridge_ip},reuseaddr,fork" \
-          "UNIX-CONNECT:${SSH_AUTH_SOCK}" 9>&- &
-    local host_pid=$!
-    echo "$host_pid" > "$SSH_FORWARD_PIDFILE"
-
-    sleep 0.2
-    if ! kill -0 "$host_pid" 2>/dev/null; then
-        echo "error: host-side SSH forwarder failed to start (port $port may be in use)" >&2
-        rm -f "$SSH_FORWARD_PIDFILE"
-        return 1
-    fi
-
-    dc_exec bash -c "
-        nohup socat \
-            UNIX-LISTEN:/run/ssh-agent/agent.sock,fork,unlink-early,mode=600 \
-            TCP:host.docker.internal:${port} \
-            </dev/null >/dev/null 2>&1 &
-    "
-
-    sleep 0.3
-    if ! dc_exec ssh-add -l >/dev/null 2>&1; then
-        echo "warning: SSH agent bridge started but ssh-add -l failed inside the container" >&2
-    fi
+    }
+    printf '%s' "$cfg" | python3 -c '
+import json, sys
+cfg = json.load(sys.stdin)
+for v in cfg.get("services", {}).get("app", {}).get("volumes") or []:
+    if v.get("type") == "volume" and v.get("target"):
+        print(v["target"])
+'
 }
 
-setup_claude() {
-    local host_project_key container_project_key
-    host_project_key="$(echo "$DEV_WORKSPACE" | sed 's|/|-|g')"
-    container_project_key="$(echo "$CONTAINER_WORKSPACE" | sed 's|/|-|g')"
-
-    # named volume root is owned by root; fix so vscode can write
-    dc exec -u root app chown -R vscode:vscode /home/vscode/.claude
-
-    dc exec \
-        -e DEV_CONTAINER_WORKSPACE="$CONTAINER_WORKSPACE" \
-        -e DEV_HOST_PROJECT_KEY="$host_project_key" \
-        -e DEV_CONTAINER_PROJECT_KEY="$container_project_key" \
-        app python3 /usr/local/bin/setup-claude
-}
-
-setup_git() {
-    local name email
-    name="$(git config user.name 2>/dev/null || true)"
-    email="$(git config user.email 2>/dev/null || true)"
-    if [ -n "$name" ]; then
-        dc_exec git config --global user.name "$name"
-    fi
-    if [ -n "$email" ]; then
-        dc_exec git config --global user.email "$email"
-    fi
-}
-
-setup_gh() {
-    local hosts="$HOME/.config/gh/hosts.yml"
-    if [ -f "$hosts" ]; then
-        dc_exec mkdir -p /home/vscode/.config/gh
-        docker cp "$hosts" "$(dc ps -q app)":/home/vscode/.config/gh/hosts.yml
-    fi
-}
-
-# per-project: first-run setup — chown build artifacts, install deps
+# First-run setup: chown root-owned named-volume mount points, set up the
+# host-path symlink for tools that persist absolute paths, then delegate
+# to the project's setup-env first-run.
 setup() {
-    dc exec -u root app chown vscode:vscode "$CONTAINER_WORKSPACE/.venv"
-    dc exec app setup-env
-    echo "Dev container ready: $CONTAINER_NAME"
-}
+    # Named volume mounts come up root-owned; fix targets and any parent
+    # dirs auto-created by docker (e.g. /home/vscode/.cache when only
+    # /home/vscode/.cache/uv is mounted). Ancestor walk is bounded to
+    # /home/vscode/* — anything above is system-owned by design, and
+    # workspace-rooted volumes' parents resolve into the host bind mount
+    # (touching them would rewrite host-file ownership).
+    #
+    # Targets are passed via stdin (one per line) rather than interpolated
+    # into the shell string so values from `docker compose config` can never
+    # be parsed as shell metacharacters.
+    named_volume_targets | dc exec -T -u root app sh -c '
+        while IFS= read -r d; do
+            [ -n "$d" ] || continue
+            chown -R vscode:vscode "$d" 2>/dev/null || true
+            p="$(dirname "$d")"
+            while [ "$p" != "/" ] && [ "$p" != "." ]; do
+                case "$p" in
+                    /home/vscode/*) ;;
+                    *) break ;;
+                esac
+                chown vscode:vscode "$p" 2>/dev/null || true
+                p="$(dirname "$p")"
+            done
+        done
+    '
 
-# per-project: re-sync dependencies when lockfile changes
-sync_if_needed() {
-    local lock_mtime stamp_mtime
-    lock_mtime="$(dc_exec stat -c %Y uv.lock 2>/dev/null)" || return 0
-    stamp_mtime="$(dc_exec stat -c %Y .venv/.last-sync 2>/dev/null)" || stamp_mtime=0
-    if [ "$lock_mtime" -gt "$stamp_mtime" ]; then
-        dc_exec bash -c 'uv sync --all-extras --all-groups && touch .venv/.last-sync'
+    # Make the host workspace path resolvable inside the container.
+    # Tools that persist absolute host paths (Nix gcroots, direnv state,
+    # some build systems) fail when the host path doesn't exist in the
+    # container. No-op when DEV_WORKSPACE == DEV_CONTAINER_WORKSPACE.
+    # Also skipped when DEV_WORKSPACE == DEV_MAIN_TREE: the compose
+    # volume DEV_MAIN_TREE:DEV_MAIN_TREE already bind-mounts the host
+    # path as a real directory, so ln would descend into it and collide
+    # with existing contents.
+    #
+    # Intermediate dirs created here may be root-owned when the host path
+    # isn't under /home/$HOST_USER (which the Dockerfile already symlinks
+    # into /home/vscode). Harmless — only the symlink itself is ever read.
+    if [ "$DEV_WORKSPACE" != "$DEV_CONTAINER_WORKSPACE" ] \
+        && [ "$DEV_WORKSPACE" != "$DEV_MAIN_TREE" ]; then
+        dc exec -u root \
+            -e DEV_WORKSPACE="$DEV_WORKSPACE" \
+            -e DEV_CONTAINER_WORKSPACE="$DEV_CONTAINER_WORKSPACE" \
+            app sh -c '
+                mkdir -p "$(dirname "$DEV_WORKSPACE")"
+                ln -sfn "$DEV_CONTAINER_WORKSPACE" "$DEV_WORKSPACE"
+            '
     fi
+
+    dc exec app setup-env first-run
+    echo "Dev container ready: $DEV_CONTAINER_NAME"
 }
 
-ensure_shared_volumes() {
-    docker volume create "${PROJECT_NAME}-uv-cache" >/dev/null 2>&1 || true
-    docker volume create "${PROJECT_NAME}-ibis-testing-data" >/dev/null 2>&1 || true
+# re-sync dependencies when lockfile changes — also project-defined
+sync_if_needed() {
+    dc_exec setup-env sync-if-needed
+}
+
+ensure_external_volumes() {
+    while IFS= read -r name; do
+        docker volume create "${DEV_PROJECT_NAME}-${name}" >/dev/null 2>&1 || true
+    done < <(read_list "$DEV_MAIN_TREE/.devcontainer/project/external-volumes.txt")
 }
 
 ensure_up() {
-    exec 9>"$LOCKFILE"
-    if ! flock -n 9; then
-        echo "Another devcontainer operation is in progress, waiting..."
-        flock 9
-    fi
+    # Subshell scopes fd 9 so no child process can inherit the flock.
+    (
+        flock -n 9 || {
+            echo "Another devcontainer operation is in progress, waiting..."
+            flock 9
+        }
 
-    ensure_shared_volumes
-
-    if ! is_running; then
-        dc up --build -d
-        tag_image
-        setup
-    elif image_stale; then
-        read -rp "Devcontainer config changed. Running container will be stopped. Continue? [y/N] " answer
-        if [[ "$answer" != [yY]* ]]; then
-            exit 0
+        setup_claude_credentials
+        ensure_external_volumes
+        if [ "$DEV_WORKSPACE" != "$DEV_MAIN_TREE" ]; then
+            (cd "$DEV_WORKSPACE" && "$DEV_MAIN_TREE/dev/setup-worktree")
         fi
-        dc down
-        dc up --build -d
-        tag_image
-        setup
-    fi
-    setup_git
-    setup_gh
-    setup_ssh_forward
-    setup_claude
-    sync_if_needed
 
-    exec 9>&-
+        if ! is_running; then
+            dc up --build -d
+            tag_image
+            setup
+        elif image_stale; then
+            read -rp "Devcontainer config changed. Running container will be stopped. Continue? [y/N] " answer
+            if [[ "$answer" != [yY]* ]]; then
+                exit 0  # exits the subshell, not the script
+            fi
+            dc down
+            dc up --build -d
+            tag_image
+            setup
+        fi
+
+        setup_git
+        setup_gh
+        # Close flock fd so the backgrounded socat in setup_ssh_forward /
+        # setup_gpg_forward doesn't inherit it and hold the lock after
+        # the subshell exits.
+        setup_ssh_forward 9>&-
+        setup_gpg_forward 9>&-
+        setup_claude
+        sync_if_needed
+    ) 9>"$DEV_LOCKFILE"
 }
 
 case "${1:-up}" in
@@ -310,6 +330,7 @@ case "${1:-up}" in
             fi
         fi
         stop_ssh_forward
+        stop_gpg_forward
         dc down
         ;;
     reset)
@@ -318,6 +339,7 @@ case "${1:-up}" in
             exit 0
         fi
         stop_ssh_forward
+        stop_gpg_forward
         dc down --volumes
         ;;
     clean)
@@ -326,13 +348,14 @@ case "${1:-up}" in
             exit 0
         fi
         stop_ssh_forward
+        stop_gpg_forward
         dc down --volumes --rmi local
         docker images --format '{{.Repository}}:{{.Tag}}' \
-            | grep "^${CONTAINER_NAME}:" \
+            | grep "^${DEV_CONTAINER_NAME}:" \
             | xargs -r docker rmi 2>/dev/null || true
         rm -rf "$DEV_WORKSPACE/.claude/container-audit"
         rm -rf "$DEV_WORKSPACE/.claude/container-sessions"
-        echo "Cleaned: $CONTAINER_NAME"
+        echo "Cleaned: $DEV_CONTAINER_NAME"
         ;;
     exec)
         shift
@@ -347,15 +370,19 @@ case "${1:-up}" in
         shift
         require_tty claude
         ensure_up
-        echo "Entering claude in $CONTAINER_NAME..."
-        dc_exec claude "$@"
+        echo "Entering claude in $DEV_CONTAINER_NAME..."
+        model_args=()
+        [ -n "${DEV_MODEL_VERSION:-}" ] && model_args=(--model "$DEV_MODEL_VERSION")
+        dc_exec claude "${model_args[@]}" "$@"
         ;;
     claude-dangerously-skip-permissions)
         shift
         require_tty claude-dangerously-skip-permissions
         ensure_up
-        echo "Entering claude in $CONTAINER_NAME (--dangerously-skip-permissions)..."
-        dc_exec claude --dangerously-skip-permissions "$@"
+        echo "Entering claude in $DEV_CONTAINER_NAME (--dangerously-skip-permissions)..."
+        model_args=()
+        [ -n "${DEV_MODEL_VERSION:-}" ] && model_args=(--model "$DEV_MODEL_VERSION")
+        dc_exec claude --dangerously-skip-permissions "${model_args[@]}" "$@"
         ;;
     refresh-ssh)
         if ! is_running; then
@@ -363,7 +390,27 @@ case "${1:-up}" in
             exit 1
         fi
         setup_ssh_forward
-        echo "SSH agent forwarded into $CONTAINER_NAME"
+        echo "SSH agent forwarded into $DEV_CONTAINER_NAME"
+        ;;
+    refresh-gpg)
+        if ! is_running; then
+            echo "error: container is not running" >&2
+            exit 1
+        fi
+        setup_gpg_forward
+        echo "GPG agent forwarded into $DEV_CONTAINER_NAME"
+        ;;
+    fix-credentials)
+        if ! is_running; then
+            echo "error: container is not running (start with 'devcontainer up' first)" >&2
+            exit 1
+        fi
+        dc exec -u root app sh -c '
+            rm -f /home/vscode/.claude/.credentials.json
+            ln -s credentials/.credentials.json /home/vscode/.claude/.credentials.json
+            chown -h vscode:vscode /home/vscode/.claude/.credentials.json
+        '
+        echo "Credentials symlink repaired in $DEV_CONTAINER_NAME"
         ;;
     audit)
         shift
@@ -377,11 +424,11 @@ case "${1:-up}" in
             echo "No audit log found at $audit_log"
             exit 0
         fi
-        python3 "$MAIN_TREE/.devcontainer/audit-report.py" "$audit_log" "${1:---summary}"
+        python3 "$DEV_MAIN_TREE/.devcontainer/audit-report.py" "$audit_log" "${1:---summary}"
         ;;
     status)
         if is_running; then
-            echo "running: $CONTAINER_NAME (workspace: $DEV_WORKSPACE)"
+            echo "running: $DEV_CONTAINER_NAME (workspace: $DEV_WORKSPACE)"
         else
             echo "stopped"
         fi
@@ -406,6 +453,10 @@ Commands:
   claude-dangerously-skip-permissions run claude with --dangerously-skip-permissions
   refresh-ssh                         re-forward SSH agent (runs automatically on up/exec/claude;
                                         use standalone when agent changes mid-session)
+  refresh-gpg                         re-forward GPG agent (runs automatically on up/exec/claude;
+                                        use standalone when host gpg-agent restarts)
+  fix-credentials                     repair credentials symlink in a running container
+                                        (needed after upgrading from pre-shared-credentials build)
   audit [--summary|--new|--all|--clear]  show permission audit log (default: --summary)
   completions [bash|zsh|fish]         emit shell completions
 USAGE

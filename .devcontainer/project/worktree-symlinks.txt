@@ -1,0 +1,11 @@
+# Paths under the main worktree to symlink into new worktrees.
+# Format: see .devcontainer/lib/list-file.sh.
+#
+# Note: `.claude` is always symlinked by setup-worktree itself (audit
+# logs and session captures are devcontainer infrastructure, not
+# project-specific) — don't list it here.
+#
+# `ci/ibis-testing-data` is backed by a docker named volume mounted at
+# the main worktree's path (see compose.override.yml + external-volumes.txt);
+# this symlink lets sibling worktrees resolve into that same directory.
+ci/ibis-testing-data

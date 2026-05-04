@@ -2,7 +2,6 @@
 """PreToolUse audit hook — appends one JSONL line per tool invocation."""
 
 import json
-import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,10 +10,11 @@ log_path = sys.argv[1]
 err_path = Path(log_path).with_suffix(".errors")
 
 try:
+    event = json.load(sys.stdin)
     entry = {
         "ts": datetime.now(timezone.utc).isoformat(),
-        "tool": os.environ.get("CLAUDE_TOOL_NAME", ""),
-        "input": json.loads(os.environ.get("CLAUDE_TOOL_INPUT", "{}")),
+        "tool": event.get("tool_name", ""),
+        "input": event.get("tool_input", {}),
     }
     with open(log_path, "a") as f:
         json.dump(entry, f, separators=(",", ":"))

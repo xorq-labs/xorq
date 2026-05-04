@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-main=$(git worktree list --porcelain | head -1 | cut -d' ' -f2)
+. "$(dirname "$0")/../.devcontainer/lib/git.sh"
+main=$(dev_main_tree)
 here=$(git rev-parse --show-toplevel)
 
 if [ "$main" = "$here" ]; then
@@ -10,47 +11,83 @@ if [ "$main" = "$here" ]; then
 fi
 
 manifest="$here/.envrcs/.worktree-manifest"
+mkdir -p "$here/.envrcs"
 : > "$manifest"
+changes=0
 
-# per-project: env/secrets files to copy into worktrees
-for f in "$main"/.envrcs/.envrc.secrets "$main"/.envrcs/.envrc.user "$main"/.envrcs/.env.*; do
-    if [ -e "$f" ]; then
-        cp -Pv "$f" "$here/.envrcs/"
-        echo ".envrcs/$(basename "$f")" >> "$manifest"
+. "$main/.devcontainer/lib/list-file.sh"
+
+# `[ -e PATH ]` follows symlinks, so a broken symlink reads as "not present"
+# and we'd try to create over it. `-L` catches the symlink itself.
+is_present() { [ -e "$1" ] || [ -L "$1" ]; }
+
+# Stale symlink (target gone) → remove so the create step below can heal it.
+# Leaves real files/dirs and valid symlinks untouched. Returns 0 if healed.
+heal_stale_symlink() {
+    if [ -L "$1" ] && [ ! -e "$1" ]; then
+        rm -v "$1"
+        return 0
     fi
-done
+    return 1
+}
 
-# Copy files that git opens with O_NOFOLLOW (symlinks cause ELOOP)
-for target in .gitignore; do
-    if [ -e "$main/$target" ] && [ ! -e "$here/$target" ]; then
-        cp -v "$main/$target" "$here/$target"
-        echo "$target" >> "$manifest"
-    fi
-done
-
-# per-project: shared directories to symlink from main worktree
-for target in .claude ci/ibis-testing-data; do
-    if [ -e "$main/$target" ] && [ ! -e "$here/$target" ]; then
-        mkdir -p "$(dirname "$here/$target")"
-        ln -sv "$main/$target" "$here/$target"
-        echo "$target" >> "$manifest"
-    fi
-done
-
-# Symlink user-defined extras from main worktree
-extra="$main/.envrcs/.worktree-symlinks"
-if [ -f "$extra" ]; then
-    while IFS= read -r target || [ -n "$target" ]; do
-        target="${target%%#*}"          # strip inline comments
-        target="${target// /}"          # trim whitespace
-        [ -z "$target" ] && continue    # skip blank lines
-        if [ -e "$main/$target" ] && [ ! -e "$here/$target" ]; then
-            mkdir -p "$(dirname "$here/$target")"
-            ln -sv "$main/$target" "$here/$target"
-            echo "$target" >> "$manifest"
+# Copy paths listed in project/worktree-copies.txt (globs expanded against $main).
+# NUL-delimited subshell with nullglob handles filenames with spaces safely.
+# Shell substitutions (`$(...)`, backticks, `~`, `$VAR`) in patterns are not
+# supported — the file is treated as data, not script.
+while IFS= read -r pattern; do
+    [ -z "$pattern" ] && continue
+    while IFS= read -r -d '' f; do
+        is_present "$f" || continue
+        rel="${f#"$main/"}"
+        if ! is_present "$here/$rel"; then
+            mkdir -p "$here/$(dirname "$rel")"
+            cp -Pv "$f" "$here/$rel"
+            changes=$((changes + 1))
         fi
-    done < "$extra"
+        echo "$rel" >> "$manifest"
+    done < <(shopt -s nullglob; IFS=; for f in "$main"/$pattern; do printf '%s\0' "$f"; done)
+done < <(read_list "$main/.devcontainer/project/worktree-copies.txt")
+
+# .gitignore: git opens it with O_NOFOLLOW (a symlink would ELOOP) — must be a copy.
+if [ -e "$main/.gitignore" ]; then
+    if ! is_present "$here/.gitignore"; then
+        cp -v "$main/.gitignore" "$here/.gitignore"
+        changes=$((changes + 1))
+    fi
+    echo ".gitignore" >> "$manifest"
 fi
 
-echo "Manifest written to .envrcs/.worktree-manifest"
-echo "To remove: dev/cleanup-worktree"
+link_from_main() {
+    local target="$1"
+    heal_stale_symlink "$here/$target" && changes=$((changes + 1))
+    if [ -e "$main/$target" ]; then
+        if ! is_present "$here/$target"; then
+            mkdir -p "$(dirname "$here/$target")"
+            ln -sv "$main/$target" "$here/$target"
+            changes=$((changes + 1))
+        fi
+        echo "$target" >> "$manifest"
+    fi
+}
+
+# .claude: audit logs and session captures must aggregate in the main checkout
+# (devcontainer infrastructure, not project-specific) — always a symlink.
+link_from_main ".claude"
+
+# Symlink paths listed in project/worktree-symlinks.txt.
+while IFS= read -r target; do
+    [ -z "$target" ] && continue
+    link_from_main "$target"
+done < <(read_list "$main/.devcontainer/project/worktree-symlinks.txt")
+
+# Per-developer extras (gitignored).
+while IFS= read -r target; do
+    [ -z "$target" ] && continue
+    link_from_main "$target"
+done < <(read_list "$main/.envrcs/.worktree-symlinks")
+
+if [ "$changes" -gt 0 ]; then
+    echo "Manifest written to .envrcs/.worktree-manifest"
+    echo "To remove: dev/cleanup-worktree"
+fi

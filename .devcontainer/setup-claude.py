@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """Set up Claude Code config inside the dev container.
 
-Copies host baseline (credentials, permissions, memory) into the container's
-isolated ~/.claude, installs a PreToolUse audit hook, and symlinks sessions
-to the workspace for host log capture.
+Sets up Claude Code config inside the container's isolated ~/.claude volume.
+Credentials are shared via a bind-mounted directory (not copied); permissions,
+memory, and global instructions are copied from the read-only host mount.
+Installs a PreToolUse audit hook and symlinks sessions for host log capture.
+
+Note: ~/.claude/.credentials.json is a symlink to credentials/.credentials.json
+created at image-build time (see Dockerfile) and copied into the claude-home
+named volume on first init — this script does not manage it. The host-side
+migration of legacy credentials lives in .devcontainer/lib/host-bridge.sh.
 
 Expected environment variables (set by dev/devcontainer):
     DEV_CONTAINER_WORKSPACE  — container workspace path (e.g. /workspaces/src)
@@ -28,14 +34,6 @@ REQUIRED_VARS = (
     "DEV_HOST_PROJECT_KEY",
     "DEV_CONTAINER_PROJECT_KEY",
 )
-
-
-def copy_credentials():
-    src = HOST / ".credentials.json"
-    if src.exists():
-        dst = HOME / ".credentials.json"
-        shutil.copy2(src, dst)
-        dst.chmod(0o600)
 
 
 def copy_global_instructions():
@@ -105,10 +103,6 @@ def setup_settings(workspace, host_project_key):
         },
     }
 
-    model_version = os.environ.get("DEV_MODEL_VERSION")
-    if model_version:
-        container_settings["model"] = model_version
-
     with open(HOME / "settings.json", "w") as f:
         json.dump(container_settings, f, indent=2)
 
@@ -176,7 +170,6 @@ def main():
 
     HOME.mkdir(parents=True, exist_ok=True)
 
-    copy_credentials()
     copy_global_instructions()
     copy_user_prefs(workspace)
     setup_settings(workspace, host_project_key)
