@@ -1,0 +1,97 @@
+name: ci-test-catalog
+
+on:
+  push:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "**/*.qmd"
+      - "*.md"
+      - "codecov.yml"
+      - ".envrc"
+    branches:
+      - main
+    tags:
+      - '*'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    strategy:
+      # Run both partitions to completion even if one fails — they're
+      # independent backends and a failure in one shouldn't mask the other.
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]
+        # Partition relies on the session fixture in
+        # python/xorq/catalog/tests/conftest.py (params=["git", "annex"]):
+        # tests that consume `backend_type` get [git]/[annex] in their
+        # nodeids; tests without it fall into the `git` job. New tests that
+        # need the git-annex binary must consume `backend_type` (or otherwise
+        # tag themselves with [annex]) to be routed to the annex job.
+        backend:
+          - name: git
+            k_filter: "not [annex] and not script_execution and not slow"
+          - name: annex
+            k_filter: "[annex] and not script_execution and not slow"
+            sys-deps:
+              - git-annex
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: configure git identity
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@xorq.dev"
+
+      - uses: extractions/setup-just@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: download test data
+        run: just download-data
+
+      - name: install system dependencies
+        if: matrix.backend.sys-deps != null
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq -y
+          sudo apt-get install -qq -y ${{ join(matrix.backend.sys-deps, ' ') }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install the project
+        run: uv sync --locked --group dev --group test
+        working-directory: ${{ github.workspace }}
+
+      - name: pytest
+        timeout-minutes: 20
+        env:
+          K_FILTER: ${{ matrix.backend.k_filter }}
+        run: >
+          uv run --no-sync pytest
+          --import-mode=importlib
+          --cov --cov-report=xml
+          python/xorq/catalog/tests
+          -k "$K_FILTER"
+          -v --durations=20 -n auto --dist=loadfile
+        working-directory: ${{ github.workspace }}
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5.5.4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: catalog-${{ matrix.backend.name }}

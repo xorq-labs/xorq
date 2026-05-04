@@ -12,7 +12,6 @@ on:
       - ".envrc"
     branches:
       - main
-      - master
     tags:
       - '*'
   pull_request:
@@ -140,7 +139,15 @@ jobs:
 
       - name: pytest
         timeout-minutes: 20
-        run: uv run --no-sync pytest --import-mode=importlib --cov --cov-report=xml -m ${{ matrix.backend.name }} -k 'not script_execution and not slow' -v --durations=20${{ matrix.backend.parallel && ' -n auto --dist=loadfile' || '' }}
+        run: >
+          uv run --no-sync pytest
+          --import-mode=importlib
+          --cov --cov-report=xml
+          -m ${{ matrix.backend.name }}
+          --ignore=python/xorq/catalog
+          -k 'not script_execution and not slow'
+          -v --durations=20
+          ${{ matrix.backend.parallel && '-n auto --dist=loadfile' || '' }}
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres
