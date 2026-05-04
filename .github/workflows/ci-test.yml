@@ -12,7 +12,6 @@ on:
       - ".envrc"
     branches:
       - main
-      - master
     tags:
       - '*'
   pull_request:

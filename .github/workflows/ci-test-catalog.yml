@@ -24,8 +24,17 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     strategy:
+      # Run both partitions to completion even if one fails — they're
+      # independent backends and a failure in one shouldn't mask the other.
+      fail-fast: false
       matrix:
         python-version: ["3.12"]
+        # Partition relies on the session fixture in
+        # python/xorq/catalog/tests/conftest.py (params=["git", "annex"]):
+        # tests that consume `backend_type` get [git]/[annex] in their
+        # nodeids; tests without it fall into the `git` job. New tests that
+        # need the git-annex binary must consume `backend_type` (or otherwise
+        # tag themselves with [annex]) to be routed to the annex job.
         backend:
           - name: git
             k_filter: "not [annex] and not script_execution and not slow"
@@ -70,12 +79,14 @@ jobs:
 
       - name: pytest
         timeout-minutes: 20
+        env:
+          K_FILTER: ${{ matrix.backend.k_filter }}
         run: >
           uv run --no-sync pytest
           --import-mode=importlib
           --cov --cov-report=xml
           python/xorq/catalog/tests
-          -k '${{ matrix.backend.k_filter }}'
+          -k "$K_FILTER"
           -v --durations=20 -n auto --dist=loadfile
         working-directory: ${{ github.workspace }}
 
@@ -83,3 +94,4 @@ jobs:
         uses: codecov/codecov-action@v5.5.4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          flags: catalog-${{ matrix.backend.name }}
