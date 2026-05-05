@@ -5,13 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.22] - 2026-05-05
 ### Details
-#### Removed
-- **Breaking:** Remove `xo.read_postgres` from the public API. Use `postgres_con.table(name).into_backend(xo.connect())` instead by @mesejo in [#1867](https://github.com/xorq-labs/xorq/pull/1867)
+#### Added
+- Add devcontainer with worktree support by @dlovell in [#1859](https://github.com/xorq-labs/xorq/pull/1859)
+- Add interactive expression composition to DataViewScreen by @hussainsultan in [#1808](https://github.com/xorq-labs/xorq/pull/1808)
+- Add BSL semantic catalog + catalog collaboration tutorials by @paddymul in [#1878](https://github.com/xorq-labs/xorq/pull/1878)
+- Add downstream BSL compatibility check by @dlovell in [#1915](https://github.com/xorq-labs/xorq/pull/1915)
 
 #### Changed
+- Cache test data, quarto, npm and start only postgres by @mesejo in [#1882](https://github.com/xorq-labs/xorq/pull/1882)
+- Replace SSH socket bind-mount with socat TCP bridge by @dlovell in [#1893](https://github.com/xorq-labs/xorq/pull/1893)
+- Consolidate default backend to xorq_datafusion by @mesejo in [#1866](https://github.com/xorq-labs/xorq/pull/1866)
+- Split test_cli.py by @mesejo in [#1871](https://github.com/xorq-labs/xorq/pull/1871)
+- Log subprocess errors to xorq.log by @hussainsultan in [#1872](https://github.com/xorq-labs/xorq/pull/1872)
+- Namespace annex fileprefix by remote name + UUID by @dlovell in [#1895](https://github.com/xorq-labs/xorq/pull/1895)
+- Update dependency notebook to v7.5.6 [security] by @renovate[bot] in [#1905](https://github.com/xorq-labs/xorq/pull/1905)
+- Update dependency ruff to v0.15.12 by @renovate[bot] in [#1907](https://github.com/xorq-labs/xorq/pull/1907)
+- Tokenize-tolerant normalize_read via read_path by @dlovell in [#1917](https://github.com/xorq-labs/xorq/pull/1917)
+- Update dependency pre-commit to v4.6.0 by @renovate[bot] in [#1909](https://github.com/xorq-labs/xorq/pull/1909)
+- Update pre-commit hook astral-sh/ruff-pre-commit to v0.15.12 by @renovate[bot] in [#1912](https://github.com/xorq-labs/xorq/pull/1912)
+- Update pre-commit hook astral-sh/uv-pre-commit to v0.11.8 by @renovate[bot] in [#1913](https://github.com/xorq-labs/xorq/pull/1913)
+- Move catalog tests to dedicated parallel workflow by @mesejo in [#1903](https://github.com/xorq-labs/xorq/pull/1903)
+- Portable project/ layout, lib/ extraction, host bridge by @dlovell in [#1922](https://github.com/xorq-labs/xorq/pull/1922)
 - Remove `_sources` bookkeeping from `xorq_datafusion` backend; cross-backend registration now flows through `into_backend` / `RemoteTable` by @mesejo in [#1867](https://github.com/xorq-labs/xorq/pull/1867)
+
+#### Fixed
+- Quickstart docs issues by @mesejo in [#1881](https://github.com/xorq-labs/xorq/pull/1881)
+- Snapshot strategy uses path identity by @mesejo in [#1861](https://github.com/xorq-labs/xorq/pull/1861)
+- Guard annex branch push when branch is missing by @dlovell in [#1892](https://github.com/xorq-labs/xorq/pull/1892)
+- Eliminate shared volume ownership warning by @dlovell in [#1897](https://github.com/xorq-labs/xorq/pull/1897)
+- Close flock fd before spawning socat SSH forwarder by @dlovell in [#1904](https://github.com/xorq-labs/xorq/pull/1904)
+- Raise informative ValueError for unknown backend by @dlovell in [#1914](https://github.com/xorq-labs/xorq/pull/1914)
+- Replace deprecated nix_direnv_watch_file with watch_file by @dlovell in [#1916](https://github.com/xorq-labs/xorq/pull/1916)
+
+#### Removed
+- Remove codspeed by @mesejo in [#1923](https://github.com/xorq-labs/xorq/pull/1923)
+- **Breaking:** Remove `xo.read_postgres` from the public API. Use `postgres_con.table(name).into_backend(xo.connect())` instead by @mesejo in [#1867](https://github.com/xorq-labs/xorq/pull/1867)
 
 ## [0.3.21] - 2026-04-28
 ### Details
