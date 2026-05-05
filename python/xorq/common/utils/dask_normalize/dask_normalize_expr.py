@@ -1,3 +1,4 @@
+import contextvars
 import itertools
 import pathlib
 import re
@@ -403,11 +404,33 @@ def normalize_ibis_datatype(datatype):
 @dask.base.normalize_token.register(rel.Read)
 def normalize_read(read):
     read_kwargs = dict(read.read_kwargs)
-    # Catalog stamps read_path as a stable content-addressed key; hash_path is per-load.
-    if (read_path := read_kwargs.get("read_path")) is not None:
-        tpls = (("read_path", str(read_path)),)
+    path = read_kwargs["hash_path"]
+    if isinstance(path, (list, tuple)):
+        # normalize_filenames may have converted a single path to a list
+        path = path[0] if len(path) == 1 else path
+    if isinstance(path, (str, pathlib.Path)):
+        path = str(path)
+        if path.startswith(("http://", "https://")):
+            tpls = _normalize_path_stat(path)
+        elif path.startswith(("s3://", "gs://", "gcs://")):
+            tpls = _normalize_path_stat(
+                path, **{k: v for k, v in read_kwargs.items() if k != "hash_path"}
+            )
+        elif not pathlib.Path(path).is_absolute() and path == read_kwargs.get(
+            "read_path"
+        ):
+            # Build-bundled Read whose hash_path was rewritten to the relative
+            # read_path for deterministic YAML (see common.py register_node).
+            # The filename is already a content hash, so use it directly.
+            tpls = (("build-relative-path", path),)
+        elif (path := pathlib.Path(path)).exists():
+            tpls = read.normalize_method(path)
+        else:
+            raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
+    elif isinstance(path, (list, tuple)) and all(isinstance(el, str) for el in path):
+        raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
     else:
-        tpls = _normalize_read_by_hash_path(read, read_kwargs)
+        raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
     tpls += tuple(
         (k, v)
         for k, v in read.read_kwargs
@@ -423,30 +446,6 @@ def normalize_read(read):
         tpls,
         caller="normalize_read",
     )
-
-
-def _normalize_read_by_hash_path(read, read_kwargs):
-    path = read_kwargs["hash_path"]
-    if isinstance(path, (list, tuple)):
-        # normalize_filenames may have converted a single path to a list
-        path = path[0] if len(path) == 1 else path
-    if isinstance(path, (str, pathlib.Path)):
-        path = str(path)
-        if path.startswith(("http://", "https://")):
-            tpls = _normalize_path_stat(path)
-        elif path.startswith(("s3://", "gs://", "gcs://")):
-            tpls = _normalize_path_stat(
-                path, **{k: v for k, v in read_kwargs.items() if k != "hash_path"}
-            )
-        elif (path := pathlib.Path(path)).exists():
-            tpls = read.normalize_method(path)
-        else:
-            raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
-    elif isinstance(path, (list, tuple)) and all(isinstance(el, str) for el in path):
-        raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
-    else:
-        raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
-    return tpls
 
 
 @dask.base.normalize_token.register(ir.DatabaseTable)
@@ -583,6 +582,14 @@ def _normalize_computed_kwargs_expr(cke):
     scalar_udfs = op.find(ScalarUDF)
     reads = op.find(rel.Read)
     cached = op.find(rel.CachedNode)
+    # TODO(ADR-0009): ``normalize_inmemorytable`` hashes batch content, so a
+    # ``FittedPipeline.predict`` whose ``computed_kwargs_expr`` carries the
+    # training table folds the *training data* into the structural hash —
+    # defeating "compute structural once, reuse across data swaps" for ML
+    # pipelines.  The training InMemoryTable already appears in outer
+    # ``data_deps`` (collected by ``walk_nodes`` descending through
+    # ExprScalarUDF.computed_kwargs_expr); replace it with a structural-only
+    # placeholder here and pull data into ``data_deps`` only.
     return normalize_seq_with_caller(
         cke.schema() if isinstance(cke, ibis.expr.types.Table) else cke.type(),
         tuple(map(normalize_inmemorytable, mems)),
@@ -640,49 +647,131 @@ def normalize_agg_udf(udf):
     )
 
 
+# Leaf op types whose data identity contributes to ``data_deps``.  The list
+# crosses opaque sub-expression boundaries (RemoteTable / CachedNode /
+# FlightExpr / FlightUDXF / ExprScalarUDF) — see :func:`normalize_op_split`.
+_LEAF_TYPES = (ir.DatabaseTable, ir.InMemoryTable, rel.Read)
+
+
+def _normalize_data_leaf(node):
+    """Compute the data-deps token for one leaf.
+
+    ``InMemoryTable`` has no registered ``dask.base.normalize_token`` handler,
+    so we route through :func:`normalize_inmemorytable` explicitly.  Other leaf
+    types (DatabaseTable, Read) have registered handlers.
+    """
+    if isinstance(node, ir.InMemoryTable):
+        return normalize_inmemorytable(node)
+    return dask.base.normalize_token(node)
+
+
+def _is_data_leaf(node):
+    """Return True for leaves that contribute to ``data_deps``.
+
+    Strictly excludes ``DatabaseTable`` subclasses (``CachedNode``, ``RemoteTable``,
+    ``FlightExpr``, ``FlightUDXF``) — those are structural carriers handled by
+    the opaque-replacer below, not data leaves.
+    """
+    if type(node) is ir.DatabaseTable:
+        return True
+    if isinstance(node, ir.InMemoryTable):
+        return True
+    if isinstance(node, rel.Read):
+        return True
+    return False
+
+
+# Per-call memo for ``_opaque_structural_name``.  Without this, a deep pipeline
+# whose opaque sub-expressions share roots (e.g. a chain of ``ExprScalarUDF``
+# steps each referencing an accumulated ``computed_kwargs_expr``) recomputes the
+# inner structural token once per opaque reference — O(depth²).  The cache is
+# scoped per outer ``normalize_op_split`` call via ``contextvars`` so it doesn't
+# leak across invocations or threads.
+_opaque_structural_memo: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "xorq_opaque_structural_memo", default=None
+)
+
+
+def _opaque_structural_name(sub_expr):
+    """Compute a data-free token for an opaque sub-expression using *its own* backend's compiler.
+
+    The sub-expression's leaves still appear in the *outer* ``data_deps`` (because
+    :func:`walk_nodes` descended through the opaque boundary to find them); here
+    we only need its structural shape for use as a placeholder name in the outer
+    structural rewrite, so the leaf data must not contribute again.
+
+    Why the sub-expression's own compiler:  after the outer rewrite has unbound
+    inner ``DatabaseTable`` leaves, ``get_compiler`` on the modified sub-expression
+    falls back to the default backend, which fails on backend-specific ops
+    (e.g. DuckDB's ``ArrayFilter`` under the DataFusion default compiler).  We
+    capture the original compiler before any rewrite happens.
+    """
+    from xorq.expr.api import get_compiler  # noqa: PLC0415
+
+    sub_op = sub_expr.op() if hasattr(sub_expr, "op") else sub_expr
+    memo = _opaque_structural_memo.get()
+    if memo is not None and sub_op in memo:
+        return memo[sub_op]
+
+    sub_compiler = get_compiler(sub_expr)
+    structural = _normalize_structural(sub_op, compiler=sub_compiler)
+    name = dask.base.tokenize(structural)
+    if memo is not None:
+        memo[sub_op] = name
+    return name
+
+
 def opaque_node_replacer(node, kwargs):
-    # FIXME: use xorq.common.utils.graph_utils.opaque_ops (includes ExprScalarUDF)
-    opaque_ops = (
-        rel.Read,
-        rel.CachedNode,
-        rel.RemoteTable,
-        rel.FlightUDXF,
-        rel.FlightExpr,
-        # udf.ExprScalarUDF,
-    )
+    """Replace opaque / data-bearing ops with data-free placeholders for structural compilation.
+
+    Opaque sub-expressions (``RemoteTable``, ``CachedNode``, ``FlightExpr``,
+    ``FlightUDXF``) are placeholdered by the *structural* token of their inner
+    expression, computed with that expression's own backend compiler — never
+    by ``dask.base.tokenize(sub_expr)`` directly, which would fold the
+    sub-expression's data into the outer structural hash.
+
+    Data leaves (``DatabaseTable``, ``InMemoryTable``, ``Read``) become
+    ``UnboundTable`` placeholders.  Their data identity is captured separately
+    in the outer ``data_deps`` collection.
+    """
     match node:
         case rel.CachedNode():
             new_node = api.table(
                 node.schema,
-                name=dask.base.tokenize(node.parent, node.cache),
-            ).op()
-        case rel.Read():
-            new_node = api.table(
-                node.schema,
-                name=dask.base.tokenize(node),
+                name=dask.base.tokenize(
+                    "cached_node",
+                    _opaque_structural_name(node.parent),
+                    node.cache,
+                ),
             ).op()
         case rel.RemoteTable():
             new_node = api.table(
                 node.schema,
-                name=dask.base.tokenize(node.remote_expr),
+                name=_opaque_structural_name(node.remote_expr),
             ).op()
         case rel.FlightUDXF() | rel.FlightExpr():
             new_node = api.table(
                 node.schema,
-                name=dask.base.tokenize(node),
+                name=dask.base.tokenize(
+                    type(node).__name__,
+                    _opaque_structural_name(node.input_expr),
+                ),
             ).op()
-        # # FIXME: what to do about ExprScalarUDF?
-        # case udf.ExprScalarUDF():
-        #     # ExprScalarUDF doesn't have a schema
-        #     # it has computed_kwargs_expr and others
-        #     node = xo.table(
-        #         node.schema,
-        #         name=dask.base.tokenize(node),
-        #     ).op()
+        case rel.Read():
+            # Read is a data leaf (path / read_kwargs are data identity); the
+            # structural placeholder is schema-derived only.
+            new_node = api.table(
+                node.schema,
+                name=dask.base.tokenize("Read", node.schema),
+            ).op()
         case rel.HashingTag():
             new_node = api.table(
                 node.schema,
-                name=dask.base.tokenize(node.parent.to_expr(), node.metadata),
+                name=dask.base.tokenize(
+                    "hashing_tag",
+                    _opaque_structural_name(node.parent.to_expr()),
+                    node.metadata,
+                ),
             ).op()
         case xops.NamedScalarParameter():
             new_node = (
@@ -691,47 +780,190 @@ def opaque_node_replacer(node, kwargs):
                 .op()
             )
         case _:
-            if isinstance(node, opaque_ops):
-                raise ValueError(f"unhandled opaque node type: {type(node)}")
-            elif kwargs:
-                new_node = node.__recreate__(kwargs)
+            if _is_data_leaf(node):
+                new_node = ir.UnboundTable(name=node.name, schema=node.schema)
             else:
-                new_node = node
+                # Loud-fail on unhandled opaque op types so a future addition
+                # (e.g. a new Flight variant) cannot silently lose its data
+                # dependency by falling through to the generic ``__recreate__``
+                # path.  Use the canonical opaque tuple from ``graph_utils`` —
+                # ``ExprScalarUDF`` is intentionally there even though it has
+                # no explicit match arm here (its ``computed_kwargs_expr``
+                # leaves are already collected by ``walk_nodes``, and its own
+                # ``__dask_tokenize__`` handler covers the structural side).
+                from xorq.common.utils.graph_utils import (  # noqa: PLC0415
+                    opaque_ops,
+                )
+                from xorq.expr.udf import ExprScalarUDF  # noqa: PLC0415
+
+                opaque_handled_here = tuple(
+                    op for op in opaque_ops if op is not ExprScalarUDF
+                )
+                if isinstance(node, opaque_handled_here):
+                    raise ValueError(f"unhandled opaque node type: {type(node)}")
+                if kwargs:
+                    new_node = node.__recreate__(kwargs)
+                else:
+                    new_node = node
     return new_node
 
 
 @dask.base.normalize_token.register(ibis.expr.types.Expr)
 def normalize_expr(expr):
+    """Return ``(slot_hashes, structural_hash)`` for ``dask.base.tokenize(expr)``.
+
+    Both elements are hex strings.  Pre-hashing here means the final token
+    reduces to ``md5(str((tuple_of_hex, hex)))``, which external callers can
+    reproduce from a serialized metadata artifact with only ``hashlib``,
+    see :func:`expr_metadata` and :func:`compute_expr_token`.
+    """
     from xorq.expr.api import get_compiler  # noqa: PLC0415
 
-    return normalize_op(expr.op(), compiler=get_compiler(expr))
+    data_deps, structural = normalize_op(expr.op(), compiler=get_compiler(expr))
+    return (
+        tuple(dask.base.tokenize(d) for d in data_deps),
+        dask.base.tokenize(structural),
+    )
+
+
+def normalize_op_split(op_or_expr, compiler=None):
+    """Split an op's normalization into ``(leaf_dts, data_deps, structural)``.
+
+    ``leaf_dts``    — data leaves in walk order: plain ``DatabaseTable``,
+                       ``InMemoryTable``, and ``Read``.  Reachable through opaque
+                       sub-expressions (``RemoteTable.remote_expr``,
+                       ``CachedNode.parent``, ``FlightExpr/UDXF.input_expr``,
+                       ``ExprScalarUDF.computed_kwargs_expr``) — i.e. cross-engine
+                       and ML-pipeline dependencies appear as leaves so a swap of
+                       e.g. a training table invalidates the cache.
+    ``data_deps``   — tuple of normalized tokens, one per leaf in ``leaf_dts``.
+    ``structural``  — normalized token for the data-free expression shape.
+                       Opaque sub-expressions are placeholdered by their *own*
+                       structural token (computed with their own backend's
+                       compiler) so their data does not leak into the outer
+                       structural hash.
+    """
+    from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+    from xorq.expr.api import get_compiler  # noqa: PLC0415
+
+    if hasattr(op_or_expr, "op"):
+        op = op_or_expr.op()
+        if compiler is None:
+            compiler = get_compiler(op_or_expr)
+    else:
+        op = op_or_expr
+
+    leaf_dts = tuple(n for n in walk_nodes(_LEAF_TYPES, op) if _is_data_leaf(n))
+    data_deps = tuple(_normalize_data_leaf(dt) for dt in leaf_dts)
+
+    # Install a per-call memo for ``_opaque_structural_name``.  Reentrant
+    # callers (the recursion through inner opaque sub-expressions) inherit the
+    # outer memo; only the outermost call seeds it.
+    if _opaque_structural_memo.get() is None:
+        token = _opaque_structural_memo.set({})
+        try:
+            structural = _normalize_structural(op, compiler=compiler)
+        finally:
+            _opaque_structural_memo.reset(token)
+    else:
+        structural = _normalize_structural(op, compiler=compiler)
+    return leaf_dts, data_deps, structural
 
 
 def normalize_op(op, compiler=None):
+    """Return ``(data_deps, structural)`` for an op tree.
+
+    ``data_deps`` is a tuple of per-leaf-data-table normalized tokens;
+    ``structural`` is the normalized token for the data-free expression shape.
+    """
+    _, data_deps, structural = normalize_op_split(op, compiler=compiler)
+    return data_deps, structural
+
+
+def _normalize_structural(op, compiler=None):
+    """Compute the structural (data-free) token for an op tree.
+
+    Single-pass rewrite via :func:`replace_nodes` (descends through opaque
+    sub-expressions so leaves inside them get unbound), then SQL-compile the
+    result with the outer compiler.  Per-opaque-op compiler preservation is
+    handled by :func:`opaque_node_replacer` calling
+    :func:`_opaque_structural_name` *on the original sub-expression*.
+    """
+    from xorq.common.utils.graph_utils import (  # noqa: PLC0415
+        replace_nodes,
+    )
+
+    rewritten = replace_nodes(opaque_node_replacer, op)
     sql = unbound_expr_to_default_sql(
-        op.replace(opaque_node_replacer).to_expr().unbind(),
+        rewritten.to_expr().unbind(),
         compiler=compiler,
     )
-    reads = op.find(rel.Read)
-    dts = tuple(
-        node
-        for node in op.find(ir.DatabaseTable)
-        if not isinstance(node, (rel.CachedNode, rel.Read))
-    )
     udfs = op.find((AggUDF, ScalarUDF))
-    mems = op.find(ir.InMemoryTable)
     named_params = op.find(xops.NamedScalarParameter)
-    token = normalize_seq_with_caller(
+    return normalize_seq_with_caller(
         sql,
-        reads,
-        dts,
         udfs,
-        tuple(map(normalize_inmemorytable, mems)),
         *(
             (tuple(map(normalize_named_scalar_parameter, named_params)),)
             if named_params
             else ()
         ),
-        caller="normalize_expr",
+        caller="normalize_expr_structural",
     )
-    return token
+
+
+def expr_metadata(expr):
+    """Produce a serializable metadata dict for cross-language token computation.
+
+    The returned dict has the form::
+
+        {
+          "version": 2,
+          "structural_hash": "<md5 hex>",
+          "slots": [
+              {"index": 0, "name": <leaf name>, "hash": "<md5 hex>"},
+              ...,
+          ],
+        }
+
+    ``index`` is the unambiguous slot key.  ``name`` is a human-readable hint
+    (a leaf table name, file path, etc.) but may collide across slots — two
+    ``DatabaseTable`` ops can share a name across backends, two ``InMemoryTable``
+    ops can share a generated name, etc.  Cheap-substitution callers should
+    look up by ``index``.
+
+    The expression token can be recomputed from this dict (plus updated slot
+    hashes) using :func:`compute_expr_token`, which only needs ``hashlib``.
+    """
+    leaf_dts, data_deps, structural = normalize_op_split(expr)
+    return {
+        "version": 2,
+        "structural_hash": dask.base.tokenize(structural),
+        "slots": [
+            {
+                "index": i,
+                "name": getattr(dt, "name", None) or "",
+                "hash": dask.base.tokenize(dep),
+            }
+            for i, (dt, dep) in enumerate(zip(leaf_dts, data_deps))
+        ],
+    }
+
+
+def compute_expr_token(data_dep_hashes, structural_hash):
+    """Compute an expression token from hex slot hashes plus a structural hex hash.
+
+    Reproduces ``dask.base.tokenize(expr)`` when the registered ``Expr``
+    normalizer returns ``(tuple_of_hex_slot_hashes, hex_structural_hash)``.
+    Dask wraps the registered handler's return in an outer single-tuple via
+    ``_normalize_seq_func``; the preimage therefore is::
+
+        str(((tuple(data_dep_hashes), structural_hash),))
+
+    Hex strings are identity-normalized by dask, so the formula reduces to a
+    single ``hashlib.md5`` call — no xorq, dask, or ibis import required.
+    """
+    import hashlib  # noqa: PLC0415
+
+    preimage = str(((tuple(data_dep_hashes), structural_hash),))
+    return hashlib.md5(preimage.encode(), usedforsecurity=False).hexdigest()

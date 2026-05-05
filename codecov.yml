@@ -1,0 +1,23 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: auto
+        threshold: 1%
+
+ignore:
+  - "**/tests/**"
+  - "**/test_*.py"
+  - "**/conftest.py"
+  - "examples/**"
+  - "docs/**"
+  - "python/xorq/vendor/**"
+
+comment:
+  layout: "diff, files"
+  behavior: default
+  require_changes: false

@@ -684,9 +684,9 @@ def test_scalar_udf_token_stable_across_udf_counter_states():
     udf_op_2 = _build_scalar_udf()
     token_2 = dask.base.tokenize(udf_op_2)
 
-    assert token_1 == token_2, (
-        f"ScalarUDF token changed with UDF counter state: {token_1} != {token_2}"
-    )
+    assert (
+        token_1 == token_2
+    ), f"ScalarUDF token changed with UDF counter state: {token_1} != {token_2}"
 
 
 @pytest.mark.snapshot_check
@@ -773,3 +773,203 @@ def test_udf_sql_name_uses_func_name_not_class_name():
     # The user-given name must appear; the counter-suffixed class name must not
     assert "my_add(" in sql_1.lower()
     assert "my_add_" not in sql_1.lower()
+
+
+def _split(expr):
+    from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
+        normalize_op_split,
+    )
+
+    return normalize_op_split(expr)
+
+
+def test_normalize_op_split_returns_three_tuple():
+    con = xo.connect()
+    con.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))
+    expr = con.table("t").filter(xo._.a > 1)
+
+    leaf_dts, data_deps, structural = _split(expr)
+    assert len(leaf_dts) == 1
+    assert leaf_dts[0].name == "t"
+    assert len(data_deps) == 1
+    assert structural is not None
+
+
+def test_structural_token_stable_across_data_swap():
+    """Two expressions with the same shape but different data share a structural token."""
+    con = xo.connect()
+    con.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))
+    expr1 = con.table("t").filter(xo._.a > 1)
+    _, deps1, struct1 = _split(expr1)
+    full_token1 = dask.base.tokenize(expr1)
+
+    con.drop_table("t")
+    con.create_table("t", pd.DataFrame({"a": [10, 20, 30]}))
+    expr2 = con.table("t").filter(xo._.a > 1)
+    _, deps2, struct2 = _split(expr2)
+    full_token2 = dask.base.tokenize(expr2)
+
+    assert struct1 == struct2, "structural token must be data-independent"
+    assert deps1 != deps2, "data deps must change when input data changes"
+    assert full_token1 != full_token2, "full token must change when data changes"
+
+
+def test_structural_token_changes_with_query_shape():
+    con = xo.connect()
+    con.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))
+    expr_a = con.table("t").filter(xo._.a > 1)
+    expr_b = con.table("t").filter(xo._.a > 5)  # different literal
+    _, _, struct_a = _split(expr_a)
+    _, _, struct_b = _split(expr_b)
+    assert struct_a != struct_b
+
+
+def test_compute_expr_token_matches_dask_tokenize():
+    """The no-xorq formula reproduces dask.base.tokenize(expr) for the same inputs."""
+    from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
+        compute_expr_token,
+        expr_metadata,
+    )
+
+    con = xo.connect()
+    con.create_table("a", pd.DataFrame({"x": [1, 2, 3]}))
+    con.create_table("b", pd.DataFrame({"y": [4, 5, 6]}))
+    expr = con.table("a").join(con.table("b"), con.table("a").x == con.table("b").y)
+
+    md = expr_metadata(expr)
+    slot_hashes = [s["hash"] for s in md["slots"]]
+    recomputed = compute_expr_token(slot_hashes, md["structural_hash"])
+    assert recomputed == dask.base.tokenize(expr)
+
+
+def test_cheap_substitution_matches_full_recompute():
+    """Substituting one slot hash and reusing the cached structural produces the same
+    token as a full re-tokenize after the data swap."""
+    from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
+        compute_expr_token,
+        expr_metadata,
+    )
+
+    con = xo.connect()
+    con.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))
+    expr1 = con.table("t").filter(xo._.a > 1)
+    md1 = expr_metadata(expr1)
+
+    con.drop_table("t")
+    con.create_table("t", pd.DataFrame({"a": [10, 20, 30]}))
+    expr2 = con.table("t").filter(xo._.a > 1)
+    md2 = expr_metadata(expr2)
+
+    # Reuse expr1's structural hash; swap in expr2's slot hash.
+    new_slot_hash = md2["slots"][0]["hash"]
+    cheap_token = compute_expr_token([new_slot_hash], md1["structural_hash"])
+    assert cheap_token == dask.base.tokenize(expr2)
+
+
+def test_expr_metadata_schema():
+    from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
+        expr_metadata,
+    )
+
+    con = xo.connect()
+    con.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))
+    expr = con.table("t").filter(xo._.a > 1)
+    md = expr_metadata(expr)
+    assert md["version"] == 2
+    assert isinstance(md["structural_hash"], str) and len(md["structural_hash"]) == 32
+    assert md["slots"] == [
+        {"index": 0, "name": "t", "hash": md["slots"][0]["hash"]}
+    ]
+    assert len(md["slots"][0]["hash"]) == 32
+
+
+def test_expr_metadata_disambiguates_duplicate_names():
+    """Slots with duplicate ``name`` are still distinguishable via ``index``."""
+    from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
+        expr_metadata,
+    )
+
+    con_a = xo.connect()
+    con_b = xo.connect()
+    con_a.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))
+    con_b.create_table("t", pd.DataFrame({"a": [10, 20, 30]}))
+    expr = con_a.table("t").join(con_b.table("t"), "a")
+    md = expr_metadata(expr)
+    assert all(s["name"] == "t" for s in md["slots"])
+    indices = [s["index"] for s in md["slots"]]
+    assert indices == sorted(set(indices))
+    assert len({s["hash"] for s in md["slots"]}) == len(md["slots"])
+
+
+def test_normalize_op_split_excludes_databasetable_subclasses():
+    """Subclasses (RemoteTable, etc.) are structural carriers, not data leaves.
+
+    The *inner* plain ``DatabaseTable`` reached through ``RemoteTable.remote_expr``
+    *is* included — opaque sub-expressions are descended into for leaf collection
+    so cross-engine data dependencies appear in ``data_deps``.
+    """
+    import xorq.expr.relations as rel  # noqa: PLC0415
+    import xorq.vendor.ibis.expr.operations.relations as ir  # noqa: PLC0415
+
+    con = xo.connect()
+    other = xo.connect()
+    con.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))
+    expr = con.table("t").into_backend(other, name="t_remote").filter(xo._.a > 1)
+
+    leaf_dts, _, _ = _split(expr)
+    assert all(type(dt) is ir.DatabaseTable for dt in leaf_dts)
+    assert not any(isinstance(dt, rel.RemoteTable) for dt in leaf_dts)
+    # Inner DatabaseTable is reached *through* the RemoteTable boundary.
+    assert len(leaf_dts) == 1
+    assert leaf_dts[0].name == "t"
+
+
+def test_normalize_op_split_includes_inner_read_under_remote_table():
+    """Cross-engine ``into_backend`` over a deferred read: inner Read is a data leaf.
+
+    Mirrors the canonical Dan-test:
+        t = deferred_read_parquet(path).into_backend(xo.connect())
+        leaf_dts, data_deps, _ = normalize_op_split(t)
+    The inner ``Read`` must appear in ``leaf_dts`` so swapping the underlying
+    file invalidates the cache even though the read is wrapped by a RemoteTable.
+    """
+    import tempfile  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415
+
+    import xorq.expr.relations as rel  # noqa: PLC0415
+
+    df = pd.DataFrame({"a": range(5), "b": range(5)})
+    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as ntf:
+        df.to_parquet(ntf.name)
+        path = Path(ntf.name)
+    expr = xo.deferred_read_parquet(path).into_backend(xo.connect())
+
+    leaf_dts, data_deps, _ = _split(expr)
+    assert any(isinstance(dt, rel.Read) for dt in leaf_dts)
+    assert len(data_deps) == len(leaf_dts) >= 1
+
+
+def test_normalize_op_split_inmemorytable_is_a_leaf():
+    """``InMemoryTable`` (e.g. ``xo.memtable``) is a data leaf, like ``DatabaseTable``."""
+    import xorq.vendor.ibis.expr.operations.relations as ir  # noqa: PLC0415
+
+    expr = xo.memtable(pd.DataFrame({"x": [1, 2, 3]})).filter(xo._.x > 1)
+    leaf_dts, data_deps, _ = _split(expr)
+    assert any(isinstance(dt, ir.InMemoryTable) for dt in leaf_dts)
+    assert len(data_deps) == len(leaf_dts) >= 1
+
+
+def test_normalize_expr_returns_hashed_pair():
+    """The registered Expr handler returns hex-string hashes so the no-xorq formula
+    can reproduce dask.base.tokenize(expr) without reaching into raw normalize_token
+    output."""
+    import dask.tokenize as dt  # noqa: PLC0415
+
+    con = xo.connect()
+    con.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))
+    expr = con.table("t").filter(xo._.a > 1)
+    normalized = dt.normalize_token(expr)
+    assert isinstance(normalized, tuple) and len(normalized) == 2
+    slot_hashes, structural_hash = normalized
+    assert isinstance(structural_hash, str) and len(structural_hash) == 32
+    assert all(isinstance(h, str) and len(h) == 32 for h in slot_hashes)
