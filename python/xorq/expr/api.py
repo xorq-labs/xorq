@@ -57,7 +57,6 @@ __all__ = (
     "execute",
     "calc_split_column",
     "get_backend",
-    "read_postgres",
     "read_pyarrow_stream",
     "register",
     "set_backend",
@@ -165,17 +164,6 @@ def register(
 
     con = default_backend()
     return con.register(source, table_name=table_name, **kwargs)
-
-
-def read_postgres(
-    uri: str,
-    table_name: str | None = None,
-    **kwargs: Any,
-):
-    from xorq.config import default_backend  # noqa: PLC0415
-
-    con = default_backend()
-    return con.read_postgres(uri, table_name=table_name, **kwargs)
 
 
 @functools.cache

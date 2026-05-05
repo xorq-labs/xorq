@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import gzip
-import os
 from urllib.request import Request, urlopen
 
 import pandas as pd
@@ -267,7 +266,7 @@ def test_expr_over_same_table_multiple_times(parquet_dir, get_con):
     col = "id"
 
     astronauts_name = f"{ls_con.name}_{table_name}"
-    astronauts = ls_con.register(astronauts_path, table_name=astronauts_name)
+    astronauts = ls_con.read_parquet(astronauts_path, table_name=astronauts_name)
 
     if other_con.name == "postgres":
         t = other_con.table(table_name)
@@ -275,26 +274,10 @@ def test_expr_over_same_table_multiple_times(parquet_dir, get_con):
         t = other_con.read_parquet(astronauts_path, table_name=table_name)
 
     ls_table_name = f"{other_con.name}_{table_name}"
-    ls_con.register(t, ls_table_name)
-    other = ls_con.table(ls_table_name)
+    other = t.into_backend(ls_con, ls_table_name)
 
     expr = astronauts[[col]].distinct().join(other[[col]].distinct(), col)
 
     assert (first := expr.execute()) is not None
     assert (second := expr.execute()) is not None
     assert_frame_equal(first.sort_values(col), second.sort_values(col))
-
-
-@pytest.mark.postgres
-def test_read_postgres():
-    uri = (
-        f"postgres://{os.environ['POSTGRES_USER']}:"
-        f"{os.environ['POSTGRES_PASSWORD']}@"
-        f"{os.environ['POSTGRES_HOST']}:"
-        f"{os.environ['POSTGRES_PORT']}/"
-        f"{os.environ['POSTGRES_DATABASE']}"
-    )
-    t = xo.read_postgres(uri, table_name="astronauts")
-    res = xo.execute(t)
-
-    assert not res.empty

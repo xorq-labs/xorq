@@ -103,16 +103,14 @@ def test_sql_execution(con, duckdb_con, awards_players, batting):
     predicate = ["playerID"]
     result_order = ["playerID", "yearID", "lgID", "stint"]
 
-    expr = con.register(left, "batting").join(
-        make_right(con.register(ddb_players, "players")),
+    expr = left.join(
+        make_right(ddb_players),
         predicate,
         how="inner",
     )
-    query = xo.to_sql(expr)
 
     result = (
-        con.sql(query)
-        .execute()
+        expr.execute()
         .fillna(np.nan)[left.columns]
         .sort_values(result_order)
         .reset_index(drop=True)
@@ -131,6 +129,16 @@ def test_sql_execution(con, duckdb_con, awards_players, batting):
     )
 
     assert_frame_equal(result, expected, check_like=True)
+
+    query = xo.to_sql(expr)
+    sql_result = (
+        con.sql(query)
+        .execute()
+        .fillna(np.nan)[left.columns]
+        .sort_values(result_order)
+        .reset_index(drop=True)
+    )
+    assert_frame_equal(sql_result, expected, check_like=True)
 
 
 def test_register_arbitrary_expression(con, duckdb_con):

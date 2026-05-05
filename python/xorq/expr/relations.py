@@ -98,24 +98,6 @@ def replace_source_factory(source: Any):
     return replace_source
 
 
-def make_native_op(node):
-    if node.source.name != "xorq_datafusion":
-        raise ValueError(
-            f"Expected 'xorq_datafusion' backend, but got {node.source.name!r}"
-        )
-    sources = node.source._sources
-    native_source = sources.get_backend(node)
-    if native_source.name == "xorq_datafusion":
-        raise ValueError("Expected a native backend, but got 'xorq_datafusion' backend")
-
-    def replace_table(_node, _kwargs):
-        return sources.get_table_or_op(
-            _node, _node.__recreate__(_kwargs) if _kwargs else _node
-        )
-
-    return node.replace(replace_table).to_expr()
-
-
 class Tag(ops.Relation):
     schema: Schema
     parent: ops.Relation
