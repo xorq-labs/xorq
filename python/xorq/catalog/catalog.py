@@ -391,6 +391,17 @@ class Catalog:
         on its ``git-annex`` branch.
 
         No-op when no git remote is configured.
+
+        Returns a tuple of ``PushInfoList`` results — one entry per
+        branch pushed in this call:
+
+        - ``()`` when no git remote is configured (nothing to push).
+        - ``(main_result,)`` when there is no local ``git-annex`` branch.
+        - ``(main_result, annex_result)`` when both branches were pushed.
+
+        Under ADR-0009 the catalog has at most one git remote, so the
+        result never holds more than one entry per branch. Length is
+        therefore in ``{0, 1, 2}`` — not ``len(remotes)`` as before.
         """
         remotes = self._validated_git_remotes()
         self.assert_consistency()

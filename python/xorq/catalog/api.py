@@ -6,11 +6,17 @@ from xorq.catalog.annex import (
 )
 from xorq.catalog.catalog import Catalog, CatalogEntry
 from xorq.catalog.composer import ExprComposer
+from xorq.catalog.exceptions import (
+    CatalogConfigurationError,
+    CatalogPushError,
+)
 
 
 __all__ = [
     "Catalog",
+    "CatalogConfigurationError",
     "CatalogEntry",
+    "CatalogPushError",
     "DirectoryRemoteConfig",
     "ExprComposer",
     "LOCAL_ANNEX",
