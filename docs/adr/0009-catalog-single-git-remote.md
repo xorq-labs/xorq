@@ -65,7 +65,7 @@ Users with a real multi-remote use case are directed to open an issue. We will d
 
 ## Alternatives considered
 
-### Keep multi-remote with the aggregation fix from #1898
+### Keep multi-remote with the aggregation fix proposed in PR #1899
 
 Continue accepting any number of git remotes; rely on the push-aggregation fix to surface failures.
 
@@ -82,7 +82,7 @@ Deferred because: this is what we have today minus the explicit warning. It push
 
 ### Refuse zero remotes too
 
-Require exactly one git remote at all times.
+Require a configured git remote at all times — disallow the local-only (zero-remote) case.
 
 Rejected because the local-only case (a freshly initialized catalog before any remote is added, or a purely local workflow during development) is genuinely useful and exercised by tests.
 
