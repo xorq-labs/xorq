@@ -3,6 +3,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+import yaml12
 
 from xorq.catalog.catalog import (
     Catalog,
@@ -484,3 +485,111 @@ def test_schema_nonexistent(runner, catalog_path):
     assert result.exit_code != 0
     assert "not found" in result.output
     assert "list-aliases" in result.output
+
+
+# --- show command ---
+
+
+def test_show_command(runner, catalog_path, tmpdir):
+    archive = make_build_zip(tmpdir, "show-entry")
+    runner.invoke(cli, ["--path", catalog_path, "add", str(archive)])
+    result = runner.invoke(cli, ["--path", catalog_path, "show", archive.stem])
+    assert result.exit_code == 0, result.output
+    assert f"Name:           {archive.stem}" in result.output
+    assert "Type:" in result.output
+    assert "Source (bound)" in result.output
+    assert "Backends:" in result.output
+    assert "Content local:" in result.output
+    assert "Schema Out:" in result.output
+
+
+def test_show_by_alias(runner, catalog_path, tmpdir):
+    archive = make_build_zip(tmpdir, "show-alias")
+    runner.invoke(cli, ["--path", catalog_path, "add", str(archive)])
+    runner.invoke(cli, ["--path", catalog_path, "add-alias", archive.stem, "my-alias"])
+    result = runner.invoke(cli, ["--path", catalog_path, "show", "my-alias"])
+    assert result.exit_code == 0, result.output
+    assert f"Name:           {archive.stem}" in result.output
+    assert "Aliases:" in result.output
+    assert "my-alias" in result.output
+
+
+def test_show_json(runner, catalog_path, tmpdir):
+    archive = make_build_zip(tmpdir, "show-json")
+    runner.invoke(cli, ["--path", catalog_path, "add", str(archive)])
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "show", archive.stem, "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert "expr_metadata" in data
+    assert "backends" in data
+    assert data["expr_metadata"]["kind"] == "source"
+
+
+def test_show_raw(runner, catalog_path, tmpdir):
+    archive = make_build_zip(tmpdir, "show-raw")
+    runner.invoke(cli, ["--path", catalog_path, "add", str(archive)])
+    result = runner.invoke(cli, ["--path", catalog_path, "show", archive.stem, "--raw"])
+    assert result.exit_code == 0, result.output
+    assert "expr_metadata:" in result.output
+    assert "backends:" in result.output
+
+
+def test_show_json_raw_mutually_exclusive(runner, catalog_path, tmpdir):
+    archive = make_build_zip(tmpdir, "show-mx")
+    runner.invoke(cli, ["--path", catalog_path, "add", str(archive)])
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "show", archive.stem, "--json", "--raw"]
+    )
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
+def test_show_nonexistent(runner, catalog_path):
+    result = runner.invoke(cli, ["--path", catalog_path, "show", "no-such-entry"])
+    assert result.exit_code != 0
+    assert "not found" in result.output
+    assert "list-aliases" in result.output
+
+
+def test_show_json_default_str(runner, catalog_path, tmpdir):
+    archive = make_build_zip(tmpdir, "show-json-str")
+    runner.invoke(cli, ["--path", catalog_path, "add", str(archive)])
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    entry = catalog.get_catalog_entry(archive.stem)
+    sidecar = yaml12.parse_yaml(entry.metadata_path.read_text())
+    sidecar["custom_ts"] = "2026-01-01T00:00:00"
+    sidecar["custom_path"] = "/tmp/test"
+    entry.metadata_path.write_text(yaml12.format_yaml(sidecar))
+
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "show", archive.stem, "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["custom_ts"] == "2026-01-01T00:00:00"
+    assert data["custom_path"] == "/tmp/test"
+
+
+def test_show_renders_builders(runner, catalog_path, tmpdir):
+    archive = make_build_zip(tmpdir, "show-builders")
+    runner.invoke(cli, ["--path", catalog_path, "add", str(archive)])
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    entry = catalog.get_catalog_entry(archive.stem)
+    sidecar = yaml12.parse_yaml(entry.metadata_path.read_text())
+    sidecar["expr_metadata"]["builders"] = [
+        {
+            "type": "semantic_model",
+            "dimensions": ["origin", "destination"],
+            "measures": ["avg_delay"],
+        }
+    ]
+    entry.metadata_path.write_text(yaml12.format_yaml(sidecar))
+
+    result = runner.invoke(cli, ["--path", catalog_path, "show", archive.stem])
+    assert result.exit_code == 0, result.output
+    assert "Builders:" in result.output
+    assert "Type: semantic_model" in result.output
+    assert "dimensions: origin, destination" in result.output
+    assert "measures: avg_delay" in result.output

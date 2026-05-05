@@ -954,7 +954,7 @@ class CatalogEntry:
 
     @cached_property
     def backends(self) -> tuple[str, ...]:
-        return tuple(self.sidecar_metadata["backends"])
+        return tuple(self.sidecar_metadata.get("backends", ()))
 
     @property
     def aliases(self):

@@ -1,3 +1,4 @@
+import json
 import os
 from contextlib import contextmanager
 from functools import cache, partial
@@ -457,8 +458,6 @@ def clone(ctx, url, dest_name, dest_path):
 @click.pass_context
 def schema(ctx, name, as_json):
     """Show schema of a catalog entry (name or alias)."""
-    import json as json_mod
-
     from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
 
     with click_context_catalog(ctx):
@@ -471,7 +470,7 @@ def schema(ctx, name, as_json):
             ) from err
 
         if as_json:
-            click.echo(json_mod.dumps(entry.metadata.to_dict(), indent=2))
+            click.echo(json.dumps(entry.metadata.to_dict(), indent=2))
             return
 
         type_label = (
@@ -482,6 +481,96 @@ def schema(ctx, name, as_json):
         click.echo(f"Type: {type_label}")
 
         meta = entry.metadata
+        for label, schema in (
+            ("Schema In", meta.schema_in),
+            ("Schema Out", meta.schema_out),
+        ):
+            if schema is not None:
+                click.echo()
+                click.echo(f"{label}:")
+                for col, dtype in schema.items():
+                    click.echo(f"  {col:<24} {dtype}")
+
+
+@cli.command()
+@click.argument("name", shell_complete=_complete_entry_or_alias_names)
+@click.option("--json", "as_json", is_flag=True, default=False, help="Output as JSON.")
+@click.option(
+    "--raw",
+    "as_raw",
+    is_flag=True,
+    default=False,
+    help="Print the metadata sidecar file as-is (YAML).",
+)
+@click.pass_context
+def show(ctx, name, as_json, as_raw):
+    """Show full metadata for a catalog entry (name or alias)."""
+    if as_json and as_raw:
+        raise click.UsageError("--json and --raw are mutually exclusive.")
+
+    with click_context_catalog(ctx):
+        catalog = ctx.obj.make_catalog(init=False)
+        try:
+            entry = catalog.get_catalog_entry(name, maybe_alias=True)
+        except (ValueError, AssertionError) as err:
+            raise click.ClickException(
+                f"Entry {name!r} not found — run 'xorq catalog list' or 'xorq catalog list-aliases' to see available entries and aliases."
+            ) from err
+
+        if as_raw:
+            click.echo(entry.metadata_path.read_text(), nl=False)
+            return
+
+        if as_json:
+            click.echo(json.dumps(entry.sidecar_metadata, indent=2, default=str))
+            return
+
+        from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
+
+        meta = entry.metadata
+        type_label = {
+            ExprKind.UnboundExpr: "Partial (unbound)",
+            ExprKind.Source: "Source (bound)",
+            ExprKind.Expr: "Expression",
+            ExprKind.Composed: "Composed",
+            ExprKind.ExprBuilder: "Expression Builder",
+        }.get(entry.kind, str(entry.kind))
+        click.echo(f"{'Name:':<15} {entry.name}")
+        aliases = tuple(a.alias for a in entry.aliases)
+        if aliases:
+            click.echo(f"{'Aliases:':<15} {', '.join(aliases)}")
+        click.echo(f"{'Type:':<15} {type_label}")
+        if meta.root_tag:
+            click.echo(f"{'Root tag:':<15} {meta.root_tag}")
+        backends = entry.backends
+        if backends:
+            click.echo(f"{'Backends:':<15} {', '.join(backends)}")
+        click.echo(
+            f"{'Content local:':<15} {'yes' if entry.is_content_local else 'no'}"
+        )
+        if meta.composed_from:
+            click.echo(f"{'Composed from:':<15} {len(meta.composed_from)}")
+        if meta.projected_cache_key and meta.projected_cache_key.key:
+            click.echo(f"{'Cache key:':<15} {meta.projected_cache_key.key}")
+        if meta.params:
+            click.echo()
+            click.echo("Params:")
+            for p in meta.params:
+                tail = f" = {p['default']!r}" if "default" in p else ""
+                click.echo(f"  {p['param_name']:<24} {p['type']}{tail}")
+        if meta.builders:
+            click.echo()
+            click.echo("Builders:")
+            for builder in meta.builders:
+                click.echo(f"  Type: {builder.get('type', 'unknown')}")
+                for key, value in builder.items():
+                    if key == "type":
+                        continue
+                    if isinstance(value, (list, tuple)):
+                        if value:
+                            click.echo(f"    {key}: {', '.join(str(v) for v in value)}")
+                    elif value is not None:
+                        click.echo(f"    {key}: {value}")
         for label, schema in (
             ("Schema In", meta.schema_in),
             ("Schema Out", meta.schema_out),
@@ -508,8 +597,6 @@ def check(ctx):
 @click.pass_context
 def log(ctx, as_json):
     """Show catalog history as structured operations."""
-    import json as json_mod
-
     import attr
 
     from xorq.catalog.replay import Replayer
@@ -519,7 +606,7 @@ def log(ctx, as_json):
         replayer = Replayer(from_catalog=catalog)
         if as_json:
             click.echo(
-                json_mod.dumps(
+                json.dumps(
                     [
                         {"type": type(op).__name__, **attr.asdict(op)}
                         for op in replayer.ops
