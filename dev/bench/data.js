@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778009529188,
+  "lastUpdate": 1778011076344,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -10494,6 +10494,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.06688044877333495",
             "extra": "mean: 422.07685980000633 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "84a36d3169c5dc918480f1447c181ab1169d9b57",
+          "message": "feat(catalog): add `xorq catalog show <name|alias>` for entry metadata (#1918)\n\n## Summary\n- Adds a per-entry metadata command alongside the existing catalog-level\n`info` and the schema-only `schema`.\n- Default output is human-formatted: name, aliases, kind, root tag,\nbackends, content-local, composed-from, cache key, params, and schemas.\n- `--json` dumps the parsed sidecar dict (`expr_metadata`, `backends`,\n`md5sum`); `--raw` cats the YAML sidecar file as-is. The two flags are\nmutually exclusive.\n\n## Test plan\n- [x] `test_show_command` — default human output for a freshly-added\nentry\n- [x] `test_show_by_alias` — entry resolution by alias\n- [x] `test_show_json` — `--json` dumps the full sidecar with\n`expr_metadata`, `backends`\n- [x] `test_show_raw` — `--raw` cats the YAML sidecar file\n- [x] `test_show_json_raw_mutually_exclusive` — usage error when both\nflags passed\n- [x] `test_show_nonexistent` — friendly error pointing at `list` /\n`list-aliases`\n- [x] `test_show_json_default_str` — verifies `--json` round-trips\nnon-standard sidecar keys via `default=str`\n- [x] `test_show_renders_builders` — builder rendering (semantic_model\ndimensions/measures)\n- [x] All tests pass under both `git` and `annex` backends (22/22)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-05-05T15:53:29-04:00",
+          "tree_id": "c827c084b4b2a3ff63967b78d287feb00068b1e3",
+          "url": "https://github.com/xorq-labs/xorq/commit/84a36d3169c5dc918480f1447c181ab1169d9b57"
+        },
+        "date": 1778011071604,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.539155085412853,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014066130391558584",
+            "extra": "mean: 117.10760490909293 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.336910938487833,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09544387451490295",
+            "extra": "mean: 427.9153233999921 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6496511939389451,
+            "unit": "iter/sec",
+            "range": "stddev: 0.21566630249175073",
+            "extra": "mean: 1.53928755820001 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.8254346636537275,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020490607415499622",
+            "extra": "mean: 353.927844399999 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.876752617805647,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009790430923000066",
+            "extra": "mean: 347.6141792000135 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.8604366139441635,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02168524626377101",
+            "extra": "mean: 349.5969793999848 msec\nrounds: 5"
           }
         ]
       }
