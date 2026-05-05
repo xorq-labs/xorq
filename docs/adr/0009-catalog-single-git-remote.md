@@ -49,7 +49,7 @@ catalog repo  ──push/pull──>  one git remote (e.g. github.com/org/catalo
 
 ### Configuring the remote
 
-`Catalog.set_remote(name, url, force=False)` is the supported way to wire up the git remote. It refuses by default when a remote is already configured — silent replacement turns a typo (`"origion"` for `"origin"`) into the deletion of the configured remote with no signal. `force=True` is the explicit opt-in for the deliberate replacement case.
+`Catalog.set_remote(name, url, force=False)` is the supported way to wire up the git remote. It refuses by default when a remote is already configured — silent replacement turns a typo in the remote name into the deletion of the existing remote with no signal. `force=True` is the explicit opt-in for the deliberate replacement case.
 
 The CLI mirrors the API: `xorq catalog set-remote URL [--name NAME] [--force]`.
 
@@ -102,7 +102,7 @@ Rejected on the same grounds as the flag option: a warning that is easy to ignor
 
 The first cut of `set_remote` deleted any existing git remote and created the new one without complaint. The thinking was that the caller obviously means to overwrite — they just called `set_remote`.
 
-Rejected because a typo (`"origion"` for `"origin"`) deletes the configured remote with no signal. The cost of asking the user to pass `force=True` for the rare deliberate-replacement case is small relative to the cost of silent destruction.
+Rejected because a typo in the remote name deletes the configured remote with no signal. The cost of asking the user to pass `force=True` for the rare deliberate-replacement case is small relative to the cost of silent destruction.
 
 ## Consequences
 

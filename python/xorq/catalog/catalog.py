@@ -343,9 +343,9 @@ class Catalog:
 
         When a git remote is already configured, ``set_remote`` raises
         ``CatalogConfigurationError`` unless ``force=True`` is passed. The
-        guard exists because silent replacement makes a typo
-        (``"origion"`` for ``"origin"``) destroy the existing remote with
-        no signal — failing by default forces explicit opt-in. With
+        guard exists because silent replacement turns a typo in the
+        remote name into the deletion of the existing remote with no
+        signal — failing by default forces explicit opt-in. With
         ``force=True``, every existing git remote is deleted and replaced.
         """
         existing_remotes = self._git_remotes
