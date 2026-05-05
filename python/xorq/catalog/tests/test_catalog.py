@@ -336,6 +336,25 @@ def test_clone_from_no_annex_branch(tmpdir):
     assert cloned.list()
 
 
+def test_push_no_remote_skips_consistency_check(tmpdir, monkeypatch):
+    """``Catalog.push()`` is a true no-op for zero-remote catalogs.
+
+    The docstring says push is a no-op when no git remote is configured.
+    A no-op cannot run ``assert_consistency`` — that check could surface
+    unrelated repo errors even though the user did not ask the catalog
+    to talk to anything. Asserts the zero-remote path returns ``()``
+    without calling consistency.
+    """
+    catalog = Catalog.from_repo_path(Path(tmpdir).joinpath("local-only"), init=True)
+    assert catalog._git_remotes == ()
+
+    def boom(self, *args, **kwargs):
+        raise AssertionError("assert_consistency should not run for zero-remote push")
+
+    monkeypatch.setattr(Catalog, "assert_consistency", boom)
+    assert catalog.push() == ()
+
+
 def test_push_skips_missing_annex_branch(tmpdir):
     """Catalog.push() succeeds when the local repo has no git-annex branch."""
 
