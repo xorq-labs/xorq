@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777922281122,
+  "lastUpdate": 1777966116394,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -10296,6 +10296,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.06715581333277193",
             "extra": "mean: 442.4313084000005 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e2d893adb1995ddb06541497e2dbedbb1332083d",
+          "message": "refactor(register): remove _sources bookkeeping from xorq_datafusion (#1867)\n\nRemove `SourceDict` and all `_sources` tracking from\n`xorq_datafusion.Backend`. The `_sources` dict was a parallel\nbookkeeping system that mapped registered `DatabaseTable` nodes back to\ntheir source ops and native backends. It was the mechanism behind\n`normalize_xorq_databasetable` and `make_native_op`.\n\n## What changed\n\n- `SourceDict` and `_find_backend` helper deleted\n(`common/collections.py` removed)\n- `make_native_op` deleted from `expr/relations.py`\n- All `_sources`-tracking overrides removed from\n`xorq_datafusion.Backend` (`read_parquet`, `read_csv`, `read_json`,\n`read_delta`, `read_postgres`, `create_table`, `register`, `__init__`)\n- `normalize_xorq_databasetable` simplified: always delegates to\n`normalize_datafusion_databasetable`. This is correct because\n`DatabaseTable` nodes backed by `xorq_datafusion` are now always native\n— cross-backend expressions produce `RemoteTable` nodes (via\n`into_backend`) rather than wrapped `DatabaseTable` nodes tracked in\n`_sources`\n- `xo.read_postgres` removed from public API; use `into_backend` or\n`con.register_table_provider` directly\n- `test_register_read.py`: `ls_con.register(t, name)` +\n`ls_con.table(name)` replaced with `t.into_backend(ls_con, name)`\n- No-op passthrough overrides (`do_connect`, `to_pyarrow_batches`,\n`register`) deleted from `xorq_datafusion.Backend`\n- `test_basic.py`: cross-backend join test simplified to use expressions\ndirectly; SQL round-trip (`to_sql` + `con.sql`) verified as separate\nassertion\n\n## Cross-backend registration\n\nNow handled by `DataFusionBackend.register()`:\n\n- `ir.Table` from a foreign backend → wrapped in `IbisTableProvider`\n(lazy scan delegates to that backend)\n- Other `ir.Expr` → eagerly materialized via `to_pyarrow_batches()`\n\n## Breaking change\n\n`xo.read_postgres(uri, table_name=...)` removed. Use\n`postgres_con.table(name).into_backend(xo.connect())` instead.\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-05-05T09:24:23+02:00",
+          "tree_id": "f90de1f1ab3932add446053d88a6e4b4a2e5ebb4",
+          "url": "https://github.com/xorq-labs/xorq/commit/e2d893adb1995ddb06541497e2dbedbb1332083d"
+        },
+        "date": 1777966113566,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.69350857905602,
+            "unit": "iter/sec",
+            "range": "stddev: 0.032189883702038305",
+            "extra": "mean: 129.97970818181608 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.661095435582492,
+            "unit": "iter/sec",
+            "range": "stddev: 0.048827278015762",
+            "extra": "mean: 375.7850946000019 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6390552658480582,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17284331972213343",
+            "extra": "mean: 1.5648098896000022 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.25358599042476,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06513913979512655",
+            "extra": "mean: 443.7372277999998 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.230090613269206,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06204656721783176",
+            "extra": "mean: 448.41227260001233 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.2519355063650797,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07728180043721185",
+            "extra": "mean: 444.0624507999928 msec\nrounds: 5"
           }
         ]
       }
