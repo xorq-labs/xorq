@@ -169,11 +169,27 @@ let
         xorq-hash-cache = prev.xorq-hash-cache.overrideAttrs (addResolved final [ "hatchling" ]);
         xorq-feature-utils = prev.xorq-feature-utils.overrideAttrs (addResolved final [ "hatchling" ]);
         xorq-weather-lib = prev.xorq-weather-lib.overrideAttrs (addResolved final [ "hatchling" ]);
+        boring-semantic-layer = prev.boring-semantic-layer.overrideAttrs (addResolved final [ "hatchling" ]);
+        pyroaring = prev.pyroaring.overrideAttrs (addResolved final [ "setuptools" "cython" ]);
         pyiceberg = prev.pyiceberg.overrideAttrs (old: {
           nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [
             prev.poetry-core
           ];
         });
+        thrift = prev.thrift.overrideAttrs (compose [
+          (addResolved final [ "setuptools" ])
+          (old: {
+            preBuild = ''
+              _shim=$TMPDIR/distutils-shim
+              mkdir -p "$_shim"
+              cat > "$_shim/sitecustomize.py" << 'SITE'
+import _distutils_hack
+_distutils_hack.add_shim()
+SITE
+              export PYTHONPATH=${final.setuptools}/${python.sitePackages}:$_shim:''${PYTHONPATH:-}
+            '';
+          })
+        ]);
         psycopg-c = (prev.psycopg-c.overrideAttrs (addResolved final [
           "setuptools"
         ])).overrideAttrs(addNativeBuildInputs [ pkgs.postgresql.pg_config ]);
