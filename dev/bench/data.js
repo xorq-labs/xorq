@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778011076344,
+  "lastUpdate": 1778019549262,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -10560,6 +10560,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.02168524626377101",
             "extra": "mean: 349.5969793999848 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "979a66a3e50b7f9b4dc1639ff983d7f991d77eec",
+          "message": "chore(flake): add bsl and thrift overrides for darwin (#1925)",
+          "timestamp": "2026-05-05T18:13:40-04:00",
+          "tree_id": "e9bd20d0d88dd2f6b4f01c9d57ec4c0f32e0691b",
+          "url": "https://github.com/xorq-labs/xorq/commit/979a66a3e50b7f9b4dc1639ff983d7f991d77eec"
+        },
+        "date": 1778019546932,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.792610119767465,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012030185774236778",
+            "extra": "mean: 92.6559922857239 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.544652548883805,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10614254521097957",
+            "extra": "mean: 392.98095939999484 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7879318817469931,
+            "unit": "iter/sec",
+            "range": "stddev: 0.21930943943784512",
+            "extra": "mean: 1.2691452436000077 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.083710285307748,
+            "unit": "iter/sec",
+            "range": "stddev: 0.036449820065305234",
+            "extra": "mean: 324.28467899999305 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.14739196076804,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03822618046791312",
+            "extra": "mean: 317.7233762000128 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.670423417218895,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014704424739001633",
+            "extra": "mean: 272.4481310000215 msec\nrounds: 5"
           }
         ]
       }
