@@ -280,6 +280,32 @@ def test_set_remote_force_replaces_existing(tmpdir):
     assert catalog._git_remotes[0].url == str(bare_2)
 
 
+def test_set_remote_force_recovers_from_multi_remote_state(tmpdir):
+    """set_remote(force=True) is the recovery path from an ADR-0009 violation.
+
+    A user (or another tool) can put the catalog into a 2+ remote state via
+    raw ``git remote add``, after which ``push``/``pull``/``fetch``/``sync``
+    refuse to operate. ``set_remote(force=True)`` must collapse the state to
+    exactly one remote so the catalog is operable again.
+    """
+    bare_1 = Path(tmpdir).joinpath("bare_1")
+    bare_2 = Path(tmpdir).joinpath("bare_2")
+    bare_3 = Path(tmpdir).joinpath("bare_3")
+    for bare in (bare_1, bare_2, bare_3):
+        GitRepo.init(bare, bare=True, initial_branch=MAIN_BRANCH)
+
+    catalog = Catalog.from_repo_path(Path(tmpdir).joinpath("local"), init=True)
+    catalog.repo.create_remote("r1", str(bare_1))
+    catalog.repo.create_remote("r2", str(bare_2))
+    assert len(catalog._git_remotes) == 2
+
+    catalog.set_remote("origin", str(bare_3), force=True)
+
+    assert len(catalog._git_remotes) == 1
+    assert catalog._git_remotes[0].name == "origin"
+    assert catalog._git_remotes[0].url == str(bare_3)
+
+
 def test_set_remote_preserves_annex_special_remote(tmpdir):
     """set_remote replaces only git remotes; annex special remotes survive.
 
