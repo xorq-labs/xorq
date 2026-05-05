@@ -15,6 +15,8 @@ from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.relations import HashingTag
 from xorq.vendor.ibis.expr import operations as ops
 
+from .conftest import _replay_rebuild
+
 
 @pytest.fixture
 def source_catalog(tmpdir):
@@ -35,16 +37,6 @@ def source_catalog(tmpdir):
 @pytest.fixture
 def target_path(tmpdir):
     return Path(tmpdir).joinpath("target-repo")
-
-
-def _replay_rebuild(source_catalog_obj, target_path, on_unrebuilt_builder="raise"):
-    target = Catalog.from_repo_path(target_path, init=True)
-    Replayer(
-        from_catalog=source_catalog_obj,
-        rebuild=True,
-        on_unrebuilt_builder=on_unrebuilt_builder,
-    ).replay(target)
-    return target
 
 
 def test_rebuild_produces_consistent_target(source_catalog, target_path):

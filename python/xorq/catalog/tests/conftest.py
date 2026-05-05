@@ -21,6 +21,7 @@ from xorq.catalog.catalog import (
 )
 from xorq.catalog.constants import MAIN_BRANCH, CatalogInfix
 from xorq.catalog.expr_utils import build_expr_context_zip
+from xorq.catalog.replay import Replayer
 from xorq.catalog.zip_utils import with_pure_suffix
 from xorq.ibis_yaml.enums import DumpFiles
 from xorq.ibis_yaml.packager import (
@@ -29,6 +30,16 @@ from xorq.ibis_yaml.packager import (
     find_file_upwards,
 )
 from xorq.vendor.ibis.expr import operations as ops
+
+
+def _replay_rebuild(source_catalog_obj, target_path, on_unrebuilt_builder="raise"):
+    target = Catalog.from_repo_path(target_path, init=True)
+    Replayer(
+        from_catalog=source_catalog_obj,
+        rebuild=True,
+        on_unrebuilt_builder=on_unrebuilt_builder,
+    ).replay(target)
+    return target
 
 
 # Fake wheel name for tests that construct synthetic archives.

@@ -71,7 +71,9 @@ def bfs(node):
 
 
 def walk_nodes(node_types, expr):
-    """DFS walk yielding matching nodes in parent-before-descendant order.
+    """DFS walk yielding matching nodes in parent-before-descendant order
+    for tree-shaped expressions; shared (DAG) nodes may appear before a
+    non-matching ancestor.
 
     Callers (e.g. ``_rebuild_subexpr``) depend on ancestors appearing before
     their descendants.  Changing traversal strategy (BFS, reverse, etc.) will

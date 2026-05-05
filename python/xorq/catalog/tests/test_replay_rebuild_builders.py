@@ -22,15 +22,7 @@ from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.relations import HashingTag
 from xorq.vendor.ibis.expr import operations as ops
 
-
-def _replay_rebuild(source_catalog_obj, target_path, on_unrebuilt_builder="raise"):
-    target = Catalog.from_repo_path(target_path, init=True)
-    Replayer(
-        from_catalog=source_catalog_obj,
-        rebuild=True,
-        on_unrebuilt_builder=on_unrebuilt_builder,
-    ).replay(target)
-    return target
+from .conftest import _replay_rebuild
 
 
 # -- FittedPipeline dispatch-table coverage (no catalog integration needed) --
