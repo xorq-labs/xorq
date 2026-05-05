@@ -236,12 +236,35 @@ def test_multi_remote_raises_configuration_error(tmpdir, op):
     assert "r2" in msg
 
 
-def test_set_remote_replaces_existing(tmpdir):
-    """ADR-0009: Catalog.set_remote replaces any existing git remote rather than appending.
+def test_set_remote_refuses_when_remote_exists(tmpdir):
+    """ADR-0009: Catalog.set_remote refuses to silently replace an existing remote.
 
-    Successive calls must leave the catalog with exactly one git remote,
-    so users can reconfigure without ever creating the multi-remote
-    configuration that triggers CatalogConfigurationError.
+    A second call without ``force=True`` raises CatalogConfigurationError so
+    the user has to explicitly opt in to overwriting the previously
+    configured remote (it would otherwise vanish without trace).
+    """
+    bare_1 = Path(tmpdir).joinpath("bare_1")
+    bare_2 = Path(tmpdir).joinpath("bare_2")
+    GitRepo.init(bare_1, bare=True, initial_branch=MAIN_BRANCH)
+    GitRepo.init(bare_2, bare=True, initial_branch=MAIN_BRANCH)
+
+    catalog = Catalog.from_repo_path(Path(tmpdir).joinpath("local"), init=True)
+    catalog.set_remote("origin", str(bare_1))
+
+    with pytest.raises(CatalogConfigurationError, match="(?i)remote.*already") as exc:
+        catalog.set_remote("origin", str(bare_2))
+    assert "force" in str(exc.value).lower()
+    # the existing remote is preserved
+    assert len(catalog._git_remotes) == 1
+    assert catalog._git_remotes[0].url == str(bare_1)
+
+
+def test_set_remote_force_replaces_existing(tmpdir):
+    """ADR-0009: Catalog.set_remote(..., force=True) replaces any existing git remote.
+
+    Successive calls with ``force=True`` must leave the catalog with exactly
+    one git remote, so users can reconfigure without ever creating the
+    multi-remote configuration that triggers CatalogConfigurationError.
     """
     bare_1 = Path(tmpdir).joinpath("bare_1")
     bare_2 = Path(tmpdir).joinpath("bare_2")
@@ -252,7 +275,7 @@ def test_set_remote_replaces_existing(tmpdir):
     catalog.set_remote("origin", str(bare_1))
     assert len(catalog._git_remotes) == 1
 
-    catalog.set_remote("origin", str(bare_2))
+    catalog.set_remote("origin", str(bare_2), force=True)
     assert len(catalog._git_remotes) == 1
     assert catalog._git_remotes[0].url == str(bare_2)
 

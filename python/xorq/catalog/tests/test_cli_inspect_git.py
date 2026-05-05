@@ -4,12 +4,14 @@ from pathlib import Path
 
 import pytest
 import yaml12
+from git import Repo as GitRepo
 
 from xorq.catalog.catalog import (
     Catalog,
     CatalogAddition,
 )
 from xorq.catalog.cli import cli
+from xorq.catalog.constants import MAIN_BRANCH
 from xorq.catalog.tests.conftest import (
     TEST_WHEEL_NAME,
     compare_repo_and_catalog,
@@ -369,6 +371,50 @@ def test_sync_with_remote(runner, repo_cloned_bare, tmpdir):
     result = runner.invoke(cli, ["--path", str(cloned.repo_path), "sync"])
     assert result.exit_code == 0, result.output
     assert "Synced." in result.output
+
+
+# --- set-remote ---
+
+
+def test_set_remote_cli_refuses_when_remote_exists(runner, tmpdir):
+    """ADR-0009: ``catalog set-remote`` refuses to silently overwrite without --force."""
+    bare_1 = Path(tmpdir).joinpath("bare_1")
+    bare_2 = Path(tmpdir).joinpath("bare_2")
+    GitRepo.init(bare_1, bare=True, initial_branch=MAIN_BRANCH)
+    GitRepo.init(bare_2, bare=True, initial_branch=MAIN_BRANCH)
+    repo_path = str(Path(tmpdir).joinpath("local"))
+
+    runner.invoke(cli, ["--path", repo_path, "init"])
+    result = runner.invoke(
+        cli, ["--path", repo_path, "set-remote", str(bare_1)]
+    )
+    assert result.exit_code == 0, result.output
+
+    result = runner.invoke(
+        cli, ["--path", repo_path, "set-remote", str(bare_2)]
+    )
+    assert result.exit_code != 0, result.output
+    assert "force" in result.output.lower()
+
+
+def test_set_remote_cli_force_replaces_existing(runner, tmpdir):
+    """ADR-0009: ``catalog set-remote --force`` replaces an existing remote."""
+    bare_1 = Path(tmpdir).joinpath("bare_1")
+    bare_2 = Path(tmpdir).joinpath("bare_2")
+    GitRepo.init(bare_1, bare=True, initial_branch=MAIN_BRANCH)
+    GitRepo.init(bare_2, bare=True, initial_branch=MAIN_BRANCH)
+    repo_path = str(Path(tmpdir).joinpath("local"))
+
+    runner.invoke(cli, ["--path", repo_path, "init"])
+    runner.invoke(cli, ["--path", repo_path, "set-remote", str(bare_1)])
+    result = runner.invoke(
+        cli, ["--path", repo_path, "set-remote", str(bare_2), "--force"]
+    )
+    assert result.exit_code == 0, result.output
+
+    catalog = Catalog.from_repo_path(Path(repo_path), init=False)
+    assert len(catalog._git_remotes) == 1
+    assert catalog._git_remotes[0].url == str(bare_2)
 
 
 # --- CLI option validation ---
