@@ -2,6 +2,7 @@ import math
 import re
 import subprocess
 import threading
+from collections import Counter
 from datetime import datetime
 from functools import cache, cached_property
 from pathlib import Path
@@ -21,6 +22,7 @@ from pygments.token import (
     Token,
 )
 from rich.syntax import Syntax
+from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -41,6 +43,7 @@ from xorq.caching.storage import resolve_parquet_cache_path
 from xorq.catalog.catalog import CatalogEntry
 from xorq.common.utils.caching_utils import CacheKey
 from xorq.common.utils.logging_utils import get_logger
+from xorq.config import options
 
 
 logger = get_logger(__name__)
@@ -84,9 +87,38 @@ XORQ_DARK = Theme(
     surface="#0a2a2e",
     panel="#0f3338",
     dark=True,
+    variables={
+        "flash-new": "#FF69B4",
+        "subdued": "#5abfb5",
+        "panel-dim": "#3d6670",
+        "panel-dim-fg": "#7aa8b2",
+    },
 )
 
 KIND_ORDER = ("source", "expr", "unbound_expr", "composed")
+
+
+@frozen
+class KindStyle:
+    icon: str = field(validator=instance_of(str))
+    color: str = field(validator=instance_of(str))
+
+
+KIND_STYLES: dict[str, KindStyle] = {
+    "source": KindStyle(icon="⊞", color=XORQ_DARK.primary),
+    "expr": KindStyle(icon="⊕", color=XORQ_DARK.success),
+    "unbound_expr": KindStyle(icon="⊘", color=XORQ_DARK.warning),
+    "composed": KindStyle(icon="⊛", color=XORQ_DARK.secondary),
+}
+
+CACHE_STYLE: dict[bool | None, tuple[str, str]] = {
+    True: ("●", XORQ_DARK.success),
+    False: ("○", XORQ_DARK.warning),
+    None: ("—", "dim"),
+}
+
+FLASH_NEW = XORQ_DARK.variables["flash-new"]
+SUBDUED = XORQ_DARK.variables["subdued"]
 
 SCHEMA_PREVIEW_COLUMNS = ("NAME", "TYPE")
 
@@ -95,14 +127,17 @@ REVISION_COLUMNS = ("STATUS", "HASH", "COLUMNS", "CACHED", "DATE")
 GIT_LOG_COLUMNS = ("HASH", "DATE", "MESSAGE")
 
 
+def _styled_branch_label(kind: str, count: int) -> Text:
+    style = KIND_STYLES[kind]
+    label = Text()
+    label.append(f"{style.icon} ", style=f"bold {style.color}")
+    label.append(f"{kind} ", style=f"bold {style.color}")
+    label.append(f"({count})", style=f"dim {style.color}")
+    return label
+
+
 def _format_cached(value: bool | None) -> str:
-    match value:
-        case True:
-            return "●"
-        case False:
-            return "○"
-        case _:
-            return "—"
+    return CACHE_STYLE[value][0]
 
 
 def get_cache_key_path(cache_key: CacheKey | None) -> str | None:
@@ -178,15 +213,9 @@ class CatalogRowData:
         parts = [
             f"Lineage: {self.lineage_text}",
             f"Cache: {self.cache_info_text}",
+            f"Hash: {self.hash}",
         ]
         return "\n".join(parts)
-
-    @cached_property
-    def tree_label(self) -> str:
-        """Label for tree leaf node: 'alias — hash[:12]' or 'hash[:12]'."""
-        if self.aliases_display:
-            return f"{self.aliases_display} — {self.hash[:12]}"
-        return self.hash[:12]
 
     @property
     def row_key(self) -> str:
@@ -459,7 +488,10 @@ class CatalogScreen(Screen):
         super().__init__()
         self._refresh_interval = refresh_interval
         self._row_cache: dict[str, CatalogRowData] = {}
-        self._git_log_visible = False
+        # Written under _refresh_lock on worker thread; read on main thread
+        # only via call_from_thread callbacks or during locked render calls.
+        self._new_keys: set[str] = set()
+        self._git_log_visible = options.tui.git_log_open
         self._git_log_loaded = False
         self._refresh_lock = threading.Lock()
         self._active_view: Literal["sql", "data"] = "sql"
@@ -530,13 +562,22 @@ class CatalogScreen(Screen):
         self.query_one("#schema-panel").border_title = "Schema"
         self.query_one("#schema-in-half").display = False
         self.query_one("#sql-panel").border_title = "SQL"
+        self.query_one("#sql-preview", Static).update(
+            Text("← Select an expression to view its SQL", style="dim")
+        )
         self.query_one("#info-panel").border_title = "Info"
+        self.query_one("#info-content", Static).update(
+            Text("← Select an expression", style="dim")
+        )
         self.query_one("#revisions-panel").border_title = "Revisions"
-        self.query_one("#revisions-panel").display = False
+        self.query_one("#revisions-panel").display = options.tui.revisions_open
 
         git_log_panel = self.query_one("#git-log-panel")
         git_log_panel.border_title = "Git Log"
-        git_log_panel.display = False
+        git_log_panel.display = options.tui.git_log_open
+
+        self.query_one("#left-column").styles.width = f"{options.tui.left_ratio}fr"
+        self.query_one("#right-column").styles.width = f"{options.tui.right_ratio}fr"
 
         data_panel = self.query_one("#data-preview-panel")
         data_panel.border_title = "Data Preview"
@@ -681,6 +722,10 @@ class CatalogScreen(Screen):
         expected_keys = frozenset(_get_catalog_list(catalog))
         alias_multimap = _build_alias_multimap(self.catalog_aliases)
 
+        # Age out: keys that were pink last cycle turn green now
+        prev_new = self._new_keys
+        self._new_keys = set()
+
         # preserve insertion order from _row_cache (dict is ordered in Python 3.7+)
         cached_rows = tuple(
             self._row_cache[k] for k in self._row_cache if k in expected_keys
@@ -692,6 +737,13 @@ class CatalogScreen(Screen):
         self._row_cache = {
             k: v for k, v in self._row_cache.items() if k in expected_keys
         }
+
+        # Track new keys for pink highlighting (skip first load — everything is new)
+        if cached_rows:
+            self._new_keys = set(new_keys)
+
+        if prev_new:
+            self.app.call_from_thread(self._settle_new_labels, prev_new)
 
         match (bool(removed), bool(cached_rows)):
             case (True, _) | (_, False):
@@ -736,10 +788,14 @@ class CatalogScreen(Screen):
                 if kind not in groups:
                     continue
                 entries = groups[kind]
-                branch = tree.root.add(f"{kind} ({len(entries)})", data=kind)
+                branch = tree.root.add(
+                    _styled_branch_label(kind, len(entries)), data=kind
+                )
                 branch.expand()
                 for row_data in entries:
-                    branch.add_leaf(row_data.tree_label, data=row_data.row_key)
+                    branch.add_leaf(
+                        self._styled_leaf_label(row_data), data=row_data.row_key
+                    )
 
             # Restore approximate cursor position
             total = sum(1 + len(b.children) for b in tree.root.children)
@@ -759,19 +815,63 @@ class CatalogScreen(Screen):
                     break
 
             if branch is None:
-                branch = tree.root.add(f"{kind} (1)", data=kind)
+                branch = tree.root.add(_styled_branch_label(kind, 1), data=kind)
                 branch.expand()
             else:
                 count = len(branch.children) + 1
-                branch.set_label(f"{kind} ({count})")
+                branch.set_label(_styled_branch_label(kind, count))
 
-            branch.add_leaf(row_data.tree_label, data=row_data.row_key)
+            branch.add_leaf(self._styled_leaf_label(row_data), data=row_data.row_key)
+
+    def _styled_leaf_label(self, row_data: CatalogRowData) -> Text:
+        is_new = row_data.row_key in self._new_keys
+        cache_icon, cache_color = CACHE_STYLE[row_data.cached]
+        ncols = len(row_data.schema_out)
+        short_hash = row_data.hash[:12]
+
+        if is_new:
+            icon_style = f"bold {FLASH_NEW}"
+            name_style = f"bold {FLASH_NEW}"
+            hash_style = f"dim {FLASH_NEW}"
+            badge_style = f"dim {FLASH_NEW}"
+        else:
+            icon_style = cache_color
+            name_style = f"bold {XORQ_DARK.primary}"
+            hash_style = f"dim {SUBDUED}"
+            badge_style = "dim"
+
+        label = Text()
+        label.append(f"{cache_icon} ", style=icon_style)
+        if row_data.aliases_display:
+            label.append(row_data.aliases_display, style=name_style)
+            label.append(f" {short_hash}", style=hash_style)
+        else:
+            label.append(short_hash, style=name_style if is_new else XORQ_DARK.primary)
+        label.append(f" ·{ncols}", style=badge_style)
+        return label
+
+    def _settle_new_labels(self, keys: set[str]) -> None:
+        tree = self.query_one("#catalog-tree", Tree)
+        for branch in tree.root.children:
+            for leaf in branch.children:
+                if leaf.data in keys and leaf.data in self._row_cache:
+                    leaf.set_label(self._styled_leaf_label(self._row_cache[leaf.data]))
 
     def _render_status(self, stamp, repo_path) -> None:
+        rows = self._row_cache.values()
         count = len(self._row_cache)
-        self.query_one("#status-bar", Static).update(
-            f" {count} entries · {repo_path} · {stamp}"
+        kind_counts = Counter(r.kind for r in rows)
+        cached_count = sum(1 for r in rows if r.cached)
+        kinds_str = ", ".join(
+            f"{kind_counts[k]} {k}" for k in KIND_ORDER if k in kind_counts
         )
+        header = f" {count} entries" + (f" ({kinds_str})" if kinds_str else "")
+        parts = [header]
+        if cached_count:
+            parts.append(f"{cached_count} cached")
+        parts.append(str(repo_path))
+        parts.append(stamp)
+        self.query_one("#status-bar", Static).update(" · ".join(parts))
 
     # --- Toggle: Git Log ---
 
@@ -1443,9 +1543,9 @@ class CatalogTUI(App):
     #schema-panel,
     #data-preview-panel,
     DataViewScreen #stack-browser-panel {
-        border: solid #3d6670;
-        border-title-color: #7aa8b2;
-        border-subtitle-color: #7aa8b2;
+        border: solid $panel-dim;
+        border-title-color: $panel-dim-fg;
+        border-subtitle-color: $panel-dim-fg;
     }
     #catalog-panel:focus-within,
     #revisions-panel:focus-within,
@@ -1455,13 +1555,16 @@ class CatalogTUI(App):
     #schema-panel:focus-within,
     #data-preview-panel:focus-within,
     DataViewScreen #stack-browser-panel:focus-within {
-        border: solid #C1F0FF;
-        border-title-color: #C1F0FF;
-        border-subtitle-color: #C1F0FF;
+        border: double $accent;
+        border-title-color: $accent;
+        border-subtitle-color: $accent;
     }
 
     #catalog-panel { height: 2fr; background: $surface; }
     #catalog-tree { height: 1fr; }
+    #catalog-tree > .tree--guides { color: $panel-dim; }
+    #catalog-tree > .tree--guides-hover { color: $subdued; }
+    #catalog-tree > .tree--guides-selected { color: $accent; }
     #revisions-panel { height: 1fr; }
     #revisions-preview-table { height: 1fr; }
     #git-log-panel { height: 1fr; }

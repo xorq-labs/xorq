@@ -46,6 +46,8 @@ from xorq.catalog.tui import (
     get_cache_key_path,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
+from xorq.common.utils.env_utils import EnvConfigable, env_templates_dir
+from xorq.config import TUI, options
 
 
 def _run(coro):
@@ -169,17 +171,6 @@ def test_cached_with_parquet_snapshot(entry_cached):
     row_after = CatalogRowData(entry=entry_cached)
     assert row_after.cached is True
     assert row_after.cached_display == "●"
-
-
-def test_tree_label_with_alias(entry_a, alias_for_a):
-    row = CatalogRowData(entry=entry_a, aliases=(alias_for_a,))
-    assert alias_for_a in row.tree_label
-    assert entry_a.name[:12] in row.tree_label
-
-
-def test_tree_label_without_alias(entry_a):
-    row = CatalogRowData(entry=entry_a)
-    assert row.tree_label == entry_a.name[:12]
 
 
 def test_catalog_row_data_is_frozen(entry_a):
@@ -1170,5 +1161,50 @@ def test_data_view_undo_redo_no_crash_when_empty(catalog, entry_a):
             await pilot.press("ctrl+r")
             await settle(pilot)
             assert isinstance(app.screen, DataViewScreen)
+
+    _run(_test())
+
+
+# ---------------------------------------------------------------------------
+# 5. TUI options
+# ---------------------------------------------------------------------------
+
+
+def test_tui_options_defaults():
+    cfg = TUI()
+    assert cfg.left_ratio == 2
+    assert cfg.right_ratio == 3
+    assert cfg.revisions_open is False
+    assert cfg.git_log_open is False
+
+
+def test_tui_env_var_override(monkeypatch):
+    monkeypatch.setenv("XORQ_TUI_LEFT_RATIO", "7")
+    monkeypatch.setenv("XORQ_TUI_REVISIONS_OPEN", "True")
+    fresh = EnvConfigable.subclass_from_env_file(
+        env_templates_dir.joinpath(".env.xorq.template")
+    ).from_env()
+    assert fresh.XORQ_TUI_LEFT_RATIO == "7"
+    assert fresh.XORQ_TUI_REVISIONS_OPEN == "True"
+
+
+def test_tui_options_apply_column_widths(catalog):
+    async def _test():
+        with options.tui(
+            {
+                "left_ratio": 5,
+                "right_ratio": 7,
+                "revisions_open": True,
+                "git_log_open": True,
+            }
+        ):
+            app = _make_tui(catalog)
+            async with app.run_test(size=(120, 40)) as pilot:
+                await settle(pilot)
+                screen = app.screen
+                assert str(screen.query_one("#left-column").styles.width) == "5fr"
+                assert str(screen.query_one("#right-column").styles.width) == "7fr"
+                assert screen.query_one("#revisions-panel").display is True
+                assert screen.query_one("#git-log-panel").display is True
 
     _run(_test())
