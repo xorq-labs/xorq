@@ -96,8 +96,10 @@ def _tempfile_patch(patch_text):
     """
     fd, path = tempfile.mkstemp(suffix=".patch")
     try:
-        os.write(fd, patch_text.encode())
-        os.close(fd)
+        try:
+            os.write(fd, patch_text.encode())
+        finally:
+            os.close(fd)
         yield path
     finally:
         os.unlink(path)
