@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777974616178,
+  "lastUpdate": 1778009529188,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -10428,6 +10428,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.07160278841462842",
             "extra": "mean: 423.1501353999647 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5f4967a48250542478c56c5e36e236a6021c58a0",
+          "message": "feat(tui): catalog visual polish + configurable panels (#1896)\n\n## Summary\n\n- Catalog tree polish: kind icons (⊞ ⊕ ⊘ ⊛), refresh flash, two-tone\nleaves with column-count badge, visible `├─ ╰─` connectors,\ndouble-border focus ring, status-bar kind breakdown\n- New `xorq.options.tui` section: `left_ratio`, `right_ratio`,\n`revisions_open`, `git_log_open` (env overrides: `XORQ_TUI_*`); replaces\nhardcoded panel sizes\n\n## Test plan\n\n- [x] `python -m pytest python/xorq/catalog/tests/test_tui.py -q` — 125\npassed (4 pre-existing failures on `CatalogRowData.cached` are\nunrelated)\n- [x] `XORQ_TUI_LEFT_RATIO=5 xorq catalog --name <repo> tui` — left\ncolumn visibly wider\n- [x] New entry highlights pink one cycle, settles to green/yellow\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-05-05T15:27:53-04:00",
+          "tree_id": "247be4decc125aba03c808af6347e9ecd7b0c0d2",
+          "url": "https://github.com/xorq-labs/xorq/commit/5f4967a48250542478c56c5e36e236a6021c58a0"
+        },
+        "date": 1778009526086,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.257598710567589,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012862472298820433",
+            "extra": "mean: 137.78662059999647 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.7529257558112823,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016335870803431605",
+            "extra": "mean: 363.2498979999923 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6227777738313038,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1686495988003557",
+            "extra": "mean: 1.605709198400001 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.312869974920824,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05318234015056279",
+            "extra": "mean: 432.36325899999315 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.2779013776430017,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05136899855429982",
+            "extra": "mean: 439.0005685999995 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.369236732082001,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06688044877333495",
+            "extra": "mean: 422.07685980000633 msec\nrounds: 5"
           }
         ]
       }
