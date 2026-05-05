@@ -427,19 +427,31 @@ def sync(ctx):
     default=None,
     help="Remote name (defaults to 'origin').",
 )
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Replace the existing git remote (otherwise this command refuses to overwrite).",
+)
 @click.pass_context
-def set_remote(ctx, url, name):
-    """Configure the catalog's git remote (replaces any existing remotes).
+def set_remote(ctx, url, name, force):
+    """Configure the catalog's git remote.
 
-    The catalog supports exactly one git remote (ADR-0009). This command
-    deletes every existing git remote on the underlying repo and creates
-    a new one pointing at URL.
+    The catalog supports exactly one git remote (ADR-0009). If no git
+    remote is configured, this command sets one. If a git remote is
+    already configured, this command refuses unless ``--force`` is passed
+    — guarding against typos that would silently delete the configured
+    remote.
     """
     from xorq.catalog.constants import DEFAULT_REMOTE
+    from xorq.catalog.exceptions import CatalogConfigurationError
 
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
-        remote = catalog.set_remote(name or DEFAULT_REMOTE, url)
+        try:
+            remote = catalog.set_remote(name or DEFAULT_REMOTE, url, force=force)
+        except CatalogConfigurationError as err:
+            raise click.ClickException(str(err)) from err
         click.echo(f"Set remote {remote.name} -> {url}")
 
 

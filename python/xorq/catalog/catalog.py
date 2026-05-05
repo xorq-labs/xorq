@@ -324,18 +324,30 @@ class Catalog:
             raise CatalogConfigurationError(
                 f"catalog supports a single git remote (ADR-0009); "
                 f"found {len(self._git_remotes)}: {names}. "
-                f"Use Catalog.set_remote(name, url) to replace existing remotes, "
+                f"Use Catalog.set_remote(name, url, force=True) to replace existing remotes, "
                 f"or open an issue if you have a multi-remote use case."
             )
 
-    def set_remote(self, name, url):
-        """Configure the catalog's git remote, replacing any existing git remotes.
+    def set_remote(self, name, url, force=False):
+        """Configure the catalog's git remote.
 
-        The catalog supports exactly one git remote (ADR-0009). Calling
-        ``set_remote`` deletes every git remote currently on the underlying
-        repo and creates a new one with the given *name* and *url*. Returns
-        the new ``Remote``.
+        The catalog supports exactly one git remote (ADR-0009). When the
+        repo has no git remote, ``set_remote`` creates one with the given
+        *name* and *url* and returns it.
+
+        When a git remote is already configured, ``set_remote`` raises
+        ``CatalogConfigurationError`` unless ``force=True`` is passed. The
+        guard exists because silent replacement makes a typo
+        (``"origion"`` for ``"origin"``) destroy the existing remote with
+        no signal — failing by default forces explicit opt-in. With
+        ``force=True``, every existing git remote is deleted and replaced.
         """
+        if self._git_remotes and not force:
+            existing = ", ".join(f"{r.name} -> {r.url}" for r in self._git_remotes)
+            raise CatalogConfigurationError(
+                f"catalog has a git remote already configured ({existing}); "
+                f"pass force=True to replace it."
+            )
         for existing in self._git_remotes:
             self.repo.delete_remote(existing)
         return self.repo.create_remote(name, url)
