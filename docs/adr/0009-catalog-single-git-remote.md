@@ -57,7 +57,7 @@ Raw `git remote add` against the working tree is not blocked, but a second remot
 
 ### Where the check lives
 
-A `_assert_at_most_one_git_remote` guard runs at the top of `push`, `pull`, `fetch`, and `sync`. Putting it inside `synchronizing` is insufficient: the four entry points are public methods callers invoke directly, and `sync` enters `synchronizing` itself, so the guard must run before the context-manager body. See the implementation in `python/xorq/catalog/catalog.py`.
+A `_validated_git_remotes` helper reads `_git_remotes` once, raises `CatalogConfigurationError` on 2+ remotes, and returns the validated tuple. `push`, `pull`, `fetch`, and `sync` call it at the top to get a stable snapshot for the duration of the operation. Putting the guard inside `synchronizing` is insufficient: the four entry points are public methods callers invoke directly, and `sync` enters `synchronizing` itself, so the guard must run before the context-manager body. See the implementation in `python/xorq/catalog/catalog.py`.
 
 ### Escape hatch
 

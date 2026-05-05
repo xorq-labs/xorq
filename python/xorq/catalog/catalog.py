@@ -312,21 +312,27 @@ class Catalog:
 
         return tuple(r for r in self.repo.remotes if _has_fetch_refspec(r))
 
-    def _assert_at_most_one_git_remote(self):
-        """Refuse multi-remote configurations (ADR-0009).
+    def _validated_git_remotes(self):
+        """Return ``self._git_remotes`` after enforcing the single-remote contract.
 
-        Zero remotes (local-only) and one remote are supported. Two or more
-        raises ``CatalogConfigurationError`` with a message that names every
-        remote found, so the user can see what triggered the failure.
+        ``_git_remotes`` is a property that re-reads the underlying git
+        config on each access. Callers want a stable snapshot for the
+        duration of a single operation: this helper reads the property
+        once, raises ``CatalogConfigurationError`` if there are two or
+        more git remotes (ADR-0009), and returns the validated tuple. The
+        error message names every remote found so the user can see what
+        triggered the failure.
         """
-        if len(self._git_remotes) > 1:
-            names = ", ".join(r.name for r in self._git_remotes)
+        remotes = self._git_remotes
+        if len(remotes) > 1:
+            names = ", ".join(r.name for r in remotes)
             raise CatalogConfigurationError(
                 f"catalog supports a single git remote (ADR-0009); "
-                f"found {len(self._git_remotes)}: {names}. "
+                f"found {len(remotes)}: {names}. "
                 f"Use Catalog.set_remote(name, url, force=True) to replace existing remotes, "
                 f"or open an issue if you have a multi-remote use case."
             )
+        return remotes
 
     def set_remote(self, name, url, force=False):
         """Configure the catalog's git remote.
@@ -342,20 +348,20 @@ class Catalog:
         no signal — failing by default forces explicit opt-in. With
         ``force=True``, every existing git remote is deleted and replaced.
         """
-        if self._git_remotes and not force:
-            existing = ", ".join(f"{r.name} -> {r.url}" for r in self._git_remotes)
+        existing_remotes = self._git_remotes
+        if existing_remotes and not force:
+            existing = ", ".join(f"{r.name} -> {r.url}" for r in existing_remotes)
             raise CatalogConfigurationError(
                 f"catalog has a git remote already configured ({existing}); "
                 f"pass force=True to replace it."
             )
-        for existing in self._git_remotes:
-            self.repo.delete_remote(existing)
+        for remote in existing_remotes:
+            self.repo.delete_remote(remote)
         return self.repo.create_remote(name, url)
 
     def fetch(self):
         """Fetch from the configured git remote (no-op if no remote is configured)."""
-        self._assert_at_most_one_git_remote()
-        return tuple(map(Remote.fetch, self._git_remotes))
+        return tuple(map(Remote.fetch, self._validated_git_remotes()))
 
     def fetch_entries(self, *entries):
         """Fetch annex content for the given entries in a single operation.
@@ -386,11 +392,11 @@ class Catalog:
 
         No-op when no git remote is configured.
         """
-        self._assert_at_most_one_git_remote()
+        remotes = self._validated_git_remotes()
         self.assert_consistency()
-        if not self._git_remotes:
+        if not remotes:
             return ()
-        (remote,) = self._git_remotes
+        (remote,) = remotes
         main_result = remote.push()
         failure_messages = _format_push_failures(main_result, remote.name)
         if _has_local_annex_branch(self.repo):
@@ -410,8 +416,7 @@ class Catalog:
 
     def pull(self):
         """Pull from the configured git remote (no-op if no remote is configured)."""
-        self._assert_at_most_one_git_remote()
-        return tuple(map(Remote.pull, self._git_remotes))
+        return tuple(map(Remote.pull, self._validated_git_remotes()))
 
     @contextmanager
     def synchronizing(self):
