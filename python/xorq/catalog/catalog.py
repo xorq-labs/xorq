@@ -404,9 +404,9 @@ class Catalog:
         therefore in ``{0, 1, 2}`` — not ``len(remotes)`` as before.
         """
         remotes = self._validated_git_remotes()
-        self.assert_consistency()
         if not remotes:
             return ()
+        self.assert_consistency()
         (remote,) = remotes
         main_result = remote.push()
         failure_messages = _format_push_failures(main_result, remote.name)
@@ -443,6 +443,7 @@ class Catalog:
 
     def sync(self):
         """Pull then push — shorthand for a full round-trip synchronization."""
+        self._validated_git_remotes()
         with self.synchronizing():
             pass
 
