@@ -331,7 +331,7 @@ class Catalog:
     def set_remote(self, name, url, force=False):
         """Configure the catalog's git remote.
 
-        The catalog supports exactly one git remote (ADR-0009). When the
+        The catalog supports at most one git remote (ADR-0009). When the
         repo has no git remote, ``set_remote`` creates one with the given
         *name* and *url* and returns it.
 

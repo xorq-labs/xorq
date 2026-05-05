@@ -27,7 +27,7 @@ We have no users today asking for multi-remote, no design for what the operation
 
 ## Decision
 
-The catalog officially supports exactly one git remote. Configurations with two or more git remotes are unsupported, and the catalog refuses to operate on them rather than attempting best-effort multi-remote semantics.
+The catalog officially supports at most one git remote — zero (local-only) or one. Configurations with two or more git remotes are unsupported, and the catalog refuses to operate on them rather than attempting best-effort multi-remote semantics.
 
 ### What "supported" means
 

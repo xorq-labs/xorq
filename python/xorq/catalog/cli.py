@@ -437,7 +437,7 @@ def sync(ctx):
 def set_remote(ctx, url, name, force):
     """Configure the catalog's git remote.
 
-    The catalog supports exactly one git remote (ADR-0009). If no git
+    The catalog supports at most one git remote (ADR-0009). If no git
     remote is configured, this command sets one. If a git remote is
     already configured, this command refuses unless ``--force`` is passed
     — guarding against typos that would silently delete the configured
