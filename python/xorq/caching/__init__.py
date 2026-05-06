@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from attr import (
     field,
@@ -29,6 +30,10 @@ from xorq.common.utils.otel_utils import tracer
 from xorq.vendor.ibis.expr import types as ir
 
 
+if TYPE_CHECKING:
+    import xorq.vendor.ibis.expr.operations as ops
+
+
 __all__ = [  # noqa: PLE0604
     "ParquetCache",
     "ParquetSnapshotCache",
@@ -44,10 +49,10 @@ class Cache:
     strategy = field(validator=instance_of(CacheStrategy))
     storage = field(validator=instance_of(CacheStorage))
 
-    strategy_typ = None
-    storage_typ = None
+    strategy_typ: ClassVar[type[CacheStrategy] | None] = None
+    storage_typ: ClassVar[type[CacheStorage] | None] = None
 
-    def __attrs_post_init__(self):
+    def __attrs_post_init__(self) -> None:
         if not isinstance(self.strategy, self.strategy_typ):
             raise TypeError(
                 f"expected strategy of type {self.strategy_typ.__name__}, "
@@ -59,28 +64,33 @@ class Cache:
                 f"got {type(self.storage).__name__}"
             )
 
-    def calc_key(self, expr):
+    def calc_key(self, expr: ir.Expr) -> str:
         # the order here matters: must check is_cached before calling maybe_prevent_cross_source_caching
         if expr.ls.is_cached and expr.ls.cache is self:
             expr = expr.ls.uncached_one
         expr = maybe_prevent_cross_source_caching(expr, self)
         return self.strategy.calc_key(expr)
 
-    def key_exists(self, key):
+    def key_exists(self, key: str) -> bool:
         return self.storage.exists(key)
 
-    def exists(self, expr):
+    def exists(self, expr: ir.Expr) -> bool:
         key = self.calc_key(expr)
         return self.storage.exists(key)
 
-    def get(self, expr: ir.Expr):
+    def get(self, expr: ir.Expr) -> ops.Node:
         key = self.calc_key(expr)
         if not self.key_exists(key):
             raise KeyError(key)
         else:
             return self.storage.get(key)
 
-    def put(self, expr: ir.Expr, value, parquet_metadata=None):
+    def put(
+        self,
+        expr: ir.Expr,
+        value: ops.Node,
+        parquet_metadata: dict[str, Any] | None = None,
+    ) -> ops.Node:
         key = self.calc_key(expr)
         if self.key_exists(key):
             raise ValueError(f"cache entry already exists for key {key!r}")
@@ -88,7 +98,12 @@ class Cache:
             return self.storage.put(key, value, parquet_metadata=parquet_metadata)
 
     @tracer.start_as_current_span("cache.set_default")
-    def set_default(self, expr: ir.Expr, default, parquet_metadata=None):
+    def set_default(
+        self,
+        expr: ir.Expr,
+        default: ops.Node,
+        parquet_metadata: dict[str, Any] | None = None,
+    ) -> ops.Node:
         span = trace.get_current_span()
         key = self.calc_key(expr)
         if not self.key_exists(key):
@@ -100,14 +115,14 @@ class Cache:
             span.add_event("cache.hit", {"key": key})
             return self.storage.get(key)
 
-    def drop(self, expr: ir.Expr):
+    def drop(self, expr: ir.Expr) -> None:
         key = self.calc_key(expr)
         if not self.key_exists(key):
             raise KeyError(key)
         else:
             self.storage.drop(key)
 
-    def __dask_tokenize__(self):
+    def __dask_tokenize__(self) -> Any:
         from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
             normalize_seq_with_caller,
         )
@@ -120,7 +135,7 @@ class Cache:
         )
 
     @classmethod
-    def from_kwargs(cls, **kwargs):
+    def from_kwargs(cls, **kwargs: Any) -> Cache:
         strategy = cls.strategy_typ()
         storage = cls.storage_typ(**kwargs)
         return cls(strategy=strategy, storage=storage)
@@ -219,7 +234,7 @@ class GCSCache(Cache):
             )
 
     @classmethod
-    def from_kwargs(cls, bucket_name, source):
+    def from_kwargs(cls, bucket_name: str, source: Any) -> GCSCache:
         from xorq.common.utils.gcloud_utils import GCStorage  # noqa: PLC0415
 
         strategy = cls.strategy_typ()
@@ -227,7 +242,7 @@ class GCSCache(Cache):
         return cls(strategy=strategy, storage=storage)
 
 
-def maybe_prevent_cross_source_caching(expr, storage):
+def maybe_prevent_cross_source_caching(expr: ir.Expr, storage: Cache) -> ir.Expr:
     with contextlib.suppress(XorqError):
         if storage.storage.source != expr._find_backend(use_default=False):
             return expr.into_backend(storage.storage.source)

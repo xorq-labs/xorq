@@ -7,6 +7,8 @@ import pathlib
 from abc import (
     abstractmethod,
 )
+from collections.abc import Iterator
+from typing import Any
 
 import dask
 from attr import (
@@ -33,10 +35,11 @@ from xorq.expr.relations import (
     Read,
     RemoteTable,
 )
+from xorq.vendor import ibis
 from xorq.vendor.ibis.expr import types as ir
 
 
-def snapshot_normalize_read(read):
+def snapshot_normalize_read(read: Read) -> Any:
     """Normalize Read for snapshot caching using path identity only, not file modification stats."""
     read_kwargs = dict(read.read_kwargs)
     # Materialized build-bundle reads carry a content-hash-named read_path that is
@@ -71,7 +74,7 @@ _in_normalization_context: contextvars.ContextVar[bool] = contextvars.ContextVar
 )
 
 
-def _rename_remote_table(node, kwargs):
+def _rename_remote_table(node: ops.Node, kwargs: dict[str, Any] | None) -> ops.Node:
     if isinstance(node, RemoteTable):
         if not _in_normalization_context.get():
             raise RuntimeError(
@@ -97,29 +100,29 @@ class CacheStrategy:
     )
 
     @abstractmethod
-    def calc_key(self, expr):
+    def calc_key(self, expr: ir.Expr) -> str:
         pass
 
-    def __dask_tokenize__(self):
+    def __dask_tokenize__(self) -> tuple[str, str]:
         return (type(self).__name__, self.key_prefix)
 
 
 @frozen
 class ModificationTimeStrategy(CacheStrategy):
-    def calc_key(self, expr: ir.Expr):
+    def calc_key(self, expr: ir.Expr) -> str:
         return self.key_prefix + expr.ls.tokenized
 
 
 @frozen
 class SnapshotStrategy(CacheStrategy):
-    def calc_key(self, expr: ir.Expr):
+    def calc_key(self, expr: ir.Expr) -> str:
         with self.normalization_context(expr):
             replaced = self.replace_remote_table(expr)
             tokenized = replaced.ls.tokenized
             return self.key_prefix + "-".join(("snapshot", tokenized))
 
     @contextlib.contextmanager
-    def normalization_context(self, expr):
+    def normalization_context(self, expr: ir.Expr) -> Iterator[None]:
         # patch_normalize_op_caching memoizes normalize_op by (op, compiler).
         # Without it, tokenizing depth-n pipeline expressions is O(2^n) because
         # normalize_remote_table recursively tokenizes remote_expr and
@@ -142,7 +145,7 @@ class SnapshotStrategy(CacheStrategy):
         finally:
             _in_normalization_context.reset(token)
 
-    def replace_remote_table(self, expr):
+    def replace_remote_table(self, expr: ir.Expr) -> ir.Expr:
         """replace remote table with deterministic name ***strictly for key calculation***"""
         if expr.op().find(RemoteTable):
             expr = self.cached_replace_remote_table(expr.op()).to_expr()
@@ -150,18 +153,18 @@ class SnapshotStrategy(CacheStrategy):
 
     @staticmethod
     @functools.cache
-    def cached_normalize_read(op):
+    def cached_normalize_read(op: Read) -> Any:
         # Wrapped function must be pure over `op` (no file I/O, no clock): the
         # process-global cache assumes equal ops always produce equal results.
         return snapshot_normalize_read(op)
 
     @staticmethod
     @functools.cache
-    def cached_replace_remote_table(op):
+    def cached_replace_remote_table(op: ops.Node) -> ops.Node:
         return op.replace(_rename_remote_table)
 
     @staticmethod
-    def normalize_backend(con):
+    def normalize_backend(con: ibis.backends.BaseBackend) -> Any:
         name = con.name
         if name in ("pandas", "duckdb", "datafusion", "xorq_datafusion"):
             return (name, None)
@@ -169,7 +172,7 @@ class SnapshotStrategy(CacheStrategy):
             return normalize_backend(con)
 
     @staticmethod
-    def normalize_databasetable(dt):
+    def normalize_databasetable(dt: ops.DatabaseTable) -> Any:
         if isinstance(dt, RemoteTable):
             # one alternative is to explicitly iterate over the fields name, schema, source, namespace
             # but explicit is better than implicit, additionally the name is not a safe bet for caching

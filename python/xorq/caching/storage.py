@@ -8,7 +8,9 @@ from abc import (
 from pathlib import (
     Path,
 )
+from typing import TYPE_CHECKING, Any
 
+import pyarrow as pa
 from attr import (
     field,
     frozen,
@@ -17,6 +19,10 @@ from attr.validators import (
     instance_of,
     optional,
 )
+
+
+if TYPE_CHECKING:
+    import xorq.vendor.ibis.expr.operations as ops
 
 from xorq.common.utils.caching_utils import (
     get_xorq_cache_dir,
@@ -51,23 +57,29 @@ def resolve_parquet_cache_path(
 @frozen
 class CacheStorage:
     @abstractmethod
-    def exists(self, key):
+    def exists(self, key: str) -> bool:
         pass
 
     @abstractmethod
-    def get(self, key):
+    def get(self, key: str) -> ops.Node:
         pass
 
     @abstractmethod
-    def put(self, key, value, parquet_metadata=None):
+    def put(
+        self, key: str, value: ops.Node, parquet_metadata: dict[str, Any] | None = None
+    ) -> ops.Node:
         pass
 
     @abstractmethod
-    def drop(self, key):
+    def drop(self, key: str) -> None:
         pass
 
 
-def _write_parquet(path, batch_reader, parquet_metadata=None):
+def _write_parquet(
+    path: Path,
+    batch_reader: pa.ipc.RecordBatchReader,
+    parquet_metadata: dict[str, Any] | None = None,
+) -> None:
     import pyarrow.parquet as pq  # noqa: PLC0415
 
     schema = batch_reader.schema
@@ -115,16 +127,16 @@ class ParquetStorage(CacheStorage):
         self.path.mkdir(exist_ok=True, parents=True)
 
     @property
-    def path(self):
+    def path(self) -> Path:
         return resolve_parquet_cache_dir(self.relative_path, self.base_path)
 
-    def get_path(self, key):
+    def get_path(self, key: str) -> Path:
         return resolve_parquet_cache_path(self.relative_path, key, self.base_path)
 
-    def exists(self, key):
+    def exists(self, key: str) -> bool:
         return self.get_path(key).exists()
 
-    def get(self, key):
+    def get(self, key: str) -> ops.Node:
         op = deferred_read_parquet(
             path=self.get_path(key),
             con=self.source,
@@ -132,7 +144,9 @@ class ParquetStorage(CacheStorage):
         ).op()
         return op
 
-    def put(self, key, value, parquet_metadata=None):
+    def put(
+        self, key: str, value: ops.Node, parquet_metadata: dict[str, Any] | None = None
+    ) -> ops.Node:
         path = self.get_path(key)
         # move from temp location upon success to prevent empty files on failure
         tmp_path = path.with_name(path.name + ".tmp")
@@ -141,7 +155,7 @@ class ParquetStorage(CacheStorage):
         tmp_path.rename(path)
         return self.get(key)
 
-    def drop(self, key):
+    def drop(self, key: str) -> None:
         path = self.get_path(key)
         path.unlink()
 
@@ -165,11 +179,11 @@ class ParquetTTLStorage(ParquetStorage):
             caller="normalize_parquet_ttl_storage",
         )
 
-    def exists(self, key):
+    def exists(self, key: str) -> bool:
         path = self.get_path(key)
         return path.exists() and self.satisfies_ttl(path)
 
-    def satisfies_ttl(self, path):
+    def satisfies_ttl(self, path: Path) -> bool:
         delta = datetime.datetime.now() - datetime.datetime.fromtimestamp(
             path.stat().st_mtime
         )
@@ -196,13 +210,15 @@ class SourceStorage(CacheStorage):
 
         return normalize_seq_with_caller(self.source, caller="normalize_source_storage")
 
-    def exists(self, key):
+    def exists(self, key: str) -> bool:
         return key in self.source.tables
 
-    def get(self, key):
+    def get(self, key: str) -> ops.Node:
         return self.source.table(key).op()
 
-    def put(self, key, value, parquet_metadata=None):
+    def put(
+        self, key: str, value: ops.Node, parquet_metadata: dict[str, Any] | None = None
+    ) -> ops.Node:
         def is_remote(value):
             name = value.to_expr()._find_backend().name
             # FIXME: add pyiceberg, trino
@@ -232,5 +248,5 @@ class SourceStorage(CacheStorage):
             self.source.create_table(key, value.to_expr().to_pyarrow())
         return self.get(key)
 
-    def drop(self, key):
+    def drop(self, key: str) -> None:
         self.source.drop_table(key)
