@@ -4,7 +4,7 @@ project:
 execute:
   mermaid: true
   freeze: auto
-
+  
 website:
   page-navigation: true
   title: "Xorq documentation"
@@ -223,7 +223,7 @@ format:
       theme: dark
     execute:
       eval: false  # Don't execute code blocks by default
-    include-in-header:
+    include-in-header: 
       - "style/google.html"
       - "style/typography-spacing.html"
 

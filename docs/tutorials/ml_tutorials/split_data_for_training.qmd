@@ -416,3 +416,5 @@ The key insight? Proper data splitting is fundamental to honest model evaluation
 Now that you know how to split data, continue learning:
 
 - [Train your first model](train_your_first_model.qmd) shows how to train models with Xorq
+- [Explore model evaluation](explore_model_evaluation.qmd) compares multiple models on held-out data
+- [Your first build](../core_tutorials/your_first_build.qmd) packages your training pipeline as a portable artifact
