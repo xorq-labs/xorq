@@ -4,7 +4,7 @@ project:
 execute:
   mermaid: true
   freeze: auto
-  
+
 website:
   page-navigation: true
   title: "Xorq documentation"
@@ -50,9 +50,8 @@ website:
         - href: getting_started/understand_deferred_execution.qmd
         - href: getting_started/explore_caching.qmd
         - href: getting_started/switch_backends.qmd
-        
-        # - href: getting_started/your_first_expression.qmd
-        #   text: "Your first expression"
+        - href: getting_started/your_first_expression.qmd
+          text: "Your first expression"
 
     - id: tutorials
       title: "Tutorials"
@@ -208,8 +207,6 @@ website:
                 - reference/Alias.qmd
                 - reference/CatalogMetadata.qmd
 
-
-
 format:
   html:
     theme:
@@ -226,7 +223,7 @@ format:
       theme: dark
     execute:
       eval: false  # Don't execute code blocks by default
-    include-in-header: 
+    include-in-header:
       - "style/google.html"
       - "style/typography-spacing.html"
 
