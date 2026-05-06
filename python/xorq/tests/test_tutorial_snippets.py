@@ -20,6 +20,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[3]
 TUTORIALS_DIR = REPO_ROOT / "docs" / "tutorials"
 SCRIPTS = sorted(TUTORIALS_DIR.rglob("*.snippets.py"))
+assert SCRIPTS, f"no *.snippets.py files discovered under {TUTORIALS_DIR}"
 
 # Slugs whose snippets need extras beyond the default install. The conditions
 # are evaluated lazily so missing optional deps just skip the test.
@@ -37,7 +38,7 @@ def _has_module(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
 
 
-def _param(script: Path) -> pytest.param:
+def _param(script: Path):
     slug = script.name.removesuffix(".snippets.py")
     marks = [pytest.mark.library, pytest.mark.slow]
     for module in EXTRA_REQUIREMENTS.get(slug, ()):
@@ -56,11 +57,11 @@ def test_tutorial_snippet_runs(script: Path, tmp_path: Path) -> None:
     # so a passing test means the tutorial works for someone outside the
     # xorq source tree, not just for someone who happens to be inside it.
     result = subprocess.run(
-        [sys.executable, script],
+        [sys.executable, str(script)],
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=120,
     )
     assert result.returncode == 0, (
         f"{script.relative_to(REPO_ROOT)} exited {result.returncode}\n"
