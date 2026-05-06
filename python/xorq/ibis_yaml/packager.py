@@ -13,13 +13,17 @@ PackagedRunner   build directory → execution output (via `uv tool run xorq run
                  in the wheel's isolated environment.
 """
 
+from __future__ import annotations
+
 import functools
 import os
 import shutil
 import subprocess
 import zipfile
+from collections.abc import Iterable
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
 
 import tomlkit
 import toolz
@@ -56,14 +60,14 @@ def _validate_python_version(instance, attribute, value):
             raise ValueError(f"invalid python version specifier: {value!r}") from e
 
 
-def _requires_python_from_pyproject(pyproject_path):
+def _requires_python_from_pyproject(pyproject_path: Path | str) -> str:
     """Read requires-python from a pyproject.toml, intersected with PYTHON_VERSION_CAP."""
     data = tomlkit.loads(Path(pyproject_path).read_text())
     raw = toolz.get_in(("project", "requires-python"), data)
     return str(SpecifierSet(raw or DEFAULT_REQUIRES_PYTHON) & PYTHON_VERSION_CAP)
 
 
-def _read_requires_python(path):
+def _read_requires_python(path: Path | str) -> str:
     """Read requires-python from a project source, intersected with PYTHON_VERSION_CAP.
 
     Accepts a pyproject.toml path, a directory containing one, or a .whl file.
@@ -93,7 +97,7 @@ def _read_requires_python(path):
         )
 
 
-def _find_single_glob(directory, pattern):
+def _find_single_glob(directory: Path | str, pattern: str) -> Path:
     """Find exactly one file matching pattern in directory."""
     matches = list(Path(directory).glob(pattern))
     if len(matches) != 1:
@@ -122,7 +126,7 @@ class WheelBundle:
         default=None,
     )
 
-    def __attrs_post_init__(self):
+    def __attrs_post_init__(self) -> None:
         if not self.wheel_path.exists():
             raise FileNotFoundError(f"wheel not found: {self.wheel_path}")
         if not self.requirements_path.exists():
@@ -135,7 +139,7 @@ class WheelBundle:
             )
 
     @classmethod
-    def from_build_path(cls, build_path):
+    def from_build_path(cls, build_path: Path | str) -> WheelBundle:
         """Discover artifacts from an existing build directory."""
         build_path = Path(build_path)
         return cls(
@@ -178,18 +182,18 @@ class WheelPackager:
             )
 
     @property
-    def built(self):
+    def built(self) -> bool:
         return bool(
             any(self.tmpdir.glob("*.whl"))
             and (self.tmpdir / DumpFiles.requirements).exists()
         )
 
     @property
-    def pyproject_path(self):
+    def pyproject_path(self) -> Path:
         return self.project_path.joinpath(PYPROJECT_NAME)
 
     @property
-    def tmpdir(self):
+    def tmpdir(self) -> Path:
         return Path(self._tmpdir.name)
 
     def _build_wheel(self):
@@ -239,7 +243,7 @@ class WheelPackager:
         else:
             shutil.copy2(existing, self.tmpdir / DumpFiles.requirements)
 
-    def build(self):
+    def build(self) -> WheelBundle:
         """Build the wheel and export requirements. Returns a WheelBundle."""
         if not self.built:
             self._build_wheel()
@@ -252,7 +256,7 @@ class WheelPackager:
         )
 
     @classmethod
-    def from_script_path(cls, script_path, **kwargs):
+    def from_script_path(cls, script_path: Path | str, **kwargs: Any) -> WheelPackager:
         pyproject_path = find_file_upwards(script_path, PYPROJECT_NAME)
         return cls(pyproject_path.parent, **kwargs)
 
@@ -328,8 +332,13 @@ class PackagedBuilder:
 
     @classmethod
     def from_script_path(
-        cls, script_path, project_path=None, extras=(), all_extras=True, **kwargs
-    ):
+        cls,
+        script_path: Path | str,
+        project_path: Path | str | None = None,
+        extras: Iterable[str] = (),
+        all_extras: bool = True,
+        **kwargs: Any,
+    ) -> PackagedBuilder:
         packager_kwargs = {"extras": extras, "all_extras": all_extras}
         packager = (
             WheelPackager(project_path, **packager_kwargs)
@@ -402,7 +411,7 @@ class PackagedRunner:
         return self._run
 
 
-def find_file_upwards(start, name):
+def find_file_upwards(start: Path | str, name: str) -> Path:
     path = Path(start).absolute()
     if path.is_file():
         path = path.parent
@@ -424,7 +433,7 @@ def _xorq_exe_resolved():
     return Path(found).resolve()
 
 
-def _normalize_xorq_cmd(args):
+def _normalize_xorq_cmd(args: tuple[str, ...]) -> tuple[str, ...]:
     """If args[0] resolves to the current xorq exe, replace it with bare 'xorq'."""
     resolved = _xorq_exe_resolved()
     if resolved is None:
@@ -434,7 +443,7 @@ def _normalize_xorq_cmd(args):
     return args
 
 
-def _nix_env():
+def _nix_env() -> dict[str, str] | None:
     """Return an env dict with LD_LIBRARY_PATH fixed for nix, or None outside nix."""
     if not in_nix_shell():
         return None
@@ -448,14 +457,14 @@ def _nix_env():
 
 
 def uv_tool_run(
-    *args,
-    isolated=True,
-    python_version=None,
-    with_=None,
-    with_requirements=None,
-    check=True,
-    capture_output=True,
-):
+    *args: str,
+    isolated: bool = True,
+    python_version: str | None = None,
+    with_: Path | str | None = None,
+    with_requirements: Path | str | None = None,
+    check: bool = True,
+    capture_output: bool = True,
+) -> subprocess.CompletedProcess[str]:
     from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
 
     with tracer.start_as_current_span("packager.uv_tool_run") as span:
@@ -484,7 +493,12 @@ def uv_tool_run(
         return subprocess.run(run_args, check=check, **kwargs)
 
 
-def uv_export_requirements(project_dir, python_version, extras=(), all_extras=True):
+def uv_export_requirements(
+    project_dir: Path | str,
+    python_version: str,
+    extras: Iterable[str] = (),
+    all_extras: bool = True,
+) -> str:
     """Run uv export in a directory with pyproject.toml + uv.lock."""
     args = (
         "uv",

@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import base64
 import functools
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
@@ -45,24 +48,28 @@ class RegistryEnum(StrEnum):
 FROM_YAML_HANDLERS: dict[str, Any] = {}
 
 
-def serialize_callable(fn: callable) -> str:
+def serialize_callable(fn: Callable) -> str:
     pickled = cloudpickle.dumps(fn)
     encoded = base64.b64encode(pickled).decode("ascii")
     return encoded
 
 
-def deserialize_callable(encoded_fn: str) -> callable:
+def deserialize_callable(encoded_fn: str) -> Callable:
     pickled = base64.b64decode(encoded_fn)
     return cloudpickle.loads(pickled)
 
 
 class Registry:
-    def __init__(self, dtypes=(), nodes=(), schemas=()):
+    dtypes: dict[str, Any]
+    nodes: dict[str, Any]
+    schemas: dict[str, Any]
+
+    def __init__(self, dtypes: Any = (), nodes: Any = (), schemas: Any = ()) -> None:
         self.dtypes = dict(dtypes)
         self.nodes = dict(nodes)
         self.schemas = dict(schemas)
 
-    def getstate(self):
+    def getstate(self) -> Any:
         return freeze(
             {
                 RegistryEnum.dtypes: self.dtypes,
@@ -71,13 +78,13 @@ class Registry:
             }
         )
 
-    def register_dtype(self, dtype, dtype_dict):
+    def register_dtype(self, dtype: Any, dtype_dict: Any) -> Any:
         dtype_ref = f"dtype_{tokenize(dtype_dict)[: config.hash_length]}"
         self.dtypes.setdefault(dtype_ref, dtype_dict)
         frozen = freeze({RefEnum.dtype_ref: dtype_ref})
         return frozen
 
-    def register_node(self, node, node_dict):
+    def register_node(self, node: Any, node_dict: Any) -> Any:
         """Register a node and return its name.
 
         Returns a name like '@read_{hash}', '@filter_{hash}', etc.
@@ -136,7 +143,7 @@ class Registry:
         frozen = freeze({RefEnum.node_ref: node_ref})
         return frozen
 
-    def register_schema(self, schema):
+    def register_schema(self, schema: Any) -> Any:
         frozen_schema = freeze(
             toolz.valmap(
                 functools.partial(translate_to_yaml, context=None),
@@ -148,7 +155,7 @@ class Registry:
         frozen = freeze({RefEnum.schema_ref: schema_ref})
         return frozen
 
-    def get(self, which, ref):
+    def get(self, which: RegistryEnum, ref: str) -> Any:
         match which:
             case RegistryEnum.dtypes:
                 dct = self.dtypes
@@ -185,11 +192,11 @@ class TranslationContext:
     )
 
     @property
-    def definitions(self):
+    def definitions(self) -> Any:
         return self.registry.getstate()
 
     @contextmanager
-    def remote_table_scope(self, ident: str):
+    def remote_table_scope(self, ident: str) -> Iterator[None]:
         self.remote_table_stack.append(ident)
         try:
             yield
@@ -206,7 +213,7 @@ class TranslationContext:
     def translate_to_yaml(self, op: Any) -> dict:
         return safe_translate_to_yaml(op, self)
 
-    def register(self, which, op, frozen=None):
+    def register(self, which: RegistryEnum, op: Any, frozen: Any = None) -> Any:
         match which:
             case RegistryEnum.dtypes:
                 return self.registry.register_dtype(op, frozen)
@@ -217,25 +224,25 @@ class TranslationContext:
             case _:
                 raise ValueError(f"don't know how to register {which}")
 
-    def get_definition(self, which, ref):
+    def get_definition(self, which: RegistryEnum, ref: str) -> Any:
         return self.registry.get(which, ref)
 
-    def get_dtype(self, dtype_ref):
+    def get_dtype(self, dtype_ref: str) -> Any:
         dtype_def = self.get_definition(RegistryEnum.dtypes, dtype_ref)
         return self.translate_from_yaml(dtype_def)
 
-    def get_node(self, node_ref):
+    def get_node(self, node_ref: str) -> Any:
         node_def = self.get_definition(RegistryEnum.nodes, node_ref)
         return self.translate_from_yaml(node_def)
 
-    def get_schema(self, schema_ref):
+    def get_schema(self, schema_ref: str) -> Schema:
         schema_def = self.get_definition(RegistryEnum.schemas, schema_ref)
         schema = Schema(toolz.valmap(self.translate_from_yaml, schema_def))
         return schema
 
 
-def register_from_yaml_handler(*op_names: str):
-    def decorator(func):
+def register_from_yaml_handler(*op_names: str) -> Callable[[Callable], Callable]:
+    def decorator(func: Callable) -> Callable:
         for name in op_names:
             FROM_YAML_HANDLERS[name] = func
         return func
@@ -243,7 +250,7 @@ def register_from_yaml_handler(*op_names: str):
     return decorator
 
 
-def default_handler(yaml_dict: dict, context: TranslationContext):
+def default_handler(yaml_dict: dict, context: TranslationContext) -> Any:
     spec = dict(yaml_dict)
     cls = getattr(ops, spec["op"])
     return cls(

@@ -1,4 +1,6 @@
-from typing import Any, Dict
+from __future__ import annotations
+
+from typing import Any
 
 import toolz
 
@@ -52,7 +54,7 @@ def _scalar_udf_to_yaml(op: ops.ScalarUDF, compiler: Any) -> dict:
 
 
 @register_from_yaml_handler("ScalarUDF")
-def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
+def _scalar_udf_from_yaml(yaml_dict: dict, compiler: Any) -> Any:
     encoded_fn = yaml_dict.get("pickle")
     if not encoded_fn:
         raise ValueError("Missing pickle data for ScalarUDF")
@@ -124,7 +126,7 @@ def _dict_to_yaml(dct: dict, context: TranslationContext) -> dict:
 
 
 @register_from_yaml_handler("dict")
-def _dict_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
+def _dict_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     dct = {
         key: context.translate_from_yaml(value)
         for key, value in toolz.dissoc(yaml_dict, "op").items()
@@ -143,7 +145,7 @@ def _namespace_to_yaml(ns: ops.Namespace, context: TranslationContext) -> dict:
 
 
 @register_from_yaml_handler("Namespace")
-def _namespace_from_yaml(yaml_dict: dict, compiler: any) -> any:
+def _namespace_from_yaml(yaml_dict: dict, compiler: Any) -> Any:
     return ops.Namespace(**yaml_dict["dict"])
 
 
@@ -158,11 +160,11 @@ def _inputtype_to_yaml(it: ops.udf.InputType, context: TranslationContext) -> di
 
 
 @register_from_yaml_handler("InputType")
-def _inputtype_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
+def _inputtype_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     return getattr(ops.udf.InputType, yaml_dict["name"])
 
 
-def require_input_types(input_types, op):
+def require_input_types(input_types: Any, op: Any) -> None:
     if (input_type := getattr(op.__class__, "__input_type__", None)) not in input_types:
         raise NotImplementedError(
             f"Translation of UDFs with input type {input_type} is not supported"
@@ -170,7 +172,7 @@ def require_input_types(input_types, op):
         )
 
 
-def make_op_kwargs(op):
+def make_op_kwargs(op: Any) -> dict[str, Any]:
     argnames = op.argnames
     if argnames and argnames[-1] == "where":
         (*argnames, _) = argnames
@@ -178,7 +180,7 @@ def make_op_kwargs(op):
     return kwargs
 
 
-def kwargs_to_schema(kwargs):
+def kwargs_to_schema(kwargs: dict[str, Any]) -> Any:
     schema = ibis.schema({argname: arg.type() for argname, arg in kwargs.items()})
     return schema
 
@@ -209,7 +211,7 @@ def _aggudf_to_yaml(op: ops.udf.AggUDF, compiler: Any) -> dict:
 
 
 @register_from_yaml_handler("AggUDF")
-def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
+def _aggudf_from_yaml(yaml_dict: dict, compiler: Any) -> Any:
     (kwargs, meta) = (
         translate_from_yaml(yaml_dict[name], compiler) for name in ("kwargs", "meta")
     )
@@ -266,7 +268,7 @@ def _exprscalarudf_to_yaml(op: udf.ExprScalarUDF, compiler: Any) -> dict:
 
 
 @register_from_yaml_handler(udf.ExprScalarUDF.__name__)
-def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
+def _aggudf_from_yaml(yaml_dict: dict, compiler: Any) -> Any:
     (kwargs, meta) = (
         translate_from_yaml(yaml_dict[name], compiler) for name in ("kwargs", "meta")
     )
@@ -295,7 +297,7 @@ def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
 
 
 @translate_to_yaml.register(FlightExpr)
-def flight_expr_to_yaml(op: FlightExpr, context: any) -> dict:
+def flight_expr_to_yaml(op: FlightExpr, context: Any) -> dict:
     input_expr_yaml = context.translate_to_yaml(op.input_expr)
     unbound_expr_yaml = context.translate_to_yaml(op.unbound_expr)
     make_server_pickle = serialize_callable(op.make_server)
@@ -315,7 +317,7 @@ def flight_expr_to_yaml(op: FlightExpr, context: any) -> dict:
 
 
 @register_from_yaml_handler("FlightExpr")
-def flight_expr_from_yaml(yaml_dict: Dict, context: Any) -> Any:
+def flight_expr_from_yaml(yaml_dict: dict, context: Any) -> Any:
     name = yaml_dict.get("name")
     input_expr_yaml = yaml_dict.get("input_expr")
     unbound_expr_yaml = yaml_dict.get("unbound_expr")
@@ -344,7 +346,7 @@ def flight_expr_from_yaml(yaml_dict: Dict, context: Any) -> Any:
 
 
 @translate_to_yaml.register(FlightUDXF)
-def flight_udxf_to_yaml(op: FlightUDXF, context: any) -> dict:
+def flight_udxf_to_yaml(op: FlightUDXF, context: Any) -> dict:
     input_expr_yaml = context.translate_to_yaml(op.input_expr)
     udxf_pickle = serialize_callable(op.udxf)
     make_server_pickle = serialize_callable(op.make_server)
@@ -365,7 +367,7 @@ def flight_udxf_to_yaml(op: FlightUDXF, context: any) -> dict:
 
 
 @register_from_yaml_handler("FlightUDXF")
-def flight_udxf_from_yaml(yaml_dict: Dict, context: Any) -> Any:
+def flight_udxf_from_yaml(yaml_dict: dict, context: Any) -> Any:
     name = yaml_dict.get("name")
     input_expr_yaml = yaml_dict.get("input_expr")
     udxf_pickle = yaml_dict.get("udxf")

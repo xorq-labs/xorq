@@ -7,7 +7,7 @@ import sys
 import warnings
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import dask
 import pyarrow.parquet as pq
@@ -88,7 +88,7 @@ memory_backends = ("pandas", "duckdb", "datafusion", "xorq_datafusion")
 table_like_ops = tuple(o for o in opaque_ops if issubclass(o, DatabaseTable))
 
 
-def _to_yaml_safe(data):
+def _to_yaml_safe(data: Any) -> Any:
     if isinstance(data, (RefEnum, RegistryEnum)):
         return data.name
     elif isinstance(data, FrozenOrderedDict):
@@ -119,10 +119,10 @@ class ArtifactStore:
         with path.open("r") as f:
             return read_f(f)
 
-    def read_yaml(self, *path_parts) -> Dict[str, Any]:
+    def read_yaml(self, *path_parts: str) -> dict[str, Any]:
         return yaml12.read_yaml(self.get_path(*path_parts))
 
-    def read_json(self, *path_parts) -> Dict[str, Any]:
+    def read_json(self, *path_parts: str) -> dict[str, Any]:
         return self._read(json.load, *path_parts)
 
     def read_text(self, *path_parts) -> str:
@@ -135,7 +135,7 @@ class ArtifactStore:
         with path.open("w") as f:
             yield (path, f)
 
-    def write_yaml(self, data: Dict[str, Any], *path_parts) -> pathlib.Path:
+    def write_yaml(self, data: dict[str, Any], *path_parts: str) -> pathlib.Path:
         with self._write(*path_parts) as (path, _):
             yaml12.write_yaml(_to_yaml_safe(data), path)
         return path
@@ -145,7 +145,7 @@ class ArtifactStore:
             f.write(content)
         return path
 
-    def write_parquet(self, table, *path_parts) -> pathlib.Path:
+    def write_parquet(self, table: Any, *path_parts: str) -> pathlib.Path:
         with self._write(*path_parts) as (path, f):
             pq.write_table(table, path)
         return path
@@ -153,13 +153,13 @@ class ArtifactStore:
     def exists(self, *path_parts) -> bool:
         return self.get_path(*path_parts).exists()
 
-    def write_json(self, data: Dict[str, Any], *path_parts) -> pathlib.Path:
+    def write_json(self, data: dict[str, Any], *path_parts: str) -> pathlib.Path:
         return self.write_text(json.dumps(data, indent=2), *path_parts)
 
-    def save_yaml(self, yaml_dict: Dict[str, Any], filename) -> pathlib.Path:
+    def save_yaml(self, yaml_dict: dict[str, Any], filename: str) -> pathlib.Path:
         return self.write_yaml(yaml_dict, filename)
 
-    def load_yaml(self, filename) -> Dict[str, Any]:
+    def load_yaml(self, filename: str) -> dict[str, Any]:
         return self.read_yaml(filename)
 
     @staticmethod
@@ -177,7 +177,9 @@ class ArtifactStore:
 
 class YamlExpressionTranslator:
     @staticmethod
-    def to_yaml(expr: ir.Expr, profiles=(), cache_dir=None) -> Dict[str, Any]:
+    def to_yaml(
+        expr: ir.Expr, profiles: Any = (), cache_dir: Any = None
+    ) -> dict[str, Any]:
         _ensure_translate_registered()
         context = TranslationContext(
             profiles=freeze(dict(profiles)),
@@ -202,8 +204,8 @@ class YamlExpressionTranslator:
 
     @staticmethod
     def from_yaml(
-        yaml_dict: Dict[str, Any],
-        profiles=(),
+        yaml_dict: dict[str, Any],
+        profiles: Any = (),
     ) -> ir.Expr:
         _ensure_translate_registered()
         context = TranslationContext(
@@ -461,8 +463,8 @@ class ExprDumper:
 
     def _prepare_sql_plans(
         self,
-        sql_plans: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        sql_plans: dict[str, Any],
+    ) -> dict[str, Any]:
         queries = {}
         path_to_writer = {}
         for query_name, query_info in sql_plans["queries"].items():
@@ -481,8 +483,8 @@ class ExprDumper:
 
     def _prepare_deferred_reads(
         self,
-        deferred_reads: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        deferred_reads: dict[str, Any],
+    ) -> dict[str, Any]:
         reads = {}
         path_to_writer = {}
         for read_name, read_info in deferred_reads["reads"].items():
@@ -521,7 +523,7 @@ class ExprDumper:
         )
         return path, writer
 
-    def _make_expr_metadata(self, expr) -> Dict[str, Any]:
+    def _make_expr_metadata(self, expr: Any) -> dict[str, Any]:
         from xorq.common.utils.lineage_utils import (  # noqa: PLC0415
             extract_lineage_dag,
         )

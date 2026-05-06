@@ -165,7 +165,7 @@ def _timestamp_unit_to_yaml(
 
 
 @register_from_yaml_handler("IntervalUnit")
-def _interval_unit_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
+def _interval_unit_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     unit_classes = {
         "DateUnit": tm.DateUnit,
         "TimeUnit": tm.TimeUnit,
@@ -193,7 +193,7 @@ def _int_to_yaml(val: int, context: TranslationContext) -> int:
 
 
 @register_from_yaml_handler("int")
-def _int_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
+def _int_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     return int(yaml_dict["value"])
 
 
@@ -203,7 +203,7 @@ def _float_to_yaml(dct: float, context: TranslationContext) -> dict:
 
 
 @register_from_yaml_handler("float")
-def _float_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
+def _float_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     return float(yaml_dict["value"])
 
 
@@ -326,7 +326,7 @@ def _datatype_to_yaml(dtype: dt.DataType, context: TranslationContext) -> dict:
 
 
 @register_from_yaml_handler("DataType")
-def _datatype_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
+def _datatype_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     typ = getattr(dt, yaml_dict["type"])
     dct = toolz.dissoc(yaml_dict, "op", "type")
     return typ(
@@ -338,7 +338,7 @@ def _datatype_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
 
 
 @translate_to_yaml.register(ir.Expr)
-def _expr_to_yaml(expr: ir.Expr, context: any) -> dict:
+def _expr_to_yaml(expr: ir.Expr, context: Any) -> dict:
     return context.translate_to_yaml(expr.op())
 
 
@@ -487,7 +487,7 @@ def database_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ib
 
 @translate_to_yaml.register(CachedNode)
 @convert_to_node_ref
-def _cached_node_to_yaml(op: CachedNode, context: any) -> dict:
+def _cached_node_to_yaml(op: CachedNode, context: Any) -> dict:
     # source should be called profile_name
     return freeze(
         {
@@ -502,7 +502,7 @@ def _cached_node_to_yaml(op: CachedNode, context: any) -> dict:
 
 
 @register_from_yaml_handler("CachedNode")
-def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
+def _cached_node_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
     schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
     name = yaml_dict["name"]
 

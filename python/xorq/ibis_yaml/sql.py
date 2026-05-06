@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import warnings
-from typing import Any, Dict, List, Tuple, TypedDict
+from typing import Any, TypedDict
 
 import toolz
 
@@ -18,11 +20,11 @@ class QueryInfo(TypedDict):
 
 
 class SQLPlans(TypedDict):
-    queries: Dict[str, QueryInfo]
+    queries: dict[str, QueryInfo]
 
 
 class DeferredReadsPlan(TypedDict):
-    reads: Dict[str, QueryInfo]
+    reads: dict[str, QueryInfo]
 
 
 def to_sql(expr: ir.Expr) -> str:
@@ -40,7 +42,7 @@ def to_sql(expr: ir.Expr) -> str:
     return ibis.to_sql(expr.ls.uncached)
 
 
-def find_relations(expr: ir.Expr) -> List[str]:
+def find_relations(expr: ir.Expr) -> list[str]:
     def get_name(node):
         name = None
         if isinstance(node, RemoteTable):
@@ -57,12 +59,12 @@ def find_relations(expr: ir.Expr) -> List[str]:
     return relations
 
 
-def find_tables(expr: ir.Expr) -> Tuple[Dict[str, QueryInfo], Dict[str, QueryInfo]]:
+def find_tables(expr: ir.Expr) -> tuple[dict[str, QueryInfo], dict[str, QueryInfo]]:
     def get_remote_table_backend(node):
         return node.remote_expr._find_backend()
 
     grouped = toolz.groupby(type, walk_nodes((RemoteTable, Read), expr))
-    remote_tables: Dict[str, QueryInfo] = {
+    remote_tables: dict[str, QueryInfo] = {
         node.name: {
             "engine": backend.name,
             "profile_name": backend._profile.hash_name,
@@ -73,7 +75,7 @@ def find_tables(expr: ir.Expr) -> Tuple[Dict[str, QueryInfo], Dict[str, QueryInf
         for node in grouped.get(RemoteTable, ())
         if (backend := get_remote_table_backend(node))
     }
-    deferred_reads: Dict[str, QueryInfo] = {
+    deferred_reads: dict[str, QueryInfo] = {
         dt.name: {
             "engine": backend.name,
             "profile_name": backend._profile.hash_name,
@@ -89,7 +91,7 @@ def find_tables(expr: ir.Expr) -> Tuple[Dict[str, QueryInfo], Dict[str, QueryInf
     return remote_tables, deferred_reads
 
 
-def get_read_options(read_instance) -> Dict[str, Any]:
+def get_read_options(read_instance: Any) -> dict[str, Any]:
     read_kwargs_list = [{k: v} for k, v in read_instance.read_kwargs]
     return {
         "method_name": read_instance.method_name,
@@ -98,11 +100,11 @@ def get_read_options(read_instance) -> Dict[str, Any]:
     }
 
 
-def generate_sql_plans(expr: ir.Expr) -> Tuple[SQLPlans, DeferredReadsPlan]:
+def generate_sql_plans(expr: ir.Expr) -> tuple[SQLPlans, DeferredReadsPlan]:
     remote_tables, deferred_reads = find_tables(expr)
     backend = expr._find_backend()
 
-    queries: Dict[str, QueryInfo] = {
+    queries: dict[str, QueryInfo] = {
         "main": {
             "engine": backend.name,
             "profile_name": backend._profile.hash_name,

@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import datetime
 import pathlib
 from collections.abc import Mapping, Sequence
-from typing import Any, Dict
+from typing import Any
 
 from xorq.caching import (
     ParquetCache,
@@ -13,7 +15,7 @@ from xorq.caching import (
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
 
-def freeze(obj):
+def freeze(obj: Any) -> Any:
     if isinstance(obj, dict):
         return FrozenOrderedDict({k: freeze(v) for k, v in obj.items()})
     elif isinstance(obj, list):
@@ -24,14 +26,16 @@ def freeze(obj):
 
 
 class MissingValue:
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "<MISSING>"
 
 
 MISSING = MissingValue()
 
 
-def deep_diff_objects(obj1, obj2, path="root"):
+def deep_diff_objects(
+    obj1: Any, obj2: Any, path: str = "root"
+) -> list[tuple[str, Any, Any]]:
     differences = []
 
     if obj1 is not obj2:
@@ -66,7 +70,7 @@ def deep_diff_objects(obj1, obj2, path="root"):
         return differences
 
 
-def serialize_ibis_expr(expr):
+def serialize_ibis_expr(expr: Any) -> Any:
     try:
         op = expr.op()
     except Exception:
@@ -104,7 +108,7 @@ def serialize_ibis_expr(expr):
     return serialized
 
 
-def diff_ibis_exprs(expr1, expr2):
+def diff_ibis_exprs(expr1: Any, expr2: Any) -> list[tuple[str, Any, Any]] | None:
     if expr1.equals(expr2):
         print("Expressions are equal")
         return
@@ -126,7 +130,7 @@ def diff_ibis_exprs(expr1, expr2):
     return diffs
 
 
-def translate_cache(cache, translation_context: Any) -> Dict:
+def translate_cache(cache: Any, translation_context: Any) -> dict[str, Any]:
     if isinstance(cache, SourceCache):
         return {
             "type": "SourceCache",
@@ -160,7 +164,7 @@ def translate_cache(cache, translation_context: Any) -> Dict:
         raise NotImplementedError(f"Unknown cache type: {type(cache)}")
 
 
-def load_cache_from_yaml(cache_yaml: Dict, compiler: Any):
+def load_cache_from_yaml(cache_yaml: dict[str, Any], compiler: Any) -> Any:
     if cache_yaml["type"] == "SourceCache":
         source_profile_name = cache_yaml["source"]
         source = compiler.profiles[source_profile_name]
