@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any
+
 from xorq.backends.pyiceberg import (
     Backend as PyIcebergBackend,
 )
@@ -10,7 +14,7 @@ PyIcebergConfig = EnvConfigable.subclass_from_env_file(
 pyiceberg_config = PyIcebergConfig.from_env()
 
 
-def make_connection_defaults():
+def make_connection_defaults() -> dict[str, str]:
     return {
         "uri": pyiceberg_config["ICEBERG_URI"],
         "warehouse_path": pyiceberg_config["ICEBERG_WAREHOUSE_PATH"],
@@ -20,7 +24,7 @@ def make_connection_defaults():
     }
 
 
-def make_connection(**kwargs):
+def make_connection(**kwargs: Any) -> Any:
     con = PyIcebergBackend()
     con = con.connect(
         **{
@@ -31,7 +35,7 @@ def make_connection(**kwargs):
     return con
 
 
-def get_iceberg_snapshots_ids(dt):
+def get_iceberg_snapshots_ids(dt: Any) -> tuple[int, ...]:
     database = dt.source.namespace
     catalog = dt.source.catalog
     table_name = dt.name

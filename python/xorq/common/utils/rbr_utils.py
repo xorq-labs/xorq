@@ -1,5 +1,9 @@
+from __future__ import annotations
+
 import itertools
 import traceback
+from collections.abc import Callable
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -12,13 +16,17 @@ from xorq.common.utils.otel_utils import (
 
 
 @toolz.curry
-def excepts_print_exc(func, exc=Exception, handler=toolz.functoolz.return_none):
+def excepts_print_exc(
+    func: Callable[..., Any],
+    exc: type[Exception] = Exception,
+    handler: Callable[..., Any] = toolz.functoolz.return_none,
+) -> Callable[..., Any]:
     _handler = toolz.compose(handler, toolz.curried.do(traceback.print_exception))
     return toolz.excepts(exc, func, _handler)
 
 
 @tracer.start_as_current_span("otel_instrument_reader")
-def otel_instrument_reader(reader):
+def otel_instrument_reader(reader: pa.RecordBatchReader) -> pa.RecordBatchReader:
     span = trace.get_current_span()
     ctx = span.get_span_context()
     span_link = trace.Link(ctx)
@@ -51,18 +59,20 @@ def otel_instrument_reader(reader):
     return pa.RecordBatchReader.from_batches(reader.schema, instrument_reader(reader))
 
 
-def copy_rbr_batches(reader):
+def copy_rbr_batches(reader: pa.RecordBatchReader) -> pa.RecordBatchReader:
     manager = pa.default_cpu_memory_manager()
     gen = (batch.copy_to(manager) for batch in reader)
     return pa.RecordBatchReader.from_batches(reader.schema, gen)
 
 
-def make_filtered_reader(reader):
+def make_filtered_reader(reader: pa.RecordBatchReader) -> pa.RecordBatchReader:
     gen = (chunk.data for chunk in reader if chunk.data)
     return pa.RecordBatchReader.from_batches(reader.schema, gen)
 
 
-def instrument_reader(reader, prefix=""):
+def instrument_reader(
+    reader: pa.RecordBatchReader, prefix: str = ""
+) -> pa.RecordBatchReader:
     from xorq.common.utils.logging_utils import get_print_logger  # noqa: PLC0415
 
     logger = get_print_logger()
@@ -78,8 +88,14 @@ def instrument_reader(reader, prefix=""):
 
 @excepts_print_exc
 def streaming_split_exchange(
-    split_key, f, context, reader, writer, options=None, **kwargs
-):
+    split_key: str,
+    f: Callable[..., Any],
+    context: Any,
+    reader: pa.RecordBatchReader,
+    writer: Any,
+    options: Any = None,
+    **kwargs: Any,
+) -> None:
     started = False
     g = excepts_print_exc(f)
     for split_reader in ReaderSplitter(
@@ -96,7 +112,7 @@ def streaming_split_exchange(
 class ReaderSplitter:
     """Yield multiple record batch readers from a single record batch reader by `split_key`"""
 
-    def __init__(self, rbr, split_key):
+    def __init__(self, rbr: pa.RecordBatchReader, split_key: str) -> None:
         self.rbr = rbr
         self.split_key = split_key
         self._curr_batch = toolz.excepts(StopIteration, next)(self.rbr)

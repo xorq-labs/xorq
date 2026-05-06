@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import zipfile
 from pathlib import Path
 from shutil import move
@@ -7,7 +9,13 @@ from urllib.request import urlretrieve
 from xorq.init_templates import InitTemplates
 
 
-def download_github_archive(org, repo, branch, suffix=".zip", target=None):
+def download_github_archive(
+    org: str,
+    repo: str,
+    branch: str,
+    suffix: str = ".zip",
+    target: str | Path | None = None,
+) -> Path:
     target = Path(target or f"{branch}{suffix}")
     assert not target.exists()
     archive_url = f"https://github.com/{org}/{repo}/archive/{branch}.zip"
@@ -15,7 +23,7 @@ def download_github_archive(org, repo, branch, suffix=".zip", target=None):
     return target
 
 
-def extract_zip(source, target):
+def extract_zip(source: str | Path, target: str | Path) -> Path:
     (source, target) = map(Path, (source, target))
     assert not target.exists()
     with zipfile.ZipFile(source, "r") as zf:
@@ -31,7 +39,9 @@ def extract_zip(source, target):
     return target
 
 
-def download_xorq_template(template, branch=None, target=None):
+def download_xorq_template(
+    template: str, branch: str | None = None, target: str | Path | None = None
+) -> Path:
     branch = branch or InitTemplates.get_default_branch(template)
     return download_github_archive(
         org="xorq-labs",
@@ -41,7 +51,9 @@ def download_xorq_template(template, branch=None, target=None):
     )
 
 
-def download_unpacked_xorq_template(target, template, branch=None):
+def download_unpacked_xorq_template(
+    target: str | Path, template: str, branch: str | None = None
+) -> Path:
     target = Path(target)
     if target.exists():
         raise ValueError(

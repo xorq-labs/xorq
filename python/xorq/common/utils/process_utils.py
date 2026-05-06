@@ -1,20 +1,25 @@
+from __future__ import annotations
+
 import functools
 import os
 import re
 import subprocess
+from typing import Any
 
 
 @functools.cache
-def in_nix_shell():
+def in_nix_shell() -> bool:
     return bool(os.environ.get("IN_NIX_SHELL"))
 
 
-def assert_not_in_nix_shell():
+def assert_not_in_nix_shell() -> None:
     if in_nix_shell():
         raise ValueError("in nix shell")
 
 
-def subprocess_run(args, text=False, **kwargs):
+def subprocess_run(
+    args: list[str], text: bool = False, **kwargs: Any
+) -> tuple[int, Any, Any]:
     result = subprocess.run(
         args,
         capture_output=True,

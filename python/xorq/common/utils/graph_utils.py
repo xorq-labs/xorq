@@ -1,5 +1,8 @@
-from collections import defaultdict
-from typing import Any, OrderedDict, Tuple
+from __future__ import annotations
+
+from collections import OrderedDict, defaultdict
+from collections.abc import Callable, Generator
+from typing import Any
 
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
@@ -29,7 +32,7 @@ def to_node(maybe_expr: Any) -> Node:
             raise ValueError(f"Don't know how to handle type {type(maybe_expr)}")
 
 
-def gen_children_of(node: Node) -> Tuple[Node, ...]:
+def gen_children_of(node: Node) -> Generator[Node, None, None]:
     match node:
         case ops.Field():
             rel_node = node.rel
@@ -55,7 +58,7 @@ def gen_children_of(node: Node) -> Tuple[Node, ...]:
     yield from filter(None, gen)
 
 
-def bfs(node):
+def bfs(node: Any) -> Any:
     from collections import deque  # noqa: PLC0415
 
     from xorq.vendor.ibis.common.graph import Graph  # noqa: PLC0415
@@ -70,7 +73,7 @@ def bfs(node):
     return Graph(dct)
 
 
-def walk_nodes(node_types, expr):
+def walk_nodes(node_types: Any, expr: Any) -> tuple[Any, ...]:
     # TODO should this function use an ordered set
     visited = set()
     to_visit = [to_node(expr)]
@@ -93,7 +96,7 @@ def walk_nodes(node_types, expr):
     return result
 
 
-def replace_nodes(replacer, expr):
+def replace_nodes(replacer: Callable[..., Any], expr: Any) -> Node:
     # Cache results of opaque sub-expression traversals by their root node.
     # Sub-expression roots are often shared across multiple opaque nodes (e.g.
     # each pipeline step's ExprScalarUDF references accumulated sub-expressions
@@ -138,7 +141,9 @@ def replace_nodes(replacer, expr):
     return op
 
 
-def replace_sources(source_mapping, expr, *, transfer_tables=False):
+def replace_sources(
+    source_mapping: dict[int, Any], expr: Any, *, transfer_tables: bool = False
+) -> Expr:
     """Rewrite an expression graph, replacing backend sources.
 
     Every node that carries a ``source`` attribute (DatabaseTable, Read,
@@ -241,7 +246,7 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
     return result
 
 
-def _namespace_to_database(namespace):
+def _namespace_to_database(namespace: Any) -> str | tuple[str, str] | None:
     """Convert a Namespace to the ``database`` kwarg accepted by backend methods."""
     if namespace.catalog and namespace.database:
         return (namespace.catalog, namespace.database)
@@ -250,7 +255,7 @@ def _namespace_to_database(namespace):
     return None
 
 
-def _find_missing_tables(tables_to_transfer):
+def _find_missing_tables(tables_to_transfer: list[Any]) -> list[tuple[Any, Any, str]]:
     """Return the subset of tables that don't exist on the target backend."""
     missing = []
     seen = set()
@@ -269,14 +274,14 @@ def _find_missing_tables(tables_to_transfer):
     return missing
 
 
-def _transfer_tables(tables_to_transfer):
+def _transfer_tables(tables_to_transfer: list[tuple[Any, Any, str]]) -> None:
     """Materialize and register table data on new backends."""
     for old_backend, new_backend, table_name in tables_to_transfer:
         table = old_backend.table(table_name).to_pyarrow()
         new_backend.create_table(table_name, table)
 
 
-def replace_unbound(expr, replacement, *, target=None):
+def replace_unbound(expr: Any, replacement: Any, *, target: Node | None = None) -> Expr:
     """Replace a single UnboundTable in *expr* with *replacement*.
 
     When *target* is ``None`` the expression is searched for UnboundTable
@@ -356,7 +361,7 @@ def validate_params(expr):
         raise TypeError("\n".join(messages))
 
 
-def get_ordered_unique_sources(nodes):
+def get_ordered_unique_sources(nodes: Any) -> tuple[Any, ...]:
     # Use id() for deduplication because backend __hash__ collides for
     # same-class instances and __eq__ only differs by session-local idx.
     sources, seen = (), set()
@@ -367,7 +372,7 @@ def get_ordered_unique_sources(nodes):
     return sources
 
 
-def find_all_sources(expr):
+def find_all_sources(expr: Any) -> tuple[Any, ...]:
     import xorq.vendor.ibis.expr.operations as ops  # noqa: PLC0415
 
     node_types = (

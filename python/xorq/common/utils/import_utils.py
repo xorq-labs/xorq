@@ -1,19 +1,22 @@
+from __future__ import annotations
+
 import importlib
 import json
 import sys
 import tempfile
+import types
 import urllib
 from pathlib import Path
 
 
-def import_python(path, module_name=None):
+def import_python(path: Path | str, module_name: str | None = None) -> types.ModuleType:
     path = Path(path)
     return importlib.machinery.SourceFileLoader(
         module_name or path.stem, str(path)
     ).load_module()
 
 
-def import_ipynb(path, module_name):
+def import_ipynb(path: Path, module_name: str) -> types.ModuleType:
     """Import a Jupyter notebook as a module."""
 
     # Create a new module
@@ -51,7 +54,9 @@ def import_ipynb(path, module_name):
     return module
 
 
-def import_from_path(path, module_name="__main__"):
+def import_from_path(
+    path: Path | str, module_name: str = "__main__"
+) -> types.ModuleType:
     """
     Import a Python script or Jupyter notebook as a module.
 
@@ -83,7 +88,7 @@ def import_from_path(path, module_name="__main__"):
         )
 
 
-def import_from_gist(user, gist):
+def import_from_gist(user: str, gist: str) -> types.ModuleType:
     path = f"https://gist.githubusercontent.com/{user}/{gist}/raw/"
     req = urllib.request.Request(path, method="GET")
     resp = urllib.request.urlopen(req)

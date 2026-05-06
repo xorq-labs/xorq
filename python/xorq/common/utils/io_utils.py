@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import io
 import itertools
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 from attr import (
@@ -19,7 +23,7 @@ from xorq.common.utils.func_utils import (
 
 
 @contextmanager
-def maybe_open(obj, *args, **kwargs):
+def maybe_open(obj: Any, *args: Any, **kwargs: Any) -> Iterator[Any]:
     if isinstance(obj, io.TextIOWrapper) | hasattr(obj, "write"):
         yield obj
     else:
@@ -57,19 +61,19 @@ class Peeker:
     fileobj = field(validator=instance_of(io.IOBase))
     buf = field(validator=instance_of(io.BytesIO), init=False, factory=io.BytesIO)
 
-    def _append_to_buf(self, contents):
+    def _append_to_buf(self, contents: bytes) -> None:
         oldpos = self.buf.tell()
         self.buf.seek(0, io.SEEK_END)
         self.buf.write(contents)
         self.buf.seek(oldpos)
 
-    def _buffered(self):
+    def _buffered(self) -> bytes:
         oldpos = self.buf.tell()
         data = self.buf.read()
         self.buf.seek(oldpos)
         return data
 
-    def peek(self, size):
+    def peek(self, size: int) -> bytes:
         buf = self._buffered()[:size]
         if len(buf) < size:
             contents = self.fileobj.read(size - len(buf))
@@ -78,7 +82,7 @@ class Peeker:
         return buf
 
     @staticmethod
-    def make_timed_out(timeout):
+    def make_timed_out(timeout: float | None) -> Callable[[], bool]:
         if timeout is None:
             return return_constant(False)
         else:
@@ -88,14 +92,20 @@ class Peeker:
 
             return timed_out
 
-    def peek_line(self, n=1, timed_out=return_constant(False)):  # noqa: B008
+    def peek_line(
+        self,
+        n: int = 1,
+        timed_out: Callable[[], bool] = return_constant(False),  # noqa: B008
+    ) -> bytes:
         buf = b""
         for n_chars in itertools.count(1):
             if (buf := self.peek(n_chars)).count(b"\n") >= n or timed_out():
                 break
         return buf
 
-    def peek_line_until(self, condition, timeout=None):
+    def peek_line_until(
+        self, condition: Callable[[bytes], bool], timeout: float | None = None
+    ) -> bytes:
         timed_out = self.make_timed_out(timeout)
         for n_lines in itertools.count(1):
             if (
@@ -107,7 +117,7 @@ class Peeker:
             raise TimeoutError
         return buf
 
-    def read(self, size=None):
+    def read(self, size: int | None = None) -> bytes:
         if size is None:
             contents = self.buf.read() + ValueError, self.fileobj.read()
             self.buf = io.BytesIO()
@@ -118,14 +128,14 @@ class Peeker:
             self.buf = io.BytesIO()
         return contents
 
-    def readline(self):
+    def readline(self) -> bytes:
         line = self.buf.readline()
         if not line.endswith(b"\n"):
             line += self.fileobj.readline()
             self.buf = io.BytesIO()
         return line
 
-    def close(self):
+    def close(self) -> bytes:
         contents = self.read()
         (self.buf, self.fileobj) = (None, None)
         return contents

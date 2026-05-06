@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import enum
+from typing import TYPE_CHECKING, Any
 
 import pyarrow.parquet as pq
 
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 XORQ_METADATA_PREFIX = "xorq:"
 
@@ -15,7 +19,7 @@ class ProvenanceField(enum.StrEnum):
     cache_ttl_seconds = f"{XORQ_METADATA_PREFIX}cache_ttl_seconds"
 
 
-def get_expr_hash(expr):
+def get_expr_hash(expr: Any) -> str:
     import dask.base  # noqa: PLC0415
 
     from xorq.caching.strategy import SnapshotStrategy  # noqa: PLC0415
@@ -27,7 +31,9 @@ def get_expr_hash(expr):
         return dask.base.tokenize(expr)[: config.hash_length]
 
 
-def build_provenance_metadata(expr, strategy, storage):
+def build_provenance_metadata(
+    expr: Any, strategy: Any, storage: Any
+) -> dict[bytes, bytes]:
     F = ProvenanceField
     expr_hash = get_expr_hash(expr)
     metadata = {
@@ -42,11 +48,11 @@ def build_provenance_metadata(expr, strategy, storage):
     return metadata
 
 
-def inject_metadata_into_schema(schema, metadata_dict):
+def inject_metadata_into_schema(schema: pa.Schema, metadata_dict: dict) -> pa.Schema:
     return schema.with_metadata((schema.metadata or {}) | metadata_dict)
 
 
-def read_parquet_provenance(path, fs=None):
+def read_parquet_provenance(path: str | Any, fs: Any = None) -> dict[str, str] | None:
     if fs is not None:
         with fs.open(path, "rb") as fh:
             schema = pq.ParquetFile(fh).schema_arrow

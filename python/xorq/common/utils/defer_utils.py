@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import partial
 from itertools import chain
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import pyarrow as pa
 import toolz
@@ -38,7 +38,9 @@ _ADBC_BACKENDS = frozenset(("sqlite", "postgres", "snowflake", "databricks"))
 _PATH_PARAM_NAMES = frozenset(("path", "paths", "source", "source_list"))
 
 
-def make_read_kwargs(f, *args, **kwargs):
+def make_read_kwargs(
+    f: Callable, *args: Any, **kwargs: Any
+) -> tuple[tuple[str, Any], ...]:
     # FIXME: if any kwarg is a dictionary, we'll fail Concrete's hashable requirement, so just pickle
     read_kwargs = get_arguments(f, *args, **kwargs)
     kwargs = read_kwargs.pop("kwargs", {})
@@ -52,7 +54,7 @@ def make_read_kwargs(f, *args, **kwargs):
     return tpl
 
 
-def normalize_read_path_stat(path):
+def normalize_read_path_stat(path: Path) -> tuple[tuple[str, Any], ...]:
     stat = path.stat()
     tpls = tuple(
         (attrname, getattr(stat, attrname))
@@ -260,7 +262,9 @@ def deferred_read_parquet(
     ).to_expr()
 
 
-def rbr_wrapper(reader, clean_up):
+def rbr_wrapper(
+    reader: pa.RecordBatchReader, clean_up: Callable[[], None]
+) -> pa.RecordBatchReader:
     def gen():
         yield from reader
         clean_up()

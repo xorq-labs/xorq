@@ -1,13 +1,16 @@
+from __future__ import annotations
+
 import cProfile
 import inspect
 import pstats
 import tempfile
 import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pstats import SortKey
 
 
-def profile(stmt, field=SortKey.CUMULATIVE):
+def profile(stmt: str, field: SortKey | None = SortKey.CUMULATIVE) -> pstats.Stats:
     f_back = inspect.currentframe().f_back
     with tempfile.NamedTemporaryFile() as ntf:
         cProfile.runctx(
@@ -23,6 +26,6 @@ def profile(stmt, field=SortKey.CUMULATIVE):
 
 
 @contextmanager
-def timed():
+def timed() -> Iterator[Callable[[], float]]:
     t = time.monotonic()
     yield lambda: time.monotonic() - t

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from adbc_driver_manager import dbapi
 from attr import field, frozen
 from attr.validators import instance_of
@@ -14,7 +16,7 @@ DatabricksConfig = EnvConfigable.subclass_from_env_file(
 databricks_config = DatabricksConfig.from_env()
 
 
-def make_connection_params():
+def make_connection_params() -> dict[str, str]:
     """Create connection parameters from environment variables."""
     return {
         "server_hostname": databricks_config["DATABRICKS_SERVER_HOSTNAME"],
@@ -23,7 +25,7 @@ def make_connection_params():
     }
 
 
-def make_connection(**kwargs):
+def make_connection(**kwargs: Any) -> Any:
     """Create a Databricks connection using environment variables."""
     con = DatabricksBackend()
     con = con.connect(
@@ -49,14 +51,14 @@ class DatabricksADBC:
         }
 
     @property
-    def uri(self):
+    def uri(self) -> str:
         return self.get_uri()
 
-    def get_uri(self, **kwargs):
+    def get_uri(self, **kwargs: Any) -> str:
         params = {**self.default_kwargs, **kwargs}
         return f"databricks://token:{params['token']}@{params['hostname']}:{params['port']}/{params['http_path']}"
 
-    def get_conn(self, **kwargs):
+    def get_conn(self, **kwargs: Any) -> Any:
         return dbapi.connect(
             driver="databricks",
             uri=self.get_uri(**kwargs),

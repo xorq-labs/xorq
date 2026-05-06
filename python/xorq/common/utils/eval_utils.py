@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import ast
+from typing import Any
 
 
 _ALLOWED_NODES = frozenset(
@@ -56,7 +59,7 @@ _ALLOWED_NODES = frozenset(
 )
 
 
-def safe_eval(code, namespace):
+def safe_eval(code: str, namespace: dict[str, Any]) -> Any:
     """Evaluate *code* as a Python expression within *namespace*.
 
     The AST is walked before execution and only a whitelist of node types is

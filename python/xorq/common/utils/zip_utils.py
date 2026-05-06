@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import contextlib
 import functools
 import shutil
 import zipfile
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import toolz
 from attr import (
@@ -20,7 +24,7 @@ __all__ = [
 ]
 
 
-def get_root_dir(zip_path):
+def get_root_dir(zip_path: Path | str) -> Path:
     with zipfile.ZipFile(zip_path, "r") as zf:
         (name, *rest) = zf.namelist()
         (root_dir, *_) = Path(name).parts
@@ -47,7 +51,7 @@ class ZipProxy:
     def root_dir(self):
         return get_root_dir(self.zip_path)
 
-    def toplevel_name_exists(self, name):
+    def toplevel_name_exists(self, name: str) -> bool:
         with self.open() as zf:
             return any(
                 relpath and str(relpath) == name
@@ -58,21 +62,21 @@ class ZipProxy:
             )
 
     @contextlib.contextmanager
-    def open(self):
+    def open(self) -> Iterator[zipfile.ZipFile]:
         with zipfile.ZipFile(self.zip_path, "r") as zf:
             yield zf
 
     @contextlib.contextmanager
-    def open_member(self, member_path):
+    def open_member(self, member_path: str | Path) -> Iterator[Any]:
         with self.open() as zf:
             yield zf.open(str(member_path))
 
     @contextlib.contextmanager
-    def open_toplevel_member(self, member_path):
+    def open_toplevel_member(self, member_path: str | Path) -> Iterator[Any]:
         with self.open_member(self.root_dir.joinpath(member_path)) as fh:
             yield fh
 
-    def extract_toplevel_name(self, name, dest):
+    def extract_toplevel_name(self, name: str, dest: str | Path) -> Path:
         dest = Path(dest)
         with dest.open("wb") as ofh:
             with self.open_toplevel_member(name) as ifh:
@@ -80,11 +84,11 @@ class ZipProxy:
         return dest
 
     @property
-    def members(self):
+    def members(self) -> list[str]:
         with self.open() as zf:
             return zf.namelist()
 
-    def extract_toplevel(self, dest):
+    def extract_toplevel(self, dest: str | Path) -> Path:
         dest = Path(dest).absolute()
         with self.open() as zf:
             for name in zf.namelist():
@@ -98,7 +102,7 @@ class ZipProxy:
         return dest
 
 
-def append_toplevel(zip_path, append_path):
+def append_toplevel(zip_path: Path | str, append_path: Path | str) -> Path | str:
     append_path = Path(append_path)
     arcname = str(ZipProxy(zip_path).root_dir.joinpath(append_path.name))
     with zipfile.ZipFile(zip_path, "a") as zf:

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from xorq.common.utils.env_utils import (
     EnvConfigable,
     env_templates_dir,
@@ -10,14 +12,16 @@ AWSConfig = EnvConfigable.subclass_from_env_file(
 aws_config = AWSConfig.from_env()
 
 
-def make_s3_credentials_defaults():
+def make_s3_credentials_defaults() -> dict[str, str]:
     return {
         "aws.access_key_id": aws_config["AWS_ACCESS_KEY_ID"],
         "aws.secret_access_key": aws_config["AWS_SECRET_ACCESS_KEY"],
     }
 
 
-def make_s3_connection(AWS_REGION=None, **kwargs):
+def make_s3_connection(
+    AWS_REGION: str | None = None, **kwargs: str
+) -> tuple[dict[str, str], bool]:
     connection = {
         **make_s3_credentials_defaults(),
         "aws.session_token": aws_config["AWS_SESSION_TOKEN"],
@@ -31,6 +35,6 @@ def make_s3_connection(AWS_REGION=None, **kwargs):
     return connection, connection_is_set(connection)
 
 
-def connection_is_set(connection: dict[str, str]):
+def connection_is_set(connection: dict[str, str]) -> bool:
     keys = ("aws.access_key_id", "aws.secret_access_key")
     return all(connection[value] for value in keys)

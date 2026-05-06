@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime
 import hashlib
 import json
@@ -6,8 +8,10 @@ import pathlib
 import subprocess
 import tempfile
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 from opentelemetry.trace import SpanContext, StatusCode
 
@@ -32,14 +36,14 @@ _log_env_config = EnvConfigable.subclass_from_env_file(
 ).from_env()
 
 
-def _git_is_present(cwd=None):
+def _git_is_present(cwd: pathlib.Path | None = None) -> bool:
     if cwd is None:
         cwd = pathlib.Path().absolute()
 
     return any(p for p in (cwd, *cwd.parents) if p.joinpath(".git").exists())
 
 
-def get_git_state(hash_diffs):
+def get_git_state(hash_diffs: bool) -> dict[str, str]:
     (commit, diff, diff_cached) = (
         subprocess.check_output(lst).decode().strip()
         for lst in (
@@ -61,7 +65,9 @@ def get_git_state(hash_diffs):
     return git_state
 
 
-def log_initial_state(hash_diffs=False, cwd=None):
+def log_initial_state(
+    hash_diffs: bool = False, cwd: pathlib.Path | None = None
+) -> None:
     logger = structlog.get_logger(__name__)
     logger.info("initial log level", log_level=log_level)
     try:
@@ -79,7 +85,7 @@ def log_initial_state(hash_diffs=False, cwd=None):
         logger.exception("failed to log git repo info")
 
 
-def get_log_path(log_path=default_log_path):
+def get_log_path(log_path: pathlib.Path = default_log_path) -> pathlib.Path:
     try:
         log_path.parent.mkdir(exist_ok=True, parents=True)
     except Exception:
@@ -202,7 +208,7 @@ class RunLogger:
     def _finalized(self) -> bool:
         return self._meta_path.exists()
 
-    def log_event(self, event: str, fields: dict = None):
+    def log_event(self, event: str, fields: dict[str, Any] | None = None) -> None:
         record = {
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "event": event,
@@ -211,7 +217,9 @@ class RunLogger:
         self._fh.write(json.dumps(record) + "\n")
         self._fh.flush()
 
-    def log_span_event(self, span, event: str, fields: dict = None):
+    def log_span_event(
+        self, span: Any, event: str, fields: dict[str, Any] | None = None
+    ) -> None:
         """Log to both the run log and an OTel span."""
         self.log_event(event, fields)
         if span is not None:
@@ -220,9 +228,9 @@ class RunLogger:
     def finalize(
         self,
         status: str,
-        span_context: SpanContext = None,
-        error: str = None,
-    ):
+        span_context: SpanContext | None = None,
+        error: str | None = None,
+    ) -> None:
         """Write meta.json and close the log file. Idempotent."""
         if self._finalized:
             return
@@ -279,8 +287,13 @@ class RunLogger:
     @classmethod
     @contextmanager
     def from_expr_hash(
-        cls, expr_hash: str, *, params_tuple: tuple = None, runs_dir=None, span=None
-    ):
+        cls,
+        expr_hash: str,
+        *,
+        params_tuple: tuple[Any, ...] | None = None,
+        runs_dir: str | Path | None = None,
+        span: Any = None,
+    ) -> Iterator[RunLogger | _NullRunLogger]:
         """Context manager that creates a :class:`RunLogger` and finalizes it on exit.
 
         If the run store directory cannot be created (e.g. permission error), a
@@ -327,16 +340,18 @@ class RunLogger:
 class _NullRunLogger:
     """No-op RunLogger used when the run store cannot be initialized."""
 
-    run_id = None
-    run_dir = None
+    run_id: str | None = None
+    run_dir: Path | None = None
 
-    def log_event(self, event: str, fields: dict = None):
+    def log_event(self, event: str, fields: dict[str, Any] | None = None) -> None:
         pass
 
-    def log_span_event(self, span, event: str, fields: dict = None):
+    def log_span_event(
+        self, span: Any, event: str, fields: dict[str, Any] | None = None
+    ) -> None:
         pass
 
-    def finalize(self, **kwargs):
+    def finalize(self, **kwargs: Any) -> None:
         pass
 
 

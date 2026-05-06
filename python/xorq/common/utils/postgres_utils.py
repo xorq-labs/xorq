@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any
+
 import adbc_driver_postgresql.dbapi
 import sqlglot as sg
 import sqlglot.expressions as sge
@@ -26,11 +30,11 @@ class PgADBC(ADBCBase):
     con = field(validator=instance_of(PGBackend))
 
     @property
-    def password(self):
+    def password(self) -> str:
         return self.con._con_kwargs["password"]
 
     @property
-    def params(self):
+    def params(self) -> dict[str, Any]:
         con_info = self.con.con.info
         dct = {key: getattr(con_info, key) for key in ("user", "host", "port")} | {
             "database": con_info.dbname,
@@ -39,19 +43,19 @@ class PgADBC(ADBCBase):
         return dct
 
     @property
-    def uri(self):
+    def uri(self) -> str:
         return self.get_uri()
 
     @property
-    def conn(self):
+    def conn(self) -> Any:
         return self.get_conn()
 
-    def get_uri(self, **kwargs):
+    def get_uri(self, **kwargs: Any) -> str:
         params = {**self.params, **kwargs}
         uri = f"postgresql://{params['user']}:{params['password']}@{params['host']}:{params['port']}/{params['database']}"
         return uri
 
-    def get_conn(self, **kwargs):
+    def get_conn(self, **kwargs: Any) -> Any:
         return adbc_driver_postgresql.dbapi.connect(self.get_uri(**kwargs))
 
 
@@ -61,14 +65,14 @@ PostgresConfig = EnvConfigable.subclass_from_env_file(
 postgres_config = PostgresConfig.from_env()
 
 
-def make_credential_defaults():
+def make_credential_defaults() -> dict[str, str]:
     return {
         "user": "$POSTGRES_USER",
         "password": "$POSTGRES_PASSWORD",
     }
 
 
-def make_connection_defaults():
+def make_connection_defaults() -> dict[str, str]:
     return {
         "host": postgres_config["POSTGRES_HOST"],
         "port": postgres_config["POSTGRES_PORT"],
@@ -76,7 +80,7 @@ def make_connection_defaults():
     }
 
 
-def make_connection(**kwargs):
+def make_connection(**kwargs: Any) -> Any:
     con = PGBackend()
     con = con.connect(
         **{
@@ -88,15 +92,15 @@ def make_connection(**kwargs):
     return con
 
 
-def do_checkpoint(con):
+def do_checkpoint(con: Any) -> None:
     con.raw_sql("CHECKPOINT")
 
 
-def do_analyze(con, name):
+def do_analyze(con: Any, name: str) -> None:
     con.raw_sql(f'ANALYZE "{name}"')
 
 
-def get_postgres_n_changes(dt):
+def get_postgres_n_changes(dt: Any) -> int:
     (con, name, schemaname) = (dt.source, dt.name, dt.namespace.catalog or "public")
     sql = f"""
         SELECT n_tup_upd + n_tup_ins + n_tup_del AS n_changes FROM pg_stat_user_tables
@@ -108,7 +112,7 @@ def get_postgres_n_changes(dt):
     return n_changes
 
 
-def get_postgres_n_reltuples(dt):
+def get_postgres_n_reltuples(dt: Any) -> float:
     # FIXME: determine how to track "temporary" tables
     (con, name) = (dt.source, dt.name)
     which = "reltuples"
@@ -126,7 +130,7 @@ def get_postgres_n_reltuples(dt):
     return n_reltuples
 
 
-def get_postgres_n_scans(dt):
+def get_postgres_n_scans(dt: Any) -> int:
     (con, name, schemaname) = (dt.source, dt.name, dt.namespace.catalog or "public")
     sql = f"""
         SELECT seq_scan FROM pg_stat_user_tables
@@ -136,7 +140,7 @@ def get_postgres_n_scans(dt):
     return n_scans
 
 
-def make_table_temporary(con, name):
+def make_table_temporary(con: Any, name: str) -> None:
     def rename_table_pg(con, old_name, new_name):
         # rename_stmt = f"ALTER TABLE {old_name} RENAME TO {new_name}"
         # sg.parse_one(rename_stmt)

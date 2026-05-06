@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import singledispatch
 from itertools import count
-from typing import Any, Callable, Tuple
+from typing import Any
 
 import dask.base
 from attrs import evolve, field, frozen
@@ -32,7 +33,7 @@ class TextTree:
     """Plain-text tree for displaying lineage."""
 
     label: str = field(validator=instance_of(str))
-    children: Tuple["TextTree", ...] = field(
+    children: tuple["TextTree", ...] = field(
         factory=tuple, validator=instance_of(tuple)
     )
 
@@ -61,7 +62,7 @@ class TextTree:
 @frozen
 class GenericNode:
     op: Node = field(validator=instance_of(Node))
-    children: Tuple["GenericNode", ...] = field(
+    children: tuple["GenericNode", ...] = field(
         factory=tuple, validator=instance_of(tuple)
     )
 

@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import warnings
+from typing import Any
 
 import dask
 import toolz
@@ -23,12 +26,18 @@ none_tokenized = dask.base.tokenize(None)
 
 
 @toolz.curry
-def hotfix(obj, attrname, target_tokenized, hotfix):
+def hotfix(obj: Any, attrname: str, target_tokenized: str, hotfix: Any) -> Any:
     return maybe_hotfix(obj, attrname, target_tokenized, hotfix, definitely=True)
 
 
 @toolz.curry
-def maybe_hotfix(obj, attrname, target_tokenized, hotfix, definitely=False):
+def maybe_hotfix(
+    obj: Any,
+    attrname: str,
+    target_tokenized: str,
+    hotfix: Any,
+    definitely: bool = False,
+) -> Any:
     to_hotfix = getattr(obj, attrname, None)
     tokenized = dask.base.tokenize(to_hotfix)
     dct = {

@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any
+
 import gcsfs
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -17,14 +21,14 @@ from xorq.vendor.ibis.backends import BaseBackend
 
 
 @curry
-def rbr_from_fs(fs, path):
-    def get_schema(fs, path):
+def rbr_from_fs(fs: Any, path: str) -> pa.RecordBatchReader:
+    def get_schema(fs: Any, path: str) -> pa.Schema:
         with fs.open(path, "rb") as fh:
             pf = pq.ParquetFile(fh)
             schema = pf.schema.to_arrow_schema()
             return schema
 
-    def gen_batches(fs, path):
+    def gen_batches(fs: Any, path: str) -> Any:
         with fs.open(path, "rb") as fh:
             pf = pq.ParquetFile(fh)
             yield from pf.iter_batches()
@@ -37,7 +41,13 @@ def rbr_from_fs(fs, path):
 
 
 @curry
-def rbr_to_fs(fs, path, rbr, parquet_metadata=None, **kwargs):
+def rbr_to_fs(
+    fs: Any,
+    path: str,
+    rbr: pa.RecordBatchReader,
+    parquet_metadata: dict | None = None,
+    **kwargs: Any,
+) -> None:
     schema = rbr.schema
     if parquet_metadata is not None:
         from xorq.common.utils.provenance_utils import (  # noqa: PLC0415
@@ -73,32 +83,32 @@ class GCStorage(CacheStorage):
             self.source, self.bucket_name, caller="normalize_gc_storage"
         )
 
-    def get_path(self, key):
+    def get_path(self, key: str) -> str:
         path = f"{self.bucket_name}/{key}.parquet"
         return path
 
-    def exists(self, key):
+    def exists(self, key: str) -> bool:
         path = self.get_path(key)
         return self.fs.exists(path)
 
-    def get(self, key):
+    def get(self, key: str) -> Any:
         path = self.get_path(key)
         rbr = rbr_from_fs(self.fs, path)
         op = self.source.read_record_batches(rbr).op()
         return op
 
-    def put(self, key, value, parquet_metadata=None):
+    def put(self, key: str, value: Any, parquet_metadata: dict | None = None) -> Any:
         path = self.get_path(key)
         rbr = value.to_expr().to_pyarrow_batches()
         rbr_to_fs(self.fs, path, rbr, parquet_metadata=parquet_metadata)
         return self.get(key)
 
-    def drop(self, key):
+    def drop(self, key: str) -> None:
         path = self.get_path(key)
         self.fs.delete(path)
 
 
-def get_file_metadata(uri, client=None):
+def get_file_metadata(uri: str, client: Any = None) -> tuple[tuple[str, Any], ...]:
     blob = storage.Blob.from_string(uri)
     # Refresh metadata (required for accurate timestamps)
     blob.reload(client or storage.Client.create_anonymous_client())

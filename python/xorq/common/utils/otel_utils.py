@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import os
 import socket
 import sys
 import urllib.parse
+from typing import Any
 
 from opentelemetry import trace
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
@@ -17,7 +20,7 @@ from xorq.common.utils.env_utils import (
 )
 
 
-def is_localhost_collector_listening(uri):
+def is_localhost_collector_listening(uri: str) -> bool:
     parsed = urllib.parse.urlparse(uri)
     if parsed.hostname != "localhost":
         return False
@@ -30,7 +33,7 @@ def is_localhost_collector_listening(uri):
         return False
 
 
-def _should_use_otlp_exporter(endpoint):
+def _should_use_otlp_exporter(endpoint: str | None) -> bool:
     if not endpoint:
         return False
     parsed = urllib.parse.urlparse(endpoint)
@@ -67,7 +70,7 @@ else:
 otel_config = OTELConfig.from_env()
 
 
-def get_otlp_exporter():
+def get_otlp_exporter() -> Any:
     """Create OTLP exporter based on protocol configuration.
 
     SDK auto-configures from standard OTEL environment variables:

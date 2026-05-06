@@ -1,13 +1,18 @@
+from __future__ import annotations
+
 import inspect
 from sysconfig import get_python_version
+from typing import Any
 
 
-def get_enclosing_function(level=2):
+def get_enclosing_function(level: int = 2) -> str:
     # let caller inspect it's caller's name with level=2
     return inspect.stack()[level].function
 
 
-def maybe_unwrap_curry(func, *args, **kwargs):
+def maybe_unwrap_curry(
+    func: Any, *args: Any, **kwargs: Any
+) -> tuple[Any, tuple[Any, ...], dict[str, Any]]:
     # from toolz.curry.__init__
     if (
         hasattr(func, "func")
@@ -15,7 +20,7 @@ def maybe_unwrap_curry(func, *args, **kwargs):
         and hasattr(func, "keywords")
         and isinstance(func.args, tuple)
     ):
-        _kwargs = {}
+        _kwargs: dict[str, Any] = {}
         if func.keywords:
             _kwargs.update(func.keywords)
         _kwargs.update(kwargs)
@@ -27,7 +32,7 @@ def maybe_unwrap_curry(func, *args, **kwargs):
     return (func, args, kwargs)
 
 
-def get_arguments(f, *args, **kwargs):
+def get_arguments(f: Any, *args: Any, **kwargs: Any) -> dict[str, Any]:
     (f, args, kwargs) = maybe_unwrap_curry(f, *args, **kwargs)
     signature = inspect.signature(f)
     bound = signature.bind(*args, **kwargs)
@@ -36,7 +41,7 @@ def get_arguments(f, *args, **kwargs):
     return arguments
 
 
-def get_partial_arguments(f, *args, **kwargs):
+def get_partial_arguments(f: Any, *args: Any, **kwargs: Any) -> dict[str, Any]:
     (f, args, kwargs) = maybe_unwrap_curry(f, *args, **kwargs)
     signature = inspect.signature(f)
     bound = signature.bind_partial(*args, **kwargs)
@@ -45,5 +50,5 @@ def get_partial_arguments(f, *args, **kwargs):
     return arguments
 
 
-def get_python_version_no_dot():
+def get_python_version_no_dot() -> str:
     return get_python_version().replace(".", "")
