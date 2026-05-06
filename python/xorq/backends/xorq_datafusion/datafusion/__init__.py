@@ -176,7 +176,7 @@ def _inspect_xgboost_model_from_json(json_file_path):
     return metadata
 
 
-def _fields_to_parameters(fields):
+def _fields_to_parameters(fields: Mapping[str, Any]) -> list[inspect.Parameter]:
     parameters = []
     for name, arg in fields.items():
         param = inspect.Parameter(
@@ -186,7 +186,7 @@ def _fields_to_parameters(fields):
     return parameters
 
 
-def translate_sort(exprs: list[ir.Expr]):
+def translate_sort(exprs: list[ir.Expr]) -> list[Expr]:
     result = []
     for expr in exprs:
         node = expr.op()
@@ -260,7 +260,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             }
         )
 
-    def _register_builtin_udfs(self):
+    def _register_builtin_udfs(self) -> None:
         from xorq.backends.xorq_datafusion.datafusion import udfs  # noqa: PLC0415
 
         for name, func in inspect.getmembers(
@@ -309,7 +309,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                     udaf = _compile_pyarrow_udaf(agg_node)
                     self.con.register_udaf(udaf)
 
-    def _compile_pyarrow_expr_udf(self, udf_node):
+    def _compile_pyarrow_expr_udf(self, udf_node: Any) -> Any:
         def extract_computed_arg(expr):
             # user can do Scalar.to_table() if they want to cache it
             import pandas as pd  # noqa: PLC0415
@@ -333,7 +333,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             name=udf_node.__func_name__,
         )
 
-    def _compile_pyarrow_udf(self, udf_node):
+    def _compile_pyarrow_udf(self, udf_node: Any) -> Any:
         return df.udf(
             udf_node.__func__,
             input_types=[PyArrowType.from_ibis(arg.dtype) for arg in udf_node.args],
@@ -344,7 +344,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             name=udf_node.__func_name__,
         )
 
-    def _compile_elementwise_udf(self, udf_node):
+    def _compile_elementwise_udf(self, udf_node: Any) -> Any:
         return df.udf(
             udf_node.func,
             input_types=list(map(PyArrowType.from_ibis, udf_node.input_type)),
@@ -560,13 +560,13 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         self,
         source: str | Path | pa.Table | pa.RecordBatch | pa.Dataset | pd.DataFrame,
         table_name: str | None = None,
-    ):
+    ) -> ir.Table:
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
         self.con.deregister_table(table_ident)
         self.con.register_table_provider(table_ident, IbisTableProvider(source))
         return self.table(table_name)
 
-    def _register_failure(self):
+    def _register_failure(self) -> None:
         import inspect  # noqa: PLC0415
 
         msg = ", ".join(
@@ -707,7 +707,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         return self.register(delta_table.to_pyarrow_dataset(), table_name=table_name)
 
-    def read_record_batches(self, source, table_name=None):
+    def read_record_batches(
+        self, source: pa.ipc.RecordBatchReader, table_name: str | None = None
+    ) -> ir.Table:
         table_name = table_name or gen_name("read_record_batches")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
         self.con.deregister_table(table_ident)
@@ -729,7 +731,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         *,
         chunk_size: int = 1_000_000,
         **kwargs: Any,
-    ):
+    ) -> pa.ipc.RecordBatchReader:
         pa = self._import_pyarrow()
         self._register_udfs(expr)
         self._register_in_memory_tables(expr)
@@ -766,7 +768,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         arrow_table = batch_reader.read_all()
         return expr.__pyarrow_result__(arrow_table)
 
-    def execute(self, expr: ir.Expr, **kwargs: Any):
+    def execute(self, expr: ir.Expr, **kwargs: Any) -> Any:
         batch_reader = self._to_pyarrow_batches(expr, **kwargs)
         return expr.__pandas_result__(
             batch_reader.read_pandas(timestamp_as_object=True)
@@ -781,7 +783,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         database: str | None = None,
         temp: bool = False,
         overwrite: bool = False,
-    ):
+    ) -> ir.Table:
         """Create a table in Datafusion.
 
         Parameters

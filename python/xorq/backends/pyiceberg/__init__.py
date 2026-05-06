@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
+from typing import Any, Mapping
 
 import pandas as pd
 import pyarrow as pa
@@ -18,7 +20,7 @@ from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import gen_name
 
 
-def parse_url(url: str) -> Dict[str, Any]:
+def parse_url(url: str) -> dict[str, Any]:
     from urllib.parse import parse_qs, urlparse  # noqa: PLC0415
 
     parsed = urlparse(url)
@@ -56,7 +58,7 @@ class Backend(SQLBackend):
     compiler = postgres_compiler
 
     @property
-    def version(self):
+    def version(self) -> str:
         import importlib.metadata  # noqa: PLC0415
 
         return importlib.metadata.version("pyiceberg")
@@ -71,7 +73,7 @@ class Backend(SQLBackend):
         self.uri = None
 
     @staticmethod
-    def _from_url(url: str) -> Dict[str, Any]:
+    def _from_url(url: str) -> dict[str, Any]:
         return parse_url(url)
 
     @classmethod
@@ -124,10 +126,10 @@ class Backend(SQLBackend):
     def create_table(
         self,
         name: str,
-        obj: Optional[Union[pd.DataFrame, pa.Table, ir.Table]] = None,
+        obj: pd.DataFrame | pa.Table | ir.Table | None = None,
         *,
-        schema: Optional[ibis.Schema] = None,
-        database: Optional[str] = None,
+        schema: ibis.Schema | None = None,
+        database: str | None = None,
         temp: bool = False,
         overwrite: bool = False,
     ) -> ir.Table:
@@ -167,8 +169,8 @@ class Backend(SQLBackend):
     def insert(
         self,
         table_name: str,
-        data: Union[pd.DataFrame, pa.Table, ir.Table],
-        database: Optional[str] = None,
+        data: pd.DataFrame | pa.Table | ir.Table,
+        database: str | None = None,
         mode: str = "append",
     ) -> bool:
         database = database or self.namespace
@@ -196,13 +198,13 @@ class Backend(SQLBackend):
     def upsert(
         self,
         table_name: str,
-        data: Union[pd.DataFrame, pa.Table, ir.Table],
-        database: Optional[str] = None,
-        join_cols=None,
-        when_matched_update_all=True,
-        when_not_matched_insert_all=True,
-        case_sensitive=True,
-    ):
+        data: pd.DataFrame | pa.Table | ir.Table,
+        database: str | None = None,
+        join_cols: list[str] | None = None,
+        when_matched_update_all: bool = True,
+        when_not_matched_insert_all: bool = True,
+        case_sensitive: bool = True,
+    ) -> ir.Table:
         """Wrapper around upsert"""
         database = database or self.namespace
         full_table_name = f"{database}.{table_name}"
@@ -238,8 +240,8 @@ class Backend(SQLBackend):
         self,
         expr: ir.Expr,
         *,
-        params: Optional[Mapping[ir.Scalar, Any]] = None,
-        limit: Optional[Union[int, str]] = None,
+        params: Mapping[ir.Scalar, Any] | None = None,
+        limit: int | str | None = None,
         chunk_size: int = 10_000,
         **_: Any,
     ) -> pa.ipc.RecordBatchReader:
@@ -248,9 +250,9 @@ class Backend(SQLBackend):
 
     def list_tables(
         self,
-        like: Optional[str] = None,
-        database: Optional[Union[Tuple[str, str], str]] = None,
-    ) -> List[str]:
+        like: str | None = None,
+        database: tuple[str, str] | str | None = None,
+    ) -> list[str]:
         database = database or self.namespace
         table_names = [t[1] for t in self.catalog.list_tables(database)]
 
@@ -264,7 +266,7 @@ class Backend(SQLBackend):
     def drop_table(
         self,
         name: str,
-        database: Optional[str] = None,
+        database: str | None = None,
         force: bool = False,
     ) -> None:
         database = database or self.namespace
@@ -277,8 +279,8 @@ class Backend(SQLBackend):
         self,
         table_name: str,
         *,
-        catalog: Optional[str] = None,
-        database: Optional[str] = None,
+        catalog: str | None = None,
+        database: str | None = None,
     ) -> sch.Schema:
         database = database or self.namespace
         catalog = (
@@ -295,8 +297,8 @@ class Backend(SQLBackend):
 
     def read_record_batches(
         self,
-        reader: Union[pa.RecordBatchReader, pa.ChunkedArray],
-        table_name: Optional[str] = None,
+        reader: pa.RecordBatchReader | pa.ChunkedArray,
+        table_name: str | None = None,
     ) -> ir.Table:
         table_name = table_name or gen_name("read_record_batches")
         table = pa.Table.from_batches(reader, reader.schema)
@@ -304,7 +306,7 @@ class Backend(SQLBackend):
         self.create_table(name=table_name, obj=table, database=self.namespace)
         return self.table(table_name)
 
-    def list_snapshots(self, database=None) -> dict[str, int]:
+    def list_snapshots(self, database: str | None = None) -> dict[str, list[int]]:
         database = database or self.namespace
         table_names = [t[1] for t in self.catalog.list_tables(database)]
 

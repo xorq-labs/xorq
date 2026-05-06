@@ -149,7 +149,9 @@ class BasePandasBackend(BaseBackend, NoUrl):
     def version(self) -> str:
         return pd.__version__
 
-    def list_tables(self, like=None, database=None):
+    def list_tables(
+        self, like: str | None = None, database: str | None = None
+    ) -> list[str]:
         """Return the list of table names in the current database.
 
         Parameters
@@ -171,7 +173,7 @@ class BasePandasBackend(BaseBackend, NoUrl):
         overridden_schema = {**inferred_schema, **(schema or {})}
         return ops.DatabaseTable(name, overridden_schema, self).to_expr()
 
-    def get_schema(self, table_name, *, database=None):
+    def get_schema(self, table_name: str, *, database: str | None = None) -> sch.Schema:
         try:
             schema = self.schemas[table_name]
         except KeyError:
@@ -180,7 +182,7 @@ class BasePandasBackend(BaseBackend, NoUrl):
 
         return schema
 
-    def compile(self, expr, *args, **kwargs):
+    def compile(self, expr: ir.Expr, *args: Any, **kwargs: Any) -> ir.Expr:
         return expr
 
     def create_table(
@@ -305,7 +307,13 @@ class BasePandasBackend(BaseBackend, NoUrl):
 class Backend(BasePandasBackend):
     name = "pandas"
 
-    def execute(self, query, params=None, limit="default", **kwargs):
+    def execute(
+        self,
+        query: ir.Expr,
+        params: Mapping[ir.Scalar, Any] | None = None,
+        limit: int | str | None = "default",
+        **kwargs: Any,
+    ) -> Any:
         from xorq.backends.pandas.executor import PandasExecutor  # noqa: PLC0415
 
         if limit != "default" and limit is not None:
@@ -324,7 +332,7 @@ class Backend(BasePandasBackend):
 
         return PandasExecutor.execute(query.op(), backend=self, params=params)
 
-    def _create_cached_table(self, name, expr):
+    def _create_cached_table(self, name: str, expr: ir.Expr) -> ir.Table:
         return self.create_table(name, expr.execute())
 
     def _finalize_memtable(self, name: str) -> None:
@@ -344,7 +352,7 @@ class Backend(BasePandasBackend):
         | list[pa.RecordBatch]
         | tuple[pa.RecordBatch],
         table_name: str | None = None,
-    ):
+    ) -> ir.Table:
         if isinstance(record_batches, (list, tuple)):
             record_batches = pa.RecordBatchReader.from_batches(
                 record_batches[0].schema, record_batches
