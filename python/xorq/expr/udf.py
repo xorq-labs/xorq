@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import functools
+from collections.abc import Callable, Iterable
 from typing import Any
 
 import cloudpickle
@@ -25,11 +28,11 @@ from xorq.vendor.ibis.expr.operations.udf import (
 )
 
 
-def property_wrap_fn(fn):
+def property_wrap_fn(fn: Callable) -> property:
     return property(fget=lambda _, fn=fn: fn)
 
 
-def arrays_to_df(names, *arrays):
+def arrays_to_df(names: Iterable[str], *arrays: pa.Array) -> Any:
     import pandas as pd  # noqa: PLC0415
 
     return pd.DataFrame(
@@ -37,11 +40,11 @@ def arrays_to_df(names, *arrays):
     )
 
 
-def make_pyarrow_array(return_type, series):
+def make_pyarrow_array(return_type: Any, series: Any) -> pa.Array:
     return pa.Array.from_pandas(series, type=return_type.to_pyarrow())
 
 
-def make_dunder_func(fn, schema, return_type=None):
+def make_dunder_func(fn: Callable, schema: Any, return_type: Any = None) -> property:
     def fn_from_arrays(*arrays):
         df = arrays_to_df(schema, *arrays)
         value = fn(df)
@@ -52,7 +55,9 @@ def make_dunder_func(fn, schema, return_type=None):
     return property_wrap_fn(fn_from_arrays)
 
 
-def make_expr_scalar_udf_dunder_func(fn, schema, return_type):
+def make_expr_scalar_udf_dunder_func(
+    fn: Callable, schema: Any, return_type: Any
+) -> property:
     def fn_from_arrays(*arrays, computed_arg=None, **kwargs):
         if computed_arg is None:
             raise ValueError(
@@ -69,7 +74,7 @@ def make_expr_scalar_udf_dunder_func(fn, schema, return_type):
 
 
 @toolz.curry
-def wrap_model(value, model_key="model"):
+def wrap_model(value: Any, model_key: str = "model") -> bytes:
     return cloudpickle.dumps({model_key: value})
 
 
@@ -532,11 +537,11 @@ class agg(_agg):
     @classmethod
     def pyarrow(
         cls,
-        fn=None,
-        name=None,
-        signature=None,
-        **kwargs,
-    ):
+        fn: Callable | None = None,
+        name: str | None = None,
+        signature: Any = None,
+        **kwargs: Any,
+    ) -> Any:
         """
         Decorator for creating PyArrow-based aggregation functions.
 
@@ -818,11 +823,11 @@ class agg(_agg):
 
 
 def arbitrate_evaluate(
-    uses_window_frame=False,
-    supports_bounded_execution=False,
-    include_rank=False,
-    **config_kwargs,
-):
+    uses_window_frame: bool = False,
+    supports_bounded_execution: bool = False,
+    include_rank: bool = False,
+    **config_kwargs: Any,
+) -> str:
     match (uses_window_frame, supports_bounded_execution, include_rank):
         case (False, False, False):
             return "evaluate_all"

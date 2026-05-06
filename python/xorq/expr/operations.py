@@ -14,18 +14,18 @@ class _MissingSentinel:
 
     _instance = None
 
-    def __new__(cls):
+    def __new__(cls) -> _MissingSentinel:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "_MISSING"
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         return False
 
-    def __dask_tokenize__(self):
+    def __dask_tokenize__(self) -> tuple[str]:
         return (type(self).__qualname__,)
 
 
@@ -51,7 +51,13 @@ class NamedScalarParameter(ScalarParameter):
     label: str
     default: Any = _MISSING
 
-    def __init__(self, dtype, label, default=_MISSING, counter=None):
+    def __init__(
+        self,
+        dtype: Any,
+        label: str,
+        default: Any = _MISSING,
+        counter: int | None = None,
+    ) -> None:
         if counter is None:
             counter = tokenize_to_int(label, dtype)
         if default is not _MISSING:
@@ -69,5 +75,5 @@ class NamedScalarParameter(ScalarParameter):
         )
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self.label

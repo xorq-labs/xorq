@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import functools
 import itertools
 import operator
 from collections import defaultdict
-from typing import Any, Callable
+from collections.abc import Callable, Iterator
+from typing import Any
 
 import pyarrow as pa
 import toolz
@@ -26,7 +29,7 @@ from xorq.vendor.ibis.expr.format import fmt, render_schema
 from xorq.vendor.ibis.expr.operations import Node, Relation
 
 
-def replace_cache_table(node, kwargs):
+def replace_cache_table(node: Node, kwargs: dict[str, Any]) -> Node:
     if kwargs:
         node = node.__recreate__(kwargs)
 
@@ -43,22 +46,22 @@ def replace_cache_table(node, kwargs):
 class SafeTee(object):
     """tee object wrapped to make it thread-safe"""
 
-    def __init__(self, teeobj, lock):
+    def __init__(self, teeobj: Any, lock: Any) -> None:
         self.teeobj = teeobj
         self.lock = lock
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[SafeTee]:
         return self
 
-    def __next__(self):
+    def __next__(self) -> Any:
         with self.lock:
             return next(self.teeobj)
 
-    def __copy__(self):
+    def __copy__(self) -> SafeTee:
         return SafeTee(self.teeobj.__copy__(), self.lock)
 
     @classmethod
-    def tee(cls, iterable, n=2):
+    def tee(cls, iterable: Any, n: int = 2) -> tuple[SafeTee, ...]:
         """tuple of n independent thread-safe iterators"""
         from itertools import tee  # noqa: PLC0415
         from threading import Lock  # noqa: PLC0415
@@ -67,7 +70,7 @@ class SafeTee(object):
         return tuple(cls(teeobj, lock) for teeobj in tee(iterable, n))
 
 
-def recursive_update(obj, replacements):
+def recursive_update(obj: Any, replacements: dict[Any, Any]) -> Any:
     if isinstance(obj, Node):
         if obj in replacements:
             return replacements[obj]
@@ -89,8 +92,8 @@ def recursive_update(obj, replacements):
         return obj
 
 
-def replace_source_factory(source: Any):
-    def replace_source(node, _, **kwargs):
+def replace_source_factory(source: Any) -> Callable[..., Any]:
+    def replace_source(node: Any, _: Any, **kwargs: Any) -> Any:
         if "source" in kwargs:
             kwargs["source"] = source
         return node.__recreate__(kwargs)
@@ -105,10 +108,10 @@ class Tag(ops.Relation):
     values = FrozenDict()
 
     @property
-    def tag(self):
+    def tag(self) -> Any:
         return self.metadata.get("tag")
 
-    def __dask_tokenize__(self):
+    def __dask_tokenize__(self) -> Any:
         from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
             normalize_seq_with_caller,
         )
@@ -129,7 +132,7 @@ class HashingTag(Tag):
     produce distinct hashes.
     """
 
-    def __dask_tokenize__(self):
+    def __dask_tokenize__(self) -> Any:
         from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
             normalize_seq_with_caller,
         )
@@ -163,7 +166,7 @@ class RemoteTable(DatabaseTableView):
     remote_expr: Expr
 
     @classmethod
-    def from_expr(cls, con, expr, name=None):
+    def from_expr(cls, con: Any, expr: Expr, name: str | None = None) -> RemoteTable:
         name = name or gen_name()
         return cls(
             name=name,
@@ -199,13 +202,13 @@ class FlightExpr(DatabaseTableView):
     @classmethod
     def from_exprs(
         cls,
-        input_expr,
-        unbound_expr,
-        make_server=None,
-        make_connection=None,
-        name=None,
-        **kwargs,
-    ):
+        input_expr: Expr,
+        unbound_expr: Expr,
+        make_server: Callable | None = None,
+        make_connection: Callable | None = None,
+        name: str | None = None,
+        **kwargs: Any,
+    ) -> FlightExpr:
         from xorq.flight import FlightServer  # noqa: PLC0415
 
         def roundtrip_cloudpickle(obj):
@@ -225,7 +228,7 @@ class FlightExpr(DatabaseTableView):
             **kwargs,
         )
 
-    def to_rbr(self, do_instrument_reader=None):
+    def to_rbr(self, do_instrument_reader: bool | None = None) -> pa.RecordBatchReader:
         from xorq.flight.action import AddExchangeAction  # noqa: PLC0415
         from xorq.flight.exchanger import (  # noqa: PLC0415
             UnboundExprExchanger,
@@ -262,25 +265,25 @@ class FlightExpr(DatabaseTableView):
         schema = self.schema.to_pyarrow()
         return pa.RecordBatchReader.from_batches(schema, gen)
 
-    def serve(self, make_server=None, **kwargs):
+    def serve(self, make_server: Callable | None = None, **kwargs: Any) -> Any:
         return flight_serve_unbound(
             self.unbound_expr, make_server=make_server, **kwargs
         )
 
 
 def flight_serve(
-    expr,
-    make_server=None,
-    **kwargs,
-):
+    expr: Expr,
+    make_server: Callable | None = None,
+    **kwargs: Any,
+) -> Any:
     return flight_serve_unbound(expr.unbind(), make_server=make_server, **kwargs)
 
 
 def flight_serve_unbound(
-    unbound_expr,
-    make_server=None,
-    **kwargs,
-):
+    unbound_expr: Expr,
+    make_server: Callable | None = None,
+    **kwargs: Any,
+) -> Any:
     from xorq.flight import FlightServer  # noqa: PLC0415
     from xorq.flight.exchanger import (  # noqa: PLC0415
         UnboundExprExchanger,
@@ -346,13 +349,13 @@ class FlightUDXF(DatabaseTableView):
     @classmethod
     def from_expr(
         cls,
-        input_expr,
-        udxf,
-        make_server=None,
-        make_connection=None,
-        name=None,
-        **kwargs,
-    ):
+        input_expr: Expr,
+        udxf: type,
+        make_server: Callable | None = None,
+        make_connection: Callable | None = None,
+        name: str | None = None,
+        **kwargs: Any,
+    ) -> FlightUDXF:
         from xorq.common.utils.tls_utils import TLSKwargs  # noqa: PLC0415
         from xorq.flight import FlightServer  # noqa: PLC0415
 
@@ -374,7 +377,7 @@ class FlightUDXF(DatabaseTableView):
             **kwargs,
         )
 
-    def to_rbr(self, do_instrument_reader=None):
+    def to_rbr(self, do_instrument_reader: bool | None = None) -> pa.RecordBatchReader:
         from xorq.flight.action import AddExchangeAction  # noqa: PLC0415
 
         if do_instrument_reader is None:
@@ -574,7 +577,7 @@ class Read(ops.DatabaseTable):
     read_kwargs: Any = ()
     normalize_method: Callable = None
 
-    def make_dt(self):
+    def make_dt(self) -> Node:
         method = getattr(self.source, self.method_name)
         _exclude = ("hash_path", "read_path")
         args = tuple(v for k, v in self.read_kwargs if k == "hash_path")
@@ -582,7 +585,7 @@ class Read(ops.DatabaseTable):
         dt = method(*args, **kwargs).op()
         return dt
 
-    def make_unbound_dt(self):
+    def make_unbound_dt(self) -> ops.UnboundTable:
         return ops.UnboundTable(
             name=self.name,
             schema=self.schema,
@@ -593,7 +596,9 @@ _count = itertools.count()
 
 
 @tracer.start_as_current_span("register_and_transform_remote_tables")
-def register_and_transform_remote_tables(expr, **kwargs):
+def register_and_transform_remote_tables(
+    expr: Expr, **kwargs: Any
+) -> tuple[Expr, dict[str, Any]]:
     created = {}
 
     op = expr.op()
@@ -663,11 +668,11 @@ def register_and_transform_remote_tables(expr, **kwargs):
     return expr, created
 
 
-def render_backend(con):
+def render_backend(con: Any) -> str:
     return f"{con.name}-{id(con)}"
 
 
-def get_cache_params(cache):
+def get_cache_params(cache: Any) -> tuple[str | None, bool | None, str]:
     from xorq.caching import (  # noqa: PLC0415
         ParquetCache,
         ParquetSnapshotCache,
@@ -708,7 +713,7 @@ def _fmt_read(op, name, method_name, source, **kwargs):
     return name + render_schema(op.schema, 1)
 
 
-def prepare_create_table_from_expr(con, expr, **kwargs):
+def prepare_create_table_from_expr(con: Any, expr: Expr, **kwargs: Any) -> Any:
     from xorq.expr.api import _transform_expr  # noqa: PLC0415
 
     if (expr_backend := expr._find_backend()) != con:

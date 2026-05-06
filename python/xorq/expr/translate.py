@@ -3,11 +3,16 @@ from __future__ import annotations
 import hashlib
 import operator
 from functools import singledispatch
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
 
 import xorq.vendor.ibis.expr.operations as ops
+
+
+if TYPE_CHECKING:
+    import xorq.vendor.ibis.expr.types as ir
+
 from xorq.expr import (
     Aggregate,
     AggregateFunction,
@@ -44,7 +49,7 @@ class Catalog(dict[str, Any]):
 
 
 @singledispatch
-def convert(step, catalog, *args):
+def convert(step: Any, catalog: Catalog, *args: Any) -> Any:
     raise TypeError(type(step))
 
 
@@ -417,7 +422,7 @@ def convert_not(is_not, catalog):
     return expr.negate()
 
 
-def plan_to_ibis(plan, catalog):
+def plan_to_ibis(plan: Any, catalog: dict[str, Any]) -> Any:
     """Parse a DataFusion logical plan into an Ibis expression.
 
     Parameters
@@ -441,8 +446,8 @@ def plan_to_ibis(plan, catalog):
 
 
 def sql_to_ibis(
-    sql: str, catalog: dict[str, ibis.ir.Table], dialect: str = None
-) -> ibis.Expr:
+    sql: str, catalog: dict[str, ir.Table], dialect: str | None = None
+) -> ir.Expr:
     plan = parser.parse_sql(
         sql,
         ContextProvider({k: v.schema().to_pyarrow() for k, v in catalog.items()}),

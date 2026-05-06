@@ -143,10 +143,10 @@ def get_backend(expr: Expr | None = None) -> BaseBackend:
 
 
 def read_pyarrow_stream(
-    source,
-    con=None,
-    table_name=None,
-    **kwargs,
+    source: Any,
+    con: Any | None = None,
+    table_name: str | None = None,
+    **kwargs: Any,
 ) -> ir.Table:
     from xorq.config import default_backend  # noqa: PLC0415
 
@@ -159,7 +159,7 @@ def register(
     source: str | Path | pa.Table | pa.RecordBatch | pa.Dataset | pd.DataFrame,
     table_name: str | None = None,
     **kwargs: Any,
-):
+) -> ir.Table:
     from xorq.config import default_backend  # noqa: PLC0415
 
     con = default_backend()

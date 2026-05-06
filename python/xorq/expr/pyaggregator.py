@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import pickle
 from abc import (
     ABC,
     abstractmethod,
 )
+from collections.abc import Iterable
+from typing import Any
 
 import pyarrow as pa
 
@@ -10,7 +14,9 @@ from xorq.common.utils import classproperty
 from xorq.internal import Accumulator
 
 
-def make_struct_type(names, arrow_types):
+def make_struct_type(
+    names: Iterable[str], arrow_types: Iterable[pa.DataType]
+) -> pa.StructType:
     return pa.struct(
         (
             pa.field(
@@ -25,13 +31,13 @@ def make_struct_type(names, arrow_types):
 class PyAggregator(Accumulator, ABC):
     """Variadic aggregator for UDAFs"""
 
-    def __init__(self):
-        self._states = []
+    def __init__(self) -> None:
+        self._states: list[bytes] = []
 
-    def pystate(self):
+    def pystate(self) -> pa.Array:
         return pa.concat_arrays(map(pickle.loads, self._states))
 
-    def state(self):
+    def state(self) -> pa.Array:
         value = pa.array(
             [self._states],
             type=self.state_type,
@@ -39,10 +45,10 @@ class PyAggregator(Accumulator, ABC):
         return value
 
     @abstractmethod
-    def py_evaluate(self):
+    def py_evaluate(self) -> Any:
         pass
 
-    def evaluate(self):
+    def evaluate(self) -> pa.Scalar:
         return pa.scalar(
             self.py_evaluate(),
             type=self.return_type,
@@ -60,18 +66,18 @@ class PyAggregator(Accumulator, ABC):
             self._states.extend(state)
 
     @classproperty
-    def state_type(cls):
+    def state_type(cls) -> pa.DataType:
         return pa.list_(pa.large_binary())
 
     @classproperty
-    def names(cls):
+    def names(cls) -> tuple[str, ...]:
         return tuple(field.name for field in cls.struct_type)
 
     @classproperty
     @abstractmethod
-    def struct_type(cls):
+    def struct_type(cls) -> pa.StructType:
         pass
 
     @classproperty
-    def volatility(cls):
+    def volatility(cls) -> str:
         return "stable"
