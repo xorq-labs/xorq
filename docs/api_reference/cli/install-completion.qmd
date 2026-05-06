@@ -1,0 +1,44 @@
+---
+title: 'install-completion'
+---
+
+Install the shell-completion script for `xorq` into the standard location for
+the chosen shell. After installation, restart your shell (or source the
+generated file) to activate completion.
+
+## Usage
+
+```bash
+xorq install-completion [SHELL]
+```
+
+## Arguments
+
+- **`SHELL`** — One of `bash`, `zsh`, `fish`. If omitted, the shell is detected
+  from the `$SHELL` environment variable.
+
+## Install paths
+
+| Shell | Path |
+|---|---|
+| `bash` | `~/.local/share/bash-completion/completions/xorq` |
+| `zsh`  | `~/.zfunc/_xorq` (requires `~/.zfunc` in `fpath`) |
+| `fish` | `~/.config/fish/completions/xorq.fish` |
+
+## Examples
+
+```bash
+# Detect shell from $SHELL and install
+xorq install-completion
+
+# Pin to a specific shell
+xorq install-completion zsh
+```
+
+After install, the command prints the path it wrote to and the source command
+needed to activate completion in the current session.
+
+## See also
+
+- [`completion`](completion.qmd) — print the completion script to stdout
+  instead of installing it.

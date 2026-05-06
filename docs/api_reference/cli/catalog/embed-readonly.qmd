@@ -1,0 +1,39 @@
+---
+title: 'catalog embed-readonly'
+---
+
+Embed read-only object-store credentials into the catalog's git-annex branch
+so consumers cloning the catalog can fetch annexed content without supplying
+credentials of their own.
+
+The command verifies that the supplied credentials cannot write to the bucket
+before embedding them — if a write succeeds, the embed is aborted.
+
+## Usage
+
+```bash
+xorq catalog embed-readonly [OPTIONS]
+```
+
+## Options
+
+| Option | Default | Description |
+|---|---|---|
+| `--env-file` | none | Env file containing the read-only credentials. Mutually exclusive with `--env-prefix`. |
+| `--env-prefix` | none | Env-var prefix for the read-only credentials. Mutually exclusive with `--env-file`. |
+| `--gcs` | off | Apply GCS defaults to the S3 remote config. |
+
+One of `--env-file` or `--env-prefix` is required.
+
+## Examples
+
+```bash
+xorq catalog embed-readonly --env-file .env.catalog.readonly
+xorq catalog embed-readonly --env-prefix XORQ_CATALOG_RO_
+```
+
+## Notes
+
+- The write-check step requires the credentials to be evaluated against the
+  configured bucket; misconfigured paths will surface as setup errors before
+  any embed occurs.

@@ -1,0 +1,54 @@
+---
+title: 'run-unbound'
+---
+
+Execute a built expression after replacing one of its nodes with input streamed
+in over Arrow IPC. This is the CLI counterpart to streaming data into a served
+unbound expression — useful for piping data between expressions without standing
+up a Flight server.
+
+## Usage
+
+```bash
+xorq run-unbound <build_path> [OPTIONS] < input.arrow
+```
+
+## Arguments
+
+- **`build_path`** — Path to the build directory produced by `xorq build`.
+
+## Options
+
+| Option | Default | Description |
+|---|---|---|
+| `--to_unbind_hash` | inferred | Hash of the node to replace with the streamed input. |
+| `--to_unbind_tag` | inferred | Tag of the node to replace (alternative to `--to_unbind_hash`). |
+| `--typ` | none | Type of the node to unbind. |
+| `-i`, `--instream` | stdin | File to read Arrow IPC record batches from. |
+| `-o`, `--output-path` | stdout (arrow) / discard (other) | Path to write output. |
+| `-f`, `--format` | `parquet` | Output format. One of `csv`, `json`, `parquet`, `arrow`. |
+| `--limit` | unlimited | Maximum number of rows to output. |
+| `--batch-size` | table default | Batch size for Arrow streaming output. |
+| `--cache-dir` | system cache dir | Directory for parquet cache files. |
+
+## Examples
+
+Stream input from a file:
+```bash
+xorq run-unbound builds/transform \
+    --to_unbind_tag source_input \
+    -i ./input.arrow \
+    -o results.parquet
+```
+
+Pipe Arrow output from one expression directly into another:
+```bash
+xorq run builds/source -o - -f arrow \
+  | xorq run-unbound builds/transform \
+        --to_unbind_tag source_input \
+        -o results.parquet
+```
+
+## See also
+
+- [`serve-unbound`](serve-unbound.qmd) — serve the same unbound expression as a Flight endpoint

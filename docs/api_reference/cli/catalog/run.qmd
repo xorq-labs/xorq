@@ -1,0 +1,70 @@
+---
+title: 'catalog run'
+---
+
+Compose and execute one or more catalog entries, writing data to disk or stdout.
+
+A single entry runs it directly. Multiple entries compose source + transforms.
+Unbound entries can have their input streamed in over Arrow IPC.
+
+To persist a composed expression back to the catalog instead of executing it,
+use [`catalog compose`](compose.qmd).
+
+## Usage
+
+```bash
+xorq catalog run <entries...> [OPTIONS]
+```
+
+## Arguments
+
+- **`entries`** — One or more entry names or aliases. Multiple entries compose
+  as `source + transforms...`.
+
+## Options
+
+| Option | Default | Description |
+|---|---|---|
+| `-c`, `--code` | none | Inline Ibis expression applied to the composed `source`. |
+| `-o`, `--output-path` | `/dev/null` | Path to write output. Use `-` for stdout. |
+| `-f`, `--format` | `parquet` | Output format. One of `csv`, `json`, `parquet`, `arrow`. |
+| `--limit` | unlimited | Maximum number of rows to output. |
+| `-i`, `--instream` | stdin | File to read Arrow IPC record batches from (used for unbound entries). |
+| `--fuse` / `--no-fuse` | `--fuse` | Enable catalog source fusion. |
+| `--rename-params` | none | Rename a parameter on a specific entry. Format: `entry,old_name,new_name`. Repeatable. |
+| `-p`, `--params` | none | Override expression parameters. Format: `key=value`. Repeatable. |
+
+## Examples
+
+Run a single entry directly:
+```bash
+xorq catalog run src -o - -f csv
+```
+
+Compose source + transform and execute:
+```bash
+xorq catalog run src trn -o - -f csv
+```
+
+Add inline transformation code:
+```bash
+xorq catalog run src trn \
+    -c "source.filter(source.amount > 100)" \
+    -o - -f csv
+```
+
+Pipe Arrow data into an unbound entry:
+```bash
+xorq catalog run src -o - -f arrow \
+  | xorq catalog run trn -o - -f csv
+```
+
+With parameter overrides:
+```bash
+xorq catalog run pipeline -p threshold=0.5 -o results.parquet
+```
+
+## See also
+
+- [`catalog compose`](compose.qmd) — persist a composed expression instead of executing it
+- [`catalog run-cached`](run-cached.qmd) — same semantics, but wraps the result in a parquet cache
