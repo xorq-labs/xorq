@@ -22,8 +22,8 @@ xorq run-cached <build_path> [OPTIONS]
 | Option | Default | Description |
 |---|---|---|
 | `-o`, `--output-path` | `/dev/null` (discard) | Path to write output. Use `-` for stdout. |
-| `-f`, `--format` | `parquet` | Output format. One of `csv`, `json`, `parquet`. |
-| `--cache-dir` | system cache dir | Directory for parquet cache files. |
+| `-f`, `--format` | `parquet` | Output format. One of `csv`, `json`, `parquet`, `arrow`. |
+| `--cache-dir` | `$XORQ_CACHE_DIR` or `~/.cache/xorq` | Directory for parquet cache files. |
 | `--limit` | unlimited | Maximum number of rows to output. |
 | `--cache-type` | `modification-time` | Cache strategy. One of `modification-time` (`ParquetCache`) or `snapshot` (`ParquetSnapshotCache`). |
 | `--ttl` | none | TTL in seconds for snapshot cache. When set, uses `ParquetTTLSnapshotCache` instead. |

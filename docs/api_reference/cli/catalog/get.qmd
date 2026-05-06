@@ -22,11 +22,14 @@ xorq catalog get <name> [OPTIONS]
 |---|---|---|
 | `-o`, `--output` | current directory | Destination directory for the archive. |
 
+The archive is always written to `<output_dir>/<name>.zip` (the entry name with
+a `.zip` suffix). Existing files at that path are overwritten.
+
 ## Example
 
 ```bash
 xorq catalog get f02d28198715 -o ./shipped-builds
-# → Exported to ./shipped-builds/f02d28198715.zip
+# → Exported to shipped-builds/f02d28198715.zip
 ```
 
 The exported archive can be re-added to another catalog with

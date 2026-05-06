@@ -26,7 +26,7 @@ xorq catalog compose <entries...> [OPTIONS]
 |---|---|---|
 | `-c`, `--code` | none | Inline Ibis expression applied to the composed `source`. |
 | `-a`, `--alias` | none | Register an alias on the resulting cataloged entry. |
-| `--cache-dir` | system cache dir | Directory for parquet cache files used during the build. |
+| `--cache-dir` | `$XORQ_CACHE_DIR` or `~/.cache/xorq` | Directory for parquet cache files used during the build. |
 | `--dry-run` | off | Show the composition plan and resulting schema without building. |
 | `--rename-params` | none | Rename a parameter on a specific entry. Format: `entry,old_name,new_name`. Repeatable. |
 

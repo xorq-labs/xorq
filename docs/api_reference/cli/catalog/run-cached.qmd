@@ -22,7 +22,7 @@ All of [`catalog run`](run.qmd)'s options are accepted. The cache-specific optio
 
 | Option | Default | Description |
 |---|---|---|
-| `--cache-dir` | system cache dir | Directory for parquet cache files. |
+| `--cache-dir` | `$XORQ_CACHE_DIR` or `~/.cache/xorq` | Directory for parquet cache files. |
 | `--cache-type` | `modification-time` | Cache strategy. One of `modification-time` (`ParquetCache`) or `snapshot` (`ParquetSnapshotCache`). |
 | `--ttl` | none | TTL in seconds for snapshot cache. When set, uses `ParquetTTLSnapshotCache` instead. |
 

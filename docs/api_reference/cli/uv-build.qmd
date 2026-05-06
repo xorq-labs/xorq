@@ -23,7 +23,7 @@ xorq uv build <script_path> [OPTIONS]
 |---|---|---|
 | `-e`, `--expr-name` | `expr` | Name of the expression variable in the Python script. |
 | `--builds-dir` | `builds` | Directory for all generated artifacts. |
-| `--cache-dir` | system cache dir | Directory for parquet cache files. |
+| `--cache-dir` | `$XORQ_CACHE_DIR` or `~/.cache/xorq` | Directory for parquet cache files. |
 | `--project-path` | auto-discover | Explicit project root. Default searches upward from the script for `pyproject.toml`. |
 | `--extra` | none | Optional dependency group to include in requirements. Repeatable. |
 | `--all-extras` / `--no-all-extras` | `--all-extras` | Include all optional dependency groups. |

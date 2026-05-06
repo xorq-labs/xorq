@@ -25,8 +25,8 @@ xorq run <build_path> [OPTIONS]
 | Option | Default | Description |
 |---|---|---|
 | `-o`, `--output-path` | `/dev/null` (discard) | Path to write output. Use `-` for stdout. |
-| `-f`, `--format` | `parquet` | Output format. One of `csv`, `json`, `parquet`. |
-| `--cache-dir` | system cache dir | Directory for parquet cache files. |
+| `-f`, `--format` | `parquet` | Output format. One of `csv`, `json`, `parquet`, `arrow`. |
+| `--cache-dir` | `$XORQ_CACHE_DIR` or `~/.cache/xorq` | Directory for parquet cache files. |
 | `--limit` | unlimited | Maximum number of rows to output. |
 | `-p`, `--params` | none | Override expression parameters. Format: `key=value`. Repeatable, e.g. `-p threshold=0.5 -p region=us`. |
 
@@ -42,7 +42,7 @@ xorq run <build_path> --output-path <output_file> --format <output_format>
 
 ### Example: running the penguins analysis
 
-Assuming you've built the penguins analysis expression from the [run example](run.qmd):
+Assuming you've built the penguins analysis expression with [`xorq build`](build.qmd):
 
 ```bash
 # Run the expression and save results as Parquet (default format)

@@ -23,7 +23,7 @@ xorq serve-flight-udxf <build_path> [OPTIONS]
 | `--port` | random | Port to bind the Flight server to. |
 | `--duckdb-path` | `<build_path>/xorq_serve.db` | Path to the DuckDB database file used by the server. |
 | `--prometheus-port` | disabled | Port to expose Prometheus metrics. |
-| `--cache-dir` | system cache dir | Directory for parquet cache files. |
+| `--cache-dir` | `$XORQ_CACHE_DIR` or `~/.cache/xorq` | Directory for parquet cache files. |
 
 ## What the serve-flight-udxf command does
 

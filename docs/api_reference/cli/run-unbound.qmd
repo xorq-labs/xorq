@@ -29,7 +29,7 @@ xorq run-unbound <build_path> [OPTIONS] < input.arrow
 | `-f`, `--format` | `parquet` | Output format. One of `csv`, `json`, `parquet`, `arrow`. |
 | `--limit` | unlimited | Maximum number of rows to output. |
 | `--batch-size` | table default | Batch size for Arrow streaming output. |
-| `--cache-dir` | system cache dir | Directory for parquet cache files. |
+| `--cache-dir` | `$XORQ_CACHE_DIR` or `~/.cache/xorq` | Directory for parquet cache files. |
 
 ## Examples
 

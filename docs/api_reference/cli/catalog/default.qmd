@@ -27,7 +27,7 @@ xorq catalog default --unset      # revert to built-in default ("default")
 The active default is resolved in this order:
 
 1. `XORQ_DEFAULT_CATALOG` environment variable (highest precedence).
-2. The persisted config file (set via `--set`).
+2. The persisted config file at `~/.config/xorq/catalog-default` (set via `--set`).
 3. The built-in default name (`default`).
 
 The bare `xorq catalog default` command prints the resolved name and the source
@@ -38,7 +38,7 @@ that supplied it.
 ```bash
 # Show current default and where it came from
 $ xorq catalog default
-analytics  (source: config (~/.config/xorq/default-catalog))
+analytics  (source: config (~/.config/xorq/catalog-default))
 
 # Change persisted default
 xorq catalog default --set analytics
