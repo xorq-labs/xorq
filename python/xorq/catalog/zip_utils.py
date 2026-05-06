@@ -1,9 +1,13 @@
+from __future__ import annotations
+
 import hashlib
 import tempfile
 import zipfile
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
+from typing import Any
 
 from attr import field, frozen
 from attr.validators import instance_of
@@ -15,13 +19,13 @@ from xorq.catalog.constants import (
 from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES
 
 
-def with_pure_suffix(path, suffix=""):
+def with_pure_suffix(path: Path, suffix: str = "") -> Path:
     return path.with_name(path.name.removesuffix("".join(path.suffixes))).with_suffix(
         suffix
     )
 
 
-def test_zip(zip_path):
+def test_zip(zip_path: Path | str) -> None:
     with zipfile.ZipFile(zip_path, "r") as zf:
         names = {
             Path(info.filename).name for info in zf.infolist() if not info.is_dir()
@@ -39,7 +43,7 @@ def test_zip(zip_path):
 
 
 @contextmanager
-def make_zip_context(build_dir):
+def make_zip_context(build_dir: Path | str) -> Iterator[Path]:
     # Determinism: fixed mtime, sorted iteration, fixed permissions. Two
     # builds of the same expression with identical member bytes must produce
     # byte-identical zip archives, so downstream content-addressed storage
@@ -62,7 +66,7 @@ def make_zip_context(build_dir):
         yield zip_path
 
 
-def extract_build_zip_to(zip_path, td):
+def extract_build_zip_to(zip_path: Path | str, td: str) -> Path:
     """Extract a build zip into `td` and return the single top-level build dir."""
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(td)
@@ -72,12 +76,12 @@ def extract_build_zip_to(zip_path, td):
 
 
 @contextmanager
-def extract_build_zip_context(zip_path):
+def extract_build_zip_context(zip_path: Path | str) -> Iterator[Path]:
     with tempfile.TemporaryDirectory() as td:
         yield extract_build_zip_to(zip_path, td)
 
 
-def write_zip(path, relpath_to_bytes):
+def write_zip(path: Path | str, relpath_to_bytes: Mapping[str | Path, bytes]) -> Path:
     path = Path(path)
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for relpath, byts in dict(relpath_to_bytes).items():
@@ -99,25 +103,25 @@ class BuildZip:
         test_zip(self.path)
 
     @property
-    def name(self):
+    def name(self) -> str:
         return with_pure_suffix(self.path, "").name
 
     @cached_property
-    def internal_prefix(self):
+    def internal_prefix(self) -> str:
         """The top-level directory inside the zip archive."""
         with zipfile.ZipFile(self.path, "r") as zf:
             first = zf.namelist()[0]
             return first.split("/", 1)[0]
 
     @property
-    def md5sum(self):
+    def md5sum(self) -> str:
         from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
             file_digest,
         )
 
         return file_digest(self.path, hashlib.md5)
 
-    def read_member(self, member_path, read_f):
+    def read_member(self, member_path: str, read_f: Callable[[str], Any]) -> Any:
         """Read and parse a single member from the zip archive."""
         with zipfile.ZipFile(self.path, "r") as zf:
             return read_f(zf.read(member_path).decode())

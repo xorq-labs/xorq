@@ -1,20 +1,24 @@
+from __future__ import annotations
+
 import json
 import os
+from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import cache, partial
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import click
 
 from xorq.cli import OutputFormats
 
 
-def click_handler(e):
+def click_handler(e: Exception) -> None:
     raise click.ClickException(str(e)) from e
 
 
-def _init_hint(ctx):
+def _init_hint(ctx: click.Context) -> str:
     """Return the `xorq catalog ... init` command the user should run."""
     group_ctx = ctx.parent or ctx
     match (group_ctx.params.get("name"), group_ctx.params.get("path")):
@@ -26,13 +30,13 @@ def _init_hint(ctx):
             return "xorq catalog init"
 
 
-def _pdb_active(ctx):
+def _pdb_active(ctx: click.Context) -> bool:
     """Return True when --pdb was passed to the top-level CLI group."""
     return ctx.find_root().params.get("use_pdb", False)
 
 
 @contextmanager
-def click_context(ctx, *typs):
+def click_context(ctx: click.Context, *typs: type) -> Iterator[None]:
     try:
         yield
     except click.ClickException:
@@ -44,7 +48,7 @@ def click_context(ctx, *typs):
 
 
 @contextmanager
-def click_context_catalog(ctx):
+def click_context_catalog(ctx: click.Context) -> Iterator[None]:
     from git import NoSuchPathError
 
     try:
@@ -62,7 +66,7 @@ def click_context_catalog(ctx):
         click_handler(e)
 
 
-def click_context_default(ctx):
+def click_context_default(ctx: click.Context) -> Any:
     return click_context(ctx, AssertionError, Exception)
 
 
@@ -177,7 +181,9 @@ def tui(ctx, refresh):
     app.run()
 
 
-def _resolve_annex_option(env_file, env_prefix, gcs):
+def _resolve_annex_option(
+    env_file: str | None, env_prefix: str | None, gcs: bool
+) -> Any:
     """Return a RemoteConfig from CLI options, or None for plain git."""
     if env_file and env_prefix:
         raise click.UsageError("--env-file and --env-prefix are mutually exclusive.")

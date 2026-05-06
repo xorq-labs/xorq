@@ -1,8 +1,13 @@
+from __future__ import annotations
+
 import atexit
 import shutil
 import tempfile
 import weakref
+from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from xorq.catalog.zip_utils import (
     extract_build_zip_to,
@@ -10,17 +15,21 @@ from xorq.catalog.zip_utils import (
 )
 
 
+if TYPE_CHECKING:
+    from xorq.vendor.ibis.expr import types as ir
+
+
 # Tracks temp dirs that haven't been cleaned up yet.
 # weakref.finalize handles per-expression cleanup; atexit sweeps stragglers.
 _live_extract_dirs: set[str] = set()
 
 
-def _cleanup_one(path: str):
+def _cleanup_one(path: str) -> None:
     shutil.rmtree(path, ignore_errors=True)
     _live_extract_dirs.discard(path)
 
 
-def _cleanup_all():
+def _cleanup_all() -> None:
     for p in tuple(_live_extract_dirs):
         _cleanup_one(p)
 
@@ -29,7 +38,7 @@ atexit.register(_cleanup_all)
 
 
 @contextmanager
-def build_expr_context(expr):
+def build_expr_context(expr: ir.Expr) -> Iterator[Any]:
     from xorq.ibis_yaml.compiler import build_expr  # noqa: PLC0415
 
     with tempfile.TemporaryDirectory() as td:
@@ -38,7 +47,9 @@ def build_expr_context(expr):
 
 
 @contextmanager
-def build_expr_context_zip(expr, project_path=None):
+def build_expr_context_zip(
+    expr: ir.Expr, project_path: Path | str | None = None
+) -> Iterator[Path]:
     from xorq.catalog.catalog import _ensure_wheel_artifacts  # noqa: PLC0415
 
     with build_expr_context(expr) as build_dir:
@@ -47,7 +58,9 @@ def build_expr_context_zip(expr, project_path=None):
             yield zip_path
 
 
-def load_expr_from_zip(zip_path, lazy=False, read_only_parquet_metadata=False):
+def load_expr_from_zip(
+    zip_path: Path | str, lazy: bool = False, read_only_parquet_metadata: bool = False
+) -> ir.Expr:
     from xorq.ibis_yaml.compiler import load_expr  # noqa: PLC0415
 
     td = tempfile.mkdtemp(prefix="xorq-catalog-")

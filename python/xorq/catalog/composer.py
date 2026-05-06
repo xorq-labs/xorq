@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from functools import cached_property
+from typing import TYPE_CHECKING, Any
 
 from attr import Attribute, field, frozen
 from attr.validators import deep_iterable, instance_of, optional
@@ -13,7 +16,11 @@ from xorq.catalog.bind import (
 from xorq.catalog.catalog import CatalogEntry
 
 
-def _same_catalog(instance, attribute: Attribute, value):
+if TYPE_CHECKING:
+    from xorq.vendor.ibis.expr import types as ir
+
+
+def _same_catalog(instance: Any, attribute: Attribute, value: Any) -> None:
     if value:
         _validate_one_catalog(instance.source, value)
 
@@ -39,7 +46,7 @@ class ExprComposer:
     alias = field(default=None, validator=optional(instance_of(str)))
 
     @cached_property
-    def expr(self):
+    def expr(self) -> ir.Expr:
         if self.transforms:
             current = bind(self.source, *self.transforms, alias=self.alias)
         else:
@@ -52,7 +59,7 @@ class ExprComposer:
         return current
 
     @classmethod
-    def from_expr(cls, expr, catalog):
+    def from_expr(cls, expr: ir.Expr, catalog: Any) -> ExprComposer:
         """Recover an ExprComposer from a tagged expression.
 
         Walks the HashingTag nodes embedded by a prior ``ExprComposer.expr``

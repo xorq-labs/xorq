@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import math
 import re
 import subprocess
@@ -6,7 +8,7 @@ from collections import Counter
 from datetime import datetime
 from functools import cache, cached_property
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from attr import evolve, field, frozen
 from attr.validators import instance_of, optional
@@ -298,7 +300,7 @@ class ExprStack:
     steps: tuple[ExprStep, ...] = field(factory=tuple)
     cursor: int = field(default=0, validator=instance_of(int))
 
-    def push(self, step: ExprStep) -> "ExprStack":
+    def push(self, step: ExprStep) -> ExprStack:
         """Apply new step, discard any steps after cursor (fork)."""
         return evolve(
             self,
@@ -306,10 +308,10 @@ class ExprStack:
             cursor=self.cursor + 1,
         )
 
-    def undo(self) -> "ExprStack":
+    def undo(self) -> ExprStack:
         return evolve(self, cursor=max(0, self.cursor - 1))
 
-    def redo(self) -> "ExprStack":
+    def redo(self) -> ExprStack:
         return evolve(self, cursor=min(len(self.steps), self.cursor + 1))
 
     @property
@@ -343,29 +345,29 @@ def _entry_info(entry: CatalogEntry) -> tuple[int | None, bool | None]:
     return len(entry.columns), cached
 
 
-def _load_catalog_row(entry, aliases=()) -> CatalogRowData:
+def _load_catalog_row(entry: CatalogEntry, aliases: tuple = ()) -> CatalogRowData:
     return CatalogRowData(entry=entry, aliases=aliases)
 
 
 @cache
-def _catalog_list_cached(catalog, yaml_mtime: float) -> tuple:
+def _catalog_list_cached(catalog: Any, yaml_mtime: float) -> tuple:
     """Compute catalog entry list; auto-invalidates when yaml mtime changes."""
     return tuple(catalog.list())
 
 
-def _get_catalog_list(catalog) -> tuple:
+def _get_catalog_list(catalog: Any) -> tuple:
     """Return catalog entry list, recomputing only when the YAML file has changed."""
     yaml_mtime = catalog.catalog_yaml.yaml_path.stat().st_mtime
     return _catalog_list_cached(catalog, yaml_mtime)
 
 
 @cache
-def _catalog_aliases_cached(catalog, yaml_mtime: float) -> tuple:
+def _catalog_aliases_cached(catalog: Any, yaml_mtime: float) -> tuple:
     """Compute catalog aliases; auto-invalidates when yaml mtime changes."""
     return tuple(catalog.catalog_aliases)
 
 
-def _get_catalog_aliases(catalog) -> tuple:
+def _get_catalog_aliases(catalog: Any) -> tuple:
     """Return catalog aliases, recomputing only when the YAML file has changed."""
     yaml_mtime = catalog.catalog_yaml.yaml_path.stat().st_mtime
     return _catalog_aliases_cached(catalog, yaml_mtime)
@@ -373,7 +375,7 @@ def _get_catalog_aliases(catalog) -> tuple:
 
 @cache
 def _build_alias_multimap(
-    catalog_aliases,
+    catalog_aliases: Any,
 ) -> dict[str, tuple[str, ...]]:
     from itertools import groupby  # noqa: PLC0415
     from operator import attrgetter  # noqa: PLC0415
@@ -386,7 +388,7 @@ def _build_alias_multimap(
     }
 
 
-def _build_git_log_rows(repo, max_count=100) -> tuple[GitLogRowData, ...]:
+def _build_git_log_rows(repo: Any, max_count: int = 100) -> tuple[GitLogRowData, ...]:
     return tuple(
         GitLogRowData(
             hash=commit.hexsha[:12],
@@ -440,7 +442,9 @@ def _render_sql_dag(sqls: tuple[tuple[str, str, str], ...]) -> str:
     return "\n\n".join(parts)
 
 
-def _revision_pair(i, rev_entry, commit):
+def _revision_pair(
+    i: int, rev_entry: Any, commit: Any
+) -> tuple[RevisionRowData, tuple[Any, Any, bool]]:
     exists = rev_entry.exists()
     col_count, cached = _entry_info(rev_entry) if exists else (None, None)
     row = RevisionRowData(

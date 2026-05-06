@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import abc
 import base64
 import json
@@ -7,6 +9,7 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
+from typing import Any
 
 import attr
 import toolz
@@ -37,7 +40,7 @@ class AnnexError(RuntimeError):
     """Raised when a git-annex command fails."""
 
 
-def require_git_annex():
+def require_git_annex() -> None:
     """Raise a clear error if the git-annex binary is not on $PATH."""
     if shutil.which(GIT_ANNEX_COMMAND) is None:
         raise AnnexError(
@@ -46,7 +49,9 @@ def require_git_annex():
         )
 
 
-def _do_inside(repo_path, *args, env=None):
+def _do_inside(
+    repo_path: Path | str, *args: Any, env: dict | None = None
+) -> tuple[int, str, str]:
     cmd = [GIT_ANNEX_COMMAND, *args]
     run_env = None
     if env:
@@ -61,7 +66,12 @@ def _do_inside(repo_path, *args, env=None):
     return result.returncode, result.stdout, result.stderr
 
 
-def _check_output_do_inside(repo_path, *args, check_stderr=True, env=None):
+def _check_output_do_inside(
+    repo_path: Path | str,
+    *args: Any,
+    check_stderr: bool = True,
+    env: dict | None = None,
+) -> str:
     returncode, stdout, stderr = _do_inside(repo_path, *args, env=env)
     if returncode != 0:
         raise AnnexError(f"git-annex {args} failed: {stderr}")
@@ -83,30 +93,30 @@ class Annex:
     # Mutated via object.__setattr__ to bypass frozen.
     _remote_log_cache = field(init=False, default=None, eq=False, repr=False)
 
-    def __attrs_post_init__(self):
+    def __attrs_post_init__(self) -> None:
         require_git_annex()
         if not self.annex_path.exists():
             raise ValueError(f"git-annex not initialized at {self.repo_path}")
 
     @property
-    def annex_path(self):
+    def annex_path(self) -> Path:
         return self.repo_path.joinpath(".git", "annex")
 
     @property
-    def annex_objects_path(self):
+    def annex_objects_path(self) -> Path:
         return self.annex_path.joinpath("objects")
 
-    def _do(self, *args):
+    def _do(self, *args: Any) -> tuple[str, str]:
         returncode, stdout, stderr = _do_inside(self.repo_path, *args, env=self.env)
         if returncode != 0:
             raise AnnexError(f"git-annex {args} failed (rc={returncode}): {stderr}")
         return stdout, stderr
 
-    def _check_output_do(self, *args, **kwargs):
+    def _check_output_do(self, *args: Any, **kwargs: Any) -> str:
         return _check_output_do_inside(self.repo_path, *args, env=self.env, **kwargs)
 
     @property
-    def remote_name(self):
+    def remote_name(self) -> str | None:
         """Return the name of the single configured special remote, or None."""
         remote_log = self.remote_log
         if not remote_log:
@@ -118,7 +128,7 @@ class Annex:
         else:
             return name
 
-    def add(self, relpath, copy_to_remote=True):
+    def add(self, relpath: Path | str, copy_to_remote: bool = True) -> None:
         path = self.repo_path.joinpath(relpath)
         if not path.exists():
             raise FileNotFoundError(f"{path} does not exist")
@@ -128,41 +138,43 @@ class Annex:
         if copy_to_remote and (name := self.remote_name) is not None:
             self.copy(to=name, path=str(relpath))
 
-    def init(self):
+    def init(self) -> None:
         self._do("init")
 
-    def get(self, *paths):
+    def get(self, *paths: Path | str) -> None:
         self._do("get", *(str(p) for p in paths) or (".",))
 
-    def copy(self, to=None, from_=None, path="."):
+    def copy(
+        self, to: str | None = None, from_: str | None = None, path: str = "."
+    ) -> None:
         if (to is None) == (from_ is None):
             raise ValueError("specify exactly one of to/from_")
         direction = f"--to={to}" if to else f"--from={from_}"
         self._do("copy", direction, str(path))
 
-    def drop(self, path="."):
+    def drop(self, path: str = ".") -> None:
         self._do("drop", "--force", str(path))
 
-    def sync(self, **kwargs):
+    def sync(self, **kwargs: Any) -> None:
         self._do("sync")
 
-    def push(self):
+    def push(self) -> None:
         self._do("push")
 
-    def pull(self):
+    def pull(self) -> None:
         self._do("pull")
 
-    def info(self, name=None):
+    def info(self, name: str | None = None) -> dict:
         args = ("info", "--json") if name is None else ("info", name, "--json")
         out = self._check_output_do(*args, check_stderr=False)
         return json.loads(out)
 
-    def _merge_annex_branch(self):
+    def _merge_annex_branch(self) -> None:
         """Flush the git-annex journal to the git-annex branch."""
         _do_inside(self.repo_path, "merge", env=self.env)
 
     @property
-    def remote_log(self):
+    def remote_log(self) -> dict[str, dict[str, str]]:
         """Parse the git-annex branch's remote.log into {uuid: {key: value}}.
 
         Cached for the lifetime of the instance; ``initremote``/``enableremote``
@@ -187,7 +199,7 @@ class Annex:
         object.__setattr__(self, "_remote_log_cache", result)
         return result
 
-    def _invalidate_remote_log(self):
+    def _invalidate_remote_log(self) -> None:
         object.__setattr__(self, "_remote_log_cache", None)
 
     # Maps AWS env-var names (as stored in Annex.env) back to attrs field names
@@ -197,7 +209,7 @@ class Annex:
         "AWS_SECRET_ACCESS_KEY": "aws_secret_access_key",
     }
 
-    def resolve_remote_config(self, **kwargs):
+    def resolve_remote_config(self, **kwargs: Any) -> RemoteConfig | None:
         """Recover the RemoteConfig from the git-annex branch, env vars, and kwargs.
 
         Precedence (highest to lowest):
@@ -257,22 +269,22 @@ class Annex:
         return cls.from_dict(merged)
 
     @property
-    def remote_config(self):
+    def remote_config(self) -> RemoteConfig | None:
         """Convenience property — calls ``resolve_remote_config()`` with no overrides."""
         return self.resolve_remote_config()
 
-    def findkeys(self):
+    def findkeys(self) -> list[str]:
         out = self._check_output_do("findkeys", check_stderr=False)
         return out.split()
 
-    def dropkey(self, key):
+    def dropkey(self, key: str) -> None:
         self._do("dropkey", key, "--force")
 
-    def uninit(self):
+    def uninit(self) -> None:
         self._do("uninit")
 
     @classmethod
-    def from_repo_path(cls, repo_path, **kwargs):
+    def from_repo_path(cls, repo_path: Path | str, **kwargs: Any) -> Annex:
         """Construct an ``Annex`` from a repo path (``str`` or ``Path``)."""
         return cls(repo_path=Path(repo_path), **kwargs)
 
@@ -338,7 +350,7 @@ class Annex:
             Annex.from_repo_path(repo_path).initremote(remote_config)
 
 
-def teardown_local(git_annex):
+def teardown_local(git_annex: Any) -> None:
     annex = git_annex.annex
     keys = annex.findkeys()
     for key in keys:
@@ -356,7 +368,7 @@ def teardown_local(git_annex):
     shutil.rmtree(git_annex.repo_path)
 
 
-def teardown_remote(git_annex, remote_config=None):
+def teardown_remote(git_annex: Any, remote_config: RemoteConfig | None = None) -> None:
     """Remove all content from a remote and purge it from the git-annex branch."""
     if remote_config is None:
         remote_config = git_annex.annex.remote_config
@@ -374,7 +386,7 @@ def teardown_remote(git_annex, remote_config=None):
     )
 
 
-def teardown(git_annex, remote_config=None):
+def teardown(git_annex: Any, remote_config: RemoteConfig | None = None) -> None:
     teardown_remote(git_annex, remote_config=remote_config)
     teardown_local(git_annex)
 
@@ -397,11 +409,11 @@ LOCAL_ANNEX = LocalAnnexConfig()
 
 class RemoteConfig(AnnexConfig, abc.ABC):
     @abc.abstractmethod
-    def initremote(self, repo_path, *, remote_uuid): ...
+    def initremote(self, repo_path: Path | str, *, remote_uuid: str) -> None: ...
 
-    def enableremote(self, repo_path): ...  # noqa: B027
+    def enableremote(self, repo_path: Path | str) -> None: ...  # noqa: B027
 
-    def augment_fileprefix(self, remote_uuid):
+    def augment_fileprefix(self, remote_uuid: str) -> RemoteConfig:
         """Return self with ``{name}/{remote_uuid}/`` namespacing applied.
 
         Default is a no-op — only remotes that store content under a
@@ -411,27 +423,27 @@ class RemoteConfig(AnnexConfig, abc.ABC):
         """
         return self
 
-    def verify_fileprefix(self, remote_uuid, existing_fileprefix):
+    def verify_fileprefix(self, remote_uuid: str, existing_fileprefix: str) -> None:
         """Raise ``AnnexError`` if *existing_fileprefix* is not properly namespaced.
 
         Default is a no-op for the same reason ``augment_fileprefix`` is.
         """
 
     @abc.abstractmethod
-    def validate_config(self, repo_path): ...
+    def validate_config(self, repo_path: Path | str) -> None: ...
 
     @abc.abstractmethod
-    def to_dict(self): ...
+    def to_dict(self) -> dict[str, Any]: ...
 
     @classmethod
-    def from_dict(cls, d, **kwargs):
+    def from_dict(cls, d: dict[str, Any], **kwargs: Any) -> RemoteConfig:
         valid_keys = {a.name for a in attr.fields(cls)}
         d = {k: v for k, v in d.items() if k in valid_keys}
         kwargs = {k: v for k, v in kwargs.items() if k in valid_keys}
         return cls(**{**d, **kwargs})
 
     @classmethod
-    def from_env(cls, **kwargs):
+    def from_env(cls, **kwargs: Any) -> RemoteConfig:
         env_config = cls.EnvConfig.from_env()
         env = {
             a.name: getattr(env_config, a.name)

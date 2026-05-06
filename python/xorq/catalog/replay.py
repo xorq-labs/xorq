@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import cached_property
+from typing import Any
 
 from attr import field, frozen, validators
 
@@ -34,7 +36,7 @@ class CommitMetadata:
     committed_date: str = field(validator=validators.instance_of(str))
 
     @contextmanager
-    def git_env(self):
+    def git_env(self) -> Iterator[None]:
         """Temporarily override git author/committer env vars."""
         env_vars = {
             "GIT_AUTHOR_NAME": self.author_name,
@@ -56,7 +58,7 @@ class CommitMetadata:
                     os.environ[k] = v
 
     @staticmethod
-    def _git_date(unix_ts, tz_offset_seconds):
+    def _git_date(unix_ts: int, tz_offset_seconds: int) -> str:
         """Format as git-internal date: '<unix_ts> <+/-HHMM>'.
 
         GitPython's tz_offset is seconds west of UTC (positive = behind UTC),
@@ -68,7 +70,7 @@ class CommitMetadata:
         return f"{unix_ts} {sign}{hours:02d}{minutes:02d}"
 
     @classmethod
-    def from_commit(cls, commit):
+    def from_commit(cls, commit: Any) -> CommitMetadata:
         return cls(
             sha=str(commit.hexsha),
             author_name=str(commit.author),
@@ -88,20 +90,20 @@ _RM_RE = re.compile(r"^rm: (?P<hash>[a-f0-9]+)(?:\s+\(aliases\s+(?P<aliases>.+)\
 _RM_ALIAS_RE = re.compile(r"^rm alias: (?P<alias>.+)$")
 
 
-def _make_commit_metadata_field():
+def _make_commit_metadata_field() -> Any:
     return field(
         default=None,
         validator=validators.optional(validators.instance_of(CommitMetadata)),
     )
 
 
-def _parse_aliases(raw):
+def _parse_aliases(raw: str | None) -> tuple[str, ...]:
     if raw:
         return tuple(a.strip() for a in raw.split(","))
     return ()
 
 
-def _changed_paths(commit):
+def _changed_paths(commit: Any) -> set[str]:
     """Return the set of file paths changed by a commit."""
     if not commit.parents:
         # initial commit — all files are new
@@ -117,19 +119,19 @@ class InitCatalog:
     message: str = field(validator=validators.instance_of(str))
     commit_metadata: CommitMetadata | None = _make_commit_metadata_field()
 
-    def __str__(self):
+    def __str__(self) -> str:
         sha = self.commit_metadata.sha[:8] if self.commit_metadata else "--------"
         return f"[init]  {sha}  {self.message}"
 
-    def do(self, from_catalog, to_catalog):
+    def do(self, from_catalog: Any, to_catalog: Any) -> None:
         pass
 
     @staticmethod
-    def verify_commit(commit):
+    def verify_commit(commit: Any) -> None:
         assert not commit.parents, f"InitCatalog commit {commit.hexsha[:8]} has parents"
 
     @classmethod
-    def from_commit(cls, commit):
+    def from_commit(cls, commit: Any) -> InitCatalog | None:
         msg = commit.message.strip()
         if msg == "initial commit":
             return cls(message=msg, commit_metadata=CommitMetadata.from_commit(commit))
@@ -143,15 +145,15 @@ class AddCatalogYAML:
     message: str = field(validator=validators.instance_of(str))
     commit_metadata: CommitMetadata | None = _make_commit_metadata_field()
 
-    def __str__(self):
+    def __str__(self) -> str:
         sha = self.commit_metadata.sha[:8] if self.commit_metadata else "--------"
         return f"[init]  {sha}  {self.message}"
 
-    def do(self, from_catalog, to_catalog):
+    def do(self, from_catalog: Any, to_catalog: Any) -> None:
         pass
 
     @staticmethod
-    def verify_commit(commit):
+    def verify_commit(commit: Any) -> None:
         paths = _changed_paths(commit)
         assert any(
             p == CATALOG_YAML_NAME or p.endswith(CATALOG_YAML_NAME) for p in paths
@@ -160,7 +162,7 @@ class AddCatalogYAML:
         )
 
     @classmethod
-    def from_commit(cls, commit):
+    def from_commit(cls, commit: Any) -> AddCatalogYAML | None:
         msg = commit.message.strip()
         if msg.startswith("add catalog"):
             return cls(message=msg, commit_metadata=CommitMetadata.from_commit(commit))
@@ -180,12 +182,12 @@ class AddEntry:
     )
     commit_metadata: CommitMetadata | None = _make_commit_metadata_field()
 
-    def __str__(self):
+    def __str__(self) -> str:
         sha = self.commit_metadata.sha[:8] if self.commit_metadata else "--------"
         alias_str = ", ".join(self.aliases) if self.aliases else "(none)"
         return f"[add]   {sha}  entry={self.entry_hash}  aliases=[{alias_str}]"
 
-    def do(self, from_catalog, to_catalog):
+    def do(self, from_catalog: Any, to_catalog: Any) -> None:
         catalog_entry = from_catalog.get_catalog_entry(self.entry_hash)
         to_catalog.add(
             catalog_entry.catalog_path,
@@ -194,7 +196,7 @@ class AddEntry:
             exist_ok=True,
         )
 
-    def verify_commit(self, commit):
+    def verify_commit(self, commit: Any) -> None:
         paths = _changed_paths(commit)
         entry_prefix = f"{CatalogInfix.ENTRY}/{self.entry_hash}"
         assert any(p.startswith(entry_prefix) for p in paths), (
@@ -207,7 +209,7 @@ class AddEntry:
             )
 
     @classmethod
-    def from_commit(cls, commit):
+    def from_commit(cls, commit: Any) -> AddEntry | None:
         msg = commit.message.strip()
         if m := _ADD_RE.match(msg):
             return cls(
@@ -226,14 +228,14 @@ class AddAlias:
     entry_name: str = field(validator=validators.instance_of(str))
     commit_metadata: CommitMetadata | None = _make_commit_metadata_field()
 
-    def __str__(self):
+    def __str__(self) -> str:
         sha = self.commit_metadata.sha[:8] if self.commit_metadata else "--------"
         return f"[alias] {sha}  {self.alias} -> {self.entry_name}"
 
-    def do(self, from_catalog, to_catalog):
+    def do(self, from_catalog: Any, to_catalog: Any) -> None:
         to_catalog.add_alias(self.entry_name, self.alias, sync=False)
 
-    def verify_commit(self, commit):
+    def verify_commit(self, commit: Any) -> None:
         paths = _changed_paths(commit)
         alias_prefix = f"{CatalogInfix.ALIAS}/{self.alias}"
         assert any(p.startswith(alias_prefix) for p in paths), (
@@ -241,7 +243,7 @@ class AddAlias:
         )
 
     @classmethod
-    def from_commit(cls, commit):
+    def from_commit(cls, commit: Any) -> AddAlias | None:
         msg = commit.message.strip()
         if m := _ADD_ALIAS_RE.match(msg):
             return cls(
@@ -265,15 +267,15 @@ class RemoveEntry:
     )
     commit_metadata: CommitMetadata | None = _make_commit_metadata_field()
 
-    def __str__(self):
+    def __str__(self) -> str:
         sha = self.commit_metadata.sha[:8] if self.commit_metadata else "--------"
         alias_str = ", ".join(self.aliases) if self.aliases else "(none)"
         return f"[rm]    {sha}  entry={self.entry_name}  aliases=[{alias_str}]"
 
-    def do(self, from_catalog, to_catalog):
+    def do(self, from_catalog: Any, to_catalog: Any) -> None:
         to_catalog.remove(self.entry_name, sync=False)
 
-    def verify_commit(self, commit):
+    def verify_commit(self, commit: Any) -> None:
         paths = _changed_paths(commit)
         entry_prefix = f"{CatalogInfix.ENTRY}/{self.entry_name}"
         assert any(p.startswith(entry_prefix) for p in paths), (
@@ -281,7 +283,7 @@ class RemoveEntry:
         )
 
     @classmethod
-    def from_commit(cls, commit):
+    def from_commit(cls, commit: Any) -> RemoveEntry | None:
         msg = commit.message.strip()
         if m := _RM_RE.match(msg):
             return cls(
@@ -299,16 +301,16 @@ class RemoveAlias:
     alias: str = field(validator=validators.instance_of(str))
     commit_metadata: CommitMetadata | None = _make_commit_metadata_field()
 
-    def __str__(self):
+    def __str__(self) -> str:
         sha = self.commit_metadata.sha[:8] if self.commit_metadata else "--------"
         return f"[rm-a]  {sha}  alias={self.alias}"
 
-    def do(self, from_catalog, to_catalog):
+    def do(self, from_catalog: Any, to_catalog: Any) -> None:
         from xorq.catalog.catalog import CatalogAlias  # noqa: PLC0415
 
         CatalogAlias.from_name(self.alias, to_catalog).remove()
 
-    def verify_commit(self, commit):
+    def verify_commit(self, commit: Any) -> None:
         paths = _changed_paths(commit)
         alias_prefix = f"{CatalogInfix.ALIAS}/{self.alias}"
         assert any(p.startswith(alias_prefix) for p in paths), (
@@ -316,7 +318,7 @@ class RemoveAlias:
         )
 
     @classmethod
-    def from_commit(cls, commit):
+    def from_commit(cls, commit: Any) -> RemoveAlias | None:
         msg = commit.message.strip()
         if m := _RM_ALIAS_RE.match(msg):
             return cls(
@@ -334,15 +336,15 @@ class UnknownOp:
     hexsha: str = field(validator=validators.instance_of(str))
     commit_metadata: CommitMetadata | None = _make_commit_metadata_field()
 
-    def __str__(self):
+    def __str__(self) -> str:
         sha = self.commit_metadata.sha[:8] if self.commit_metadata else "--------"
         return f"[???]   {sha}  {self.message}"
 
-    def do(self, from_catalog, to_catalog):
+    def do(self, from_catalog: Any, to_catalog: Any) -> None:
         patch = from_catalog.repo.git.format_patch("-1", self.hexsha, stdout=True)
         to_catalog.repo.git.am(input=patch)
 
-    def verify_commit(self, commit):
+    def verify_commit(self, commit: Any) -> None:
         pass
 
 

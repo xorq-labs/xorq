@@ -1,9 +1,17 @@
+from __future__ import annotations
+
 from enum import StrEnum
 from functools import reduce
+from typing import TYPE_CHECKING, Any
 
 from xorq.common.utils.graph_utils import replace_unbound
 from xorq.expr.relations import RemoteTable, gen_name
 from xorq.ibis_yaml.enums import ExprKind
+
+
+if TYPE_CHECKING:
+    from xorq.vendor.ibis.expr import schema as sch
+    from xorq.vendor.ibis.expr import types as ir
 
 
 class CatalogTag(StrEnum):
@@ -12,7 +20,9 @@ class CatalogTag(StrEnum):
     CODE = "catalog-code"
 
 
-def _get_transform_schema_issues(source_schema, transform_schema):
+def _get_transform_schema_issues(
+    source_schema: sch.Schema, transform_schema: sch.Schema
+) -> tuple[dict[str, Any], dict[str, tuple[Any, Any]]]:
     bads = {
         col: (source_typ, transform_typ)
         for col, transform_typ in transform_schema.items()
@@ -31,7 +41,12 @@ def _get_transform_schema_issues(source_schema, transform_schema):
     return missing, mismatch
 
 
-def _validate_schema(source_schema, transform_schema, source_name, transform_name):
+def _validate_schema(
+    source_schema: sch.Schema,
+    transform_schema: sch.Schema,
+    source_name: str,
+    transform_name: str,
+) -> None:
     """Validate that source schema is a superset of transform's input schema."""
     missing, mismatch = _get_transform_schema_issues(source_schema, transform_schema)
     if missing or mismatch:
@@ -52,7 +67,7 @@ def _validate_schema(source_schema, transform_schema, source_name, transform_nam
         )
 
 
-def _validate_chain(source_schema, transforms):
+def _validate_chain(source_schema: sch.Schema, transforms: tuple) -> tuple:
     """Pre-validate the full transform chain before building expressions.
 
     Checks that every transform has an UnboundTable and that schemas are
@@ -83,12 +98,12 @@ def _validate_chain(source_schema, transforms):
     return tuple(metas)
 
 
-def _ensure_remote(node, con, expr):
+def _ensure_remote(node: Any, con: Any, expr: ir.Expr) -> RemoteTable:
     """Return *node* as-is if already a RemoteTable, otherwise wrap *expr*."""
     return node if isinstance(node, RemoteTable) else RemoteTable.from_expr(con, expr)
 
 
-def _make_source_tag(expr, entry, alias):
+def _make_source_tag(expr: ir.Expr, entry: Any, alias: str | None) -> ir.Expr:
     """Wrap *expr* in a HashingTag recording the catalog source provenance."""
     resolved_alias = (
         alias
@@ -103,7 +118,7 @@ def _make_source_tag(expr, entry, alias):
     )
 
 
-def _resolve_source(source, con, alias):
+def _resolve_source(source: Any, con: Any, alias: str | None) -> tuple[ir.Expr, Any]:
     """Resolve *source* to a ``(tagged_expr, backend)`` pair."""
     from xorq.catalog.catalog import CatalogEntry  # noqa: PLC0415
     from xorq.vendor.ibis.expr.types.core import Expr  # noqa: PLC0415
@@ -126,7 +141,7 @@ def _resolve_source(source, con, alias):
             )
 
 
-def _bind_one(current_expr, transform_entry, con):
+def _bind_one(current_expr: ir.Expr, transform_entry: Any, con: Any) -> ir.Expr:
     """Bind a single transform entry onto *current_expr*, tagging the result."""
     if not transform_entry.is_content_local:
         transform_entry.fetch()
@@ -148,7 +163,7 @@ def _bind_one(current_expr, transform_entry, con):
     )
 
 
-def _validate_one_catalog(source, transforms):
+def _validate_one_catalog(source: Any, transforms: Any) -> None:
     """Assert all CatalogEntry arguments belong to the same catalog."""
     from xorq.catalog.catalog import CatalogEntry  # noqa: PLC0415
 
@@ -164,7 +179,9 @@ def _validate_one_catalog(source, transforms):
         raise ValueError(f"Got multiple catalogs: {', '.join(map(str, repo_paths))}")
 
 
-def bind(source, *transforms, con=None, alias=None):
+def bind(
+    source: Any, *transforms: Any, con: Any = None, alias: str | None = None
+) -> ir.Expr:
     """Bind a source through one or more unbound transform entries.
 
     Parameters
@@ -195,7 +212,7 @@ def bind(source, *transforms, con=None, alias=None):
     )
 
 
-def _eval_code(code, source):
+def _eval_code(code: str, source: ir.Expr) -> ir.Expr:
     """Evaluate inline Ibis code with a restricted namespace.
 
     Only xorq, vendored ibis, and the bound ``source`` expression are
@@ -210,13 +227,15 @@ def _eval_code(code, source):
     return safe_eval(code, namespace)
 
 
-def _make_source_expr(source, con=None, alias=None):
+def _make_source_expr(
+    source: Any, con: Any = None, alias: str | None = None
+) -> ir.Expr:
     """Wrap a CatalogEntry as a RemoteTable + HashingTag without transforms."""
     source_expr, _ = _resolve_source(source, con, alias)
     return source_expr
 
 
-def fuse_catalog_source(expr):
+def fuse_catalog_source(expr: ir.Expr) -> ir.Expr:
     """Strip catalog-created RemoteTable + HashingTag layers for catalog sources.
 
     When ``bind()`` composes catalog entries it wraps everything in
