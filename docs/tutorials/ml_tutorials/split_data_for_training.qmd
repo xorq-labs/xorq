@@ -416,5 +416,3 @@ The key insight? Proper data splitting is fundamental to honest model evaluation
 Now that you know how to split data, continue learning:
 
 - [Train your first model](train_your_first_model.qmd) shows how to train models with Xorq
-- [Understand Pipeline](understand_pipeline.qmd) explains how Xorq wraps scikit-learn pipelines
-- [Cache ML computations](cache_ml_computations.qmd) covers caching strategies for ML workflows

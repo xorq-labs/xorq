@@ -1,7 +1,0 @@
----
-title: "Backend connection issues"
-description: "Fix backend connection and configuration problems"
----
-
-Coming soon.
-

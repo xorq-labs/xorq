@@ -23,9 +23,8 @@ listing:
       - "tutorials/ml_tutorials/split_data_for_training.qmd"
       - "tutorials/ml_tutorials/train_your_first_model.qmd"
       - "tutorials/ml_tutorials/explore_model_evaluation.qmd"
-      - "tutorials/ml_tutorials/deploy_your_first_model.qmd"
     type: grid
-    grid-columns: 4
+    grid-columns: 3
     fields: [title, description]
 ---
 
@@ -60,33 +59,9 @@ Train models, split data, and deploy predictions with Xorq's ML workflow.
 
 ::: {.docs-grid}
 ::: {.doc-card}
-<i class="bi bi-robot"></i>
-
-[**AI tutorials**](tutorials/ai_tutorials/)
-
-Call LLMs, build MCP tools, and process data with AI
-:::
-
-::: {.doc-card}
-<i class="bi bi-bar-chart"></i>
-
-[**Analytics tutorials**](tutorials/analytics_tutorials/)
-
-Query across engines, write UDFs, and build analytics workflows
-:::
-
-::: {.doc-card}
-<i class="bi bi-list-check"></i>
-
-[**Guides**](guides/)
-
-Production-ready patterns for deploying and scaling your pipelines
-:::
-
-::: {.doc-card}
 <i class="bi bi-lightbulb"></i>
 
-[**Concepts**](core_concepts/)
+[**Concepts**](concepts/understanding_xorq/intelligent_caching_system.qmd)
 
 Deep dives into deferred execution, caching, and architecture
 :::
@@ -106,19 +81,4 @@ Every command you need to build, run, and serve pipelines
 
 Full reference for Xorq's Python API
 :::
-
-::: {.doc-card}
-<i class="bi bi-wrench"></i>
-
-[**Troubleshooting**](troubleshooting/)
-
-Resolve common issues and errors when using Xorq
-:::
-
-::: {.doc-card}
-<i class="bi bi-newspaper"></i>
-
-[**Release notes**](release_notes.qmd)
-
-Version history, breaking changes, and new features
 :::

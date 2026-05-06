@@ -15,5 +15,3 @@ When you build an expression, Xorq generates several YAML files:
 - deferred_reads.yaml - Information about deferred data reads
 - profiles.yaml - Backend profile configurations
 - sql.yaml - Generated SQL for debugging
-
-**Note:** A comprehensive JSON specification for the Expression Format is coming soon. 

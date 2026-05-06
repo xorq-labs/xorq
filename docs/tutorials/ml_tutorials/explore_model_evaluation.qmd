@@ -394,4 +394,3 @@ Now that you know how to compare models, continue learning:
 
 - [Train your first model](train_your_first_model.qmd) covers the basics of model training with Xorq
 - [Split data for training](split_data_for_training.qmd) shows proper train/test/validation splits
-- [Understand Pipeline](understand_pipeline.qmd) explains how Xorq wraps scikit-learn pipelines
