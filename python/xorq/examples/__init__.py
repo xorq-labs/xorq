@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from xorq.config import default_backend
 from xorq.examples.core import (
     get_name_to_suffix,
@@ -6,11 +10,24 @@ from xorq.examples.core import (
 )
 
 
+if TYPE_CHECKING:
+    import xorq.vendor.ibis.expr.types as ir
+    from xorq.vendor.ibis.backends import BaseBackend
+
+
 class Example:
-    def __init__(self, name):
+    name: str
+
+    def __init__(self, name: str) -> None:
         self.name = name
 
-    def fetch(self, backend=None, table_name=None, deferred=True, **kwargs):
+    def fetch(
+        self,
+        backend: BaseBackend | None = None,
+        table_name: str | None = None,
+        deferred: bool = True,
+        **kwargs: Any,
+    ) -> ir.Table:
         if backend is None:
             backend = default_backend()
 
@@ -23,14 +40,14 @@ class Example:
         )
 
 
-def __dir__():
+def __dir__() -> tuple[str, ...]:
     return (
         "get_table_from_name",
         *whitelist,
     )
 
 
-def __getattr__(name):
+def __getattr__(name: str) -> Any:
     from xorq.vendor.ibis import examples as ibex  # noqa: PLC0415
 
     lookup = get_name_to_suffix()

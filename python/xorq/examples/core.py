@@ -1,11 +1,19 @@
+from __future__ import annotations
+
 import functools
 import pathlib
+from typing import TYPE_CHECKING, Any
 
 from xorq.common.utils.defer_utils import (
     deferred_read_csv,
     deferred_read_parquet,
 )
 from xorq.config import options
+
+
+if TYPE_CHECKING:
+    import xorq.vendor.ibis.expr.types as ir
+    from xorq.vendor.ibis.backends import BaseBackend
 
 
 whitelist = [
@@ -32,7 +40,13 @@ def get_name_to_suffix() -> dict[str, str]:
     return dct
 
 
-def get_table_from_name(name, backend, table_name=None, deferred=True, **kwargs):
+def get_table_from_name(
+    name: str,
+    backend: BaseBackend,
+    table_name: str | None = None,
+    deferred: bool = True,
+    **kwargs: Any,
+) -> ir.Table:
     suffix = get_name_to_suffix().get(name)
     match suffix:
         case ".parquet":
