@@ -21,6 +21,7 @@ from xorq.catalog.catalog import (
     CatalogPullError,
 )
 from xorq.catalog.constants import MAIN_BRANCH
+from xorq.catalog.exceptions import CatalogConfigurationError
 
 from .conftest import add_expr_entry
 
@@ -125,6 +126,42 @@ def test_pull_remote_deleted_catalog_yaml_does_not_silently_drop_entries(two_clo
     )
 
 
+def test_pull_local_deleted_catalog_yaml_raises_preflight(two_clones):
+    """If the local (ours) commit has a deleted ``catalog.yaml`` (manual
+    rm bypassing the catalog API), ``pull()`` must raise
+    ``CatalogPullError`` on the ours-side pre-flight before any merge
+    attempt — symmetric with the remote-side check."""
+    cat_a, cat_b = two_clones
+
+    add_expr_entry(cat_a, "x", value=1)
+    cat_a.push()
+
+    (Path(cat_b.repo.working_dir) / "catalog.yaml").unlink()
+    cat_b.repo.git.add("--all")
+    cat_b.repo.git.commit("-m", "external: rm catalog.yaml locally")
+
+    with pytest.raises(CatalogPullError, match="ours"):
+        cat_b.pull()
+
+
+def test_pull_local_malformed_yaml_raises_preflight(two_clones):
+    """If the local (ours) commit has a malformed ``catalog.yaml``,
+    ``pull()`` must raise ``CatalogPullError`` mentioning 'ours'
+    before attempting the merge."""
+    cat_a, cat_b = two_clones
+
+    add_expr_entry(cat_a, "x", value=1)
+    cat_a.push()
+
+    yaml_path = Path(cat_b.repo.working_dir) / "catalog.yaml"
+    yaml_path.write_text("[broken\n")
+    cat_b.repo.git.add("catalog.yaml")
+    cat_b.repo.git.commit("-m", "external: corrupt local catalog.yaml")
+
+    with pytest.raises(CatalogPullError, match="ours"):
+        cat_b.pull()
+
+
 def test_pull_remote_malformed_yaml_raises_catalog_error(two_clones):
     """If the remote tip has a malformed ``catalog.yaml`` (manual edit
     bypassing the catalog API), ``pull()`` must surface that as a
@@ -161,3 +198,33 @@ def test_pull_remote_unexpected_yaml_shape_raises_catalog_error(two_clones):
 
     with pytest.raises(CatalogPullError):
         cat_b.pull()
+
+
+# ---------------------------------------------------------------------------
+# Multi-remote and no-remote edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_pull_multiple_remotes_raises_configuration_error(two_clones):
+    """A catalog with two git remotes must raise
+    ``CatalogConfigurationError`` (ADR-0011 single-remote contract)
+    rather than silently picking one or crashing with a destructuring
+    error."""
+    _, cat_b = two_clones
+    second_origin = Path(cat_b.repo.working_dir).parent / "second-origin.git"
+    Repo.init(second_origin, bare=True, initial_branch=MAIN_BRANCH)
+    cat_b.repo.create_remote(name="backup", url=str(second_origin))
+
+    with pytest.raises(CatalogConfigurationError):
+        cat_b.pull()
+
+
+def test_pull_no_remote_is_noop(tmpdir):
+    """A catalog with no git remote should return an empty tuple (no-op)
+    rather than raising."""
+    cat = Catalog.from_repo_path(Path(tmpdir) / "local-only", init=True, annex=False)
+    add_expr_entry(cat, "boot", value=0)
+
+    result = cat.pull()
+
+    assert result == ()
