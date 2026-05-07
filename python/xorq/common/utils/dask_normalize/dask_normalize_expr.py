@@ -569,7 +569,7 @@ def _normalize_computed_kwargs_expr(cke):
     avoid SQL by decomposing the expression into components whose registered
     normalizers are already name-insensitive.
 
-    Per ADR-0009, this function must be **data-free** — the structural hash
+    Per ADR-0010, this function must be **data-free** — the structural hash
     must not change when data inside the cke changes.  Data identity for any
     leaf reachable through ``ExprScalarUDF.computed_kwargs_expr`` is collected
     by the outer ``walk_nodes`` traversal in :func:`normalize_op_split` and

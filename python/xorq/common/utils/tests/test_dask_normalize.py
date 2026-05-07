@@ -929,7 +929,7 @@ def test_normalize_op_split_inmemorytable_is_a_leaf():
 def test_normalize_computed_kwargs_expr_structural_is_data_free():
     """``_normalize_computed_kwargs_expr`` must not fold leaf data into its hash.
 
-    Per ADR-0009: a ``computed_kwargs_expr`` carrying e.g. a training table
+    Per ADR-0010: a ``computed_kwargs_expr`` carrying e.g. a training table
     contributes the table's data identity to outer ``data_deps`` (via
     ``walk_nodes`` descending through ``ExprScalarUDF.computed_kwargs_expr``)
     but its bytes must not appear in the inner structural hash — otherwise

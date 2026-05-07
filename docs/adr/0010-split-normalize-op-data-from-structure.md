@@ -1,4 +1,4 @@
-# ADR-0009: Split data-dependent tokens out of expression normalization
+# ADR-0010: Split data-dependent tokens out of expression normalization
 
 - **Status:** Accepted
 - **Date:** 2026-04-27
