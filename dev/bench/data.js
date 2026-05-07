@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778159699219,
+  "lastUpdate": 1778160626525,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -10890,6 +10890,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.06645365486284294",
             "extra": "mean: 409.9761830000034 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9eed9cb3f9837bc9cc8816119963ca15f35a4abf",
+          "message": "release: 0.3.23 (#1932)\n\n## Summary\n- Bump version to 0.3.23\n- Update CHANGELOG with entries since v0.3.22\n\n## Changes since v0.3.22\n**Added**\n- `xorq catalog show <name|alias>` for entry metadata (#1918)\n- bsl and thrift overrides for darwin (#1925)\n\n**Changed**\n- Catalog visual polish + configurable panels (#1896)\n- BSL semantic catalog + working-with-catalog tutorials (redo of #1878)\n(#1920)\n- Update dependency gitpython to v3.1.49 [security] (#1930)\n- Update dependency pip to v26.1 [security] (#1926)\n\n**Fixed**\n- Preserve tag_metadata structure in lineage DAG (#1931)\n\n## Test plan\n- [ ] Trigger ci-pre-release workflow from this branch\n- [ ] Wait for all ci-pre-release tests to pass\n- [ ] Squash-and-merge once green\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-05-07T09:26:26-04:00",
+          "tree_id": "54e316d7809a126d5c60a49919323fe494f8e7ee",
+          "url": "https://github.com/xorq-labs/xorq/commit/9eed9cb3f9837bc9cc8816119963ca15f35a4abf"
+        },
+        "date": 1778160624000,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.14566928758394,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0077517689114455215",
+            "extra": "mean: 98.56422199999946 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.2272820388100443,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08099648232364888",
+            "extra": "mean: 448.97771479999165 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6723501795351281,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19065675589681186",
+            "extra": "mean: 1.4873201947999974 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.3570947023378515,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06346870583814039",
+            "extra": "mean: 424.2510914000036 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.3260532314603,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06174298620466857",
+            "extra": "mean: 429.912775199989 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.3151033120572024,
+            "unit": "iter/sec",
+            "range": "stddev: 0.038560083557518054",
+            "extra": "mean: 431.9461661999867 msec\nrounds: 5"
           }
         ]
       }
