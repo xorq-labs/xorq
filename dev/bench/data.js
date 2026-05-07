@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778181981890,
+  "lastUpdate": 1778184380263,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -11064,6 +11064,114 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.009630512508034945",
             "extra": "mean: 3.346861725806977 msec\nrounds: 558"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "paddy@paddymullen.com",
+            "name": "Paddy Mullen",
+            "username": "paddymul"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ff4a6b44da43574a6a11c07651a0df36e770ee16",
+          "message": "fix(catalog): single-remote constraint + push rejection (#1898, ADR-0011) (#1899)\n\n## Summary\n\nFixes #1898 and lands\n[ADR-0011](docs/adr/0011-catalog-single-git-remote.md).\n\nThe original bug: `catalog.push()` returned success when the remote\nrejected the push (e.g. divergent branch). Today the API silently\nswallows GitPython's `REJECTED|ERROR` flags. This PR walks the\n`PushInfoList` and raises `CatalogPushError` on rejection.\n\nWhile writing the multi-remote aggregation logic for the rejection fix,\nit became clear we were patching one of an open-ended set of\nmulti-remote consistency problems we had not designed for. ADR-0011\nnarrows the contract instead: **the catalog supports exactly one git\nremote**. Two or more raises `CatalogConfigurationError` at the next\nsync-side operation. A new `Catalog.set_remote(name, url)` makes the\nsupported configuration path discoverable. The aggregation loop is\nreverted; its test is marked `pytest.skip` (not deleted) so the\nmulti-remote setup is preserved for any future re-introduction.\n\n## Walkthrough\n\nThe branch is structured TDD-style; see the commit list for the exact\norder. In summary:\n\n1. **Push-rejection fix.** Failing test, then the fix that raises\n`CatalogPushError` when GitPython reports a rejection.\n2. **Multi-remote aggregation.** Failing test for two-remote partial\nfailure, then the aggregation implementation. Both are reverted/skipped\nin step 4 — preserved as the audit trail for what we built and chose not\nto keep.\n3. **ADR-0011.** Proposes the single-remote constraint and explains why\naggregation is the wrong long-term direction.\n4. **Single-remote enforcement.** Failing tests (multi-remote refusal\nacross `push`/`pull`/`fetch`/`sync`, plus `set_remote`), then the\nimplementation that makes them pass. Reverts the aggregation loop and\n`pytest.skip`s its test.\n\n## Test plan\n\n- [ ] `test_push_surfaces_remote_rejection` passes — push rejection\nraises `CatalogPushError`\n- [ ] `test_multi_remote_raises_configuration_error` passes for\n`push`/`pull`/`fetch`/`sync`\n- [ ] `Catalog.set_remote` replaces (rather than appends) the catalog's\nsingle git remote\n- [ ] No regression in `test_catalog_clone_from_push`,\n`test_push_skips_missing_annex_branch`\n- [ ] `test_push_aggregates_failures_across_remotes` reports as skipped\n(not failed)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-05-07T16:00:49-04:00",
+          "tree_id": "5bdc00ba5f703d41658f054cfb2aae544b68606c",
+          "url": "https://github.com/xorq-labs/xorq/commit/ff4a6b44da43574a6a11c07651a0df36e770ee16"
+        },
+        "date": 1778184376790,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 12.554892399663165,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0025006806163526407",
+            "extra": "mean: 79.6502246428515 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.431205072572787,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02882820368645436",
+            "extra": "mean: 291.4427960000012 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.867634009998468,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12773326525241704",
+            "extra": "mean: 1.1525597065999817 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.7516674717517655,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005870116354783152",
+            "extra": "mean: 266.5481436000164 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.573631779235151,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04262172184405226",
+            "extra": "mean: 279.8273750000135 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.0696597669907724,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05353571997479066",
+            "extra": "mean: 325.76900239999986 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[simple_filter_agg]",
+            "value": 331.73316288653075,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003908510238245672",
+            "extra": "mean: 3.014471002231543 msec\nrounds: 448"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[pipeline_50_steps]",
+            "value": 6.885576516649178,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08465597280574792",
+            "extra": "mean: 145.23112154545393 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[nested_into_backend]",
+            "value": 66.80807532343715,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004618567786544879",
+            "extra": "mean: 14.968250397256792 msec\nrounds: 73"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[simple_filter_agg]",
+            "value": 395.2443860246941,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008634690626882192",
+            "extra": "mean: 2.5300802120375265 msec\nrounds: 731"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[pipeline_50_steps]",
+            "value": 462.9859753502418,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007808014459944798",
+            "extra": "mean: 2.1598926387424915 msec\nrounds: 764"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[nested_into_backend]",
+            "value": 364.7602958445441,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007760525873898956",
+            "extra": "mean: 2.741526452830235 msec\nrounds: 742"
           }
         ]
       }
