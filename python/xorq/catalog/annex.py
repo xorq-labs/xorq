@@ -298,7 +298,7 @@ class Annex:
         is stable across clones.  Refuses to operate on a remote whose
         existing ``remote.log`` fileprefix is not properly namespaced
         (catalog initialized before the namespacing scheme — bucket
-        objects must be migrated first; see ADR-0009).  Falls back to
+        objects must be migrated first; see ADR-0011).  Falls back to
         ``initremote`` only when ``remote.log`` is empty (genuinely fresh
         repo); a non-empty ``remote.log`` without a matching name is an
         error so callers cannot accidentally create a second remote.

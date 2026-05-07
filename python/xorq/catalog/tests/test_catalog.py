@@ -308,7 +308,7 @@ class TestFormatPushFailures:
 
 @pytest.mark.parametrize("op", ["push", "pull", "fetch", "sync"])
 def test_multi_remote_raises_configuration_error(tmpdir, op):
-    """ADR-0009: catalog refuses to operate on configurations with 2+ git remotes.
+    """ADR-0011: catalog refuses to operate on configurations with 2+ git remotes.
 
     push/pull/fetch/sync each must raise rather than attempt best-effort
     multi-remote semantics. The error message names both remotes so the
@@ -333,7 +333,7 @@ def test_multi_remote_raises_configuration_error(tmpdir, op):
 
 
 def test_set_remote_refuses_when_remote_exists(tmpdir):
-    """ADR-0009: Catalog.set_remote refuses to silently replace an existing remote.
+    """ADR-0011: Catalog.set_remote refuses to silently replace an existing remote.
 
     A second call without ``force=True`` raises CatalogConfigurationError so
     the user has to explicitly opt in to overwriting the previously
@@ -356,7 +356,7 @@ def test_set_remote_refuses_when_remote_exists(tmpdir):
 
 
 def test_set_remote_force_replaces_existing(tmpdir):
-    """ADR-0009: Catalog.set_remote(..., force=True) replaces any existing git remote.
+    """ADR-0011: Catalog.set_remote(..., force=True) replaces any existing git remote.
 
     Successive calls with ``force=True`` must leave the catalog with exactly
     one git remote, so users can reconfigure without ever creating the
@@ -377,7 +377,7 @@ def test_set_remote_force_replaces_existing(tmpdir):
 
 
 def test_set_remote_force_recovers_from_multi_remote_state(tmpdir):
-    """set_remote(force=True) is the recovery path from an ADR-0009 violation.
+    """set_remote(force=True) is the recovery path from an ADR-0011 violation.
 
     A user (or another tool) can put the catalog into a 2+ remote state via
     raw ``git remote add``, after which ``push``/``pull``/``fetch``/``sync``
@@ -408,7 +408,7 @@ def test_set_remote_preserves_annex_special_remote(tmpdir):
     `_git_remotes` filters by fetch refspec, so a remote configured with no
     fetch line (the shape of a git-annex special remote — credentials live
     in remote.log on the git-annex branch, not in .git/config) is not a
-    git remote for ADR-0009 purposes. set_remote must not delete it.
+    git remote for ADR-0011 purposes. set_remote must not delete it.
     """
     bare = Path(tmpdir).joinpath("bare")
     GitRepo.init(bare, bare=True, initial_branch=MAIN_BRANCH)
@@ -1141,7 +1141,7 @@ def test_s3_remote_minio(tmpdir):
 def test_s3_fileprefix_namespaced_in_remote_log(tmpdir):
     """initremote bakes ``{base}{name}/{remote_uuid}/`` into remote.log,
     enableremote of the same config is a no-op, and a re-config with a
-    mismatched base raises AnnexError (ADR-0009)."""
+    mismatched base raises AnnexError (ADR-0011)."""
     base_prefix = "annex-only/"
     remote_config = S3RemoteConfig.from_env(
         name="mys3",

@@ -1,4 +1,4 @@
-# ADR-0009: Catalog supports a single git remote
+# ADR-0011: Catalog supports a single git remote
 
 - **Status:** Accepted
 - **Date:** 2026-05-05

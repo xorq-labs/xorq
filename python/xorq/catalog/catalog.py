@@ -319,7 +319,7 @@ class Catalog:
         config on each access. Callers want a stable snapshot for the
         duration of a single operation: this helper reads the property
         once, raises ``CatalogConfigurationError`` if there are two or
-        more git remotes (ADR-0009), and returns the validated tuple. The
+        more git remotes (ADR-0011), and returns the validated tuple. The
         error message names every remote found so the user can see what
         triggered the failure.
         """
@@ -327,7 +327,7 @@ class Catalog:
         if len(remotes) > 1:
             names = ", ".join(r.name for r in remotes)
             raise CatalogConfigurationError(
-                f"catalog supports a single git remote (ADR-0009); "
+                f"catalog supports a single git remote (ADR-0011); "
                 f"found {len(remotes)}: {names}. "
                 f"Use Catalog.set_remote(name, url, force=True) to replace existing remotes, "
                 f"or open an issue if you have a multi-remote use case."
@@ -337,7 +337,7 @@ class Catalog:
     def set_remote(self, name, url, force=False):
         """Configure the catalog's git remote.
 
-        The catalog supports at most one git remote (ADR-0009). When the
+        The catalog supports at most one git remote (ADR-0011). When the
         repo has no git remote, ``set_remote`` creates one with the given
         *name* and *url* and returns it.
 

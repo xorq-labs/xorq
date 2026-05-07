@@ -377,7 +377,7 @@ def test_sync_with_remote(runner, repo_cloned_bare, tmpdir):
 
 
 def test_set_remote_cli_refuses_when_remote_exists(runner, tmpdir):
-    """ADR-0009: ``catalog set-remote`` refuses to silently overwrite without --force."""
+    """ADR-0011: ``catalog set-remote`` refuses to silently overwrite without --force."""
     bare_1 = Path(tmpdir).joinpath("bare_1")
     bare_2 = Path(tmpdir).joinpath("bare_2")
     GitRepo.init(bare_1, bare=True, initial_branch=MAIN_BRANCH)
@@ -394,7 +394,7 @@ def test_set_remote_cli_refuses_when_remote_exists(runner, tmpdir):
 
 
 def test_set_remote_cli_force_replaces_existing(runner, tmpdir):
-    """ADR-0009: ``catalog set-remote --force`` replaces an existing remote."""
+    """ADR-0011: ``catalog set-remote --force`` replaces an existing remote."""
     bare_1 = Path(tmpdir).joinpath("bare_1")
     bare_2 = Path(tmpdir).joinpath("bare_2")
     GitRepo.init(bare_1, bare=True, initial_branch=MAIN_BRANCH)
