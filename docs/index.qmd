@@ -61,7 +61,7 @@ Train models, split data, and deploy predictions with Xorq's ML workflow.
 ::: {.doc-card}
 <i class="bi bi-lightbulb"></i>
 
-[**Concepts**](concepts/understanding_xorq/intelligent_caching_system.qmd)
+[**Concepts**](concepts/understanding_xorq/why_deferred_execution.qmd)
 
 Deep dives into deferred execution, caching, and architecture
 :::

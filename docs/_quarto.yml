@@ -32,7 +32,7 @@ website:
         text: "Get started"
       - href: tutorials/ml_tutorials/split_data_for_training.qmd
         text: "Tutorials"
-      - href: concepts/understanding_xorq/intelligent_caching_system.qmd
+      - href: concepts/understanding_xorq/why_deferred_execution.qmd
         text: "Concepts"
       - href: reference/index.qmd
         text: "Reference"
