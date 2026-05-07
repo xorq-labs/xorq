@@ -31,6 +31,7 @@ from git import (
     Remote,
     Repo,
 )
+from git.exc import GitCommandError
 
 from xorq.catalog.annex import (
     LOCAL_ANNEX,
@@ -151,6 +152,104 @@ def _try_resolve_annex_remote(repo_path, **remote_kwargs):
         if remote_kwargs:
             raise
     return None
+
+
+def _parse_catalog_yaml_blob(blob):
+    """Parse a ``catalog.yaml`` blob from a merge stage; return defaults
+    when the blob is missing (the file did not exist in that stage)."""
+    if blob is None:
+        return {CatalogInfix.ENTRY: [], CatalogInfix.ALIAS: []}
+    raw = yaml12.parse_yaml(blob.data_stream.read().decode())
+    if isinstance(raw, list):
+        # Legacy on-disk format predates the entries/aliases dict schema.
+        return {CatalogInfix.ENTRY: raw, CatalogInfix.ALIAS: []}
+    return {
+        CatalogInfix.ENTRY: raw.get(CatalogInfix.ENTRY, []),
+        CatalogInfix.ALIAS: raw.get(CatalogInfix.ALIAS, []),
+    }
+
+
+def _three_way_list_merge(base, ours, theirs):
+    """3-way merge of ordered lists treated as sets with ours-first ordering.
+
+    An item in ``base`` that's been dropped by one side is treated as a
+    removal and excluded from the result.  Items added by either side
+    survive.  Duplicates collapse.
+    """
+    base_set = set(base)
+    ours_set = set(ours)
+    theirs_set = set(theirs)
+    result = []
+    seen = set()
+    for item in (*ours, *theirs):
+        if item in seen:
+            continue
+        if item in base_set and (item not in ours_set or item not in theirs_set):
+            # present in base and dropped by at least one side -> remove
+            continue
+        result.append(item)
+        seen.add(item)
+    return result
+
+
+class CatalogPullError(RuntimeError):
+    """Raised by ``Catalog.pull`` for failures other than an unresolved
+    merge — e.g. a detached HEAD pre-flight check, or a non-conflict
+    ``git merge`` failure where re-raising the underlying error gives
+    the user the actionable message.
+
+    Distinct from ``CatalogMergeConflict``, which is raised specifically
+    when a merge leaves files unresolved and the recovery recipe applies.
+    Symmetric with ``CatalogPushError`` from #1899.
+    """
+
+
+class CatalogMergeConflict(Exception):
+    """Raised by ``Catalog.pull`` when a merge leaves files unresolved.
+
+    The ``conflicted`` attribute is a tuple of repo-relative paths still
+    in the unmerged state — typically alias symlinks under ``aliases/``
+    (add/add with diverging targets, or modify/delete).  The
+    ``remote_name`` attribute is the name of the remote whose merge
+    raised, when known.  The merge is left in-progress in the working
+    tree so the user can resolve it.
+
+    Recovery options:
+
+    1. Abort the pull and keep your local state::
+
+        catalog.repo.git.merge("--abort")
+
+    2. Resolve manually, then commit::
+
+        # for each path in exc.conflicted, pick a side or write the
+        # resolved content, then:
+        catalog.repo.git.add(*exc.conflicted)
+        catalog.repo.git.commit("--no-edit")
+
+    3. Take theirs wholesale for the conflicted alias::
+
+        catalog.repo.git.checkout("--theirs", *exc.conflicted)
+        catalog.repo.git.add(*exc.conflicted)
+        catalog.repo.git.commit("--no-edit")
+
+    The catalog's ``catalog.yaml`` has already been auto-resolved and
+    staged before this exception is raised, so manual resolution only
+    needs to address the paths in ``conflicted``.
+    """
+
+    def __init__(self, conflicted, remote_name=None):
+        self.conflicted = tuple(conflicted)
+        self.remote_name = remote_name
+        prefix = (
+            f"pull from remote {remote_name!r} "
+            if remote_name is not None
+            else "catalog.pull() "
+        )
+        super().__init__(
+            f"{prefix}left {len(self.conflicted)} path(s) in conflict: "
+            f"{', '.join(self.conflicted)}"
+        )
 
 
 @frozen
@@ -411,8 +510,150 @@ class Catalog:
         return results
 
     def pull(self):
-        """Pull from the configured git remote (no-op if no remote is configured)."""
-        return tuple(map(Remote.pull, self._validated_git_remotes()))
+        """Fetch and merge from the catalog's git remote; raise on unmerged paths.
+
+        Replaces ``git pull`` (which inherits the user's ``pull.rebase``
+        config and bails on divergent branches by default) with explicit
+        ``git fetch`` + ``git merge``.  When the merge leaves
+        ``catalog.yaml`` conflicted (typical when both sides appended
+        to the entries or aliases lists), a Python 3-way list-merge
+        resolves it: items present in the merge base and removed by
+        one side are propagated as removals; items added by either
+        side survive; duplicates are collapsed.  Anything still
+        unmerged after that — typically alias symlinks at the same
+        path with diverging targets — surfaces as
+        ``CatalogMergeConflict`` with the conflicted paths and the
+        remote name; the merge is left in-progress so the user can
+        resolve it (see ``CatalogMergeConflict`` for recovery recipes).
+
+        Pre-flights:
+
+        - HEAD must be on a branch (the catalog API never detaches HEAD
+          on its own — this only fails if the repo was put in detached
+          state outside xorq).  Raises ``CatalogPullError``.
+        - ``catalog.yaml`` in both ours (HEAD) and the remote tip must
+          exist, parse, and have the expected dict-or-list shape.  The
+          resolver assumes well-formed input on both sides; without
+          this check, a ``catalog.yaml`` deleted on the remote tip
+          would be silently treated as "theirs removed every entry"
+          and the 3-way list merge would drop every prior entry, while
+          a malformed or scalar-shaped yaml would leak a bare
+          ``ValueError`` / ``AttributeError`` from inside the
+          resolver.  Raises ``CatalogPullError`` naming the corrupt
+          side.
+        - A non-conflict ``git merge`` failure (e.g. the remote ref
+          doesn't exist, the working tree is dirty, a hook rejected the
+          merge commit) re-raises the original ``GitCommandError``
+          rather than swallowing it and falling through to a misleading
+          ``git commit --no-edit``.
+
+        A catalog has at most one git remote (see ADR on single-remote
+        catalogs).  No remote → no-op.
+        """
+        if self.repo.head.is_detached:
+            raise CatalogPullError(
+                "catalog.pull() requires a checked-out branch; HEAD is detached"
+            )
+        remotes = self._validated_git_remotes()
+        if not remotes:
+            return ()
+        (remote,) = remotes
+        branch = self.repo.active_branch.name
+        fetch_result = remote.fetch()
+        self._validate_catalog_yaml_in_commit(self.repo.head.commit, "ours")
+        try:
+            remote_commit = self.repo.commit(f"{remote.name}/{branch}")
+        except Exception:
+            # Remote ref didn't resolve (e.g. remote has no branches
+            # yet).  Skip the theirs-side pre-flight and let `git
+            # merge` raise the actionable ref-missing error below.
+            remote_commit = None
+        if remote_commit is not None:
+            self._validate_catalog_yaml_in_commit(
+                remote_commit, f"remote {remote.name!r}"
+            )
+        try:
+            self.repo.git.merge(f"{remote.name}/{branch}", "--no-edit")
+        except GitCommandError:
+            if not (Path(self.repo.git_dir) / "MERGE_HEAD").exists():
+                raise
+            unmerged = self._resolve_yaml_conflict_if_any()
+            if unmerged:
+                raise CatalogMergeConflict(unmerged, remote_name=remote.name) from None
+            self.repo.git.commit("--no-edit")
+        return (fetch_result,)
+
+    def _resolve_yaml_conflict_if_any(self):
+        """Resolve ``catalog.yaml`` in the unmerged index and return remaining unmerged paths."""
+        yaml_relpath = str(self.catalog_yaml.yaml_relpath)
+        unmerged = self.repo.index.unmerged_blobs()
+        if yaml_relpath in unmerged:
+            stages = dict(unmerged[yaml_relpath])
+            base = _parse_catalog_yaml_blob(stages.get(1))
+            ours = _parse_catalog_yaml_blob(stages.get(2))
+            theirs = _parse_catalog_yaml_blob(stages.get(3))
+            merged = {
+                CatalogInfix.ENTRY: _three_way_list_merge(
+                    base[CatalogInfix.ENTRY],
+                    ours[CatalogInfix.ENTRY],
+                    theirs[CatalogInfix.ENTRY],
+                ),
+                CatalogInfix.ALIAS: _three_way_list_merge(
+                    base[CatalogInfix.ALIAS],
+                    ours[CatalogInfix.ALIAS],
+                    theirs[CatalogInfix.ALIAS],
+                ),
+            }
+            self.catalog_yaml.set_contents(merged)
+            self.repo.git.add(yaml_relpath)
+        remaining = self.repo.index.unmerged_blobs()
+        return tuple(remaining.keys())
+
+    def _validate_catalog_yaml_in_commit(self, commit, side_label):
+        """Pre-flight check that ``catalog.yaml`` in *commit*'s tree
+        exists, parses, and has the expected dict-or-list shape.
+
+        Raises ``CatalogPullError`` (with *side_label* in the message)
+        if the file is missing, fails to parse, or parses to anything
+        other than a dict (current schema) or a list (legacy schema).
+        See the ``pull`` docstring for the failure modes this guards
+        against.
+        """
+        yaml_relpath = str(self.catalog_yaml.yaml_relpath)
+        blob = next(
+            (
+                b
+                for b in commit.tree.list_traverse()
+                if isinstance(b, Blob) and b.path == yaml_relpath
+            ),
+            None,
+        )
+        if blob is None:
+            raise CatalogPullError(
+                f"{side_label} commit {commit.hexsha[:8]} is missing {yaml_relpath}"
+            )
+        try:
+            raw = yaml12.parse_yaml(blob.data_stream.read().decode())
+        except Exception as e:
+            raise CatalogPullError(
+                f"{side_label} commit {commit.hexsha[:8]} has malformed "
+                f"{yaml_relpath}: {e}"
+            ) from e
+        if not isinstance(raw, (dict, list)):
+            raise CatalogPullError(
+                f"{side_label} commit {commit.hexsha[:8]} has unexpected "
+                f"{yaml_relpath} shape: {type(raw).__name__} "
+                f"(expected dict or list)"
+            )
+        if isinstance(raw, dict):
+            for key in (CatalogInfix.ENTRY, CatalogInfix.ALIAS):
+                val = raw.get(key)
+                if val is not None and not isinstance(val, list):
+                    raise CatalogPullError(
+                        f"{side_label} commit {commit.hexsha[:8]} has "
+                        f"non-list {key!r} in {yaml_relpath}: "
+                        f"{type(val).__name__}"
+                    )
 
     @contextmanager
     def synchronizing(self):

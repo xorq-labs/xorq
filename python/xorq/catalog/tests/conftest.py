@@ -18,6 +18,7 @@ from xorq.catalog.catalog import (
     METADATA_APPEND,
     PREFERRED_SUFFIX,
     Catalog,
+    CatalogAlias,
 )
 from xorq.catalog.constants import MAIN_BRANCH, CatalogInfix
 from xorq.catalog.expr_utils import build_expr_context_zip
@@ -247,3 +248,48 @@ def repo_cloned_bare(catalog_populated, backend_type, tmpdir):
     # sync content from origin (the populated catalog)
     _do_inside(bare_path, "sync", "--content")
     yield repo_cloned_bare
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers for catalog pull tests
+# ---------------------------------------------------------------------------
+
+
+def add_expr_entry(catalog, table_name, value, aliases=()):
+    """Add a tiny memtable expression as a catalog entry; return its hash name."""
+    expr = xo.memtable({"x": [value]}, name=table_name)
+    with build_expr_context_zip(expr) as zip_path:
+        entry = catalog.add(zip_path, sync=False, aliases=aliases)
+    return entry.name
+
+
+def remove_alias(catalog, alias):
+    CatalogAlias.from_name(alias, catalog).remove()
+
+
+def alias_target_hash(catalog, alias):
+    return CatalogAlias.from_name(alias, catalog).catalog_entry.name
+
+
+@pytest.fixture
+def two_clones(tmpdir):
+    """Two plain-git catalogs sharing a bare origin, both at the boot commit.
+
+    Initial state on origin/main:
+        entries: ['boot']
+        aliases: ['boot-alias' -> boot]
+    """
+    workdir = Path(tmpdir)
+    origin_path = workdir / "origin.git"
+    user_a_path = workdir / "user-a"
+    user_b_path = workdir / "user-b"
+
+    Repo.init(origin_path, bare=True, initial_branch=MAIN_BRANCH)
+
+    cat_a = Catalog.from_repo_path(user_a_path, init=True, annex=False)
+    add_expr_entry(cat_a, "boot", value=0, aliases=("boot-alias",))
+    cat_a.repo.create_remote(name="origin", url=str(origin_path))
+    cat_a.repo.git.push("-u", "origin", MAIN_BRANCH)
+
+    cat_b = Catalog.clone_from(url=str(origin_path), repo_path=user_b_path, annex=False)
+    return cat_a, cat_b
