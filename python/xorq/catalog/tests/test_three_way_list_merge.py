@@ -13,9 +13,12 @@ a focused unit failure rather than a confusing pull-integration one.
 
 from __future__ import annotations
 
+import io
+
 import pytest
 
-from xorq.catalog.catalog import _three_way_list_merge
+from xorq.catalog.catalog import _parse_catalog_yaml_blob, _three_way_list_merge
+from xorq.catalog.constants import CatalogInfix
 
 
 def test_empty_inputs():
@@ -86,6 +89,63 @@ def test_input_lists_not_mutated():
     assert base == ["a"]
     assert ours == ["a", "b"]
     assert theirs == ["a", "c"]
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for _parse_catalog_yaml_blob
+# ---------------------------------------------------------------------------
+
+
+class _FakeBlob:
+    """Minimal stand-in for a gitpython Blob with a data_stream."""
+
+    def __init__(self, text: str):
+        self._stream = io.BytesIO(text.encode())
+
+    def data_stream_read(self):
+        return self._stream.read()
+
+    @property
+    def data_stream(self):
+        class _DS:
+            def __init__(self, stream):
+                self._s = stream
+
+            def read(self):
+                return self._s.read()
+
+        return _DS(self._stream)
+
+
+def test_parse_blob_none_returns_empty_defaults():
+    result = _parse_catalog_yaml_blob(None)
+    assert result == {CatalogInfix.ENTRY: [], CatalogInfix.ALIAS: []}
+
+
+def test_parse_blob_legacy_list_format():
+    blob = _FakeBlob("[a, b, c]\n")
+    result = _parse_catalog_yaml_blob(blob)
+    assert result[CatalogInfix.ENTRY] == ["a", "b", "c"]
+    assert result[CatalogInfix.ALIAS] == []
+
+
+def test_parse_blob_dict_format():
+    blob = _FakeBlob("entries:\n  - x\n  - y\naliases:\n  - alpha\n")
+    result = _parse_catalog_yaml_blob(blob)
+    assert result[CatalogInfix.ENTRY] == ["x", "y"]
+    assert result[CatalogInfix.ALIAS] == ["alpha"]
+
+
+def test_parse_blob_dict_missing_keys_default_to_empty():
+    blob = _FakeBlob("{}\n")
+    result = _parse_catalog_yaml_blob(blob)
+    assert result[CatalogInfix.ENTRY] == []
+    assert result[CatalogInfix.ALIAS] == []
+
+
+# ---------------------------------------------------------------------------
+# _three_way_list_merge edge-case
+# ---------------------------------------------------------------------------
 
 
 def test_unhashable_items_raise_type_error():
