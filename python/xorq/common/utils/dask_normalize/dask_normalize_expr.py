@@ -559,22 +559,32 @@ def tokenize_input_type(obj):
 
 
 def _normalize_computed_kwargs_expr(cke):
-    """Content-stable normalization of a computed_kwargs_expr.
+    """Content-stable, *structural-only* normalization of a computed_kwargs_expr.
 
     The default ``normalize_expr`` path generates SQL that includes
     session-dependent UDF class names (e.g. ``_inner_fit_0`` vs
-    ``_inner_fit_3``).  These names contain a process-global counter that
-    changes depending on how many UDFs were created before this expression
-    was imported — making the token (and therefore the build hash)
-    non-deterministic under parallel test execution or multi-module import.
+    ``_inner_fit_3``) and is therefore non-deterministic across imports.  We
+    avoid SQL by decomposing the expression into components whose registered
+    normalizers are already name-insensitive.
 
-    Instead of relying on the SQL string, we decompose the expression into
-    components whose registered normalizers are already name-insensitive:
+    Per ADR-0009, this function must be **data-free** — the structural hash
+    must not change when data inside the cke changes.  Data identity for any
+    leaf reachable through ``ExprScalarUDF.computed_kwargs_expr`` is collected
+    by the outer ``walk_nodes`` traversal in :func:`normalize_op_split` and
+    appears in the outer ``data_deps``; here we contribute only structural
+    shape (schemas, op types, UDF function identity, cache class).
 
-    * ``normalize_inmemorytable`` hashes pyarrow batch content
-    * ``normalize_agg_udf`` / ``normalize_scalar_udf`` hash ``__func__``
-      and arg types (excluding ``__func_name__``)
-    * ``normalize_read`` / ``normalize_cached_node`` are stable
+    * ``InMemoryTable`` -> hashed by schema, **not** batch bytes.
+    * ``Read`` -> hashed by schema + ``method_name`` + ``read_kwargs`` minus
+      path identity (``hash_path``, ``read_path``); the path's data identity
+      lives in outer ``data_deps``.
+    * ``CachedNode`` -> hashed by schema + cache class name; the parent's
+      data identity lives in outer ``data_deps``, and the parent's structure
+      is captured via the agg/scalar UDFs hashed below.
+    * ``AggUDF`` / ``ScalarUDF`` — hashed via their registered handlers,
+      which key on ``__func__`` + arg dtypes (excluding the counter-suffixed
+      ``__func_name__``).  ``ScalarUDF`` recurses through this function, so
+      the structural-only contract holds transitively.
     """
     op = cke.op()
     mems = op.find(ir.InMemoryTable)
@@ -582,21 +592,25 @@ def _normalize_computed_kwargs_expr(cke):
     scalar_udfs = op.find(ScalarUDF)
     reads = op.find(rel.Read)
     cached = op.find(rel.CachedNode)
-    # TODO(ADR-0009): ``normalize_inmemorytable`` hashes batch content, so a
-    # ``FittedPipeline.predict`` whose ``computed_kwargs_expr`` carries the
-    # training table folds the *training data* into the structural hash —
-    # defeating "compute structural once, reuse across data swaps" for ML
-    # pipelines.  The training InMemoryTable already appears in outer
-    # ``data_deps`` (collected by ``walk_nodes`` descending through
-    # ExprScalarUDF.computed_kwargs_expr); replace it with a structural-only
-    # placeholder here and pull data into ``data_deps`` only.
+    # Strip path identity from read_kwargs, the path's data lives in outer
+    # data_deps via the registered ``normalize_read`` on the leaf.
+    _path_keys = ("hash_path", "read_path")
+    read_structural = tuple(
+        (
+            r.schema,
+            r.method_name,
+            tuple((k, v) for k, v in r.read_kwargs if k not in _path_keys),
+            r.normalize_method,
+        )
+        for r in reads
+    )
     return normalize_seq_with_caller(
         cke.schema() if isinstance(cke, ibis.expr.types.Table) else cke.type(),
-        tuple(map(normalize_inmemorytable, mems)),
+        tuple(m.schema for m in mems),
         agg_udfs,
         scalar_udfs,
-        reads,
-        cached,
+        read_structural,
+        tuple((c.schema, type(c.cache).__name__) for c in cached),
         caller="normalize_computed_kwargs_expr",
     )
 
@@ -629,7 +643,7 @@ def normalize_scalar_udf(udf):
 
 @dask.base.normalize_token.register(AggUDF)
 def normalize_agg_udf(udf):
-    (*args, where) = udf.args
+    *args, where = udf.args
     if where is not None:
         # TODO: determine if sql string already contains
         #       the relevant information of `where`

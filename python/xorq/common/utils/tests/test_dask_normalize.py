@@ -877,9 +877,7 @@ def test_expr_metadata_schema():
     md = expr_metadata(expr)
     assert md["version"] == 2
     assert isinstance(md["structural_hash"], str) and len(md["structural_hash"]) == 32
-    assert md["slots"] == [
-        {"index": 0, "name": "t", "hash": md["slots"][0]["hash"]}
-    ]
+    assert md["slots"] == [{"index": 0, "name": "t", "hash": md["slots"][0]["hash"]}]
     assert len(md["slots"][0]["hash"]) == 32
 
 
@@ -957,6 +955,30 @@ def test_normalize_op_split_inmemorytable_is_a_leaf():
     leaf_dts, data_deps, _ = _split(expr)
     assert any(isinstance(dt, ir.InMemoryTable) for dt in leaf_dts)
     assert len(data_deps) == len(leaf_dts) >= 1
+
+
+def test_normalize_computed_kwargs_expr_structural_is_data_free():
+    """``_normalize_computed_kwargs_expr`` must not fold leaf data into its hash.
+
+    Per ADR-0009: a ``computed_kwargs_expr`` carrying e.g. a training table
+    contributes the table's data identity to outer ``data_deps`` (via
+    ``walk_nodes`` descending through ``ExprScalarUDF.computed_kwargs_expr``)
+    but its bytes must not appear in the inner structural hash — otherwise
+    the structural side is no longer reusable across data swaps for ML
+    pipelines.
+    """
+    from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
+        _normalize_computed_kwargs_expr,
+    )
+
+    # Same schema/op shape, different InMemoryTable bytes, structural hash
+    # must agree.  (The bytes still flow into outer ``data_deps`` via the
+    # ``walk_nodes`` descent; only the structural component is invariant.)
+    cke_a = xo.memtable(pd.DataFrame({"x": [1, 2, 3]})).filter(xo._.x > 0)
+    cke_b = xo.memtable(pd.DataFrame({"x": [10, 20, 30]})).filter(xo._.x > 0)
+    assert _normalize_computed_kwargs_expr(cke_a) == _normalize_computed_kwargs_expr(
+        cke_b
+    )
 
 
 def test_normalize_expr_returns_hashed_pair():

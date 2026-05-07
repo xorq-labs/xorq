@@ -312,10 +312,11 @@ token.
 
 `ExprScalarUDF.computed_kwargs_expr` leaves are reached by `walk_nodes`
 (so an `InMemoryTable` used as training data inside `FittedPipeline.predict`
-appears in `data_deps`), but the structural side of `ExprScalarUDF` is still
-computed by `_normalize_computed_kwargs_expr` — which currently includes the
-training data via `normalize_inmemorytable`.  Refactoring that to
-placeholder InMemoryTable on the structural side is left as a follow-up.
+appears in `data_deps`), and `_normalize_computed_kwargs_expr` is
+*data-free* — `InMemoryTable` is keyed by schema only, `Read` strips
+`hash_path`/`read_path` from its key fields, and `CachedNode` is keyed by
+schema + cache class.  The data identity for those leaves flows into outer
+`data_deps`; the structural component reuses across data swaps.
 
 ## References
 
