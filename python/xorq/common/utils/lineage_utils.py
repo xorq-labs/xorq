@@ -211,6 +211,8 @@ def _to_jsonable(v: Any) -> Any:
         return {str(k): _to_jsonable(val) for k, val in v.items()}
     if isinstance(v, (list, tuple)):
         return [_to_jsonable(x) for x in v]
+    if isinstance(v, (set, frozenset)):
+        return [_to_jsonable(x) for x in sorted(v, key=str)]
     return str(v)
 
 
@@ -224,7 +226,7 @@ def _node_dict(node: Node, node_ids: dict[Node, str]) -> dict:
     if schema is not None:
         d["schema"] = {k: str(v) for k, v in schema.items()}
     if isinstance(node, rel.Tag):
-        d["tag_metadata"] = {k: _to_jsonable(v) for k, v in node.metadata.items()}
+        d["tag_metadata"] = _to_jsonable(node.metadata)
     return d
 
 
