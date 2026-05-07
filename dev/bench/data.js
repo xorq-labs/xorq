@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778184380263,
+  "lastUpdate": 1778192615440,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -11172,6 +11172,114 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.007760525873898956",
             "extra": "mean: 2.741526452830235 msec\nrounds: 742"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "paddy@paddymullen.com",
+            "name": "Paddy Mullen",
+            "username": "paddymul"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "76a58bbb9580df00d0d3961e4576e03e17813e14",
+          "message": "fix(catalog): conflict-matrix pull resolution for catalog.pull (#1886 Bug B) (#1902)\n\nTests + fix for #1886 Bug B (`Catalog.pull()` bails on divergent\nbranches before any merge attempt). Structured as separate commits:\nfailing tests first, then the fix, then review-driven additions\n(error-handling tests, pre-flight validation, unit tests for the merge\nhelper).\n\n## Why\n\nThe discussion on #1886 settled on a **conflict matrix**: for every\ncombination of (ours did X, theirs did Y), describe whether\n`catalog.pull()` should auto-resolve and succeed, or surface a\n`CatalogMergeConflict` for the user to resolve. This PR encodes that\nmatrix as one test per case and ships the fix that makes them all pass.\n\nPre-fix, `catalog.pull()` is `tuple(map(Remote.pull, ...))` — it\ninherits the user's git config and bails with `fatal: Need to specify\nhow to reconcile divergent branches` before any merge attempt. The fix\nreplaces that with explicit `git fetch + git merge`; when the merge\nleaves `catalog.yaml` conflicted (typical when both sides appended to\nthe entries or aliases lists), a Python 3-way list-merge resolves it\n(items dropped by either side propagate as removals; items added by\neither side survive; duplicates collapse). Anything still unmerged\n(typically alias symlinks at the same path with diverging targets)\nraises `CatalogMergeConflict` with the conflicted paths and leaves the\nmerge in-progress for the user.\n\n## New exception classes\n\n- **`CatalogMergeConflict`** — raised when a merge leaves files\nunresolved (alias symlinks with diverging targets, modify/delete).\nCarries `.conflicted` (tuple of paths) and `.remote_name`. The merge is\nleft in-progress so the user can resolve, abort, or take-theirs.\n- **`CatalogPullError`** — raised for non-conflict failures: detached\nHEAD, missing/malformed `catalog.yaml` on either side, non-conflict `git\nmerge` errors. Distinct from `CatalogMergeConflict` so callers can\nhandle them differently. Symmetric with `CatalogPushError` from #1899.\n\n## Pre-flight validation\n\nBefore any merge attempt, `pull()` now checks:\n\n1. **HEAD must be on a branch** — the catalog API never detaches HEAD on\nits own; this only fails if the repo was put in detached state outside\nxorq. Raises `CatalogPullError`.\n2. **`catalog.yaml` on ours (HEAD) must exist, parse, and have\ndict-or-list shape** — without this, a deleted or corrupted local\n`catalog.yaml` would leak raw parser exceptions or silently destroy data\nin the 3-way merge.\n3. **`catalog.yaml` on theirs (remote tip) must pass the same check** —\nwithout this, a remote-side deletion would be treated as \"theirs removed\nevery entry\" and the 3-way merge would drop all entries.\n4. **Single-remote enforcement** — `(remote,) = remotes` destructures\nexactly one remote per the ADR-0011 contract; >1 remote raises\n`CatalogConfigurationError`.\n\n## The matrix\n\n`α`, `β` are alias names; `X`, `Y` are entry hashes. The `#` cell links\nto the test pinned to commit `10523d74`; `bail` =\n`git.exc.GitCommandError: fatal: Need to specify how to reconcile\ndivergent branches`.\n\nFor the same-action cases (#02, #04, #08, #10): even though both sides\nperform the same operation against the same content, the resulting\ncommits differ — git commit SHAs include the author/commit timestamp,\nand the two clones run their commits at different wall-clock times, so\nthe resulting SHAs diverge and `cat_b.pull()` hits the same\ndivergent-branches bail as the rest. The tests force `cat_b`'s commit\ndates to a fixed future value via the\n`_commit_dates(\"2030-01-01T00:00:00\")` context manager (sets\n`GIT_AUTHOR_DATE`/`GIT_COMMITTER_DATE` env vars) to guarantee divergent\nSHAs deterministically, without relying on wall-clock drift.\n\n### Auto-resolve cases — pull succeeds silently after fix\n\n| # | Ours did | Theirs did | What stock git sees | Behavior pre-fix |\nExpected result (post-fix) |\n\n|---|----------|------------|---------------------|------------------|----------------------------|\n|\n[01](https://github.com/xorq-labs/xorq/blob/10523d74/python/xorq/catalog/tests/test_catalog_pull_conflicts.py#L84)\n| add entry X | add entry Y | `catalog.yaml` trailing-region overlap |\nfails: `bail` | pull succeeds; both X and Y in `cat_b.list()` |\n|\n[02](https://github.com/xorq-labs/xorq/blob/10523d74/python/xorq/catalog/tests/test_catalog_pull_conflicts.py#L102)\n| add entry X | add entry X | identical add → auto-merges | fails:\n`bail` | pull succeeds; X in `cat_b.list()` |\n|\n[03](https://github.com/xorq-labs/xorq/blob/10523d74/python/xorq/catalog/tests/test_catalog_pull_conflicts.py#L119)\n| remove entry X | remove entry Y | possibly adjacent-line yaml conflict\n| fails: `bail` | pull succeeds; neither X nor Y in `cat_b.list()` |\n|\n[04](https://github.com/xorq-labs/xorq/blob/10523d74/python/xorq/catalog/tests/test_catalog_pull_conflicts.py#L140)\n| remove entry X | remove entry X | identical delete → auto-merges |\nfails: `bail` | pull succeeds; X gone |\n|\n[05](https://github.com/xorq-labs/xorq/blob/10523d74/python/xorq/catalog/tests/test_catalog_pull_conflicts.py#L159)\n| add entry X | remove entry Y | non-overlapping yaml regions | fails:\n`bail` | pull succeeds; X present, Y gone |\n|\n[06](https://github.com/xorq-labs/xorq/blob/10523d74/python/xorq/catalog/tests/test_catalog_pull_conflicts.py#L179)\n| add α→X | add β→Y (different names) | yaml list overlap; symlinks at\ndistinct paths | fails: `bail` | pull succeeds; both α→X and β→Y in\n`cat_b.list_aliases()`, each resolving to the right hash |\n|\n[08](https://github.com/xorq-labs/xorq/blob/10523d74/python/xorq/catalog/tests/test_catalog_pull_conflicts.py#L198)\n| add α→X | add α→X (identical) | identical line + identical symlink |\nfails: `bail` | pull succeeds; α→X |\n|\n[10](https://github.com/xorq-labs/xorq/blob/10523d74/python/xorq/catalog/tests/test_catalog_pull_conflicts.py#L217)\n| remove α | remove α | identical removal | fails: `bail` | pull\nsucceeds; α gone |\n|\n[11](https://github.com/xorq-labs/xorq/blob/10523d74/python/xorq/catalog/tests/test_catalog_pull_conflicts.py#L236)\n| remove α | remove β | independent | fails: `bail` | pull succeeds;\nboth α and β gone |\n|\n[12](https://github.com/xorq-labs/xorq/blob/10523d74/python/xorq/catalog/tests/test_catalog_pull_conflicts.py#L256)\n| remove α | add β→Y (β ≠ α) | independent | fails: `bail` | pull\nsucceeds; α gone, β→Y present |\n\n### Genuine conflict cases — pull raises `CatalogMergeConflict`\n\n| # | Ours did | Theirs did | What stock git sees | Behavior pre-fix |\nExpected result (post-fix) |\n\n|---|----------|------------|---------------------|------------------|----------------------------|\n|\n[09](https://github.com/xorq-labs/xorq/blob/10523d74/python/xorq/catalog/tests/test_catalog_pull_conflicts.py#L281)\n| add α → X | add α → Y | `.xorq/aliases/α.zip` add/add with diverging\ntargets | fails: `bail` (never reaches the genuine-conflict state) |\nraises `CatalogMergeConflict`; `excinfo.value.conflicted` contains the\n`.xorq/aliases/α.zip` symlink path |\n|\n[13](https://github.com/xorq-labs/xorq/blob/10523d74/python/xorq/catalog/tests/test_catalog_pull_conflicts.py#L298)\n| remove α (in base) | re-point α → Y | `.xorq/aliases/α.zip`\nmodify/delete | fails: `bail` (never reaches the modify/delete state) |\nraises `CatalogMergeConflict`; `excinfo.value.conflicted` contains the\n`.xorq/aliases/α.zip` symlink path |\n\n### Filed separately\n\n| # | Ours did | Theirs did | Why not here |\n|---|----------|------------|--------------|\n| 07 | add α → X | add β → X (different names, same target) | hygiene\nsmell, not a merge conflict — #1901 |\n\n## Test files\n\n| File | Tests | Scope |\n|------|-------|-------|\n| `test_catalog_pull_conflicts.py` | 12 | Conflict matrix (the table\nabove) |\n| `test_catalog_pull_errors.py` | 10 | Error handling: detached HEAD,\nmissing remote branch, conflict names remote, pre-flight validation\n(deleted/malformed/scalar yaml on both sides), multi-remote rejection,\nno-remote no-op |\n| `test_three_way_list_merge.py` | 18 | Unit tests for\n`_three_way_list_merge` and `_parse_catalog_yaml_blob` |\n| **Total** | **40** | |\n\n## Production changes\n\n`catalog.py` (+245 lines):\n- `_parse_catalog_yaml_blob()` — parse a `catalog.yaml` blob from a\nmerge stage\n- `_three_way_list_merge()` — 3-way set merge with ours-first ordering\n- `CatalogPullError` — non-conflict pull failures\n- `CatalogMergeConflict` — unresolved merge paths (with `.conflicted`\nand `.remote_name`)\n- `Catalog.pull()` — rewritten: fetch + merge + yaml resolver +\npre-flights\n- `Catalog._resolve_yaml_conflict_if_any()` — resolve `catalog.yaml` in\nthe unmerged index\n- `Catalog._validate_catalog_yaml_in_commit()` — pre-flight blob\nvalidation\n\n## Test plan\n\n- [x] CI runs the new test files in the `core` job\n- [x] Local: all 40 tests pass at `10523d74`\n- [x] No regression in existing catalog tests\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-05-07T18:19:08-04:00",
+          "tree_id": "d08ff49fb3a472a40fa3d8cf964a7be341ff68ef",
+          "url": "https://github.com/xorq-labs/xorq/commit/76a58bbb9580df00d0d3961e4576e03e17813e14"
+        },
+        "date": 1778192613059,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.399920592037772,
+            "unit": "iter/sec",
+            "range": "stddev: 0.021587310049971747",
+            "extra": "mean: 119.04874445454797 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.737508203251364,
+            "unit": "iter/sec",
+            "range": "stddev: 0.034753161342199225",
+            "extra": "mean: 365.2957089999916 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6835823825723771,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16273362373806466",
+            "extra": "mean: 1.4628814690000014 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.5290811044301487,
+            "unit": "iter/sec",
+            "range": "stddev: 0.051888749950985844",
+            "extra": "mean: 395.4005264000102 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.5338565063215395,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05093714146766025",
+            "extra": "mean: 394.6553396000013 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.639602852407818,
+            "unit": "iter/sec",
+            "range": "stddev: 0.051096893902553675",
+            "extra": "mean: 378.8448702000039 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[simple_filter_agg]",
+            "value": 178.54091983767555,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012744448695582227",
+            "extra": "mean: 5.600956917378785 msec\nrounds: 351"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[pipeline_50_steps]",
+            "value": 6.298562745454023,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07518855876650807",
+            "extra": "mean: 158.7663789999946 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[nested_into_backend]",
+            "value": 50.56118043772851,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006403795978058975",
+            "extra": "mean: 19.77801924999767 msec\nrounds: 52"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[simple_filter_agg]",
+            "value": 301.0788725386096,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010279468389144175",
+            "extra": "mean: 3.32138881605438 msec\nrounds: 598"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[pipeline_50_steps]",
+            "value": 337.4830750756831,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01034728650408117",
+            "extra": "mean: 2.9631115568558295 msec\nrounds: 598"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[nested_into_backend]",
+            "value": 265.1412224489559,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01414167157773674",
+            "extra": "mean: 3.7715749771520977 msec\nrounds: 569"
           }
         ]
       }
