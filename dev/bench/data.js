@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778160626525,
+  "lastUpdate": 1778181981890,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -10956,6 +10956,114 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.038560083557518054",
             "extra": "mean: 431.9461661999867 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "pierre@barre.sh",
+            "name": "Pierre Barre",
+            "username": "Barre"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "99bcec37356508010885f20528466b7347e2dc95",
+          "message": "feat(dask_normalize): split expression tokens into data and structural components (#1884)\n\n## Summary\n\nImplements ADR-0010. Splits `normalize_op` into data-dependent and\nstructural\ncomponents so expression cache tokens can be cheaply recomputed by\nsubstituting\nonly the changed data-leaf hash.\n\n- `normalize_op` now returns `(data_deps, structural)` instead of a flat\ntoken\n- New `normalize_op_split` exposes `(leaf_dts, data_deps, structural)`\nfor\n  callers that need to inspect or substitute individual data deps\n- `_normalize_computed_kwargs_expr` is now data-free — `InMemoryTable`\nkeyed\nby schema only, `Read` strips path identity, `CachedNode` keyed by\nschema +\ncache class — so ML-pipeline structural hashes are stable across data\nswaps\n- New `expr_metadata` produces a serializable dict for cross-language\ntoken\n  computation\n- New `compute_expr_token` reproduces `dask.base.tokenize(expr)` from\nhex\nslot hashes + structural hash using only `hashlib` (no xorq/dask import)\n- Opaque sub-expressions are placeholdered by their own structural token\n(computed with their own backend's compiler) via\n`_opaque_structural_name`,\n  with per-call `contextvars` memoization capping recursion at O(depth)\n\n## Test plan\n\n- [x] Snapshot tests updated (expected cache break per ADR-0010)\n- [x] `test_normalize_op_split_*` — three-tuple shape, structural\nstability,\n  data sensitivity, subclass exclusion, cross-engine Read, InMemoryTable\n- [x] `test_compute_expr_token_matches_dask_tokenize` — round-trip\nfidelity\n- [x] `test_cheap_substitution_matches_full_recompute` — slot-swap\nequivalence\n- [x] `test_normalize_computed_kwargs_expr_structural_is_data_free`\n- [x] Benchmark tests for full tokenize, cached-structural path, and\nnested\n  cross-engine pipelines\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: dlovell <dlovell@gmail.com>\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-07T15:21:39-04:00",
+          "tree_id": "b8a441c43e611b8b0607d1cbf48d270071eb6c75",
+          "url": "https://github.com/xorq-labs/xorq/commit/99bcec37356508010885f20528466b7347e2dc95"
+        },
+        "date": 1778181978764,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.168647418468757,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007421170149811937",
+            "extra": "mean: 109.06734159999019 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.3195390220888363,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06355377192972224",
+            "extra": "mean: 431.12014519999775 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.625772500899158,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18041995610933736",
+            "extra": "mean: 1.598024838999993 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.5895442400014383,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05285585516689034",
+            "extra": "mean: 386.16833979999683 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.5460271682587376,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06710862460640372",
+            "extra": "mean: 392.7687859999992 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.556081760430193,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06171935363192296",
+            "extra": "mean: 391.22379240001237 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[simple_filter_agg]",
+            "value": 218.6217294389578,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010521723147207273",
+            "extra": "mean: 4.574110737145247 msec\nrounds: 350"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[pipeline_50_steps]",
+            "value": 6.854770579031954,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06327827566025587",
+            "extra": "mean: 145.88380288888126 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[nested_into_backend]",
+            "value": 47.76835350141319,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0067821941837505565",
+            "extra": "mean: 20.934361909091464 msec\nrounds: 55"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[simple_filter_agg]",
+            "value": 294.10391957477884,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010925834488752036",
+            "extra": "mean: 3.4001586971224986 msec\nrounds: 591"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[pipeline_50_steps]",
+            "value": 387.92883259858735,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004941282220363203",
+            "extra": "mean: 2.577792409245225 msec\nrounds: 584"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[nested_into_backend]",
+            "value": 298.7873661732726,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009630512508034945",
+            "extra": "mean: 3.346861725806977 msec\nrounds: 558"
           }
         ]
       }
