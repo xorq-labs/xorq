@@ -12,7 +12,7 @@ You will learn catalog operations for production deployment workflows.
 - Add builds to the catalog
 - Create and manage aliases
 - Query catalog metadata
-- Compare builds with diff-builds
+- Verify build integrity with `catalog check`
 
 **Prerequisites:**
 - Completed "Your first build" tutorial
