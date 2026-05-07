@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778156953840,
+  "lastUpdate": 1778159642243,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -10692,6 +10692,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.035784477074403326",
             "extra": "mean: 363.9342265999744 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "adc517d611aa3ce5ccdc4c08a240cc6045c224d8",
+          "message": "fix(lineage): preserve tag_metadata structure in lineage DAG (#1931)\n\n## Summary\n\n- `_node_dict` previously stringified non-primitive `tag_metadata`\nvalues via `str(v)`, flattening `FrozenDict` / `FrozenOrderedDict` /\nnested tuples into Python repr blobs.\n- For BSL-tagged entries this meant `xorq catalog show --json` exposed\ndimensions/measures as serialized AST strings like `\"(('origin',\n(('description', None), …)), ('carrier', …), ('dep_month', …))\"`,\nforcing downstream consumers (e.g. `jq`) to regex-parse them.\n- Recurse through `Mapping` / `list` / `tuple` in a small `_to_jsonable`\nhelper, falling back to `str(v)` for unknown types. `tag_metadata` now\nround-trips as proper JSON in `expr_metadata.json`.\n\nAfter:\n\n```bash\nxorq catalog show semantic-flights --json \\\n  | jq '.expr_metadata.lineage.nodes[] | select(.type==\"Tag\") | .tag_metadata\n        | {name, dimensions: [.dimensions[][0]], measures: [.measures[][0]]}'\n{ \"name\": \"flights\",\n  \"dimensions\": [\"origin\", \"carrier\", \"dep_month\"],\n  \"measures\":   [\"flight_count\", \"avg_dep_delay\", \"late_pct\"] }\n```\n\n## Test plan\n\n- [x] `pytest python/xorq/common/utils/tests/test_lineage_utils.py` —\nnew test `test_lineage_dag_tag_metadata_preserves_structure` plus all\nexisting tests pass (15/15).\n- [x] `pre-commit run --files python/xorq/common/utils/lineage_utils.py\npython/xorq/common/utils/tests/test_lineage_utils.py` — clean.\n- [x] End-to-end check against a real BSL `to_tagged()` flights cube:\n`tag_metadata.dimensions[0]` comes out as `[\"origin\", [[\"description\",\nnull], [\"is_entity\", false], …]]` instead of a repr string.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\nCo-authored-by: Daniel Mesejo <mesejoleon@gmail.com>",
+          "timestamp": "2026-05-07T15:09:35+02:00",
+          "tree_id": "25d472706ca9e86afa7bf3a89c8b7fd0440e4d36",
+          "url": "https://github.com/xorq-labs/xorq/commit/adc517d611aa3ce5ccdc4c08a240cc6045c224d8"
+        },
+        "date": 1778159639162,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.780387494301934,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01804576892482334",
+            "extra": "mean: 113.89019000003745 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.2376910212270875,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08658440190703003",
+            "extra": "mean: 446.88922219995675 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6420866939796269,
+            "unit": "iter/sec",
+            "range": "stddev: 0.21674728225219128",
+            "extra": "mean: 1.5574220885999694 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.9203850963937703,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005043958950338905",
+            "extra": "mean: 342.42059420000714 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.896821031959742,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01364057919076086",
+            "extra": "mean: 345.20599960001164 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.7673549841564107,
+            "unit": "iter/sec",
+            "range": "stddev: 0.023534593712684185",
+            "extra": "mean: 361.35588160000225 msec\nrounds: 5"
           }
         ]
       }
