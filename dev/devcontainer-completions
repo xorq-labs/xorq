@@ -10,7 +10,7 @@ _devcontainer() {
     local cur prev words cword
     _init_completion || return
 
-    local subcmds="up down reset clean status logs exec claude claude-dangerously-skip-permissions refresh-ssh refresh-gpg fix-credentials audit completions"
+    local subcmds="up down reset clean status logs exec claude claude-dangerously-skip-permissions refresh-ssh refresh-gpg fix-credentials unlock audit completions"
     local global_opts="-w --workspace"
 
     local i=1 subcmd=""
@@ -63,6 +63,7 @@ _devcontainer() {
         'refresh-ssh:re-forward SSH agent without container restart'
         'refresh-gpg:re-forward GPG agent without container restart'
         'fix-credentials:repair credentials symlink (after upgrading from pre-shared-credentials build)'
+        'unlock:remove stale lockfile'
         'audit:show permission audit log'
         'status:show whether the container is running'
         'logs:show container logs'
@@ -88,7 +89,7 @@ ZSH
         ;;
     fish)
         cat <<'FISH'
-set -l cmds up down reset clean status logs exec claude claude-dangerously-skip-permissions refresh-ssh refresh-gpg fix-credentials audit completions
+set -l cmds up down reset clean status logs exec claude claude-dangerously-skip-permissions refresh-ssh refresh-gpg fix-credentials unlock audit completions
 complete -c devcontainer -f
 complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -s w -l workspace -ra '(__fish_complete_directories)' -d 'workspace directory'
 complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a up -d 'start the dev container'
@@ -101,6 +102,7 @@ complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a claude-da
 complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a refresh-ssh -d 're-forward SSH agent without container restart'
 complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a refresh-gpg -d 're-forward GPG agent without container restart'
 complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a fix-credentials -d 'repair credentials symlink'
+complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a unlock -d 'remove stale lockfile'
 complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a audit -d 'show permission audit log'
 complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a status -d 'show whether the container is running'
 complete -c devcontainer -n "not __fish_seen_subcommand_from $cmds" -a logs -d 'show container logs'

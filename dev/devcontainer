@@ -280,10 +280,12 @@ ensure_external_volumes() {
 ensure_up() {
     # Subshell scopes fd 9 so no child process can inherit the flock.
     (
-        flock -n 9 || {
+        if ! flock -n 9; then
             echo "Another devcontainer operation is in progress, waiting..."
-            flock 9
-        }
+            while ! flock -n 9; do
+                sleep 1
+            done
+        fi
 
         setup_claude_credentials
         ensure_external_volumes
@@ -426,6 +428,38 @@ case "${1:-up}" in
         fi
         python3 "$DEV_MAIN_TREE/.devcontainer/audit-report.py" "$audit_log" "${1:---summary}"
         ;;
+    unlock)
+        if [ ! -f "$DEV_LOCKFILE" ]; then
+            echo "No lockfile found ($DEV_LOCKFILE)"
+            exit 0
+        fi
+        # Test whether any process still holds the flock
+        if flock -n "$DEV_LOCKFILE" true 2>/dev/null; then
+            rm -f "$DEV_LOCKFILE"
+            echo "Removed stale lockfile: $DEV_LOCKFILE"
+        else
+            pids="$(fuser "$DEV_LOCKFILE" 2>/dev/null | tr -s ' ')" || true
+            if [ -z "$pids" ]; then
+                echo "Lock is actively held by unknown PID" >&2
+                exit 1
+            fi
+            echo "Lock is actively held:" >&2
+            for pid in $pids; do
+                cmd="$(ps -p "$pid" -o cmd= 2>/dev/null)" || cmd="(exited)"
+                printf "  PID %-8s %s\n" "$pid" "$cmd" >&2
+            done
+            echo ""
+            read -rp "Kill these processes and remove lockfile? [y/N] " answer
+            if [[ "$answer" != [yY]* ]]; then
+                exit 1
+            fi
+            for pid in $pids; do
+                kill "$pid" 2>/dev/null && echo "Killed PID $pid" || echo "PID $pid already exited"
+            done
+            rm -f "$DEV_LOCKFILE"
+            echo "Removed lockfile: $DEV_LOCKFILE"
+        fi
+        ;;
     status)
         if is_running; then
             echo "running: $DEV_CONTAINER_NAME (workspace: $DEV_WORKSPACE)"
@@ -457,6 +491,7 @@ Commands:
                                         use standalone when host gpg-agent restarts)
   fix-credentials                     repair credentials symlink in a running container
                                         (needed after upgrading from pre-shared-credentials build)
+  unlock                                remove stale lockfile (safe — refuses if lock is actively held)
   audit [--summary|--new|--all|--clear]  show permission audit log (default: --summary)
   completions [bash|zsh|fish]         emit shell completions
 USAGE
