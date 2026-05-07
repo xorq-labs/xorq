@@ -430,3 +430,35 @@ def test_lineage_dag_backward_compat_from_dict():
     assert isinstance(result.nodes, tuple)
     assert isinstance(result.edges, tuple)
     assert result.edges[0] == ("a", "b")
+
+
+def test_lineage_dag_tag_metadata_preserves_structure():
+    """Tag metadata with frozen mappings/sequences should round-trip as JSON,
+    not be flattened into Python repr strings."""
+    sales = xo.memtable({"x": [1]}, name="sales")
+    tagged = sales.tag(
+        tag="bsl",
+        name="flights",
+        dimensions=(
+            ("origin", (("description", None), ("is_entity", False))),
+            ("carrier", (("description", None), ("is_entity", False))),
+        ),
+        measures=(("flight_count", (("requires_unnest", ()),)),),
+    )
+
+    dag = extract_lineage_dag(tagged)
+    [tag_node] = [n for n in dag.nodes if n["type"] == "Tag"]
+    tm = tag_node["tag_metadata"]
+
+    assert tm["tag"] == "bsl"
+    assert tm["name"] == "flights"
+
+    # Top-level dimensions should be a list of [name, attrs] pairs, not a
+    # serialized "(('origin', (...)), ...)" string.
+    assert isinstance(tm["dimensions"], list)
+    assert [d[0] for d in tm["dimensions"]] == ["origin", "carrier"]
+    assert isinstance(tm["dimensions"][0][1], list)
+    assert tm["dimensions"][0][1][0] == ["description", None]
+
+    assert isinstance(tm["measures"], list)
+    assert [m[0] for m in tm["measures"]] == ["flight_count"]

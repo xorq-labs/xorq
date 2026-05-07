@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from functools import singledispatch
 from itertools import count
 from typing import Any, Callable, Tuple
@@ -196,6 +197,25 @@ class LineageDAG:
         )
 
 
+def _to_jsonable(v: Any) -> Any:
+    """Convert frozen tag metadata to JSON-friendly primitives.
+
+    Tag metadata may carry FrozenDict / FrozenOrderedDict / nested tuples
+    (e.g. BSL's serialized dimensions and measures). Stringifying them with
+    repr() loses structure for downstream consumers like `xorq catalog show
+    --json | jq`; recursing through Mapping/Sequence preserves it.
+    """
+    if v is None or isinstance(v, (str, int, float, bool)):
+        return v
+    if isinstance(v, Mapping):
+        return {str(k): _to_jsonable(val) for k, val in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_to_jsonable(x) for x in v]
+    if isinstance(v, (set, frozenset)):
+        return [_to_jsonable(x) for x in sorted(v, key=str)]
+    return str(v)
+
+
 def _node_dict(node: Node, node_ids: dict[Node, str]) -> dict:
     d: dict[str, Any] = {
         "id": node_ids[node],
@@ -206,10 +226,7 @@ def _node_dict(node: Node, node_ids: dict[Node, str]) -> dict:
     if schema is not None:
         d["schema"] = {k: str(v) for k, v in schema.items()}
     if isinstance(node, rel.Tag):
-        d["tag_metadata"] = {
-            k: v if isinstance(v, (str, int, float, bool)) else str(v)
-            for k, v in node.metadata.items()
-        }
+        d["tag_metadata"] = _to_jsonable(node.metadata)
     return d
 
 
