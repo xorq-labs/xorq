@@ -3,6 +3,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+from configparser import NoOptionError, NoSectionError
 from contextlib import (
     contextmanager,
     nullcontext,
@@ -26,6 +27,7 @@ from attr.validators import (
 )
 from git import (
     Blob,
+    PushInfo,
     Remote,
     Repo,
 )
@@ -46,6 +48,7 @@ from xorq.catalog.constants import (
     PREFERRED_SUFFIX,
     CatalogInfix,
 )
+from xorq.catalog.exceptions import CatalogConfigurationError, CatalogPushError
 from xorq.catalog.expr_utils import (
     build_expr_context,
     build_expr_context_zip,
@@ -64,6 +67,22 @@ logger = get_logger(__name__)
 
 
 abspath = toolz.compose(Path.absolute, Path)
+
+
+_PUSH_FAILURE_FLAGS = (
+    PushInfo.REJECTED
+    | PushInfo.REMOTE_REJECTED
+    | PushInfo.REMOTE_FAILURE
+    | PushInfo.ERROR
+)
+
+
+def _format_push_failures(push_infos, remote_name):
+    return tuple(
+        f"{remote_name}/{info.local_ref or '?'}: {(info.summary or '').strip()}"
+        for info in push_infos
+        if info.flags & _PUSH_FAILURE_FLAGS
+    )
 
 
 def _ensure_wheel_artifacts(build_dir, project_path=None):
@@ -280,22 +299,69 @@ class Catalog:
         """Return the list of entry names in the catalog."""
         return self.catalog_yaml.contents[CatalogInfix.ENTRY]
 
+    @staticmethod
+    def _has_fetch_refspec(remote):
+        try:
+            remote.config_reader.get("fetch")
+            return True
+        except (NoOptionError, NoSectionError):
+            return False
+
     @property
     def _git_remotes(self):
         """Remotes that are real git remotes (have a fetch refspec), excluding annex special remotes."""
+        return tuple(r for r in self.repo.remotes if self._has_fetch_refspec(r))
 
-        def _has_fetch_refspec(remote):
-            try:
-                remote.config_reader.get("fetch")
-                return True
-            except (KeyError, Exception):
-                return False
+    def _validated_git_remotes(self):
+        """Return ``self._git_remotes`` after enforcing the single-remote contract.
 
-        return tuple(r for r in self.repo.remotes if _has_fetch_refspec(r))
+        ``_git_remotes`` is a property that re-reads the underlying git
+        config on each access. Callers want a stable snapshot for the
+        duration of a single operation: this helper reads the property
+        once, raises ``CatalogConfigurationError`` if there are two or
+        more git remotes (ADR-0011), and returns the validated tuple. The
+        error message names every remote found so the user can see what
+        triggered the failure.
+        """
+        remotes = self._git_remotes
+        if len(remotes) > 1:
+            names = ", ".join(r.name for r in remotes)
+            raise CatalogConfigurationError(
+                f"catalog supports a single git remote (ADR-0011); "
+                f"found {len(remotes)}: {names}. "
+                f"Use Catalog.set_remote(name, url, force=True) to replace existing remotes, "
+                f"or open an issue if you have a multi-remote use case."
+            )
+        return remotes
+
+    def set_remote(self, name, url, force=False):
+        """Configure the catalog's git remote.
+
+        The catalog supports at most one git remote (ADR-0011). When the
+        repo has no git remote, ``set_remote`` creates one with the given
+        *name* and *url* and returns it.
+
+        When a git remote is already configured, ``set_remote`` raises
+        ``CatalogConfigurationError`` unless ``force=True`` is passed. The
+        guard exists because silent replacement turns a typo in the
+        remote name into the deletion of the existing remote with no
+        signal — failing by default forces explicit opt-in. With
+        ``force=True``, every existing git remote is deleted and replaced.
+        """
+        existing_remotes = self._git_remotes
+        if existing_remotes and not force:
+            existing = ", ".join(f"{r.name} -> {r.url}" for r in existing_remotes)
+            raise CatalogConfigurationError(
+                f"catalog has a git remote already configured ({existing}); "
+                f"pass force=True to replace it."
+            )
+        for remote in existing_remotes:
+            self.repo.delete_remote(remote)
+        return self.repo.create_remote(name, url)
 
     def fetch(self):
-        """Fetch from all git remotes (excludes annex-only special remotes)."""
-        return tuple(map(Remote.fetch, self._git_remotes))
+        """Fetch from the configured git remote (no-op if no remote is configured)."""
+        return tuple(map(Remote.fetch, self._validated_git_remotes()))
 
     def fetch_entries(self, *entries):
         """Fetch annex content for the given entries in a single operation.
@@ -313,25 +379,40 @@ class Catalog:
             self.backend.fetch_content(*paths)
 
     def push(self):
-        """Push to all git remotes after verifying consistency."""
+        """Push to the configured git remote after verifying consistency.
+
+        Pushes ``main``, then ``git-annex`` (if present). Both pushes are
+        always attempted — raises a single ``CatalogPushError`` listing
+        every rejection or transport failure across both. No-op when no
+        git remote is configured.
+
+        Returns ``()``, ``(main_result,)``, or ``(main_result, annex_result)``.
+        """
+        remotes = self._validated_git_remotes()
+        if not remotes:
+            return ()
         self.assert_consistency()
-        results = tuple(map(Remote.push, self._git_remotes))
+        (remote,) = remotes
+        main_result = remote.push()
+        failure_messages = _format_push_failures(main_result, remote.name)
         if _has_local_annex_branch(self.repo):
-            annex_results = tuple(
-                remote.push(ANNEX_BRANCH) for remote in self._git_remotes
-            )
+            annex_result = remote.push(ANNEX_BRANCH)
+            failure_messages += _format_push_failures(annex_result, remote.name)
+            results = (main_result, annex_result)
         else:
-            annex_results = ()
             logger.debug(
                 "skipping annex branch push: no local branch",
                 annex_branch=ANNEX_BRANCH,
                 repo_path=str(self.repo_path),
             )
-        return results + annex_results
+            results = (main_result,)
+        if failure_messages:
+            raise CatalogPushError(f"push failed: {'; '.join(failure_messages)}")
+        return results
 
     def pull(self):
-        """Pull from all git remotes."""
-        return tuple(map(Remote.pull, self._git_remotes))
+        """Pull from the configured git remote (no-op if no remote is configured)."""
+        return tuple(map(Remote.pull, self._validated_git_remotes()))
 
     @contextmanager
     def synchronizing(self):
@@ -347,6 +428,8 @@ class Catalog:
 
     def sync(self):
         """Pull then push — shorthand for a full round-trip synchronization."""
+        # Guard here directly so the check doesn't depend on pull/push internals.
+        self._validated_git_remotes()
         with self.synchronizing():
             pass
 

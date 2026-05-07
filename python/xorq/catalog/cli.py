@@ -227,8 +227,8 @@ def init(ctx, env_file, env_prefix, gcs, remote_url):
         if remote_url:
             from xorq.catalog.constants import DEFAULT_REMOTE
 
-            catalog.repo.create_remote(DEFAULT_REMOTE, remote_url)
-            click.echo(f"Added remote {DEFAULT_REMOTE} -> {remote_url}")
+            remote = catalog.set_remote(DEFAULT_REMOTE, remote_url)
+            click.echo(f"Set remote {remote.name} -> {remote_url}")
 
 
 @cli.command()
@@ -393,7 +393,7 @@ def get(ctx, name, output):
 @cli.command()
 @click.pass_context
 def push(ctx):
-    """Push catalog to remote(s)."""
+    """Push catalog to the configured git remote."""
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog.push()
@@ -403,7 +403,7 @@ def push(ctx):
 @cli.command()
 @click.pass_context
 def pull(ctx):
-    """Pull catalog from remote(s)."""
+    """Pull catalog from the configured git remote."""
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog.pull()
@@ -418,6 +418,41 @@ def sync(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog.sync()
         click.echo("Synced.")
+
+
+@cli.command("set-remote")
+@click.argument("url")
+@click.option(
+    "--name",
+    default=None,
+    help="Remote name (defaults to 'origin').",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Replace the existing git remote (otherwise this command refuses to overwrite).",
+)
+@click.pass_context
+def set_remote(ctx, url, name, force):
+    """Configure the catalog's git remote.
+
+    The catalog supports at most one git remote (ADR-0011). If no git
+    remote is configured, this command sets one. If a git remote is
+    already configured, this command refuses unless ``--force`` is passed
+    — guarding against typos that would silently delete the configured
+    remote.
+    """
+    from xorq.catalog.constants import DEFAULT_REMOTE
+    from xorq.catalog.exceptions import CatalogConfigurationError
+
+    with click_context_catalog(ctx):
+        catalog = ctx.obj.make_catalog(init=False)
+        try:
+            remote = catalog.set_remote(name or DEFAULT_REMOTE, url, force=force)
+        except CatalogConfigurationError as err:
+            raise click.ClickException(str(err)) from err
+        click.echo(f"Set remote {remote.name} -> {url}")
 
 
 @cli.command()

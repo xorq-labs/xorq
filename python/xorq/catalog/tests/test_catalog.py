@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 from attr import evolve
+from git import PushInfo
 from git import Repo as GitRepo
 
 import xorq.api as xo
@@ -26,8 +27,13 @@ from xorq.catalog.catalog import (
     CatalogAddition,
     CatalogAlias,
     CatalogEntry,
+    _format_push_failures,
 )
 from xorq.catalog.constants import MAIN_BRANCH, CatalogInfix
+from xorq.catalog.exceptions import (
+    CatalogConfigurationError,
+    CatalogPushError,
+)
 from xorq.catalog.expr_utils import (
     _live_extract_dirs,
     build_expr_context_zip,
@@ -178,6 +184,253 @@ def test_catalog_clone_from_push(repo_cloned_bare, tmpdir):
     assert before != after
 
 
+def test_push_surfaces_remote_rejection(repo_cloned_bare, tmpdir):
+    """catalog.push() must surface a remote rejection rather than returning silently.
+
+    Scenario: two clones from the same bare remote, both add a different
+    entry. User A pushes first (clean fast-forward). User B's local main
+    has now diverged from origin/main, so the next push is rejected by
+    the remote with "fetch first". xorq#1898 — today catalog.push()
+    returns normally despite GitPython reporting REJECTED|ERROR on the
+    main ref.
+    """
+    user_a = Catalog.clone_from(
+        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("a")
+    )
+    user_b = Catalog.clone_from(
+        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("b")
+    )
+
+    with build_expr_context_zip(xo.memtable({"a-only": ["a"]})) as zp:
+        user_a.add(zp, sync=False)
+    user_a.push()
+
+    with build_expr_context_zip(xo.memtable({"b-only": ["b"]})) as zp:
+        user_b.add(zp, sync=False)
+
+    with pytest.raises(CatalogPushError, match="(?i)reject"):
+        user_b.push()
+
+
+def test_push_annex_branch_rejection(repo_cloned_bare, tmpdir, monkeypatch):
+    """push() surfaces git-annex branch rejections, not just main rejections.
+
+    Main pushes cleanly but the git-annex branch is rejected. push() must
+    raise CatalogPushError with a message that names the git-annex ref,
+    proving the annex failure path through _format_push_failures is wired up.
+    """
+    cloned = Catalog.clone_from(
+        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("c")
+    )
+    with build_expr_context_zip(xo.memtable({"annex-rej": ["v"]})) as zp:
+        cloned.add(zp, sync=False)
+    assert "git-annex" in cloned.repo.heads
+
+    class FakeInfo:
+        def __init__(self, flags, local_ref, summary):
+            self.flags = flags
+            self.local_ref = local_ref
+            self.summary = summary
+
+    call_count = 0
+    original_push = type(cloned.repo.remotes.origin).push
+
+    def patched_push(self, *args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return original_push(self, *args, **kwargs)
+        return [
+            FakeInfo(
+                PushInfo.REJECTED, "refs/heads/git-annex", "[rejected] (fetch first)"
+            )
+        ]
+
+    monkeypatch.setattr(type(cloned.repo.remotes.origin), "push", patched_push)
+
+    with pytest.raises(CatalogPushError, match="git-annex") as exc_info:
+        cloned.push()
+    assert "rejected" in str(exc_info.value).lower()
+
+
+class TestFormatPushFailures:
+    """Unit tests for _format_push_failures — the string the user sees on error."""
+
+    def _make_info(self, flags, local_ref="refs/heads/main", summary="rejected"):
+        class FakePushInfo:
+            pass
+
+        info = FakePushInfo()
+        info.flags = flags
+        info.local_ref = local_ref
+        info.summary = summary
+        return info
+
+    def test_filters_only_failures(self):
+        ok = self._make_info(PushInfo.FAST_FORWARD)
+        bad = self._make_info(PushInfo.REJECTED, summary="fetch first")
+        result = _format_push_failures([ok, bad], "origin")
+        assert len(result) == 1
+        assert "fetch first" in result[0]
+        assert "origin/" in result[0]
+
+    def test_all_failure_flag_variants(self):
+        for flag in (
+            PushInfo.REJECTED,
+            PushInfo.REMOTE_REJECTED,
+            PushInfo.REMOTE_FAILURE,
+            PushInfo.ERROR,
+        ):
+            result = _format_push_failures(
+                [self._make_info(flag, summary="oops")], "origin"
+            )
+            assert len(result) == 1
+
+    def test_local_ref_none_fallback(self):
+        info = self._make_info(PushInfo.REJECTED, local_ref=None)
+        result = _format_push_failures([info], "origin")
+        assert "origin/?" in result[0]
+
+    def test_summary_none_fallback(self):
+        info = self._make_info(PushInfo.REJECTED, summary=None)
+        result = _format_push_failures([info], "origin")
+        assert "origin/" in result[0]
+        assert result[0].endswith(": ")
+
+    def test_summary_stripped(self):
+        info = self._make_info(PushInfo.REJECTED, summary="  spaces  ")
+        result = _format_push_failures([info], "origin")
+        assert result[0].endswith(": spaces")
+
+    def test_empty_list(self):
+        assert _format_push_failures([], "origin") == ()
+
+
+@pytest.mark.parametrize("op", ["push", "pull", "fetch", "sync"])
+def test_multi_remote_raises_configuration_error(tmpdir, op):
+    """ADR-0011: catalog refuses to operate on configurations with 2+ git remotes.
+
+    push/pull/fetch/sync each must raise rather than attempt best-effort
+    multi-remote semantics. The error message names both remotes so the
+    user can see what the catalog discovered.
+    """
+    bare_1 = Path(tmpdir).joinpath("bare_1")
+    bare_2 = Path(tmpdir).joinpath("bare_2")
+    GitRepo.init(bare_1, bare=True, initial_branch=MAIN_BRANCH)
+    GitRepo.init(bare_2, bare=True, initial_branch=MAIN_BRANCH)
+
+    catalog = Catalog.from_repo_path(Path(tmpdir).joinpath("local"), init=True)
+    catalog.repo.create_remote("r1", str(bare_1))
+    catalog.repo.create_remote("r2", str(bare_2))
+
+    with pytest.raises(
+        CatalogConfigurationError, match="(?i)single git remote"
+    ) as exc_info:
+        getattr(catalog, op)()
+    msg = str(exc_info.value)
+    assert "r1" in msg
+    assert "r2" in msg
+
+
+def test_set_remote_refuses_when_remote_exists(tmpdir):
+    """ADR-0011: Catalog.set_remote refuses to silently replace an existing remote.
+
+    A second call without ``force=True`` raises CatalogConfigurationError so
+    the user has to explicitly opt in to overwriting the previously
+    configured remote (it would otherwise vanish without trace).
+    """
+    bare_1 = Path(tmpdir).joinpath("bare_1")
+    bare_2 = Path(tmpdir).joinpath("bare_2")
+    GitRepo.init(bare_1, bare=True, initial_branch=MAIN_BRANCH)
+    GitRepo.init(bare_2, bare=True, initial_branch=MAIN_BRANCH)
+
+    catalog = Catalog.from_repo_path(Path(tmpdir).joinpath("local"), init=True)
+    catalog.set_remote("origin", str(bare_1))
+
+    with pytest.raises(CatalogConfigurationError, match="(?i)remote.*already") as exc:
+        catalog.set_remote("origin", str(bare_2))
+    assert "force" in str(exc.value).lower()
+    # the existing remote is preserved
+    assert len(catalog._git_remotes) == 1
+    assert catalog._git_remotes[0].url == str(bare_1)
+
+
+def test_set_remote_force_replaces_existing(tmpdir):
+    """ADR-0011: Catalog.set_remote(..., force=True) replaces any existing git remote.
+
+    Successive calls with ``force=True`` must leave the catalog with exactly
+    one git remote, so users can reconfigure without ever creating the
+    multi-remote configuration that triggers CatalogConfigurationError.
+    """
+    bare_1 = Path(tmpdir).joinpath("bare_1")
+    bare_2 = Path(tmpdir).joinpath("bare_2")
+    GitRepo.init(bare_1, bare=True, initial_branch=MAIN_BRANCH)
+    GitRepo.init(bare_2, bare=True, initial_branch=MAIN_BRANCH)
+
+    catalog = Catalog.from_repo_path(Path(tmpdir).joinpath("local"), init=True)
+    catalog.set_remote("origin", str(bare_1))
+    assert len(catalog._git_remotes) == 1
+
+    catalog.set_remote("origin", str(bare_2), force=True)
+    assert len(catalog._git_remotes) == 1
+    assert catalog._git_remotes[0].url == str(bare_2)
+
+
+def test_set_remote_force_recovers_from_multi_remote_state(tmpdir):
+    """set_remote(force=True) is the recovery path from an ADR-0011 violation.
+
+    A user (or another tool) can put the catalog into a 2+ remote state via
+    raw ``git remote add``, after which ``push``/``pull``/``fetch``/``sync``
+    refuse to operate. ``set_remote(force=True)`` must collapse the state to
+    exactly one remote so the catalog is operable again.
+    """
+    bare_1 = Path(tmpdir).joinpath("bare_1")
+    bare_2 = Path(tmpdir).joinpath("bare_2")
+    bare_3 = Path(tmpdir).joinpath("bare_3")
+    for bare in (bare_1, bare_2, bare_3):
+        GitRepo.init(bare, bare=True, initial_branch=MAIN_BRANCH)
+
+    catalog = Catalog.from_repo_path(Path(tmpdir).joinpath("local"), init=True)
+    catalog.repo.create_remote("r1", str(bare_1))
+    catalog.repo.create_remote("r2", str(bare_2))
+    assert len(catalog._git_remotes) == 2
+
+    catalog.set_remote("origin", str(bare_3), force=True)
+
+    assert len(catalog._git_remotes) == 1
+    assert catalog._git_remotes[0].name == "origin"
+    assert catalog._git_remotes[0].url == str(bare_3)
+
+
+def test_set_remote_preserves_annex_special_remote(tmpdir):
+    """set_remote replaces only git remotes; annex special remotes survive.
+
+    `_git_remotes` filters by fetch refspec, so a remote configured with no
+    fetch line (the shape of a git-annex special remote — credentials live
+    in remote.log on the git-annex branch, not in .git/config) is not a
+    git remote for ADR-0011 purposes. set_remote must not delete it.
+    """
+    bare = Path(tmpdir).joinpath("bare")
+    GitRepo.init(bare, bare=True, initial_branch=MAIN_BRANCH)
+
+    catalog = Catalog.from_repo_path(Path(tmpdir).joinpath("local"), init=True)
+
+    config_section = 'remote "s3-bucket"'
+    with catalog.repo.config_writer() as writer:
+        writer.add_section(config_section)
+        writer.set(config_section, "annex-uuid", "fake-uuid")
+
+    assert "s3-bucket" in {r.name for r in catalog.repo.remotes}
+    assert "s3-bucket" not in {r.name for r in catalog._git_remotes}
+
+    catalog.set_remote("origin", str(bare))
+
+    remote_names = {r.name for r in catalog.repo.remotes}
+    assert "s3-bucket" in remote_names
+    assert "origin" in remote_names
+    assert {r.name for r in catalog._git_remotes} == {"origin"}
+
+
 # ---------------------------------------------------------------------------
 # clone_from auto-detection
 # ---------------------------------------------------------------------------
@@ -205,6 +458,25 @@ def test_clone_from_no_annex_branch(tmpdir):
     assert cloned.list()
 
 
+def test_push_no_remote_skips_consistency_check(tmpdir, monkeypatch):
+    """``Catalog.push()`` is a true no-op for zero-remote catalogs.
+
+    The docstring says push is a no-op when no git remote is configured.
+    A no-op cannot run ``assert_consistency`` — that check could surface
+    unrelated repo errors even though the user did not ask the catalog
+    to talk to anything. Asserts the zero-remote path returns ``()``
+    without calling consistency.
+    """
+    catalog = Catalog.from_repo_path(Path(tmpdir).joinpath("local-only"), init=True)
+    assert catalog._git_remotes == ()
+
+    def boom(self, *args, **kwargs):
+        raise AssertionError("assert_consistency should not run for zero-remote push")
+
+    monkeypatch.setattr(Catalog, "assert_consistency", boom)
+    assert catalog.push() == ()
+
+
 def test_push_skips_missing_annex_branch(tmpdir):
     """Catalog.push() succeeds when the local repo has no git-annex branch."""
 
@@ -220,7 +492,21 @@ def test_push_skips_missing_annex_branch(tmpdir):
         catalog.add(zip_path, sync=False)
 
     assert "git-annex" not in catalog.repo.heads
-    catalog.push()
+    result = catalog.push()
+    assert len(result) == 1
+
+
+def test_push_returns_two_element_tuple_with_annex(repo_cloned_bare, tmpdir):
+    """push() returns (main_result, annex_result) when a local git-annex branch exists."""
+    cloned = Catalog.clone_from(
+        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("cloned")
+    )
+    with build_expr_context_zip(xo.memtable({"shape-check": ["v"]})) as zp:
+        cloned.add(zp, sync=False)
+
+    assert "git-annex" in cloned.repo.heads
+    result = cloned.push()
+    assert len(result) == 2
 
 
 def test_clone_from_false_forces_plain_git(repo_cloned_bare, tmpdir):
@@ -855,7 +1141,7 @@ def test_s3_remote_minio(tmpdir):
 def test_s3_fileprefix_namespaced_in_remote_log(tmpdir):
     """initremote bakes ``{base}{name}/{remote_uuid}/`` into remote.log,
     enableremote of the same config is a no-op, and a re-config with a
-    mismatched base raises AnnexError (ADR-0009)."""
+    mismatched base raises AnnexError (ADR-0011)."""
     base_prefix = "annex-only/"
     remote_config = S3RemoteConfig.from_env(
         name="mys3",
