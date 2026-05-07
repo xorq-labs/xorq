@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778159662573,
+  "lastUpdate": 1778159699219,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -10824,6 +10824,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.022935774988566374",
             "extra": "mean: 336.2152596000101 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b182ba53311cbcc282f7276ae2831b37cf48919d",
+          "message": "chore(deps): update dependency pip to v26.1 [security] (#1926)\n\nThis PR contains the following updates:\n\n| Package | Change |\n[Age](https://docs.renovatebot.com/merge-confidence/) |\n[Confidence](https://docs.renovatebot.com/merge-confidence/) |\n|---|---|---|---|\n| [pip](https://redirect.github.com/pypa/pip)\n([changelog](https://pip.pypa.io/en/stable/news/)) | `26.0.1` → `26.1` |\n![age](https://developer.mend.io/api/mc/badges/age/pypi/pip/26.1?slim=true)\n|\n![confidence](https://developer.mend.io/api/mc/badges/confidence/pypi/pip/26.0.1/26.1?slim=true)\n|\n\n---\n\n### pip Vulnerable to Inclusion of Functionality from Untrusted Control\nSphere\n[CVE-2026-6357](https://nvd.nist.gov/vuln/detail/CVE-2026-6357) /\n[GHSA-jp4c-xjxw-mgf9](https://redirect.github.com/advisories/GHSA-jp4c-xjxw-mgf9)\n\n<details>\n<summary>More information</summary>\n\n#### Details\npip prior to version 26.1 would run self-update check functionality\nafter installing wheel files which required importing well-known Python\nmodules names. These module imports were intentionally deferred to\nincrease startup time of the pip CLI. The patch changes self-update\nfunctionality to run before wheels are installed to prevent\nnewly-installed modules from being imported shortly after the\ninstallation of a wheel package. Users should still review package\ncontents prior to installation.\n\n#### Severity\n- CVSS Score: 5.3 / 10 (Medium)\n- Vector String:\n`CVSS:4.0/AV:L/AC:L/AT:P/PR:H/UI:A/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N`\n\n#### References\n-\n[https://nvd.nist.gov/vuln/detail/CVE-2026-6357](https://nvd.nist.gov/vuln/detail/CVE-2026-6357)\n-\n[https://github.com/pypa/pip/pull/13923](https://redirect.github.com/pypa/pip/pull/13923)\n-\n[https://ichard26.github.io/blog/2026/04/whats-new-in-pip-26.1/#security-fixes](https://ichard26.github.io/blog/2026/04/whats-new-in-pip-26.1/#security-fixes)\n-\n[http://www.openwall.com/lists/oss-security/2026/04/27/7](http://www.openwall.com/lists/oss-security/2026/04/27/7)\n-\n[https://github.com/pypa/pip/commit/b369bfc96cc524e00c267e1693290e6599c36bad](https://redirect.github.com/pypa/pip/commit/b369bfc96cc524e00c267e1693290e6599c36bad)\n-\n[https://github.com/advisories/GHSA-jp4c-xjxw-mgf9](https://redirect.github.com/advisories/GHSA-jp4c-xjxw-mgf9)\n\nThis data is provided by the [GitHub Advisory\nDatabase](https://redirect.github.com/advisories/GHSA-jp4c-xjxw-mgf9)\n([CC-BY\n4.0](https://redirect.github.com/github/advisory-database/blob/main/LICENSE.md)).\n</details>\n\n---\n\n- [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check\nthis box\n\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0My4xNTkuMiIsInVwZGF0ZWRJblZlciI6IjQzLjE1OS4yIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6W119-->\n\nCo-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-07T15:10:56+02:00",
+          "tree_id": "650e1cfc52243a874adf63cc02bc500f3f96f135",
+          "url": "https://github.com/xorq-labs/xorq/commit/b182ba53311cbcc282f7276ae2831b37cf48919d"
+        },
+        "date": 1778159696825,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.457013474685585,
+            "unit": "iter/sec",
+            "range": "stddev: 0.023773768119121894",
+            "extra": "mean: 134.1019435454572 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.818580877730715,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02662331475913902",
+            "extra": "mean: 354.78847100002895 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6628175330692371,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18601078116440298",
+            "extra": "mean: 1.5087108443999795 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.4699539988210324,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06285596461672116",
+            "extra": "mean: 404.8658397999816 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.4608419714794927,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06663291057629224",
+            "extra": "mean: 406.3649806000285 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.439166081996504,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06645365486284294",
+            "extra": "mean: 409.9761830000034 msec\nrounds: 5"
           }
         ]
       }
