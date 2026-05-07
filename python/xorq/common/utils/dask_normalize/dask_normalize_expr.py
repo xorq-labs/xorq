@@ -1,4 +1,6 @@
 import contextvars
+import functools
+import hashlib
 import itertools
 import pathlib
 import re
@@ -735,6 +737,14 @@ def _opaque_structural_name(sub_expr):
     return name
 
 
+@functools.cache
+def _opaque_handled_here():
+    from xorq.common.utils.graph_utils import opaque_ops  # noqa: PLC0415
+    from xorq.expr.udf import ExprScalarUDF  # noqa: PLC0415
+
+    return tuple(op for op in opaque_ops if op is not ExprScalarUDF)
+
+
 def opaque_node_replacer(node, kwargs):
     """Replace opaque / data-bearing ops with data-free placeholders for structural compilation.
 
@@ -800,20 +810,11 @@ def opaque_node_replacer(node, kwargs):
                 # Loud-fail on unhandled opaque op types so a future addition
                 # (e.g. a new Flight variant) cannot silently lose its data
                 # dependency by falling through to the generic ``__recreate__``
-                # path.  Use the canonical opaque tuple from ``graph_utils`` —
-                # ``ExprScalarUDF`` is intentionally there even though it has
-                # no explicit match arm here (its ``computed_kwargs_expr``
-                # leaves are already collected by ``walk_nodes``, and its own
-                # ``__dask_tokenize__`` handler covers the structural side).
-                from xorq.common.utils.graph_utils import (  # noqa: PLC0415
-                    opaque_ops,
-                )
-                from xorq.expr.udf import ExprScalarUDF  # noqa: PLC0415
-
-                opaque_handled_here = tuple(
-                    op for op in opaque_ops if op is not ExprScalarUDF
-                )
-                if isinstance(node, opaque_handled_here):
+                # path.  ``ExprScalarUDF`` is intentionally excluded — its
+                # ``computed_kwargs_expr`` leaves are already collected by
+                # ``walk_nodes``, and its own ``__dask_tokenize__`` handler
+                # covers the structural side.
+                if isinstance(node, _opaque_handled_here()):
                     raise ValueError(f"unhandled opaque node type: {type(node)}")
                 if kwargs:
                     new_node = node.__recreate__(kwargs)
@@ -977,7 +978,5 @@ def compute_expr_token(data_dep_hashes, structural_hash):
     Hex strings are identity-normalized by dask, so the formula reduces to a
     single ``hashlib.md5`` call — no xorq, dask, or ibis import required.
     """
-    import hashlib  # noqa: PLC0415
-
     preimage = str(((tuple(data_dep_hashes), structural_hash),))
     return hashlib.md5(preimage.encode(), usedforsecurity=False).hexdigest()

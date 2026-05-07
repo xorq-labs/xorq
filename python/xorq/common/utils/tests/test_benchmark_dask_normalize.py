@@ -5,6 +5,7 @@ import pytest
 import xorq.api as xo
 import xorq.common.utils.dask_normalize  # noqa: F401
 from xorq.common.utils.dask_normalize.dask_normalize_expr import (
+    _normalize_data_leaf,
     compute_expr_token,
     expr_metadata,
     normalize_op_split,
@@ -75,9 +76,7 @@ def test_benchmark_tokenize_cached_structural(benchmark, case):
     structural_hash = md["structural_hash"]
 
     def cached():
-        slot_hashes = [
-            dask.base.tokenize(dask.base.normalize_token(dt)) for dt in leaf_dts
-        ]
+        slot_hashes = [dask.base.tokenize(_normalize_data_leaf(dt)) for dt in leaf_dts]
         return compute_expr_token(slot_hashes, structural_hash)
 
     benchmark(cached)

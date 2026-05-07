@@ -1,6 +1,6 @@
 # ADR-0009: Split data-dependent tokens out of expression normalization
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-04-27
 - **Deciders:** Dan, Pierre
 
@@ -299,7 +299,7 @@ Rejected because:
 - Cache break: token computation changes, so all existing cached results miss
   on first run.  No backward-compatibility shim (see Decision Drivers).
 - `walk_nodes` traversal order determines `data_deps` indices.  Callers
-  should look up slots by table name, not by hardcoded index.
+  should look up slots by `index`, not by `name` (which may collide).
 
 ### Scope
 
