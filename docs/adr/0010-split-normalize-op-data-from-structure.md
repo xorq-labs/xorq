@@ -138,14 +138,8 @@ fall back to the default backend's compiler — which fails on
 backend-specific ops (DuckDB's `ArrayFilter` cannot be compiled by the
 DataFusion default compiler).  `opaque_node_replacer` therefore takes the
 structural-only token of the *original* sub-expression using the
-sub-expression's own compiler:
-
-```python
-def _opaque_structural_name(sub_expr):
-    sub_compiler = get_compiler(sub_expr)        # original sub-expr → original backend
-    structural = _normalize_structural(sub_expr.op(), compiler=sub_compiler)
-    return dask.base.tokenize(structural)
-```
+sub-expression's own compiler (`_opaque_structural_name`,
+`dask_normalize_expr.py:711`).
 
 This contains the recursion correctly:  the inner sub-expression's data
 leaves still flow into the *outer* `data_deps` (already collected in step 1
@@ -164,20 +158,9 @@ use `isinstance` because they don't have similarly-confusing subclasses.
 
 ### Cheap substitution (with xorq)
 
-```python
-leaf_dts, data_deps, structural = normalize_op_split(expr)
-
-# Substitute the batting table.  Look up by index (unambiguous) — name lookup
-# is not safe when multiple slots share a name (two backends with same table
-# name, two memtables, etc.).
-batting_idx = next(
-    i for i, dt in enumerate(leaf_dts)
-    if dt.name == "batting" and isinstance(dt, ir.DatabaseTable)
-)
-new_data_deps = list(data_deps)
-new_data_deps[batting_idx] = dask.base.normalize_token(new_batting_dt)
-new_token = dask.base.tokenize(tuple(new_data_deps), structural)
-```
+Call `normalize_op_split` (`dask_normalize_expr.py:844`), look up the target
+slot by index (not name — names may collide across backends or memtables),
+replace its entry in `data_deps`, and `tokenize` the result.
 
 **Cost**: one `normalize_memory_databasetable` call (serialize + hash the new
 table's Arrow batches).
@@ -215,44 +198,30 @@ etc.  Cheap-substitution callers should look up by `index`, optionally
 disambiguating by content of `leaf_dts[index]` if they want to verify the
 slot identity before substituting.
 
-**Producing the metadata (requires xorq):**
-
-```python
-leaf_dts, data_deps, structural = normalize_op_split(expr)
-metadata = {
-    "version": 2,
-    "structural_hash": dask.base.tokenize(structural),
-    "slots": [
-        {
-            "index": i,
-            "name": getattr(dt, "name", None) or "",
-            "hash": dask.base.tokenize(dep),
-        }
-        for i, (dt, dep) in enumerate(zip(leaf_dts, data_deps))
-    ],
-}
-```
-
-**Computing a token from metadata (no xorq, no dask):**
-
-```python
-import hashlib
-
-def compute_expr_token(data_dep_hashes, structural_hash):
-    # Outer single-tuple is required: dask's _normalize_seq_func wraps the
-    # registered Expr handler's return in an extra tuple before hashing.
-    preimage = str(((tuple(data_dep_hashes), structural_hash),))
-    return hashlib.md5(preimage.encode(), usedforsecurity=False).hexdigest()
-
-slot_hashes = [s["hash"] for s in sorted(metadata["slots"], key=lambda s: s["index"])]
-slot_hashes[batting_idx] = known_new_batting_hash
-token = compute_expr_token(slot_hashes, metadata["structural_hash"])
-```
-
-This works because `dask.base.tokenize(expr)` reduces to
+Metadata is produced by `expr_metadata` (`dask_normalize_expr.py:930`).
+Tokens are recomputed from metadata by `compute_expr_token`
+(`dask_normalize_expr.py:968`), which only needs `hashlib`.  This works
+because `dask.base.tokenize(expr)` reduces to
 `md5(str(_normalize_seq_func((handler_return,))))`, and when `handler_return`
 is a tuple of identity-normalized hex strings, the whole pipeline collapses
-to a single `md5` over the literal preimage shown above.
+to a single `md5` over the literal preimage.
+
+### Scope: what counts as a data leaf vs. a structural carrier
+
+`DatabaseTable`, `InMemoryTable`, and `Read` are all treated as data leaves
+and contribute to `data_deps` (including when reached through opaque
+sub-expressions).  Other opaque node types (`RemoteTable`, `CachedNode`,
+`FlightExpr`, `FlightUDXF`) are treated as structural carriers — they appear
+in `structural` placeholdered by their inner sub-expression's structural
+token.
+
+`ExprScalarUDF.computed_kwargs_expr` leaves are reached by `walk_nodes`
+(so an `InMemoryTable` used as training data inside `FittedPipeline.predict`
+appears in `data_deps`), and `_normalize_computed_kwargs_expr` is
+*data-free* — `InMemoryTable` is keyed by schema only, `Read` strips
+`hash_path`/`read_path` from its key fields, and `CachedNode` is keyed by
+schema + cache class.  The data identity for those leaves flows into outer
+`data_deps`; the structural component reuses across data swaps.
 
 ## Alternatives considered
 
@@ -300,23 +269,6 @@ Rejected because:
   on first run.  No backward-compatibility shim (see Decision Drivers).
 - `walk_nodes` traversal order determines `data_deps` indices.  Callers
   should look up slots by `index`, not by `name` (which may collide).
-
-### Scope
-
-`DatabaseTable`, `InMemoryTable`, and `Read` are all treated as data leaves
-and contribute to `data_deps` (including when reached through opaque
-sub-expressions).  Other opaque node types (`RemoteTable`, `CachedNode`,
-`FlightExpr`, `FlightUDXF`) are treated as structural carriers — they appear
-in `structural` placeholdered by their inner sub-expression's structural
-token.
-
-`ExprScalarUDF.computed_kwargs_expr` leaves are reached by `walk_nodes`
-(so an `InMemoryTable` used as training data inside `FittedPipeline.predict`
-appears in `data_deps`), and `_normalize_computed_kwargs_expr` is
-*data-free* — `InMemoryTable` is keyed by schema only, `Read` strips
-`hash_path`/`read_path` from its key fields, and `CachedNode` is keyed by
-schema + cache class.  The data identity for those leaves flows into outer
-`data_deps`; the structural component reuses across data swaps.
 
 ## References
 
