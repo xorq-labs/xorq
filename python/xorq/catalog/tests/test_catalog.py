@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 from attr import evolve
+from git import PushInfo
 from git import Repo as GitRepo
 
 import xorq.api as xo
@@ -26,6 +27,7 @@ from xorq.catalog.catalog import (
     CatalogAddition,
     CatalogAlias,
     CatalogEntry,
+    _format_push_failures,
 )
 from xorq.catalog.constants import MAIN_BRANCH, CatalogInfix
 from xorq.catalog.exceptions import (
@@ -208,6 +210,100 @@ def test_push_surfaces_remote_rejection(repo_cloned_bare, tmpdir):
 
     with pytest.raises(CatalogPushError, match="(?i)reject"):
         user_b.push()
+
+
+def test_push_annex_branch_rejection(repo_cloned_bare, tmpdir, monkeypatch):
+    """push() surfaces git-annex branch rejections, not just main rejections.
+
+    Main pushes cleanly but the git-annex branch is rejected. push() must
+    raise CatalogPushError with a message that names the git-annex ref,
+    proving the annex failure path through _format_push_failures is wired up.
+    """
+    cloned = Catalog.clone_from(
+        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("c")
+    )
+    with build_expr_context_zip(xo.memtable({"annex-rej": ["v"]})) as zp:
+        cloned.add(zp, sync=False)
+    assert "git-annex" in cloned.repo.heads
+
+    class FakeInfo:
+        def __init__(self, flags, local_ref, summary):
+            self.flags = flags
+            self.local_ref = local_ref
+            self.summary = summary
+
+    call_count = 0
+    original_push = type(cloned.repo.remotes.origin).push
+
+    def patched_push(self, *args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return original_push(self, *args, **kwargs)
+        return [
+            FakeInfo(
+                PushInfo.REJECTED, "refs/heads/git-annex", "[rejected] (fetch first)"
+            )
+        ]
+
+    monkeypatch.setattr(type(cloned.repo.remotes.origin), "push", patched_push)
+
+    with pytest.raises(CatalogPushError, match="git-annex") as exc_info:
+        cloned.push()
+    assert "rejected" in str(exc_info.value).lower()
+
+
+class TestFormatPushFailures:
+    """Unit tests for _format_push_failures — the string the user sees on error."""
+
+    def _make_info(self, flags, local_ref="refs/heads/main", summary="rejected"):
+        class FakePushInfo:
+            pass
+
+        info = FakePushInfo()
+        info.flags = flags
+        info.local_ref = local_ref
+        info.summary = summary
+        return info
+
+    def test_filters_only_failures(self):
+        ok = self._make_info(PushInfo.FAST_FORWARD)
+        bad = self._make_info(PushInfo.REJECTED, summary="fetch first")
+        result = _format_push_failures([ok, bad], "origin")
+        assert len(result) == 1
+        assert "fetch first" in result[0]
+        assert "origin/" in result[0]
+
+    def test_all_failure_flag_variants(self):
+        for flag in (
+            PushInfo.REJECTED,
+            PushInfo.REMOTE_REJECTED,
+            PushInfo.REMOTE_FAILURE,
+            PushInfo.ERROR,
+        ):
+            result = _format_push_failures(
+                [self._make_info(flag, summary="oops")], "origin"
+            )
+            assert len(result) == 1
+
+    def test_local_ref_none_fallback(self):
+        info = self._make_info(PushInfo.REJECTED, local_ref=None)
+        result = _format_push_failures([info], "origin")
+        assert "origin/?" in result[0]
+
+    def test_summary_none_fallback(self):
+        info = self._make_info(PushInfo.REJECTED, summary=None)
+        result = _format_push_failures([info], "origin")
+        assert "origin/" in result[0]
+        assert result[0].endswith(": ")
+
+    def test_summary_stripped(self):
+        info = self._make_info(PushInfo.REJECTED, summary="  spaces  ")
+        result = _format_push_failures([info], "origin")
+        assert result[0].endswith(": spaces")
+
+    def test_empty_list(self):
+        assert _format_push_failures([], "origin") == ()
 
 
 @pytest.mark.parametrize("op", ["push", "pull", "fetch", "sync"])
@@ -396,7 +492,21 @@ def test_push_skips_missing_annex_branch(tmpdir):
         catalog.add(zip_path, sync=False)
 
     assert "git-annex" not in catalog.repo.heads
-    catalog.push()
+    result = catalog.push()
+    assert len(result) == 1
+
+
+def test_push_returns_two_element_tuple_with_annex(repo_cloned_bare, tmpdir):
+    """push() returns (main_result, annex_result) when a local git-annex branch exists."""
+    cloned = Catalog.clone_from(
+        repo_cloned_bare.working_dir, Path(tmpdir).joinpath("cloned")
+    )
+    with build_expr_context_zip(xo.memtable({"shape-check": ["v"]})) as zp:
+        cloned.add(zp, sync=False)
+
+    assert "git-annex" in cloned.repo.heads
+    result = cloned.push()
+    assert len(result) == 2
 
 
 def test_clone_from_false_forces_plain_git(repo_cloned_bare, tmpdir):

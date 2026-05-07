@@ -385,14 +385,10 @@ def test_set_remote_cli_refuses_when_remote_exists(runner, tmpdir):
     repo_path = str(Path(tmpdir).joinpath("local"))
 
     runner.invoke(cli, ["--path", repo_path, "init"])
-    result = runner.invoke(
-        cli, ["--path", repo_path, "set-remote", str(bare_1)]
-    )
+    result = runner.invoke(cli, ["--path", repo_path, "set-remote", str(bare_1)])
     assert result.exit_code == 0, result.output
 
-    result = runner.invoke(
-        cli, ["--path", repo_path, "set-remote", str(bare_2)]
-    )
+    result = runner.invoke(cli, ["--path", repo_path, "set-remote", str(bare_2)])
     assert result.exit_code != 0, result.output
     assert "force" in result.output.lower()
 
@@ -415,6 +411,25 @@ def test_set_remote_cli_force_replaces_existing(runner, tmpdir):
     catalog = Catalog.from_repo_path(Path(repo_path), init=False)
     assert len(catalog._git_remotes) == 1
     assert catalog._git_remotes[0].url == str(bare_2)
+
+
+def test_set_remote_cli_custom_name(runner, tmpdir):
+    """``catalog set-remote --name`` uses the provided name instead of 'origin'."""
+    bare = Path(tmpdir).joinpath("bare")
+    GitRepo.init(bare, bare=True, initial_branch=MAIN_BRANCH)
+    repo_path = str(Path(tmpdir).joinpath("local"))
+
+    runner.invoke(cli, ["--path", repo_path, "init"])
+    result = runner.invoke(
+        cli, ["--path", repo_path, "set-remote", str(bare), "--name", "upstream"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "upstream" in result.output
+
+    catalog = Catalog.from_repo_path(Path(repo_path), init=False)
+    assert len(catalog._git_remotes) == 1
+    assert catalog._git_remotes[0].name == "upstream"
+    assert catalog._git_remotes[0].url == str(bare)
 
 
 # --- CLI option validation ---
