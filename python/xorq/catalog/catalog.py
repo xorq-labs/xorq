@@ -576,41 +576,38 @@ class Catalog:
             self.repo.git.merge(f"{remote.name}/{branch}", "--no-edit")
         except GitCommandError:
             if not (Path(self.repo.git_dir) / "MERGE_HEAD").exists():
-                # `git merge` failed for a non-conflict reason (missing
-                # remote ref, dirty tree, hook reject, ...).  No merge
-                # is in progress, so don't try to resolve or commit —
-                # surface the original error.
                 raise
-            self._resolve_yaml_conflict_if_any()
-            unmerged = tuple(self.repo.index.unmerged_blobs().keys())
+            unmerged = self._resolve_yaml_conflict_if_any()
             if unmerged:
                 raise CatalogMergeConflict(unmerged, remote_name=remote.name) from None
             self.repo.git.commit("--no-edit")
         return (fetch_result,)
 
     def _resolve_yaml_conflict_if_any(self):
+        """Resolve ``catalog.yaml`` in the unmerged index and return remaining unmerged paths."""
         yaml_relpath = str(self.catalog_yaml.yaml_relpath)
         unmerged = self.repo.index.unmerged_blobs()
-        if yaml_relpath not in unmerged:
-            return
-        stages = dict(unmerged[yaml_relpath])
-        base = _parse_catalog_yaml_blob(stages.get(1))
-        ours = _parse_catalog_yaml_blob(stages.get(2))
-        theirs = _parse_catalog_yaml_blob(stages.get(3))
-        merged = {
-            CatalogInfix.ENTRY: _three_way_list_merge(
-                base[CatalogInfix.ENTRY],
-                ours[CatalogInfix.ENTRY],
-                theirs[CatalogInfix.ENTRY],
-            ),
-            CatalogInfix.ALIAS: _three_way_list_merge(
-                base[CatalogInfix.ALIAS],
-                ours[CatalogInfix.ALIAS],
-                theirs[CatalogInfix.ALIAS],
-            ),
-        }
-        self.catalog_yaml.set_contents(merged)
-        self.repo.git.add(yaml_relpath)
+        if yaml_relpath in unmerged:
+            stages = dict(unmerged[yaml_relpath])
+            base = _parse_catalog_yaml_blob(stages.get(1))
+            ours = _parse_catalog_yaml_blob(stages.get(2))
+            theirs = _parse_catalog_yaml_blob(stages.get(3))
+            merged = {
+                CatalogInfix.ENTRY: _three_way_list_merge(
+                    base[CatalogInfix.ENTRY],
+                    ours[CatalogInfix.ENTRY],
+                    theirs[CatalogInfix.ENTRY],
+                ),
+                CatalogInfix.ALIAS: _three_way_list_merge(
+                    base[CatalogInfix.ALIAS],
+                    ours[CatalogInfix.ALIAS],
+                    theirs[CatalogInfix.ALIAS],
+                ),
+            }
+            self.catalog_yaml.set_contents(merged)
+            self.repo.git.add(yaml_relpath)
+        remaining = self.repo.index.unmerged_blobs()
+        return tuple(remaining.keys())
 
     def _validate_catalog_yaml_in_commit(self, commit, side_label):
         """Pre-flight check that ``catalog.yaml`` in *commit*'s tree
@@ -648,6 +645,15 @@ class Catalog:
                 f"{yaml_relpath} shape: {type(raw).__name__} "
                 f"(expected dict or list)"
             )
+        if isinstance(raw, dict):
+            for key in (CatalogInfix.ENTRY, CatalogInfix.ALIAS):
+                val = raw.get(key)
+                if val is not None and not isinstance(val, list):
+                    raise CatalogPullError(
+                        f"{side_label} commit {commit.hexsha[:8]} has "
+                        f"non-list {key!r} in {yaml_relpath}: "
+                        f"{type(val).__name__}"
+                    )
 
     @contextmanager
     def synchronizing(self):

@@ -37,32 +37,10 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
-from git import Repo as GitRepo
 
-import xorq.api as xo
-from xorq.catalog.catalog import (
-    Catalog,
-    CatalogAlias,
-    CatalogMergeConflict,
-)
-from xorq.catalog.constants import MAIN_BRANCH
-from xorq.catalog.expr_utils import build_expr_context_zip
+from xorq.catalog.catalog import CatalogMergeConflict
 
-
-def _add_expr_entry(catalog, table_name, value, aliases=()):
-    """Add a tiny memtable expression as a catalog entry; return its hash name."""
-    expr = xo.memtable({"x": [value]}, name=table_name)
-    with build_expr_context_zip(expr) as zip_path:
-        entry = catalog.add(zip_path, sync=False, aliases=aliases)
-    return entry.name
-
-
-def _remove_alias(catalog, alias):
-    CatalogAlias.from_name(alias, catalog).remove()
-
-
-def _alias_target_hash(catalog, alias):
-    return CatalogAlias.from_name(alias, catalog).catalog_entry.name
+from .conftest import add_expr_entry, alias_target_hash, remove_alias
 
 
 # Git commit SHAs include the author/commit timestamp at second
@@ -94,28 +72,8 @@ def _commit_dates(date_str):
                 os.environ[k] = v
 
 
-@pytest.fixture
-def two_clones(tmpdir):
-    """Two plain-git catalogs sharing a bare origin, both at the boot commit.
-
-    Initial state on origin/main:
-        entries: ['boot']
-        aliases: ['boot-alias' -> boot]
-    """
-    workdir = Path(tmpdir)
-    origin_path = workdir / "origin.git"
-    user_a_path = workdir / "user-a"
-    user_b_path = workdir / "user-b"
-
-    GitRepo.init(origin_path, bare=True, initial_branch=MAIN_BRANCH)
-
-    cat_a = Catalog.from_repo_path(user_a_path, init=True, annex=False)
-    _add_expr_entry(cat_a, "boot", value=0, aliases=("boot-alias",))
-    cat_a.repo.create_remote(name="origin", url=str(origin_path))
-    cat_a.repo.git.push("-u", "origin", MAIN_BRANCH)
-
-    cat_b = Catalog.clone_from(url=str(origin_path), repo_path=user_b_path, annex=False)
-    return cat_a, cat_b
+def _assert_no_merge_in_progress(catalog):
+    assert not (Path(catalog.repo.git_dir) / "MERGE_HEAD").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -129,8 +87,8 @@ def test_case_01_add_different_entries(two_clones):
     line-based diff sees overlapping trailing-region edits and produces
     conflict markers. The yaml-aware resolver must union both adds."""
     cat_a, cat_b = two_clones
-    name_x = _add_expr_entry(cat_a, "x", value=1)
-    name_y = _add_expr_entry(cat_b, "y", value=2)
+    name_x = add_expr_entry(cat_a, "x", value=1)
+    name_y = add_expr_entry(cat_b, "y", value=2)
     cat_a.push()
 
     cat_b.pull()
@@ -138,15 +96,16 @@ def test_case_01_add_different_entries(two_clones):
     assert name_x in cat_b.list()
     assert name_y in cat_b.list()
     cat_b.assert_consistency()
+    _assert_no_merge_in_progress(cat_b)
 
 
 def test_case_02_add_same_entry(two_clones):
     """Both sides add the identical entry hash. Identical line additions
     auto-merge in stock git; resolver does not need to fire."""
     cat_a, cat_b = two_clones
-    name_x_a = _add_expr_entry(cat_a, "x", value=1)
+    name_x_a = add_expr_entry(cat_a, "x", value=1)
     with _commit_dates(_DIVERGENT_DATE):
-        name_x_b = _add_expr_entry(cat_b, "x", value=1)
+        name_x_b = add_expr_entry(cat_b, "x", value=1)
     assert name_x_a == name_x_b, "test setup: same content must hash the same"
     cat_a.push()
 
@@ -154,14 +113,15 @@ def test_case_02_add_same_entry(two_clones):
 
     assert name_x_a in cat_b.list()
     cat_b.assert_consistency()
+    _assert_no_merge_in_progress(cat_b)
 
 
 def test_case_03_remove_different_entries(two_clones):
     """Both sides remove a different entry that was in the base.
     Resolver propagates both removals via 3-way merge."""
     cat_a, cat_b = two_clones
-    name_x = _add_expr_entry(cat_a, "x", value=1)
-    name_y = _add_expr_entry(cat_a, "y", value=2)
+    name_x = add_expr_entry(cat_a, "x", value=1)
+    name_y = add_expr_entry(cat_a, "y", value=2)
     cat_a.push()
     cat_b.pull()
 
@@ -174,12 +134,13 @@ def test_case_03_remove_different_entries(two_clones):
     assert name_x not in cat_b.list()
     assert name_y not in cat_b.list()
     cat_b.assert_consistency()
+    _assert_no_merge_in_progress(cat_b)
 
 
 def test_case_04_remove_same_entry(two_clones):
     """Both sides remove the same entry. Idempotent."""
     cat_a, cat_b = two_clones
-    name_x = _add_expr_entry(cat_a, "x", value=1)
+    name_x = add_expr_entry(cat_a, "x", value=1)
     cat_a.push()
     cat_b.pull()
 
@@ -192,17 +153,18 @@ def test_case_04_remove_same_entry(two_clones):
 
     assert name_x not in cat_b.list()
     cat_b.assert_consistency()
+    _assert_no_merge_in_progress(cat_b)
 
 
 def test_case_05_add_and_remove_unrelated(two_clones):
     """Ours adds X; theirs removes Y (Y was in base; X is fresh).
     Independent edits in different yaml regions."""
     cat_a, cat_b = two_clones
-    name_y = _add_expr_entry(cat_a, "y", value=2)
+    name_y = add_expr_entry(cat_a, "y", value=2)
     cat_a.push()
     cat_b.pull()
 
-    name_x = _add_expr_entry(cat_a, "x", value=1)
+    name_x = add_expr_entry(cat_a, "x", value=1)
     cat_b.remove(name_y, sync=False)
     cat_a.push()
 
@@ -211,6 +173,7 @@ def test_case_05_add_and_remove_unrelated(two_clones):
     assert name_x in cat_b.list()
     assert name_y not in cat_b.list()
     cat_b.assert_consistency()
+    _assert_no_merge_in_progress(cat_b)
 
 
 def test_case_06_add_aliases_different_names(two_clones):
@@ -218,17 +181,18 @@ def test_case_06_add_aliases_different_names(two_clones):
     distinct symlink paths (no filesystem conflict); only the yaml
     aliases: list overlaps and needs the resolver."""
     cat_a, cat_b = two_clones
-    name_x = _add_expr_entry(cat_a, "x", value=1, aliases=("alpha",))
-    name_y = _add_expr_entry(cat_b, "y", value=2, aliases=("beta",))
+    name_x = add_expr_entry(cat_a, "x", value=1, aliases=("alpha",))
+    name_y = add_expr_entry(cat_b, "y", value=2, aliases=("beta",))
     cat_a.push()
 
     cat_b.pull()
 
     assert "alpha" in cat_b.list_aliases()
     assert "beta" in cat_b.list_aliases()
-    assert _alias_target_hash(cat_b, "alpha") == name_x
-    assert _alias_target_hash(cat_b, "beta") == name_y
+    assert alias_target_hash(cat_b, "alpha") == name_x
+    assert alias_target_hash(cat_b, "beta") == name_y
     cat_b.assert_consistency()
+    _assert_no_merge_in_progress(cat_b)
 
 
 def test_case_08_add_same_alias_same_target(two_clones):
@@ -236,47 +200,49 @@ def test_case_08_add_same_alias_same_target(two_clones):
     entry. Identical adds in both yaml and the symlink path; nothing
     diverges."""
     cat_a, cat_b = two_clones
-    name_x_a = _add_expr_entry(cat_a, "x", value=1, aliases=("shared",))
+    name_x_a = add_expr_entry(cat_a, "x", value=1, aliases=("shared",))
     with _commit_dates(_DIVERGENT_DATE):
-        name_x_b = _add_expr_entry(cat_b, "x", value=1, aliases=("shared",))
+        name_x_b = add_expr_entry(cat_b, "x", value=1, aliases=("shared",))
     assert name_x_a == name_x_b
     cat_a.push()
 
     cat_b.pull()
 
     assert "shared" in cat_b.list_aliases()
-    assert _alias_target_hash(cat_b, "shared") == name_x_a
+    assert alias_target_hash(cat_b, "shared") == name_x_a
     cat_b.assert_consistency()
+    _assert_no_merge_in_progress(cat_b)
 
 
 def test_case_10_remove_same_alias(two_clones):
     """Both sides remove the same alias. Idempotent."""
     cat_a, cat_b = two_clones
-    _add_expr_entry(cat_a, "x", value=1, aliases=("shared",))
+    add_expr_entry(cat_a, "x", value=1, aliases=("shared",))
     cat_a.push()
     cat_b.pull()
 
-    _remove_alias(cat_a, "shared")
+    remove_alias(cat_a, "shared")
     with _commit_dates(_DIVERGENT_DATE):
-        _remove_alias(cat_b, "shared")
+        remove_alias(cat_b, "shared")
     cat_a.push()
 
     cat_b.pull()
 
     assert "shared" not in cat_b.list_aliases()
     cat_b.assert_consistency()
+    _assert_no_merge_in_progress(cat_b)
 
 
 def test_case_11_remove_different_aliases(two_clones):
     """Ours removes α; theirs removes β. Both were in the base."""
     cat_a, cat_b = two_clones
-    _add_expr_entry(cat_a, "x", value=1, aliases=("alpha",))
-    _add_expr_entry(cat_a, "y", value=2, aliases=("beta",))
+    add_expr_entry(cat_a, "x", value=1, aliases=("alpha",))
+    add_expr_entry(cat_a, "y", value=2, aliases=("beta",))
     cat_a.push()
     cat_b.pull()
 
-    _remove_alias(cat_a, "alpha")
-    _remove_alias(cat_b, "beta")
+    remove_alias(cat_a, "alpha")
+    remove_alias(cat_b, "beta")
     cat_a.push()
 
     cat_b.pull()
@@ -284,25 +250,27 @@ def test_case_11_remove_different_aliases(two_clones):
     assert "alpha" not in cat_b.list_aliases()
     assert "beta" not in cat_b.list_aliases()
     cat_b.assert_consistency()
+    _assert_no_merge_in_progress(cat_b)
 
 
 def test_case_12_remove_alias_and_add_unrelated(two_clones):
     """Ours removes α (in base); theirs adds β->Y (fresh)."""
     cat_a, cat_b = two_clones
-    _add_expr_entry(cat_a, "x", value=1, aliases=("alpha",))
+    add_expr_entry(cat_a, "x", value=1, aliases=("alpha",))
     cat_a.push()
     cat_b.pull()
 
-    _remove_alias(cat_a, "alpha")
-    name_y = _add_expr_entry(cat_b, "y", value=2, aliases=("beta",))
+    remove_alias(cat_a, "alpha")
+    name_y = add_expr_entry(cat_b, "y", value=2, aliases=("beta",))
     cat_a.push()
 
     cat_b.pull()
 
     assert "alpha" not in cat_b.list_aliases()
     assert "beta" in cat_b.list_aliases()
-    assert _alias_target_hash(cat_b, "beta") == name_y
+    assert alias_target_hash(cat_b, "beta") == name_y
     cat_b.assert_consistency()
+    _assert_no_merge_in_progress(cat_b)
 
 
 # ---------------------------------------------------------------------------
@@ -317,8 +285,8 @@ def test_case_09_add_same_alias_different_targets(two_clones):
     diverging targets — the only genuine merge conflict we can't
     auto-resolve."""
     cat_a, cat_b = two_clones
-    _add_expr_entry(cat_a, "x", value=1, aliases=("shared",))
-    _add_expr_entry(cat_b, "y", value=2, aliases=("shared",))
+    add_expr_entry(cat_a, "x", value=1, aliases=("shared",))
+    add_expr_entry(cat_b, "y", value=2, aliases=("shared",))
     cat_a.push()
 
     with pytest.raises(CatalogMergeConflict) as excinfo:
@@ -332,12 +300,12 @@ def test_case_13_remove_alias_vs_repoint(two_clones):
     different entry. The symlink at aliases/α.zip is a modify/delete
     conflict that survives any auto-resolve."""
     cat_a, cat_b = two_clones
-    _add_expr_entry(cat_a, "x", value=1, aliases=("alpha",))
-    name_y = _add_expr_entry(cat_a, "y", value=2)
+    add_expr_entry(cat_a, "x", value=1, aliases=("alpha",))
+    name_y = add_expr_entry(cat_a, "y", value=2)
     cat_a.push()
     cat_b.pull()
 
-    _remove_alias(cat_b, "alpha")
+    remove_alias(cat_b, "alpha")
     cat_a.add_alias(name_y, "alpha", sync=False)
     cat_a.push()
 
