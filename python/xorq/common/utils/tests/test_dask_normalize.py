@@ -31,9 +31,12 @@ from xorq.common.utils.dask_normalize.dask_normalize_expr import (
     _extract_duckdb_file_paths,
     _extract_plan_file_paths,
     _normalize_computed_kwargs_expr,
+    _opaque_structural_name,
     compute_expr_token,
     expr_metadata,
     normalize_op_split,
+    normalize_read,
+    opaque_node_replacer,
 )
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     file_digest,
@@ -42,8 +45,10 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     patch_normalize_token,
     walk_normalized,
 )
+from xorq.common.utils.defer_utils import normalize_read_path_stat
 from xorq.expr.udf import agg, make_pandas_expr_udf
 from xorq.ibis_yaml.compiler import build_expr
+from xorq.vendor.ibis.expr.operations.relations import Filter
 
 
 def test_ensure_deterministic():
@@ -958,3 +963,254 @@ def test_normalize_expr_returns_hashed_pair():
     slot_hashes, structural_hash = normalized
     assert isinstance(structural_hash, str) and len(structural_hash) == 32
     assert all(isinstance(h, str) and len(h) == 32 for h in slot_hashes)
+
+
+# ---------------------------------------------------------------------------
+# opaque_node_replacer match-arm coverage
+# ---------------------------------------------------------------------------
+
+
+def test_opaque_node_replacer_cached_node():
+    """CachedNode is placeholdered by structural token of its parent; the inner
+    DatabaseTable appears as a data leaf, not the CachedNode itself."""
+    con = xo.connect()
+    con.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))
+    cached_expr = (
+        con.table("t")
+        .filter(xo._.a > 1)
+        .cache(cache=SourceSnapshotCache.from_kwargs(source=con))
+    )
+
+    leaf_dts, data_deps, structural = normalize_op_split(cached_expr)
+    assert all(type(d) is ir.DatabaseTable for d in leaf_dts)
+    assert not any(isinstance(d, rel.CachedNode) for d in leaf_dts)
+    assert len(data_deps) == len(leaf_dts) >= 1
+    assert structural is not None
+
+
+def test_opaque_node_replacer_cached_node_structural_is_data_free():
+    """Two CachedNode expressions with same shape but different data share a
+    structural token."""
+    con = xo.connect()
+    con.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))
+    e1 = con.table("t").cache(cache=SourceSnapshotCache.from_kwargs(source=con))
+    _, _, struct1 = normalize_op_split(e1)
+
+    con.drop_table("t")
+    con.create_table("t", pd.DataFrame({"a": [10, 20, 30]}))
+    e2 = con.table("t").cache(cache=SourceSnapshotCache.from_kwargs(source=con))
+    _, _, struct2 = normalize_op_split(e2)
+
+    assert struct1 == struct2
+
+
+def test_opaque_node_replacer_flight_expr():
+    """FlightExpr is placeholdered by structural token of its input_expr."""
+    con = xo.connect()
+    con.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))
+    input_expr = con.table("t").filter(xo._.a > 1)
+    unbound = xo.table(input_expr.schema())
+
+    flight_node = rel.FlightExpr(
+        name="flight_test",
+        schema=input_expr.schema(),
+        source=con,
+        input_expr=input_expr,
+        unbound_expr=unbound,
+        make_server=lambda: None,
+        make_connection=lambda: None,
+    )
+    flight_expr = flight_node.to_expr()
+
+    leaf_dts, data_deps, structural = normalize_op_split(flight_expr)
+    assert all(type(d) is ir.DatabaseTable for d in leaf_dts)
+    assert not any(isinstance(d, rel.FlightExpr) for d in leaf_dts)
+    assert len(data_deps) == len(leaf_dts) >= 1
+    assert structural is not None
+
+
+def test_opaque_node_replacer_flight_udxf():
+    """FlightUDXF is placeholdered by structural token of its input_expr."""
+    con = xo.connect()
+    con.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))
+    input_expr = con.table("t")
+
+    class FakeUDXF:
+        @staticmethod
+        def schema_in_condition(schema):
+            return True
+
+        @staticmethod
+        def calc_schema_out(schema):
+            return schema
+
+    flight_node = rel.FlightUDXF(
+        name="udxf_test",
+        schema=input_expr.schema(),
+        source=con,
+        input_expr=input_expr,
+        udxf=FakeUDXF,
+        make_server=lambda: None,
+        make_connection=lambda: None,
+    )
+    flight_expr = flight_node.to_expr()
+
+    leaf_dts, data_deps, structural = normalize_op_split(flight_expr)
+    assert all(type(d) is ir.DatabaseTable for d in leaf_dts)
+    assert not any(isinstance(d, rel.FlightUDXF) for d in leaf_dts)
+    assert len(data_deps) == len(leaf_dts) >= 1
+    assert structural is not None
+
+
+def test_opaque_node_replacer_hashing_tag():
+    """HashingTag parent's data flows to outer data_deps; metadata contributes
+    to structural token."""
+    con = xo.connect()
+    con.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))
+    tagged = con.table("t").hashing_tag("my_tag", entry_name="source1")
+
+    leaf_dts, data_deps, structural = normalize_op_split(tagged)
+    assert len(leaf_dts) >= 1
+    assert len(data_deps) == len(leaf_dts)
+    assert structural is not None
+
+    # Different metadata → different structural token.
+    tagged2 = con.table("t").hashing_tag("other_tag", entry_name="source2")
+    _, _, struct2 = normalize_op_split(tagged2)
+    assert structural != struct2
+
+
+def test_opaque_node_replacer_unhandled_opaque_raises():
+    """An unhandled opaque op type raises ValueError when a type is in the
+    opaque guard tuple but has no explicit match arm."""
+    con = xo.connect()
+    con.create_table("t", pd.DataFrame({"a": [1]}))
+    filter_node = con.table("t").filter(xo._.a > 0).op()
+    assert isinstance(filter_node, Filter)
+
+    # Simulate a future opaque type: make the guard include Filter (which has
+    # no match arm and is not a data leaf).
+    with patch(
+        "xorq.common.utils.dask_normalize.dask_normalize_expr._opaque_handled_here",
+        return_value=(Filter,),
+    ):
+        with pytest.raises(ValueError, match="unhandled opaque node type"):
+            opaque_node_replacer(filter_node, {})
+
+
+# ---------------------------------------------------------------------------
+# _opaque_structural_name memoization
+# ---------------------------------------------------------------------------
+
+
+def test_opaque_structural_name_memoization():
+    """Deep cross-engine pipeline with shared sub-expression roots computes
+    each inner structural token once (memo hit), not once per reference."""
+    src = xo.connect()
+    src.create_table("t", pd.DataFrame({"a": range(10), "b": range(10)}))
+    e = src.table("t")
+    for i in range(4):
+        target = xo.connect()
+        e = e.mutate(**{f"c{i}": xo._.a + i}).into_backend(target, name=f"step_{i}")
+
+    call_count = {"n": 0}
+    original = (
+        _opaque_structural_name.__wrapped__
+        if hasattr(_opaque_structural_name, "__wrapped__")
+        else _opaque_structural_name
+    )
+
+    def counting_wrapper(sub_expr):
+        call_count["n"] += 1
+        return original(sub_expr)
+
+    with patch(
+        "xorq.common.utils.dask_normalize.dask_normalize_expr._opaque_structural_name",
+        side_effect=counting_wrapper,
+    ):
+        normalize_op_split(e)
+
+    # Without memo the count would be O(depth²) ≈ 10; with memo it's O(depth) = 4.
+    assert call_count["n"] <= 6
+
+
+# ---------------------------------------------------------------------------
+# _normalize_computed_kwargs_expr — CachedNode data-free
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_computed_kwargs_expr_cachednode_data_free():
+    """CachedNode inside computed_kwargs_expr is hashed by schema + cache class,
+    not by cached content."""
+    con = xo.connect()
+    con.create_table("t", pd.DataFrame({"x": [1, 2, 3]}))
+    cache_a = SourceSnapshotCache.from_kwargs(source=con)
+    cke_a = con.table("t").cache(cache=cache_a)
+
+    con.drop_table("t")
+    con.create_table("t", pd.DataFrame({"x": [10, 20, 30]}))
+    cache_b = SourceSnapshotCache.from_kwargs(source=con)
+    cke_b = con.table("t").cache(cache=cache_b)
+
+    assert _normalize_computed_kwargs_expr(cke_a) == _normalize_computed_kwargs_expr(
+        cke_b
+    )
+
+
+# ---------------------------------------------------------------------------
+# normalize_read — build-relative-path and error branches
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_read_build_relative_path():
+    """Build-bundled Read with relative hash_path == read_path produces a
+    ``("build-relative-path", path)`` token component."""
+    con = xo.connect()
+    schema = xo.schema({"a": "int64"})
+    read = rel.Read(
+        method_name="read_parquet",
+        name="test_table",
+        schema=schema,
+        source=con,
+        read_kwargs=(
+            ("hash_path", "builds/abc123.parquet"),
+            ("read_path", "builds/abc123.parquet"),
+        ),
+        normalize_method=normalize_read_path_stat,
+    )
+    token = normalize_read(read)
+    flat = str(token)
+    assert "build-relative-path" in flat
+    assert "builds/abc123.parquet" in flat
+
+
+def test_normalize_read_multi_path_raises():
+    """Multiple-element tuple paths raise NotImplementedError."""
+    con = xo.connect()
+    schema = xo.schema({"a": "int64"})
+    read = rel.Read(
+        method_name="read_parquet",
+        name="test_table",
+        schema=schema,
+        source=con,
+        read_kwargs=(("hash_path", ("file1.parquet", "file2.parquet")),),
+        normalize_method=normalize_read_path_stat,
+    )
+    with pytest.raises(NotImplementedError, match="Don't know how to deal with path"):
+        normalize_read(read)
+
+
+def test_normalize_read_nonexistent_absolute_path_raises():
+    """Absolute path that doesn't exist raises NotImplementedError."""
+    con = xo.connect()
+    schema = xo.schema({"a": "int64"})
+    read = rel.Read(
+        method_name="read_parquet",
+        name="test_table",
+        schema=schema,
+        source=con,
+        read_kwargs=(("hash_path", "/nonexistent/path/to/data.parquet"),),
+        normalize_method=normalize_read_path_stat,
+    )
+    with pytest.raises(NotImplementedError, match="Don't know how to deal with path"):
+        normalize_read(read)
