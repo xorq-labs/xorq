@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.23] - 2026-05-07
+### Details
+#### Added
+- Add `xorq catalog show <name|alias>` for entry metadata by @hussainsultan in [#1918](https://github.com/xorq-labs/xorq/pull/1918)
+- Add bsl and thrift overrides for darwin by @hussainsultan in [#1925](https://github.com/xorq-labs/xorq/pull/1925)
+
+#### Changed
+- Catalog visual polish + configurable panels by @hussainsultan in [#1896](https://github.com/xorq-labs/xorq/pull/1896)
+- BSL semantic catalog + working-with-catalog tutorials (redo of #1878) by @paddymul in [#1920](https://github.com/xorq-labs/xorq/pull/1920)
+- Update dependency gitpython to v3.1.49 [security] by @renovate[bot] in [#1930](https://github.com/xorq-labs/xorq/pull/1930)
+- Update dependency pip to v26.1 [security] by @renovate[bot] in [#1926](https://github.com/xorq-labs/xorq/pull/1926)
+
+#### Fixed
+- Preserve tag_metadata structure in lineage DAG by @hussainsultan in [#1931](https://github.com/xorq-labs/xorq/pull/1931)
+
 ## [0.3.22] - 2026-05-05
 ### Details
 #### Added
