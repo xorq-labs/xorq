@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778019549262,
+  "lastUpdate": 1778156953840,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -10626,6 +10626,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.014704424739001633",
             "extra": "mean: 272.4481310000215 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "paddy@paddymullen.com",
+            "name": "Paddy Mullen",
+            "username": "paddymul"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "219639b052d58bd46944756802b470ed25957dde",
+          "message": "docs(tutorials): BSL semantic catalog + working-with-catalog tutorials (redo of #1878) (#1920)\n\n## Summary\n\nReintroduces the BSL semantic catalog tutorials originally landed in\n#1878 and reverted in #1919, rebased onto latest `main` for further\niteration. Opening as a draft while work continues.\n\nTwo tutorials under `docs/tutorials/core_tutorials/`:\n- `build_a_semantic_catalog.qmd` — building a catalog from scratch\n- `working_with_the_catalog.qmd` — git-annex-centric workflow for\ncatalog collaboration\n\nPlus runnable snippet scripts and smoke tests in\n`python/xorq/tests/test_tutorial_snippets.py`.\n\n## Test plan\n\n- [ ] `pytest python/xorq/tests/test_tutorial_snippets.py` passes\nlocally\n- [ ] Tutorials render cleanly via Quarto\n- [ ] Snippets execute from a fresh scratch directory (not just inside\nthe xorq tree)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-05-07T14:24:56+02:00",
+          "tree_id": "f1753df725880dce8eb35a70135cef1ba670c90a",
+          "url": "https://github.com/xorq-labs/xorq/commit/219639b052d58bd46944756802b470ed25957dde"
+        },
+        "date": 1778156950034,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.550806393654581,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020683379690522585",
+            "extra": "mean: 132.4361859999964 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.57235876987388,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06074104692760054",
+            "extra": "mean: 388.74826160000566 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6348883943608302,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1789326539355048",
+            "extra": "mean: 1.5750799808000011 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.589750515586396,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07118782173211664",
+            "extra": "mean: 386.13758120000625 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.5669192024195695,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05913010193086811",
+            "extra": "mean: 389.5720594000011 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.747749254975048,
+            "unit": "iter/sec",
+            "range": "stddev: 0.035784477074403326",
+            "extra": "mean: 363.9342265999744 msec\nrounds: 5"
           }
         ]
       }
