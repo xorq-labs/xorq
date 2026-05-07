@@ -78,11 +78,11 @@ _PUSH_FAILURE_FLAGS = (
 
 
 def _format_push_failures(push_infos, remote_name):
-    return [
+    return tuple(
         f"{remote_name}/{info.local_ref or '?'}: {(info.summary or '').strip()}"
         for info in push_infos
         if info.flags & _PUSH_FAILURE_FLAGS
-    ]
+    )
 
 
 def _ensure_wheel_artifacts(build_dir, project_path=None):
@@ -299,18 +299,18 @@ class Catalog:
         """Return the list of entry names in the catalog."""
         return self.catalog_yaml.contents[CatalogInfix.ENTRY]
 
+    @staticmethod
+    def _has_fetch_refspec(remote):
+        try:
+            remote.config_reader.get("fetch")
+            return True
+        except (NoOptionError, NoSectionError):
+            return False
+
     @property
     def _git_remotes(self):
         """Remotes that are real git remotes (have a fetch refspec), excluding annex special remotes."""
-
-        def _has_fetch_refspec(remote):
-            try:
-                remote.config_reader.get("fetch")
-                return True
-            except (NoOptionError, NoSectionError):
-                return False
-
-        return tuple(r for r in self.repo.remotes if _has_fetch_refspec(r))
+        return tuple(r for r in self.repo.remotes if self._has_fetch_refspec(r))
 
     def _validated_git_remotes(self):
         """Return ``self._git_remotes`` after enforcing the single-remote contract.
@@ -381,27 +381,12 @@ class Catalog:
     def push(self):
         """Push to the configured git remote after verifying consistency.
 
-        Pushes ``main``, then ``git-annex`` (if a local annex branch
-        exists), then raises a single ``CatalogPushError`` listing every
-        rejection or transport failure observed across both pushes. Both
-        pushes are attempted regardless of which (if either) failed:
-        bailing after a ``main`` failure would skip ``git-annex``, and
-        bailing after a successful ``main`` push would mask an annex
-        rejection — leaving the remote referencing annex keys that aren't
-        on its ``git-annex`` branch.
+        Pushes ``main``, then ``git-annex`` (if present). Both pushes are
+        always attempted — raises a single ``CatalogPushError`` listing
+        every rejection or transport failure across both. No-op when no
+        git remote is configured.
 
-        No-op when no git remote is configured.
-
-        Returns a tuple of ``PushInfoList`` results — one entry per
-        branch pushed in this call:
-
-        - ``()`` when no git remote is configured (nothing to push).
-        - ``(main_result,)`` when there is no local ``git-annex`` branch.
-        - ``(main_result, annex_result)`` when both branches were pushed.
-
-        Under ADR-0009 the catalog has at most one git remote, so the
-        result never holds more than one entry per branch. Length is
-        therefore in ``{0, 1, 2}`` — not ``len(remotes)`` as before.
+        Returns ``()``, ``(main_result,)``, or ``(main_result, annex_result)``.
         """
         remotes = self._validated_git_remotes()
         if not remotes:
@@ -412,7 +397,7 @@ class Catalog:
         failure_messages = _format_push_failures(main_result, remote.name)
         if _has_local_annex_branch(self.repo):
             annex_result = remote.push(ANNEX_BRANCH)
-            failure_messages.extend(_format_push_failures(annex_result, remote.name))
+            failure_messages += _format_push_failures(annex_result, remote.name)
             results = (main_result, annex_result)
         else:
             logger.debug(
@@ -443,6 +428,7 @@ class Catalog:
 
     def sync(self):
         """Pull then push — shorthand for a full round-trip synchronization."""
+        # Guard here directly so the check doesn't depend on pull/push internals.
         self._validated_git_remotes()
         with self.synchronizing():
             pass
