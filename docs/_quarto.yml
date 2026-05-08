@@ -97,8 +97,6 @@ website:
       pinned: true
       contents:
         - reference/index.qmd
-        - href: reference/glossary.qmd
-          text: "Glossary"
         - id: backends-section
           section: "Backends"
           contents:
