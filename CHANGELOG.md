@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 #### Removed
-- **Breaking:** Remove `make_quickgrove_udf` and `rewrite_quickgrove_expr` from `xorq.expr.ml` and `xorq.ml`. The `quickgrove` optional dependency group is also removed. by @mesejo
+- **Breaking:** Remove `make_quickgrove_udf`, `rewrite_quickgrove_expr`, and `collect_predicates` from `xorq.expr.ml` and `xorq.ml`. The `quickgrove` optional dependency group is also removed. by @mesejo
 
 ## [0.3.23] - 2026-05-07
 ### Details
