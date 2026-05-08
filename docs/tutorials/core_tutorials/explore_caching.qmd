@@ -271,7 +271,6 @@ Now you understand how caching works. Continue learning:
 
 - [Switch backends](switch_backends.qmd) shows how caching works when moving data between engines
 - [Your first build](your_first_build.qmd) explains how cached expressions become portable artifacts
-- [Optimize pipeline performance](/guides/performance_workflows/optimize_pipeline_performance.qmd) covers advanced caching strategies
 
 
 

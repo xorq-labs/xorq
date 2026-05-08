@@ -208,6 +208,6 @@ print("Results:", result)
 Now you understand deferred execution. Continue exploring:
 
 - [Explore caching](explore_caching.qmd) shows how deferred execution enables intelligent caching
-- [Your first build](your_first_build.qmd) explains how Xorq captures expressions as portable manifests
+- [Your first build](../tutorials/core_tutorials/your_first_build.qmd) explains how Xorq captures expressions as portable manifests
 - [Switch backends](switch_backends.qmd) demonstrates how deferred execution works across different engines
 

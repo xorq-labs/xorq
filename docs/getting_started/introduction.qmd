@@ -92,7 +92,7 @@ The core expression and build logic remains open source.
 
 Now that you understand what Xorq is and why it exists, choose your path:
 
-- [Quickstart](/tutorials/getting_started/quickstart) to build your first pipeline in under five minutes 
+- [Quickstart](/getting_started/quickstart.qmd) to build your first pipeline in under five minutes
 - [GitHub](https://github.com/xorq-labs/xorq) to star the repo and contribute
 - [Discord](https://discord.gg/8Kma9DhcJG) to join the community
 

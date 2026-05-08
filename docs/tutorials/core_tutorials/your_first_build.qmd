@@ -20,7 +20,7 @@ You need:
 
 - Xorq installed: `pip install xorq`
 - Basic familiarity with Xorq expressions
-- Completed the [Quickstart](quickstart.qmd) recommended
+- Completed the [Quickstart](../../getting_started/quickstart.qmd) recommended
 
 ## What's a build?
 
@@ -435,5 +435,4 @@ The key insight? Builds turn expressions into versioned, portable artifacts. Sam
 Now you understand builds. Continue with domain-specific tutorials:
 
 - [Train your first model](../ml_tutorials/train_your_first_model.qmd) shows you how to build ML pipelines with Xorq
-- [Deploy your first model](../ml_tutorials/deploy_your_first_model.qmd) teaches you how to serve builds as prediction endpoints
 - [Understand deferred execution](../core_tutorials/understand_deferred_execution.qmd) explains how Xorq builds computation graphs
