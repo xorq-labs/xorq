@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778244116184,
+  "lastUpdate": 1778248089305,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -11388,6 +11388,114 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.013086995695801799",
             "extra": "mean: 4.171427027826978 msec\nrounds: 539"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "paddy@paddymullen.com",
+            "name": "Paddy Mullen",
+            "username": "paddymul"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3ebb9872597365839341834bbabc66f964f08e79",
+          "message": "docs: remove \"Coming soon\" stubs and broken links (#1928)\n\n## Summary\n\n- Deletes 63 stub doc files that were placeholders containing only\n\"Coming soon\" content (entire `guides/` and `troubleshooting/`\ndirectories, all of `tutorials/ai_tutorials/` and\n`tutorials/analytics_tutorials/`, plus stub pages under `concepts/`,\n`tutorials/ml_tutorials/`, `api_reference/cli/`, and the top-level\n`release_notes.qmd` / `faq.qmd`).\n- Updates `docs/_quarto.yml` navbar and sidebar to drop entries pointing\nto deleted files (Guides nav link, Release notes nav link,\nTroubleshooting sidebar section, Concepts subsections that became empty,\nAI/Analytics tutorial sections, deleted CLI commands).\n- Cleans up broken cross-document links in `docs/index.qmd`,\n`docs/api_reference/cli/index.qmd`, `docs/getting_started/`, and\n`docs/tutorials/core_tutorials/` that referenced now-deleted (or\nnever-created) targets such as `understand_pipeline.qmd`,\n`cache_ml_computations.qmd`, `understand_catalog.qmd`, and the orphaned\n`core_tutorials/your_first_expression.qmd` path.\n- Trims trailing \"comprehensive JSON specification … coming soon\"\nnotices from the two `expression_format.qmd` files (the rest of those\npages has real content).\n\nNet change: 80 files, +13 / −1233.\n\n## Test plan\n\n- [ ] Build the docs locally with `quarto render docs` (or the project's\nusual command) and confirm no missing-file or broken-link warnings.\n- [ ] Visually spot-check the rendered home page, top-nav, and sidebar\nto confirm the removed sections are gone and surviving links work.\n- [ ] Click through `Get started → Quickstart → Your first build` and\n`Get started → Installation → Your first expression / Train your first\nmodel` to confirm the rewritten cross-doc links resolve.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\nCo-authored-by: Daniel Mesejo <mesejoleon@gmail.com>",
+          "timestamp": "2026-05-08T15:43:25+02:00",
+          "tree_id": "a9c3150e4a71cd198f1afb19a2892732a39c68aa",
+          "url": "https://github.com/xorq-labs/xorq/commit/3ebb9872597365839341834bbabc66f964f08e79"
+        },
+        "date": 1778248085955,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.520602548816733,
+            "unit": "iter/sec",
+            "range": "stddev: 0.029382694372907355",
+            "extra": "mean: 132.96806918181534 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.7384846640461364,
+            "unit": "iter/sec",
+            "range": "stddev: 0.042486274211687866",
+            "extra": "mean: 365.1654555999926 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6604097928353652,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19230843518138685",
+            "extra": "mean: 1.5142113440000002 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.5570480658149175,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0760379560826245",
+            "extra": "mean: 391.075949399999 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.6480050186516757,
+            "unit": "iter/sec",
+            "range": "stddev: 0.056848067156578606",
+            "extra": "mean: 377.6427887999944 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.6689651068208313,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0448222850059536",
+            "extra": "mean: 374.67706019999696 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[simple_filter_agg]",
+            "value": 153.2642598120134,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016051215184256905",
+            "extra": "mean: 6.524678364196272 msec\nrounds: 324"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[pipeline_50_steps]",
+            "value": 5.820761192499608,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09175087248939826",
+            "extra": "mean: 171.7988364285686 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[nested_into_backend]",
+            "value": 44.273324968900475,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00924535041348338",
+            "extra": "mean: 22.58696406250138 msec\nrounds: 48"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[simple_filter_agg]",
+            "value": 257.1234672176759,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013781849088656373",
+            "extra": "mean: 3.8891821536982416 msec\nrounds: 527"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[pipeline_50_steps]",
+            "value": 295.5551892941825,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011340818135559134",
+            "extra": "mean: 3.3834628395059045 msec\nrounds: 567"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[nested_into_backend]",
+            "value": 244.58498360356242,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012546919288596864",
+            "extra": "mean: 4.088558444049281 msec\nrounds: 563"
           }
         ]
       }
