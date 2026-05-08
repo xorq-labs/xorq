@@ -1,0 +1,22 @@
+---
+title: "Agentic workflows"
+description: "Tutorials for building and using xorq with AI agents — from unstructured data discovery to semantic layers and composable tools."
+---
+
+xorq is a **context engine for data agents**. It gives agents a persistent, typed, queryable surface to build on — one where expressions carry lineage, caching is input-addressed, and the catalog is shared memory across sessions.
+
+The tutorials below walk through different axes of agentic work with xorq: turning raw files into catalog entries, layering meaning on structured data, composing reusable tools, and exposing the catalog to analyst-facing agents.
+
+## Tutorials
+
+- [**Unstructured data with Claude**](#) — Use the xorq Claude plugin and `recon-import` to turn a directory of CSVs into a typed, versioned catalog in a few prompts. *(Preview — plugin not yet published.)*
+- [**Semantic layer with xorq (FAA)**](faa_semantic_layer.qmd) — Build a business semantic layer over the FAA on-time performance dataset so agents reason about *flights* and *carriers*, not raw columns. *(Preview — outline only.)*
+- [**Composing reusable tools**](#) — How to publish a catalog entry so other agents (and humans) can compose on it without re-deriving your work. *(Preview.)*
+- [**Build your own data agent**](build_your_own_agent.qmd) — Skeleton for writing a domain-specific data agent against the xorq catalog. *(Preview.)*
+- [**MCP for data analysts**](mcp_for_analysts.qmd) — The xorq MCP server as an analyst-facing endpoint — natural-language questions over the catalog. *(Preview.)*
+
+## Why agents need xorq
+
+Agents that write pandas against raw files produce answers that can't be verified, reused, or built on. Every session starts from zero. Give an agent a catalog of typed expressions with known schemas and join keys, and accuracy goes up while token spend goes down — the catalog routes reasoning through pre-computed structure instead of asking the model to re-derive it.
+
+See [Orientation Over Reasoning](https://xorq.dev/blog/orientation-over-reasoning/) for the benchmark result that motivates this direction: Haiku + catalog (85%) outperforms Sonnet baseline (75%) on DABStep.

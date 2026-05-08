@@ -1,0 +1,29 @@
+---
+title: "MCP for data analysts"
+description: "Expose the xorq catalog as an MCP server so analyst-facing agents can answer natural-language questions against governed data."
+status: "preview"
+draft: true
+---
+
+::: {.callout-warning}
+**Preview — not yet written.** This tutorial is a placeholder for the analyst-facing MCP workflow.
+:::
+
+## What this tutorial will cover
+
+A data analyst doesn't want to write expressions. They want to ask a question in their own language and get an answer they can trust. The xorq MCP server exposes the catalog as an MCP-native tool surface, so any MCP-capable agent (Claude Desktop, Cursor, a custom harness) can search, compose, and execute catalog entries on the analyst's behalf.
+
+This tutorial will walk through standing up the MCP server against an existing catalog, connecting it to an agent, and asking questions that get answered by composing known-good expressions rather than generating SQL from scratch.
+
+## Intended outline
+
+1. **Why MCP** — the analyst-facing surface for a governed catalog. Agents get tools, analysts get answers, the catalog stays the source of truth.
+2. **Standing up the server** — `xorq mcp serve` against your catalog; what the default tool surface exposes (search, describe, execute, lineage).
+3. **Connecting Claude Desktop** — the five-line config change; verifying the catalog shows up as a tool.
+4. **The analyst experience** — example questions over a sample catalog (retail, flights, whatever the reference dataset ends up being); the agent's tool-call sequence; where the answers come from.
+5. **Governance and limits** — read-only mode, row-level filters, audit trails. What an analyst *can't* do through MCP by default.
+
+## Related
+
+- [Build your own data agent](build_your_own_agent.qmd) — the bespoke version of this pattern
+- [Build an MCP tool](/tutorials/ai_tutorials/build_an_mcp_tool.qmd) — the existing tutorial on building MCP tools with xorq
