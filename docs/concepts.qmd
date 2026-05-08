@@ -166,16 +166,34 @@ xorq provides a powerful system for extending query engines with custom User-Def
 ### 1. Scalar UDF with model integration
 
 ```python
+import pickle
+import xgboost as xgb
 import xorq.api as xo
-from xorq.expr.ml import make_quickgrove_udf
-from pathlib import Path
-from xorq.api import _
+import xorq.expr.datatypes as dt
+import xorq.expr.udf as udf
+from xorq.expr.udf import make_pandas_expr_udf
+
+features = ("carat", "depth", "table", "x", "y", "z")
+target = "price"
 
 t = xo.examples.diamonds.fetch()
 
-model_path = Path(xo.options.pins.get_path("diamonds-model"))
-model = make_quickgrove_udf(model_path, model_name="diamonds_model")
-expr = t.mutate(pred=model.on_expr).filter(_.carat < 1).select(_.pred).execute()
+train_udaf = udf.agg.pandas_df(
+    fn=lambda df: pickle.dumps(
+        xgb.train({"objective": "reg:squarederror"}, xgb.DMatrix(df[list(features)], df[target]), num_boost_round=10)
+    ),
+    schema=t[features + (target,)].schema(),
+    return_type=dt.binary,
+    name="diamonds_model",
+)
+predict_udf = make_pandas_expr_udf(
+    computed_kwargs_expr=train_udaf.on_expr(t),
+    fn=lambda model, df: model.predict(xgb.DMatrix(df[list(features)])),
+    schema=t[features].schema(),
+    return_type=dt.float32,
+    name="pred",
+)
+expr = t.mutate(predict_udf.on_expr(t).name("pred"))
 ```
 
 ### 2. User-defined aggregate functions

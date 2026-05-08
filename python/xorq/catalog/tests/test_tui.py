@@ -435,16 +435,19 @@ def test_cursor_move_updates_schema_preview(catalog, entry_a, entry_b):
                 Press(("j",)),
                 Assert(lambda p: schema_table.row_count == 3),
                 Assert(
-                    lambda p: "id"
-                    in [schema_table.get_cell_at((i, 0)) for i in range(3)]
+                    lambda p: (
+                        "id" in [schema_table.get_cell_at((i, 0)) for i in range(3)]
+                    )
                 ),
                 Assert(
-                    lambda p: "name"
-                    in [schema_table.get_cell_at((i, 0)) for i in range(3)]
+                    lambda p: (
+                        "name" in [schema_table.get_cell_at((i, 0)) for i in range(3)]
+                    )
                 ),
                 Assert(
-                    lambda p: "score"
-                    in [schema_table.get_cell_at((i, 0)) for i in range(3)]
+                    lambda p: (
+                        "score" in [schema_table.get_cell_at((i, 0)) for i in range(3)]
+                    )
                 ),
                 # Move to second leaf (entry_b: value)
                 Press(("j",)),
