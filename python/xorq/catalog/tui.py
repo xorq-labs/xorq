@@ -10,6 +10,8 @@ from typing import Literal
 
 from attr import evolve, field, frozen
 from attr.validators import instance_of, optional
+from pygments import lex as pygments_lex
+from pygments.lexers import get_lexer_by_name as pygments_get_lexer
 from pygments.style import Style as PygmentsStyle
 from pygments.token import (
     Comment,
@@ -21,7 +23,6 @@ from pygments.token import (
     String,
     Token,
 )
-from rich.syntax import Syntax
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -103,6 +104,24 @@ KIND_ORDER: tuple[ExprKind, ...] = (
     ExprKind.Composed,
     ExprKind.ExprBuilder,
 )
+
+def _pygments_to_text(sql: str) -> Text:
+    lexer = pygments_get_lexer("sql", stripnl=False)
+    text = Text()
+    for ttype, value in pygments_lex(sql, lexer):
+        info = XorqSQLStyle.style_for_token(ttype)
+        parts = []
+        if info.get("bold"):
+            parts.append("bold")
+        if info.get("italic"):
+            parts.append("italic")
+        if info.get("color"):
+            parts.append(f"#{info['color']}")
+        text.append(value, style=" ".join(parts))
+    return text
+
+
+KIND_ORDER = ("source", "expr", "unbound_expr", "composed")
 
 
 @frozen
@@ -504,6 +523,8 @@ class CatalogScreen(Screen):
         self._refresh_lock = threading.Lock()
         self._active_view: Literal["sql", "data"] = "sql"
         self._data_preview_hash: str | None = None
+        self._sql_render_cache: dict[str, Text] = {}
+        self._current_sql_hash: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -616,6 +637,7 @@ class CatalogScreen(Screen):
             else None
         )
         if row_data is None:
+            self._current_sql_hash = None
             sql_preview.update("")
             info_content.update("")
             self.query_one("#schema-in-half").display = False
@@ -644,26 +666,22 @@ class CatalogScreen(Screen):
         sql_panel = self.query_one("#sql-panel")
         match row_data.sqls:
             case ():
+                self._current_sql_hash = None
                 sql_preview.update("(SQL unavailable)")
                 sql_panel.border_subtitle = ""
-            case ((_, engine, sql),):
-                sql_preview.update(
-                    Syntax(sql, "sql", theme=XorqSQLStyle, word_wrap=True)
-                )
+            case ((_, engine, _),):
                 sql_panel.border_subtitle = engine
+                self._current_sql_hash = row_data.row_key
+                sql_preview.update("")
+                self._load_sql_preview(row_data.row_key, row_data.sqls)
             case sqls:
-                sql_preview.update(
-                    Syntax(
-                        _render_sql_dag(sqls),
-                        "sql",
-                        theme=XorqSQLStyle,
-                        word_wrap=True,
-                    )
-                )
                 engines = sorted({engine for _, engine, _ in sqls})
                 sql_panel.border_subtitle = (
                     f"{len(sqls)} queries · {', '.join(engines)}"
                 )
+                self._current_sql_hash = row_data.row_key
+                sql_preview.update("")
+                self._load_sql_preview(row_data.row_key, row_data.sqls)
 
         # Info panel
         info_content.update(row_data.info_text)
@@ -880,6 +898,26 @@ class CatalogScreen(Screen):
         parts.append(str(repo_path))
         parts.append(stamp)
         self.query_one("#status-bar", Static).update(" · ".join(parts))
+
+    # --- SQL preview worker ---
+
+    @work(thread=True, exit_on_error=False, exclusive=True, group="sql_render")
+    def _load_sql_preview(self, entry_hash: str, sqls: tuple) -> None:
+        if entry_hash not in self._sql_render_cache:
+            match sqls:
+                case ((_, _, sql),):
+                    raw = sql
+                case _:
+                    raw = _render_sql_dag(sqls)
+            self._sql_render_cache[entry_hash] = _pygments_to_text(raw)
+        rich_text = self._sql_render_cache[entry_hash]
+
+        def _apply():
+            if self._current_sql_hash != entry_hash:
+                return
+            self.query_one("#sql-preview", Static).update(rich_text)
+
+        self.app.call_from_thread(_apply)
 
     # --- Toggle: Git Log ---
 
