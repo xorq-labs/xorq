@@ -154,27 +154,6 @@ def _compile_pyarrow_udaf(udaf_node):
     )
 
 
-def _inspect_xgboost_model_from_json(json_file_path):
-    with open(json_file_path, "r") as file:
-        model_data = json.load(file)
-
-    learner_data = model_data["learner"]
-    model_attributes = learner_data["attributes"]
-    feature_names = learner_data["feature_names"]
-    feature_types = learner_data["feature_types"]
-    gbtree_model_param = learner_data["gradient_booster"]["model"]["gbtree_model_param"]
-    num_trees = gbtree_model_param["num_trees"]
-
-    metadata = {
-        "model_attributes": model_attributes,
-        "feature_names": feature_names,
-        "feature_types": feature_types,
-        "gbtree_model_param": gbtree_model_param,
-        "number_of_trees": num_trees,
-    }
-
-    return metadata
-
 
 def _fields_to_parameters(fields):
     parameters = []
