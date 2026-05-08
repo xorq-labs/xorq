@@ -13,8 +13,6 @@ import xorq.api as xo
         "deferred_fit_predict_sklearn",
         "deferred_fit_transform",
         "deferred_fit_transform_series_sklearn",
-        "make_quickgrove_udf",
-        "rewrite_quickgrove_expr",
     ],
 )
 def test_top_level_ml(method):

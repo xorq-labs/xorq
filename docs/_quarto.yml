@@ -273,7 +273,6 @@ website:
                 - reference/deferred_fit_predict.qmd
                 - reference/deferred_fit_transform.qmd
                 - reference/calc_split_column.qmd
-                - reference/make_quickgrove_udf.qmd
             - id: caching-section
               section: "Caching"
               contents:
@@ -463,7 +462,6 @@ quartodoc:
         - deferred_fit_predict
         - deferred_fit_transform
         - calc_split_column
-        - make_quickgrove_udf
 
     - title: Lineage
       desc: "Data lineage tracking utilities"
