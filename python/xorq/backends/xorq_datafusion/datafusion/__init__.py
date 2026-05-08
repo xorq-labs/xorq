@@ -3,7 +3,6 @@ from __future__ import annotations
 import contextlib
 import functools
 import inspect
-import json
 import typing
 from collections.abc import Mapping
 from pathlib import Path
@@ -152,7 +151,6 @@ def _compile_pyarrow_udaf(udaf_node):
         volatility=MyAggregator.volatility,
         name=name,
     )
-
 
 
 def _fields_to_parameters(fields):
