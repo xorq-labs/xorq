@@ -199,18 +199,39 @@ website:
             - api_reference/cli/uv-build.qmd
             - api_reference/cli/run.qmd
             - api_reference/cli/uv-run.qmd
+            - api_reference/cli/run-cached.qmd
+            - api_reference/cli/run-unbound.qmd
             - api_reference/cli/serve-flight-udxf.qmd
             - api_reference/cli/serve-unbound.qmd
-            - api_reference/cli/lineage.qmd
-            - api_reference/cli/ps.qmd
+            - api_reference/cli/completion.qmd
+            - api_reference/cli/install-completion.qmd
             - id: catalog-section
               section: "catalog"
               contents:
-                - api_reference/cli/catalog/add.qmd
-                - api_reference/cli/catalog/ls.qmd
+                - api_reference/cli/catalog/init.qmd
+                - api_reference/cli/catalog/clone.qmd
                 - api_reference/cli/catalog/info.qmd
-                - api_reference/cli/catalog/rm.qmd
-                - api_reference/cli/catalog/diff-builds.qmd
+                - api_reference/cli/catalog/default.qmd
+                - api_reference/cli/catalog/tui.qmd
+                - api_reference/cli/catalog/add.qmd
+                - api_reference/cli/catalog/remove.qmd
+                - api_reference/cli/catalog/list.qmd
+                - api_reference/cli/catalog/show.qmd
+                - api_reference/cli/catalog/schema.qmd
+                - api_reference/cli/catalog/get.qmd
+                - api_reference/cli/catalog/add-alias.qmd
+                - api_reference/cli/catalog/remove-alias.qmd
+                - api_reference/cli/catalog/list-aliases.qmd
+                - api_reference/cli/catalog/compose.qmd
+                - api_reference/cli/catalog/run.qmd
+                - api_reference/cli/catalog/run-cached.qmd
+                - api_reference/cli/catalog/push.qmd
+                - api_reference/cli/catalog/pull.qmd
+                - api_reference/cli/catalog/sync.qmd
+                - api_reference/cli/catalog/embed-readonly.qmd
+                - api_reference/cli/catalog/check.qmd
+                - api_reference/cli/catalog/log.qmd
+                - api_reference/cli/catalog/replay.qmd
         - id: python-api-section
           section: "Python API"
           contents:

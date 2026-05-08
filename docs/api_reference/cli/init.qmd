@@ -12,31 +12,41 @@ xorq init [OPTIONS]
 
 ## Options
 
-| Option | Short | Default | Description |
-|--------|-------|---------|-------------|
-| `--path` | `-p` | `./xorq-template` | Directory path where template will be created |
-| `--template` | `-t` | `cached-fetcher` | Template type to initialize |
+| Option | Default | Description |
+|---|---|---|
+| `-p`, `--path` | `./xorq-template` | Directory where the template will be created. |
+| `-t`, `--template` | `cached-fetcher` | Template to scaffold. One of `cached-fetcher`, `sklearn`, `penguins`. |
+| `-b`, `--branch` | per-template default | Branch (or commit) of the template repo to check out. |
 
 ## Templates
 
-- **`cached-fetcher`** - Default template for cached data fetching workflows
-- **`sklearn`** - Template for machine learning workflows with scikit-learn
+- **`cached-fetcher`** — Default template for cached data-fetching workflows.
+- **`sklearn`** — Template for ML workflows with scikit-learn.
+- **`penguins`** — Penguins dataset example pipeline.
+
+Each template has a default branch (a pinned commit) that gets checked out
+unless `--branch` is supplied.
 
 ## Examples
 
-Initialize with default template:
+Initialize with the default template:
 ```bash
 xorq init
 ```
 
-Initialize in custom directory:
+Initialize in a custom directory:
 ```bash
 xorq init --path ./my-project
 ```
 
-Initialize with sklearn template:
+Initialize with the sklearn template:
 ```bash
 xorq init --template sklearn --path ./ml-project
+```
+
+Pin to a specific branch of the template repo:
+```bash
+xorq init --template penguins --branch main --path ./penguins-demo
 ```
 
 ## Output

@@ -1,0 +1,51 @@
+---
+title: 'catalog show'
+---
+
+Show full metadata for a catalog entry: name, aliases, kind, backends, schemas,
+parameters, builders, cache key, and more.
+
+## Usage
+
+```bash
+xorq catalog show <name> [OPTIONS]
+```
+
+## Arguments
+
+- **`name`** — Entry name **or** alias.
+
+## Options
+
+| Option | Default | Description |
+|---|---|---|
+| `--json` | off | Output the structured sidecar metadata as JSON. |
+| `--raw` | off | Output the raw YAML sidecar file as written on disk. |
+
+`--json` and `--raw` are mutually exclusive.
+
+## Example output
+
+```text
+Name:           f02d28198715
+Aliases:        penguins-prod, current
+Type:           Source (bound)
+Root tag:       penguins
+Backends:       duckdb
+Content local:  yes
+Cache key:      ...
+
+Params:
+  threshold                float64 = 0.5
+
+Schema Out:
+  species                  string
+  island                   string
+  body_mass_g              float64
+  health_score             float64
+```
+
+## See also
+
+- [`catalog schema`](schema.qmd) — schema-only view
+- [`catalog list`](list.qmd) — list entries

@@ -1,0 +1,47 @@
+---
+title: 'catalog run-cached'
+---
+
+Same semantics as [`catalog run`](run.qmd), but wraps the resulting expression
+with a `ParquetCache` so subsequent invocations short-circuit when inputs
+haven't changed.
+
+## Usage
+
+```bash
+xorq catalog run-cached <entries...> [OPTIONS]
+```
+
+## Arguments
+
+- **`entries`** — One or more entry names or aliases.
+
+## Options
+
+All of [`catalog run`](run.qmd)'s options are accepted. The cache-specific options:
+
+| Option | Default | Description |
+|---|---|---|
+| `--cache-dir` | `$XORQ_CACHE_DIR` or `~/.cache/xorq` | Directory for parquet cache files. |
+| `--cache-type` | `modification-time` | Cache strategy. One of `modification-time` (`ParquetCache`) or `snapshot` (`ParquetSnapshotCache`). |
+| `--ttl` | none | TTL in seconds for snapshot cache. When set, uses `ParquetTTLSnapshotCache` instead. |
+
+See [`run-cached`](../run-cached.qmd) for a description of the cache strategies.
+
+## Examples
+
+Default cache (modification-time):
+```bash
+xorq catalog run-cached src trn \
+    --cache-dir ./cache \
+    -o results.parquet
+```
+
+Snapshot cache with TTL:
+```bash
+xorq catalog run-cached pipeline \
+    --cache-type snapshot \
+    --ttl 3600 \
+    --cache-dir ./cache \
+    -o results.parquet
+```

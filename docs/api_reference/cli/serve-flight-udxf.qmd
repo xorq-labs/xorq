@@ -2,8 +2,28 @@
 title: 'serve-flight-udxf'
 ---
 
-The `xorq serve` command is designed to serve expressions that contain UDXF (User-Defined Exchange Functions) nodes via Apache Arrow Flight. 
+The `xorq serve-flight-udxf` command serves expressions that contain UDXF
+(User-Defined Exchange Functions) nodes via Apache Arrow Flight.
 
+## Usage
+
+```bash
+xorq serve-flight-udxf <build_path> [OPTIONS]
+```
+
+## Arguments
+
+- **`build_path`** — Path to the build directory produced by `xorq build` (or `xorq uv build`).
+
+## Options
+
+| Option | Default | Description |
+|---|---|---|
+| `--host` | `localhost` | Host to bind the Flight server to. |
+| `--port` | random | Port to bind the Flight server to. |
+| `--duckdb-path` | `<build_path>/xorq_serve.db` | Path to the DuckDB database file used by the server. |
+| `--prometheus-port` | disabled | Port to expose Prometheus metrics. |
+| `--cache-dir` | `$XORQ_CACHE_DIR` or `~/.cache/xorq` | Directory for parquet cache files. |
 
 ## What the serve-flight-udxf command does
 
@@ -180,18 +200,6 @@ Expected output:
 0     Adelie       3750.0  ...         medium 2025-07-14 17:32:22.802505
 1  Chinstrap       3800.0  ...         medium 2025-07-14 17:32:22.802505
 2     Gentoo       4500.0  ...          large 2025-07-14 17:32:22.802505
-```
-
-## Command line options
-
-The `serve-flight-udxf` command supports several options:
-
-```bash
-xorq serve-flight-udxf builds/penguins_analysis \
-    --host 0.0.0.0 \           # Bind to all interfaces
-    --port 8080 \              # Specific port (default: random)
-    --duckdb-path ./data.db \  # Persistent database file
-    --prometheus-port 9090     # Metrics endpoint (if available)
 ```
 
 ## Summary

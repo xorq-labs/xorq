@@ -1,0 +1,45 @@
+---
+title: 'catalog embed-readonly'
+---
+
+Embed read-only object-store credentials into the catalog's git-annex branch
+so consumers cloning the catalog can fetch annexed content without supplying
+credentials of their own.
+
+Before embedding, the command probes the bucket with the supplied credentials
+by initiating a multipart upload. If that write succeeds the credentials are
+not read-only and the command raises an error instead of embedding them.
+
+Embedding sets `embedcreds=yes` on the S3 remote config and writes the result
+to `remote.log` on the git-annex branch.
+
+## Usage
+
+```bash
+xorq catalog embed-readonly [OPTIONS]
+```
+
+## Options
+
+| Option | Default | Description |
+|---|---|---|
+| `--env-file` | none | Env file containing the read-only credentials. Mutually exclusive with `--env-prefix`. |
+| `--env-prefix` | none | Env-var prefix for the read-only credentials. Mutually exclusive with `--env-file`. |
+| `--gcs` | off | Apply GCS defaults to the S3 remote config. |
+
+One of `--env-file` or `--env-prefix` is required.
+
+## Examples
+
+```bash
+xorq catalog embed-readonly --env-file .env.catalog.readonly
+xorq catalog embed-readonly --env-prefix XORQ_CATALOG_RO_
+```
+
+## Notes
+
+- The write probe requires the credentials to be evaluated against the
+  configured bucket; misconfigured paths will surface as setup errors before
+  any embed occurs.
+- The probe initiates (and aborts) a multipart upload — credentials that grant
+  write access on the bucket will be detected even if no object is left behind.

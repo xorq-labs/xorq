@@ -1,0 +1,60 @@
+---
+title: 'catalog compose'
+---
+
+Assemble a new expression by composing one or more catalog entries (and
+optionally inline Ibis code), build it, and persist the result back to the
+catalog.
+
+To execute a composed expression for data output without persisting, use
+[`catalog run`](run.qmd) instead.
+
+## Usage
+
+```bash
+xorq catalog compose <entries...> [OPTIONS]
+```
+
+## Arguments
+
+- **`entries`** — One or more catalog entries (names or aliases). The first
+  entry is the source; subsequent entries are applied as transforms.
+
+## Options
+
+| Option | Default | Description |
+|---|---|---|
+| `-c`, `--code` | none | Inline Ibis expression applied to the composed `source`. |
+| `-a`, `--alias` | none | Register an alias on the resulting cataloged entry. |
+| `--cache-dir` | `$XORQ_CACHE_DIR` or `~/.cache/xorq` | Directory for parquet cache files used during the build. |
+| `--dry-run` | off | Show the composition plan and resulting schema without building. |
+| `--rename-params` | none | Rename a parameter on a specific entry. Format: `entry,old_name,new_name`. Repeatable. |
+
+## Examples
+
+Compose source + transform and catalog the result:
+```bash
+xorq catalog compose source-table transform-step --alias prod-pipeline
+```
+
+Add inline transformation code:
+```bash
+xorq catalog compose source-table \
+    -c "source.filter(source.amount > 100)" \
+    --alias high-value
+```
+
+Preview without building:
+```bash
+xorq catalog compose source-table transform-step --dry-run
+```
+
+Rename a parameter on one entry of the composition:
+```bash
+xorq catalog compose src trn \
+    --rename-params trn,threshold,cutoff
+```
+
+## See also
+
+- [`catalog run`](run.qmd) — execute a composed expression for data output

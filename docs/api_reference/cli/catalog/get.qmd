@@ -1,0 +1,36 @@
+---
+title: 'catalog get'
+---
+
+Export an entry's archive (a zipped build directory) from the catalog to a
+filesystem path. Useful for shipping an entry to a system that doesn't have
+catalog access.
+
+## Usage
+
+```bash
+xorq catalog get <name> [OPTIONS]
+```
+
+## Arguments
+
+- **`name`** — Entry name to export. Use [`catalog list`](list.qmd) to see options.
+
+## Options
+
+| Option | Default | Description |
+|---|---|---|
+| `-o`, `--output` | current directory | Destination directory for the archive. |
+
+The archive is always written to `<output_dir>/<name>.zip` (the entry name with
+a `.zip` suffix). Existing files at that path are overwritten.
+
+## Example
+
+```bash
+xorq catalog get f02d28198715 -o ./shipped-builds
+# → Exported to shipped-builds/f02d28198715.zip
+```
+
+The exported archive can be re-added to another catalog with
+[`catalog add`](add.qmd).

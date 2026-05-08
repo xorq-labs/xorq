@@ -1,0 +1,24 @@
+---
+title: 'catalog pull'
+---
+
+Pull the active catalog's commits and annex content from its configured remote(s).
+
+## Usage
+
+```bash
+xorq catalog pull
+```
+
+This command takes no command-specific options.
+
+## Example
+
+```bash
+xorq catalog pull
+```
+
+## See also
+
+- [`catalog push`](push.qmd) — push to remote(s)
+- [`catalog sync`](sync.qmd) — pull then push
