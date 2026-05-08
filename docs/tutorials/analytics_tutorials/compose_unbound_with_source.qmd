@@ -1,0 +1,214 @@
+---
+title: 'Compose a cataloged transform with a local CSV'
+description: "Pull a reusable unbound transform from a shared catalog and apply it to data on your laptop"
+icon: "diagram-3"
+headline: "Reuse transforms across pipelines"
+---
+
+This tutorial shows you how to take an unbound expression that lives in a shared catalog and apply it to a source expression you write on the fly. You will clone an `internal_tool_catalog`, point a `deferred_read_csv` at a CSV on your laptop, and then run `xorq catalog compose` to bind the two together into a new cataloged result.
+
+After completing this tutorial, you will know how to treat the catalog as a library of reusable transforms and pull them into ad-hoc pipelines.
+
+## Prerequisites
+
+You need:
+
+- Xorq installed: `pip install xorq`
+- A working `git` install (the catalog is a git repo)
+- A CSV file on your machine to smooth
+
+## What you will build
+
+Two pieces, composed:
+
+- **The unbound transform** — an exponential smoothing window function lives in `internal_tool_catalog` as an `UnboundExpr`. It declares an input schema with one float column named `a` and applies a UDWF to smooth it.
+- **The source** — a `deferred_read_csv` of a CSV on your laptop, written in a small Python file. This is the "on the fly" half of the composition.
+
+`xorq catalog compose` glues them together: it replaces the unbound table inside the transform with your source and persists the result back into the catalog as a new entry.
+
+## Step 1 — Clone the internal tool catalog
+
+The catalog is just a git repo, so cloning it is a one-liner. Replace the URL with the one your team uses internally.
+
+```bash
+xorq catalog clone https://github.com/your-org/internal_tool_catalog.git -n internal_tool_catalog
+```
+
+The `-n internal_tool_catalog` flag stores the clone under the name `internal_tool_catalog` so you can refer to it without typing a path. Make it the default for the rest of the session:
+
+```bash
+xorq catalog default --set internal_tool_catalog
+```
+
+Now confirm the cataloged transform is present:
+
+```bash
+xorq catalog list-aliases
+```
+
+You should see `exp-smooth` (the unbound exponential smoothing transform) in the output.
+
+Inspect its schema to see what kind of source it expects:
+
+```bash
+xorq catalog schema exp-smooth
+```
+
+```
+Type: Partial (unbound)
+
+Schema In:
+  a                        float64
+
+Schema Out:
+  a                        float64
+  exp_smooth               float64
+```
+
+The transform is unbound: it declares that it needs a table with a float column `a` and produces that same column plus a smoothed `exp_smooth` column. Any source whose schema is a superset of `Schema In` can be composed with it.
+
+:::{.callout-note}
+### What's inside the catalog
+The `exp-smooth` entry was authored once and added to the catalog with `xorq catalog add`. The Python it was built from looks like the snippet below — a `pyarrow_udwf` decorator applied to an `UnboundTable` whose schema declares the input contract. You don't need to write this yourself; it's already cataloged.
+
+```python
+import pyarrow as pa
+import xorq.api as xo
+from xorq.expr.udf import pyarrow_udwf
+from xorq.vendor import ibis
+from xorq.vendor.ibis.expr import operations as ops
+
+
+@pyarrow_udwf(
+    schema=ibis.schema({"a": float}),
+    return_type=ibis.dtype(float),
+    alpha=0.9,
+)
+def exp_smooth(self, values: list[pa.Array], num_rows: int) -> pa.Array:
+    results = []
+    curr_value = 0.0
+    arr = values[0]
+    for idx in range(num_rows):
+        if idx == 0:
+            curr_value = arr[idx].as_py()
+        else:
+            curr_value = (
+                arr[idx].as_py() * self.alpha + curr_value * (1.0 - self.alpha)
+            )
+        results.append(curr_value)
+    return pa.array(results)
+
+
+unbound = ops.UnboundTable(
+    name="placeholder", schema=ibis.schema({"a": float})
+).to_expr()
+
+expr = unbound.mutate(exp_smooth=exp_smooth.on_expr(unbound))
+```
+
+`expr` is an `UnboundExpr`: it has the shape of a transform but no source attached. That's the property the catalog records, and it's what makes the entry reusable across many sources.
+:::
+
+## Step 2 — Point a source expression at your local CSV
+
+Now write the source half on the fly. Create a file called `local_source.py` next to the CSV you want to smooth:
+
+```python
+# local_source.py
+import xorq.api as xo
+
+# <1>
+expr = xo.deferred_read_csv("readings.csv")
+```
+1. `deferred_read_csv` produces a `Source` expression bound to your local file. No data is read yet — this is just a description of where to read from.
+
+If your CSV doesn't already have a float column named `a`, add a `select`/`mutate` to line up the schema with what `exp-smooth` expects:
+
+```python
+# local_source.py
+import xorq.api as xo
+
+expr = (
+    xo.deferred_read_csv("readings.csv")
+    .mutate(a=xo._.value.cast("float64"))
+    .select("a")
+)
+```
+
+The schema only needs to be a superset of `{a: float64}` for the compose to validate.
+
+## Step 3 — Build the source and add it to the catalog
+
+`xorq catalog compose` only operates on cataloged entries, so add this one-off source first. Build it:
+
+```bash
+xorq build local_source.py -e expr
+```
+
+```
+Building expr from local_source.py
+Written 'expr' to builds/9f1c2a4e8b30
+builds/9f1c2a4e8b30
+```
+
+Then add the build to the catalog under a friendly alias:
+
+```bash
+xorq catalog add builds/9f1c2a4e8b30 --alias my-readings
+```
+
+`my-readings` is now a `Source` entry in `internal_tool_catalog`, sitting next to the `exp-smooth` unbound transform.
+
+## Step 4 — Compose them with `xorq catalog compose`
+
+This is the step the rest of the tutorial was setting up. Pass the source first, then the transform:
+
+```bash
+xorq catalog compose my-readings exp-smooth --alias smoothed-readings
+```
+
+```
+Cataloged as 'smoothed-readings'
+```
+
+`compose` walked the unbound transform, replaced its `UnboundTable` with `my-readings`, validated that the schemas line up, built the resulting expression, and persisted the build back into the catalog as `smoothed-readings`.
+
+If you want to preview the composition without persisting it, add `--dry-run`:
+
+```bash
+xorq catalog compose my-readings exp-smooth --dry-run
+```
+
+```
+Dry run — composition plan:
+  Entries: my-readings -> exp-smooth
+  Schema:
+    a                        float64
+    exp_smooth               float64
+```
+
+## Step 5 — Run the composed entry
+
+The composed entry behaves like any other catalog entry. Stream it to stdout as CSV:
+
+```bash
+xorq catalog run smoothed-readings -o - -f csv
+```
+
+You will see your original `a` column alongside the new `exp_smooth` column, smoothed with the `alpha=0.9` baked into the cataloged transform.
+
+## What you just did
+
+You separated the two halves of a pipeline along a clean seam:
+
+- The **transform** — exponential smoothing — was authored once, reviewed once, and dropped into a shared catalog. Anyone on your team can pull it down and apply it.
+- The **source** — your local CSV — stayed local and ad-hoc. You did not have to fork the catalog or PR a new pipeline to use it.
+
+`xorq catalog compose` is the verb that joins them, and the result is itself a catalog entry — meaning the next person can pick it up where you left off.
+
+:::{.callout-note}
+### Runnable counterpart
+[`examples/compose_unbound_with_source.py`](https://github.com/xorq-labs/xorq/blob/main/examples/compose_unbound_with_source.py) reproduces the binding in pure Python — it builds the unbound `exp_smooth` transform, points a `deferred_read_csv` at a generated CSV, and runs the same source-replacement that `xorq catalog compose` performs internally. It's part of the test suite, so the code stays in sync with the tutorial.
+:::
+
+The catalog is where you store your internal company toolbox of transforms that are generically applicable.

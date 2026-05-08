@@ -91,6 +91,7 @@ website:
             - href: tutorials/analytics_tutorials/create_your_first_udf.qmd
             # - href: tutorials/analytics_tutorials/use_window_functions.qmd
             - href: tutorials/analytics_tutorials/work_with_schemas.qmd
+            - href: tutorials/analytics_tutorials/compose_unbound_with_source.qmd
 
 
     - id: guides
