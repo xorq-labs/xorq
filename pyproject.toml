@@ -131,7 +131,8 @@ sqlite = [
 gizmosql = [
     "adbc-driver-gizmosql>=1.1.5",
     "duckdb>=1.1.3",
-    "gizmosql>=1.26.0",
+    "gizmosql>=1.26.0,<2",
+    "cryptography>=42",
 ]
 ibis = [
     "ibis-framework>=10.5.0",

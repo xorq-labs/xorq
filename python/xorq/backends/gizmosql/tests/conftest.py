@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import datetime
 from pathlib import Path
 
 import pytest
@@ -25,19 +26,68 @@ PARQUET_TABLES = (
 )
 
 
+def _generate_self_signed_cert(out_dir: Path) -> tuple[Path, Path]:
+    """Mint a self-signed RSA cert + key for ``localhost`` and write both as
+    PEM into ``out_dir``. Used to enable TLS on the test server so the test
+    suite still exercises the encrypted Flight SQL path (the previous Docker
+    image baked this in; the bare server binary needs explicit cert files).
+    """
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(minutes=1))
+        .not_valid_after(now + datetime.timedelta(days=1))
+        .add_extension(
+            x509.SubjectAlternativeName([x509.DNSName("localhost")]),
+            critical=False,
+        )
+        .sign(key, hashes.SHA256())
+    )
+
+    cert_path = out_dir / "gizmosql_test_cert.pem"
+    key_path = out_dir / "gizmosql_test_key.pem"
+    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    key_path.write_bytes(
+        key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+    )
+    return cert_path, key_path
+
+
 @pytest.fixture(scope="session")
-def gizmosql_server():
+def gizmosql_server(tmp_path_factory):
     """Start the GizmoSQL server as a managed subprocess via the
     [gizmosql](https://pypi.org/project/gizmosql/) PyPI package.
 
     The package downloads + caches the matching server binary on first use,
     auto-picks a free port, and tears the server down on exit — no Docker
-    is needed for the test fixture.
+    is needed for the test fixture. A short-lived self-signed cert is
+    generated at session start and passed via ``--tls`` so the encrypted
+    Flight SQL path is still exercised by the tests.
     """
     gizmosql = pytest.importorskip("gizmosql")
+
+    cert_dir = tmp_path_factory.mktemp("gizmosql-tls")
+    cert_path, key_path = _generate_self_signed_cert(cert_dir)
+
     with gizmosql.Server(
         username=GIZMOSQL_USERNAME,
         password=GIZMOSQL_PASSWORD,
+        extra_args=["--tls", str(cert_path), str(key_path)],
     ) as srv:
         yield srv
 
@@ -50,7 +100,11 @@ def con(gizmosql_server):
         user=gizmosql_server.username,
         password=gizmosql_server.password,
         port=gizmosql_server.port,
-        use_encryption=False,
+        use_encryption=True,
+        # The test cert is self-signed and freshly minted per session; skip
+        # cert-chain verification rather than wiring a CA bundle into the
+        # client for what is purely a loopback test connection.
+        disable_certificate_verification=True,
     )
 
     # Load standard test tables from parquet
