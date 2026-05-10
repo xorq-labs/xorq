@@ -1,0 +1,291 @@
+---
+title: "Getting Started with xorq init"
+page-layout: custom
+toc: false
+format:
+  html: default
+execute:
+  enabled: false
+---
+
+:::: {.page-card}
+
+::: {.section-body}
+
+```{=html}
+<div class="section-header">
+  <div>
+    <span class="section-label">## BLOG</span>
+    <h1 class="section-title">GETTING STARTED WITH XORQ INIT</h1>
+    <p class="section-subtitle">Scaffold a baseball analytics pipeline in minutes with xorq</p>
+  </div>
+  <a href="/blog" class="section-action">← ALL POSTS</a>
+</div>
+```
+
+`xorq init` is the fastest way to start a xorq project. One command scaffolds a complete, runnable directory: a `pyproject.toml` with locked dependencies, a `src/` layout, and a starter `expr.py` defining a real xorq **expression** --- a description of a computation (filter this, join that, aggregate by group) that doesn't run until you ask for results.
+
+You work in two places: your **editor**, where you shape the expression in `expr.py`, and your **terminal**, where you build and run it with the xorq CLI. No plugin, no agent, no extra services --- just Python and `xorq`.
+
+```{=html}
+<div style="background: #1a3a5c; color: #C1F0FF; border: 2px solid #C1F0FF; border-radius: 8px; padding: 3rem 2rem; text-align: center; margin: 1.5rem 0; font-family: inherit;">
+  <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 0.5rem;">IMAGE PLACEHOLDER</div>
+  <div style="font-size: 0.9rem; opacity: 0.85;">Side-by-side: editor showing expr.py (left) and terminal showing xorq build / xorq run output (right)</div>
+</div>
+```
+
+This tutorial walks through running `xorq init`, loading the Moneyball baseball dataset, and building expressions that compute top batting averages per league per year --- all in plain Python.
+
+---
+
+## Prerequisites
+
+You need one thing: [uv](https://docs.astral.sh/uv/) (the Python package manager).
+
+### Install uv
+
+If you don't have uv yet:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Restart your terminal after installing so the `uv` command is available.
+
+### Install xorq
+
+Install xorq as a uv tool so the `xorq` CLI is on your `PATH`:
+
+```bash
+uv tool install xorq
+```
+
+Verify it's working:
+
+```bash
+xorq --help
+```
+
+You should see subcommands including `init`, `build`, `run`, and `uv`.
+
+---
+
+## Scaffold the project
+
+`xorq init` drops a complete xorq project into a fresh directory. Run it for the tutorial:
+
+```bash
+xorq init --path moneyball-tutorial
+cd moneyball-tutorial
+```
+
+You'll see:
+
+```
+initialized xorq template `cached-fetcher` to moneyball-tutorial
+```
+
+List what was created (including dotfiles):
+
+```bash
+ls -1A
+```
+
+```
+.envrc
+.gitignore.template
+expr.py
+pyproject.toml
+README.md
+requirements.txt
+src
+uv.lock
+with-uvenv
+```
+
+That's a complete, locked Python project: `pyproject.toml`, `uv.lock`, a `requirements.txt` exported from the lock, a packaged source module under `src/`, and a starter `expr.py` at the top level. The `with-uvenv` script and `.envrc` are helpers `xorq` uses internally to manage the project's environment --- you don't need to invoke them directly. We'll replace the contents of `expr.py` with our own Moneyball pipeline; the rest of the scaffold is what makes this build reproducibly.
+
+### Download the Moneyball dataset
+
+The [Lahman Baseball Database](https://www.seanlahman.com/baseball-archive/statistics/) is the classic dataset behind the Moneyball story. Pull the two files we'll use straight into the project:
+
+```bash
+curl -L -o Batting.csv https://raw.githubusercontent.com/cbwinslow/baseballdatabank/master/core/Batting.csv
+curl -L -o People.csv https://raw.githubusercontent.com/cbwinslow/baseballdatabank/master/core/People.csv
+```
+
+`Batting.csv` is one row per player-season (~110K rows back to 1871); `People.csv` is one row per player with biographical info.
+
+---
+
+## Load the CSVs as xorq expressions
+
+Open `expr.py` and replace its contents with this:
+
+```python
+# expr.py
+import xorq.api as xo
+
+con = xo.connect()
+
+batting = xo.deferred_read_csv(con=con, path="Batting.csv", table_name="Batting")
+people = xo.deferred_read_csv(con=con, path="People.csv", table_name="People")
+
+expr = batting
+```
+
+`deferred_read_csv` lazily reads a CSV into any backend with automatic schema inference --- nothing is actually read until execution. Each binding (`batting`, `people`) is now a typed xorq expression you can join, filter, and aggregate without writing pandas.
+
+```{=html}
+<div style="background: #1a3a5c; color: #C1F0FF; border: 2px solid #C1F0FF; border-radius: 8px; padding: 3rem 2rem; text-align: center; margin: 1.5rem 0; font-family: inherit;">
+  <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 0.5rem;">IMAGE PLACEHOLDER</div>
+  <div style="font-size: 0.9rem; opacity: 0.85;">Project tree showing moneyball-tutorial/ with expr.py, pyproject.toml, and the Lahman CSV files</div>
+</div>
+```
+
+---
+
+## Build a Batting table with player names
+
+Enrich the Batting data --- join `People` to bring in `nameFirst`, `nameLast`, `bats`, `throws`, `birthYear` --- then reorder columns so the human-readable names come first:
+
+```python
+batting = batting.join(
+    people["playerID", "nameFirst", "nameLast", "bats", "throws", "birthYear"],
+    "playerID",
+)
+
+batting = batting.select(
+    "nameFirst", "nameLast",
+    *[c for c in batting.columns if c not in ("nameFirst", "nameLast")],
+)
+```
+
+Each call returns a new expression. Nothing has executed yet --- you're describing the shape of the result, not computing it.
+
+---
+
+## Add on-base percentage
+
+On-base percentage is the stat at the heart of Moneyball --- the Oakland A's figured out it was the most predictive stat for scoring runs, and the market was undervaluing it.
+
+```python
+batting = batting.mutate(
+    OBP=(batting.H + batting.BB + batting.HBP) / batting.AB
+)
+```
+
+That mutation will produce infinity for players with zero at-bats. This is the kind of thing you catch by thinking about the data, not by reading it. Filter to AL/NL after 1965 with at least one at-bat:
+
+```python
+batting = batting.filter(
+    batting.lgID.isin(["AL", "NL"]),
+    batting.yearID > 1965,
+    batting.AB > 0,
+)
+```
+
+One pass, three filters. The infinities are gone; the row count drops from ~110K to around 49K when the expression eventually runs.
+
+---
+
+## Top batting average per league per year
+
+Now the analysis. Compute batting average for each player-year, then find the top 10 players by batting average within each league-year group, requiring at least 100 at-bats:
+
+```python
+import xorq.vendor.ibis as ibis
+
+ranked = batting.filter(batting.AB >= 100).mutate(
+    batting_avg=batting.H / batting.AB.cast("float64")
+)
+
+win = ibis.window(group_by=["lgID", "yearID"], order_by=ibis.desc("batting_avg"))
+ranked = ranked.mutate(rank=ibis.row_number().over(win) + 1)
+expr = ranked.filter(ranked.rank <= 10).drop("rank")
+```
+
+The variable named `expr` at module scope is what `xorq build` will compile.
+
+```{=html}
+<div style="background: #1a3a5c; color: #C1F0FF; border: 2px solid #C1F0FF; border-radius: 8px; padding: 3rem 2rem; text-align: center; margin: 1.5rem 0; font-family: inherit;">
+  <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 0.5rem;">IMAGE PLACEHOLDER</div>
+  <div style="font-size: 0.9rem; opacity: 0.85;">expr.py open in editor showing the full pipeline — reads, joins, mutate, window, filter</div>
+</div>
+```
+
+---
+
+## Build and run
+
+`xorq init` ships a `requirements.txt` that's pinned to the uv version that generated the template. If your local uv differs, the build will refuse to run with a byte-comparison error against `uv.lock`. Delete it and let the build regenerate it:
+
+```bash
+rm requirements.txt
+```
+
+Now compile the expression into a portable build directory, capturing the build path the command prints on its last line:
+
+```bash
+BUILD=$(xorq uv build expr.py -e expr --builds-dir builds | tail -1)
+echo "$BUILD"
+```
+
+You'll see something like `builds/f22643d56d2c` --- the exact hash will differ for you, since it's derived from your expression and lock file.
+
+`xorq uv build` uses the project's own uv environment (pinned by `uv.lock`), so the build is reproducible. The directory contains the serialized expression graph (`expr.yaml`), a regenerated `requirements.txt` pinned to your lock, and the metadata needed to re-run on another machine. Hand the directory to anyone with `xorq` and they'll get the same result.
+
+Run it:
+
+```bash
+xorq uv run "$BUILD" --output-path top_batters.parquet
+```
+
+You'll see uv re-sync packages and then a stray OpenTelemetry attribute warning (`Invalid type NoneType for attribute 'limit' value...`) --- this is harmless noise, the run still writes the parquet.
+
+Inspect the result. The first time you run `uv run python` in the project, uv will sync the project's `.venv` from `uv.lock` (~10 seconds, one-time):
+
+```bash
+uv run python -c "import pandas as pd; df = pd.read_parquet('top_batters.parquet'); print(df.shape); print(df[['nameFirst','nameLast','yearID','lgID','batting_avg']].head(40))"
+```
+
+```{=html}
+<div style="background: #1a3a5c; color: #C1F0FF; border: 2px solid #C1F0FF; border-radius: 8px; padding: 3rem 2rem; text-align: center; margin: 1.5rem 0; font-family: inherit;">
+  <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 0.5rem;">IMAGE PLACEHOLDER</div>
+  <div style="font-size: 0.9rem; opacity: 0.85;">Terminal output showing top batting average leaders per league per year — Boggs, Gwynn, Brett visible across decades</div>
+</div>
+```
+
+Sort by year and you can see batting leaders going back decades. Every column traces back through the joins and filters to the source CSVs.
+
+---
+
+## What just happened
+
+In a handful of commands you went from nothing to a typed, reproducible baseball analytics pipeline:
+
+1. **`xorq init`** scaffolded a complete xorq project --- `pyproject.toml`, locked dependencies, source layout, a starter `expr.py`
+2. **`deferred_read_csv`** registered each CSV as a typed xorq expression with no eager reads
+3. **A join** brought in player names from `People`
+4. **A computed column** added OBP with proper type casting and null handling
+5. **Filters** cleaned up the data --- league, year range, and zero-AB rows in one pass
+6. **Window functions** ranked players within each league-year group for the leaderboard
+7. **`xorq uv build`** compiled the expression graph into a portable artifact, **`xorq uv run`** executed it
+
+Every transformation is a description first, executed lazily once at the end. The `builds/<hash>` directory is the unit of reproducibility.
+
+---
+
+## Try it yourself
+
+Play with this. Ask your own baseball questions --- who were the most underpaid hitters in 2002? Which teams got the most wins per dollar? You have the CSVs loaded and the expression vocabulary to build on.
+
+Then try it with your own data. Replace the Lahman CSVs with your company's exports, your research dataset, or that pile of files you've been meaning to make sense of. `xorq init` and a handful of `deferred_read_csv` calls is everything you need to get started.
+
+- **[Why xorq?](/blog/why-xorq/)** --- the pipeline problems xorq solves
+- **[Xorq in 5 Minutes](/blog/xorq-in-5-minutes/)** --- the core concepts (expressions, caching, multi-engine)
+- **[xorq build reference](/docs/api_reference/cli/build)** --- options and outputs
+
+:::
+
+::::
