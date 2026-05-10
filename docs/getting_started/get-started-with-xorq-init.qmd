@@ -15,11 +15,9 @@ execute:
 ```{=html}
 <div class="section-header">
   <div>
-    <span class="section-label">## BLOG</span>
     <h1 class="section-title">GETTING STARTED WITH XORQ INIT</h1>
     <p class="section-subtitle">Scaffold a baseball analytics pipeline in minutes with xorq</p>
   </div>
-  <a href="/blog" class="section-action">← ALL POSTS</a>
 </div>
 ```
 
@@ -171,11 +169,12 @@ On-base percentage is the stat at the heart of Moneyball --- the Oakland A's fig
 
 ```python
 batting = batting.mutate(
-    OBP=(batting.H + batting.BB + batting.HBP) / batting.AB
+    OBP=(batting.H + batting.BB + batting.HBP)
+        / (batting.AB + batting.BB + batting.HBP + batting.SF)
 )
 ```
 
-That mutation will produce infinity for players with zero at-bats. This is the kind of thing you catch by thinking about the data, not by reading it. Filter to AL/NL after 1965 with at least one at-bat:
+That denominator can be zero for players with no plate appearances. This is the kind of thing you catch by thinking about the data, not by reading it. Filter to AL/NL after 1965 with at least one at-bat:
 
 ```python
 batting = batting.filter(
@@ -185,7 +184,7 @@ batting = batting.filter(
 )
 ```
 
-One pass, three filters. The infinities are gone; the row count drops from ~110K to around 49K when the expression eventually runs.
+One pass, three filters. You'll see the row count drop when we execute later.
 
 ---
 
