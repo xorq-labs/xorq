@@ -32,10 +32,10 @@ def _generate_self_signed_cert(out_dir: Path) -> tuple[Path, Path]:
     suite still exercises the encrypted Flight SQL path (the previous Docker
     image baked this in; the bare server binary needs explicit cert files).
     """
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
-    from cryptography.x509.oid import NameOID
+    from cryptography import x509  # noqa: PLC0415
+    from cryptography.hazmat.primitives import hashes, serialization  # noqa: PLC0415
+    from cryptography.hazmat.primitives.asymmetric import rsa  # noqa: PLC0415
+    from cryptography.x509.oid import NameOID  # noqa: PLC0415
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
