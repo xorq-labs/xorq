@@ -2,9 +2,15 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pyarrow as pa
+import pytest
 
-from xorq.catalog.cli import cli
+from xorq.catalog.catalog import Catalog
+from xorq.catalog.cli import _merge_joint_wheels_into_build, cli
 from xorq.cli import cli as top_cli
+from xorq.ibis_yaml.enums import DumpFiles
+
+
+pytestmark = pytest.mark.usefixtures("no_uv_subprocess")
 
 
 # --- run command ---
@@ -512,3 +518,72 @@ def test_run_cached_no_entries(runner, catalog_with_source_and_transform, tmp_pa
     )
     assert result.exit_code != 0
     assert "At least one entry is required" in result.output
+
+
+# --- _merge_joint_wheels_into_build: direct unit tests ---
+
+
+def test_merge_joint_wheels_empty_entries_is_noop(
+    catalog_with_source_and_transform, tmp_path
+):
+    catalog_path, _, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    build_path = tmp_path / "build"
+    build_path.mkdir()
+    _merge_joint_wheels_into_build(catalog, (), build_path)
+    assert list(build_path.iterdir()) == []
+
+
+def test_merge_joint_wheels_single_entry_skips_resolver(
+    catalog_with_source_and_transform, tmp_path, monkeypatch
+):
+    """Single-entry path copies the entry's wheel + requirements verbatim,
+    without invoking JointWheelResolver (no `uv lock` subprocess)."""
+    catalog_path, _, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    build_path = tmp_path / "build"
+    build_path.mkdir()
+
+    def _fail_if_called(*args, **kwargs):
+        raise AssertionError("JointWheelResolver must not be called for single entry")
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.JointWheelResolver", _fail_if_called)
+
+    _merge_joint_wheels_into_build(catalog, ("src",), build_path)
+
+    wheels = list(build_path.glob("*.whl"))
+    assert len(wheels) >= 1
+    assert (build_path / DumpFiles.requirements).exists()
+
+
+def test_merge_joint_wheels_unknown_entry_raises(
+    catalog_with_source_and_transform, tmp_path
+):
+    catalog_path, _, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    build_path = tmp_path / "build"
+    build_path.mkdir()
+    with pytest.raises(Exception, match="not found in catalog"):
+        _merge_joint_wheels_into_build(catalog, ("no-such-entry",), build_path)
+
+
+@pytest.mark.slow(level=1)
+def test_merge_joint_wheels_multi_entry_runs_resolver(
+    catalog_with_source_and_transform, tmp_path
+):
+    """Multi-entry path runs JointWheelResolver and writes a joint
+    requirements.txt that excludes the input wheels (those are supplied via
+    --with at runtime)."""
+    catalog_path, _, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    build_path = tmp_path / "build"
+    build_path.mkdir()
+
+    _merge_joint_wheels_into_build(catalog, ("src", "trn"), build_path)
+
+    wheels = list(build_path.glob("*.whl"))
+    assert len(wheels) >= 1
+    reqs = build_path / DumpFiles.requirements
+    assert reqs.exists()
+    text = reqs.read_text()
+    assert "file://" not in text

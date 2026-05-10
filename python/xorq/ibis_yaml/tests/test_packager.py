@@ -717,6 +717,37 @@ def test_joint_wheel_resolver_intersects_python_version(tmp_path):
     assert ">=3.12" in resolver.python_version
 
 
+def _make_wheel_without_requires_python(directory, name, version="0.0.0"):
+    """Wheel METADATA without a Requires-Python field (PEP 566 allows this)."""
+    wheel_path = Path(directory) / f"{name}-{version}-py3-none-any.whl"
+    dist_info = f"{name}-{version}.dist-info"
+    metadata = f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n"
+    wheel_meta = "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
+    record = f"{dist_info}/METADATA,,\n{dist_info}/WHEEL,,\n{dist_info}/RECORD,,\n"
+    with zipfile.ZipFile(wheel_path, "w") as zf:
+        zf.writestr(f"{dist_info}/METADATA", metadata)
+        zf.writestr(f"{dist_info}/WHEEL", wheel_meta)
+        zf.writestr(f"{dist_info}/RECORD", record)
+    return wheel_path
+
+
+def test_joint_wheel_resolver_handles_missing_requires_python(tmp_path):
+    """Wheels without Requires-Python (legal per PEP 566) must not crash;
+    they contribute no constraint and the resolver falls back to the cap."""
+    a = _make_wheel_without_requires_python(tmp_path, "alpha")
+    b = _make_named_wheel(tmp_path, "beta", requires_python=">=3.11")
+    resolver = JointWheelResolver(wheel_paths=(a, b))
+    assert ">=3.11" in resolver.python_version
+
+
+def test_joint_wheel_resolver_all_missing_requires_python_uses_cap(tmp_path):
+    a = _make_wheel_without_requires_python(tmp_path, "alpha")
+    b = _make_wheel_without_requires_python(tmp_path, "beta")
+    resolver = JointWheelResolver(wheel_paths=(a, b))
+    # No constraints from any wheel → fall back to PYTHON_VERSION_CAP (<3.14)
+    assert "<3.14" in resolver.python_version
+
+
 def test_joint_wheel_resolver_rejects_empty():
     with pytest.raises(ValueError, match="at least one wheel"):
         JointWheelResolver(wheel_paths=())

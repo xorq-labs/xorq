@@ -47,14 +47,15 @@ def _replay_rebuild(source_catalog_obj, target_path, on_unrebuilt_builder="raise
 TEST_WHEEL_NAME = "pkg-0.0.0-py3-none-any.whl"
 
 
-@pytest.fixture(autouse=True)
-def _no_uv_subprocess(monkeypatch):
-    """Force `xorq catalog run` to use the in-process path under pytest.
+@pytest.fixture
+def no_uv_subprocess(monkeypatch):
+    """Opt-in fixture: force `xorq catalog run` to use the in-process path.
 
     Without this, every `runner.invoke(cli, ['run', ...])` would spawn
     `uv tool run` which writes to the real stdout fd, bypassing CliRunner's
-    output capture. The subprocess path is exercised by manual / integration
-    runs, not unit tests.
+    output capture. Apply at file scope (autouse via local conftest or
+    `pytestmark = pytest.mark.usefixtures("no_uv_subprocess")`) only for
+    test modules that exercise `catalog run` through CliRunner.
     """
     monkeypatch.setenv("XORQ_CATALOG_NO_UV", "1")
 

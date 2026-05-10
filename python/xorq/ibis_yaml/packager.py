@@ -195,9 +195,16 @@ class JointBundle:
         if not self.requirements_path.exists():
             raise FileNotFoundError(f"requirements not found: {self.requirements_path}")
         if self.python_version is None:
-            joint = functools.reduce(
-                operator.and_,
-                (SpecifierSet(_read_requires_python(w)) for w in self.wheel_paths),
+            # Requires-Python is optional per PEP 566.
+            constraints = [
+                SpecifierSet(rp) & PYTHON_VERSION_CAP
+                for w in self.wheel_paths
+                if (rp := _read_wheel_metadata(w).get("Requires-Python"))
+            ]
+            joint = (
+                functools.reduce(operator.and_, constraints)
+                if constraints
+                else PYTHON_VERSION_CAP
             )
             object.__setattr__(self, "python_version", str(joint))
 
@@ -246,12 +253,18 @@ class JointWheelResolver:
         object.__setattr__(self, "wheel_paths", unique)
         object.__setattr__(self, "_meta", {w: meta[w] for w in unique})
         if self.python_version is None:
-            joint = functools.reduce(
-                operator.and_,
-                (
-                    SpecifierSet(m["Requires-Python"]) & PYTHON_VERSION_CAP
-                    for m in self._meta.values()
-                ),
+            # Requires-Python is optional per PEP 566; wheels that omit it
+            # contribute no constraint. If every wheel is unconstrained,
+            # fall back to PYTHON_VERSION_CAP alone.
+            constraints = [
+                SpecifierSet(rp) & PYTHON_VERSION_CAP
+                for m in self._meta.values()
+                if (rp := m.get("Requires-Python"))
+            ]
+            joint = (
+                functools.reduce(operator.and_, constraints)
+                if constraints
+                else PYTHON_VERSION_CAP
             )
             object.__setattr__(self, "python_version", str(joint))
 
