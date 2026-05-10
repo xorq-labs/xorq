@@ -14,6 +14,7 @@ PackagedRunner   build directory → execution output (via `uv tool run xorq run
 """
 
 import functools
+import operator
 import os
 import shutil
 import subprocess
@@ -77,6 +78,27 @@ def _requires_python_from_pyproject(pyproject_path):
     return _cap_requires_python(raw)
 
 
+def _read_wheel_metadata(wheel_path):
+    """Read METADATA from a wheel and return all top-level fields as a dict.
+
+    Stops at the first blank line (end of headers) so multi-paragraph
+    Description bodies don't shadow real fields.
+    """
+    with zipfile.ZipFile(wheel_path) as zf:
+        metadata_names = [n for n in zf.namelist() if n.endswith(".dist-info/METADATA")]
+        if not metadata_names:
+            raise ValueError(f"no .dist-info/METADATA found in {wheel_path}")
+        text = zf.read(metadata_names[0]).decode()
+    fields = {}
+    for line in text.splitlines():
+        if not line:
+            break
+        name, sep, value = line.partition(":")
+        if sep:
+            fields[name.strip()] = value.strip()
+    return fields
+
+
 def _read_requires_python(path):
     """Read requires-python from a project source, intersected with PYTHON_VERSION_CAP.
 
@@ -89,18 +111,10 @@ def _read_requires_python(path):
     elif path.is_dir() and path.joinpath(PYPROJECT_NAME).exists():
         return _requires_python_from_pyproject(path / PYPROJECT_NAME)
     elif path.suffix == ".whl":
-        with zipfile.ZipFile(path) as zf:
-            metadata_names = [
-                n for n in zf.namelist() if n.endswith(".dist-info/METADATA")
-            ]
-            if not metadata_names:
-                raise ValueError(f"no .dist-info/METADATA found in {path}")
-            metadata_text = zf.read(metadata_names[0]).decode()
-            for line in metadata_text.splitlines():
-                if line.startswith("Requires-Python:"):
-                    raw = line.split(":", 1)[1].strip()
-                    return str(SpecifierSet(raw) & PYTHON_VERSION_CAP)
+        fields = _read_wheel_metadata(path)
+        if "Requires-Python" not in fields:
             raise ValueError(f"no Requires-Python in wheel metadata: {path}")
+        return str(SpecifierSet(fields["Requires-Python"]) & PYTHON_VERSION_CAP)
     else:
         raise ValueError(
             f"can only handle {PYPROJECT_NAME}, a directory containing one, or .whl"
@@ -155,6 +169,155 @@ class WheelBundle:
         return cls(
             wheel_path=_find_single_glob(build_path, "*.whl"),
             requirements_path=build_path / DumpFiles.requirements,
+        )
+
+
+@frozen
+class JointBundle:
+    """Immutable N-wheel bundle: list of wheels + unified requirements.txt."""
+
+    wheel_paths = field(converter=lambda xs: tuple(Path(x) for x in xs))
+    requirements_path = field(validator=instance_of(Path), converter=Path)
+    python_version = field(validator=_validate_python_version, default=None)
+    _tmpdir = field(
+        validator=optional(instance_of(TemporaryDirectory)),
+        repr=False,
+        eq=False,
+        default=None,
+    )
+
+    def __attrs_post_init__(self):
+        if not self.wheel_paths:
+            raise ValueError("at least one wheel required")
+        for w in self.wheel_paths:
+            if not w.exists():
+                raise FileNotFoundError(f"wheel not found: {w}")
+        if not self.requirements_path.exists():
+            raise FileNotFoundError(f"requirements not found: {self.requirements_path}")
+        if self.python_version is None:
+            joint = functools.reduce(
+                operator.and_,
+                (SpecifierSet(_read_requires_python(w)) for w in self.wheel_paths),
+            )
+            object.__setattr__(self, "python_version", str(joint))
+
+    @classmethod
+    def from_build_path(cls, build_path):
+        build_path = Path(build_path)
+        wheels = sorted(build_path.glob("*.whl"))
+        if not wheels:
+            raise RuntimeError(f"no .whl files found in {build_path}")
+        return cls(
+            wheel_paths=wheels,
+            requirements_path=build_path / DumpFiles.requirements,
+        )
+
+
+@frozen
+class JointWheelResolver:
+    """Resolve N input wheels into a single unified requirements.txt via uv lock."""
+
+    wheel_paths = field(converter=lambda xs: tuple(Path(x) for x in xs))
+    python_version = field(validator=_validate_python_version, default=None)
+    _tmpdir = field(
+        validator=instance_of(TemporaryDirectory),
+        repr=False,
+        eq=False,
+        factory=TemporaryDirectory,
+    )
+    _meta = field(init=False, repr=False, eq=False, factory=dict)
+
+    def __attrs_post_init__(self):
+        if not self.wheel_paths:
+            raise ValueError("at least one wheel required")
+        for w in self.wheel_paths:
+            if not w.exists():
+                raise FileNotFoundError(f"wheel not found: {w}")
+        meta = {w: _read_wheel_metadata(w) for w in self.wheel_paths}
+        # De-dupe by (Name, Version): the same project may appear in multiple
+        # input entries' archives. Differing versions for the same name fall
+        # through to uv lock, which fails loud on the conflict.
+        unique = tuple(
+            toolz.unique(
+                self.wheel_paths,
+                key=lambda w: (meta[w]["Name"], meta[w]["Version"]),
+            )
+        )
+        object.__setattr__(self, "wheel_paths", unique)
+        object.__setattr__(self, "_meta", {w: meta[w] for w in unique})
+        if self.python_version is None:
+            joint = functools.reduce(
+                operator.and_,
+                (
+                    SpecifierSet(m["Requires-Python"]) & PYTHON_VERSION_CAP
+                    for m in self._meta.values()
+                ),
+            )
+            object.__setattr__(self, "python_version", str(joint))
+
+    @property
+    def tmpdir(self):
+        return Path(self._tmpdir.name)
+
+    def _write_pyproject(self):
+        deps = [
+            f"{self._meta[w]['Name']} @ {Path(w).absolute().as_uri()}"
+            for w in self.wheel_paths
+        ]
+        doc = tomlkit.document()
+        project = tomlkit.table()
+        project["name"] = "xorq-composed"
+        project["version"] = "0.0.0"
+        project["requires-python"] = self.python_version
+        project["dependencies"] = deps
+        doc["project"] = project
+        tool_uv = tomlkit.table()
+        tool_uv["package"] = False
+        tool = tomlkit.table()
+        tool["uv"] = tool_uv
+        doc["tool"] = tool
+        (self.tmpdir / PYPROJECT_NAME).write_text(tomlkit.dumps(doc))
+
+    def _uv_lock(self):
+        from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
+
+        with tracer.start_as_current_span("packager.joint_uv_lock"):
+            args = (
+                "uv",
+                "lock",
+                "--python",
+                self.python_version,
+                "--directory",
+                str(self.tmpdir),
+            )
+            result = subprocess.run(
+                args, capture_output=True, text=True, env=_nix_env()
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"uv lock failed (exit {result.returncode}) while resolving "
+                    f"{len(self.wheel_paths)} wheels jointly:\n{result.stderr}"
+                )
+
+    def resolve(self):
+        """Synthesize pyproject, run uv lock + uv export, return JointBundle."""
+        self._write_pyproject()
+        self._uv_lock()
+        # Exclude the input wheels themselves from the exported requirements:
+        # they are supplied at runtime via `uv tool run --with <wheel>`, and
+        # their `file://` URIs point into a tmpdir that's torn down here.
+        exported = uv_export_requirements(
+            self.tmpdir,
+            self.python_version,
+            no_emit_packages=tuple(m["Name"] for m in self._meta.values()),
+        )
+        requirements_path = self.tmpdir / DumpFiles.requirements
+        requirements_path.write_text(exported)
+        return JointBundle(
+            wheel_paths=self.wheel_paths,
+            requirements_path=requirements_path,
+            python_version=self.python_version,
+            tmpdir=self._tmpdir,
         )
 
 
@@ -424,7 +587,7 @@ class PackagedRunner:
         if not self.build_path.exists():
             raise FileNotFoundError(f"build path does not exist: {self.build_path}")
         try:
-            bundle = WheelBundle.from_build_path(self.build_path)
+            bundle = JointBundle.from_build_path(self.build_path)
         except (RuntimeError, FileNotFoundError) as e:
             raise FileNotFoundError(
                 f"invalid build path {self.build_path}: {e}"
@@ -434,8 +597,8 @@ class PackagedRunner:
             object.__setattr__(self, "python_version", bundle.python_version)
 
     @property
-    def wheel_path(self):
-        return self._bundle.wheel_path
+    def wheel_paths(self):
+        return self._bundle.wheel_paths
 
     @property
     def requirements_path(self):
@@ -455,7 +618,7 @@ class PackagedRunner:
         result = uv_tool_run(
             *args,
             python_version=self.python_version,
-            with_=self.wheel_path,
+            with_=self.wheel_paths,
             with_requirements=self.requirements_path,
             capture_output=False,
         )
@@ -535,6 +698,12 @@ def uv_tool_run(
 
     with tracer.start_as_current_span("packager.uv_tool_run") as span:
         args = _normalize_xorq_cmd(args)
+        if with_ is None:
+            with_paths = ()
+        elif isinstance(with_, (str, Path)):
+            with_paths = (with_,)
+        else:
+            with_paths = tuple(with_)
         run_args = (
             "uv",
             "tool",
@@ -542,7 +711,7 @@ def uv_tool_run(
             *(("--python", python_version) if python_version else ()),
             *(("--isolated",) if isolated else ()),
             *_link_mode_args(),
-            *(("--with", str(with_)) if with_ else ()),
+            *(arg for w in with_paths for arg in ("--with", str(w))),
             *(
                 ("--with-requirements", str(with_requirements))
                 if with_requirements
@@ -565,7 +734,9 @@ def uv_tool_run(
             ) from e
 
 
-def uv_export_requirements(project_dir, python_version, extras=(), all_extras=True):
+def uv_export_requirements(
+    project_dir, python_version, extras=(), all_extras=True, no_emit_packages=()
+):
     """Run uv export in a directory with pyproject.toml + uv.lock."""
     args = (
         "uv",
@@ -581,6 +752,7 @@ def uv_export_requirements(project_dir, python_version, extras=(), all_extras=Tr
         str(project_dir),
         *(("--all-extras",) if all_extras else ()),
         *(arg for extra in extras for arg in ("--extra", extra)),
+        *(arg for pkg in no_emit_packages for arg in ("--no-emit-package", pkg)),
     )
     result = subprocess.run(args, capture_output=True, text=True, env=_nix_env())
     if result.returncode != 0:

@@ -47,6 +47,18 @@ def _replay_rebuild(source_catalog_obj, target_path, on_unrebuilt_builder="raise
 TEST_WHEEL_NAME = "pkg-0.0.0-py3-none-any.whl"
 
 
+@pytest.fixture(autouse=True)
+def _no_uv_subprocess(monkeypatch):
+    """Force `xorq catalog run` to use the in-process path under pytest.
+
+    Without this, every `runner.invoke(cli, ['run', ...])` would spawn
+    `uv tool run` which writes to the real stdout fd, bypassing CliRunner's
+    output capture. The subprocess path is exercised by manual / integration
+    runs, not unit tests.
+    """
+    monkeypatch.setenv("XORQ_CATALOG_NO_UV", "1")
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _cached_wheel_artifacts():
     """Build the wheel once per test session and patch _ensure_wheel_artifacts to reuse it."""

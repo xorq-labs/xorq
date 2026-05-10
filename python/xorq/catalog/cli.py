@@ -906,6 +906,78 @@ def _compose_expr(catalog, entries, code, rename_map=None):
     return current
 
 
+def _merge_joint_wheels_into_build(catalog, entries, build_path):
+    """Stage each entry's wheels + a unified requirements.txt into build_path.
+
+    Single entry: copies that entry's wheel(s) and requirements.txt verbatim
+    — no `uv lock` needed since the entry's archive already carries a usable
+    resolution.
+
+    Multiple entries: runs `JointWheelResolver` over the union of wheels and
+    writes the joint requirements.txt.
+
+    Existing wheels at the same filename in build_path are not overwritten.
+    No-op when entries is empty.
+    """
+    import shutil  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+
+    from xorq.catalog.zip_utils import extract_build_zip_context  # noqa: PLC0415
+    from xorq.ibis_yaml.enums import DumpFiles  # noqa: PLC0415
+    from xorq.ibis_yaml.packager import JointWheelResolver  # noqa: PLC0415
+
+    if not entries:
+        return
+
+    if len(entries) == 1:
+        (entry,) = entries
+        try:
+            catalog_entry = catalog.get_catalog_entry(entry, maybe_alias=True)
+        except (ValueError, AssertionError) as err:
+            raise click.ClickException(f"Entry {entry!r} not found in catalog") from err
+        if not catalog_entry.is_content_local:
+            catalog_entry.fetch()
+        with extract_build_zip_context(catalog_entry.catalog_path) as src_dir:
+            for w in sorted(src_dir.glob("*.whl")):
+                dst = build_path / w.name
+                if not dst.exists():
+                    shutil.copy2(w, dst)
+            src_reqs = src_dir / DumpFiles.requirements
+            if src_reqs.exists():
+                shutil.copy2(src_reqs, build_path / DumpFiles.requirements)
+        return
+
+    with tempfile.TemporaryDirectory() as harvest_str:
+        harvest_dir = Path(harvest_str)
+        wheel_paths = []
+        for i, entry in enumerate(entries):
+            try:
+                catalog_entry = catalog.get_catalog_entry(entry, maybe_alias=True)
+            except (ValueError, AssertionError) as err:
+                raise click.ClickException(
+                    f"Entry {entry!r} not found in catalog"
+                ) from err
+            if not catalog_entry.is_content_local:
+                catalog_entry.fetch()
+            with extract_build_zip_context(catalog_entry.catalog_path) as src_dir:
+                entry_dir = harvest_dir / f"entry_{i}"
+                entry_dir.mkdir()
+                for w in sorted(src_dir.glob("*.whl")):
+                    target = entry_dir / w.name
+                    shutil.copy2(w, target)
+                    wheel_paths.append(target)
+
+        if not wheel_paths:
+            return
+        resolver = JointWheelResolver(wheel_paths=tuple(wheel_paths))
+        bundle = resolver.resolve()
+        for w in bundle.wheel_paths:
+            dst = build_path / w.name
+            if not dst.exists():
+                shutil.copy2(w, dst)
+        shutil.copy2(bundle.requirements_path, build_path / DumpFiles.requirements)
+
+
 @cli.command("compose")
 @click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
 @click.option(
@@ -939,7 +1011,7 @@ def compose(ctx, entries, code, alias, cache_dir, dry_run, raw_rename_params):
 
     Always catalogs the result. Use 'run' to execute an entry for data output.
     """
-    from xorq.common.utils.otel_utils import tracer
+    from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
 
     with tracer.start_as_current_span("catalog.compose") as span:
         span.set_attributes({"entries": entries, "has_code": code is not None})
@@ -961,10 +1033,12 @@ def compose(ctx, entries, code, alias, cache_dir, dry_run, raw_rename_params):
                     click.echo(f"    {col:<24} {dtype}")
                 return
 
-            from xorq.ibis_yaml.compiler import build_expr
+            from xorq.ibis_yaml.compiler import build_expr  # noqa: PLC0415
 
             build_kwargs = {} if cache_dir is None else {"cache_dir": Path(cache_dir)}
             build_path = build_expr(expr, **build_kwargs)
+            _merge_joint_wheels_into_build(catalog, entries, build_path)
+
             entry_name = build_path.name
             aliases = (alias,) if alias else ()
             alias_existed = alias and catalog.catalog_yaml.contains_alias(alias)
@@ -1153,7 +1227,24 @@ def run(
                     expr = expr.limit(limit)
 
                 with timed() as get_elapsed:
-                    arbitrate_output_format(expr, output_path, output_format)
+                    if os.environ.get("XORQ_CATALOG_NO_UV"):
+                        arbitrate_output_format(expr, output_path, output_format)
+                    else:
+                        import tempfile  # noqa: PLC0415
+
+                        from xorq.ibis_yaml.compiler import build_expr  # noqa: PLC0415
+                        from xorq.ibis_yaml.packager import (  # noqa: PLC0415
+                            PackagedRunner,
+                        )
+
+                        with tempfile.TemporaryDirectory() as builds_str:
+                            build_path = build_expr(expr, builds_dir=Path(builds_str))
+                            _merge_joint_wheels_into_build(catalog, entries, build_path)
+                            PackagedRunner(
+                                build_path,
+                                output_path=output_path,
+                                output_format=output_format,
+                            ).run()
 
                     rl.log_span_event(
                         span,
