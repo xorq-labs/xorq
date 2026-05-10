@@ -594,7 +594,6 @@ class PackagedRunner:
     output_path = field(validator=optional(instance_of(str)), default=None)
     output_format = field(validator=instance_of(str), default="parquet")
     python_version = field(validator=_validate_python_version, default=None)
-    isolated = field(validator=instance_of(bool), default=True)
     _bundle = field(init=False, repr=False, eq=False, default=None)
 
     def __attrs_post_init__(self):
@@ -631,7 +630,6 @@ class PackagedRunner:
         )
         result = uv_tool_run(
             *args,
-            isolated=self.isolated,
             python_version=self.python_version,
             with_=self.wheel_paths,
             with_requirements=self.requirements_path,
