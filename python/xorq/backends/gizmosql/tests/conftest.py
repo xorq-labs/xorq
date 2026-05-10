@@ -58,6 +58,11 @@ def _generate_self_signed_cert(out_dir: Path) -> tuple[Path, Path]:
     cert_path = out_dir / "gizmosql_test_cert.pem"
     key_path = out_dir / "gizmosql_test_key.pem"
     cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    # The key is written unencrypted because the server has to read it back
+    # at startup with no passphrase prompt available, and the tmp dir is
+    # session-scoped + per-pytest-invocation. The cert is loopback-only and
+    # ~1 day valid, so the on-disk plaintext window is bounded and the
+    # blast radius is limited to the same shell user already running pytest.
     key_path.write_bytes(
         key.private_bytes(
             encoding=serialization.Encoding.PEM,
@@ -89,6 +94,16 @@ def gizmosql_server(tmp_path_factory):
         password=GIZMOSQL_PASSWORD,
         extra_args=["--tls", str(cert_path), str(key_path)],
     ) as srv:
+        # Sanity-check the public Server API surface this conftest depends
+        # on. The `gizmosql` pin (`>=1.26.0,<2`) prevents major-version
+        # drift, but failing fast here gives a clear error if a future
+        # patch release renames an attribute, instead of every downstream
+        # test surfacing the same AttributeError.
+        for attr in ("host", "port", "username", "password"):
+            assert hasattr(srv, attr), (
+                f"gizmosql.Server is missing expected attribute {attr!r}; "
+                "the fixture needs updating for this gizmosql version."
+            )
         yield srv
 
 
