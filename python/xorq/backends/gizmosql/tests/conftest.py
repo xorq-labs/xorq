@@ -82,11 +82,23 @@ def gizmosql_server(tmp_path_factory):
     auto-picks a free port, and tears the server down on exit — no Docker
     is needed for the test fixture. A short-lived self-signed cert is
     generated at session start and passed via ``--tls`` so the encrypted
-    Flight SQL path is still exercised by the tests.
+    Flight SQL path is still exercised by the tests. The CLI flag contract
+    (``--tls <cert> <key>``) is covered by the ``gizmosql>=1.26.0,<2``
+    version pin in ``pyproject.toml``.
+
+    Note: unlike the previous Docker-based fixture, this version does not
+    reuse a pre-existing server listening on a fixed port — it always
+    starts its own subprocess on a freshly-picked free port. Developers
+    who used to run a local GizmoSQL alongside pytest no longer benefit
+    from that fallback.
     """
     gizmosql = pytest.importorskip("gizmosql")
 
     cert_dir = tmp_path_factory.mktemp("gizmosql-tls")
+    # Restrict directory access to the owner before writing the unencrypted
+    # key — important on shared CI runners where the system tmp dir would
+    # otherwise be world-readable by default.
+    cert_dir.chmod(0o700)
     cert_path, key_path = _generate_self_signed_cert(cert_dir)
 
     with gizmosql.Server(
