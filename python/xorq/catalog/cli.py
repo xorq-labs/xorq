@@ -1230,21 +1230,36 @@ def run(
                     if os.environ.get("XORQ_CATALOG_NO_UV"):
                         arbitrate_output_format(expr, output_path, output_format)
                     else:
-                        import tempfile  # noqa: PLC0415
-
-                        from xorq.ibis_yaml.compiler import build_expr  # noqa: PLC0415
+                        from xorq.common.utils.caching_utils import (  # noqa: PLC0415
+                            get_xorq_cache_dir,
+                        )
+                        from xorq.ibis_yaml.compiler import (  # noqa: PLC0415
+                            ArtifactStore,
+                            build_expr,
+                        )
+                        from xorq.ibis_yaml.enums import DumpFiles  # noqa: PLC0415
                         from xorq.ibis_yaml.packager import (  # noqa: PLC0415
                             PackagedRunner,
                         )
 
-                        with tempfile.TemporaryDirectory() as builds_str:
-                            build_path = build_expr(expr, builds_dir=Path(builds_str))
+                        builds_dir = get_xorq_cache_dir() / "catalog-run"
+                        builds_dir.mkdir(parents=True, exist_ok=True)
+                        expr_hash = ArtifactStore.get_expr_hash(expr)
+                        build_path = builds_dir / expr_hash
+                        cache_hit = (
+                            (build_path / DumpFiles.expr).exists()
+                            and (build_path / DumpFiles.requirements).exists()
+                            and any(build_path.glob("*.whl"))
+                        )
+                        if not cache_hit:
+                            build_path = build_expr(expr, builds_dir=builds_dir)
                             _merge_joint_wheels_into_build(catalog, entries, build_path)
-                            PackagedRunner(
-                                build_path,
-                                output_path=output_path,
-                                output_format=output_format,
-                            ).run()
+                        PackagedRunner(
+                            build_path,
+                            output_path=output_path,
+                            output_format=output_format,
+                            isolated=False,
+                        ).run()
 
                     rl.log_span_event(
                         span,
