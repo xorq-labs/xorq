@@ -1,19 +1,23 @@
-"""from_tag_node registry — recover domain objects from expression tags.
+"""from_tag_node registry: recover domain objects from expression tags.
 
 An ExprBuilder is an expression whose tags carry domain-specific metadata.
 Handlers are ``TagHandler`` instances that declare their ``tag_names`` and
-provide:
+provide one or more of these optional callbacks:
 
-- ``extract_metadata(tag_node) → dict`` — sidecar metadata for the catalog
-- ``from_tag_node(tag_node) → object``  — recover a live domain object
+- ``extract_metadata(tag_node) -> dict``: sidecar metadata for the catalog.
+- ``from_tag_node(tag_node) -> object``: recover a live domain object.
+- ``reemit(tag_node, rebuild_subexpr) -> Expr``: handler-level rebuild hook,
+  used by ``catalog replay --rebuild`` and dispatched by
+  :func:`get_rebuild_dispatch`.
 
-Both callbacks are optional (but at least one is required).  If only
-``from_tag_node`` is provided, a minimal metadata dict ``{"type": tag_name}``
-is generated automatically.
+At least one of ``extract_metadata`` or ``from_tag_node`` is required.  If
+only ``from_tag_node`` is provided, a minimal metadata dict
+``{"type": tag_name}`` is generated automatically. ``reemit`` is purely
+opt-in.
 
 Built-in handlers (ML pipeline) are declared in ``_builtin_handlers()``.
 Third-party packages register via the ``"xorq.from_tag_node"`` entry point
-group — the loaded object must be a ``TagHandler``.
+group; the loaded object must be a ``TagHandler``.
 
 Entry point example (pyproject.toml)::
 
@@ -54,6 +58,7 @@ class TagHandler:
     from_tag_node: Optional[Callable] = field(
         default=None, validator=optional(is_callable())
     )
+    reemit: Optional[Callable] = field(default=None, validator=optional(is_callable()))
 
     def __attrs_post_init__(self):
         if not self.tag_names:
@@ -159,6 +164,54 @@ def extract_builder_metadata(tag_node):
     if handler.extract_metadata is not None:
         return handler.extract_metadata(tag_node)
     return {"type": tag_name}
+
+
+def get_rebuild_dispatch(tag_node):
+    """Return a rebuild dispatch callable for *tag_node*, or ``None``.
+
+    Dispatch order:
+      1. Handler-level ``reemit`` callable (e.g., BSL-shape builders whose
+         ``from_tag_node`` does not carry the full recipe).
+      2. Domain-object ``reemit(tag_node, rebuild_subexpr)`` method
+         (multi-output builders like ``FittedPipeline``).
+      3. Domain-object ``with_inputs_translated(remap, to_catalog)`` +
+         ``expr`` (single-output builders like ``ExprComposer``).
+
+    All three paths are normalized to a single calling convention:
+    ``dispatch(rebuild_subexpr, remap, to_catalog) -> Expr``. Closures
+    for paths 1 and 2 ignore ``remap``/``to_catalog`` (their reemit
+    method recurses through ``rebuild_subexpr`` instead); the closure
+    for path 3 ignores ``rebuild_subexpr`` (``with_inputs_translated``
+    walks the recipe directly). The driver passes all three regardless.
+
+    Returns ``None`` when no handler matches or no rebuild path is available.
+    """
+    registry = _get_from_tag_node_registry()
+    handler = registry.get(tag_node.metadata.get("tag"))
+    if handler is None:
+        return None
+    if callable(handler.reemit):
+        return lambda rebuild_subexpr, remap, to_catalog: handler.reemit(
+            tag_node, rebuild_subexpr
+        )
+    if handler.from_tag_node is None:
+        return None
+    builder = handler.from_tag_node(tag_node)
+    if builder is None:
+        return None
+    if callable(getattr(builder, "reemit", None)):
+        return lambda rebuild_subexpr, remap, to_catalog: builder.reemit(
+            tag_node, rebuild_subexpr
+        )
+    if callable(getattr(builder, "with_inputs_translated", None)) and hasattr(
+        builder, "expr"
+    ):
+        return (
+            lambda rebuild_subexpr, remap, to_catalog: builder.with_inputs_translated(
+                remap, to_catalog
+            ).expr
+        )
+    return None
 
 
 def _resolve_builder_from_tag(expr):

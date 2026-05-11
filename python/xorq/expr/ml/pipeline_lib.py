@@ -961,6 +961,17 @@ class Pipeline:
         return self.__class__.from_instance(remapped)
 
 
+_FITTED_PIPELINE_REEMIT_TAGS: frozenset[FittedPipelineTagKey] = frozenset(
+    {
+        FittedPipelineTagKey.TRANSFORM,
+        FittedPipelineTagKey.PREDICT,
+        FittedPipelineTagKey.PREDICT_PROBA,
+        FittedPipelineTagKey.DECISION_FUNCTION,
+        FittedPipelineTagKey.FEATURE_IMPORTANCES,
+    }
+)
+
+
 @frozen
 class FittedPipeline:
     fitted_steps = field(
@@ -1015,6 +1026,78 @@ class FittedPipeline:
         if not pipeline_tags:
             raise ValueError("No FittedPipeline tag found on expr")
         return cls.from_tag_node(pipeline_tags[0])
+
+    def reemit(self, tag_node, rebuild_subexpr):
+        """Re-emit *tag_node*'s subtree under current code.
+
+        Refits the pipeline on the rebuilt training subtree so the
+        outer tag's ``training_hash`` and step kwargs refresh, rebuilds
+        catalog subtrees inside the tag's parent (so inner Reads
+        resolve to the target catalog's files), and re-stamps the outer
+        pipeline tag on the rebuilt parent with fresh kwargs from the
+        refitted pipeline.
+
+        The internal transform/predict expression structure is
+        preserved; we do not re-invoke the response method, since the
+        original predict/transform input is not recoverable from the
+        tag subtree alone.
+        """
+        from xorq.catalog.bind import CatalogTag  # noqa: PLC0415
+        from xorq.expr.relations import HashingTag  # noqa: PLC0415
+
+        tag_key = FittedPipelineTagKey(tag_node.metadata["tag"])
+        if tag_key not in _FITTED_PIPELINE_REEMIT_TAGS:
+            raise RuntimeError(
+                f"rebuild: FittedPipeline tag {tag_key!r} is not a reemit entry point"
+            )
+
+        # Refuse rebuild when the training subtree itself contains catalog
+        # refs. The model UDFs in `tag_node.parent` close over the original
+        # training expression via `computed_kwargs_expr`, and rebuild_subexpr
+        # only translates Reads it can reach by graph walk; it does not
+        # descend into UDF closures. So if we proceed:
+        #   - new_training would be the catalog-translated training expr,
+        #   - refitted's tag_kwargs would advertise a fresh training_hash,
+        #   - but the model UDF inside new_parent would still reference the
+        #     OLD training expression (whose Reads point at source-catalog
+        #     paths that may not exist in the target).
+        # The result is silent provenance/execution divergence. Doing this
+        # correctly requires recursively rebuilding inside ScalarUDF
+        # closures, punted to a follow-up.
+        catalog_tags = frozenset(CatalogTag)
+        training_catalog_tags = tuple(
+            n
+            for n in walk_nodes((HashingTag,), self.expr)
+            if n.metadata.get("tag") in catalog_tags
+        )
+        if training_catalog_tags:
+            raise RuntimeError(
+                "rebuild: FittedPipeline whose training subtree contains "
+                "catalog references is not yet supported. Model UDFs close "
+                "over the original training expression and rebuild_subexpr "
+                "does not descend into UDF closures, so the rebuilt entry "
+                "would fit on the translated training data but still "
+                "reference the source catalog's reads at execution time."
+            )
+
+        # Asymmetry note: the catalog-refs guard above only walks `self.expr`
+        # (training), but rebuild *does* translate catalog refs in the predict
+        # input — that subtree is reached via `tag_node.parent` and rebuilt by
+        # the `rebuild_subexpr` call below. Training is the path that's
+        # unreachable through the graph walk (it's bound into the model UDF
+        # closure), which is why it's the one we refuse rather than translate.
+        new_training = rebuild_subexpr(self.expr)
+        refitted = self.pipeline.fit(
+            new_training,
+            features=self.fitted_steps[0].features,
+            target=self.fitted_steps[0].target,
+            cache=self.fitted_steps[0].cache,
+        )
+        new_parent = rebuild_subexpr(tag_node.parent.to_expr())
+        new_kwargs = refitted.get_tag_kwargs(tag_key) | refitted.get_tag_kwargs(
+            FittedPipelineTagKey.ALL_STEPS
+        )
+        return new_parent.tag(str(tag_key), **new_kwargs)
 
     @property
     def pipeline(self):

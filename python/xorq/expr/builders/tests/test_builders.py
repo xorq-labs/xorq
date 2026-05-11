@@ -38,21 +38,6 @@ from xorq.vendor.ibis.expr.types.core import (
 
 
 @pytest.fixture
-def saved_registry():
-    """Save and restore the handler registry around a test."""
-    import xorq.expr.builders as _builders_mod  # noqa: PLC0415
-
-    saved = dict(_FROM_TAG_NODE_REGISTRY)
-    saved_keys = _builders_mod._BUILTIN_KEYS
-    saved_init = _builders_mod._initialized
-    yield
-    _FROM_TAG_NODE_REGISTRY.clear()
-    _FROM_TAG_NODE_REGISTRY.update(saved)
-    _builders_mod._BUILTIN_KEYS = saved_keys
-    _builders_mod._initialized = saved_init
-
-
-@pytest.fixture
 def con():
     return xo.connect()
 
