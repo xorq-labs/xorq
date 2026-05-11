@@ -32,6 +32,8 @@ from xorq.catalog.tests.testing import (
 )
 from xorq.catalog.tui import (
     GIT_LOG_COLUMNS,
+    KIND_ORDER,
+    KIND_STYLES,
     CatalogRowData,
     CatalogScreen,
     CatalogTUI,
@@ -43,11 +45,13 @@ from xorq.catalog.tui import (
     _build_git_log_rows,
     _entry_info,
     _format_cached,
+    _styled_branch_label,
     get_cache_key_path,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.env_utils import EnvConfigable, env_templates_dir
 from xorq.config import TUI, options
+from xorq.ibis_yaml.enums import ExprKind
 
 
 def _run(coro):
@@ -136,6 +140,24 @@ def test_revision_row_columns_display_int():
 
 def test_revision_row_columns_display_zero():
     assert RevisionRowData(column_count=0).columns_display == "0 cols"
+
+
+@pytest.mark.parametrize("kind", list(ExprKind))
+def test_kind_order_and_styles_cover_every_expr_kind(kind):
+    """KIND_ORDER and KIND_STYLES must include every ExprKind value.
+
+    Drift here causes branch ordering to drop the kind and
+    _styled_branch_label to KeyError at render time.
+    """
+    assert kind in KIND_ORDER
+    assert kind in KIND_STYLES
+
+
+@pytest.mark.parametrize("kind", list(ExprKind))
+def test_styled_branch_label_renders_every_kind(kind):
+    label = _styled_branch_label(kind, 1)
+    assert kind in label.plain
+    assert "(1)" in label.plain
 
 
 # ---------------------------------------------------------------------------

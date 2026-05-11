@@ -500,7 +500,7 @@ css = [
 
 [[package]]
 name = "boring-semantic-layer"
-version = "0.3.10"
+version = "0.3.13"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
@@ -511,9 +511,9 @@ dependencies = [
     { name = "toolz" },
     { name = "xorq" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5a/48/01440da4ff1917269fed653d8eb7ad42c5efa47471e90342491fddc92ef2/boring_semantic_layer-0.3.10.tar.gz", hash = "sha256:83b1d366bad34db9e671213848ee53555a96b6983ce59ddbbe6ad611088459be", size = 1327965, upload-time = "2026-03-25T19:21:48.382Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ff/bd/a4a2c27a088c19998ce4902e4dbc9ed25e264c2a406571b4a7638eaf147f/boring_semantic_layer-0.3.13.tar.gz", hash = "sha256:5ae96d1fd3d73260129a303c45d64e7a7199aa023896bc9d1e6c9b00c082ef07", size = 1367075, upload-time = "2026-05-05T11:23:32.232Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/21/6e/e0ecaad9fdf1f9ede6c3f5ab8b6fb69e4f4f9cfcbe31d725974ffa57bcb7/boring_semantic_layer-0.3.10-py3-none-any.whl", hash = "sha256:187285889c9e5d48267671f318335da0f395e15a2c6dc97f91a91d71ac605b9c", size = 545133, upload-time = "2026-03-25T19:21:46.684Z" },
+    { url = "https://files.pythonhosted.org/packages/58/5c/fa7a989bd87e0e61451cf668bc8a3eb41da90a57bbbc158090043294457f/boring_semantic_layer-0.3.13-py3-none-any.whl", hash = "sha256:d00e58da9f0870d41c621aee7abb95fff0bf63522ff2a80c0a1acb7a65920864", size = 587435, upload-time = "2026-05-05T11:23:30.923Z" },
 ]
 
 [[package]]
@@ -5966,7 +5966,7 @@ requires-dist = [
     { name = "adbc-driver-sqlite", marker = "extra == 'sqlite'", specifier = ">=1.4.0" },
     { name = "atpublic", specifier = ">=5.1" },
     { name = "attrs", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=24.1.0" },
-    { name = "boring-semantic-layer", marker = "extra == 'bsl'", specifier = ">=0.1.0" },
+    { name = "boring-semantic-layer", marker = "extra == 'bsl'", specifier = ">=0.3.13" },
     { name = "cityhash", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.4.7,<1" },
     { name = "click", specifier = ">=8.0" },
     { name = "cloudpickle", specifier = ">=3.1.1" },
