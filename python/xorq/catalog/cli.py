@@ -906,33 +906,6 @@ def _compose_expr(catalog, entries, code, rename_map=None):
     return current
 
 
-CATALOG_RUN_INPUTS_FILE = ".catalog-run-inputs"
-
-
-def _catalog_run_inputs_fingerprint(catalog, entries):
-    """Sorted, newline-joined content hashes of the source catalog entries.
-
-    Recorded in the cached build dir so that a stale cache is detected when
-    an entry's wheel changes without affecting the expression's structural
-    hash (e.g., a UDF impl change that preserves the op tree). Returns None
-    if any entry is unknown; the caller treats that as cache-miss.
-    """
-    try:
-        names = sorted(
-            catalog.get_catalog_entry(e, maybe_alias=True).name for e in entries
-        )
-    except (ValueError, AssertionError):
-        return None
-    return "\n".join(names)
-
-
-def _read_run_inputs_fingerprint(build_path):
-    fp = build_path / CATALOG_RUN_INPUTS_FILE
-    if not fp.exists():
-        return None
-    return fp.read_text().strip()
-
-
 def _merge_joint_wheels_into_build(catalog, entries, build_path):
     """Stage each entry's wheels + a unified requirements.txt into build_path.
 
@@ -1273,21 +1246,14 @@ def run(
                         builds_dir.mkdir(parents=True, exist_ok=True)
                         expr_hash = ArtifactStore.get_expr_hash(expr)
                         build_path = builds_dir / expr_hash
-                        fingerprint = _catalog_run_inputs_fingerprint(catalog, entries)
                         cache_hit = (
-                            fingerprint is not None
-                            and (build_path / DumpFiles.expr).exists()
+                            (build_path / DumpFiles.expr).exists()
                             and (build_path / DumpFiles.requirements).exists()
                             and any(build_path.glob("*.whl"))
-                            and _read_run_inputs_fingerprint(build_path) == fingerprint
                         )
                         if not cache_hit:
                             build_path = build_expr(expr, builds_dir=builds_dir)
                             _merge_joint_wheels_into_build(catalog, entries, build_path)
-                            if fingerprint is not None:
-                                (build_path / CATALOG_RUN_INPUTS_FILE).write_text(
-                                    fingerprint
-                                )
                         PackagedRunner(
                             build_path,
                             output_path=output_path,
