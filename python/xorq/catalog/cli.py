@@ -1229,6 +1229,85 @@ def run(
                     else None
                 )
 
+                # Fast path: single source-entry run with no structural
+                # transformations (no `-c code`, no --rename-params). Extract
+                # the entry's archive directly into
+                # `<cache>/catalog-run/<entry.name>/` (content-addressed,
+                # idempotent) and hand to PackagedRunner. Skips build_expr +
+                # _merge_joint_wheels entirely. --limit and --params are
+                # forwarded to `xorq run`. --fuse is a no-op on a single
+                # source entry (no catalog-source RemoteTable / HashingTag
+                # wrappers to strip via `fuse_catalog_source`), so it's safe
+                # to skip.
+                if (
+                    not os.environ.get("XORQ_CATALOG_NO_UV")
+                    and len(entries) == 1
+                    and code is None
+                    and not raw_rename_params
+                ):
+                    import tempfile  # noqa: PLC0415
+
+                    from xorq.catalog.zip_utils import (  # noqa: PLC0415
+                        extract_build_zip_to,
+                    )
+                    from xorq.common.utils.caching_utils import (  # noqa: PLC0415
+                        get_xorq_cache_dir,
+                    )
+                    from xorq.ibis_yaml.packager import (  # noqa: PLC0415
+                        PackagedRunner,
+                    )
+
+                    (entry_name,) = entries
+                    try:
+                        catalog_entry = catalog.get_catalog_entry(
+                            entry_name, maybe_alias=True
+                        )
+                    except (ValueError, AssertionError) as err:
+                        raise click.ClickException(
+                            f"Entry {entry_name!r} not found in catalog"
+                        ) from err
+                    if not catalog_entry.is_content_local:
+                        catalog_entry.fetch()
+
+                    cache_root = get_xorq_cache_dir() / "catalog-run"
+                    cache_root.mkdir(parents=True, exist_ok=True)
+                    build_path = cache_root / catalog_entry.name
+                    if not build_path.exists():
+                        with tempfile.TemporaryDirectory(dir=cache_root) as tmp:
+                            extracted = extract_build_zip_to(
+                                catalog_entry.catalog_path, Path(tmp)
+                            )
+                            try:
+                                extracted.rename(build_path)
+                            except OSError:
+                                # Concurrent extractor populated it first.
+                                pass
+
+                    with timed() as get_elapsed:
+                        PackagedRunner(
+                            build_path,
+                            output_path=output_path,
+                            output_format=output_format,
+                            limit=limit,
+                            params=raw_params,
+                        ).run()
+                        rl.log_span_event(
+                            span,
+                            "catalog_run.done",
+                            {
+                                "elapsed_s": round(get_elapsed(), 3),
+                                "output_format": str(output_format),
+                            },
+                        )
+                    file_metrics = RunLogger._compute_file_metrics(
+                        output_format, output_path
+                    )
+                    if file_metrics:
+                        rl.log_span_event(
+                            span, "catalog_run.output_written", file_metrics
+                        )
+                    return
+
                 with timed() as get_elapsed:
                     if len(entries) > 1:
                         expr = _compose_expr(
