@@ -348,7 +348,14 @@ def test_wheel_bundle_from_build_path_no_wheel(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_write_requirements_path_rejects_stale_requirements(tmp_path, monkeypatch):
+@pytest.mark.library
+def test_write_requirements_path_prefers_export_over_stale_on_disk(
+    tmp_path, monkeypatch
+):
+    """When uv.lock exists, the lockfile is authoritative. An on-disk
+    `requirements.txt` exported by a different uv version must not break
+    the build --- the packager regenerates from the lock and uses that.
+    Regression for #1941."""
     _make_pyproject(tmp_path)
     (tmp_path / UVLOCK_NAME).write_text("# lockfile")
     (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
@@ -357,12 +364,15 @@ def test_write_requirements_path_rejects_stale_requirements(tmp_path, monkeypatc
         "xorq.ibis_yaml.packager.uv_export_requirements",
         lambda *a, **kw: "flask==3.0.0\n",
     )
-    with pytest.raises(RuntimeError, match="does not match") as exc_info:
-        packager._write_requirements_path()
-    message = str(exc_info.value)
-    # Error must name the remediation paths explicitly so the user can act.
-    assert str(tmp_path / DumpFiles.requirements) in message
-    assert "uv export" in message
+
+    packager._write_requirements_path()
+
+    bundled = (packager.tmpdir / DumpFiles.requirements).read_text()
+    assert bundled == "flask==3.0.0\n"
+    # The user's on-disk requirements.txt is left untouched (we don't
+    # rewrite their working tree); only the build artifact reflects the
+    # authoritative lockfile export.
+    assert (tmp_path / DumpFiles.requirements).read_text() == "requests==2.31.0\n"
 
 
 # ---------------------------------------------------------------------------
