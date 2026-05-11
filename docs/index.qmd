@@ -8,9 +8,9 @@ listing:
   - id: centerpiece-cards
     template: "style/gallery.ejs"
     contents:
+      - "getting_started/get-started-with-xorq-init.qmd"
       - "tutorials/core_tutorials/build_a_semantic_catalog.qmd"
       - "tutorials/core_tutorials/working_with_the_catalog.qmd"
-      - "getting_started/get-started-with-xorq-init.qmd"
       - "tutorials/ml_tutorials/train_your_first_model.qmd"
     type: grid
     grid-columns: 4
