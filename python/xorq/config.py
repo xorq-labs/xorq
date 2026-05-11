@@ -186,6 +186,23 @@ class TUI(Config):
     )
 
 
+def _default_use_hardlink(platform=None, env_value=None):
+    """Compute the default for ``options.uv.use_hardlink``.
+
+    Pure function so tests can exercise default-selection logic without
+    monkeypatching module globals or reloading the module. ``platform`` and
+    ``env_value`` fall back to ``sys.platform`` and
+    ``env_config.XORQ_UV_USE_HARDLINK`` when not supplied.
+    """
+    if platform is None:
+        platform = sys.platform
+    if env_value is None:
+        env_value = env_config.XORQ_UV_USE_HARDLINK
+    if env_value:
+        return bool(ast.literal_eval(env_value))
+    return platform == "darwin"
+
+
 class UV(Config):
     """Options controlling how xorq invokes ``uv`` subprocesses.
 
@@ -199,11 +216,7 @@ class UV(Config):
         overridable via ``XORQ_UV_USE_HARDLINK``.
     """
 
-    use_hardlink: bool = (
-        bool(ast.literal_eval(env_config.XORQ_UV_USE_HARDLINK))
-        if env_config.XORQ_UV_USE_HARDLINK
-        else sys.platform == "darwin"
-    )
+    use_hardlink: bool = _default_use_hardlink()
 
 
 class Options(IbisOptions):

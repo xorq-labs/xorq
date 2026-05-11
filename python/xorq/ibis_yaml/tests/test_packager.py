@@ -390,76 +390,84 @@ def test_uv_tool_run_omits_link_mode_when_option_false(monkeypatch):
     assert "--link-mode" not in captured["args"]
 
 
-def test_uv_config_defaults_to_hardlink_on_darwin(monkeypatch):
-    from xorq.common.utils.env_utils import (  # noqa: PLC0415
-        EnvConfigable,
-        env_templates_dir,
-    )
+def test_uv_default_use_hardlink_on_darwin():
+    from xorq.config import _default_use_hardlink  # noqa: PLC0415
 
-    monkeypatch.delenv("XORQ_UV_USE_HARDLINK", raising=False)
-    monkeypatch.setattr("xorq.config.sys.platform", "darwin")
-    # Rebuild env_config + UV class with fresh env / sys.platform
-    fresh_env = EnvConfigable.subclass_from_env_file(
-        env_templates_dir.joinpath(".env.xorq.template")
-    ).from_env()
-    monkeypatch.setattr("xorq.config.env_config", fresh_env)
-    # Reimport UV so its class-body default is re-evaluated against the patched globals.
-    import importlib  # noqa: PLC0415
-
-    import xorq.config  # noqa: PLC0415
-
-    importlib.reload(xorq.config)
-    try:
-        assert xorq.config.UV().use_hardlink is True
-    finally:
-        importlib.reload(xorq.config)
+    assert _default_use_hardlink(platform="darwin", env_value="") is True
 
 
-def test_uv_config_defaults_off_on_linux(monkeypatch):
-    from xorq.common.utils.env_utils import (  # noqa: PLC0415
-        EnvConfigable,
-        env_templates_dir,
-    )
+def test_uv_default_use_hardlink_off_on_linux():
+    from xorq.config import _default_use_hardlink  # noqa: PLC0415
 
-    monkeypatch.delenv("XORQ_UV_USE_HARDLINK", raising=False)
-    monkeypatch.setattr("xorq.config.sys.platform", "linux")
-    fresh_env = EnvConfigable.subclass_from_env_file(
-        env_templates_dir.joinpath(".env.xorq.template")
-    ).from_env()
-    monkeypatch.setattr("xorq.config.env_config", fresh_env)
-    import importlib  # noqa: PLC0415
-
-    import xorq.config  # noqa: PLC0415
-
-    importlib.reload(xorq.config)
-    try:
-        assert xorq.config.UV().use_hardlink is False
-    finally:
-        importlib.reload(xorq.config)
+    assert _default_use_hardlink(platform="linux", env_value="") is False
 
 
-def test_uv_config_env_var_override(monkeypatch):
-    from xorq.common.utils.env_utils import (  # noqa: PLC0415
-        EnvConfigable,
-        env_templates_dir,
-    )
+def test_uv_default_use_hardlink_env_value_overrides_platform():
+    from xorq.config import _default_use_hardlink  # noqa: PLC0415
 
-    monkeypatch.setenv("XORQ_UV_USE_HARDLINK", "False")
-    monkeypatch.setattr("xorq.config.sys.platform", "darwin")
-    fresh_env = EnvConfigable.subclass_from_env_file(
-        env_templates_dir.joinpath(".env.xorq.template")
-    ).from_env()
-    monkeypatch.setattr("xorq.config.env_config", fresh_env)
-    import importlib  # noqa: PLC0415
+    # darwin would default True, but an explicit env override wins.
+    assert _default_use_hardlink(platform="darwin", env_value="False") is False
+    # linux would default False, but an explicit env override wins.
+    assert _default_use_hardlink(platform="linux", env_value="True") is True
 
-    import xorq.config  # noqa: PLC0415
 
-    importlib.reload(xorq.config)
-    try:
-        # darwin would default True, but the env override wins.
-        assert xorq.config.UV().use_hardlink is False
-    finally:
-        importlib.reload(xorq.config)
+def test_wheel_packager_build_wheel_passes_link_mode_hardlink(tmp_path, monkeypatch):
+    from xorq.config import options  # noqa: PLC0415
+
+    monkeypatch.setattr(options.uv, "use_hardlink", True)
+    _make_pyproject(tmp_path)
+    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
+
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+
+        class _R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return _R()
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.subprocess.run", fake_run)
+
+    packager = WheelPackager(tmp_path)
+    packager._build_wheel()
+
+    args = captured["args"]
+    assert "--link-mode" in args
+    idx = args.index("--link-mode")
+    assert args[idx + 1] == "hardlink"
+
+
+def test_wheel_packager_build_wheel_omits_link_mode_when_option_false(
+    tmp_path, monkeypatch
+):
+    from xorq.config import options  # noqa: PLC0415
+
+    monkeypatch.setattr(options.uv, "use_hardlink", False)
+    _make_pyproject(tmp_path)
+    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
+
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+
+        class _R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return _R()
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.subprocess.run", fake_run)
+
+    packager = WheelPackager(tmp_path)
+    packager._build_wheel()
+
+    assert "--link-mode" not in captured["args"]
 
 
 # ---------------------------------------------------------------------------
