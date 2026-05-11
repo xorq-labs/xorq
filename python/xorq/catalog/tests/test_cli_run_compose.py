@@ -1,8 +1,10 @@
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pytest
+from click.testing import CliRunner
 
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import _merge_joint_wheels_into_build, cli
@@ -584,3 +586,106 @@ def test_merge_joint_wheels_multi_entry_runs_resolver(
     assert reqs.exists()
     text = reqs.read_text()
     assert "file://" not in text
+
+
+# --- uv-subprocess path coverage ---
+#
+# Other tests in this file go through the auto-injecting `runner` fixture
+# (which adds `--use-this-venv`), so they exercise the in-process branch.
+# These tests cover the *uv* branch — the one that builds, merges joint
+# wheels, and spawns `uv tool run xorq run`.
+
+
+def test_catalog_run_invokes_packaged_runner(
+    catalog_with_source_and_transform, monkeypatch
+):
+    """Without --use-this-venv, `catalog run` constructs a PackagedRunner
+    with the cached build_path and forwards output options. Stub the
+    subprocess so we don't pay for `uv tool run`."""
+    calls = []
+
+    def fake_run(self):
+        calls.append(self)
+        return self
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.PackagedRunner.run", fake_run)
+
+    catalog_path, _, _ = catalog_with_source_and_transform
+    bare = CliRunner()  # NOT the auto-injecting runner fixture
+    result = bare.invoke(
+        cli,
+        ["--path", catalog_path, "run", "src", "-o", "-", "-f", "csv"],
+    )
+    assert result.exit_code == 0, result.output
+
+    (pr,) = calls
+    assert pr.output_path == "-"
+    assert pr.output_format == "csv"
+    # build_path must be the cached catalog-run slot with required artifacts
+    assert (pr.build_path / DumpFiles.expr).exists()
+    assert (pr.build_path / DumpFiles.requirements).exists()
+    assert list(pr.build_path.glob("*.whl"))
+
+
+def test_catalog_run_uv_path_reuses_cached_build(
+    catalog_with_source_and_transform, monkeypatch, tmp_path
+):
+    """Second invocation with the same expression hits the cache, so
+    `_merge_joint_wheels_into_build` is not called again."""
+    merge_calls = []
+
+    from xorq.catalog import cli as cli_mod  # noqa: PLC0415
+
+    original_merge = cli_mod._merge_joint_wheels_into_build
+
+    def spy_merge(catalog, entries, build_path):
+        merge_calls.append(build_path)
+        return original_merge(catalog, entries, build_path)
+
+    monkeypatch.setattr(cli_mod, "_merge_joint_wheels_into_build", spy_merge)
+    monkeypatch.setattr("xorq.ibis_yaml.packager.PackagedRunner.run", lambda self: self)
+    # Isolate the catalog-run cache so any pre-existing cached build dirs
+    # from prior runs don't make the first invocation a cache hit.
+    monkeypatch.setattr(
+        "xorq.common.utils.caching_utils.get_xorq_cache_dir",
+        lambda: tmp_path / "xorq-cache",
+    )
+
+    catalog_path, _, _ = catalog_with_source_and_transform
+    bare = CliRunner()
+    args = ["--path", catalog_path, "run", "src", "-o", "-", "-f", "csv"]
+
+    r1 = bare.invoke(cli, args)
+    assert r1.exit_code == 0, r1.output
+    r2 = bare.invoke(cli, args)
+    assert r2.exit_code == 0, r2.output
+
+    # First invocation populated the cache; second is a hit.
+    assert len(merge_calls) == 1
+
+
+@pytest.mark.slow(level=1)
+def test_catalog_run_uv_path_end_to_end(catalog_with_source_and_transform, tmp_path):
+    """Full pipeline: build_expr + merge wheels + `uv tool run xorq run`.
+    Slow because uv resolves and installs the entry's pinned env."""
+    catalog_path, _, _ = catalog_with_source_and_transform
+    out = tmp_path / "out.csv"
+    result = subprocess.run(
+        [
+            "xorq",
+            "catalog",
+            "--path",
+            catalog_path,
+            "run",
+            "src",
+            "-o",
+            str(out),
+            "-f",
+            "csv",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert out.exists() and out.stat().st_size > 0
+    assert "user_id" in out.read_text()
