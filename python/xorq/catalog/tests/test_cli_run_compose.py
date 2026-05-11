@@ -6,6 +6,7 @@ import pyarrow as pa
 import pytest
 from click.testing import CliRunner
 
+from xorq.catalog import cli as cli_mod
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import _merge_joint_wheels_into_build, cli
 from xorq.cli import cli as top_cli
@@ -648,8 +649,6 @@ def test_catalog_run_fast_path_skips_merge(
     merge_calls = []
     resolve_calls = []
 
-    from xorq.catalog import cli as cli_mod  # noqa: PLC0415
-
     def spy_merge(catalog, entries, build_path):
         merge_calls.append(build_path)
 
@@ -678,8 +677,6 @@ def test_catalog_run_reinvokes_via_uv_for_transforms(
     must re-invoke `xorq catalog run --use-this-venv` via `uv tool run`
     instead of deserializing the expression in the caller — the caller's
     venv may not have the entry's pinned UDF deps."""
-    from xorq.catalog import cli as cli_mod  # noqa: PLC0415
-
     captured = {}
 
     def fake_uv_tool_run(*args, **kwargs):
@@ -724,8 +721,6 @@ def test_catalog_run_cached_reinvokes_via_uv(
 ):
     """`run-cached` without --use-this-venv goes through the same
     re-invocation path."""
-    from xorq.catalog import cli as cli_mod  # noqa: PLC0415
-
     captured = {}
 
     def fake_uv_tool_run(*args, **kwargs):

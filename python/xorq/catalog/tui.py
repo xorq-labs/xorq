@@ -1226,20 +1226,24 @@ class DataViewScreen(Screen):
 
         First tries the in-process fast path via `--use-this-venv` —
         typically completes in ~150ms when the calling venv has all the
-        entries' packages. On non-zero exit (e.g. ImportError because a UDF
-        ships in a wheel not installed in this venv), falls back to the
-        uv-isolated path so correctness wins over speed.
+        entries' packages. Any failure (non-zero exit incl. SIGSEGV from
+        cloudpickle on missing UDF wheels, truncated Arrow stream, or
+        subprocess error) falls through to the uv-isolated path so
+        correctness wins over speed.
         """
         import pyarrow as pa  # noqa: PLC0415
 
         cmd = self._catalog_run_cmd(code)
-        returncode, stdout, stderr = self._spawn_run([*cmd, "--use-this-venv"])
+        try:
+            returncode, stdout, stderr = self._spawn_run([*cmd, "--use-this-venv"])
+            if returncode == 0:
+                return pa.ipc.open_stream(stdout).read_pandas()
+        except Exception:
+            logger.exception("catalog_run_fast_path_failed")
+        returncode, stdout, stderr = self._spawn_run(cmd)
         if returncode != 0:
-            returncode, stdout, stderr = self._spawn_run(cmd)
-        if returncode != 0:
-            raise RuntimeError(stderr.decode().strip())
-        reader = pa.ipc.open_stream(stdout)
-        return reader.read_pandas()
+            raise RuntimeError(stderr.decode(errors="replace").strip())
+        return pa.ipc.open_stream(stdout).read_pandas()
 
     def _kill_active_proc(self) -> None:
         with self._proc_lock:

@@ -1110,7 +1110,7 @@ def compose(ctx, entries, code, alias, cache_dir, dry_run, raw_rename_params):
 
     Always catalogs the result. Use 'run' to execute an entry for data output.
     """
-    from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
+    from xorq.common.utils.otel_utils import tracer
 
     with tracer.start_as_current_span("catalog.compose") as span:
         span.set_attributes({"entries": entries, "has_code": code is not None})
@@ -1132,7 +1132,7 @@ def compose(ctx, entries, code, alias, cache_dir, dry_run, raw_rename_params):
                     click.echo(f"    {col:<24} {dtype}")
                 return
 
-            from xorq.ibis_yaml.compiler import build_expr  # noqa: PLC0415
+            from xorq.ibis_yaml.compiler import build_expr
 
             build_kwargs = {} if cache_dir is None else {"cache_dir": Path(cache_dir)}
             build_path = build_expr(expr, **build_kwargs)
