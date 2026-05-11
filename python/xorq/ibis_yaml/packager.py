@@ -204,6 +204,7 @@ class WheelPackager:
                 "--wheel",
                 "--python",
                 self.python_version,
+                *_link_mode_args(),
                 "--out-dir",
                 str(self.tmpdir),
                 str(self.pyproject_path.parent),
@@ -434,6 +435,17 @@ def _normalize_xorq_cmd(args):
     return args
 
 
+def _link_mode_args():
+    """Return ``("--link-mode", "hardlink")`` when xorq.config.options.uv.use_hardlink is set.
+
+    Read at call time so tests / programmatic overrides of
+    ``xorq.config.options.uv.use_hardlink`` take effect for the next uv invocation.
+    """
+    from xorq.config import options  # noqa: PLC0415
+
+    return ("--link-mode", "hardlink") if options.uv.use_hardlink else ()
+
+
 def _nix_env():
     """Return an env dict with LD_LIBRARY_PATH fixed for nix, or None outside nix."""
     if not in_nix_shell():
@@ -466,6 +478,7 @@ def uv_tool_run(
             "run",
             *(("--python", python_version) if python_version else ()),
             *(("--isolated",) if isolated else ()),
+            *_link_mode_args(),
             *(("--with", str(with_)) if with_ else ()),
             *(
                 ("--with-requirements", str(with_requirements))
