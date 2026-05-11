@@ -44,6 +44,7 @@ from xorq.catalog.catalog import CatalogEntry
 from xorq.common.utils.caching_utils import CacheKey
 from xorq.common.utils.logging_utils import get_logger
 from xorq.config import options
+from xorq.ibis_yaml.enums import ExprKind
 
 
 logger = get_logger(__name__)
@@ -95,7 +96,13 @@ XORQ_DARK = Theme(
     },
 )
 
-KIND_ORDER = ("source", "expr", "unbound_expr", "composed", "expr_builder")
+KIND_ORDER: tuple[ExprKind, ...] = (
+    ExprKind.Source,
+    ExprKind.Expr,
+    ExprKind.UnboundExpr,
+    ExprKind.Composed,
+    ExprKind.ExprBuilder,
+)
 
 
 @frozen
@@ -104,12 +111,12 @@ class KindStyle:
     color: str = field(validator=instance_of(str))
 
 
-KIND_STYLES: dict[str, KindStyle] = {
-    "source": KindStyle(icon="⊞", color=XORQ_DARK.primary),
-    "expr": KindStyle(icon="⊕", color=XORQ_DARK.success),
-    "unbound_expr": KindStyle(icon="⊘", color=XORQ_DARK.warning),
-    "composed": KindStyle(icon="⊛", color=XORQ_DARK.secondary),
-    "expr_builder": KindStyle(icon="⊡", color=XORQ_DARK.secondary),
+KIND_STYLES: dict[ExprKind, KindStyle] = {
+    ExprKind.Source:      KindStyle(icon="⊞", color=XORQ_DARK.primary),
+    ExprKind.Expr:        KindStyle(icon="⊕", color=XORQ_DARK.success),
+    ExprKind.UnboundExpr: KindStyle(icon="⊘", color=XORQ_DARK.warning),
+    ExprKind.Composed:    KindStyle(icon="⊛", color=XORQ_DARK.secondary),
+    ExprKind.ExprBuilder: KindStyle(icon="⊡", color=XORQ_DARK.secondary),
 }
 
 CACHE_STYLE: dict[bool | None, tuple[str, str]] = {

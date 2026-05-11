@@ -142,7 +142,7 @@ def test_revision_row_columns_display_zero():
     assert RevisionRowData(column_count=0).columns_display == "0 cols"
 
 
-@pytest.mark.parametrize("kind", [str(k) for k in ExprKind])
+@pytest.mark.parametrize("kind", list(ExprKind))
 def test_kind_order_and_styles_cover_every_expr_kind(kind):
     """KIND_ORDER and KIND_STYLES must include every ExprKind value.
 
@@ -153,7 +153,7 @@ def test_kind_order_and_styles_cover_every_expr_kind(kind):
     assert kind in KIND_STYLES
 
 
-@pytest.mark.parametrize("kind", [str(k) for k in ExprKind])
+@pytest.mark.parametrize("kind", list(ExprKind))
 def test_styled_branch_label_renders_every_kind(kind):
     label = _styled_branch_label(kind, 1)
     assert kind in label.plain
