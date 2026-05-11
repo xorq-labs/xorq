@@ -14,6 +14,13 @@ listing:
     type: grid
     grid-columns: 3
     fields: [title, description]
+  - id: featured-ml-card
+    template: "style/gallery.ejs"
+    contents:
+      - "tutorials/ml_tutorials/train_your_first_model.qmd"
+    type: grid
+    grid-columns: 1
+    fields: [title, description]
 ---
 
 ::: {.hero-section}
@@ -34,6 +41,33 @@ Build, version, and serve composable data expressions. Three tutorials, end-to-e
 Three end-to-end walkthroughs. Pick the one closest to what you're building.
 
 :::{#centerpiece-cards}
+:::
+
+## <i class="bi bi-chat-square-text"></i> Drive xorq from Claude
+
+The Claude plugin exposes xorq's CLI as slash commands inside Claude Code --- scaffold, build, catalog, and serve a real pipeline without leaving the chat.
+
+```bash
+$ pip install xorq
+
+$ claude
+> /plugin marketplace add xorq-labs/claude-plugins
+> /plugin install xorq@xorq-plugins
+> /exit
+```
+
+Restart Claude so the new slash commands register, then drive xorq from the chat:
+
+```bash
+$ claude
+> /xorq:init
+```
+
+## <i class="bi bi-cpu"></i> Start your ML journey
+
+Train your first classifier with Xorq's deferred execution and scikit-learn pipeline wrapping.
+
+:::{#featured-ml-card}
 :::
 
 ## <i class="bi bi-grid-3x3"></i> Explore the docs
