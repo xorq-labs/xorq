@@ -84,6 +84,7 @@ def test_log_span_event_none_span(tmp_path):
     assert events[0]["event"] == "my.event"
 
 
+@pytest.mark.library
 def test_log_span_event_drops_none_attributes_from_span(tmp_path):
     """span.add_event must not receive None-valued attributes (OTel rejects
     them with `Invalid type NoneType for attribute ...` warnings). The file
