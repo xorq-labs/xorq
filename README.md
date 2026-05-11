@@ -335,8 +335,19 @@ Code. Scaffold, build, catalog, and serve a real pipeline without
 leaving the chat --- `/xorq:init` is `xorq init`, just driven by the
 agent.
 
+Install xorq first (the plugin drives the CLI it ships with):
+
+```bash
+$ pip install xorq
+```
+
+Then add the marketplace and install the plugin from inside Claude
+Code:
+
 ```bash
 $ claude
+> /plugin marketplace add xorq-labs/claude-plugins
+> /plugin install xorq@xorq-plugins
 > /xorq:init
 ```
 
