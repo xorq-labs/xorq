@@ -348,6 +348,14 @@ Code:
 $ claude
 > /plugin marketplace add xorq-labs/claude-plugins
 > /plugin install xorq@xorq-plugins
+> /exit
+```
+
+Restart Claude so the new slash commands register, then drive xorq
+from the chat:
+
+```bash
+$ claude
 > /xorq:init
 ```
 
