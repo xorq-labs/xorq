@@ -594,8 +594,6 @@ class PackagedRunner:
     output_path = field(validator=optional(instance_of(str)), default=None)
     output_format = field(validator=instance_of(str), default="parquet")
     python_version = field(validator=_validate_python_version, default=None)
-    limit = field(validator=optional(instance_of(int)), default=None)
-    params = field(factory=tuple, converter=tuple)
     _bundle = field(init=False, repr=False, eq=False, default=None)
 
     def __attrs_post_init__(self):
@@ -629,8 +627,6 @@ class PackagedRunner:
             *(("--output-path", self.output_path) if self.output_path else ()),
             "--format",
             self.output_format,
-            *(("--limit", str(self.limit)) if self.limit is not None else ()),
-            *(arg for p in self.params for arg in ("--params", p)),
         )
         result = uv_tool_run(
             *args,
