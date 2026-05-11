@@ -95,7 +95,7 @@ XORQ_DARK = Theme(
     },
 )
 
-KIND_ORDER = ("source", "expr", "unbound_expr", "composed")
+KIND_ORDER = ("source", "expr", "unbound_expr", "composed", "expr_builder")
 
 
 @frozen
@@ -109,6 +109,7 @@ KIND_STYLES: dict[str, KindStyle] = {
     "expr": KindStyle(icon="⊕", color=XORQ_DARK.success),
     "unbound_expr": KindStyle(icon="⊘", color=XORQ_DARK.warning),
     "composed": KindStyle(icon="⊛", color=XORQ_DARK.secondary),
+    "expr_builder": KindStyle(icon="⊡", color=XORQ_DARK.secondary),
 }
 
 CACHE_STYLE: dict[bool | None, tuple[str, str]] = {
