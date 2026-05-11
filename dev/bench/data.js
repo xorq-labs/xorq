@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778248089305,
+  "lastUpdate": 1778517369434,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -11496,6 +11496,114 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.012546919288596864",
             "extra": "mean: 4.088558444049281 msec\nrounds: 563"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "95bc3a3815feeb4d13471de8115f7cf0ff22deed",
+          "message": "feat(catalog): add replay --rebuild to regenerate entries under current code (#1847)\n\n## Summary\n\nAdd `catalog replay --rebuild` to regenerate catalog entries under\ncurrent code, plus supporting infrastructure for builder-aware rebuild.\n\n> Split out of this PR (do not block on; can land independently):\n> - Annex `fileprefix` namespacing → #1895\n> - Tokenize-tolerant `normalize_read` via `read_path` → #1917\n> - `Profile.validate_con_name` informative error → #1914\n> - Downstream BSL CI workflow → #1915\n\n### `replay --rebuild` core (`replay.py`, `composer.py`)\n- Rebuild mode loads each entry's `lazy_expr`, rewrites `HashingTag`\ncatalog refs via a remap dict keyed by old entry hash, and re-adds the\nfresh expr to the target so new hashes reflect current `build_metadata`\n- `ExprComposer.with_inputs_translated(remap, to_catalog)` performs the\nrecipe translation: source + transforms get rewritten to the target\ncatalog's entries, `code` is preserved byte-for-byte, alias is pinned to\nthe source-side selection\n- `AddAlias` / `RemoveEntry` translate entry names via the same remap;\n`UnknownOp` inspects changed paths and raises only when catalog-managed\npaths are touched — non-catalog patches (e.g. README, scripts) are\napplied via `format-patch`/`am`\n- Preserves source commit metadata (author, email, timestamps) — initial\ncommits created by `Catalog.from_repo_path(init=True)` are rewritten via\n`git commit-tree` so `authored_date` matches the source. The\npost-rewrite `git rebase --onto` and the `UnknownOp` `git am` paths\nabort cleanly on failure rather than leaving the target catalog\nmid-rebase / mid-am.\n- `_rewrite_noop_commits` refuses on a detached HEAD with an actionable\nerror rather than letting `active_branch.name` raise a confusing\n`TypeError`.\n\n### Builder-aware rebuild (`builders/__init__.py`, `pipeline_lib.py`)\n- `TagHandler` gains an optional `reemit` field; `get_rebuild_dispatch`\npicks handler-level `reemit`, then domain-object `reemit(tag_node,\nrebuild_subexpr)` (multi-output, e.g. `FittedPipeline`), then\n`with_inputs_translated(remap, to_catalog) + .expr` (single-output, e.g.\n`ExprComposer`)\n- `_rebuild_subexpr` collects all outermost rebuildable tags in one pass\nand splices each — so a builder subtree with parallel catalog\ncompositions (e.g. training + predict input) gets every composition\nrebuilt\n- Registered builder tags with no rebuild protocol raise `RuntimeError`\nby default; pass `on_unrebuilt_builder=\"warn\"` to `Replayer` (or\n`_rebuild_subexpr` directly) to downgrade to a warning and pass through\nunchanged\n- `FittedPipeline.reemit` refits on rebuilt training data, refreshing\n`training_hash` and step kwargs, and re-stamps the outer pipeline tag.\nRefuses (rather than silently producing stale UDFs) when the training\nsubtree itself contains catalog refs, since model UDFs close over the\noriginal training expression and `rebuild_subexpr` does not descend into\nUDF closures.\n- Schema-preservation is enforced per splice\n\n### CLI (`cli.py`)\n- `catalog replay <target> --rebuild` flag wired through Click\n\n### API change (`catalog.py`)\n- `CatalogAddition` now returns a `CatalogEntry` on the existing-entry\nbranch (previously `None`). Required by `AddEntry.do` to access\n`new_entry.name` for remap recording on rebuild. The one in-tree caller\naffected is `cli compose`, which now uses `catalog.contains(name)`\nbefore `add()` to detect collisions instead of testing the return value.\n\n## Test plan\n\n- [x] `test_replay_rebuild.py` — 20 tests covering consistent target,\ncomposed_from linkage, expr rewrite, hash determinism, fresh-bind match,\nchained bind, code-only/full-recipe composition, outer builder wrapping,\npure builder passthrough, alias preservation, remap translation, commit\nmetadata preservation, unknown-op error, non-catalog unknown-op\npassthrough, content-collision remap, DAG-shared catalog tag, CLI smoke\n(rebuild and discriminating-vs-replay)\n- [x] `test_replay_rebuild_builders.py` — 10 tests covering\nFittedPipeline reemit table coverage, training reservation, rebuild\ndispatch (handler-level, domain-object, single-output, no-protocol\nraise), handler-level reemit integration, schema-change refusal,\nmissing-protocol passthrough, real-sklearn FittedPipeline roundtrip,\ncatalog-training refusal\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-11T12:31:28-04:00",
+          "tree_id": "044af4ab8e3b28a342da7a8d93465e6b310efb19",
+          "url": "https://github.com/xorq-labs/xorq/commit/95bc3a3815feeb4d13471de8115f7cf0ff22deed"
+        },
+        "date": 1778517366828,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.629019195461545,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007557075468185858",
+            "extra": "mean: 103.85273719999759 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.4232297421408977,
+            "unit": "iter/sec",
+            "range": "stddev: 0.051932808545609006",
+            "extra": "mean: 412.6723861999608 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6495076372023246,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18939925384118086",
+            "extra": "mean: 1.5396277775999352 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.391473711682525,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03795139547619479",
+            "extra": "mean: 418.15220259998114 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.3489257878729735,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05004169296075201",
+            "extra": "mean: 425.72651939997286 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.2931278680001657,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07327450321066574",
+            "extra": "mean: 436.0855815999912 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[simple_filter_agg]",
+            "value": 257.37033230251694,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005416536679481234",
+            "extra": "mean: 3.885451718749716 msec\nrounds: 352"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[pipeline_50_steps]",
+            "value": 5.443899713995138,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11995093014975049",
+            "extra": "mean: 183.69184822218662 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[nested_into_backend]",
+            "value": 49.627457356422866,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006278270254377191",
+            "extra": "mean: 20.150135696415614 msec\nrounds: 56"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[simple_filter_agg]",
+            "value": 296.16878985483964,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011400786059133009",
+            "extra": "mean: 3.3764530033368043 msec\nrounds: 599"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[pipeline_50_steps]",
+            "value": 333.0855374072372,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01154878223656306",
+            "extra": "mean: 3.0022318224443936 msec\nrounds: 597"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[nested_into_backend]",
+            "value": 311.72624939548604,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006131127876065833",
+            "extra": "mean: 3.207942872758538 msec\nrounds: 558"
           }
         ]
       }
