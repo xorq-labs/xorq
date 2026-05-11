@@ -349,6 +349,22 @@ def test_wheel_bundle_from_build_path_no_wheel(tmp_path):
 
 
 @pytest.mark.library
+def test_write_requirements_path_copies_existing_when_no_lockfile(tmp_path):
+    """When uv.lock is absent, the packager has no authoritative source
+    of truth, so it copies the user's on-disk `requirements.txt` into
+    the build verbatim. Regression guard against accidentally re-routing
+    this branch through `uv export` (which would fail without a lock)."""
+    _make_pyproject(tmp_path)
+    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
+    packager = WheelPackager(tmp_path)
+
+    packager._write_requirements_path()
+
+    bundled = (packager.tmpdir / DumpFiles.requirements).read_text()
+    assert bundled == "requests==2.31.0\n"
+
+
+@pytest.mark.library
 def test_write_requirements_path_prefers_export_over_stale_on_disk(
     tmp_path, monkeypatch
 ):
