@@ -217,23 +217,19 @@ class WheelPackager:
         existing = self.project_path / DumpFiles.requirements
 
         if has_lockfile:
+            # uv.lock is authoritative. We regenerate `requirements.txt`
+            # from the lock here and bundle it in the build artifact.
+            # We don't compare against the user's on-disk file --- `uv
+            # export` output is not stable across uv versions, and any
+            # template shipped with a pre-baked requirements.txt would
+            # otherwise break the build on the first invocation by a
+            # user whose local uv differs (see #1941).
             with tracer.start_as_current_span("packager.uv_export_requirements"):
                 exported = uv_export_requirements(
                     self.project_path,
                     self.python_version,
                     extras=self.extras,
                     all_extras=self.all_extras,
-                )
-            if existing.exists() and existing.read_text() != exported:
-                raise RuntimeError(
-                    f"{DumpFiles.requirements} in {self.project_path} does not match "
-                    f"`uv export` output from {UVLOCK_NAME} (byte-exact comparison). "
-                    f"This happens when {UVLOCK_NAME} changes, or when the in-tree "
-                    f"{DumpFiles.requirements} was produced by a different uv version "
-                    f"than the one running now. To resolve: delete "
-                    f"{existing} and let the packager regenerate it, "
-                    f"or re-export manually with `uv export --locked --no-dev "
-                    f"--no-emit-project --no-header --no-annotate > {existing.name}`."
                 )
             (self.tmpdir / DumpFiles.requirements).write_text(exported)
         else:
