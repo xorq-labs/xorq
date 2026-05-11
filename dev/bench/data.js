@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778517369434,
+  "lastUpdate": 1778525814117,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -11604,6 +11604,114 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.006131127876065833",
             "extra": "mean: 3.207942872758538 msec\nrounds: 558"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "45543592+ghoersti@users.noreply.github.com",
+            "name": "ghoersti",
+            "username": "ghoersti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "638cdd47b779758e188fc3ca0440abe2dedc9e31",
+          "message": "fix: add expr_builder to KIND_ORDER, bump bsl 3.13 (#1943)\n\nSummary\n- python/xorq/catalog/tui.py: add \"expr_builder\" to KIND_ORDER and add a\nmatching\nKIND_STYLES entry (⊡, secondary color). Without the styles entry,\n_styled_branch_label would\nKeyError for expr_builder rows.\n- pyproject.toml: bump the bsl extra from boring-semantic-layer>=0.1.0\nto >=0.3.13. 0.3.13\nis the first BSL release that ships the xorq.from_tag_node entry point\nfor the bsl tag;\n  older versions silently degrade BSL entries to ExprKind.Expr.\n  - uv.lock: refreshed (BSL 0.3.10 → 0.3.13).\n\n---------\n\nCo-authored-by: ghoersti <ghoersti@users.noreply.github.com>\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-11T14:51:44-04:00",
+          "tree_id": "1bd70c4dfa9c9de3cd207b395fda0f70e16b284f",
+          "url": "https://github.com/xorq-labs/xorq/commit/638cdd47b779758e188fc3ca0440abe2dedc9e31"
+        },
+        "date": 1778525809946,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.108644122357418,
+            "unit": "iter/sec",
+            "range": "stddev: 0.024340039131423505",
+            "extra": "mean: 123.3251805000009 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.258537571048952,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08430124258986858",
+            "extra": "mean: 442.76438559999747 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.600617089181022,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12688884002370635",
+            "extra": "mean: 1.6649542912000073 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.061931715845274,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05303159898769819",
+            "extra": "mean: 484.9821128000144 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.1075041891123942,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06933135709718574",
+            "extra": "mean: 474.49490500000593 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.1312228257661716,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04820658255015252",
+            "extra": "mean: 469.21419379998497 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[simple_filter_agg]",
+            "value": 187.1279951327979,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012438465983644495",
+            "extra": "mean: 5.343935840761487 msec\nrounds: 314"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[pipeline_50_steps]",
+            "value": 5.463879675873564,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06299624879203236",
+            "extra": "mean: 183.02013574999165 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[nested_into_backend]",
+            "value": 41.401526796707486,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00939286761205088",
+            "extra": "mean: 24.153698604166607 msec\nrounds: 48"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[simple_filter_agg]",
+            "value": 267.5471204341284,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012608504576641621",
+            "extra": "mean: 3.7376593639930644 msec\nrounds: 511"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[pipeline_50_steps]",
+            "value": 313.44272654553254,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006500950373310517",
+            "extra": "mean: 3.1903755145989456 msec\nrounds: 548"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[nested_into_backend]",
+            "value": 234.82661444293174,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01353537071437985",
+            "extra": "mean: 4.258461087863713 msec\nrounds: 478"
           }
         ]
       }
