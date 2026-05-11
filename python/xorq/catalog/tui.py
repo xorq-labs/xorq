@@ -1206,14 +1206,12 @@ class DataViewScreen(Screen):
             cmd.extend(["-c", code])
         return cmd
 
-    def _spawn_run(self, cmd, env):
+    def _spawn_run(self, cmd):
         with self._proc_lock:
             prior = self._active_proc
             if prior is not None and prior.poll() is None:
                 prior.kill()
-            proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env
-            )
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             self._active_proc = proc
         try:
             stdout, stderr = proc.communicate()
@@ -1226,22 +1224,18 @@ class DataViewScreen(Screen):
     def _run_catalog_subprocess(self, code=None):
         """Run xorq catalog run and return a pandas DataFrame.
 
-        First tries the in-process fast path by passing `XORQ_CATALOG_NO_UV=1`
-        — typically completes in ~150ms when the calling venv has all the
+        First tries the in-process fast path via `--use-this-venv` —
+        typically completes in ~150ms when the calling venv has all the
         entries' packages. On non-zero exit (e.g. ImportError because a UDF
         ships in a wheel not installed in this venv), falls back to the
         uv-isolated path so correctness wins over speed.
         """
-        import os  # noqa: PLC0415
-
         import pyarrow as pa  # noqa: PLC0415
 
         cmd = self._catalog_run_cmd(code)
-        fast_env = {**os.environ, "XORQ_CATALOG_NO_UV": "1"}
-        returncode, stdout, stderr = self._spawn_run(cmd, fast_env)
+        returncode, stdout, stderr = self._spawn_run([*cmd, "--use-this-venv"])
         if returncode != 0:
-            uv_env = {k: v for k, v in os.environ.items() if k != "XORQ_CATALOG_NO_UV"}
-            returncode, stdout, stderr = self._spawn_run(cmd, uv_env)
+            returncode, stdout, stderr = self._spawn_run(cmd)
         if returncode != 0:
             raise RuntimeError(stderr.decode().strip())
         reader = pa.ipc.open_stream(stdout)

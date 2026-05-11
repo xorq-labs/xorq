@@ -54,12 +54,6 @@ from xorq.config import TUI, options
 from xorq.ibis_yaml.enums import ExprKind
 
 
-# DataViewScreen spawns `xorq catalog run` via subprocess.Popen and inherits
-# the parent's env. Force the in-process path so the spawned `catalog run`
-# doesn't take the slower `uv tool run` route under pilot's 5s timeout.
-pytestmark = pytest.mark.usefixtures("no_uv_subprocess")
-
-
 def _run(coro):
     """Run an async coroutine in a fresh event loop (avoids pytest-asyncio)."""
     return asyncio.run(coro)

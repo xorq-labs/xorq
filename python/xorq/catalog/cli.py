@@ -1138,6 +1138,18 @@ def _resolve_single_entry(catalog, entry, code, instream, rename_map, span):
     multiple=True,
     help="Parameter as key=value (repeatable). e.g. --params threshold=0.5",
 )
+@click.option(
+    "--use-this-venv/--no-use-this-venv",
+    default=False,
+    help=(
+        "Execute in the current Python environment instead of spawning "
+        "`uv tool run` on the entry's pinned env. Faster (no subprocess + "
+        "uv venv lookup) but only correct when the calling venv already has "
+        "every package the expression needs (xorq itself plus any UDFs "
+        "from the entries' wheels). Default is the isolated `uv tool run` "
+        "path."
+    ),
+)
 @click.pass_context
 def run(
     ctx,
@@ -1150,6 +1162,7 @@ def run(
     fuse,
     raw_rename_params,
     raw_params,
+    use_this_venv,
 ):
     """Compose and execute catalog entries.
 
@@ -1227,7 +1240,7 @@ def run(
                     expr = expr.limit(limit)
 
                 with timed() as get_elapsed:
-                    if os.environ.get("XORQ_CATALOG_NO_UV"):
+                    if use_this_venv:
                         arbitrate_output_format(expr, output_path, output_format)
                     else:
                         from xorq.common.utils.caching_utils import (  # noqa: PLC0415

@@ -47,17 +47,24 @@ def _replay_rebuild(source_catalog_obj, target_path, on_unrebuilt_builder="raise
 TEST_WHEEL_NAME = "pkg-0.0.0-py3-none-any.whl"
 
 
-@pytest.fixture
-def no_uv_subprocess(monkeypatch):
-    """Opt-in fixture: force `xorq catalog run` to use the in-process path.
+class _AutoVenvCliRunner(CliRunner):
+    """CliRunner that auto-injects `--use-this-venv` on `run` invocations.
 
-    Without this, every `runner.invoke(cli, ['run', ...])` would spawn
-    `uv tool run` which writes to the real stdout fd, bypassing CliRunner's
-    output capture. Apply at file scope (autouse via local conftest or
-    `pytestmark = pytest.mark.usefixtures("no_uv_subprocess")`) only for
-    test modules that exercise `catalog run` through CliRunner.
+    `xorq catalog run` defaults to spawning `uv tool run` for isolated
+    execution. Under CliRunner the subprocess writes to OS fd 1, which
+    bypasses CliRunner's `sys.stdout` capture and yields an empty
+    `result.output`. The `--use-this-venv` flag opts into the in-process
+    path so tests stay fast and output-capturable; production callers
+    that need isolation simply omit the flag.
     """
-    monkeypatch.setenv("XORQ_CATALOG_NO_UV", "1")
+
+    def invoke(self, cli, args=(), **kwargs):
+        args = list(args)
+        for i, arg in enumerate(args):
+            if arg == "run":
+                args = args[: i + 1] + ["--use-this-venv"] + args[i + 1 :]
+                break
+        return super().invoke(cli, args, **kwargs)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -236,7 +243,7 @@ def root_repo(tmpdir):
 
 @pytest.fixture
 def runner():
-    yield CliRunner()
+    yield _AutoVenvCliRunner()
 
 
 @pytest.fixture

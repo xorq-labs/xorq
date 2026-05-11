@@ -10,9 +10,6 @@ from xorq.cli import cli as top_cli
 from xorq.ibis_yaml.enums import DumpFiles
 
 
-pytestmark = pytest.mark.usefixtures("no_uv_subprocess")
-
-
 # --- run command ---
 
 

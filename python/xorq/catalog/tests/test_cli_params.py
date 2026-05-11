@@ -13,9 +13,6 @@ from xorq.expr.builders import (
 from xorq.vendor.ibis.expr import operations as ops
 
 
-pytestmark = pytest.mark.usefixtures("no_uv_subprocess")
-
-
 @pytest.fixture
 def saved_registry():
     """Save and restore the handler registry around a test."""
