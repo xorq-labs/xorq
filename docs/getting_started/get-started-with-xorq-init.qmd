@@ -134,12 +134,51 @@ expr = batting
 
 `deferred_read_csv` lazily reads a CSV into any backend with automatic schema inference --- nothing is actually read until execution. Each binding (`batting`, `people`) is now a typed xorq expression you can join, filter, and aggregate without writing pandas.
 
+The variable named `expr` at module scope is what `xorq build` will compile. Right now it points at the raw batting table --- let's prove the build/run loop works before making the expression more interesting.
+
 ```{=html}
 <div style="background: #1a3a5c; color: #C1F0FF; border: 2px solid #C1F0FF; border-radius: 8px; padding: 3rem 2rem; text-align: center; margin: 1.5rem 0; font-family: inherit;">
   <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 0.5rem;">IMAGE PLACEHOLDER</div>
   <div style="font-size: 0.9rem; opacity: 0.85;">Project tree showing moneyball-tutorial/ with expr.py, pyproject.toml, and the Lahman CSV files</div>
 </div>
 ```
+
+---
+
+## Build and run your first expression
+
+`xorq uv build` compiles an expression into a portable build directory using the project's own uv environment (pinned by `uv.lock`), so the build is reproducible. The directory contains the serialized expression graph (`expr.yaml`), a regenerated `requirements.txt` pinned to your lock, and the metadata needed to re-run on another machine. Hand the directory to anyone with `xorq` and they'll get the same result.
+
+One-time setup: regenerate the lockfile artifacts for your local uv. The template ships a `requirements.txt` pinned to the uv version that generated it; deleting it lets the build re-pin against the uv on your machine.
+
+```bash
+rm requirements.txt
+```
+
+Now compile, capturing the build path the command prints on its last line:
+
+```bash
+BUILD=$(xorq uv build expr.py -e expr --builds-dir builds | tail -1)
+echo "$BUILD"
+```
+
+You'll see something like `builds/f22643d56d2c` --- the exact hash will differ for you, since it's derived from your expression and lock file.
+
+Run it:
+
+```bash
+xorq uv run "$BUILD" --output-path batting_raw.parquet
+```
+
+You'll see uv re-sync packages and then a stray OpenTelemetry attribute warning (`Invalid type NoneType for attribute 'limit' value...`) --- this is harmless noise, the run still writes the parquet.
+
+Inspect the result. The first time you run `uv run python` in the project, uv will sync the project's `.venv` from `uv.lock` (~10 seconds, one-time):
+
+```bash
+uv run python -c "import pandas as pd; df = pd.read_parquet('batting_raw.parquet'); print(df.shape); print(df.head())"
+```
+
+Around 110K rows back to 1871, one per player-season. Now we'll make it into something interesting.
 
 ---
 
@@ -160,6 +199,11 @@ batting = batting.select(
 ```
 
 Each call returns a new expression. Nothing has executed yet --- you're describing the shape of the result, not computing it.
+
+::: {.callout-note}
+### Rebuild any time
+You can rerun `xorq uv build` and `xorq uv run` after each edit if you want to see the intermediate result. From here on we'll edit straight through to the leaderboard --- the build/run loop is identical at every step.
+:::
 
 ---
 
@@ -204,8 +248,6 @@ ranked = ranked.mutate(rank=ibis.row_number().over(win) + 1)
 expr = ranked.filter(ranked.rank <= 10).drop("rank")
 ```
 
-The variable named `expr` at module scope is what `xorq build` will compile.
-
 ```{=html}
 <div style="background: #1a3a5c; color: #C1F0FF; border: 2px solid #C1F0FF; border-radius: 8px; padding: 3rem 2rem; text-align: center; margin: 1.5rem 0; font-family: inherit;">
   <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 0.5rem;">IMAGE PLACEHOLDER</div>
@@ -215,34 +257,18 @@ The variable named `expr` at module scope is what `xorq build` will compile.
 
 ---
 
-## Build and run
+## Build and run the full pipeline
 
-`xorq init` ships a `requirements.txt` that's pinned to the uv version that generated the template. If your local uv differs, the build will refuse to run with a byte-comparison error against `uv.lock`. Delete it and let the build regenerate it:
-
-```bash
-rm requirements.txt
-```
-
-Now compile the expression into a portable build directory, capturing the build path the command prints on its last line:
+`expr` now describes the entire leaderboard. Build it again and run:
 
 ```bash
 BUILD=$(xorq uv build expr.py -e expr --builds-dir builds | tail -1)
-echo "$BUILD"
-```
-
-You'll see something like `builds/f22643d56d2c` --- the exact hash will differ for you, since it's derived from your expression and lock file.
-
-`xorq uv build` uses the project's own uv environment (pinned by `uv.lock`), so the build is reproducible. The directory contains the serialized expression graph (`expr.yaml`), a regenerated `requirements.txt` pinned to your lock, and the metadata needed to re-run on another machine. Hand the directory to anyone with `xorq` and they'll get the same result.
-
-Run it:
-
-```bash
 xorq uv run "$BUILD" --output-path top_batters.parquet
 ```
 
-You'll see uv re-sync packages and then a stray OpenTelemetry attribute warning (`Invalid type NoneType for attribute 'limit' value...`) --- this is harmless noise, the run still writes the parquet.
+The build path is a new hash --- it's derived from the expression graph, and your expression just changed.
 
-Inspect the result. The first time you run `uv run python` in the project, uv will sync the project's `.venv` from `uv.lock` (~10 seconds, one-time):
+Inspect the leaderboard:
 
 ```bash
 uv run python -c "import pandas as pd; df = pd.read_parquet('top_batters.parquet'); print(df.shape); print(df[['nameFirst','nameLast','yearID','lgID','batting_avg']].head(40))"
