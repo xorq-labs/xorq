@@ -2,13 +2,18 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import click
 import pyarrow as pa
 import pytest
 from click.testing import CliRunner
 
 from xorq.catalog import cli as cli_mod
 from xorq.catalog.catalog import Catalog
-from xorq.catalog.cli import _merge_joint_wheels_into_build, cli
+from xorq.catalog.cli import (
+    _assert_requirements_identical,
+    _merge_joint_wheels_into_build,
+    cli,
+)
 from xorq.cli import cli as top_cli
 from xorq.ibis_yaml.enums import DumpFiles
 
@@ -534,20 +539,14 @@ def test_merge_joint_wheels_empty_entries_is_noop(
     assert list(build_path.iterdir()) == []
 
 
-def test_merge_joint_wheels_single_entry_skips_resolver(
-    catalog_with_source_and_transform, tmp_path, monkeypatch
+def test_merge_joint_wheels_single_entry_copies_verbatim(
+    catalog_with_source_and_transform, tmp_path
 ):
-    """Single-entry path copies the entry's wheel + requirements verbatim,
-    without invoking JointWheelResolver (no `uv lock` subprocess)."""
+    """Single-entry path copies the entry's wheel + requirements verbatim."""
     catalog_path, _, _ = catalog_with_source_and_transform
     catalog = Catalog.from_kwargs(path=catalog_path, init=False)
     build_path = tmp_path / "build"
     build_path.mkdir()
-
-    def _fail_if_called(*args, **kwargs):
-        raise AssertionError("JointWheelResolver must not be called for single entry")
-
-    monkeypatch.setattr("xorq.ibis_yaml.packager.JointWheelResolver", _fail_if_called)
 
     _merge_joint_wheels_into_build(catalog, ("src",), build_path)
 
@@ -567,13 +566,12 @@ def test_merge_joint_wheels_unknown_entry_raises(
         _merge_joint_wheels_into_build(catalog, ("no-such-entry",), build_path)
 
 
-@pytest.mark.slow(level=1)
-def test_merge_joint_wheels_multi_entry_runs_resolver(
+def test_merge_joint_wheels_multi_entry_writes_shared_requirements_verbatim(
     catalog_with_source_and_transform, tmp_path
 ):
-    """Multi-entry path runs JointWheelResolver and writes a joint
-    requirements.txt that excludes the input wheels (those are supplied via
-    --with at runtime)."""
+    """Multi-entry path requires byte-identical requirements.txt across
+    entries and writes it verbatim (joint resolution is deferred to a
+    follow-up PR)."""
     catalog_path, _, _ = catalog_with_source_and_transform
     catalog = Catalog.from_kwargs(path=catalog_path, init=False)
     build_path = tmp_path / "build"
@@ -587,6 +585,20 @@ def test_merge_joint_wheels_multi_entry_runs_resolver(
     assert reqs.exists()
     text = reqs.read_text()
     assert "file://" not in text
+
+
+def test_assert_requirements_identical_passes_when_equal():
+    _assert_requirements_identical([("a", b"foo==1.0\n"), ("b", b"foo==1.0\n")])
+    _assert_requirements_identical([("only", b"")])
+    _assert_requirements_identical([])
+
+
+def test_assert_requirements_identical_raises_on_mismatch():
+    with pytest.raises(click.ClickException) as exc_info:
+        _assert_requirements_identical([("a", b"foo==1.0\n"), ("b", b"foo==2.0\n")])
+    msg = exc_info.value.message
+    assert "joint resolution is deferred" in msg
+    assert "'a'" in msg and "'b'" in msg
 
 
 # --- uv-subprocess path coverage ---

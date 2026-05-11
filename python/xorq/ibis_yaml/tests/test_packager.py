@@ -27,7 +27,6 @@ from xorq.ibis_yaml.packager import (
     PYPROJECT_NAME,
     UVLOCK_NAME,
     JointBundle,
-    JointWheelResolver,
     PackagedBuilder,
     PackagedRunner,
     UvToolRunError,
@@ -654,7 +653,7 @@ def test_uv_tool_run_error_omits_empty_streams(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# JointBundle / JointWheelResolver
+# JointBundle
 # ---------------------------------------------------------------------------
 
 
@@ -688,106 +687,3 @@ def test_joint_bundle_from_build_path_no_wheels(tmp_path):
     (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
     with pytest.raises(RuntimeError, match="no .whl files found"):
         JointBundle.from_build_path(tmp_path)
-
-
-def test_joint_wheel_resolver_dedupes_same_name_version(tmp_path):
-    src1 = tmp_path / "src1"
-    src1.mkdir()
-    src2 = tmp_path / "src2"
-    src2.mkdir()
-    w1 = _make_named_wheel(src1, "alpha", version="1.0.0")
-    w2 = _make_named_wheel(src2, "alpha", version="1.0.0")
-    resolver = JointWheelResolver(wheel_paths=(w1, w2))
-    # Same (Name, Version) collapses to one entry
-    assert len(resolver.wheel_paths) == 1
-
-
-def test_joint_wheel_resolver_keeps_distinct_names(tmp_path):
-    a = _make_named_wheel(tmp_path, "alpha")
-    b = _make_named_wheel(tmp_path, "beta")
-    resolver = JointWheelResolver(wheel_paths=(a, b))
-    assert {Path(p).name for p in resolver.wheel_paths} == {a.name, b.name}
-
-
-def test_joint_wheel_resolver_intersects_python_version(tmp_path):
-    a = _make_named_wheel(tmp_path, "alpha", requires_python=">=3.10")
-    b = _make_named_wheel(tmp_path, "beta", requires_python=">=3.12")
-    resolver = JointWheelResolver(wheel_paths=(a, b))
-    # Intersection: must satisfy both, so >=3.12 (capped at <3.14)
-    assert ">=3.12" in resolver.python_version
-
-
-def _make_wheel_without_requires_python(directory, name, version="0.0.0"):
-    """Wheel METADATA without a Requires-Python field (PEP 566 allows this)."""
-    wheel_path = Path(directory) / f"{name}-{version}-py3-none-any.whl"
-    dist_info = f"{name}-{version}.dist-info"
-    metadata = f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n"
-    wheel_meta = "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
-    record = f"{dist_info}/METADATA,,\n{dist_info}/WHEEL,,\n{dist_info}/RECORD,,\n"
-    with zipfile.ZipFile(wheel_path, "w") as zf:
-        zf.writestr(f"{dist_info}/METADATA", metadata)
-        zf.writestr(f"{dist_info}/WHEEL", wheel_meta)
-        zf.writestr(f"{dist_info}/RECORD", record)
-    return wheel_path
-
-
-def test_joint_wheel_resolver_handles_missing_requires_python(tmp_path):
-    """Wheels without Requires-Python (legal per PEP 566) must not crash;
-    they contribute no constraint and the resolver falls back to the cap."""
-    a = _make_wheel_without_requires_python(tmp_path, "alpha")
-    b = _make_named_wheel(tmp_path, "beta", requires_python=">=3.11")
-    resolver = JointWheelResolver(wheel_paths=(a, b))
-    assert ">=3.11" in resolver.python_version
-
-
-def test_joint_wheel_resolver_all_missing_requires_python_uses_cap(tmp_path):
-    a = _make_wheel_without_requires_python(tmp_path, "alpha")
-    b = _make_wheel_without_requires_python(tmp_path, "beta")
-    resolver = JointWheelResolver(wheel_paths=(a, b))
-    # No constraints from any wheel → fall back to PYTHON_VERSION_CAP (<3.14)
-    assert "<3.14" in resolver.python_version
-
-
-def test_joint_wheel_resolver_rejects_empty():
-    with pytest.raises(ValueError, match="at least one wheel"):
-        JointWheelResolver(wheel_paths=())
-
-
-def test_joint_wheel_resolver_surfaces_uv_lock_failure(tmp_path, monkeypatch):
-    a = _make_named_wheel(tmp_path, "alpha")
-    b = _make_named_wheel(tmp_path, "beta")
-    resolver = JointWheelResolver(wheel_paths=(a, b))
-
-    def fake_run(args, **kwargs):
-        return _FakeResult(returncode=1, stderr="error: incompatible constraints")
-
-    monkeypatch.setattr("xorq.ibis_yaml.packager.subprocess.run", fake_run)
-    with pytest.raises(RuntimeError, match="uv lock failed") as exc_info:
-        resolver._uv_lock()
-    assert "incompatible constraints" in str(exc_info.value)
-
-
-@pytest.mark.slow(level=1)
-def test_joint_wheel_resolver_resolve_real_uv(tmp_path):
-    """End-to-end: synthesize pyproject, run uv lock + uv export on stub wheels.
-
-    The exported requirements.txt must NOT reference the input wheels by name
-    or by tmpdir file:// URI: those are supplied at runtime via `uv tool run
-    --with <wheel>`. requirements.txt only carries transitive deps.
-    """
-    a = _make_named_wheel(tmp_path, "alpha")
-    b = _make_named_wheel(tmp_path, "beta")
-    resolver = JointWheelResolver(wheel_paths=(a, b))
-    bundle = resolver.resolve()
-    assert bundle.requirements_path.exists()
-    text = bundle.requirements_path.read_text()
-    assert "file://" not in text
-    # Parse line-prefix package names so we don't false-match transitive
-    # deps like `alphabet` against `alpha`.
-    pkg_names = {
-        line.split("==", 1)[0].split(" ", 1)[0].strip()
-        for line in text.splitlines()
-        if line and not line.startswith((" ", "#", "-"))
-    }
-    assert "alpha" not in pkg_names
-    assert "beta" not in pkg_names

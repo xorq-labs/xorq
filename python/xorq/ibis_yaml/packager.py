@@ -221,120 +221,6 @@ class JointBundle:
 
 
 @frozen
-class JointWheelResolver:
-    """Resolve N input wheels into a single unified requirements.txt via uv lock."""
-
-    wheel_paths = field(converter=lambda xs: tuple(Path(x) for x in xs))
-    python_version = field(validator=_validate_python_version, default=None)
-    _tmpdir = field(
-        validator=instance_of(TemporaryDirectory),
-        repr=False,
-        eq=False,
-        factory=TemporaryDirectory,
-    )
-    _meta = field(init=False, repr=False, eq=False, factory=dict)
-
-    def __attrs_post_init__(self):
-        if not self.wheel_paths:
-            raise ValueError("at least one wheel required")
-        for w in self.wheel_paths:
-            if not w.exists():
-                raise FileNotFoundError(f"wheel not found: {w}")
-        meta = {w: _read_wheel_metadata(w) for w in self.wheel_paths}
-        # De-dupe by (Name, Version): the same project may appear in multiple
-        # input entries' archives. Differing versions for the same name fall
-        # through to uv lock, which fails loud on the conflict.
-        unique = tuple(
-            toolz.unique(
-                self.wheel_paths,
-                key=lambda w: (meta[w]["Name"], meta[w]["Version"]),
-            )
-        )
-        object.__setattr__(self, "wheel_paths", unique)
-        object.__setattr__(self, "_meta", {w: meta[w] for w in unique})
-        if self.python_version is None:
-            # Requires-Python is optional per PEP 566; wheels that omit it
-            # contribute no constraint. If every wheel is unconstrained,
-            # fall back to PYTHON_VERSION_CAP alone.
-            constraints = [
-                SpecifierSet(rp) & PYTHON_VERSION_CAP
-                for m in self._meta.values()
-                if (rp := m.get("Requires-Python"))
-            ]
-            joint = (
-                functools.reduce(operator.and_, constraints)
-                if constraints
-                else PYTHON_VERSION_CAP
-            )
-            object.__setattr__(self, "python_version", str(joint))
-
-    @property
-    def tmpdir(self):
-        return Path(self._tmpdir.name)
-
-    def _write_pyproject(self):
-        deps = [
-            f"{self._meta[w]['Name']} @ {Path(w).absolute().as_uri()}"
-            for w in self.wheel_paths
-        ]
-        doc = tomlkit.document()
-        project = tomlkit.table()
-        project["name"] = "xorq-composed"
-        project["version"] = "0.0.0"
-        project["requires-python"] = self.python_version
-        project["dependencies"] = deps
-        doc["project"] = project
-        tool_uv = tomlkit.table()
-        tool_uv["package"] = False
-        tool = tomlkit.table()
-        tool["uv"] = tool_uv
-        doc["tool"] = tool
-        (self.tmpdir / PYPROJECT_NAME).write_text(tomlkit.dumps(doc))
-
-    def _uv_lock(self):
-        from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
-
-        with tracer.start_as_current_span("packager.joint_uv_lock"):
-            args = (
-                "uv",
-                "lock",
-                "--python",
-                self.python_version,
-                "--directory",
-                str(self.tmpdir),
-            )
-            result = subprocess.run(
-                args, capture_output=True, text=True, env=_nix_env()
-            )
-            if result.returncode != 0:
-                raise RuntimeError(
-                    f"uv lock failed (exit {result.returncode}) while resolving "
-                    f"{len(self.wheel_paths)} wheels jointly:\n{result.stderr}"
-                )
-
-    def resolve(self):
-        """Synthesize pyproject, run uv lock + uv export, return JointBundle."""
-        self._write_pyproject()
-        self._uv_lock()
-        # Exclude the input wheels themselves from the exported requirements:
-        # they are supplied at runtime via `uv tool run --with <wheel>`, and
-        # their `file://` URIs point into a tmpdir that's torn down here.
-        exported = uv_export_requirements(
-            self.tmpdir,
-            self.python_version,
-            no_emit_packages=tuple(m["Name"] for m in self._meta.values()),
-        )
-        requirements_path = self.tmpdir / DumpFiles.requirements
-        requirements_path.write_text(exported)
-        return JointBundle(
-            wheel_paths=self.wheel_paths,
-            requirements_path=requirements_path,
-            python_version=self.python_version,
-            tmpdir=self._tmpdir,
-        )
-
-
-@frozen
 class WheelPackager:
     project_path = field(validator=instance_of(Path), converter=Path)
     python_version = field(validator=_validate_python_version, default=None)
@@ -747,9 +633,7 @@ def uv_tool_run(
             ) from e
 
 
-def uv_export_requirements(
-    project_dir, python_version, extras=(), all_extras=True, no_emit_packages=()
-):
+def uv_export_requirements(project_dir, python_version, extras=(), all_extras=True):
     """Run uv export in a directory with pyproject.toml + uv.lock."""
     args = (
         "uv",
@@ -765,7 +649,6 @@ def uv_export_requirements(
         str(project_dir),
         *(("--all-extras",) if all_extras else ()),
         *(arg for extra in extras for arg in ("--extra", extra)),
-        *(arg for pkg in no_emit_packages for arg in ("--no-emit-package", pkg)),
     )
     result = subprocess.run(args, capture_output=True, text=True, env=_nix_env())
     if result.returncode != 0:
