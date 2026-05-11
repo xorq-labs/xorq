@@ -11,15 +11,9 @@ listing:
       - "tutorials/core_tutorials/build_a_semantic_catalog.qmd"
       - "tutorials/core_tutorials/working_with_the_catalog.qmd"
       - "getting_started/get-started-with-xorq-init.qmd"
-    type: grid
-    grid-columns: 3
-    fields: [title, description]
-  - id: featured-ml-card
-    template: "style/gallery.ejs"
-    contents:
       - "tutorials/ml_tutorials/train_your_first_model.qmd"
     type: grid
-    grid-columns: 1
+    grid-columns: 4
     fields: [title, description]
 ---
 
@@ -27,7 +21,7 @@ listing:
 ::: {.hero-content}
 # The context engine for data agents — start here.
 
-Build, version, and serve composable data expressions. Three tutorials, end-to-end. Pick where to start.
+Build, version, and serve composable data expressions. Four tutorials, end-to-end. Pick where to start.
 
 [BROWSE TUTORIALS ↓](#centerpieces){.hero-btn .hero-btn-primary}
 [VIEW ON GITHUB](https://github.com/xorq-labs/xorq){.hero-btn .hero-btn-secondary}
@@ -38,7 +32,7 @@ Build, version, and serve composable data expressions. Three tutorials, end-to-e
 
 ## <i class="bi bi-rocket-takeoff"></i> Tutorials {#centerpieces}
 
-Three end-to-end walkthroughs. Pick the one closest to what you're building.
+Four end-to-end walkthroughs. Pick the one closest to what you're building.
 
 :::{#centerpiece-cards}
 :::
@@ -62,13 +56,6 @@ Restart Claude so the new slash commands register, then drive xorq from the chat
 $ claude
 > /xorq:init
 ```
-
-## <i class="bi bi-cpu"></i> Start your ML journey
-
-Train your first classifier with Xorq's deferred execution and scikit-learn pipeline wrapping.
-
-:::{#featured-ml-card}
-:::
 
 ## <i class="bi bi-grid-3x3"></i> Explore the docs
 
