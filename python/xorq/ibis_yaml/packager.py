@@ -499,6 +499,8 @@ def uv_tool_run(
 
 def uv_export_requirements(project_dir, python_version, extras=(), all_extras=True):
     """Run uv export in a directory with pyproject.toml + uv.lock."""
+    # No --link-mode here: uv export reads the lockfile and writes
+    # requirements.txt; it never installs or links files, so the flag is a no-op.
     args = (
         "uv",
         "export",

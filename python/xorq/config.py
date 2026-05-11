@@ -198,6 +198,8 @@ def _default_use_hardlink(platform=None, env_value=None):
         platform = sys.platform
     if env_value is None:
         env_value = env_config.XORQ_UV_USE_HARDLINK
+    # Empty string means "env var unset" (the template ships XORQ_UV_USE_HARDLINK=)
+    # and falls through to the platform default. Only a non-empty value overrides.
     if env_value:
         return bool(ast.literal_eval(env_value))
     return platform == "darwin"

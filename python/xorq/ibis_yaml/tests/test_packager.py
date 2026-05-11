@@ -329,6 +329,28 @@ def test_nix_env_removes_ld_path_inside_nix(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+def _patch_subprocess_run(monkeypatch):
+    """Replace packager.subprocess.run with a stub that records args.
+
+    Returns a dict that gets populated with ``{"args": <tuple>}`` on first call.
+    The stub returns a minimal CompletedProcess-like object that satisfies the
+    ``check=True`` and ``capture_output=True`` codepaths in packager.py.
+    """
+    captured = {}
+
+    class _Result:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        return _Result()
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.subprocess.run", fake_run)
+    return captured
+
+
 def test_link_mode_args_returns_hardlink_when_option_true(monkeypatch):
     from xorq.config import options  # noqa: PLC0415
     from xorq.ibis_yaml.packager import _link_mode_args  # noqa: PLC0415
@@ -349,19 +371,7 @@ def test_uv_tool_run_passes_link_mode_hardlink(monkeypatch):
     from xorq.config import options  # noqa: PLC0415
 
     monkeypatch.setattr(options.uv, "use_hardlink", True)
-    captured = {}
-
-    def fake_run(args, **kwargs):
-        captured["args"] = args
-
-        class _R:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        return _R()
-
-    monkeypatch.setattr("xorq.ibis_yaml.packager.subprocess.run", fake_run)
+    captured = _patch_subprocess_run(monkeypatch)
     uv_tool_run("xorq", "--version", capture_output=False)
     args = captured["args"]
     assert "--link-mode" in args
@@ -373,19 +383,7 @@ def test_uv_tool_run_omits_link_mode_when_option_false(monkeypatch):
     from xorq.config import options  # noqa: PLC0415
 
     monkeypatch.setattr(options.uv, "use_hardlink", False)
-    captured = {}
-
-    def fake_run(args, **kwargs):
-        captured["args"] = args
-
-        class _R:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        return _R()
-
-    monkeypatch.setattr("xorq.ibis_yaml.packager.subprocess.run", fake_run)
+    captured = _patch_subprocess_run(monkeypatch)
     uv_tool_run("xorq", "--version", capture_output=False)
     assert "--link-mode" not in captured["args"]
 
@@ -411,6 +409,26 @@ def test_uv_default_use_hardlink_env_value_overrides_platform():
     assert _default_use_hardlink(platform="linux", env_value="True") is True
 
 
+def test_uv_default_use_hardlink_no_args_reads_runtime_state(monkeypatch):
+    """No-args call falls back to sys.platform and env_config.XORQ_UV_USE_HARDLINK."""
+    from xorq.config import _default_use_hardlink, env_config  # noqa: PLC0415
+
+    # Clone env_config with an empty override so platform is the deciding factor.
+    monkeypatch.setattr(
+        "xorq.config.env_config", env_config.clone(XORQ_UV_USE_HARDLINK="")
+    )
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert _default_use_hardlink() is True
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert _default_use_hardlink() is False
+
+    # Env override wins over platform via the no-args path too.
+    monkeypatch.setattr(
+        "xorq.config.env_config", env_config.clone(XORQ_UV_USE_HARDLINK="True")
+    )
+    assert _default_use_hardlink() is True
+
+
 def test_wheel_packager_build_wheel_passes_link_mode_hardlink(tmp_path, monkeypatch):
     from xorq.config import options  # noqa: PLC0415
 
@@ -418,19 +436,7 @@ def test_wheel_packager_build_wheel_passes_link_mode_hardlink(tmp_path, monkeypa
     _make_pyproject(tmp_path)
     (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
 
-    captured = {}
-
-    def fake_run(args, **kwargs):
-        captured["args"] = args
-
-        class _R:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        return _R()
-
-    monkeypatch.setattr("xorq.ibis_yaml.packager.subprocess.run", fake_run)
+    captured = _patch_subprocess_run(monkeypatch)
 
     packager = WheelPackager(tmp_path)
     packager._build_wheel()
@@ -450,19 +456,7 @@ def test_wheel_packager_build_wheel_omits_link_mode_when_option_false(
     _make_pyproject(tmp_path)
     (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
 
-    captured = {}
-
-    def fake_run(args, **kwargs):
-        captured["args"] = args
-
-        class _R:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        return _R()
-
-    monkeypatch.setattr("xorq.ibis_yaml.packager.subprocess.run", fake_run)
+    captured = _patch_subprocess_run(monkeypatch)
 
     packager = WheelPackager(tmp_path)
     packager._build_wheel()
