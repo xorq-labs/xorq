@@ -600,12 +600,25 @@ def test_catalog_run_invokes_packaged_runner(
     catalog_with_source_and_transform, monkeypatch
 ):
     """Without --use-this-venv, `catalog run` constructs a PackagedRunner
-    with the cached build_path and forwards output options. Stub the
-    subprocess so we don't pay for `uv tool run`."""
+    pointing at the entry's extracted archive and forwards output options.
+    Stub the subprocess so we don't pay for `uv tool run`. Build-path
+    assertions run inside the stub because the fast path uses a temp dir
+    that gets cleaned up when invoke returns."""
     calls = []
 
     def fake_run(self):
-        calls.append(self)
+        # Capture the snapshot while the tmpdir still exists.
+        calls.append(
+            {
+                "output_path": self.output_path,
+                "output_format": self.output_format,
+                "expr_exists": (self.build_path / DumpFiles.expr).exists(),
+                "requirements_exists": (
+                    self.build_path / DumpFiles.requirements
+                ).exists(),
+                "has_wheel": bool(list(self.build_path.glob("*.whl"))),
+            }
+        )
         return self
 
     monkeypatch.setattr("xorq.ibis_yaml.packager.PackagedRunner.run", fake_run)
@@ -619,55 +632,141 @@ def test_catalog_run_invokes_packaged_runner(
     assert result.exit_code == 0, result.output
 
     (pr,) = calls
-    assert pr.output_path == "-"
-    assert pr.output_format == "csv"
-    # build_path must be the cached catalog-run slot with required artifacts
-    assert (pr.build_path / DumpFiles.expr).exists()
-    assert (pr.build_path / DumpFiles.requirements).exists()
-    assert list(pr.build_path.glob("*.whl"))
+    assert pr["output_path"] == "-"
+    assert pr["output_format"] == "csv"
+    assert pr["expr_exists"]
+    assert pr["requirements_exists"]
+    assert pr["has_wheel"]
 
 
-def test_catalog_run_uv_path_reuses_cached_build(
-    catalog_with_source_and_transform, monkeypatch, tmp_path
+def test_catalog_run_fast_path_skips_merge(
+    catalog_with_source_and_transform, monkeypatch
 ):
-    """Second invocation with the same expression hits the cache, so
-    `_merge_joint_wheels_into_build` is not called again."""
+    """Single-entry, no-transform `catalog run` short-circuits to the
+    archive — it must not deserialize the expression or invoke the
+    merge/rebuild path."""
     merge_calls = []
+    resolve_calls = []
 
     from xorq.catalog import cli as cli_mod  # noqa: PLC0415
 
-    original_merge = cli_mod._merge_joint_wheels_into_build
-
     def spy_merge(catalog, entries, build_path):
         merge_calls.append(build_path)
-        return original_merge(catalog, entries, build_path)
+
+    def spy_resolve(*args, **kwargs):
+        resolve_calls.append(args)
+        raise AssertionError("fast path must not call _resolve_single_entry")
 
     monkeypatch.setattr(cli_mod, "_merge_joint_wheels_into_build", spy_merge)
+    monkeypatch.setattr(cli_mod, "_resolve_single_entry", spy_resolve)
     monkeypatch.setattr("xorq.ibis_yaml.packager.PackagedRunner.run", lambda self: self)
-    # Isolate the catalog-run cache so any pre-existing cached build dirs
-    # from prior runs don't make the first invocation a cache hit.
-    monkeypatch.setattr(
-        "xorq.common.utils.caching_utils.get_xorq_cache_dir",
-        lambda: tmp_path / "xorq-cache",
-    )
 
     catalog_path, _, _ = catalog_with_source_and_transform
     bare = CliRunner()
     args = ["--path", catalog_path, "run", "src", "-o", "-", "-f", "csv"]
 
-    r1 = bare.invoke(cli, args)
-    assert r1.exit_code == 0, r1.output
-    r2 = bare.invoke(cli, args)
-    assert r2.exit_code == 0, r2.output
+    result = bare.invoke(cli, args)
+    assert result.exit_code == 0, result.output
+    assert merge_calls == []
+    assert resolve_calls == []
 
-    # First invocation populated the cache; second is a hit.
-    assert len(merge_calls) == 1
+
+def test_catalog_run_reinvokes_via_uv_for_transforms(
+    catalog_with_source_and_transform, monkeypatch
+):
+    """Transforms (--limit, -c, -p, --rename-params) under --no-use-this-venv
+    must re-invoke `xorq catalog run --use-this-venv` via `uv tool run`
+    instead of deserializing the expression in the caller — the caller's
+    venv may not have the entry's pinned UDF deps."""
+    from xorq.catalog import cli as cli_mod  # noqa: PLC0415
+
+    captured = {}
+
+    def fake_uv_tool_run(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+
+        class _R:
+            returncode = 0
+
+        return _R()
+
+    def spy_resolve(*args, **kwargs):
+        raise AssertionError("re-invoke path must not call _resolve_single_entry")
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
+    monkeypatch.setattr(cli_mod, "_resolve_single_entry", spy_resolve)
+
+    catalog_path, _, _ = catalog_with_source_and_transform
+    bare = CliRunner()
+    result = bare.invoke(
+        cli,
+        ["--path", catalog_path, "run", "src", "--limit", "1", "-o", "-", "-f", "csv"],
+    )
+    assert result.exit_code == 0, result.output
+
+    assert "args" in captured, "uv_tool_run was not called"
+    args = captured["args"]
+    assert "xorq" in args
+    assert "catalog" in args
+    assert "run" in args
+    assert "src" in args
+    assert "--limit" in args
+    assert "1" in args
+    # Inner xorq is the entry's pinned version (often older than this branch)
+    # and doesn't know --use-this-venv; forwarding it would break the inner
+    # parser. Older xorq defaults to in-process, which is what we want.
+    assert "--use-this-venv" not in args
+
+
+def test_catalog_run_cached_reinvokes_via_uv(
+    catalog_with_source_and_transform, monkeypatch, tmp_path
+):
+    """`run-cached` without --use-this-venv goes through the same
+    re-invocation path."""
+    from xorq.catalog import cli as cli_mod  # noqa: PLC0415
+
+    captured = {}
+
+    def fake_uv_tool_run(*args, **kwargs):
+        captured["args"] = args
+        return type("R", (), {"returncode": 0})()
+
+    def spy_resolve(*args, **kwargs):
+        raise AssertionError("re-invoke path must not call _resolve_single_entry")
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
+    monkeypatch.setattr(cli_mod, "_resolve_single_entry", spy_resolve)
+
+    catalog_path, _, _ = catalog_with_source_and_transform
+    bare = CliRunner()
+    result = bare.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run-cached",
+            "src",
+            "--cache-dir",
+            str(tmp_path),
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    args = captured["args"]
+    assert "run-cached" in args
+    assert "--cache-dir" in args
+    assert str(tmp_path) in args
 
 
 @pytest.mark.slow(level=1)
 def test_catalog_run_uv_path_end_to_end(catalog_with_source_and_transform, tmp_path):
-    """Full pipeline: build_expr + merge wheels + `uv tool run xorq run`.
-    Slow because uv resolves and installs the entry's pinned env."""
+    """Full pipeline: archive ⇒ `uv tool run xorq run`. Slow because uv
+    resolves and installs the entry's pinned env."""
     catalog_path, _, _ = catalog_with_source_and_transform
     out = tmp_path / "out.csv"
     result = subprocess.run(

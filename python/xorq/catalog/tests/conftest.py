@@ -61,7 +61,7 @@ class _AutoVenvCliRunner(CliRunner):
     def invoke(self, cli, args=(), **kwargs):
         args = list(args)
         for i, arg in enumerate(args):
-            if arg == "run":
+            if arg in ("run", "run-cached"):
                 args = args[: i + 1] + ["--use-this-venv"] + args[i + 1 :]
                 break
         return super().invoke(cli, args, **kwargs)

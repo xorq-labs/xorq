@@ -978,6 +978,105 @@ def _merge_joint_wheels_into_build(catalog, entries, build_path):
         shutil.copy2(bundle.requirements_path, build_path / DumpFiles.requirements)
 
 
+@contextmanager
+def _entry_run_bundle(catalog, entries):
+    """Yield a wheel + requirements bundle suitable for running *entries*
+    inside `uv tool run`.
+
+    Single entry: returns that entry's archived wheels + requirements
+    verbatim — the archive already carries a usable resolution.
+
+    Multi-entry: harvests wheels from each entry's archive and runs
+    `JointWheelResolver` for a unified requirements set.
+    """
+    import shutil  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+
+    from xorq.catalog.zip_utils import extract_build_zip_context  # noqa: PLC0415
+    from xorq.ibis_yaml.packager import (  # noqa: PLC0415
+        JointBundle,
+        JointWheelResolver,
+    )
+
+    if not entries:
+        raise click.ClickException("at least one entry is required")
+
+    def _resolve_entry(entry):
+        try:
+            ce = catalog.get_catalog_entry(entry, maybe_alias=True)
+        except (ValueError, AssertionError) as err:
+            raise click.ClickException(f"Entry {entry!r} not found in catalog") from err
+        if not ce.is_content_local:
+            ce.fetch()
+        return ce
+
+    if len(entries) == 1:
+        (entry,) = entries
+        ce = _resolve_entry(entry)
+        with extract_build_zip_context(ce.catalog_path) as src_dir:
+            yield JointBundle.from_build_path(src_dir)
+        return
+
+    with tempfile.TemporaryDirectory() as harvest_str:
+        harvest_dir = Path(harvest_str)
+        wheel_paths = []
+        for i, entry in enumerate(entries):
+            ce = _resolve_entry(entry)
+            with extract_build_zip_context(ce.catalog_path) as src_dir:
+                entry_dir = harvest_dir / f"entry_{i}"
+                entry_dir.mkdir()
+                for w in sorted(src_dir.glob("*.whl")):
+                    target = entry_dir / w.name
+                    shutil.copy2(w, target)
+                    wheel_paths.append(target)
+        if not wheel_paths:
+            raise click.ClickException("no wheels found in entries")
+        resolver = JointWheelResolver(wheel_paths=tuple(wheel_paths))
+        yield resolver.resolve()
+
+
+def _uv_reinvoke_xorq_cli(catalog, entries, *inner_args):
+    """Spawn `uv tool run <bundle> xorq <inner_args>` against a venv
+    assembled from the catalog entries' wheels + requirements.
+
+    Used to defer in-process expression deserialization (which requires
+    the entry's pinned env to safely unpickle UDF class refs) to a
+    subprocess that actually has that env. Older xorq versions pinned in
+    archives (pre-`--use-this-venv`) default to in-process; newer ones
+    will too as long as no flag opts back into isolation.
+    """
+    from xorq.ibis_yaml.packager import uv_tool_run  # noqa: PLC0415
+
+    with _entry_run_bundle(catalog, entries) as bundle:
+        return uv_tool_run(
+            *inner_args,
+            python_version=bundle.python_version,
+            with_=bundle.wheel_paths,
+            with_requirements=bundle.requirements_path,
+            capture_output=False,
+        )
+
+
+def _forward_run_args(code, limit, fuse, raw_params, raw_rename_params, instream):
+    """Flatten transform/IO options for forwarding to a re-invoked `xorq
+    catalog run` / `xorq catalog run-cached` subprocess."""
+    args = []
+    if code is not None:
+        args += ["-c", code]
+    if limit is not None:
+        args += ["--limit", str(limit)]
+    if not fuse:
+        args += ["--no-fuse"]
+    for p in raw_params:
+        args += ["-p", p]
+    for rp in raw_rename_params:
+        args += ["--rename-params", rp]
+    instream_name = getattr(instream, "name", None)
+    if instream_name and instream_name not in ("<stdin>", "-"):
+        args += ["-i", instream_name]
+    return args
+
+
 @cli.command("compose")
 @click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
 @click.option(
@@ -1215,6 +1314,116 @@ def run(
                     else None
                 )
 
+                # Fast path: single entry, no in-process transforms, isolated
+                # subprocess. Hand the entry's original archive directly to
+                # `uv tool run xorq run` — never deserialize the expression in
+                # the caller. The caller may be missing the UDF wheels or the
+                # exact xorq version baked into the archive, and cloudpickle's
+                # __recreate__ for those refs can SIGSEGV.
+                if (
+                    not use_this_venv
+                    and len(entries) == 1
+                    and code is None
+                    and limit is None
+                    and not raw_params
+                    and not raw_rename_params
+                ):
+                    from xorq.catalog.zip_utils import (  # noqa: PLC0415
+                        extract_build_zip_context,
+                    )
+                    from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
+                    from xorq.ibis_yaml.packager import (  # noqa: PLC0415
+                        PackagedRunner,
+                    )
+
+                    (entry,) = entries
+                    try:
+                        catalog_entry = catalog.get_catalog_entry(
+                            entry, maybe_alias=True
+                        )
+                    except (ValueError, AssertionError) as err:
+                        raise click.ClickException(
+                            f"Entry {entry!r} not found — run 'xorq catalog "
+                            f"list' or 'xorq catalog list-aliases' to see "
+                            f"available entries."
+                        ) from err
+                    # UnboundExpr needs stdin Arrow bound to the expression
+                    # before run, which requires in-process resolution.
+                    if catalog_entry.kind is not ExprKind.UnboundExpr:
+                        if not catalog_entry.is_content_local:
+                            catalog_entry.fetch()
+                        span.set_attribute("kind", str(catalog_entry.kind))
+                        span.set_attribute("path", "archive")
+                        with (
+                            timed() as get_elapsed,
+                            extract_build_zip_context(
+                                catalog_entry.catalog_path
+                            ) as build_path,
+                        ):
+                            PackagedRunner(
+                                build_path,
+                                output_path=output_path,
+                                output_format=output_format,
+                            ).run()
+                        rl.log_span_event(
+                            span,
+                            "catalog_run.done",
+                            {
+                                "elapsed_s": round(get_elapsed(), 3),
+                                "output_format": str(output_format),
+                            },
+                        )
+                        file_metrics = RunLogger._compute_file_metrics(
+                            output_format, output_path
+                        )
+                        if file_metrics:
+                            rl.log_span_event(
+                                span, "catalog_run.output_written", file_metrics
+                            )
+                        return
+
+                # Re-invoke path: transforms or multi-entry under
+                # --no-use-this-venv. Spawn `uv tool run xorq catalog run`
+                # against the entries' pinned env so the in-process
+                # expression deserialization happens where the pickled UDF
+                # class refs are resolvable.
+                if not use_this_venv:
+                    span.set_attribute("path", "uv-reinvoke")
+                    inner_cmd = (
+                        "xorq",
+                        "catalog",
+                        "--path",
+                        str(catalog.repo_path),
+                        "run",
+                        *entries,
+                        *_forward_run_args(
+                            code, limit, fuse, raw_params, raw_rename_params, instream
+                        ),
+                        *(("--output-path", output_path) if output_path else ()),
+                        "--format",
+                        output_format,
+                    )
+                    with timed() as get_elapsed:
+                        _uv_reinvoke_xorq_cli(catalog, entries, *inner_cmd)
+                    rl.log_span_event(
+                        span,
+                        "catalog_run.done",
+                        {
+                            "elapsed_s": round(get_elapsed(), 3),
+                            "output_format": str(output_format),
+                        },
+                    )
+                    file_metrics = RunLogger._compute_file_metrics(
+                        output_format, output_path
+                    )
+                    if file_metrics:
+                        rl.log_span_event(
+                            span, "catalog_run.output_written", file_metrics
+                        )
+                    return
+
+                # In-process path (--use-this-venv).
+                span.set_attribute("path", "in-process")
                 with timed() as get_elapsed:
                     if len(entries) > 1:
                         expr = _compose_expr(
@@ -1240,38 +1449,7 @@ def run(
                     expr = expr.limit(limit)
 
                 with timed() as get_elapsed:
-                    if use_this_venv:
-                        arbitrate_output_format(expr, output_path, output_format)
-                    else:
-                        from xorq.common.utils.caching_utils import (  # noqa: PLC0415
-                            get_xorq_cache_dir,
-                        )
-                        from xorq.ibis_yaml.compiler import (  # noqa: PLC0415
-                            ArtifactStore,
-                            build_expr,
-                        )
-                        from xorq.ibis_yaml.enums import DumpFiles  # noqa: PLC0415
-                        from xorq.ibis_yaml.packager import (  # noqa: PLC0415
-                            PackagedRunner,
-                        )
-
-                        builds_dir = get_xorq_cache_dir() / "catalog-run"
-                        builds_dir.mkdir(parents=True, exist_ok=True)
-                        expr_hash = ArtifactStore.get_expr_hash(expr)
-                        build_path = builds_dir / expr_hash
-                        cache_hit = (
-                            (build_path / DumpFiles.expr).exists()
-                            and (build_path / DumpFiles.requirements).exists()
-                            and any(build_path.glob("*.whl"))
-                        )
-                        if not cache_hit:
-                            build_path = build_expr(expr, builds_dir=builds_dir)
-                            _merge_joint_wheels_into_build(catalog, entries, build_path)
-                        PackagedRunner(
-                            build_path,
-                            output_path=output_path,
-                            output_format=output_format,
-                        ).run()
+                    arbitrate_output_format(expr, output_path, output_format)
 
                     rl.log_span_event(
                         span,
@@ -1354,6 +1532,18 @@ def run(
     default=None,
     help="TTL in seconds for snapshot cache (uses ParquetTTLSnapshotCache when set).",
 )
+@click.option(
+    "--use-this-venv/--no-use-this-venv",
+    default=False,
+    help=(
+        "Execute in the current Python environment instead of spawning "
+        "`uv tool run` on the entry's pinned env. Faster (no subprocess + "
+        "uv venv lookup) but only correct when the calling venv already has "
+        "every package the expression needs (xorq itself plus any UDFs "
+        "from the entries' wheels). Default is the isolated `uv tool run` "
+        "path."
+    ),
+)
 @click.pass_context
 def run_cached(
     ctx,
@@ -1369,6 +1559,7 @@ def run_cached(
     cache_dir,
     cache_type,
     ttl,
+    use_this_venv,
 ):
     """Compose and execute catalog entries with a ParquetCache wrapping the expression.
 
@@ -1417,6 +1608,51 @@ def run_cached(
                     else None
                 )
 
+                # Re-invoke path: under --no-use-this-venv, defer expression
+                # deserialization (and any cloudpickled UDF class refs) to a
+                # subprocess running inside the entries' pinned env.
+                if not use_this_venv:
+                    span.set_attribute("path", "uv-reinvoke")
+                    inner_cmd = (
+                        "xorq",
+                        "catalog",
+                        "--path",
+                        str(catalog.repo_path),
+                        "run-cached",
+                        *entries,
+                        *_forward_run_args(
+                            code, limit, fuse, raw_params, raw_rename_params, instream
+                        ),
+                        *(("--cache-dir", str(cache_dir)) if cache_dir else ()),
+                        "--cache-type",
+                        cache_type,
+                        *(("--ttl", str(ttl)) if ttl is not None else ()),
+                        *(("--output-path", output_path) if output_path else ()),
+                        "--format",
+                        output_format,
+                    )
+                    with timed() as get_elapsed:
+                        _uv_reinvoke_xorq_cli(catalog, entries, *inner_cmd)
+                    rl.log_span_event(
+                        span,
+                        "catalog_run_cached.done",
+                        {
+                            "elapsed_s": round(get_elapsed(), 3),
+                            "output_format": str(output_format),
+                        },
+                    )
+                    file_metrics = RunLogger._compute_file_metrics(
+                        output_format, output_path
+                    )
+                    if file_metrics:
+                        rl.log_span_event(
+                            span,
+                            "catalog_run_cached.output_written",
+                            file_metrics,
+                        )
+                    return
+
+                span.set_attribute("path", "in-process")
                 with timed() as get_elapsed:
                     if len(entries) > 1:
                         expr = _compose_expr(
