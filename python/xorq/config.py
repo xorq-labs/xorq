@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+import sys
 from typing import Any, Optional
 
 from xorq.common.utils.env_utils import (
@@ -185,6 +186,26 @@ class TUI(Config):
     )
 
 
+class UV(Config):
+    """Options controlling how xorq invokes ``uv`` subprocesses.
+
+    Attributes
+    ----------
+    use_hardlink : bool
+        Pass ``--link-mode hardlink`` to ``uv`` invocations from the
+        packager. On macOS this avoids the per-invocation syspolicyd
+        rescan that ``--link-mode=clone`` triggers (see #1942 and
+        astral-sh/uv#18577). Defaults to True on macOS, False elsewhere;
+        overridable via ``XORQ_UV_USE_HARDLINK``.
+    """
+
+    use_hardlink: bool = (
+        bool(ast.literal_eval(env_config.XORQ_UV_USE_HARDLINK))
+        if env_config.XORQ_UV_USE_HARDLINK
+        else sys.platform == "darwin"
+    )
+
+
 class Options(IbisOptions):
     """xorq configuration options
 
@@ -200,6 +221,8 @@ class Options(IbisOptions):
         Options controlling expression printing.
     tui : TUI
         Options controlling the catalog TUI layout.
+    uv : UV
+        Options controlling how xorq invokes uv subprocesses.
     """
 
     cache: Cache = Cache()
@@ -207,6 +230,7 @@ class Options(IbisOptions):
     sql: SQL = SQL()
     pins: Pins = Pins()
     tui: TUI = TUI()
+    uv: UV = UV()
     default_backend: Optional[BaseBackend] = None
     debug: bool = bool(env_config.XORQ_DEBUG) and parse_bool_env(env_config.XORQ_DEBUG)
 
