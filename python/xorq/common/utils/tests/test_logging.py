@@ -84,6 +84,30 @@ def test_log_span_event_none_span(tmp_path):
     assert events[0]["event"] == "my.event"
 
 
+def test_log_span_event_drops_none_attributes_from_span(tmp_path):
+    """span.add_event must not receive None-valued attributes (OTel rejects
+    them with `Invalid type NoneType for attribute ...` warnings). The file
+    log keeps everything for audit. Regression for #1940."""
+    run_dir = tmp_path / "test-run"
+    run_dir.mkdir()
+    rl = RunLogger(run_dir=run_dir)
+    span = MagicMock()
+
+    rl.log_span_event(
+        span, "my.event", {"good": "val", "limit": None, "ttl": None}
+    )
+
+    span.add_event.assert_called_once_with("my.event", {"good": "val"})
+
+    events = [
+        json.loads(line) for line in (run_dir / "run.jsonl").read_text().splitlines()
+    ]
+    assert len(events) == 1
+    assert events[0]["good"] == "val"
+    assert events[0]["limit"] is None
+    assert events[0]["ttl"] is None
+
+
 def test_log_event_none_fields(tmp_path):
     run_dir = tmp_path / "test-run"
     run_dir.mkdir()
