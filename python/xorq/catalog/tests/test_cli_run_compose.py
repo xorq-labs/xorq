@@ -682,6 +682,35 @@ def test_catalog_run_fast_path_skips_merge(
     assert resolve_calls == []
 
 
+def test_catalog_run_no_fuse_bypasses_fast_path(
+    catalog_with_source_and_transform, monkeypatch
+):
+    """`--no-fuse` must fall through to the re-invoke path; the fast
+    path runs PackagedRunner directly and would silently drop the flag."""
+    captured = {}
+
+    def fake_uv_tool_run(*args, **kwargs):
+        captured["args"] = args
+        return type("R", (), {"returncode": 0})()
+
+    def spy_packaged_run(self):
+        raise AssertionError("fast path must not fire under --no-fuse")
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
+    monkeypatch.setattr("xorq.ibis_yaml.packager.PackagedRunner.run", spy_packaged_run)
+
+    catalog_path, _, _ = catalog_with_source_and_transform
+    bare = CliRunner()
+    result = bare.invoke(
+        cli,
+        ["--path", catalog_path, "run", "src", "--no-fuse", "-o", "-", "-f", "csv"],
+    )
+    assert result.exit_code == 0, result.output
+
+    args = captured["args"]
+    assert "--no-fuse" in args
+
+
 def test_catalog_run_reinvokes_via_uv_for_transforms(
     catalog_with_source_and_transform, monkeypatch
 ):
@@ -722,10 +751,9 @@ def test_catalog_run_reinvokes_via_uv_for_transforms(
     assert "src" in args
     assert "--limit" in args
     assert "1" in args
-    # Inner xorq is the entry's pinned version (often older than this branch)
-    # and doesn't know --use-this-venv; forwarding it would break the inner
-    # parser. Older xorq defaults to in-process, which is what we want.
-    assert "--use-this-venv" not in args
+    # The inner xorq must be told to run in-process, otherwise it would
+    # re-enter the same re-invoke path and recurse without bound.
+    assert "--use-this-venv" in args
 
 
 def test_catalog_run_cached_reinvokes_via_uv(

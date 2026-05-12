@@ -1076,11 +1076,9 @@ def _uv_reinvoke_xorq_cli(catalog, entries, *inner_args):
     """Spawn `uv tool run <bundle> xorq <inner_args>` against a venv
     assembled from the catalog entries' wheels + requirements.
 
-    Used to defer in-process expression deserialization (which requires
-    the entry's pinned env to safely unpickle UDF class refs) to a
-    subprocess that actually has that env. Older xorq versions pinned in
-    archives (pre-`--use-this-venv`) default to in-process; newer ones
-    will too as long as no flag opts back into isolation.
+    Callers must pass `--use-this-venv` in `inner_args` so the inner
+    xorq runs in-process; otherwise it would re-enter the same re-invoke
+    path and recurse without bound.
     """
     from xorq.ibis_yaml.packager import uv_tool_run  # noqa: PLC0415
 
@@ -1362,6 +1360,7 @@ def run(
                     and len(entries) == 1
                     and code is None
                     and limit is None
+                    and fuse
                     and not raw_params
                     and not raw_rename_params
                 ):
@@ -1439,6 +1438,7 @@ def run(
                         *(("--output-path", output_path) if output_path else ()),
                         "--format",
                         output_format,
+                        "--use-this-venv",
                     )
                     with timed() as get_elapsed:
                         _uv_reinvoke_xorq_cli(catalog, entries, *inner_cmd)
@@ -1667,6 +1667,7 @@ def run_cached(
                         *(("--output-path", output_path) if output_path else ()),
                         "--format",
                         output_format,
+                        "--use-this-venv",
                     )
                     with timed() as get_elapsed:
                         _uv_reinvoke_xorq_cli(catalog, entries, *inner_cmd)
