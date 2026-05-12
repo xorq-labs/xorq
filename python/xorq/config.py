@@ -201,7 +201,10 @@ def _default_use_hardlink(platform=None, env_value=None):
     # Empty string means "env var unset" (the template ships XORQ_UV_USE_HARDLINK=)
     # and falls through to the platform default. Only a non-empty value overrides.
     if env_value:
-        return bool(ast.literal_eval(env_value))
+        # Normalise case so shell-style values like "true"/"false" parse the same
+        # as Python literals "True"/"False". Without .capitalize(),
+        # ``ast.literal_eval("true")`` raises ValueError at import time.
+        return bool(ast.literal_eval(env_value.capitalize()))
     return platform == "darwin"
 
 
