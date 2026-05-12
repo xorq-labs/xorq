@@ -189,6 +189,117 @@ def _normalize_read_xorq(read):
     return ("xorq.Read", read.schema, tpls)
 
 
+_DATAFUSION_PATH_RE = None  # populated lazily on first use
+
+
+def _normalize_path_stat(path, **kwargs):
+    """Stable metadata for a path: HTTP HEAD, cloud metadata, or local stat."""
+    import pathlib  # noqa: PLC0415
+
+    if isinstance(path, str) and path.startswith(("http://", "https://")):
+        import urllib.request  # noqa: PLC0415
+
+        req = urllib.request.Request(
+            path, method="HEAD", headers={"User-Agent": "xorq-cache"}
+        )
+        resp = urllib.request.urlopen(req, timeout=10)
+        headers = resp.info()
+        return (
+            ("url", path),
+            *(
+                (k, headers.get(k))
+                for k in ("Last-Modified", "Content-Length", "Content-Type")
+            ),
+        )
+    if isinstance(path, str) and path.startswith(("s3://", "gs://", "gcs://")):
+        from xorq.expr import api  # noqa: PLC0415
+
+        meta = api.get_object_metadata(path, **kwargs)
+        return tuple(
+            (k, meta.get(k))
+            for k in ("location", "last_modified", "size", "e_tag", "version")
+        )
+    p = pathlib.Path(path)
+    if p.exists():
+        # noqa: PLC0415 -- lazy import to avoid circulars during module bootstrap
+        from xorq.common.utils import defer_utils  # noqa: PLC0415
+
+        return defer_utils.normalize_read_path_stat(p)
+    raise FileNotFoundError(f"local path does not exist: {path!r}")
+
+
+def _extract_datafusion_plan_paths(ep_str):
+    """Extract file paths from a DataFusion execution plan's ``file_groups``.
+
+    DataFusion's plan repr strips the leading ``/`` from absolute local paths;
+    we restore it so subsequent ``stat`` calls find the file.
+    """
+    import itertools  # noqa: PLC0415
+    import pathlib  # noqa: PLC0415
+    import re  # noqa: PLC0415
+
+    import yaml12  # noqa: PLC0415
+
+    file_groups_match = re.search(r"file_groups=(\{[^}]*\})", ep_str)
+    if not file_groups_match:
+        return ()
+    parsed = yaml12.parse_yaml(file_groups_match.group(1))
+    (groups,) = parsed.values()
+    out = []
+    for raw in itertools.chain.from_iterable(groups):
+        if raw.startswith(("http://", "https://", "s3://", "gs://", "gcs://")):
+            out.append(raw)
+        else:
+            p = pathlib.Path(raw)
+            out.append(str(p if p.is_absolute() else pathlib.Path("/") / raw))
+    return tuple(out)
+
+
+def _normalize_datafusion_databasetable_xorq(dt):
+    """Datafusion DT normalizer that stats Parquet/CSV files for content sensitivity.
+
+    Dasher 0.1.0's rule returns just ``(schema, ep_str)`` for parquet/csv-backed
+    tables; ep_str captures the path but no mtime/size, so file edits don't
+    invalidate ``ModificationTimeStrategy`` cache keys (the test in
+    ``test_parquet_cache_storage``). Mirror the legacy xorq behavior: extract
+    file paths from the plan and stat them.
+    """
+    import re  # noqa: PLC0415
+
+    from xorq_dasher.rules.expr import (  # noqa: PLC0415
+        normalize_memory_databasetable,
+    )
+
+    table = dt.source.con.table(dt.name)
+    ep_str = str(table.execution_plan())
+    is_file = ep_str.startswith(("ParquetExec:", "CsvExec:")) or re.match(
+        r"DataSourceExec:.+file_type=(csv|parquet)", ep_str
+    )
+    if is_file:
+        paths = _extract_datafusion_plan_paths(ep_str)
+        if paths:
+            file_metadata = tuple((p, _normalize_path_stat(p)) for p in sorted(paths))
+            return (
+                "ibis.DatabaseTable.datafusion.file",
+                dt.schema.to_pandas(),
+                file_metadata,
+            )
+        raise ValueError(
+            f"no parquet/csv paths extractable from execution plan: {ep_str!r}"
+        )
+    if ep_str.startswith(("MemoryExec:", "DataSourceExec:")):
+        return normalize_memory_databasetable(dt)
+    if "PyRecordBatchProviderExec" in ep_str:
+        return (
+            "ibis.DatabaseTable.datafusion.recordbatch",
+            dt.schema.to_pandas(),
+            dt.name,
+        )
+    if ep_str.startswith("EmptyExec"):
+        raise ValueError("No data to cache")
+    raise ValueError(f"unrecognized DataFusion execution plan: {ep_str!r}")
+
+
 def _stable_opaque_name(prefix, *parts):
     """Build a deterministic placeholder name from xxhash of structural parts.
 
@@ -342,7 +453,6 @@ def _databasetable_dispatcher(dt):
     from xorq_dasher.rules.expr import (  # noqa: PLC0415
         normalize_cached_node,
         normalize_databasetable,
-        normalize_datafusion_databasetable,
         normalize_remote_table,
         normalize_xorq_databasetable,
     )
@@ -368,8 +478,12 @@ def _databasetable_dispatcher(dt):
     # Backend variant exposes).
     if isinstance(dt, (FlightExpr, FlightUDXF)):
         return normalize_xorq_databasetable(dt)
-    if dt.source.name == "xorq_datafusion":
-        return normalize_datafusion_databasetable(dt)
+    # For datafusion-backed file tables, dasher's normalize_datafusion_
+    # databasetable stops at ep_str — which captures the path but no stat —
+    # so file edits don't invalidate the cache key. _normalize_datafusion_
+    # databasetable_xorq stats the underlying files to restore mtime sensitivity.
+    if dt.source.name in ("datafusion", "xorq_datafusion"):
+        return _normalize_datafusion_databasetable_xorq(dt)
     return normalize_databasetable(dt)
 
 
