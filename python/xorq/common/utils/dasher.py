@@ -89,6 +89,29 @@ def normalize_methodcaller(obj):
     return ("operator.methodcaller", *(_ctypes_field(fields, f, obj) for f in fields))
 
 
+def normalize_functools_partial(p):
+    """``functools.partial`` is callable; capture func + args + sorted kwargs."""
+    return (
+        "functools.partial",
+        p.func,
+        tuple(p.args),
+        tuple(sorted(p.keywords.items())),
+    )
+
+
+def normalize_builtin_callable(func):
+    """Builtin C functions / methods (e.g. ``json.dumps``)."""
+    return (
+        "builtins.builtin",
+        getattr(func, "__module__", None),
+        getattr(func, "__qualname__", getattr(func, "__name__", repr(func))),
+    )
+
+
+def normalize_slice(s):
+    return ("slice", s.start, s.stop, s.step)
+
+
 def normalize_ibis_schema(schema):
     """Schema normalizer that preserves ibis type identity.
 
@@ -338,7 +361,7 @@ def _parent_token(thing):
         return xxhash.xxh128(repr(thing).encode("utf-8")).hexdigest()
 
 
-def _xorq_opaque_to_placeholder(node, _, **kwargs):
+def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
     """Replace opaque leaf nodes with UnboundTable placeholders.
 
     Mirrors xorq_dasher.rules.expr._opaque_to_placeholder but
@@ -347,7 +370,12 @@ def _xorq_opaque_to_placeholder(node, _, **kwargs):
     (b) folds the *parent/inner* expression's structural token into each
     placeholder name so wrappers with identical schema but distinct inner
     expressions do not collide.
+
+    Callable from both ibis ``op.replace`` (positional ``(node, kwargs)``)
+    and xorq's ``replace_nodes`` (same shape); for non-opaque nodes with
+    rewritten children, ``_kwargs`` is the children-dict and we recreate.
     """
+    import xorq.expr.operations as xops  # noqa: PLC0415
     from xorq.expr import api  # noqa: PLC0415
     from xorq.expr.relations import (  # noqa: PLC0415
         CachedNode,
@@ -398,9 +426,18 @@ def _xorq_opaque_to_placeholder(node, _, **kwargs):
                 node.metadata,
                 _parent_token(node.parent),
             )
+        case xops.NamedScalarParameter():
+            # Replace with a literal of the same dtype so SQL compilation
+            # works without a translation rule for NamedScalarParameter, and
+            # use a content-stable name so two builds with the same param
+            # produce identical placeholders.
+            anchor = _stable_opaque_name(
+                "param", node.label, str(node.dtype), str(node.default)
+            )
+            return api.literal(value=None, type=node.dtype).name(anchor).op()
         case _:
-            if kwargs:
-                return node.__recreate__(kwargs)
+            if _kwargs:
+                return node.__recreate__(_kwargs)
             return node
     return api.table(node.schema, name=name).op()
 
@@ -409,6 +446,7 @@ def _normalize_expr_xorq(expr):
     """Deterministic Expr normalizer; replaces dasher's id()-based version."""
     from xorq_dasher.rules.expr import normalize_inmemorytable  # noqa: PLC0415
 
+    from xorq.common.utils.graph_utils import replace_nodes, walk_nodes  # noqa: PLC0415
     from xorq.expr.api import get_compiler, to_sql  # noqa: PLC0415
     from xorq.expr.relations import CachedNode, Read  # noqa: PLC0415
     from xorq.vendor.ibis.expr.operations.relations import (  # noqa: PLC0415
@@ -419,18 +457,24 @@ def _normalize_expr_xorq(expr):
 
     op = expr.op()
     compiler = get_compiler(expr)
-    sql = str(
-        to_sql(
-            op.replace(_xorq_opaque_to_placeholder).to_expr().unbind(),
-            compiler=compiler,
-        )
-    )
-    reads = op.find(Read)
+    # Use replace_nodes (not op.replace) so the opaque-placeholder rewrite
+    # descends into Any-typed sub-expressions (RemoteTable.remote_expr,
+    # CachedNode.parent, FlightExpr/UDXF.input_expr,
+    # ExprScalarUDF.computed_kwargs_expr). Without this, inner opaque nodes
+    # keep their gen_name()-randomized names and leak randomness into SQL.
+    rewritten = replace_nodes(_xorq_opaque_to_placeholder, op)
+    sql = str(to_sql(rewritten.to_expr().unbind(), compiler=compiler))
+    # walk_nodes descends through the same Any-typed boundaries, so leaves
+    # reachable only through opaque sub-expressions still contribute their
+    # data identity to the hash.
+    reads = tuple(walk_nodes(Read, op))
     dts = tuple(
-        n for n in op.find(DatabaseTable) if not isinstance(n, (CachedNode, Read))
+        n
+        for n in walk_nodes(DatabaseTable, op)
+        if not isinstance(n, (CachedNode, Read))
     )
-    udfs = op.find((AggUDF, ScalarUDF))
-    mems = op.find(InMemoryTable)
+    udfs = tuple(walk_nodes((AggUDF, ScalarUDF), op))
+    mems = tuple(walk_nodes(InMemoryTable, op))
     return (
         "ibis.Expr",
         sql,
@@ -488,6 +532,8 @@ def _databasetable_dispatcher(dt):
 
 
 def _build_extra_rules():
+    import types as _types  # noqa: PLC0415
+
     import numpy as np  # noqa: PLC0415
     import pandas as pd  # noqa: PLC0415
 
@@ -500,6 +546,10 @@ def _build_extra_rules():
 
     rules = [
         (fqn(functools._lru_cache_wrapper), normalize_lru_cache),
+        (fqn(functools.partial), normalize_functools_partial),
+        (fqn(_types.BuiltinFunctionType), normalize_builtin_callable),
+        (fqn(_types.BuiltinMethodType), normalize_builtin_callable),
+        (fqn(slice), normalize_slice),
         (fqn(property), normalize_property),
         (fqn(toolz.functoolz.Compose), normalize_toolz_compose),
         (fqn(toolz.curry), normalize_toolz_curry),
