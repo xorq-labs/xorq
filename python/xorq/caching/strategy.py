@@ -89,9 +89,20 @@ class SnapshotStrategy(CacheStrategy):
 
         Replaces the previous dask-monkeypatching context manager: instead of
         swapping global normalizers, we hand out a per-call hasher whose rules
-        override DatabaseTable/Read/backend normalization.
+        override DatabaseTable/Read/backend normalization. The hasher is also
+        installed in ``_current_hasher`` so transitive tokenize calls inside
+        the opaque-placeholder replacer (``_parent_token``) propagate the
+        snapshot-flavored rules instead of falling back to the data-sensitive
+        global HASHER.
         """
-        yield self._build_hasher(expr)
+        from xorq.common.utils.dasher import _current_hasher  # noqa: PLC0415
+
+        local = self._build_hasher(expr)
+        token = _current_hasher.set(local)
+        try:
+            yield local
+        finally:
+            _current_hasher.reset(token)
 
     def _build_hasher(self, expr):
         extra = [

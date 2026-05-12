@@ -16,6 +16,7 @@ dask-normalize code but are not yet in xorq_dasher 0.1.0:
 
 from __future__ import annotations
 
+import contextvars
 import functools
 import operator
 from ctypes import POINTER, Structure, c_size_t, c_void_p, cast, py_object
@@ -23,6 +24,15 @@ from ctypes import POINTER, Structure, c_size_t, c_void_p, cast, py_object
 import toolz
 from xorq_dasher import DEFAULT_HASHER, Hasher, fqn
 from xorq_dasher.rules.functions import normalize_function
+
+
+# Active hasher for transitive tokenize calls (e.g. _parent_token inside the
+# opaque-placeholder replacer). Snapshot strategy sets this so its data-blind
+# rules propagate into recursive parent normalization. Unset → use global
+# HASHER, the data-sensitive default.
+_current_hasher: contextvars.ContextVar[Hasher | None] = contextvars.ContextVar(
+    "_xorq_current_hasher", default=None
+)
 
 
 _PYOBJECT_HEAD = [("ob_refcnt", c_size_t), ("ob_type", c_void_p)]
@@ -201,11 +211,16 @@ def _parent_token(thing):
     inner expressions do not collide. Accepts either Op or Expr; falls back
     to repr-hash if neither is recognized so the function never raises in
     pathological op trees.
+
+    Uses ``_current_hasher`` when set (so snapshot tokenize propagates its
+    data-blind rules into recursive parent normalization); otherwise falls
+    back to the global HASHER.
     """
     try:
         if hasattr(thing, "to_expr") and not hasattr(thing, "op"):
             thing = thing.to_expr()
-        return HASHER.tokenize(thing)
+        hasher = _current_hasher.get() or HASHER
+        return hasher.tokenize(thing)
     except Exception:
         import xxhash  # noqa: PLC0415
 
