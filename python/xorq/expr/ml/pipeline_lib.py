@@ -11,7 +11,6 @@ from attr.validators import (
     instance_of,
     optional,
 )
-from xorq.common.utils.dispatch import Dispatch
 from toolz import compose
 from toolz.curried import (
     excepts as cexcepts,
@@ -33,6 +32,7 @@ from xorq.common.utils.attr_utils import (
 from xorq.common.utils.dasher import (
     normalize_attrs,
 )
+from xorq.common.utils.dispatch import Dispatch
 from xorq.common.utils.func_utils import (
     return_constant,
 )

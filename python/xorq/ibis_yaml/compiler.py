@@ -9,7 +9,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Dict
 
-from xorq.common.utils.dasher import tokenize as _dasher_tokenize
 import pyarrow.parquet as pq
 import toolz
 import yaml12
@@ -37,6 +36,7 @@ from xorq.caching import (
 )
 from xorq.common.exceptions import UnboundExpressionError
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
+from xorq.common.utils.dasher import tokenize as _dasher_tokenize
 from xorq.common.utils.defer_utils import (
     normalize_read_path_md5sum,
     normalize_read_path_stat,
@@ -241,7 +241,9 @@ def _sanitize_generated_names(expr, normalize_method):
     for node in walk_nodes((InMemoryTable, Read), expr):
         if isinstance(node, InMemoryTable):
             if prefix := get_uid_prefix(node.name):
-                name = f"{prefix}{_dasher_tokenize(recreate(node, name='name').to_expr())}"
+                name = (
+                    f"{prefix}{_dasher_tokenize(recreate(node, name='name').to_expr())}"
+                )
                 replacements[node] = recreate(
                     node, name=name, normalize_method=normalize_method
                 )

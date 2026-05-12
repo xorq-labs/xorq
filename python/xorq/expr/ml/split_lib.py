@@ -4,10 +4,9 @@ from typing import Iterable, Iterator, Tuple
 
 import toolz
 
-from xorq.common.utils.dasher import tokenize as _dasher_tokenize
-
 import xorq.expr.selectors as s
 import xorq.vendor.ibis.expr.types as ir
+from xorq.common.utils.dasher import tokenize as _dasher_tokenize
 from xorq.vendor.ibis.common.selectors import (
     Selector,
 )

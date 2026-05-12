@@ -2,14 +2,13 @@ import pandas as pd
 import pytest
 import toolz
 
-from xorq.common.utils.dasher import tokenize as _dasher_tokenize
-
 import xorq.api as xo
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import (
     SourceCache,
 )
 from xorq.caching.strategy import SnapshotStrategy
+from xorq.common.utils.dasher import tokenize as _dasher_tokenize
 from xorq.common.utils.graph_utils import (
     walk_nodes,
 )

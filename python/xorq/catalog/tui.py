@@ -112,10 +112,10 @@ class KindStyle:
 
 
 KIND_STYLES: dict[ExprKind, KindStyle] = {
-    ExprKind.Source:      KindStyle(icon="⊞", color=XORQ_DARK.primary),
-    ExprKind.Expr:        KindStyle(icon="⊕", color=XORQ_DARK.success),
+    ExprKind.Source: KindStyle(icon="⊞", color=XORQ_DARK.primary),
+    ExprKind.Expr: KindStyle(icon="⊕", color=XORQ_DARK.success),
     ExprKind.UnboundExpr: KindStyle(icon="⊘", color=XORQ_DARK.warning),
-    ExprKind.Composed:    KindStyle(icon="⊛", color=XORQ_DARK.secondary),
+    ExprKind.Composed: KindStyle(icon="⊛", color=XORQ_DARK.secondary),
     ExprKind.ExprBuilder: KindStyle(icon="⊡", color=XORQ_DARK.secondary),
 }
 

@@ -27,6 +27,7 @@ def saved_registry():
     _builders_mod._BUILTIN_KEYS = saved_keys
     _builders_mod._initialized = saved_init
 
+
 array_types_df = pd.DataFrame(
     [
         (

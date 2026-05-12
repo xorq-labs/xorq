@@ -6,13 +6,12 @@ from itertools import count
 from typing import Any, Callable, Tuple
 
 from attrs import evolve, field, frozen
-
-from xorq.common.utils.dasher import tokenize as _dasher_tokenize
 from attrs.validators import instance_of
 
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.common.utils.dasher import tokenize as _dasher_tokenize
 from xorq.common.utils.graph_utils import (
     bfs,
     gen_children_of,

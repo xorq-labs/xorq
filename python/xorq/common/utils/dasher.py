@@ -29,7 +29,11 @@ _PYOBJECT_HEAD = [("ob_refcnt", c_size_t), ("ob_type", c_void_p)]
 
 
 def _ctypes_field(fields, field, obj):
-    cls = type("ctypes-hack", (Structure,), {"_fields_": _PYOBJECT_HEAD + [(f, c_void_p) for f in fields]})
+    cls = type(
+        "ctypes-hack",
+        (Structure,),
+        {"_fields_": _PYOBJECT_HEAD + [(f, c_void_p) for f in fields]},
+    )
     inst = cast(c_void_p(id(obj)), POINTER(cls)).contents
     return cast(getattr(inst, field), py_object).value
 
@@ -58,7 +62,7 @@ def normalize_toolz_compose(composed):
 
 
 def normalize_toolz_curry(curried):
-    from xorq.common.utils.inspect_utils import get_partial_arguments
+    from xorq.common.utils.inspect_utils import get_partial_arguments  # noqa: PLC0415
 
     partial_arguments = get_partial_arguments(
         curried.func, *curried.args, **curried.keywords
@@ -94,14 +98,24 @@ def normalize_numpy_dtype(dtype):
 def normalize_pandas_series(series):
     import pyarrow as pa  # noqa: PLC0415
 
-    return ("pandas.Series", series.name, str(series.dtype), pa.Array.from_pandas(series).to_pylist())
+    return (
+        "pandas.Series",
+        series.name,
+        str(series.dtype),
+        pa.Array.from_pandas(series).to_pylist(),
+    )
 
 
 def normalize_pandas_dataframe(df):
     import pyarrow as pa  # noqa: PLC0415
 
     table = pa.Table.from_pandas(df)
-    return ("pandas.DataFrame", tuple(df.columns), tuple(str(t) for t in df.dtypes), table)
+    return (
+        "pandas.DataFrame",
+        tuple(df.columns),
+        tuple(str(t) for t in df.dtypes),
+        table,
+    )
 
 
 def _normalize_read_xorq(read):
@@ -113,9 +127,7 @@ def _normalize_read_xorq(read):
     legacy xorq behavior covering http(s), cloud, build-bundle relative, and
     local-filesystem paths.
     """
-    import pathlib
-
-    from xorq.common.utils.defer_utils import normalize_read_path_stat
+    import pathlib  # noqa: PLC0415
 
     read_kwargs = dict(read.read_kwargs)
     path = read_kwargs["hash_path"]
@@ -126,21 +138,29 @@ def _normalize_read_xorq(read):
         if path.startswith(("http://", "https://", "s3://", "gs://", "gcs://")):
             # Remote paths: defer to the legacy stat helper if available.
             from xorq.expr import api  # noqa: PLC0415
+
             if path.startswith(("http://", "https://")):
                 import urllib.request  # noqa: PLC0415
-                req = urllib.request.Request(path, method="HEAD", headers={"User-Agent": "xorq-cache"})
+
+                req = urllib.request.Request(
+                    path, method="HEAD", headers={"User-Agent": "xorq-cache"}
+                )
                 resp = urllib.request.urlopen(req, timeout=10)
                 headers = resp.info()
                 tpls = (
                     ("url", path),
-                    *((k, headers.get(k)) for k in ("Last-Modified", "Content-Length", "Content-Type")),
+                    *(
+                        (k, headers.get(k))
+                        for k in ("Last-Modified", "Content-Length", "Content-Type")
+                    ),
                 )
             else:
                 meta = api.get_object_metadata(
                     path, **{k: v for k, v in read_kwargs.items() if k != "hash_path"}
                 )
                 tpls = tuple(
-                    (k, meta.get(k)) for k in ("location", "last_modified", "size", "e_tag", "version")
+                    (k, meta.get(k))
+                    for k in ("location", "last_modified", "size", "e_tag", "version")
                 )
         elif not pathlib.Path(path).is_absolute() and path == read_kwargs.get(
             "read_path"
@@ -154,9 +174,7 @@ def _normalize_read_xorq(read):
     else:
         raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
     tpls += tuple(
-        (k, v)
-        for k, v in read.read_kwargs
-        if k in ("mode", "schema", "temporary")
+        (k, v) for k, v in read.read_kwargs if k in ("mode", "schema", "temporary")
     )
     return ("xorq.Read", read.schema, tpls)
 
@@ -263,6 +281,8 @@ def _xorq_opaque_to_placeholder(node, _, **kwargs):
 
 def _normalize_expr_xorq(expr):
     """Deterministic Expr normalizer; replaces dasher's id()-based version."""
+    from xorq_dasher.rules.expr import normalize_inmemorytable  # noqa: PLC0415
+
     from xorq.expr.api import get_compiler, to_sql  # noqa: PLC0415
     from xorq.expr.relations import CachedNode, Read  # noqa: PLC0415
     from xorq.vendor.ibis.expr.operations.relations import (  # noqa: PLC0415
@@ -270,7 +290,6 @@ def _normalize_expr_xorq(expr):
         InMemoryTable,
     )
     from xorq.vendor.ibis.expr.operations.udf import AggUDF, ScalarUDF  # noqa: PLC0415
-    from xorq_dasher.rules.expr import normalize_inmemorytable  # noqa: PLC0415
 
     op = expr.op()
     compiler = get_compiler(expr)
@@ -305,14 +324,20 @@ def _databasetable_dispatcher(dt):
     MRO-with-earliest-match-wins lookup. This wrapper restores the
     most-specific-wins behavior xorq depends on.
     """
-    from xorq.expr.relations import CachedNode, Read, RemoteTable
-    from xorq.expr.relations import FlightExpr, FlightUDXF  # noqa: PLC0415
     from xorq_dasher.rules.expr import (  # noqa: PLC0415
         normalize_cached_node,
         normalize_databasetable,
         normalize_datafusion_databasetable,
         normalize_remote_table,
         normalize_xorq_databasetable,
+    )
+
+    from xorq.expr.relations import (  # noqa: PLC0415
+        CachedNode,
+        FlightExpr,
+        FlightUDXF,
+        Read,
+        RemoteTable,
     )
 
     if isinstance(dt, Read):
@@ -334,12 +359,15 @@ def _databasetable_dispatcher(dt):
 
 
 def _build_extra_rules():
-    import numpy as np
-    import pandas as pd
+    import numpy as np  # noqa: PLC0415
+    import pandas as pd  # noqa: PLC0415
 
-    from xorq.expr.relations import Read
-    from xorq.vendor.ibis.expr.operations.relations import DatabaseTable, Schema
-    from xorq.vendor.ibis.expr.types import Expr
+    from xorq.expr.relations import Read  # noqa: PLC0415
+    from xorq.vendor.ibis.expr.operations.relations import (  # noqa: PLC0415
+        DatabaseTable,
+        Schema,
+    )
+    from xorq.vendor.ibis.expr.types import Expr  # noqa: PLC0415
 
     rules = [
         (fqn(functools._lru_cache_wrapper), normalize_lru_cache),
@@ -357,7 +385,8 @@ def _build_extra_rules():
         (fqn(pd.DataFrame), normalize_pandas_dataframe),
     ]
     try:
-        from xorq.common.utils.toolz_utils import curry as xo_curry
+        from xorq.common.utils.toolz_utils import curry as xo_curry  # noqa: PLC0415
+
         rules.append((fqn(xo_curry), normalize_toolz_curry))
     except ImportError:
         pass

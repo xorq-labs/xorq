@@ -8,12 +8,11 @@ from typing import Callable
 import pyarrow as pa
 import toolz
 
-from xorq.common.utils.dasher import tokenize as _dasher_tokenize
-
 import xorq.expr.relations as rel
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.backends.xorq_datafusion import connect as xo_connect
 from xorq.common.utils import classproperty
+from xorq.common.utils.dasher import tokenize as _dasher_tokenize
 from xorq.common.utils.func_utils import (
     return_constant,
 )

@@ -4,8 +4,6 @@ import pathlib
 
 import pandas as pd
 import pytest
-
-from xorq.common.utils.dasher import tokenize as _dasher_tokenize
 from attr import (
     field,
     frozen,
@@ -19,6 +17,7 @@ import xorq.api as xo
 from xorq.caching import (
     ParquetCache,
 )
+from xorq.common.utils.dasher import tokenize as _dasher_tokenize
 from xorq.common.utils.defer_utils import (
     deferred_read_csv,
     deferred_read_parquet,

@@ -1,8 +1,6 @@
 import numpy as np
 import pytest
 
-from xorq.common.utils.dasher import tokenize as _dasher_tokenize
-
 import xorq.api as xo
 from xorq.caching import (
     ParquetCache,
@@ -10,6 +8,7 @@ from xorq.caching import (
     SourceCache,
     SourceSnapshotCache,
 )
+from xorq.common.utils.dasher import tokenize as _dasher_tokenize
 from xorq.conftest import array_types_df
 from xorq.tests.util import assert_frame_equal, check_eq
 from xorq.vendor import ibis

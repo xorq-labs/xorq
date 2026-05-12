@@ -6,12 +6,11 @@ import cloudpickle
 import numpy as np
 import pyarrow as pa
 import toolz
-
-from xorq.common.utils.dasher import tokenize as _dasher_tokenize
 from attr import field, frozen
 from attr.validators import deep_iterable, instance_of
 
 import xorq.expr.datatypes as dt
+from xorq.common.utils.dasher import tokenize as _dasher_tokenize
 from xorq.expr.udf import pyarrow_udwf
 from xorq.vendor import ibis
 from xorq.vendor.ibis.expr.api import literal

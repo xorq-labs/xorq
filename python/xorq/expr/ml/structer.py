@@ -10,9 +10,9 @@ from attr.validators import (
     instance_of,
     optional,
 )
-from xorq.common.utils.dispatch import Dispatch
 
 import xorq.expr.datatypes as dt
+from xorq.common.utils.dispatch import Dispatch
 from xorq.common.utils.func_utils import if_not_none
 from xorq.expr.ml.enums import KVField
 
