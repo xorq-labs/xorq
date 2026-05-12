@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+### Details
+#### Removed
+
+## [0.3.24] - 2026-05-12
+### Details
+#### Added
+- Add replay --rebuild to regenerate entries under current code by @dlovell in [#1847](https://github.com/xorq-labs/xorq/pull/1847)
+- Add expr_builder to KIND_ORDER, bump bsl 3.13 by @ghoersti in [#1943](https://github.com/xorq-labs/xorq/pull/1943)
+
+#### Changed
+- Split expression tokens into data and structural components by @Barre in [#1884](https://github.com/xorq-labs/xorq/pull/1884)
+
+#### Fixed
+- Single-remote constraint + push rejection (#1898, ADR-0011) by @paddymul in [#1899](https://github.com/xorq-labs/xorq/pull/1899)
+- Conflict-matrix pull resolution for catalog.pull (#1886 Bug B) by @paddymul in [#1902](https://github.com/xorq-labs/xorq/pull/1902)
+
+#### Removed
+- **Breaking:** Remove quickgrove integration by @mesejo in [#1935](https://github.com/xorq-labs/xorq/pull/1935)
+- Remove "Coming soon" stubs and broken links by @paddymul in [#1928](https://github.com/xorq-labs/xorq/pull/1928)
+
+## New Contributors
+* @Barre made their first contribution in [#1884](https://github.com/xorq-labs/xorq/pull/1884)
+
 ## [0.3.23] - 2026-05-07
 ### Details
 #### Added

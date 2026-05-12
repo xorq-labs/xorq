@@ -681,6 +681,11 @@ def log(ctx, as_json):
 @click.option(
     "--dry-run", is_flag=True, help="Show what would be replayed without executing."
 )
+@click.option(
+    "--rebuild",
+    is_flag=True,
+    help="Rebuild each entry under current code (refreshes build_metadata and entry hashes).",
+)
 @click.pass_context
 def replay(
     ctx,
@@ -692,19 +697,28 @@ def replay(
     preserve_commits,
     force,
     dry_run,
+    rebuild,
 ):
-    """Replay catalog operations into a target catalog."""
+    """Replay catalog operations into a target catalog.
+
+    With ``--rebuild``, each entry is re-added under current code:
+    entries with no catalog references are re-added from their stored
+    expression; entries containing catalog references (Composed, or
+    ExprBuilder wrapping a composition) have the catalog subtree
+    recomposed against their already-rebuilt dependencies in the
+    target catalog. Outer builder wrappings pass through untouched.
+    """
     from xorq.catalog.catalog import Catalog
     from xorq.catalog.replay import Replayer
 
     with click_context_catalog(ctx):
         source = ctx.obj.make_catalog(init=False)
-        replayer = Replayer(from_catalog=source)
+        replayer = Replayer(from_catalog=source, rebuild=rebuild)
         if dry_run:
             replayer.print_plan()
             return
         annex = _resolve_annex_option(env_file, env_prefix, gcs)
-        target = Catalog.from_repo_path(target_path, init=True, annex=annex)
+        target = Catalog.from_repo_path(target_path, annex=annex)
         replayer.replay(target, preserve_commits=preserve_commits)
         click.echo(f"Replayed {len(replayer.ops)} operations into {target_path}")
         if remote_url:
@@ -954,9 +968,10 @@ def compose(ctx, entries, code, alias, cache_dir, dry_run, raw_rename_params):
             entry_name = build_path.name
             aliases = (alias,) if alias else ()
             alias_existed = alias and catalog.catalog_yaml.contains_alias(alias)
-            catalog_entry = catalog.add(build_path, aliases=aliases, exist_ok=True)
+            entry_existed = catalog.contains(entry_name)
+            catalog.add(build_path, aliases=aliases, exist_ok=True)
             label = alias or entry_name
-            if catalog_entry is None:
+            if entry_existed:
                 if alias and not alias_existed:
                     click.echo(
                         f"Entry {entry_name!r} already exists; alias {alias!r} added",

@@ -500,7 +500,7 @@ css = [
 
 [[package]]
 name = "boring-semantic-layer"
-version = "0.3.10"
+version = "0.3.13"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
@@ -511,9 +511,9 @@ dependencies = [
     { name = "toolz" },
     { name = "xorq" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5a/48/01440da4ff1917269fed653d8eb7ad42c5efa47471e90342491fddc92ef2/boring_semantic_layer-0.3.10.tar.gz", hash = "sha256:83b1d366bad34db9e671213848ee53555a96b6983ce59ddbbe6ad611088459be", size = 1327965, upload-time = "2026-03-25T19:21:48.382Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ff/bd/a4a2c27a088c19998ce4902e4dbc9ed25e264c2a406571b4a7638eaf147f/boring_semantic_layer-0.3.13.tar.gz", hash = "sha256:5ae96d1fd3d73260129a303c45d64e7a7199aa023896bc9d1e6c9b00c082ef07", size = 1367075, upload-time = "2026-05-05T11:23:32.232Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/21/6e/e0ecaad9fdf1f9ede6c3f5ab8b6fb69e4f4f9cfcbe31d725974ffa57bcb7/boring_semantic_layer-0.3.10-py3-none-any.whl", hash = "sha256:187285889c9e5d48267671f318335da0f395e15a2c6dc97f91a91d71ac605b9c", size = 545133, upload-time = "2026-03-25T19:21:46.684Z" },
+    { url = "https://files.pythonhosted.org/packages/58/5c/fa7a989bd87e0e61451cf668bc8a3eb41da90a57bbbc158090043294457f/boring_semantic_layer-0.3.13-py3-none-any.whl", hash = "sha256:d00e58da9f0870d41c621aee7abb95fff0bf63522ff2a80c0a1acb7a65920864", size = 587435, upload-time = "2026-05-05T11:23:30.923Z" },
 ]
 
 [[package]]
@@ -4727,45 +4727,6 @@ wheels = [
 ]
 
 [[package]]
-name = "quickgrove"
-version = "0.1.4"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/79/1c/9b01483a9b52919bd8975b51287735d328391b584d01963d44cd75ce1ad8/quickgrove-0.1.4.tar.gz", hash = "sha256:ddd0fcb9f738e3650084ef188a3a8f456b017f6a10330dd21906ed51618d04fd", size = 2321582, upload-time = "2025-02-24T13:46:18.586Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/69/fa/de2990bd0e26179f12e794ca728f9702532d8def6c1b44c0140df140a85f/quickgrove-0.1.4-cp310-cp310-macosx_10_12_x86_64.whl", hash = "sha256:6e887a2c63d4c15cba3e6e9486abd0f60e5a2c3ce6fb010c09e538d2327b721c", size = 2440814, upload-time = "2025-02-24T13:45:15.487Z" },
-    { url = "https://files.pythonhosted.org/packages/69/d8/a2464cdc6a25ac8e0ec5db120b5f9964f0d8f276d65e6ab4c0316da087fe/quickgrove-0.1.4-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:be1b83d08866f235026cb7f69df992f49023577503cbd4ff592636dab9d2c38d", size = 2250300, upload-time = "2025-02-24T13:45:17.782Z" },
-    { url = "https://files.pythonhosted.org/packages/ce/e8/4a675c424f6a60a302b33ec601c58a1e6ccfa134b6aedf042ea1d42cfe7a/quickgrove-0.1.4-cp310-cp310-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:afa3f6e04ec88dde9bd1c6f3874bab4cdf370131a1fd32a38bb2438e1f68ab68", size = 2896432, upload-time = "2025-02-24T13:45:20.874Z" },
-    { url = "https://files.pythonhosted.org/packages/a1/bf/69a2976fb04f36165736811b0232b3b9121c9324825879787d8ce53c18db/quickgrove-0.1.4-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:009d6a7b8322a8b4e80d5a6d4c8bbdaa63357cc96d81cf42a584341656f25815", size = 2716306, upload-time = "2025-02-24T13:45:25.544Z" },
-    { url = "https://files.pythonhosted.org/packages/70/9d/5802894a917ca676ca54fcfa6e3a96fb7237dbfde7ce7583dc9a22f91186/quickgrove-0.1.4-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:98ee195e5c97161ed76c561579d6e651920e7be014dbd94d2002fb5f4a865969", size = 2572578, upload-time = "2025-02-24T13:45:27.385Z" },
-    { url = "https://files.pythonhosted.org/packages/ae/45/321edd4fb0a8c3fae4bd53959b9f863564771b917edc9e2b07cf28fbd124/quickgrove-0.1.4-cp310-cp310-win32.whl", hash = "sha256:e6167af8a6b7886746b2df46ee82d2528961036c1d41ae122494029687c67658", size = 1967894, upload-time = "2025-02-24T13:45:29.653Z" },
-    { url = "https://files.pythonhosted.org/packages/9e/34/e366b96d3ddaad1547cd4185fdd1846816466472303ba947a6e8168974f0/quickgrove-0.1.4-cp310-cp310-win_amd64.whl", hash = "sha256:c3c2117eae9b8ecc54337b485d6f72384a57b85feb1da7702393a7c3607cb235", size = 2210502, upload-time = "2025-02-24T13:45:31.183Z" },
-    { url = "https://files.pythonhosted.org/packages/92/f4/d1fbd89f8b1b9af1801aa884f2e5b18491eec4c3f4aa4d54c0554cf461c4/quickgrove-0.1.4-cp311-cp311-macosx_10_12_x86_64.whl", hash = "sha256:b19c40406198e0a617fe089f7dba7dbc2bd34945baeae4665c4f58344c1337fa", size = 2440875, upload-time = "2025-02-24T13:45:33.282Z" },
-    { url = "https://files.pythonhosted.org/packages/3c/e5/25dba6f0c8e8fdf6492144f61a78b5e89884b914b3c5ddabefb79a235434/quickgrove-0.1.4-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:4f43a6b484946f871a3db6a597caf0d6ab787fdb273ee06db9d863a803942b18", size = 2250548, upload-time = "2025-02-24T13:45:34.784Z" },
-    { url = "https://files.pythonhosted.org/packages/a5/b2/2db28786444bf95179e31cc23dda1658c9e720384781936a0ca1ee508ddb/quickgrove-0.1.4-cp311-cp311-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:0df1a236aaa2647bbfae37cce489be77b3bd94bf258e77a28773a278594fe1de", size = 2896713, upload-time = "2025-02-24T13:45:37.184Z" },
-    { url = "https://files.pythonhosted.org/packages/4b/1f/547cac0ad5a40f2da94d4c7a8d627311431d32557236f0b924f6f817e4aa/quickgrove-0.1.4-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:602d6af03e3f6067d76a602bd09560ac92502e4bf3d5096a3d532f718bbecd95", size = 2717241, upload-time = "2025-02-24T13:45:38.85Z" },
-    { url = "https://files.pythonhosted.org/packages/29/40/c8cca9e9e795a677263ae04621cfcfa16188bd76dc8cccc4194d3a3c7cf0/quickgrove-0.1.4-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:0deac211c7687387bdde2eeadb20702b34bcfa6a8a40c4a202312d7e178abc04", size = 2572539, upload-time = "2025-02-24T13:45:41.186Z" },
-    { url = "https://files.pythonhosted.org/packages/20/3f/cee06398c000e8c655eaeb14068463e82bb3b6fdba29175363f0a1be1e1e/quickgrove-0.1.4-cp311-cp311-win32.whl", hash = "sha256:9ab08159534e84152ab2452b4498d1ae8e4e12966edfd3b38a7531b4569ddbd2", size = 1968038, upload-time = "2025-02-24T13:45:42.682Z" },
-    { url = "https://files.pythonhosted.org/packages/a0/ab/d61fbf8ff096ff0a3e27ef3e15f757b1e800bdf52533214203a2d2ed1f02/quickgrove-0.1.4-cp311-cp311-win_amd64.whl", hash = "sha256:cb5ed5c752022120a005e90515115e2ba1ac95f72102fb7a6bfa257b53d24c0f", size = 2211162, upload-time = "2025-02-24T13:45:44.188Z" },
-    { url = "https://files.pythonhosted.org/packages/98/41/d329e28a3ac93be7dee9096032345da69d14ed9c67ef33604697ad85271c/quickgrove-0.1.4-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:038203d3bbd373c7b053f9b2826397562327c5e674dab622e938b5f491fe5047", size = 2438704, upload-time = "2025-02-24T13:45:45.647Z" },
-    { url = "https://files.pythonhosted.org/packages/9b/8c/5c19902599346535e862c28c9a45f68bd620e4585c465034cd69ab81579e/quickgrove-0.1.4-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:5cc364996c3284a9eb07ebd4b0d71472331bf0d74af45f53c7a72caf8628bce6", size = 2247124, upload-time = "2025-02-24T13:45:48.385Z" },
-    { url = "https://files.pythonhosted.org/packages/d5/a7/b07eac000a5636ecff5c91fd1648122bf8906545d408367145c80f986b41/quickgrove-0.1.4-cp312-cp312-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:fce0512c8f0511a0f62ea3152d3f2cd6c5c4bbb6e4ae531d710325069fcabf1d", size = 2895051, upload-time = "2025-02-24T13:45:50.487Z" },
-    { url = "https://files.pythonhosted.org/packages/32/33/7a2d8f9021aad44f50b8b141d78b682986a378ff4d72f773cbcd70dafc18/quickgrove-0.1.4-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ec9028d3bd96712a04de54de5f2710c4ea12cb79a3718930ea216f0bff54fe89", size = 2713759, upload-time = "2025-02-24T13:45:51.988Z" },
-    { url = "https://files.pythonhosted.org/packages/52/44/56f3aa44de9d30ab68975c80c1b3be38308590b670b99194d8c89b9f9345/quickgrove-0.1.4-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:d86f2deae68f9331c4d7bc7f7388c81c56ef42db1039ab03ef70963ce8d8c5e4", size = 2568244, upload-time = "2025-02-24T13:45:53.997Z" },
-    { url = "https://files.pythonhosted.org/packages/f2/24/dd9c4d7210cfcf29f9b39189b99f39380d72810793d1fc005d11a19cea9b/quickgrove-0.1.4-cp312-cp312-win32.whl", hash = "sha256:cd083bed89c5f7fcc8e7123b49f791f8260b6c59ae7af7ef305094ac88d8fa48", size = 1964972, upload-time = "2025-02-24T13:45:55.448Z" },
-    { url = "https://files.pythonhosted.org/packages/20/08/2b75c4e6687aa9cf6c73858eb4742211ee08dba8f81566f91f41374f007e/quickgrove-0.1.4-cp312-cp312-win_amd64.whl", hash = "sha256:a59aa540de5a0c6a4d3a474871af0f546255933d9d97a14b4c37c4bc96174d69", size = 2209334, upload-time = "2025-02-24T13:45:57.757Z" },
-    { url = "https://files.pythonhosted.org/packages/f5/e7/12ca5f31579e9f3a2af01668ba61867cc6ab296485ded0cc32ebd2bb7c54/quickgrove-0.1.4-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:15d521c394618ebdc2138fbfae011456c5e97c8a48fa31020e0d1af8ffbb840f", size = 2438237, upload-time = "2025-02-24T13:45:59.949Z" },
-    { url = "https://files.pythonhosted.org/packages/55/72/b74c27a5722afbbaf70fcb6ce4ad73bff174ac539d6577e8f5647518fbcd/quickgrove-0.1.4-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:9d1bb309967eabda0e5731fdb0230ccdaee6a60727330b986c904c3e149d0902", size = 2246293, upload-time = "2025-02-24T13:46:02.04Z" },
-    { url = "https://files.pythonhosted.org/packages/ed/de/634b333489456c9cb106a2c95375f4eeb7cc00e5eb3877409ae1a9b0ef20/quickgrove-0.1.4-cp313-cp313-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:9e6bf68a4c4aa004fef8d57798574196a69d49f604bb77cd61ef48c629dfb093", size = 2893871, upload-time = "2025-02-24T13:46:04.483Z" },
-    { url = "https://files.pythonhosted.org/packages/29/5d/bbc100114975e2bbdf4c47fdcb101885946c55f99df0f50d052ca07eb0f6/quickgrove-0.1.4-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:7f125721ae402b90e706a84a2c330c826dc927535dec9cc6b27ebfa8b1a5bc95", size = 2713482, upload-time = "2025-02-24T13:46:06.768Z" },
-    { url = "https://files.pythonhosted.org/packages/74/07/f7b12cc78025b6be85e0e925906d54e72410b18ba9feff9e1573769db880/quickgrove-0.1.4-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:c8054254bb029451ebcb5ad9bdb8297b33b7b2863092935a054f73cc4a957a53", size = 2567842, upload-time = "2025-02-24T13:46:09.061Z" },
-    { url = "https://files.pythonhosted.org/packages/a5/94/30c328770b882475316f02323534fd55b21cc25117b68c19c3b755ade8d7/quickgrove-0.1.4-cp313-cp313-win32.whl", hash = "sha256:c63935075be4d089b52317cf82cd5e76cd02316749fb015090df97522a9a9cb2", size = 1964707, upload-time = "2025-02-24T13:46:10.444Z" },
-    { url = "https://files.pythonhosted.org/packages/e0/94/729255739408687a8115d95222776cf5192b7d665132efaad9f9ba069121/quickgrove-0.1.4-cp313-cp313-win_amd64.whl", hash = "sha256:3808477507bc3a4442d3f4a9e8775e08f2b8d58a2ebec1d227a9fd988723de08", size = 2208893, upload-time = "2025-02-24T13:46:11.852Z" },
-    { url = "https://files.pythonhosted.org/packages/f6/97/674bb1bfb68fd02064c8ac7c7fe92546f33c4fc3dd4f4932cc14950b24d6/quickgrove-0.1.4-pp310-pypy310_pp73-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:6ea45f1a6ee78639081ba7774b1aea0d61016ee09d55005cb7ad54814057b5a0", size = 2896855, upload-time = "2025-02-24T13:46:13.355Z" },
-    { url = "https://files.pythonhosted.org/packages/6f/b3/bd0f51bd5ebf83e98d2d847a52b08939054ce0dce3b839ec054732a2ed1c/quickgrove-0.1.4-pp310-pypy310_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:4cf6f35ef65e28ea20379468e969fc61c8524809b148322f7c9f0a1ef70ca980", size = 2716373, upload-time = "2025-02-24T13:46:14.888Z" },
-    { url = "https://files.pythonhosted.org/packages/39/65/6cabd2a941c3fe40a0743a25270797fdd99edb22a84d53981850421b0779/quickgrove-0.1.4-pp310-pypy310_pp73-manylinux_2_28_aarch64.whl", hash = "sha256:e71e4314e049efc5a33f08587e13043e6369377cfa0c64dabdee0da99c65d668", size = 2572137, upload-time = "2025-02-24T13:46:17.151Z" },
-]
-
-[[package]]
 name = "referencing"
 version = "0.36.2"
 source = { registry = "https://pypi.org/simple" }
@@ -5861,7 +5822,7 @@ wheels = [
 
 [[package]]
 name = "xorq"
-version = "0.3.23"
+version = "0.3.24"
 source = { editable = "." }
 dependencies = [
     { name = "atpublic" },
@@ -5924,7 +5885,6 @@ examples = [
     { name = "openai" },
     { name = "pins", extra = ["gcs"] },
     { name = "pyiceberg", extra = ["sql-postgres", "sql-sqlite"] },
-    { name = "quickgrove" },
     { name = "requests" },
     { name = "scikit-learn" },
     { name = "xgboost" },
@@ -5944,9 +5904,6 @@ postgres = [
 ]
 pyiceberg = [
     { name = "pyiceberg", extra = ["sql-postgres", "sql-sqlite"] },
-]
-quickgrove = [
-    { name = "quickgrove" },
 ]
 snowflake = [
     { name = "adbc-driver-snowflake" },
@@ -5974,7 +5931,6 @@ dev = [
     { name = "pip" },
     { name = "pre-commit" },
     { name = "pyopenssl" },
-    { name = "quickgrove" },
     { name = "ruff" },
     { name = "scikit-learn" },
     { name = "trino" },
@@ -6010,7 +5966,7 @@ requires-dist = [
     { name = "adbc-driver-sqlite", marker = "extra == 'sqlite'", specifier = ">=1.4.0" },
     { name = "atpublic", specifier = ">=5.1" },
     { name = "attrs", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=24.1.0" },
-    { name = "boring-semantic-layer", marker = "extra == 'bsl'", specifier = ">=0.1.0" },
+    { name = "boring-semantic-layer", marker = "extra == 'bsl'", specifier = ">=0.3.13" },
     { name = "cityhash", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.4.7,<1" },
     { name = "click", specifier = ">=8.0" },
     { name = "cloudpickle", specifier = ">=3.1.1" },
@@ -6046,8 +6002,6 @@ requires-dist = [
     { name = "python-dateutil", specifier = ">=2.8.2" },
     { name = "pythran", marker = "sys_platform == 'darwin'", specifier = ">=0.17.0" },
     { name = "pytz", specifier = ">=2022.7" },
-    { name = "quickgrove", marker = "extra == 'examples'", specifier = ">=0.1.2" },
-    { name = "quickgrove", marker = "extra == 'quickgrove'", specifier = ">=0.1.2" },
     { name = "requests", marker = "extra == 'examples'", specifier = ">=2.32.3" },
     { name = "rich", specifier = ">=13.9.4" },
     { name = "scikit-learn", marker = "extra == 'examples'", specifier = ">=1.4.0,<2.0.0" },
@@ -6067,7 +6021,7 @@ requires-dist = [
     { name = "xorq-feature-utils", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-feature-utils?branch=main" },
     { name = "xorq-weather-lib", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-weather-lib?branch=main" },
 ]
-provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "quickgrove", "examples", "postgres", "sqlite", "gizmosql", "ibis", "trino", "bsl", "databricks"]
+provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "examples", "postgres", "sqlite", "gizmosql", "ibis", "trino", "bsl", "databricks"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -6083,7 +6037,6 @@ dev = [
     { name = "pip", specifier = ">=24.3.1" },
     { name = "pre-commit", specifier = "==4.6.0" },
     { name = "pyopenssl", specifier = ">=24.3.0" },
-    { name = "quickgrove", specifier = ">=0.1.2" },
     { name = "ruff", specifier = "==0.15.12" },
     { name = "scikit-learn", specifier = ">=1.4.0,<2.0.0" },
     { name = "trino", specifier = "==0.336.0" },

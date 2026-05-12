@@ -297,5 +297,5 @@ The key insight? Deferred execution lets you describe complex workflows, then Xo
 Now that you've trained your first model, continue learning:
 
 - [Split data for training](split_data_for_training.qmd) shows how to create proper train/test splits
-- [Understand the catalog](understand_catalog.qmd) explains how to save and reuse trained models
-- [Cache ML computations](cache_ml_computations.qmd) covers caching strategies for expensive operations
+- [Explore model evaluation](explore_model_evaluation.qmd) walks through comparing multiple candidate models
+- [Explore caching](../core_tutorials/explore_caching.qmd) shows how to skip recomputation across iterations

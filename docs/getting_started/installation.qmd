@@ -369,6 +369,6 @@ If everything works correctly, you'll see output showing the aggregated sepal wi
 
 Now you've learned how to install Xorq and connect to a backend, you can explore these other resources:
 
-- [Your first Xorq expression](../core_tutorials/your_first_expression.qmd) shows you how to execute a basic Xorq expression
-- [Explore caching](../core_tutorials/explore_caching.qmd) teaches you about cache hits and misses, plus how invalidation works
-- [Train your first model](../ml_tutorials/train_your_first_model.qmd) walks you through training a basic classification model with Xorq
+- [Your first Xorq expression](your_first_expression.qmd) shows you how to execute a basic Xorq expression
+- [Explore caching](explore_caching.qmd) teaches you about cache hits and misses, plus how invalidation works
+- [Train your first model](../tutorials/ml_tutorials/train_your_first_model.qmd) walks you through training a basic classification model with Xorq

@@ -78,7 +78,6 @@ Most examples define a top-level `expr` variable and can be conveniently run wit
 | `expr_scalar_udf.py` | XGBoost pandas scalar UDF with pickle serialization for model storage |
 | `python_udwf.py` | User-defined window functions with exponential smoothing (bounded, rank-based, and frame-based variants) |
 | `xgboost_udaf.py` | XGBoost aggregate UDF for computing feature importance grouped by category |
-| `quickgrove_udf.py` | XGBoost model loaded from JSON with expression rewriting for optimization |
 | `simple_lineage.py` | Column lineage tracking through expressions with custom UDFs |
 
 ### Caching
