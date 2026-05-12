@@ -332,11 +332,16 @@ def test_nix_env_removes_ld_path_inside_nix(monkeypatch):
 def _patch_subprocess_run(monkeypatch):
     """Replace packager.subprocess.run with a stub that records args.
 
-    Returns a dict that gets populated with ``{"args": <tuple>}`` on first call.
+    Returns a dict pre-populated with ``{"args": None, "calls": 0}``. The
+    ``args`` field is set on each call (last-call-wins) and ``calls`` is
+    incremented. Pre-populating ``args`` ensures that a missed subprocess call
+    surfaces as ``assert "--link-mode" in None`` (clear TypeError) rather than
+    a KeyError that masks the real assertion intent.
+
     The stub returns a minimal CompletedProcess-like object that satisfies the
     ``check=True`` and ``capture_output=True`` codepaths in packager.py.
     """
-    captured = {}
+    captured = {"args": None, "calls": 0}
 
     class _Result:
         returncode = 0
@@ -345,6 +350,7 @@ def _patch_subprocess_run(monkeypatch):
 
     def fake_run(args, **kwargs):
         captured["args"] = args
+        captured["calls"] += 1
         return _Result()
 
     monkeypatch.setattr("xorq.ibis_yaml.packager.subprocess.run", fake_run)
@@ -486,6 +492,25 @@ def test_wheel_packager_build_wheel_omits_link_mode_when_option_false(
     packager = WheelPackager(tmp_path)
     packager._build_wheel()
 
+    assert "--link-mode" not in captured["args"]
+
+
+@pytest.mark.parametrize("use_hardlink", [True, False])
+def test_uv_export_requirements_never_passes_link_mode(
+    tmp_path, monkeypatch, use_hardlink
+):
+    """uv_export_requirements reads the lockfile only — no install/link work.
+
+    Regression test for roborev #1946: a future refactor (e.g. extracting a
+    shared args builder) could silently splice --link-mode into uv export.
+    The flag is harmless there but signals confused intent; enforce omission
+    regardless of the option setting.
+    """
+    from xorq.config import options  # noqa: PLC0415
+
+    monkeypatch.setattr(options.uv, "use_hardlink", use_hardlink)
+    captured = _patch_subprocess_run(monkeypatch)
+    uv_export_requirements(tmp_path, "3.12")
     assert "--link-mode" not in captured["args"]
 
 
