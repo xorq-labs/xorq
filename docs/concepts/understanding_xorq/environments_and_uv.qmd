@@ -37,7 +37,7 @@ This is the environment your editor sees, the one `uv run python -c "import xorq
 
 `xorq uv build` is the one that gets interesting. It does four things:
 
-1. Builds a wheel of your project's `src/` package.
+1. Builds a wheel of your project (typically the `src/` layout `xorq init` scaffolds; a flat layout works the same way).
 2. Runs `uv export` against your project's `uv.lock` to produce a `requirements.txt`.
 3. Invokes `uv tool run --isolated --with <wheel> --with-requirements <requirements.txt> xorq build …` to compile the expression in *that* ephemeral environment.
 4. Copies the wheel and `requirements.txt` into the build directory next to the serialized expression.
@@ -70,7 +70,12 @@ The `requirements.txt` that `xorq init` ships and that lives at the top of every
 
 There are two ways the in-tree copy can fall out of sync with the lock:
 
-1. **You changed `pyproject.toml` and re-locked.** Re-run `uv export --locked --no-dev --no-emit-project --no-header --no-annotate > requirements.txt` to refresh it, or just delete it.
+1. **You changed `pyproject.toml` and re-locked.** Re-export from the lock, or just delete the in-tree file and let the next build regenerate it:
+
+   ```bash
+   uv export --locked --no-dev --no-emit-project --no-header --no-annotate > requirements.txt
+   ```
+
 2. **A different uv version produced it.** `uv export` formatting (whitespace, ordering, marker syntax) drifts between uv releases. The exported text from uv `0.5.x` is not byte-identical to the same lock exported under `0.6.x`.
 
 The second case is the trap behind [#1941](https://github.com/xorq-labs/xorq/issues/1941)/[#1945](https://github.com/xorq-labs/xorq/pull/1945): the packager used to abort if the in-tree `requirements.txt` didn't match the live `uv export` byte-for-byte, which made first-run `xorq uv build` fail on any machine whose uv differed from the one that shipped the template. The current behavior trusts `uv.lock`, regenerates the requirements for the build, and leaves your working-tree copy alone.
@@ -79,6 +84,27 @@ The second case is the trap behind [#1941](https://github.com/xorq-labs/xorq/iss
 ### If you only remember one rule
 The lockfile is the source of truth. Everything else --- the in-tree `requirements.txt`, the build's `requirements.txt`, the synthesized runtime env --- is derived from it.
 :::
+
+## Adding a new package
+
+Because the lock is authoritative, adding a dependency is a single step regardless of which environment you ultimately care about. Run `uv add` from the project root:
+
+```bash
+uv add scikit-learn             # runtime dep -> env 2 and (next build) env 3
+uv add --dev pytest             # dev-only dep -> env 2; not exported to env 3
+```
+
+`uv add` updates `pyproject.toml`, refreshes `uv.lock`, and syncs `.venv`. Your editor and `uv run python …` see the new package immediately (env 2). Env 3 needs no separate command --- the next `xorq uv build` re-exports `requirements.txt` from the refreshed lock and bakes the new pin into the build directory.
+
+`--dev` dependencies stay in env 2 only; `xorq uv build` passes `--no-dev` when exporting, so test-only packages don't get shipped with the build.
+
+The CLI environment (env 1) is separate and rarely needs new packages, but if you want a plugin loaded alongside the `xorq` CLI itself, attach it at install time:
+
+```bash
+uv tool install xorq --with <plugin>     # or: uv tool upgrade xorq --with <plugin>
+```
+
+Plugins installed this way only affect env 1 --- they have no effect on the project venv or on what gets baked into a build.
 
 ## Putting it together
 
