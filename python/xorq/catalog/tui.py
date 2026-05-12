@@ -1238,7 +1238,7 @@ class DataViewScreen(Screen):
             returncode, stdout, stderr = self._spawn_run([*cmd, "--use-this-venv"])
             if returncode == 0:
                 return pa.ipc.open_stream(stdout).read_pandas()
-        except Exception:
+        except (OSError, pa.lib.ArrowException):
             logger.exception("catalog_run_fast_path_failed")
         returncode, stdout, stderr = self._spawn_run(cmd)
         if returncode != 0:

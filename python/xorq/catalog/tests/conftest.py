@@ -59,11 +59,32 @@ class _AutoVenvCliRunner(CliRunner):
     """
 
     def invoke(self, cli, args=(), **kwargs):
+        # Only inject at the subcommand position so entry/alias names
+        # literally equal to "run" or "run-cached" don't get mistaken for
+        # the subcommand.
         args = list(args)
-        for i, arg in enumerate(args):
-            if arg in ("run", "run-cached"):
+        catalog_opts_with_value = {
+            "-n",
+            "--name",
+            "-p",
+            "--path",
+            "-u",
+            "--url",
+            "-r",
+            "--root-repo",
+        }
+        i = 0
+        while i < len(args):
+            a = args[i]
+            if a in catalog_opts_with_value:
+                i += 2
+                continue
+            if a.startswith("-"):
+                i += 1
+                continue
+            if a in ("run", "run-cached"):
                 args = args[: i + 1] + ["--use-this-venv"] + args[i + 1 :]
-                break
+            break
         return super().invoke(cli, args, **kwargs)
 
 

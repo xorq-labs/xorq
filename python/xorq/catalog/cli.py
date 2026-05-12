@@ -907,16 +907,8 @@ def _compose_expr(catalog, entries, code, rename_map=None):
 
 
 def _assert_requirements_identical(entry_reqs):
-    """Require byte-identical requirements.txt across multi-entry inputs.
-
-    Joint wheel resolution across entries with diverging requirement sets is
-    deferred to a follow-up PR. Until that lands, `catalog run` and
-    `catalog compose` over multiple entries require every entry's
-    requirements.txt to match exactly so it can be staged verbatim.
-
-    `entry_reqs` is a sequence of (entry_name, contents_bytes); a missing
-    requirements.txt is represented as `b""`.
-    """
+    # Joint wheel resolution across diverging requirement sets is deferred;
+    # until then multi-entry compose/run requires byte-identical requirements.
     distinct = {content for _, content in entry_reqs}
     if len(distinct) <= 1:
         return
@@ -929,78 +921,20 @@ def _assert_requirements_identical(entry_reqs):
 
 
 def _merge_joint_wheels_into_build(catalog, entries, build_path):
-    """Stage each entry's wheels + requirements.txt into build_path.
-
-    Single entry: copies that entry's wheel(s) and requirements.txt verbatim.
-
-    Multiple entries: requires every entry's requirements.txt to be
-    byte-identical; on match, stages the union of wheels and writes the
-    shared requirements.txt verbatim. Joint resolution across divergent
-    requirement sets is deferred to a follow-up PR.
-
-    Existing wheels at the same filename in build_path are not overwritten.
-    No-op when entries is empty.
-    """
+    # No-op for empty entries; otherwise stage the bundle's wheels (without
+    # overwriting existing) + requirements.txt into build_path.
     import shutil  # noqa: PLC0415
-    import tempfile  # noqa: PLC0415
 
-    from xorq.catalog.zip_utils import extract_build_zip_context  # noqa: PLC0415
     from xorq.ibis_yaml.enums import DumpFiles  # noqa: PLC0415
 
     if not entries:
         return
-
-    if len(entries) == 1:
-        (entry,) = entries
-        try:
-            catalog_entry = catalog.get_catalog_entry(entry, maybe_alias=True)
-        except (ValueError, AssertionError) as err:
-            raise click.ClickException(f"Entry {entry!r} not found in catalog") from err
-        if not catalog_entry.is_content_local:
-            catalog_entry.fetch()
-        with extract_build_zip_context(catalog_entry.catalog_path) as src_dir:
-            for w in sorted(src_dir.glob("*.whl")):
-                dst = build_path / w.name
-                if not dst.exists():
-                    shutil.copy2(w, dst)
-            src_reqs = src_dir / DumpFiles.requirements
-            if src_reqs.exists():
-                shutil.copy2(src_reqs, build_path / DumpFiles.requirements)
-        return
-
-    with tempfile.TemporaryDirectory() as harvest_str:
-        harvest_dir = Path(harvest_str)
-        wheel_paths = []
-        req_contents = []
-        for i, entry in enumerate(entries):
-            try:
-                catalog_entry = catalog.get_catalog_entry(entry, maybe_alias=True)
-            except (ValueError, AssertionError) as err:
-                raise click.ClickException(
-                    f"Entry {entry!r} not found in catalog"
-                ) from err
-            if not catalog_entry.is_content_local:
-                catalog_entry.fetch()
-            with extract_build_zip_context(catalog_entry.catalog_path) as src_dir:
-                entry_dir = harvest_dir / f"entry_{i}"
-                entry_dir.mkdir()
-                for w in sorted(src_dir.glob("*.whl")):
-                    target = entry_dir / w.name
-                    shutil.copy2(w, target)
-                    wheel_paths.append(target)
-                src_reqs = src_dir / DumpFiles.requirements
-                req_contents.append(
-                    (entry, src_reqs.read_bytes() if src_reqs.exists() else b"")
-                )
-
-        if not wheel_paths:
-            return
-        _assert_requirements_identical(req_contents)
-        for w in wheel_paths:
+    with _entry_run_bundle(catalog, entries) as bundle:
+        for w in bundle.wheel_paths:
             dst = build_path / w.name
             if not dst.exists():
                 shutil.copy2(w, dst)
-        (build_path / DumpFiles.requirements).write_bytes(req_contents[0][1])
+        shutil.copy2(bundle.requirements_path, build_path / DumpFiles.requirements)
 
 
 @contextmanager
@@ -1107,8 +1041,6 @@ def _uv_reinvoke_xorq_cli(catalog, entries, *inner_args):
 
 
 def _forward_run_args(code, limit, fuse, raw_params, raw_rename_params, instream):
-    """Flatten transform/IO options for forwarding to a re-invoked `xorq
-    catalog run` / `xorq catalog run-cached` subprocess."""
     args = []
     if code is not None:
         args += ["-c", code]

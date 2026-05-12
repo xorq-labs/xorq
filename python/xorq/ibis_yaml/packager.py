@@ -202,12 +202,6 @@ class JointBundle:
     wheel_paths = field(converter=lambda xs: tuple(Path(x) for x in xs))
     requirements_path = field(validator=instance_of(Path), converter=Path)
     python_version = field(validator=_validate_python_version, default=None)
-    _tmpdir = field(
-        validator=optional(instance_of(TemporaryDirectory)),
-        repr=False,
-        eq=False,
-        default=None,
-    )
 
     def __attrs_post_init__(self):
         if not self.wheel_paths:
