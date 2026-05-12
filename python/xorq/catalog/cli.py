@@ -1085,8 +1085,40 @@ def _forward_run_args(code, limit, fuse, raw_params, raw_rename_params, instream
     multiple=True,
     help="Rename a parameter: entry,old_name,new_name (repeatable).",
 )
+@click.option(
+    "--use-this-venv/--no-use-this-venv",
+    default=False,
+    help=(
+        "Load and build the expression in the current Python environment "
+        "instead of spawning `uv tool run` on the entries' joint bundle. "
+        "Faster (no subprocess), but only correct when the calling venv "
+        "already has every package each entry's wheel depends on. Default "
+        "is the isolated `uv tool run` path."
+    ),
+)
+@click.option(
+    "--emit-build-path-only",
+    is_flag=True,
+    default=False,
+    hidden=True,
+    help=(
+        "Internal: after build_expr, print the build_path on stdout and exit "
+        "without merging wheels or cataloging. The outer reinvoke uses this "
+        "to pick up the inner's build_path."
+    ),
+)
 @click.pass_context
-def compose(ctx, entries, code, alias, cache_dir, dry_run, raw_rename_params):
+def compose(
+    ctx,
+    entries,
+    code,
+    alias,
+    cache_dir,
+    dry_run,
+    raw_rename_params,
+    use_this_venv,
+    emit_build_path_only,
+):
     """Assemble expressions from catalog entries, build, and persist to catalog.
 
     Always catalogs the result. Use 'run' to execute an entry for data output.
@@ -1097,28 +1129,85 @@ def compose(ctx, entries, code, alias, cache_dir, dry_run, raw_rename_params):
         span.set_attributes({"entries": entries, "has_code": code is not None})
         with click_context_catalog(ctx):
             catalog = ctx.obj.make_catalog(init=False)
-            rename_map = (
-                _parse_rename_params(raw_rename_params) if raw_rename_params else None
-            )
-            expr = _compose_expr(catalog, entries, code, rename_map=rename_map)
+            if not entries:
+                raise click.UsageError("At least one entry is required.")
 
-            if dry_run:
-                click.echo("Dry run — composition plan:")
-                click.echo(f"  Entries: {' -> '.join(entries)}")
-                if code:
-                    click.echo(f"  Code: {code}")
-                sch = expr.schema()
-                click.echo("  Schema:")
-                for col, dtype in sch.items():
-                    click.echo(f"    {col:<24} {dtype}")
-                return
+            if not use_this_venv:
+                # Outer: spawn the inner inside the entries' pinned env so
+                # that `.expr` deserialization (cloudpickled UDF closures)
+                # happens where each entry's wheel + Python minor is set up
+                # by uv. The inner emits build_path as its last stdout line
+                # (or the dry-run plan instead); we finalize here.
+                span.set_attribute("path", "uv-reinvoke")
+                from xorq.ibis_yaml.packager import uv_tool_run  # noqa: PLC0415
 
-            from xorq.ibis_yaml.compiler import build_expr
+                inner_cmd = (
+                    "xorq",
+                    "catalog",
+                    "--path",
+                    str(catalog.repo_path),
+                    "compose",
+                    *entries,
+                    *(("-c", code) if code is not None else ()),
+                    *(("--cache-dir", cache_dir) if cache_dir else ()),
+                    *(("--dry-run",) if dry_run else ()),
+                    *(
+                        arg
+                        for rp in raw_rename_params
+                        for arg in ("--rename-params", rp)
+                    ),
+                    "--use-this-venv",
+                    "--emit-build-path-only",
+                )
+                with _entry_run_bundle(catalog, entries) as bundle:
+                    result = uv_tool_run(
+                        *inner_cmd,
+                        python_version=bundle.python_version,
+                        with_=bundle.wheel_paths,
+                        with_requirements=bundle.requirements_path,
+                        capture_output=True,
+                    )
+                if dry_run:
+                    click.echo(result.stdout, nl=False)
+                    return
+                lines = [line for line in result.stdout.splitlines() if line.strip()]
+                if not lines:
+                    raise click.ClickException(
+                        f"inner compose produced no build_path; stderr: {result.stderr}"
+                    )
+                build_path = Path(lines[-1])
+            else:
+                span.set_attribute("path", "in-process")
+                rename_map = (
+                    _parse_rename_params(raw_rename_params)
+                    if raw_rename_params
+                    else None
+                )
+                expr = _compose_expr(catalog, entries, code, rename_map=rename_map)
 
-            build_kwargs = {} if cache_dir is None else {"cache_dir": Path(cache_dir)}
-            build_path = build_expr(expr, **build_kwargs)
+                if dry_run:
+                    click.echo("Dry run — composition plan:")
+                    click.echo(f"  Entries: {' -> '.join(entries)}")
+                    if code:
+                        click.echo(f"  Code: {code}")
+                    sch = expr.schema()
+                    click.echo("  Schema:")
+                    for col, dtype in sch.items():
+                        click.echo(f"    {col:<24} {dtype}")
+                    return
+
+                from xorq.ibis_yaml.compiler import build_expr  # noqa: PLC0415
+
+                build_kwargs = (
+                    {} if cache_dir is None else {"cache_dir": Path(cache_dir)}
+                )
+                build_path = build_expr(expr, **build_kwargs)
+
+                if emit_build_path_only:
+                    click.echo(str(build_path))
+                    return
+
             _merge_joint_wheels_into_build(catalog, entries, build_path)
-
             entry_name = build_path.name
             aliases = (alias,) if alias else ()
             alias_existed = alias and catalog.catalog_yaml.contains_alias(alias)

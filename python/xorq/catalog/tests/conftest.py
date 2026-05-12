@@ -48,20 +48,21 @@ TEST_WHEEL_NAME = "pkg-0.0.0-py3-none-any.whl"
 
 
 class _AutoVenvCliRunner(CliRunner):
-    """CliRunner that auto-injects `--use-this-venv` on `run` invocations.
+    """CliRunner that auto-injects `--use-this-venv` on `run` / `run-cached`
+    / `compose` invocations.
 
-    `xorq catalog run` defaults to spawning `uv tool run` for isolated
-    execution. Under CliRunner the subprocess writes to OS fd 1, which
-    bypasses CliRunner's `sys.stdout` capture and yields an empty
-    `result.output`. The `--use-this-venv` flag opts into the in-process
-    path so tests stay fast and output-capturable; production callers
-    that need isolation simply omit the flag.
+    These commands default to spawning `uv tool run` for isolated execution.
+    Under CliRunner the subprocess writes to OS fd 1, which bypasses
+    CliRunner's `sys.stdout` capture and yields an empty `result.output`.
+    The `--use-this-venv` flag opts into the in-process path so tests stay
+    fast and output-capturable; production callers that need isolation
+    simply omit the flag.
     """
 
     def invoke(self, cli, args=(), **kwargs):
         # Only inject at the subcommand position so entry/alias names
-        # literally equal to "run" or "run-cached" don't get mistaken for
-        # the subcommand.
+        # literally equal to "run", "run-cached", or "compose" don't get
+        # mistaken for the subcommand.
         args = list(args)
         catalog_opts_with_value = {
             "-n",
@@ -82,7 +83,7 @@ class _AutoVenvCliRunner(CliRunner):
             if a.startswith("-"):
                 i += 1
                 continue
-            if a in ("run", "run-cached"):
+            if a in ("run", "run-cached", "compose"):
                 args = args[: i + 1] + ["--use-this-venv"] + args[i + 1 :]
             break
         return super().invoke(cli, args, **kwargs)

@@ -823,3 +823,204 @@ def test_catalog_run_uv_path_end_to_end(catalog_with_source_and_transform, tmp_p
     assert result.returncode == 0, result.stderr
     assert out.exists() and out.stat().st_size > 0
     assert "user_id" in out.read_text()
+
+
+# --- compose uv-reinvoke path coverage ---
+#
+# Other tests in this file go through the auto-injecting `runner` fixture
+# (which adds `--use-this-venv`), so they exercise the in-process branch
+# of compose. These tests cover the *uv* branch — outer spawns the inner
+# under `uv tool run` and finalizes (merge wheels + catalog.add) here.
+
+
+def test_catalog_compose_reinvokes_via_uv(
+    catalog_with_source_and_transform, monkeypatch, tmp_path
+):
+    """Without --use-this-venv, `catalog compose` must (a) spawn the inner
+    via `uv tool run`, (b) pass `--use-this-venv --emit-build-path-only`
+    to it (otherwise the inner would re-enter the outer path and recurse,
+    or would mutate the catalog twice), (c) NOT load .expr in the caller
+    shell. We pre-bake a build_path so the inner's stdout the outer parses
+    is something we control."""
+    pre_built = tmp_path / "fake-build"
+    pre_built.mkdir()
+    (pre_built / DumpFiles.expr).write_text("# placeholder\n")
+    (pre_built / DumpFiles.requirements).write_text("")
+
+    captured = {}
+
+    def fake_uv_tool_run(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+
+        class _R:
+            returncode = 0
+            stdout = f"{pre_built}\n"
+            stderr = ""
+
+        return _R()
+
+    def spy_compose_expr(*args, **kwargs):
+        raise AssertionError("outer compose must not call _compose_expr")
+
+    def spy_merge(catalog, entries, build_path):
+        captured["merge_build_path"] = build_path
+
+    def spy_add(self, build_path, aliases=(), exist_ok=False):
+        captured["add_build_path"] = build_path
+        captured["add_aliases"] = aliases
+        return MagicMock(name="catalog_entry")
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
+    monkeypatch.setattr(cli_mod, "_compose_expr", spy_compose_expr)
+    monkeypatch.setattr(cli_mod, "_merge_joint_wheels_into_build", spy_merge)
+    monkeypatch.setattr(Catalog, "add", spy_add)
+
+    catalog_path, _, _ = catalog_with_source_and_transform
+    bare = CliRunner()
+    result = bare.invoke(
+        cli,
+        ["--path", catalog_path, "compose", "src", "trn", "-a", "outer-alias"],
+    )
+    assert result.exit_code == 0, result.output
+
+    args = captured["args"]
+    assert "xorq" in args
+    assert "catalog" in args
+    assert "compose" in args
+    assert "src" in args and "trn" in args
+    assert "--use-this-venv" in args
+    assert "--emit-build-path-only" in args
+    # alias must NOT be forwarded — the outer registers it after pickup.
+    assert "--alias" not in args and "-a" not in args
+    assert captured["merge_build_path"] == pre_built
+    assert captured["add_build_path"] == pre_built
+    assert captured["add_aliases"] == ("outer-alias",)
+
+
+def test_catalog_compose_dry_run_relays_inner_stdout(
+    catalog_with_source_and_transform, monkeypatch
+):
+    """`compose --dry-run` under uv-reinvoke must forward `--dry-run` to the
+    inner and relay its stdout verbatim. The outer must not call .expr or
+    catalog.add."""
+
+    def fake_uv_tool_run(*args, **kwargs):
+        class _R:
+            returncode = 0
+            stdout = "Dry run — composition plan:\n  Entries: src -> trn\n"
+            stderr = ""
+
+        return _R()
+
+    def spy_compose_expr(*args, **kwargs):
+        raise AssertionError("outer dry-run must not call _compose_expr")
+
+    def spy_add(self, *a, **k):
+        raise AssertionError("outer dry-run must not call catalog.add")
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
+    monkeypatch.setattr(cli_mod, "_compose_expr", spy_compose_expr)
+    monkeypatch.setattr(Catalog, "add", spy_add)
+
+    catalog_path, _, _ = catalog_with_source_and_transform
+    bare = CliRunner()
+    result = bare.invoke(
+        cli,
+        ["--path", catalog_path, "compose", "src", "trn", "--dry-run"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Dry run — composition plan:" in result.output
+    assert "src -> trn" in result.output
+
+
+def test_catalog_compose_outer_unknown_entry_fails_before_uv(
+    catalog_with_source_and_transform, monkeypatch
+):
+    """`_entry_run_bundle` (called by the outer before spawning) must fail
+    cleanly when an entry is unknown — never reaches uv_tool_run."""
+
+    def fake_uv_tool_run(*args, **kwargs):
+        raise AssertionError("uv_tool_run must not be reached for unknown entry")
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
+
+    catalog_path, _, _ = catalog_with_source_and_transform
+    bare = CliRunner()
+    result = bare.invoke(
+        cli,
+        ["--path", catalog_path, "compose", "no-such-entry"],
+    )
+    assert result.exit_code != 0
+    assert "not found" in result.output
+
+
+def test_catalog_compose_emit_build_path_only_short_circuits(
+    catalog_with_source_and_transform, monkeypatch, tmp_path
+):
+    """With `--use-this-venv --emit-build-path-only` (the flags the outer
+    passes when spawning the inner), compose must run _compose_expr +
+    build_expr, print the build_path on stdout, and exit before
+    _merge_joint_wheels_into_build / catalog.add fire."""
+    pre_built = tmp_path / "inner-build"
+    pre_built.mkdir()
+
+    monkeypatch.setattr(
+        "xorq.ibis_yaml.compiler.build_expr",
+        lambda expr, **kw: pre_built,
+    )
+
+    def spy_merge(catalog, entries, build_path):
+        raise AssertionError("--emit-build-path-only must not call merge")
+
+    def spy_add(self, *a, **k):
+        raise AssertionError("--emit-build-path-only must not call catalog.add")
+
+    monkeypatch.setattr(cli_mod, "_merge_joint_wheels_into_build", spy_merge)
+    monkeypatch.setattr(Catalog, "add", spy_add)
+
+    catalog_path, _, _ = catalog_with_source_and_transform
+    bare = CliRunner()
+    result = bare.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "compose",
+            "src",
+            "trn",
+            "--use-this-venv",
+            "--emit-build-path-only",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    last_line = [line for line in result.output.splitlines() if line.strip()][-1]
+    assert last_line == str(pre_built)
+
+
+@pytest.mark.slow(level=1)
+def test_catalog_compose_uv_path_end_to_end(
+    catalog_with_source_and_transform, tmp_path
+):
+    """Full pipeline: outer spawns inner under `uv tool run`, inner builds
+    + emits build_path, outer merges + adds. Slow because uv resolves and
+    installs the entries' pinned env."""
+    catalog_path, _, _ = catalog_with_source_and_transform
+    result = subprocess.run(
+        [
+            "xorq",
+            "catalog",
+            "--path",
+            catalog_path,
+            "compose",
+            "src",
+            "trn",
+            "-a",
+            "e2e-composed",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    assert catalog.catalog_yaml.contains_alias("e2e-composed")
