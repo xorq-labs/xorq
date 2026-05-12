@@ -1042,11 +1042,14 @@ def _entry_run_bundle(catalog, entries):
             yield JointBundle.from_build_path(src_dir)
         return
 
+    from xorq.ibis_yaml.packager import _read_build_python_minor  # noqa: PLC0415
+
     with tempfile.TemporaryDirectory() as harvest_str:
         harvest_dir = Path(harvest_str)
         seen = set()
         wheel_paths = []
         req_contents = []
+        python_pins = []
         for entry in entries:
             ce = _resolve_entry(entry)
             with extract_build_zip_context(ce.catalog_path) as src_dir:
@@ -1061,14 +1064,25 @@ def _entry_run_bundle(catalog, entries):
                 req_contents.append(
                     (entry, src_reqs.read_bytes() if src_reqs.exists() else b"")
                 )
+                python_pins.append((entry, _read_build_python_minor(src_dir)))
         if not wheel_paths:
             raise click.ClickException("no wheels found in entries")
         _assert_requirements_identical(req_contents)
         requirements_path = harvest_dir / DumpFiles.requirements
         requirements_path.write_bytes(req_contents[0][1])
+        # Each entry must agree on the Python minor so cloudpickled UDFs
+        # deserialize against the same interpreter they were built on.
+        distinct_pins = {pin for _, pin in python_pins if pin is not None}
+        if len(distinct_pins) > 1:
+            detail = ", ".join(f"{e!r}={pin}" for e, pin in python_pins)
+            raise click.ClickException(
+                f"entries built on different Python minors: {detail}"
+            )
+        joint_python = next(iter(distinct_pins), None)
         yield JointBundle(
             wheel_paths=tuple(wheel_paths),
             requirements_path=requirements_path,
+            python_version=joint_python,
         )
 
 

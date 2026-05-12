@@ -99,6 +99,28 @@ def _read_wheel_metadata(wheel_path):
     return fields
 
 
+def _read_build_python_minor(build_path):
+    """Return a `==X.Y.*` specifier pinning the Python minor the archive
+    was packaged with, or None if build_metadata.json is missing/malformed.
+
+    Cloudpickled UDF closures embed Python-version-specific bytecode and
+    object layouts; loading them under a different minor risks SIGSEGV
+    on C-extension refs. Pinning to the build's minor keeps `uv tool run`
+    from picking a newer interpreter than the archive was tested on.
+    """
+    import json  # noqa: PLC0415
+
+    meta_path = Path(build_path) / DumpFiles.build_metadata
+    if not meta_path.exists():
+        return None
+    try:
+        info = json.loads(meta_path.read_text()).get("sys-version_info")
+        major, minor = int(info[0]), int(info[1])
+    except (ValueError, TypeError, KeyError, IndexError):
+        return None
+    return f"=={major}.{minor}.*"
+
+
 def _read_requires_python(path):
     """Read requires-python from a project source, intersected with PYTHON_VERSION_CAP.
 
@@ -169,6 +191,7 @@ class WheelBundle:
         return cls(
             wheel_path=_find_single_glob(build_path, "*.whl"),
             requirements_path=build_path / DumpFiles.requirements,
+            python_version=_read_build_python_minor(build_path),
         )
 
 
@@ -217,6 +240,7 @@ class JointBundle:
         return cls(
             wheel_paths=wheels,
             requirements_path=build_path / DumpFiles.requirements,
+            python_version=_read_build_python_minor(build_path),
         )
 
 

@@ -1243,7 +1243,21 @@ def _load_catalog_cli():
 
 
 def main():
-    cli()
+    # Flush stdio and skip Python finalization on exit. xorq_datafusion's
+    # tokio runtime deadlocks on drop when a Python-UDF blocking worker is
+    # still mid-callback at Py_Finalize (pyo3 0.26 panics on
+    # interpreter-not-initialized, then the blocking-pool shutdown waits
+    # forever on the panicked worker). The CLI's job is finished once the
+    # output is on the wire, so bypassing finalize is safe.
+    try:
+        cli()
+    except SystemExit as e:
+        code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+    else:
+        code = 0
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
 
 
 if __name__ == "__main__":
