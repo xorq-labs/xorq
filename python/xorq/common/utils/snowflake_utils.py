@@ -19,6 +19,7 @@ from xorq.common.utils.env_utils import (
     env_templates_dir,
     filter_existing_env_vars,
     maybe_substitute_env_var,
+    parse_bool_env,
 )
 
 
@@ -26,7 +27,9 @@ SnowflakeConfig = EnvConfigable.subclass_from_env_file(
     env_templates_dir.joinpath(".env.snowflake.template")
 )
 snowflake_config = SnowflakeConfig.from_env()
-default_create_object_udfs = bool(snowflake_config.SNOWFLAKE_CREATE_OBJECT_UDFS)
+default_create_object_udfs = bool(
+    snowflake_config.SNOWFLAKE_CREATE_OBJECT_UDFS
+) and parse_bool_env(snowflake_config.SNOWFLAKE_CREATE_OBJECT_UDFS)
 default_database = snowflake_config["SNOWFLAKE_DATABASE"] or "SNOWFLAKE_SAMPLE_DATA"
 default_schema = snowflake_config["SNOWFLAKE_SCHEMA"] or "TPCH_SF1"
 
