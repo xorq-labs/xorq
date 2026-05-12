@@ -436,11 +436,6 @@ def _normalize_xorq_cmd(args):
 
 
 def _link_mode_args():
-    """Return ``("--link-mode", "hardlink")`` when xorq.config.options.uv.use_hardlink is set.
-
-    Read at call time so tests / programmatic overrides of
-    ``xorq.config.options.uv.use_hardlink`` take effect for the next uv invocation.
-    """
     from xorq.config import options  # noqa: PLC0415
 
     return ("--link-mode", "hardlink") if options.uv.use_hardlink else ()
@@ -499,8 +494,7 @@ def uv_tool_run(
 
 def uv_export_requirements(project_dir, python_version, extras=(), all_extras=True):
     """Run uv export in a directory with pyproject.toml + uv.lock."""
-    # No --link-mode here: uv export reads the lockfile and writes
-    # requirements.txt; it never installs or links files, so the flag is a no-op.
+    # No --link-mode: uv export only reads the lockfile, never installs or links.
     args = (
         "uv",
         "export",
