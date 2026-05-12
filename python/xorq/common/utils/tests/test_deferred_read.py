@@ -2,9 +2,10 @@ import functools
 import itertools
 import pathlib
 
-import dask
 import pandas as pd
 import pytest
+
+from xorq.common.utils.dasher import tokenize as _dasher_tokenize
 from attr import (
     field,
     frozen,
@@ -339,7 +340,7 @@ def test_deferred_read_kwargs(pg):
         xo.examples.get_table_from_name(name, pg, mode=mode)
         for mode in ("create", "replace")
     )
-    hash0, hash1 = (dask.base.tokenize(expr) for expr in (read0, read1))
+    hash0, hash1 = (_dasher_tokenize(expr) for expr in (read0, read1))
     assert hash0 != hash1
 
 

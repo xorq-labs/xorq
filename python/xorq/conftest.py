@@ -1,16 +1,10 @@
 from pathlib import Path
 
-import dask
 import numpy as np
 import pandas as pd
 import pytest
 
 import xorq.api as xo
-
-
-# ensure registration of numpy and pandas objects for tokenization purposes
-dask.base.normalize_token.dispatch(np.dtype)
-dask.base.normalize_token.dispatch(pd.DataFrame)
 
 array_types_df = pd.DataFrame(
     [

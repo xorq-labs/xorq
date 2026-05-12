@@ -1151,12 +1151,10 @@ class LETSQLAccessor:
 
     @property
     def tokenized(self):
-        from xorq.common.utils.dask_normalize.dask_normalize_utils import (
-            patched_tokenize,
-        )
+        from xorq.common.utils.dasher import tokenize
 
         # NOTE: this should almost certainly not be functools.cache'd: it can obscure filesystem / source table changes within the same process run
-        return patched_tokenize(self.expr)
+        return tokenize(self.expr)
 
     def get_cache_path(self):
         if self.is_cached and hasattr(self.cache.storage, "get_path"):

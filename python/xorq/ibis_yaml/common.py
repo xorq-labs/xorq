@@ -12,9 +12,8 @@ from attr import (
     frozen,
 )
 from attr.validators import instance_of
-from dask.base import tokenize
-
 import xorq.expr.datatypes as dt
+from xorq.common.utils.dasher import tokenize
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.expr.relations import HashingTag, Read, Tag

@@ -11,7 +11,7 @@ from attr.validators import (
     instance_of,
     optional,
 )
-from dask.utils import Dispatch
+from xorq.common.utils.dispatch import Dispatch
 from toolz import compose
 from toolz.curried import (
     excepts as cexcepts,
@@ -30,7 +30,7 @@ from xorq.common.utils.attr_utils import (
     convert_sorted_kwargs_tuple,
     validate_kwargs_tuple,
 )
-from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+from xorq.common.utils.dasher import (
     normalize_attrs,
 )
 from xorq.common.utils.func_utils import (
@@ -352,7 +352,7 @@ class Step:
         )
         return cls(typ=typ, name=name)
 
-    __dask_tokenize__ = normalize_attrs
+    __dasher_tokenize__ = normalize_attrs
 
 
 @frozen

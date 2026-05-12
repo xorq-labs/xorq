@@ -108,16 +108,12 @@ class Tag(ops.Relation):
     def tag(self):
         return self.metadata.get("tag")
 
-    def __dask_tokenize__(self):
-        from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
-            normalize_seq_with_caller,
-        )
-
-        return normalize_seq_with_caller(
+    def __dasher_tokenize__(self):
+        return (
+            "normalize_tag",
             self.schema,
             self.parent,
             self.metadata,
-            caller="normalize_tag",
         )
 
 
@@ -129,16 +125,12 @@ class HashingTag(Tag):
     produce distinct hashes.
     """
 
-    def __dask_tokenize__(self):
-        from xorq.common.utils.dask_normalize.dask_normalize_expr import (  # noqa: PLC0415
-            normalize_seq_with_caller,
-        )
-
-        return normalize_seq_with_caller(
+    def __dasher_tokenize__(self):
+        return (
+            "normalize_hashing_tag",
             self.schema,
             self.parent,
             self.metadata,
-            caller="normalize_hashing_tag",
         )
 
 

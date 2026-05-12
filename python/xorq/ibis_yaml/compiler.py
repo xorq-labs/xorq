@@ -9,7 +9,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Dict
 
-import dask
+from xorq.common.utils.dasher import tokenize as _dasher_tokenize
 import pyarrow.parquet as pq
 import toolz
 import yaml12
@@ -37,10 +37,10 @@ from xorq.caching import (
 )
 from xorq.common.exceptions import UnboundExpressionError
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
-from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+from xorq.common.utils.defer_utils import (
     normalize_read_path_md5sum,
+    normalize_read_path_stat,
 )
-from xorq.common.utils.defer_utils import normalize_read_path_stat
 from xorq.common.utils.graph_utils import (
     find_all_sources,
     opaque_ops,
@@ -241,13 +241,13 @@ def _sanitize_generated_names(expr, normalize_method):
     for node in walk_nodes((InMemoryTable, Read), expr):
         if isinstance(node, InMemoryTable):
             if prefix := get_uid_prefix(node.name):
-                name = f"{prefix}{dask.base.tokenize(recreate(node, name='name').to_expr())}"
+                name = f"{prefix}{_dasher_tokenize(recreate(node, name='name').to_expr())}"
                 replacements[node] = recreate(
                     node, name=name, normalize_method=normalize_method
                 )
         else:
             if prefix := get_uid_prefix(node.name):
-                table_name = f"{prefix}{dask.base.tokenize(recreate(node, name='name', normalize_method=normalize_method).to_expr())}"
+                table_name = f"{prefix}{_dasher_tokenize(recreate(node, name='name', normalize_method=normalize_method).to_expr())}"
                 replacements[node] = recreate(
                     change_read_table_name(node, table_name=table_name),
                     normalize_method=normalize_method,
@@ -262,7 +262,7 @@ def canonicalize_expr(expr, read_normalize_method=normalize_read_path_stat):
     """Single normalization pass: deterministic names and canonical profile IDs.
 
     Both the YAML serialization path (ExprDumper) and the hashing path
-    (dask.base.tokenize) should operate on a canonicalized expression so
+    (xorq.common.utils.dasher.tokenize) should operate on a canonicalized expression so
     that build hashes are stable across sessions.
     """
     expr = _sanitize_generated_names(expr, read_normalize_method)
@@ -287,7 +287,7 @@ def normalize_profiles(expr):
 
     def content_key(backend):
         p = backend._profile
-        return dask.base.tokenize(toolz.dissoc(p.as_dict(), "idx"))
+        return _dasher_tokenize(toolz.dissoc(p.as_dict(), "idx"))
 
     # sort by content hash → deterministic canonical order
     # Python sort is stable so backends with the same content hash
@@ -440,7 +440,7 @@ class ExprDumper:
         return (path, writer)
 
     def _prepare_sql_file(self, sql: str) -> str:
-        sql_hash = dask.base.tokenize(sql)[: config.hash_length]
+        sql_hash = _dasher_tokenize(sql)[: config.hash_length]
         filename = f"{sql_hash}.sql"
         path = self.artifact_store.get_path(filename)
         writer = functools.partial(self.artifact_store.write_text, sql, filename)
@@ -449,7 +449,7 @@ class ExprDumper:
     def _prepare_memtable(self, mt, which):
         assert which in MemtableTypes
         table = mt.to_expr().to_pyarrow()
-        filename = f"{dask.base.tokenize(table)}.parquet"
+        filename = f"{_dasher_tokenize(table)}.parquet"
         path_parts = (which, filename)
         path = self.artifact_store.get_path(*path_parts)
         writer = functools.partial(

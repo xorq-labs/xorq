@@ -1,6 +1,7 @@
-import dask
 import numpy as np
 import pytest
+
+from xorq.common.utils.dasher import tokenize as _dasher_tokenize
 
 import xorq.api as xo
 from xorq.caching import (
@@ -165,5 +166,5 @@ def test_array_filter_cached(con, duckdb_con):
     )
     expr = uncached.cache(SourceCache.from_kwargs(source=con))
 
-    assert dask.base.tokenize(uncached)
+    assert _dasher_tokenize(uncached)
     assert not expr.execute().empty

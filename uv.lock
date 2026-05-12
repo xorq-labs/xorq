@@ -5870,7 +5870,6 @@ dependencies = [
     { name = "click" },
     { name = "cloudpickle" },
     { name = "cryptography" },
-    { name = "dask" },
     { name = "envyaml" },
     { name = "filelock" },
     { name = "geoarrow-types" },
@@ -5898,6 +5897,7 @@ dependencies = [
     { name = "toolz" },
     { name = "typing-extensions" },
     { name = "uv" },
+    { name = "xorq-dasher" },
     { name = "xorq-datafusion" },
 ]
 
@@ -6015,7 +6015,6 @@ requires-dist = [
     { name = "click", specifier = ">=8.0" },
     { name = "cloudpickle", specifier = ">=3.1.1" },
     { name = "cryptography", specifier = ">=45.0.3" },
-    { name = "dask", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = "==2025.1.0" },
     { name = "databricks-sql-connector", marker = "extra == 'databricks'", specifier = ">=3.0.0" },
     { name = "datafusion", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'datafusion'", specifier = ">=0.6,<49" },
     { name = "duckdb", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=0.10.3,<2" },
@@ -6063,6 +6062,7 @@ requires-dist = [
     { name = "typing-extensions", specifier = ">=4.3.0" },
     { name = "uv", specifier = ">=0.7.20" },
     { name = "xgboost", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=1.6.1" },
+    { name = "xorq-dasher", specifier = ">=0.1.0" },
     { name = "xorq-datafusion", specifier = "==0.2.5" },
     { name = "xorq-feature-utils", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-feature-utils?branch=main" },
     { name = "xorq-weather-lib", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-weather-lib?branch=main" },
@@ -6106,6 +6106,20 @@ test = [
     { name = "pytest-mock", specifier = ">=3.14.0,<4" },
     { name = "pytest-snapshot", specifier = ">=0.9.0,<1.0.0" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
+]
+
+[[package]]
+name = "xorq-dasher"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "toolz" },
+    { name = "xxhash" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/82/ac/95ae1d45f4ba2cb33fd3bd0ba436700bcbea4a87d1439034bc54318f5b92/xorq_dasher-0.1.0.tar.gz", hash = "sha256:a581a64257fca51cffc27899b46fdec01e2b7ea820f92e029e9b602331f9735c", size = 97783, upload-time = "2026-05-11T13:12:20.021Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/77/de/31c4ad7e6d1550ff6178201c48113bfc7e472948358028279c0f921c234d/xorq_dasher-0.1.0-py3-none-any.whl", hash = "sha256:ce019b21273e2fbbc42cade0beb66c1e297d11384806b505280e1fc80426fb06", size = 9577, upload-time = "2026-05-11T13:12:18.338Z" },
 ]
 
 [[package]]

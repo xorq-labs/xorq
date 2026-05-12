@@ -16,15 +16,13 @@ class ProvenanceField(enum.StrEnum):
 
 
 def get_expr_hash(expr):
-    import dask.base  # noqa: PLC0415
-
     from xorq.caching.strategy import SnapshotStrategy  # noqa: PLC0415
     from xorq.ibis_yaml.compiler import canonicalize_expr  # noqa: PLC0415
     from xorq.ibis_yaml.config import config  # noqa: PLC0415
 
     expr = canonicalize_expr(expr)
-    with SnapshotStrategy().normalization_context(expr):
-        return dask.base.tokenize(expr)[: config.hash_length]
+    with SnapshotStrategy().normalization_context(expr) as hasher:
+        return hasher.tokenize(expr)[: config.hash_length]
 
 
 def build_provenance_metadata(expr, strategy, storage):

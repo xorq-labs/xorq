@@ -99,16 +99,12 @@ class ParquetStorage(CacheStorage):
         converter=if_not_none(Path),
     )
 
-    def __dask_tokenize__(self):
-        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
-            normalize_seq_with_caller,
-        )
-
-        return normalize_seq_with_caller(
+    def __dasher_tokenize__(self):
+        return (
+            "normalize_parquet_storage",
             self.source,
             self.relative_path,
             self.base_path,
-            caller="normalize_parquet_storage",
         )
 
     def __attrs_post_init__(self):
@@ -152,17 +148,13 @@ class ParquetTTLStorage(ParquetStorage):
         validator=instance_of(datetime.timedelta), default=datetime.timedelta(days=1)
     )
 
-    def __dask_tokenize__(self):
-        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
-            normalize_seq_with_caller,
-        )
-
-        return normalize_seq_with_caller(
+    def __dasher_tokenize__(self):
+        return (
+            "normalize_parquet_ttl_storage",
             self.source,
             self.relative_path,
             self.base_path,
             self.ttl,
-            caller="normalize_parquet_ttl_storage",
         )
 
     def exists(self, key):
@@ -189,12 +181,8 @@ class SourceStorage(CacheStorage):
         factory=default_backend,
     )
 
-    def __dask_tokenize__(self):
-        from xorq.common.utils.dask_normalize.dask_normalize_utils import (  # noqa: PLC0415
-            normalize_seq_with_caller,
-        )
-
-        return normalize_seq_with_caller(self.source, caller="normalize_source_storage")
+    def __dasher_tokenize__(self):
+        return ("normalize_source_storage", self.source)
 
     def exists(self, key):
         return key in self.source.tables
