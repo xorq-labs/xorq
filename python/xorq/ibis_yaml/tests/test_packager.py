@@ -409,6 +409,31 @@ def test_uv_default_use_hardlink_env_value_overrides_platform():
     assert _default_use_hardlink(platform="linux", env_value="True") is True
 
 
+@pytest.mark.parametrize(
+    ("env_value", "expected"),
+    [
+        ("true", True),
+        ("TRUE", True),
+        ("True", True),
+        ("false", False),
+        ("FALSE", False),
+        ("False", False),
+        ("1", True),
+        ("0", False),
+    ],
+)
+def test_uv_default_use_hardlink_accepts_shell_style_bools(env_value, expected):
+    """Shell-style bool strings in XORQ_UV_USE_HARDLINK must not crash on import.
+
+    Regression test for roborev #1946: ``ast.literal_eval`` is case-sensitive and
+    crashed on ``XORQ_UV_USE_HARDLINK=true`` (a natural value for shell users).
+    """
+    from xorq.config import _default_use_hardlink  # noqa: PLC0415
+
+    # platform must be specified so the env_value branch is the deciding factor.
+    assert _default_use_hardlink(platform="linux", env_value=env_value) is expected
+
+
 def test_uv_default_use_hardlink_no_args_reads_runtime_state(monkeypatch):
     """No-args call falls back to sys.platform and env_config.XORQ_UV_USE_HARDLINK."""
     from xorq.config import _default_use_hardlink, env_config  # noqa: PLC0415
