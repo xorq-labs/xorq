@@ -14,7 +14,10 @@ from attr import (
 from attr.validators import (
     instance_of,
 )
-from xorq_dasher.rules.expr import normalize_remote_table
+from xorq_dasher.rules.expr import (
+    normalize_cached_node,
+    normalize_remote_table,
+)
 
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.common.utils.dasher import (
@@ -25,6 +28,7 @@ from xorq.common.utils.dasher import (
 )
 from xorq.config import options
 from xorq.expr.relations import (
+    CachedNode,
     Read,
     RemoteTable,
 )
@@ -144,10 +148,6 @@ class SnapshotStrategy(CacheStrategy):
 
     @staticmethod
     def normalize_databasetable(dt):
-        from xorq_dasher.rules.expr import normalize_cached_node  # noqa: PLC0415
-
-        from xorq.expr.relations import CachedNode  # noqa: PLC0415
-
         # Read and CachedNode are subclasses of DatabaseTable. Dasher's
         # earliest-match-wins MRO lookup picks this DatabaseTable rule over
         # the more specific Read/CachedNode rules, so we must isinstance-

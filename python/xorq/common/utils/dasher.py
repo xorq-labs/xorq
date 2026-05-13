@@ -630,12 +630,12 @@ def _normalize_computed_kwargs_expr(cke):
     nested ``ExprScalarUDF`` steps.
     """
     from xorq.expr.relations import CachedNode, Read  # noqa: PLC0415
-    from xorq.vendor.ibis.expr.operations.relations import InMemoryTable  # noqa: PLC0415
+    from xorq.vendor.ibis.expr.operations import relations as _rel  # noqa: PLC0415
     from xorq.vendor.ibis.expr.operations.udf import AggUDF, ScalarUDF  # noqa: PLC0415
     from xorq.vendor.ibis.expr.types import Table  # noqa: PLC0415
 
     op = cke.op()
-    mems = op.find(InMemoryTable)
+    mems = op.find(_rel.InMemoryTable)
     agg_udfs = op.find(AggUDF)
     scalar_udfs = op.find(ScalarUDF)
     reads = op.find(Read)
