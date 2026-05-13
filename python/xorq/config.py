@@ -193,8 +193,7 @@ def _default_use_hardlink(platform=None, env_value=None):
     if env_value is None:
         env_value = env_config.XORQ_UV_USE_HARDLINK
     if env_value:
-        # .capitalize() so shell-style "true"/"TRUE" parse like Python "True".
-        return bool(ast.literal_eval(env_value.capitalize()))
+        return parse_bool_env(env_value)
     return platform == "darwin"
 
 

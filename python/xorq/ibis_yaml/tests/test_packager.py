@@ -16,6 +16,11 @@ from xorq.common.utils.zip_utils import (
     ZipProxy,
     append_toplevel,
 )
+from xorq.config import (
+    _default_use_hardlink,
+    env_config,
+    options,
+)
 from xorq.ibis_yaml.enums import DumpFiles
 from xorq.ibis_yaml.packager import (
     PYPROJECT_NAME,
@@ -24,6 +29,7 @@ from xorq.ibis_yaml.packager import (
     PackagedRunner,
     WheelBundle,
     WheelPackager,
+    _link_mode_args,
     _nix_env,
     _read_requires_python,
     _validate_python_version,
@@ -358,24 +364,16 @@ def _patch_subprocess_run(monkeypatch):
 
 
 def test_link_mode_args_returns_hardlink_when_option_true(monkeypatch):
-    from xorq.config import options  # noqa: PLC0415
-    from xorq.ibis_yaml.packager import _link_mode_args  # noqa: PLC0415
-
     monkeypatch.setattr(options.uv, "use_hardlink", True)
     assert _link_mode_args() == ("--link-mode", "hardlink")
 
 
 def test_link_mode_args_returns_empty_when_option_false(monkeypatch):
-    from xorq.config import options  # noqa: PLC0415
-    from xorq.ibis_yaml.packager import _link_mode_args  # noqa: PLC0415
-
     monkeypatch.setattr(options.uv, "use_hardlink", False)
     assert _link_mode_args() == ()
 
 
 def test_uv_tool_run_passes_link_mode_hardlink(monkeypatch):
-    from xorq.config import options  # noqa: PLC0415
-
     monkeypatch.setattr(options.uv, "use_hardlink", True)
     captured = _patch_subprocess_run(monkeypatch)
     uv_tool_run("xorq", "--version", capture_output=False)
@@ -386,8 +384,6 @@ def test_uv_tool_run_passes_link_mode_hardlink(monkeypatch):
 
 
 def test_uv_tool_run_omits_link_mode_when_option_false(monkeypatch):
-    from xorq.config import options  # noqa: PLC0415
-
     monkeypatch.setattr(options.uv, "use_hardlink", False)
     captured = _patch_subprocess_run(monkeypatch)
     uv_tool_run("xorq", "--version", capture_output=False)
@@ -395,20 +391,14 @@ def test_uv_tool_run_omits_link_mode_when_option_false(monkeypatch):
 
 
 def test_uv_default_use_hardlink_on_darwin():
-    from xorq.config import _default_use_hardlink  # noqa: PLC0415
-
     assert _default_use_hardlink(platform="darwin", env_value="") is True
 
 
 def test_uv_default_use_hardlink_off_on_linux():
-    from xorq.config import _default_use_hardlink  # noqa: PLC0415
-
     assert _default_use_hardlink(platform="linux", env_value="") is False
 
 
 def test_uv_default_use_hardlink_env_value_overrides_platform():
-    from xorq.config import _default_use_hardlink  # noqa: PLC0415
-
     # darwin would default True, but an explicit env override wins.
     assert _default_use_hardlink(platform="darwin", env_value="False") is False
     # linux would default False, but an explicit env override wins.
@@ -440,16 +430,12 @@ def test_uv_default_use_hardlink_accepts_shell_style_bools(env_value, expected):
     yes/no/on/off crashed even after .capitalize() because they aren't Python
     literals at all.
     """
-    from xorq.config import _default_use_hardlink  # noqa: PLC0415
-
     # platform must be specified so the env_value branch is the deciding factor.
     assert _default_use_hardlink(platform="linux", env_value=env_value) is expected
 
 
 def test_uv_default_use_hardlink_no_args_reads_runtime_state(monkeypatch):
     """No-args call falls back to sys.platform and env_config.XORQ_UV_USE_HARDLINK."""
-    from xorq.config import _default_use_hardlink, env_config  # noqa: PLC0415
-
     # Clone env_config with an empty override so platform is the deciding factor.
     monkeypatch.setattr(
         "xorq.config.env_config", env_config.clone(XORQ_UV_USE_HARDLINK="")
@@ -467,8 +453,6 @@ def test_uv_default_use_hardlink_no_args_reads_runtime_state(monkeypatch):
 
 
 def test_wheel_packager_build_wheel_passes_link_mode_hardlink(tmp_path, monkeypatch):
-    from xorq.config import options  # noqa: PLC0415
-
     monkeypatch.setattr(options.uv, "use_hardlink", True)
     _make_pyproject(tmp_path)
     (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
@@ -487,8 +471,6 @@ def test_wheel_packager_build_wheel_passes_link_mode_hardlink(tmp_path, monkeypa
 def test_wheel_packager_build_wheel_omits_link_mode_when_option_false(
     tmp_path, monkeypatch
 ):
-    from xorq.config import options  # noqa: PLC0415
-
     monkeypatch.setattr(options.uv, "use_hardlink", False)
     _make_pyproject(tmp_path)
     (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
@@ -512,8 +494,6 @@ def test_uv_export_requirements_never_passes_link_mode(
     The flag is harmless there but signals confused intent; enforce omission
     regardless of the option setting.
     """
-    from xorq.config import options  # noqa: PLC0415
-
     monkeypatch.setattr(options.uv, "use_hardlink", use_hardlink)
     captured = _patch_subprocess_run(monkeypatch)
     uv_export_requirements(tmp_path, "3.12")
