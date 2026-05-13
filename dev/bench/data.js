@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778665629502,
+  "lastUpdate": 1778666707887,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -11928,6 +11928,114 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.01119142561025209",
             "extra": "mean: 3.1181043249147242 msec\nrounds: 594"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0d9ed784feb50f20083538faf4be01b53b9d7164",
+          "message": "refactor(config): add parse_bool_env for consistent env var parsing (#1949)\n\n## Summary\n- Adds a `parse_bool_env` helper to `env_utils.py` that accepts\n`true/false/1/0/yes/no/on/off` (case-insensitive, whitespace-trimmed)\nand raises `ValueError` on unrecognised input\n- Replaces inconsistent `ast.literal_eval` usage in `config.py`\n(`XORQ_DEBUG`, `XORQ_TUI_REVISIONS_OPEN`, `XORQ_TUI_GIT_LOG_OPEN`) —\nthese previously crashed on shell-style values like `true`/`false`\n- Fixes a bug in `snowflake_utils.py` where `bool(\"False\")` evaluated to\n`True`\n\n## Test plan\n- [x] 17 parametrized tests for `parse_bool_env` covering truthy, falsy,\ncase variants, whitespace, default, and garbage rejection\n- [x] Verify `xorq.config.options` loads correctly with default\n`.env.xorq.template` values\n- [x] Verify `SNOWFLAKE_CREATE_OBJECT_UDFS=False` now correctly\nevaluates to `False`\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-13T06:00:31-04:00",
+          "tree_id": "86038bdd8b368f304e57984239eb22ba7fec56ff",
+          "url": "https://github.com/xorq-labs/xorq/commit/0d9ed784feb50f20083538faf4be01b53b9d7164"
+        },
+        "date": 1778666705641,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.127571745895761,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014733175882763851",
+            "extra": "mean: 140.30023627272863 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.7962387760903904,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03934511431452179",
+            "extra": "mean: 357.62325040001315 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6823247275691429,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14385611290882863",
+            "extra": "mean: 1.4655778394000323 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.9420696465897134,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00901524051713313",
+            "extra": "mean: 339.89678020000156 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.8534219981185482,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020875877277838156",
+            "extra": "mean: 350.45639959997743 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.9104621867912392,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009536792351433928",
+            "extra": "mean: 343.5880406000024 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[simple_filter_agg]",
+            "value": 175.20313552935025,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01283546918707797",
+            "extra": "mean: 5.707660407895376 msec\nrounds: 304"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[pipeline_50_steps]",
+            "value": 5.755195030027742,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07143753434408541",
+            "extra": "mean: 173.7560577499977 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[nested_into_backend]",
+            "value": 45.76536779743145,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008399035981124322",
+            "extra": "mean: 21.85058370832375 msec\nrounds: 48"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[simple_filter_agg]",
+            "value": 274.7733173600281,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011964163035329356",
+            "extra": "mean: 3.639363565603158 msec\nrounds: 564"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[pipeline_50_steps]",
+            "value": 323.6811753957227,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0071254330384569985",
+            "extra": "mean: 3.089459863637206 msec\nrounds: 550"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[nested_into_backend]",
+            "value": 250.482571809021,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011026700681516718",
+            "extra": "mean: 3.992293726377276 msec\nrounds: 508"
           }
         ]
       }
