@@ -323,6 +323,31 @@ def _normalize_datafusion_databasetable_xorq(dt):
     raise ValueError(f"unrecognized DataFusion execution plan: {ep_str!r}")
 
 
+def _rename_unbound_xorq(op, prefix="static"):
+    """Rewrite UnboundTable nodes to sequential placeholder names.
+
+    Equivalent of ``xorq_dasher.rules.expr._rename_unbound`` but with a correct
+    op.replace callback signature: dasher 0.1.0's version uses ``**kwargs``
+    which captures nothing when ibis passes the rewritten-children dict as a
+    positional, then crashes when ``__recreate__({})`` is called on ops with
+    required fields (e.g. ``Field`` needs ``rel`` and ``name``).
+    """
+    import itertools  # noqa: PLC0415
+
+    from xorq.vendor.ibis.expr.operations.relations import UnboundTable  # noqa: PLC0415
+
+    count = itertools.count()
+
+    def rename(node, _kwargs=None, **_kw):
+        if isinstance(node, UnboundTable):
+            return node.copy(name=f"{prefix}-{next(count)}")
+        if _kwargs:
+            return node.__recreate__(_kwargs)
+        return node
+
+    return op.replace(rename)
+
+
 def _stable_opaque_name(prefix, *parts):
     """Build a deterministic placeholder name from xxhash of structural parts.
 
@@ -406,11 +431,15 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
                 getattr(node.source, "name", ""),
             )
         case FlightExpr():
+            # unbound_expr names are user-chosen and may differ between two
+            # FlightExprs that should hash identically (see
+            # test_flight_expr_name_doesnt_matter). Canonicalize via
+            # _rename_unbound_xorq before folding into the placeholder name.
             name = _stable_opaque_name(
                 "flight-expr",
                 node.schema,
                 _parent_token(node.input_expr),
-                _parent_token(node.unbound_expr),
+                _parent_token(_rename_unbound_xorq(node.unbound_expr.op()).to_expr()),
             )
         case FlightUDXF():
             name = _stable_opaque_name(
@@ -498,7 +527,6 @@ def _databasetable_dispatcher(dt):
         normalize_cached_node,
         normalize_databasetable,
         normalize_remote_table,
-        normalize_xorq_databasetable,
     )
 
     from xorq.expr.relations import (  # noqa: PLC0415
@@ -516,12 +544,25 @@ def _databasetable_dispatcher(dt):
     if isinstance(dt, RemoteTable):
         return normalize_remote_table(dt)
     # FlightExpr/FlightUDXF carry input_expr / make_connection that the plain
-    # datafusion path would silently flatten away — route to the dedicated
-    # handler. Plain xorq_datafusion DTs still go through the datafusion path
-    # (normalize_xorq_databasetable assumes ``_sources`` which not every
-    # Backend variant exposes).
-    if isinstance(dt, (FlightExpr, FlightUDXF)):
-        return normalize_xorq_databasetable(dt)
+    # datafusion path would silently flatten away. Inline the dasher 0.1.0
+    # logic but use ``_rename_unbound_xorq`` (whose op.replace callback signs
+    # ``(node, _kwargs)`` correctly — dasher 0.1.0's ``_rename_unbound`` uses
+    # ``**kwargs`` and crashes recreating ops with required positional fields
+    # like ``Field``).
+    if isinstance(dt, FlightExpr):
+        return (
+            "xorq.FlightExpr",
+            dt.input_expr,
+            _rename_unbound_xorq(dt.unbound_expr.op()).to_expr(),
+            dt.make_connection,
+        )
+    if isinstance(dt, FlightUDXF):
+        return (
+            "xorq.FlightUDXF",
+            dt.input_expr,
+            getattr(dt.udxf, "exchange_f", None),
+            dt.make_connection,
+        )
     # For datafusion-backed file tables, dasher's normalize_datafusion_
     # databasetable stops at ep_str — which captures the path but no stat —
     # so file edits don't invalidate the cache key. _normalize_datafusion_
