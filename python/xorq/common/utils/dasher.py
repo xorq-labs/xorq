@@ -629,10 +629,10 @@ def _normalize_computed_kwargs_expr(cke):
     this helper so the structural-only contract holds transitively across
     nested ``ExprScalarUDF`` steps.
     """
-    import xorq.vendor.ibis as _ibis  # noqa: PLC0415
     from xorq.expr.relations import CachedNode, Read  # noqa: PLC0415
     from xorq.vendor.ibis.expr.operations.relations import InMemoryTable  # noqa: PLC0415
     from xorq.vendor.ibis.expr.operations.udf import AggUDF, ScalarUDF  # noqa: PLC0415
+    from xorq.vendor.ibis.expr.types import Table  # noqa: PLC0415
 
     op = cke.op()
     mems = op.find(InMemoryTable)
@@ -655,7 +655,7 @@ def _normalize_computed_kwargs_expr(cke):
     )
     return (
         "normalize_computed_kwargs_expr",
-        cke.schema() if isinstance(cke, _ibis.expr.types.Table) else cke.type(),
+        cke.schema() if isinstance(cke, Table) else cke.type(),
         tuple(m.schema for m in mems),
         agg_udfs,
         scalar_udfs,
