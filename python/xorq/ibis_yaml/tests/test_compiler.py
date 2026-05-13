@@ -24,7 +24,7 @@ from xorq.caching import (
 )
 from xorq.catalog.backend import GitBackend
 from xorq.catalog.catalog import Catalog
-from xorq.common.utils.dasher import tokenize as _dasher_tokenize
+from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.defer_utils import (
     deferred_read_parquet,
     normalize_read_path_md5sum,
@@ -167,7 +167,7 @@ def test_compiler_sql(builds_dir, parquet_dir):
     # make sure we can load
     load_expr(build_path)
     expected_relation = find_relations(awards_players)[0]
-    expted_sql_hash = _dasher_tokenize(str(ibis.to_sql(expr)))[: config.hash_length]
+    expted_sql_hash = tokenize(str(ibis.to_sql(expr)))[: config.hash_length]
 
     assert build_path.joinpath(DumpFiles.sql).exists()
     assert build_path.joinpath(DumpFiles.build_metadata).exists()
@@ -220,7 +220,7 @@ def test_deferred_reads_yaml(builds_dir, parquet_dir):
     sql_text = yaml_path.read_text()
 
     sql_str = str(ibis.to_sql(awards_players))
-    expected_sql_file = _dasher_tokenize(sql_str)[: config.hash_length] + ".sql"
+    expected_sql_file = tokenize(sql_str)[: config.hash_length] + ".sql"
 
     expected_read_path = str(config_path)
 
@@ -1076,7 +1076,7 @@ def test_tokenize_survives_side_channel_read(tmp_path):
     catalog = Catalog(backend=GitBackend(repo=repo))
     preds = _build_fitted_pipeline_entry(catalog)
 
-    token = _dasher_tokenize(preds.lazy_expr)
+    token = tokenize(preds.lazy_expr)
     assert isinstance(token, str) and token
 
 
@@ -1091,7 +1091,7 @@ def test_tokenize_stable_across_reload(tmp_path):
     load1 = preds.lazy_expr
     load2 = preds.lazy_expr
     assert load1 is not load2
-    assert _dasher_tokenize(load1) == _dasher_tokenize(load2)
+    assert tokenize(load1) == tokenize(load2)
 
 
 def test_tokenize_non_catalog_read_unchanged(parquet_dir):
@@ -1106,7 +1106,7 @@ def test_tokenize_non_catalog_read_unchanged(parquet_dir):
     assert reads, "deferred_read_parquet must produce a Read"
     assert "read_path" not in dict(reads[0].read_kwargs)
 
-    assert _dasher_tokenize(t) == _dasher_tokenize(t)
+    assert tokenize(t) == tokenize(t)
 
 
 def test_tokenize_missing_path_still_raises(parquet_dir):
@@ -1126,4 +1126,4 @@ def test_tokenize_missing_path_still_raises(parquet_dir):
     )
 
     with pytest.raises(NotImplementedError, match="memtables/does-not-exist"):
-        _dasher_tokenize(bad.to_expr())
+        tokenize(bad.to_expr())

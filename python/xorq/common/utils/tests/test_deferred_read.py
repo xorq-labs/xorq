@@ -17,7 +17,7 @@ import xorq.api as xo
 from xorq.caching import (
     ParquetCache,
 )
-from xorq.common.utils.dasher import tokenize as _dasher_tokenize
+from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.defer_utils import (
     deferred_read_csv,
     deferred_read_parquet,
@@ -339,7 +339,7 @@ def test_deferred_read_kwargs(pg):
         xo.examples.get_table_from_name(name, pg, mode=mode)
         for mode in ("create", "replace")
     )
-    hash0, hash1 = (_dasher_tokenize(expr) for expr in (read0, read1))
+    hash0, hash1 = (tokenize(expr) for expr in (read0, read1))
     assert hash0 != hash1
 
 

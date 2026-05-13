@@ -6,7 +6,7 @@ import toolz
 
 import xorq.expr.selectors as s
 import xorq.vendor.ibis.expr.types as ir
-from xorq.common.utils.dasher import tokenize as _dasher_tokenize
+from xorq.common.utils.dasher import tokenize
 from xorq.vendor.ibis.common.selectors import (
     Selector,
 )
@@ -131,7 +131,7 @@ def calc_split_conditions(
 
     # Set the random seed if set, & Generate a random 256-bit key
     random_str = str(Random(random_seed).getrandbits(256))
-    tmp_name = "_" + _dasher_tokenize(random_str)
+    tmp_name = "_" + tokenize(random_str)
 
     comb_key = literal(",").join(
         table[col].cast("str") for col in table.select(unique_key).columns
