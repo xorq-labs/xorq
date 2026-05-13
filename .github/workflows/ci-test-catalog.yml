@@ -2,13 +2,6 @@ name: ci-test-catalog
 
 on:
   push:
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - "**/*.qmd"
-      - "*.md"
-      - "codecov.yml"
-      - ".envrc"
     branches:
       - main
     tags:
@@ -21,7 +14,15 @@ permissions:
 
 
 jobs:
+  changes:
+    uses: ./.github/workflows/detect-changes.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
   linux:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     strategy:
       # Run both partitions to completion even if one fails — they're

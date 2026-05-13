@@ -2,14 +2,6 @@ name: ci-test
 
 on:
   push:
-    # Skip the backend suite if all changes are docs
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - "**/*.qmd"
-      - "*.md"
-      - "codecov.yml"
-      - ".envrc"
     branches:
       - main
     tags:
@@ -22,7 +14,15 @@ permissions:
 
 
 jobs:
+  changes:
+    uses: ./.github/workflows/detect-changes.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
   linux:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
