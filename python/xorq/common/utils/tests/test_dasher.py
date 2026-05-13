@@ -117,17 +117,6 @@ def test_datafusion_parquet_different_schema_produces_different_token(tmp_path):
 # --- UDF counter independence ---------------------------------------------
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Known regression vs the legacy normalize_op_split path: my "
-        "_normalize_expr_xorq does not port the data-free "
-        "_normalize_computed_kwargs_expr decomposition, so the "
-        "ScalarUDF's counter-suffixed dynamic class name leaks into the "
-        "SQL fed through the Expr rule. Test documents the invariant so a "
-        "future fix flips it green; see ADR-0010 for context."
-    ),
-    strict=True,
-)
 def test_scalar_udf_token_stable_across_udf_counter_states():
     def train(df):
         return pickle.dumps({"trained": True})

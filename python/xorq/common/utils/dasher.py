@@ -608,6 +608,87 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
     return api.table(node.schema, name=name).op()
 
 
+def _normalize_computed_kwargs_expr(cke):
+    """Content-stable, structural-only normalization of a ``computed_kwargs_expr``.
+
+    The default Expr rule routes through SQL compilation, which embeds the
+    auto-generated counter-suffixed dynamic class names that ibis assigns to
+    each ScalarUDF (``_inner_fit_0`` vs ``_inner_fit_3``). Two pipelines built
+    in different import orders would therefore tokenize differently — a
+    correctness regression for ML fit-then-predict flows.
+
+    Per ADR-0010, this helper is **data-free**: data identity for any leaf
+    reachable through ``ExprScalarUDF.computed_kwargs_expr`` flows into the
+    outer expression's leaves (via the recursive HASHER tokenization of the
+    enclosing expression), so here we contribute only structural shape
+    (schemas, op types, UDF function identity, cache class).
+
+    Decomposition mirrors the legacy
+    ``dask_normalize_expr._normalize_computed_kwargs_expr`` (deleted with the
+    ``dask_normalize/`` package); ScalarUDF normalization recurses through
+    this helper so the structural-only contract holds transitively across
+    nested ``ExprScalarUDF`` steps.
+    """
+    import xorq.vendor.ibis as _ibis  # noqa: PLC0415
+    from xorq.expr.relations import CachedNode, Read  # noqa: PLC0415
+    from xorq.vendor.ibis.expr.operations.relations import InMemoryTable  # noqa: PLC0415
+    from xorq.vendor.ibis.expr.operations.udf import AggUDF, ScalarUDF  # noqa: PLC0415
+
+    op = cke.op()
+    mems = op.find(InMemoryTable)
+    agg_udfs = op.find(AggUDF)
+    scalar_udfs = op.find(ScalarUDF)
+    reads = op.find(Read)
+    cached = op.find(CachedNode)
+
+    # Strip path identity from read_kwargs — the path's data identity lives
+    # in the outer expression's data leaves, not here.
+    _path_keys = ("hash_path", "read_path")
+    read_structural = tuple(
+        (
+            r.schema,
+            r.method_name,
+            tuple((k, v) for k, v in r.read_kwargs if k not in _path_keys),
+            r.normalize_method,
+        )
+        for r in reads
+    )
+    return (
+        "normalize_computed_kwargs_expr",
+        cke.schema() if isinstance(cke, _ibis.expr.types.Table) else cke.type(),
+        tuple(m.schema for m in mems),
+        agg_udfs,
+        scalar_udfs,
+        read_structural,
+        tuple((c.schema, type(c.cache).__name__) for c in cached),
+    )
+
+
+def _normalize_scalar_udf_xorq(udf):
+    """ScalarUDF normalizer that routes ``computed_kwargs_expr`` through the
+    data-free :func:`_normalize_computed_kwargs_expr` helper.
+
+    Dasher 0.1.0's rule returns the raw ``computed_kwargs_expr`` and lets
+    recursion through the Expr rule normalize it via SQL — which embeds the
+    counter-suffixed dynamic class name (see :func:`_normalize_computed_kwargs_expr`
+    for context).
+    """
+    typs = tuple(arg.dtype for arg in udf.args)
+    computed_kwargs_expr = udf.__config__.get("computed_kwargs_expr")
+    cke_token = (
+        _normalize_computed_kwargs_expr(computed_kwargs_expr)
+        if computed_kwargs_expr is not None
+        else None
+    )
+    return (
+        "ibis.ScalarUDF",
+        typs,
+        udf.dtype,
+        udf.__func__,
+        cke_token,
+    )
+
+
 def _normalize_expr_xorq(expr):
     """Deterministic Expr normalizer; replaces dasher's id()-based version."""
     from xorq_dasher.rules.expr import normalize_inmemorytable  # noqa: PLC0415
@@ -722,6 +803,7 @@ def _build_extra_rules():
         DatabaseTable,
         Schema,
     )
+    from xorq.vendor.ibis.expr.operations.udf import ScalarUDF  # noqa: PLC0415
     from xorq.vendor.ibis.expr.types import Expr  # noqa: PLC0415
 
     rules = [
@@ -739,6 +821,7 @@ def _build_extra_rules():
         (fqn(Read), _normalize_read_xorq),
         (fqn(Expr), _normalize_expr_xorq),
         (fqn(Schema), normalize_ibis_schema),
+        (fqn(ScalarUDF), _normalize_scalar_udf_xorq),
         (fqn(np.dtype), normalize_numpy_dtype),
         (fqn(pd.Series), normalize_pandas_series),
         (fqn(pd.DataFrame), normalize_pandas_dataframe),
