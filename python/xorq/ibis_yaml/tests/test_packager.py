@@ -336,17 +336,7 @@ def test_nix_env_removes_ld_path_inside_nix(monkeypatch):
 
 
 def _patch_subprocess_run(monkeypatch):
-    """Replace packager.subprocess.run with a stub that records args.
-
-    Returns a dict pre-populated with ``{"args": None, "calls": 0}``. The
-    ``args`` field is set on each call (last-call-wins) and ``calls`` is
-    incremented. Pre-populating ``args`` ensures that a missed subprocess call
-    surfaces as ``assert "--link-mode" in None`` (clear TypeError) rather than
-    a KeyError that masks the real assertion intent.
-
-    The stub returns a minimal CompletedProcess-like object that satisfies the
-    ``check=True`` and ``capture_output=True`` codepaths in packager.py.
-    """
+    """Replace packager.subprocess.run with a stub recording the last args."""
     captured = {"args": None, "calls": 0}
 
     class _Result:
