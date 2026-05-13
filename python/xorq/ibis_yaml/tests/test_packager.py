@@ -426,13 +426,19 @@ def test_uv_default_use_hardlink_env_value_overrides_platform():
         ("False", False),
         ("1", True),
         ("0", False),
+        ("yes", True),
+        ("no", False),
+        ("on", True),
+        ("off", False),
     ],
 )
 def test_uv_default_use_hardlink_accepts_shell_style_bools(env_value, expected):
     """Shell-style bool strings in XORQ_UV_USE_HARDLINK must not crash on import.
 
     Regression test for roborev #1946: ``ast.literal_eval`` is case-sensitive and
-    crashed on ``XORQ_UV_USE_HARDLINK=true`` (a natural value for shell users).
+    crashed on ``XORQ_UV_USE_HARDLINK=true`` (a natural value for shell users);
+    yes/no/on/off crashed even after .capitalize() because they aren't Python
+    literals at all.
     """
     from xorq.config import _default_use_hardlink  # noqa: PLC0415
 
