@@ -148,6 +148,22 @@ class EnvConfigable:
         )
 
 
+_TRUTHY = frozenset({"true", "1", "yes", "on"})
+_FALSY = frozenset({"false", "0", "no", "off"})
+
+
+def parse_bool_env(value: str) -> bool:
+    normalised = value.strip().lower()
+    if normalised in _TRUTHY:
+        return True
+    if normalised in _FALSY:
+        return False
+    raise ValueError(
+        f"Cannot interpret {value!r} as bool; "
+        f"expected one of {sorted(_TRUTHY | _FALSY)}"
+    )
+
+
 @toolz.curry
 def maybe_substitute_env_var(obj, ctx=os.environ):
     if isinstance(obj, str) and (match := compiled_env_var_substitution_re.match(obj)):

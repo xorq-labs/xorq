@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import ast
 import pathlib
 from typing import Any, Optional
 
 from xorq.common.utils.env_utils import (
     EnvConfigable,
     env_templates_dir,
+    parse_bool_env,
 )
 from xorq.vendor import ibis
 from xorq.vendor.ibis.backends import BaseBackend
@@ -177,11 +177,11 @@ class TUI(Config):
 
     left_ratio: int = max(int(env_config.XORQ_TUI_LEFT_RATIO or 2), 1)
     right_ratio: int = max(int(env_config.XORQ_TUI_RIGHT_RATIO or 3), 1)
-    revisions_open: bool = bool(
-        ast.literal_eval(env_config.XORQ_TUI_REVISIONS_OPEN or "False")
+    revisions_open: bool = bool(env_config.XORQ_TUI_REVISIONS_OPEN) and parse_bool_env(
+        env_config.XORQ_TUI_REVISIONS_OPEN
     )
-    git_log_open: bool = bool(
-        ast.literal_eval(env_config.XORQ_TUI_GIT_LOG_OPEN or "False")
+    git_log_open: bool = bool(env_config.XORQ_TUI_GIT_LOG_OPEN) and parse_bool_env(
+        env_config.XORQ_TUI_GIT_LOG_OPEN
     )
 
 
@@ -208,7 +208,7 @@ class Options(IbisOptions):
     pins: Pins = Pins()
     tui: TUI = TUI()
     default_backend: Optional[BaseBackend] = None
-    debug: bool = bool(ast.literal_eval(env_config.XORQ_DEBUG or 0))
+    debug: bool = bool(env_config.XORQ_DEBUG) and parse_bool_env(env_config.XORQ_DEBUG)
 
     @property
     def interactive(self) -> bool:
