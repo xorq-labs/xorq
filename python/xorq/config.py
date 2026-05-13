@@ -187,38 +187,25 @@ class TUI(Config):
 
 
 def _default_use_hardlink(platform=None, env_value=None):
-    """Compute the default for ``options.uv.use_hardlink``.
-
-    Pure function so tests can exercise default-selection logic without
-    monkeypatching module globals or reloading the module. ``platform`` and
-    ``env_value`` fall back to ``sys.platform`` and
-    ``env_config.XORQ_UV_USE_HARDLINK`` when not supplied.
-    """
+    """Default for ``options.uv.use_hardlink``: env override wins, else darwin-only."""
     if platform is None:
         platform = sys.platform
     if env_value is None:
         env_value = env_config.XORQ_UV_USE_HARDLINK
-    # Empty string means "env var unset" (the template ships XORQ_UV_USE_HARDLINK=)
-    # and falls through to the platform default. Only a non-empty value overrides.
     if env_value:
-        # Normalise case so shell-style values like "true"/"false" parse the same
-        # as Python literals "True"/"False". Without .capitalize(),
-        # ``ast.literal_eval("true")`` raises ValueError at import time.
+        # .capitalize() so shell-style "true"/"TRUE" parse like Python "True".
         return bool(ast.literal_eval(env_value.capitalize()))
     return platform == "darwin"
 
 
 class UV(Config):
-    """Options controlling how xorq invokes ``uv`` subprocesses.
+    """uv subprocess options.
 
     Attributes
     ----------
     use_hardlink : bool
-        Pass ``--link-mode hardlink`` to ``uv`` invocations from the
-        packager. On macOS this avoids the per-invocation syspolicyd
-        rescan that ``--link-mode=clone`` triggers (see #1942 and
-        astral-sh/uv#18577). Defaults to True on macOS, False elsewhere;
-        overridable via ``XORQ_UV_USE_HARDLINK``.
+        Pass ``--link-mode hardlink`` to packager ``uv`` invocations.
+        Defaults to True on macOS (avoids syspolicyd rescan; see #1942).
     """
 
     use_hardlink: bool = _default_use_hardlink()
