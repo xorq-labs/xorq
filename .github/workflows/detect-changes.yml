@@ -23,3 +23,5 @@ jobs:
               - '!docs/**'
               - '!**/*.md'
               - '!**/*.qmd'
+              - '!codecov.yml'
+              - '!.envrc'
