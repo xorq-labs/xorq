@@ -215,6 +215,33 @@ def _normalize_read_xorq(read):
 _DATAFUSION_PATH_RE = None  # populated lazily on first use
 
 
+# Catalog-extract tempdir prefix. ``xorq.catalog.expr_utils.load_expr_from_zip``
+# extracts each load into a fresh ``tempfile.mkdtemp(prefix="xorq-catalog-")``,
+# so the absolute paths embedded in DataFusion/DuckDB plan strings differ per
+# load and would otherwise leak per-load randomness into the DT token. The
+# regex strips everything up to and including the first ``xorq-catalog-<…>/``
+# segment, leaving the build-hashed suffix (which IS content-addressed and
+# stable across reloads). Owned by ADR-0007.
+_CATALOG_EXTRACT_DIR_RE = None
+
+
+def _canonicalize_catalog_path(s):
+    """Strip the ``xorq-catalog-<random>/`` tempdir prefix if present.
+
+    Returns the canonicalized path AND whether canonicalization actually
+    fired — callers should skip the ``stat`` step on canonicalized paths
+    because the canonicalized form is now relative and the per-load tempfile
+    has a fresh inode/mtime that would defeat catalog-reload stability.
+    """
+    import re  # noqa: PLC0415
+
+    global _CATALOG_EXTRACT_DIR_RE
+    if _CATALOG_EXTRACT_DIR_RE is None:
+        _CATALOG_EXTRACT_DIR_RE = re.compile(r".*?/xorq-catalog-[^/]+/")
+    canonical = _CATALOG_EXTRACT_DIR_RE.sub("", s)
+    return canonical, canonical != s
+
+
 def _normalize_path_stat(path, **kwargs):
     """Stable metadata for a path: HTTP HEAD, cloud metadata, or local stat."""
     import pathlib  # noqa: PLC0415
@@ -251,11 +278,119 @@ def _normalize_path_stat(path, **kwargs):
     raise FileNotFoundError(f"local path does not exist: {path!r}")
 
 
+def _extract_duckdb_file_paths(sql_ddl):
+    """Extract file paths from a DuckDB DDL's read_parquet/read_csv literals.
+
+    Paths are canonicalized via :func:`_canonicalize_catalog_path` so loads of
+    a catalog zip into different tempdirs produce stable tokens.
+    """
+    import pathlib  # noqa: PLC0415
+
+    import sqlglot as sg  # noqa: PLC0415
+
+    tree = sg.parse_one(sql_ddl, dialect="duckdb")
+
+    def canon(raw):
+        if raw.startswith(("http://", "https://", "s3://", "gs://", "gcs://")):
+            return raw
+        p = pathlib.Path(raw)
+        absolute = str(p if p.is_absolute() else pathlib.Path("/") / raw)
+        canonical, _ = _canonicalize_catalog_path(absolute)
+        return canonical
+
+    parquet_paths = tuple(
+        canon(lit.this)
+        for func in tree.find_all(sg.exp.ReadParquet)
+        for lit in func.find_all(sg.exp.Literal)
+        if lit.is_string
+    )
+    # ReadCSV's func.expressions hold keyword args whose string literals are
+    # not paths; restrict to func.this (the path argument).
+    csv_paths = tuple(
+        canon(lit.this)
+        for func in tree.find_all(sg.exp.ReadCSV)
+        if func.this is not None
+        for lit in func.this.find_all(sg.exp.Literal)
+        if lit.is_string
+    )
+    return parquet_paths + csv_paths
+
+
+def _normalize_duckdb_databasetable_xorq(dt):
+    """DuckDB DT normalizer with catalog-extract path canonicalization.
+
+    Dasher 0.1.0's ``normalize_duckdb_file_databasetable`` returns the raw
+    DDL string, which embeds the absolute path DuckDB sees — for tables
+    rehydrated from a catalog zip, that path lives under a per-load
+    ``xorq-catalog-<random>/`` tempdir and leaks into the token. Parse paths
+    out, canonicalize, then stat-or-pass-through (see :func:`_stat_or_canonical`).
+    """
+    import re  # noqa: PLC0415
+
+    import sqlglot as sg  # noqa: PLC0415
+    from xorq_dasher.rules.expr import (  # noqa: PLC0415
+        normalize_memory_databasetable,
+    )
+
+    name = sg.table(dt.name, quoted=dt.source.compiler.quoted).sql(
+        dialect=dt.source.name
+    )
+    ((_, plan),) = dt.source.raw_sql(f"EXPLAIN SELECT * FROM {name}").fetchall()
+    scan_line = plan.split("\n")[1]
+    scan_kind = re.match(r"\s*│\s*(\w+)\s*│\s*", scan_line).group(1)
+    if scan_kind in ("ARROW_SCAN", "PANDAS_SCAN"):
+        return normalize_memory_databasetable(dt)
+    if scan_kind in ("READ_PARQUET", "READ_CSV", "SEQ_SCAN"):
+        sql_name = sg.exp.convert(dt.name).sql(dialect=dt.source.name)
+        (sql_ddl,) = dt.source.con.sql(
+            f"select sql from duckdb_views() where view_name = {sql_name} "
+            f"UNION select sql from duckdb_tables() where table_name = {sql_name}"
+        ).fetchone()
+        paths = _extract_duckdb_file_paths(sql_ddl)
+        if paths:
+            file_metadata = tuple((p, _stat_or_canonical(p)) for p in sorted(paths))
+            return (
+                "ibis.DatabaseTable.duckdb.file",
+                dt.schema.to_pandas(),
+                file_metadata,
+            )
+        # Fallback to the raw-DDL form when we can't parse paths (preserves
+        # dasher 0.1.0 behavior).
+        return ("ibis.DatabaseTable.duckdb.file", dt.schema.to_pandas(), sql_ddl)
+    raise NotImplementedError(scan_line)
+
+
+def _stat_or_canonical(path):
+    """Token for an extracted file path.
+
+    Paths that were canonicalized (relative after stripping the
+    ``xorq-catalog-…/`` prefix) live in a tempdir whose inode/mtime differ
+    per reload — stat'ing them would defeat catalog-reload stability. The
+    canonical path already carries the build-hashed prefix, which is
+    content-addressed, so the canonical string alone is a stable token.
+
+    Non-canonical (absolute) paths point at user-managed files; stat them
+    to keep ``ModificationTimeStrategy`` cache invalidation working (see
+    ``test_parquet_cache_storage``).
+    """
+    import pathlib  # noqa: PLC0415
+
+    if isinstance(path, str) and (
+        path.startswith(("http://", "https://", "s3://", "gs://", "gcs://"))
+        or pathlib.Path(path).is_absolute()
+    ):
+        return _normalize_path_stat(path)
+    return ("canonical-build-path", path)
+
+
 def _extract_datafusion_plan_paths(ep_str):
     """Extract file paths from a DataFusion execution plan's ``file_groups``.
 
     DataFusion's plan repr strips the leading ``/`` from absolute local paths;
-    we restore it so subsequent ``stat`` calls find the file.
+    we restore it. Catalog-extract tempdir prefixes
+    (``…/xorq-catalog-<random>/``) are then stripped via
+    :func:`_canonicalize_catalog_path` so two ``load_expr_from_zip`` calls on
+    the same zip produce equal tokens (ADR-0007).
     """
     import itertools  # noqa: PLC0415
     import pathlib  # noqa: PLC0415
@@ -272,9 +407,11 @@ def _extract_datafusion_plan_paths(ep_str):
     for raw in itertools.chain.from_iterable(groups):
         if raw.startswith(("http://", "https://", "s3://", "gs://", "gcs://")):
             out.append(raw)
-        else:
-            p = pathlib.Path(raw)
-            out.append(str(p if p.is_absolute() else pathlib.Path("/") / raw))
+            continue
+        p = pathlib.Path(raw)
+        absolute = str(p if p.is_absolute() else pathlib.Path("/") / raw)
+        canonical, _ = _canonicalize_catalog_path(absolute)
+        out.append(canonical)
     return tuple(out)
 
 
@@ -301,7 +438,7 @@ def _normalize_datafusion_databasetable_xorq(dt):
     if is_file:
         paths = _extract_datafusion_plan_paths(ep_str)
         if paths:
-            file_metadata = tuple((p, _normalize_path_stat(p)) for p in sorted(paths))
+            file_metadata = tuple((p, _stat_or_canonical(p)) for p in sorted(paths))
             return (
                 "ibis.DatabaseTable.datafusion.file",
                 dt.schema.to_pandas(),
@@ -569,6 +706,8 @@ def _databasetable_dispatcher(dt):
     # databasetable_xorq stats the underlying files to restore mtime sensitivity.
     if dt.source.name in ("datafusion", "xorq_datafusion"):
         return _normalize_datafusion_databasetable_xorq(dt)
+    if dt.source.name == "duckdb":
+        return _normalize_duckdb_databasetable_xorq(dt)
     return normalize_databasetable(dt)
 
 

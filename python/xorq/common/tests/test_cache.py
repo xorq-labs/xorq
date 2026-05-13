@@ -88,3 +88,36 @@ def test_snapshot_strategy_calc_key_with_hashing_tag_over_remote_table():
 # SnapshotStrategy now uses a per-call local hasher built via ``snapshot_hasher``
 # (no shared mutable state, no global cache to poison), so the failure mode the
 # guard protected against can no longer occur.
+
+
+@pytest.mark.parametrize(
+    "backend_factory",
+    (
+        pytest.param(lambda: xo.datafusion.connect(), id="datafusion"),
+        pytest.param(lambda: xo.duckdb.connect(), id="duckdb"),
+    ),
+)
+def test_loaded_dt_has_stable_token_across_zip_reloads(tmp_path, backend_factory):
+    """Two loads of the same build zip produce equal ``.ls.tokenized`` for
+    DataFusion- and DuckDB-backed ``DatabaseTable`` nodes.
+
+    Regression for ADR-0007: ``load_expr_from_zip`` extracts each load into a
+    fresh ``tempfile.mkdtemp(prefix="xorq-catalog-")``. DataFusion's execution
+    plan repr and DuckDB's table DDL embed that tempdir path; without
+    canonicalization the DT token diverges per reload, defeating
+    content-addressed catalog entries.
+    """
+    import pandas as pd  # noqa: PLC0415
+
+    from xorq.catalog.expr_utils import (  # noqa: PLC0415
+        build_expr_context_zip,
+        load_expr_from_zip,
+    )
+
+    con = backend_factory()
+    t = con.create_table("users", pd.DataFrame({"x": [1, 2, 3]}))
+    expr = t.select("x")
+    with build_expr_context_zip(expr) as zip_path:
+        a = load_expr_from_zip(zip_path)
+        b = load_expr_from_zip(zip_path)
+        assert a.ls.tokenized == b.ls.tokenized
