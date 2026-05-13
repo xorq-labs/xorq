@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778571931008,
+  "lastUpdate": 1778665629502,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -11820,6 +11820,114 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0076131981201131545",
             "extra": "mean: 2.159959919642005 msec\nrounds: 784"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5f04be3fa21248653a742c5f23fa4411315561f7",
+          "message": "ci: skip docs-only PRs via paths-filter, always run on push to main (#1947)\n\npaths-ignore on push skipped CI even after merging to main, masking\nregressions introduced alongside doc edits. Skipped workflows also\nproduce no status check, leaving branch protection pending forever.\n\n- remove paths-ignore from all push and pull_request triggers\n- add reusable detect-changes.yml (dorny/paths-filter) that outputs\n  code=true unconditionally on push/dispatch, false on doc-only PRs\n- gate each workflow's main job on needs.changes.outputs.code == 'true'\n  (skipped jobs satisfy required checks; absent workflows do not)\n- grant pull-requests: read at job level so paths-filter can call\n  the GitHub API without a checkout step\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-13T11:42:30+02:00",
+          "tree_id": "32d21d05cbe48fa8c6c958ba5168de1d8522e711",
+          "url": "https://github.com/xorq-labs/xorq/commit/5f04be3fa21248653a742c5f23fa4411315561f7"
+        },
+        "date": 1778665627274,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.296428651945031,
+            "unit": "iter/sec",
+            "range": "stddev: 0.024731759994231852",
+            "extra": "mean: 137.05335139999306 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.814867886041978,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0060453250652415845",
+            "extra": "mean: 355.25645980000604 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6548991923477052,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18910864530341803",
+            "extra": "mean: 1.5269525626000018 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.5099006860159054,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05170027237334963",
+            "extra": "mean: 398.42213899999024 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.5069653060273565,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05020269009354158",
+            "extra": "mean: 398.88864740000827 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.538672333134938,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04528714593769821",
+            "extra": "mean: 393.90668380000307 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[simple_filter_agg]",
+            "value": 185.6832935146628,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014639198799658953",
+            "extra": "mean: 5.385514125001414 msec\nrounds: 352"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[pipeline_50_steps]",
+            "value": 5.193126257086433,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08878790492360672",
+            "extra": "mean: 192.56223524999427 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[nested_into_backend]",
+            "value": 35.16390200972525,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00936251488095826",
+            "extra": "mean: 28.43825465454405 msec\nrounds: 55"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[simple_filter_agg]",
+            "value": 343.0447778915654,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005572385819229893",
+            "extra": "mean: 2.9150713389261815 msec\nrounds: 596"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[pipeline_50_steps]",
+            "value": 264.29785674799354,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011976012080275345",
+            "extra": "mean: 3.7836099478986474 msec\nrounds: 595"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[nested_into_backend]",
+            "value": 320.70767870390245,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01119142561025209",
+            "extra": "mean: 3.1181043249147242 msec\nrounds: 594"
           }
         ]
       }
