@@ -631,9 +631,7 @@ def _normalize_computed_kwargs_expr(cke):
     """
     import xorq.vendor.ibis as _ibis  # noqa: PLC0415
     from xorq.expr.relations import CachedNode, Read  # noqa: PLC0415
-    from xorq.vendor.ibis.expr.operations.relations import (
-        InMemoryTable,  # noqa: PLC0415
-    )
+    from xorq.vendor.ibis.expr.operations.relations import InMemoryTable  # noqa: PLC0415
     from xorq.vendor.ibis.expr.operations.udf import AggUDF, ScalarUDF  # noqa: PLC0415
 
     op = cke.op()
