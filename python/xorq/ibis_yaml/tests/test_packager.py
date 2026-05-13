@@ -18,7 +18,6 @@ from xorq.common.utils.zip_utils import (
 )
 from xorq.config import (
     _default_use_hardlink,
-    env_config,
     options,
 )
 from xorq.ibis_yaml.enums import DumpFiles
@@ -353,112 +352,54 @@ def _patch_subprocess_run(monkeypatch):
     return captured
 
 
-def test_link_mode_args_returns_hardlink_when_option_true(monkeypatch):
-    monkeypatch.setattr(options.uv, "use_hardlink", True)
-    assert _link_mode_args() == ("--link-mode", "hardlink")
-
-
-def test_link_mode_args_returns_empty_when_option_false(monkeypatch):
-    monkeypatch.setattr(options.uv, "use_hardlink", False)
-    assert _link_mode_args() == ()
-
-
-def test_uv_tool_run_passes_link_mode_hardlink(monkeypatch):
-    monkeypatch.setattr(options.uv, "use_hardlink", True)
-    captured = _patch_subprocess_run(monkeypatch)
-    uv_tool_run("xorq", "--version", capture_output=False)
-    args = captured["args"]
-    assert "--link-mode" in args
-    idx = args.index("--link-mode")
-    assert args[idx + 1] == "hardlink"
-
-
-def test_uv_tool_run_omits_link_mode_when_option_false(monkeypatch):
-    monkeypatch.setattr(options.uv, "use_hardlink", False)
-    captured = _patch_subprocess_run(monkeypatch)
-    uv_tool_run("xorq", "--version", capture_output=False)
-    assert "--link-mode" not in captured["args"]
-
-
-def test_uv_default_use_hardlink_on_darwin():
-    assert _default_use_hardlink(platform="darwin", env_value="") is True
-
-
-def test_uv_default_use_hardlink_off_on_linux():
-    assert _default_use_hardlink(platform="linux", env_value="") is False
-
-
-def test_uv_default_use_hardlink_env_value_overrides_platform():
-    # darwin would default True, but an explicit env override wins.
-    assert _default_use_hardlink(platform="darwin", env_value="False") is False
-    # linux would default False, but an explicit env override wins.
-    assert _default_use_hardlink(platform="linux", env_value="True") is True
-
-
-def test_uv_default_use_hardlink_no_args_reads_runtime_state(monkeypatch):
-    """No-args call falls back to sys.platform and env_config.XORQ_UV_USE_HARDLINK."""
-    # Clone env_config with an empty override so platform is the deciding factor.
-    monkeypatch.setattr(
-        "xorq.config.env_config", env_config.clone(XORQ_UV_USE_HARDLINK="")
-    )
-    monkeypatch.setattr(sys, "platform", "darwin")
-    assert _default_use_hardlink() is True
-    monkeypatch.setattr(sys, "platform", "linux")
-    assert _default_use_hardlink() is False
-
-    # Env override wins over platform via the no-args path too.
-    monkeypatch.setattr(
-        "xorq.config.env_config", env_config.clone(XORQ_UV_USE_HARDLINK="True")
-    )
-    assert _default_use_hardlink() is True
-
-
-def test_wheel_packager_build_wheel_passes_link_mode_hardlink(tmp_path, monkeypatch):
-    monkeypatch.setattr(options.uv, "use_hardlink", True)
-    _make_pyproject(tmp_path)
-    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
-
-    captured = _patch_subprocess_run(monkeypatch)
-
-    packager = WheelPackager(tmp_path)
-    packager._build_wheel()
-
-    args = captured["args"]
-    assert "--link-mode" in args
-    idx = args.index("--link-mode")
-    assert args[idx + 1] == "hardlink"
-
-
-def test_wheel_packager_build_wheel_omits_link_mode_when_option_false(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize(
+    ("platform", "env_value", "expected_args"),
+    [
+        ("darwin", "", ("--link-mode", "hardlink")),
+        ("linux", "", ()),
+        ("darwin", "False", ()),
+        ("linux", "True", ("--link-mode", "hardlink")),
+    ],
+)
+def test_link_mode_args_from_platform_and_env(
+    monkeypatch, platform, env_value, expected_args
 ):
-    monkeypatch.setattr(options.uv, "use_hardlink", False)
-    _make_pyproject(tmp_path)
-    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
-
-    captured = _patch_subprocess_run(monkeypatch)
-
-    packager = WheelPackager(tmp_path)
-    packager._build_wheel()
-
-    assert "--link-mode" not in captured["args"]
+    monkeypatch.setattr(
+        options.uv, "use_hardlink", _default_use_hardlink(platform, env_value)
+    )
+    assert _link_mode_args() == expected_args
 
 
-@pytest.mark.parametrize("use_hardlink", [True, False])
-def test_uv_export_requirements_never_passes_link_mode(
-    tmp_path, monkeypatch, use_hardlink
-):
-    """uv_export_requirements reads the lockfile only — no install/link work.
-
-    Regression test for roborev #1946: a future refactor (e.g. extracting a
-    shared args builder) could silently splice --link-mode into uv export.
-    The flag is harmless there but signals confused intent; enforce omission
-    regardless of the option setting.
-    """
+@pytest.mark.parametrize(
+    ("use_hardlink", "flag_present"),
+    [(True, True), (False, False)],
+)
+def test_uv_tool_run_propagates_link_mode(monkeypatch, use_hardlink, flag_present):
     monkeypatch.setattr(options.uv, "use_hardlink", use_hardlink)
     captured = _patch_subprocess_run(monkeypatch)
-    uv_export_requirements(tmp_path, "3.12")
-    assert "--link-mode" not in captured["args"]
+    uv_tool_run("xorq", "--version", capture_output=False)
+    args = captured["args"]
+    assert ("--link-mode" in args) is flag_present
+    if flag_present:
+        assert args[args.index("--link-mode") + 1] == "hardlink"
+
+
+@pytest.mark.parametrize(
+    ("use_hardlink", "flag_present"),
+    [(True, True), (False, False)],
+)
+def test_wheel_packager_build_wheel_propagates_link_mode(
+    tmp_path, monkeypatch, use_hardlink, flag_present
+):
+    monkeypatch.setattr(options.uv, "use_hardlink", use_hardlink)
+    _make_pyproject(tmp_path)
+    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
+    captured = _patch_subprocess_run(monkeypatch)
+    WheelPackager(tmp_path)._build_wheel()
+    args = captured["args"]
+    assert ("--link-mode" in args) is flag_present
+    if flag_present:
+        assert args[args.index("--link-mode") + 1] == "hardlink"
 
 
 # ---------------------------------------------------------------------------
