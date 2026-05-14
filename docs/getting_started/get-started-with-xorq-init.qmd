@@ -1,6 +1,5 @@
 ---
 title: "Getting Started with xorq init"
-page-layout: custom
 toc: false
 format:
   html: default
@@ -111,8 +110,8 @@ source .venv/bin/activate
 The [Lahman Baseball Database](https://sabr.org/lahman-database/) is the classic dataset behind the Moneyball story. Pull the two files we'll use straight into the project:
 
 ```bash
-curl -fL -o Batting.csv https://raw.githubusercontent.com/cbwinslow/baseballdatabank/master/core/Batting.csv
-curl -fL -o People.csv https://raw.githubusercontent.com/cbwinslow/baseballdatabank/master/core/People.csv
+curl -fL -o Batting.csv https://raw.githubusercontent.com/xorq-labs/baseballdatabank/master/core/Batting.csv
+curl -fL -o People.csv https://raw.githubusercontent.com/xorq-labs/baseballdatabank/master/core/People.csv
 ```
 
 `Batting.csv` is one row per player-season (~110K rows back to 1871); `People.csv` is one row per player with biographical info.
@@ -160,7 +159,7 @@ Run it:
 xorq uv run "$BUILD" --output-path batting_raw.parquet
 ```
 
-You'll see uv re-sync packages, then a stray `Invalid type NoneType for attribute 'limit' value...` line --- a harmless OpenTelemetry warning ([xorq-labs/xorq#1940](https://github.com/xorq-labs/xorq/issues/1940)). The run still writes the parquet.
+uv will re-sync packages, then the run writes the parquet.
 
 Inspect the result. The first time you run `uv run python` in the project, uv will sync the project's `.venv` from `uv.lock` (~10 seconds, one-time):
 
