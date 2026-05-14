@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import tempfile
 from contextlib import contextmanager
 from functools import cache, partial
@@ -1052,7 +1053,11 @@ def _entry_run_bundle(catalog, entries):
                     (m for m in names if Path(m).name == DumpFiles.requirements),
                     None,
                 )
-                req_contents.append((entry, zf.read(req_member) if req_member else b""))
+                if req_member is None:
+                    raise click.ClickException(
+                        f"entry {entry!r} has no requirements.txt in its archive"
+                    )
+                req_contents.append((entry, zf.read(req_member)))
                 meta_member = next(
                     (m for m in names if Path(m).name == DumpFiles.build_metadata),
                     None,
@@ -1235,13 +1240,20 @@ def compose(
                         build_path_out,
                     )
                     with _entry_run_bundle(catalog, entries) as bundle:
-                        result = uv_tool_run(
-                            *inner_cmd,
-                            python_version=bundle.python_version,
-                            with_=bundle.wheel_paths,
-                            with_requirements=bundle.requirements_path,
-                            capture_output=True,
-                        )
+                        try:
+                            result = uv_tool_run(
+                                *inner_cmd,
+                                python_version=bundle.python_version,
+                                with_=bundle.wheel_paths,
+                                with_requirements=bundle.requirements_path,
+                                capture_output=True,
+                            )
+                        except subprocess.CalledProcessError as e:
+                            raise click.ClickException(
+                                f"inner compose failed (exit {e.returncode});\n"
+                                f"stdout:\n{e.stdout}\n"
+                                f"stderr:\n{e.stderr}"
+                            ) from e
                         if dry_run:
                             click.echo(result.stdout, nl=False)
                             return

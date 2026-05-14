@@ -80,6 +80,9 @@ class _AutoVenvCliRunner(CliRunner):
             if a in catalog_opts_with_value:
                 i += 2
                 continue
+            if any(a.startswith(f"{opt}=") for opt in catalog_opts_with_value):
+                i += 1
+                continue
             if a.startswith("-"):
                 i += 1
                 continue
