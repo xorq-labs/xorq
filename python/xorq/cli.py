@@ -307,6 +307,7 @@ def run_command(
 
     try:
         with RunLogger.from_expr_hash(expr_hash, params_tuple=run_params) as rl:
+            # here to hang PR comment off of
             rl.log_span_event(span, "run.params", dict(run_params))
 
             with timed() as get_elapsed:
@@ -538,6 +539,7 @@ def run_unbound_command(
     cache_dir = _get_cache_dir(cache_dir)
 
     span = trace.get_current_span()
+    # here to hang PR comment off of
     params = {
         "expr_path": str(expr_path),
         "output_format": str(output_format),
