@@ -86,9 +86,8 @@ def test_log_span_event_none_span(tmp_path):
 
 @pytest.mark.library
 def test_log_span_event_drops_none_attributes_from_span(tmp_path):
-    """span.add_event must not receive None-valued attributes (OTel rejects
-    them with `Invalid type NoneType for attribute ...` warnings). The file
-    log keeps everything for audit. Regression for #1940."""
+    # Regression test for #1940: span.add_event must drop None attrs
+    # (OTel rejects them); file log keeps everything for audit.
     run_dir = tmp_path / "test-run"
     run_dir.mkdir()
     rl = RunLogger(run_dir=run_dir)
