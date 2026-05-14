@@ -187,8 +187,7 @@ class TUI(Config):
 
 
 def _default_use_hardlink():
-    """Default for ``options.uv.use_hardlink``: ``XORQ_UV_USE_HARDLINK`` wins
-    if set, else ``sys.platform == "darwin"``."""
+    """Use options.uv.use_hardlink if set, default to True on macOS, False otherwise."""
     if env_value := env_config.XORQ_UV_USE_HARDLINK:
         return parse_bool_env(env_value)
     return sys.platform == "darwin"
