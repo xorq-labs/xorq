@@ -106,8 +106,6 @@ uv sync
 source .venv/bin/activate
 ```
 
-The template already pins `uv` as a project dep, so the local `uv` that `xorq uv build` shells out to matches the one that generated the project's lockfile artifacts. The rest of the tutorial uses plain `xorq …` --- no more `uvx`.
-
 ### Download the Moneyball dataset
 
 The [Lahman Baseball Database](https://www.seanlahman.com/baseball-archive/statistics/) is the classic dataset behind the Moneyball story. Pull the two files we'll use straight into the project:
