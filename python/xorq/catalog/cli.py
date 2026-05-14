@@ -959,7 +959,6 @@ def _entry_run_bundle(catalog, entries):
     Multi-entry additionally requires byte-identical requirements.txt and
     matching Python minors across entries.
     """
-    import hashlib  # noqa: PLC0415
     import tempfile  # noqa: PLC0415
     import zipfile  # noqa: PLC0415
 
@@ -1015,7 +1014,12 @@ def _entry_run_bundle(catalog, entries):
     ):
         span.set_attribute("entries", entries)
         harvest_dir = Path(harvest_str)
-        wheel_digests: dict[str, str] = {}
+        # Collision detection uses (uncompressed size, stored CRC32) from the
+        # zip central directory — both are O(1) metadata reads, so the common
+        # (no-collision) path pays nothing extra. CRC32 is non-cryptographic
+        # but adequate for "is this the same wheel"; deliberate spoofing is
+        # not a threat model here.
+        wheel_signatures: dict[str, tuple[int, int]] = {}
         wheel_paths = []
         req_contents = []
         python_pins = []
@@ -1030,19 +1034,19 @@ def _entry_run_bundle(catalog, entries):
                 for member in names:
                     base = Path(member).name
                     if base.endswith(".whl"):
-                        data = zf.read(member)
-                        digest = hashlib.sha256(data).hexdigest()
-                        if base in wheel_digests:
-                            if wheel_digests[base] != digest:
+                        info = zf.getinfo(member)
+                        signature = (info.file_size, info.CRC)
+                        if base in wheel_signatures:
+                            if wheel_signatures[base] != signature:
                                 raise click.ClickException(
                                     f"wheel name collision across entries: "
                                     f"{base!r} appears with mismatched content "
                                     f"(entry {entry!r} differs from an earlier entry)"
                                 )
                             continue
-                        wheel_digests[base] = digest
+                        wheel_signatures[base] = signature
                         target = harvest_dir / base
-                        target.write_bytes(data)
+                        target.write_bytes(zf.read(member))
                         wheel_paths.append(target)
                 req_member = next(
                     (m for m in names if Path(m).name == DumpFiles.requirements),
