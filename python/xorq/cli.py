@@ -307,8 +307,7 @@ def run_command(
 
     try:
         with RunLogger.from_expr_hash(expr_hash, params_tuple=run_params) as rl:
-            # here to hang PR comment off of
-            rl.log_span_event(span, "run.params", dict(run_params))
+            rl.log_span_event(span, "run.start", dict(run_params))
 
             with timed() as get_elapsed:
                 try:
@@ -539,16 +538,15 @@ def run_unbound_command(
     cache_dir = _get_cache_dir(cache_dir)
 
     span = trace.get_current_span()
-    # here to hang PR comment off of
-    params = {
-        "expr_path": str(expr_path),
-        "output_format": str(output_format),
-    }
-    if to_unbind_hash is not None:
-        params["to_unbind_hash"] = to_unbind_hash
-    if to_unbind_tag is not None:
-        params["to_unbind_tag"] = to_unbind_tag
-    span.add_event("run_unbound.params", params)
+    span.add_event(
+        "run_unbound.params",
+        {
+            "expr_path": str(expr_path),
+            "to_unbind_hash": str(to_unbind_hash),
+            "to_unbind_tag": str(to_unbind_tag),
+            "output_format": str(output_format),
+        },
+    )
 
     # Resolve build identifier
     expr_path = ensure_build_dir(expr_path)
