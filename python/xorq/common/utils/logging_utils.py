@@ -212,12 +212,7 @@ class RunLogger:
         self._fh.flush()
 
     def log_span_event(self, span, event: str, fields: dict = None):
-        """Log to both the run log and an OTel span.
-
-        The file log keeps every field for audit. The OTel span gets only
-        non-None values --- OTel rejects None attributes with a noisy
-        `Invalid type NoneType for attribute ...` warning (#1940).
-        """
+        """Log to both the run log and an OTel span. Cleans up OTel re #1940."""
         self.log_event(event, fields)
         if span is not None:
             span.add_event(
