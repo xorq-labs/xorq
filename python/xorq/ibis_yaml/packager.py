@@ -34,7 +34,6 @@ from attr.validators import (
 from packaging.specifiers import SpecifierSet
 
 from xorq.common.utils.process_utils import in_nix_shell
-from xorq.config import options
 from xorq.ibis_yaml.enums import DumpFiles
 
 
@@ -438,6 +437,7 @@ def _normalize_xorq_cmd(args):
 
 def _link_mode_args():
     """Return uv ``--link-mode hardlink`` args when options.uv.use_hardlink is set."""
+    from xorq.config import options  # noqa: PLC0415
 
     return ("--link-mode", "hardlink") if options.uv.use_hardlink else ()
 
