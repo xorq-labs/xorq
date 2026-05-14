@@ -18,6 +18,7 @@ from xorq.common.utils.zip_utils import (
 )
 from xorq.config import (
     _default_use_hardlink,
+    env_config,
     options,
 )
 from xorq.ibis_yaml.enums import DumpFiles
@@ -368,6 +369,42 @@ def test_link_mode_args_from_platform_and_env(
         options.uv, "use_hardlink", _default_use_hardlink(platform, env_value)
     )
     assert _link_mode_args() == expected_args
+
+
+@pytest.mark.parametrize(
+    ("platform", "env_value", "expected"),
+    [
+        # Explicit empty env_value: falls through to the platform default.
+        ("darwin", "", True),
+        ("linux", "", False),
+        # Explicit env_value overrides the platform default.
+        ("darwin", "False", False),
+        ("linux", "True", True),
+        # env_value=None: the function reads env_config.XORQ_UV_USE_HARDLINK.
+        # Pinned to "" below, so the platform default decides again — but
+        # via the runtime-fallback code path, not the explicit-arg path.
+        ("darwin", None, True),
+        ("linux", None, False),
+    ],
+)
+def test_default_use_hardlink(monkeypatch, platform, env_value, expected):
+    """Cover explicit ``env_value`` and the ``env_value=None`` runtime
+    fallback that reads ``env_config.XORQ_UV_USE_HARDLINK``."""
+    monkeypatch.setattr(
+        "xorq.config.env_config", env_config.clone(XORQ_UV_USE_HARDLINK="")
+    )
+    assert _default_use_hardlink(platform=platform, env_value=env_value) is expected
+
+
+@pytest.mark.parametrize("use_hardlink", [True, False])
+def test_uv_export_requirements_omits_link_mode(tmp_path, monkeypatch, use_hardlink):
+    """uv export reads the lockfile only; ``--link-mode`` would be confused
+    intent even when harmless. Guard against future refactors that splice
+    a shared args builder into uv_export_requirements."""
+    monkeypatch.setattr(options.uv, "use_hardlink", use_hardlink)
+    captured = _patch_subprocess_run(monkeypatch)
+    uv_export_requirements(tmp_path, "3.12")
+    assert "--link-mode" not in captured["args"]
 
 
 @pytest.mark.parametrize(
