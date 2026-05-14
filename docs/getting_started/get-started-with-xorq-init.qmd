@@ -108,7 +108,7 @@ source .venv/bin/activate
 
 ### Download the Moneyball dataset
 
-The [Lahman Baseball Database](https://www.seanlahman.com/baseball-archive/statistics/) is the classic dataset behind the Moneyball story. Pull the two files we'll use straight into the project:
+The [Lahman Baseball Database](https://sabr.org/lahman-database/) is the classic dataset behind the Moneyball story. Pull the two files we'll use straight into the project:
 
 ```bash
 curl -fL -o Batting.csv https://raw.githubusercontent.com/cbwinslow/baseballdatabank/master/core/Batting.csv
