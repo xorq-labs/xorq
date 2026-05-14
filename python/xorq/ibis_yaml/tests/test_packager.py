@@ -365,8 +365,9 @@ def _patch_subprocess_run(monkeypatch):
 def test_link_mode_args_from_platform_and_env(
     monkeypatch, platform, env_value, expected_args
 ):
+    monkeypatch.setattr(sys, "platform", platform)
     monkeypatch.setattr(
-        options.uv, "use_hardlink", _default_use_hardlink(platform, env_value)
+        options.uv, "use_hardlink", _default_use_hardlink(env_value=env_value)
     )
     assert _link_mode_args() == expected_args
 
@@ -374,7 +375,7 @@ def test_link_mode_args_from_platform_and_env(
 @pytest.mark.parametrize(
     ("platform", "env_value", "expected"),
     [
-        # Explicit empty env_value: falls through to the platform default.
+        # Explicit empty env_value: falls through to sys.platform check.
         ("darwin", "", True),
         ("linux", "", False),
         # Explicit env_value overrides the platform default.
@@ -389,11 +390,14 @@ def test_link_mode_args_from_platform_and_env(
 )
 def test_default_use_hardlink(monkeypatch, platform, env_value, expected):
     """Cover explicit ``env_value`` and the ``env_value=None`` runtime
-    fallback that reads ``env_config.XORQ_UV_USE_HARDLINK``."""
+    fallback that reads ``env_config.XORQ_UV_USE_HARDLINK``. ``sys.platform``
+    is monkeypatched (pytest restores it on teardown) so the platform branch
+    is exercised end-to-end rather than passed as an arg."""
+    monkeypatch.setattr(sys, "platform", platform)
     monkeypatch.setattr(
         "xorq.config.env_config", env_config.clone(XORQ_UV_USE_HARDLINK="")
     )
-    assert _default_use_hardlink(platform=platform, env_value=env_value) is expected
+    assert _default_use_hardlink(env_value=env_value) is expected
 
 
 @pytest.mark.parametrize("use_hardlink", [True, False])
