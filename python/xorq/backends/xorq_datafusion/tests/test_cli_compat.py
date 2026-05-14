@@ -1,3 +1,4 @@
+import subprocess
 import sys
 
 import pytest
@@ -62,3 +63,32 @@ def test_output_format_accepted_by_cli(tmp_path, fmt):
     runner = CliRunner()
     result = runner.invoke(cli, ["run", str(tmp_path), "--format", fmt.value])
     assert "Invalid value for '-f' / '--format'" not in (result.output or "")
+
+
+@pytest.mark.xorq_datafusion
+def test_python_udf_process_exits_cleanly(tmp_path):
+    """Regression XOR-357: tokio blocking-pool must not race Py_Finalize at exit."""
+    sentinel = tmp_path / "atexit_ran"
+    script = (
+        "import atexit, sys\n"
+        "from pathlib import Path\n"
+        f"atexit.register(lambda: Path({str(sentinel)!r}).touch())\n"
+        "import xorq.api as xo\n"
+        "import xorq.expr.datatypes as dt\n"
+        "import pyarrow.compute as pc\n"
+        "@xo.udf.scalar.pyarrow\n"
+        "def double_it(arr: dt.int64) -> dt.int64:\n"
+        "    return pc.multiply(arr, 2)\n"
+        "con = xo.connect()\n"
+        "t = con.create_table('t', {'x': [1, 2, 3]})\n"
+        "assert double_it(t.x).execute().tolist() == [2, 4, 6]\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        timeout=30,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr.decode()
+    assert sentinel.exists(), (
+        "atexit did not run — process likely hung or called os._exit"
+    )
