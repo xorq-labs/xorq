@@ -976,9 +976,20 @@ def _entry_run_bundle(catalog, entries):
             yield JointBundle.from_build_path(src_dir)
         return
 
+    from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
     from xorq.ibis_yaml.packager import _read_build_python_minor  # noqa: PLC0415
 
-    with tempfile.TemporaryDirectory() as harvest_str:
+    click.echo(
+        f"Composing wheels from {len(entries)} entries and verifying "
+        f"requirements.txt are identical...",
+        err=True,
+    )
+    with (
+        tracer.start_as_current_span("catalog.compose_bundle") as span,
+        tempfile.TemporaryDirectory() as harvest_str,
+    ):
+        span.set_attribute("entries", entries)
+        span.set_attribute("entry_count", len(entries))
         harvest_dir = Path(harvest_str)
         seen = set()
         wheel_paths = []
@@ -1013,6 +1024,9 @@ def _entry_run_bundle(catalog, entries):
                 f"entries built on different Python minors: {detail}"
             )
         joint_python = next(iter(distinct_pins), None)
+        span.set_attribute("wheel_count", len(wheel_paths))
+        span.set_attribute("python_version", joint_python or "")
+        span.add_event("requirements_verified_identical")
         yield JointBundle(
             wheel_paths=tuple(wheel_paths),
             requirements_path=requirements_path,
@@ -1680,9 +1694,6 @@ def run_cached(
                     else None
                 )
 
-                # Re-invoke path: under --no-use-this-venv, defer expression
-                # deserialization (and any cloudpickled UDF class refs) to a
-                # subprocess running inside the entries' pinned env.
                 if not use_this_venv:
                     span.set_attribute("path", "uv-reinvoke")
                     inner_cmd = (
