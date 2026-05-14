@@ -94,36 +94,16 @@ jobs:
           echo "id=pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
 
       - name: build and push quarto docs to preview url
-        id: netlify_deploy
-        continue-on-error: true
         run: netlify deploy --dir=docs/_site --alias="${{ steps.get_alias.outputs.id }}"
         env:
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
 
-      - name: upload built docs as artifact (fallback on netlify failure)
-        if: steps.netlify_deploy.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: docs-preview-${{ steps.get_alias.outputs.id }}
-          path: docs/_site
-          retention-days: 14
-
       - name: create preview link comment
-        if: steps.netlify_deploy.outcome == 'success'
+        if: success()
         uses: peter-evans/create-or-update-comment@v4
         with:
           token: ${{ steps.generate_token.outputs.token }}
           issue-number: ${{ github.event.pull_request.number }}
           body: |
             Docs preview: https://${{ steps.get_alias.outputs.id }}--letsql-docs.netlify.app
-
-      - name: comment with artifact link on netlify failure
-        if: steps.netlify_deploy.outcome == 'failure'
-        uses: peter-evans/create-or-update-comment@v4
-        with:
-          token: ${{ steps.generate_token.outputs.token }}
-          issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            Netlify preview deploy failed (likely a `NETLIFY_SITE_ID` / `NETLIFY_AUTH_TOKEN` secret issue).
-            The rendered docs are available as a workflow artifact instead: [docs-preview-${{ steps.get_alias.outputs.id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
