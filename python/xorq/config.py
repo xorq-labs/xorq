@@ -186,12 +186,10 @@ class TUI(Config):
     )
 
 
-def _default_use_hardlink(env_value=None):
-    """Default for ``options.uv.use_hardlink``: env_value (or env_config) wins,
-    else ``sys.platform == "darwin"``."""
-    if env_value is None:
-        env_value = env_config.XORQ_UV_USE_HARDLINK
-    if env_value:
+def _default_use_hardlink():
+    """Default for ``options.uv.use_hardlink``: ``XORQ_UV_USE_HARDLINK`` wins
+    if set, else ``sys.platform == "darwin"``."""
+    if env_value := env_config.XORQ_UV_USE_HARDLINK:
         return parse_bool_env(env_value)
     return sys.platform == "darwin"
 

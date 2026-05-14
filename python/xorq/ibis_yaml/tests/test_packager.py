@@ -367,37 +367,32 @@ def test_link_mode_args_from_platform_and_env(
 ):
     monkeypatch.setattr(sys, "platform", platform)
     monkeypatch.setattr(
-        options.uv, "use_hardlink", _default_use_hardlink(env_value=env_value)
+        "xorq.config.env_config", env_config.clone(XORQ_UV_USE_HARDLINK=env_value)
     )
+    monkeypatch.setattr(options.uv, "use_hardlink", _default_use_hardlink())
     assert _link_mode_args() == expected_args
 
 
 @pytest.mark.parametrize(
     ("platform", "env_value", "expected"),
     [
-        # Explicit empty env_value: falls through to sys.platform check.
+        # No env override → sys.platform decides.
         ("darwin", "", True),
         ("linux", "", False),
-        # Explicit env_value overrides the platform default.
+        # Env override beats sys.platform default.
         ("darwin", "False", False),
         ("linux", "True", True),
-        # env_value=None: the function reads env_config.XORQ_UV_USE_HARDLINK.
-        # Pinned to "" below, so the platform default decides again — but
-        # via the runtime-fallback code path, not the explicit-arg path.
-        ("darwin", None, True),
-        ("linux", None, False),
     ],
 )
 def test_default_use_hardlink(monkeypatch, platform, env_value, expected):
-    """Cover explicit ``env_value`` and the ``env_value=None`` runtime
-    fallback that reads ``env_config.XORQ_UV_USE_HARDLINK``. ``sys.platform``
-    is monkeypatched (pytest restores it on teardown) so the platform branch
-    is exercised end-to-end rather than passed as an arg."""
+    """``sys.platform`` and ``env_config.XORQ_UV_USE_HARDLINK`` are
+    monkeypatched (pytest restores both on teardown), so each parametrize
+    case exercises the function end-to-end with no args."""
     monkeypatch.setattr(sys, "platform", platform)
     monkeypatch.setattr(
-        "xorq.config.env_config", env_config.clone(XORQ_UV_USE_HARDLINK="")
+        "xorq.config.env_config", env_config.clone(XORQ_UV_USE_HARDLINK=env_value)
     )
-    assert _default_use_hardlink(env_value=env_value) is expected
+    assert _default_use_hardlink() is expected
 
 
 @pytest.mark.parametrize("use_hardlink", [True, False])
