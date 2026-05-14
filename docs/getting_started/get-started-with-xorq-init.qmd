@@ -114,8 +114,8 @@ source .venv/bin/activate
 The [Lahman Baseball Database](https://www.seanlahman.com/baseball-archive/statistics/) is the classic dataset behind the Moneyball story. Pull the two files we'll use straight into the project:
 
 ```bash
-curl -L -o Batting.csv https://raw.githubusercontent.com/chadwickbureau/baseballdatabank/master/core/Batting.csv
-curl -L -o People.csv https://raw.githubusercontent.com/chadwickbureau/baseballdatabank/master/core/People.csv
+curl -fL -o Batting.csv https://raw.githubusercontent.com/cbwinslow/baseballdatabank/master/core/Batting.csv
+curl -fL -o People.csv https://raw.githubusercontent.com/cbwinslow/baseballdatabank/master/core/People.csv
 ```
 
 `Batting.csv` is one row per player-season (~110K rows back to 1871); `People.csv` is one row per player with biographical info.
