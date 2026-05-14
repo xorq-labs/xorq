@@ -863,8 +863,9 @@ def test_catalog_compose_reinvokes_via_uv(
     def spy_compose_expr(*args, **kwargs):
         raise AssertionError("outer compose must not call _compose_expr")
 
-    def spy_merge(catalog, entries, build_path):
+    def spy_merge(catalog, entries, build_path, bundle=None):
         captured["merge_build_path"] = build_path
+        captured["merge_bundle"] = bundle
 
     def spy_add(self, build_path, aliases=(), exist_ok=False):
         captured["add_build_path"] = build_path

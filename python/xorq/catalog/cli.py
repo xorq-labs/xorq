@@ -917,19 +917,26 @@ def _assert_requirements_identical(entry_reqs):
     )
 
 
-def _merge_joint_wheels_into_build(catalog, entries, build_path):
+def _merge_joint_wheels_into_build(catalog, entries, build_path, bundle=None):
     import shutil  # noqa: PLC0415
 
     from xorq.ibis_yaml.enums import DumpFiles  # noqa: PLC0415
 
     if not entries:
         return
-    with _entry_run_bundle(catalog, entries) as bundle:
-        for w in bundle.wheel_paths:
+
+    def _stage(b):
+        for w in b.wheel_paths:
             dst = build_path / w.name
             if not dst.exists():
                 shutil.copy2(w, dst)
-        shutil.copy2(bundle.requirements_path, build_path / DumpFiles.requirements)
+        shutil.copy2(b.requirements_path, build_path / DumpFiles.requirements)
+
+    if bundle is not None:
+        _stage(bundle)
+        return
+    with _entry_run_bundle(catalog, entries) as opened:
+        _stage(opened)
 
 
 def _resolve_entry_for_run(catalog, entry):
@@ -1157,15 +1164,20 @@ def compose(
                         with_requirements=bundle.requirements_path,
                         capture_output=True,
                     )
-                if dry_run:
-                    click.echo(result.stdout, nl=False)
-                    return
-                lines = [line for line in result.stdout.splitlines() if line.strip()]
-                if not lines:
-                    raise click.ClickException(
-                        f"inner compose produced no build_path; stderr: {result.stderr}"
+                    if dry_run:
+                        click.echo(result.stdout, nl=False)
+                        return
+                    lines = [
+                        line for line in result.stdout.splitlines() if line.strip()
+                    ]
+                    if not lines:
+                        raise click.ClickException(
+                            f"inner compose produced no build_path; stderr: {result.stderr}"
+                        )
+                    build_path = Path(lines[-1])
+                    _merge_joint_wheels_into_build(
+                        catalog, entries, build_path, bundle=bundle
                     )
-                build_path = Path(lines[-1])
             else:
                 span.set_attribute("path", "in-process")
                 rename_map = (
@@ -1197,7 +1209,7 @@ def compose(
                     click.echo(str(build_path))
                     return
 
-            _merge_joint_wheels_into_build(catalog, entries, build_path)
+                _merge_joint_wheels_into_build(catalog, entries, build_path)
             entry_name = build_path.name
             aliases = (alias,) if alias else ()
             alias_existed = alias and catalog.catalog_yaml.contains_alias(alias)
