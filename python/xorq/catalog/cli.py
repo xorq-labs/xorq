@@ -956,14 +956,14 @@ def _entry_run_bundle(catalog, entries):
     Single entry: the archive verbatim. Multi-entry: harvest wheels and
     require byte-identical requirements.txt + matching Python minors.
     """
-    import shutil  # noqa: PLC0415
     import tempfile  # noqa: PLC0415
+    import zipfile  # noqa: PLC0415
 
     from xorq.catalog.zip_utils import extract_build_zip_context  # noqa: PLC0415
     from xorq.ibis_yaml.enums import DumpFiles  # noqa: PLC0415
     from xorq.ibis_yaml.packager import (  # noqa: PLC0415
         JointBundle,
-        _read_build_python_minor,
+        _python_minor_from_metadata_text,
     )
 
     if not entries:
@@ -991,19 +991,34 @@ def _entry_run_bundle(catalog, entries):
         python_pins = []
         for entry in entries:
             ce = _resolve_entry_for_run(catalog, entry)
-            with extract_build_zip_context(ce.catalog_path) as src_dir:
-                for w in sorted(src_dir.glob("*.whl")):
-                    if w.name in seen:
-                        continue
-                    seen.add(w.name)
-                    target = harvest_dir / w.name
-                    shutil.copy2(w, target)
-                    wheel_paths.append(target)
-                src_reqs = src_dir / DumpFiles.requirements
-                req_contents.append(
-                    (entry, src_reqs.read_bytes() if src_reqs.exists() else b"")
+            # Read only the members we need (wheels + requirements.txt +
+            # build_metadata.json) directly from the zip; full extraction
+            # would also pull expr.yaml and cloudpickled UDF blobs we never
+            # touch in this path.
+            with zipfile.ZipFile(ce.catalog_path) as zf:
+                names = sorted(zf.namelist())
+                for member in names:
+                    base = Path(member).name
+                    if base.endswith(".whl") and base not in seen:
+                        seen.add(base)
+                        target = harvest_dir / base
+                        target.write_bytes(zf.read(member))
+                        wheel_paths.append(target)
+                req_member = next(
+                    (m for m in names if Path(m).name == DumpFiles.requirements),
+                    None,
                 )
-                python_pins.append((entry, _read_build_python_minor(src_dir)))
+                req_contents.append((entry, zf.read(req_member) if req_member else b""))
+                meta_member = next(
+                    (m for m in names if Path(m).name == DumpFiles.build_metadata),
+                    None,
+                )
+                python_pin = (
+                    _python_minor_from_metadata_text(zf.read(meta_member).decode())
+                    if meta_member
+                    else None
+                )
+                python_pins.append((entry, python_pin))
         if not wheel_paths:
             raise click.ClickException("no wheels found in entries")
         _assert_requirements_identical(req_contents)

@@ -100,23 +100,28 @@ def _read_wheel_metadata(wheel_path):
     return fields
 
 
+def _python_minor_from_metadata_text(text):
+    """Return a `==X.Y.*` specifier from build_metadata.json text, or None."""
+    import json  # noqa: PLC0415
+
+    try:
+        info = json.loads(text).get("sys-version_info")
+        major, minor = int(info[0]), int(info[1])
+    except (ValueError, TypeError, KeyError, IndexError):
+        return None
+    return f"=={major}.{minor}.*"
+
+
 def _read_build_python_minor(build_path):
     """Return a `==X.Y.*` specifier pinning the archive's Python minor, or
     None if build_metadata.json is missing/malformed. Cloudpickled UDFs
     embed minor-specific bytecode; running under a different minor can
     SIGSEGV.
     """
-    import json  # noqa: PLC0415
-
     meta_path = Path(build_path) / DumpFiles.build_metadata
     if not meta_path.exists():
         return None
-    try:
-        info = json.loads(meta_path.read_text()).get("sys-version_info")
-        major, minor = int(info[0]), int(info[1])
-    except (ValueError, TypeError, KeyError, IndexError):
-        return None
-    return f"=={major}.{minor}.*"
+    return _python_minor_from_metadata_text(meta_path.read_text())
 
 
 def _read_requires_python(path):
