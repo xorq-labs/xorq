@@ -1243,13 +1243,7 @@ def _load_catalog_cli():
 
 
 def main():
-    try:
-        cli()
-    except SystemExit as e:
-        code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
-    else:
-        code = 0
-    sys.exit(code)
+    cli()
 
 
 if __name__ == "__main__":

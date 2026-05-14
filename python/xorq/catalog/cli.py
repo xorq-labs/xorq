@@ -907,22 +907,17 @@ def _compose_expr(catalog, entries, code, rename_map=None):
 
 
 def _assert_requirements_identical(entry_reqs):
-    # Joint wheel resolution across diverging requirement sets is deferred;
-    # until then multi-entry compose/run requires byte-identical requirements.
     distinct = {content for _, content in entry_reqs}
     if len(distinct) <= 1:
         return
     names = ", ".join(repr(name) for name, _ in entry_reqs)
     raise click.ClickException(
-        "requirements.txt differs across entries; joint resolution is "
-        "deferred — all entries must share an identical requirements.txt. "
-        f"Mismatched entries: {names}."
+        "requirements.txt differs across entries; all entries must share an "
+        f"identical requirements.txt. Mismatched entries: {names}."
     )
 
 
 def _merge_joint_wheels_into_build(catalog, entries, build_path):
-    # No-op for empty entries; otherwise stage the bundle's wheels (without
-    # overwriting existing) + requirements.txt into build_path.
     import shutil  # noqa: PLC0415
 
     from xorq.ibis_yaml.enums import DumpFiles  # noqa: PLC0415
@@ -937,66 +932,58 @@ def _merge_joint_wheels_into_build(catalog, entries, build_path):
         shutil.copy2(bundle.requirements_path, build_path / DumpFiles.requirements)
 
 
+def _resolve_entry_for_run(catalog, entry):
+    try:
+        ce = catalog.get_catalog_entry(entry, maybe_alias=True)
+    except (ValueError, AssertionError) as err:
+        raise click.ClickException(f"Entry {entry!r} not found in catalog") from err
+    if not ce.is_content_local:
+        ce.fetch()
+    return ce
+
+
 @contextmanager
 def _entry_run_bundle(catalog, entries):
-    """Yield a wheel + requirements bundle suitable for running *entries*
-    inside `uv tool run`.
+    """Yield a JointBundle suitable for `uv tool run`.
 
-    Single entry: returns that entry's archived wheels + requirements
-    verbatim — the archive already carries a usable resolution.
-
-    Multi-entry: requires every entry's requirements.txt to be byte-identical;
-    on match, harvests the union of wheels and yields a `JointBundle` with the
-    shared requirements.txt staged verbatim. Joint resolution across divergent
-    requirement sets is deferred to a follow-up PR.
+    Single entry: the archive verbatim. Multi-entry: harvest wheels and
+    require byte-identical requirements.txt + matching Python minors.
     """
     import shutil  # noqa: PLC0415
     import tempfile  # noqa: PLC0415
 
     from xorq.catalog.zip_utils import extract_build_zip_context  # noqa: PLC0415
     from xorq.ibis_yaml.enums import DumpFiles  # noqa: PLC0415
-    from xorq.ibis_yaml.packager import JointBundle  # noqa: PLC0415
+    from xorq.ibis_yaml.packager import (  # noqa: PLC0415
+        JointBundle,
+        _read_build_python_minor,
+    )
 
     if not entries:
         raise click.ClickException("at least one entry is required")
 
-    def _resolve_entry(entry):
-        try:
-            ce = catalog.get_catalog_entry(entry, maybe_alias=True)
-        except (ValueError, AssertionError) as err:
-            raise click.ClickException(f"Entry {entry!r} not found in catalog") from err
-        if not ce.is_content_local:
-            ce.fetch()
-        return ce
-
     if len(entries) == 1:
         (entry,) = entries
-        ce = _resolve_entry(entry)
+        ce = _resolve_entry_for_run(catalog, entry)
         with extract_build_zip_context(ce.catalog_path) as src_dir:
             yield JointBundle.from_build_path(src_dir)
         return
 
     from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
-    from xorq.ibis_yaml.packager import _read_build_python_minor  # noqa: PLC0415
 
-    click.echo(
-        f"Composing wheels from {len(entries)} entries and verifying "
-        f"requirements.txt are identical...",
-        err=True,
-    )
+    click.echo(f"Composing wheels from {len(entries)} entries...", err=True)
     with (
         tracer.start_as_current_span("catalog.compose_bundle") as span,
         tempfile.TemporaryDirectory() as harvest_str,
     ):
         span.set_attribute("entries", entries)
-        span.set_attribute("entry_count", len(entries))
         harvest_dir = Path(harvest_str)
         seen = set()
         wheel_paths = []
         req_contents = []
         python_pins = []
         for entry in entries:
-            ce = _resolve_entry(entry)
+            ce = _resolve_entry_for_run(catalog, entry)
             with extract_build_zip_context(ce.catalog_path) as src_dir:
                 for w in sorted(src_dir.glob("*.whl")):
                     if w.name in seen:
@@ -1015,8 +1002,6 @@ def _entry_run_bundle(catalog, entries):
         _assert_requirements_identical(req_contents)
         requirements_path = harvest_dir / DumpFiles.requirements
         requirements_path.write_bytes(req_contents[0][1])
-        # Each entry must agree on the Python minor so cloudpickled UDFs
-        # deserialize against the same interpreter they were built on.
         distinct_pins = {pin for _, pin in python_pins if pin is not None}
         if len(distinct_pins) > 1:
             detail = ", ".join(f"{e!r}={pin}" for e, pin in python_pins)
@@ -1026,7 +1011,6 @@ def _entry_run_bundle(catalog, entries):
         joint_python = next(iter(distinct_pins), None)
         span.set_attribute("wheel_count", len(wheel_paths))
         span.set_attribute("python_version", joint_python or "")
-        span.add_event("requirements_verified_identical")
         yield JointBundle(
             wheel_paths=tuple(wheel_paths),
             requirements_path=requirements_path,
@@ -1035,13 +1019,8 @@ def _entry_run_bundle(catalog, entries):
 
 
 def _uv_reinvoke_xorq_cli(catalog, entries, *inner_args):
-    """Spawn `uv tool run <bundle> xorq <inner_args>` against a venv
-    assembled from the catalog entries' wheels + requirements.
-
-    Callers must pass `--use-this-venv` in `inner_args` so the inner
-    xorq runs in-process; otherwise it would re-enter the same re-invoke
-    path and recurse without bound.
-    """
+    """Spawn `uv tool run <bundle> xorq <inner_args>` against the entries'
+    pinned env. Callers must pass `--use-this-venv` to avoid recursion."""
     from xorq.ibis_yaml.packager import uv_tool_run  # noqa: PLC0415
 
     with _entry_run_bundle(catalog, entries) as bundle:
@@ -1147,11 +1126,8 @@ def compose(
                 raise click.UsageError("At least one entry is required.")
 
             if not use_this_venv:
-                # Outer: spawn the inner inside the entries' pinned env so
-                # that `.expr` deserialization (cloudpickled UDF closures)
-                # happens where each entry's wheel + Python minor is set up
-                # by uv. The inner emits build_path as its last stdout line
-                # (or the dry-run plan instead); we finalize here.
+                # Inner emits build_path on its last stdout line (or the
+                # dry-run plan); we finalize wheel-merge + cataloging here.
                 span.set_attribute("path", "uv-reinvoke")
                 from xorq.ibis_yaml.packager import uv_tool_run  # noqa: PLC0415
 
@@ -1398,12 +1374,9 @@ def run(
                     else None
                 )
 
-                # Fast path: single entry, no in-process transforms, isolated
-                # subprocess. Hand the entry's original archive directly to
-                # `uv tool run xorq run` — never deserialize the expression in
-                # the caller. The caller may be missing the UDF wheels or the
-                # exact xorq version baked into the archive, and cloudpickle's
-                # __recreate__ for those refs can SIGSEGV.
+                # Fast path: single entry, no expression-rewriting flags.
+                # Hand the archive directly to `uv tool run xorq run` so the
+                # caller never deserializes the expression.
                 if (
                     not use_this_venv
                     and len(entries) == 1
@@ -1432,8 +1405,7 @@ def run(
                             f"list' or 'xorq catalog list-aliases' to see "
                             f"available entries."
                         ) from err
-                    # UnboundExpr needs stdin Arrow bound to the expression
-                    # before run, which requires in-process resolution.
+                    # UnboundExpr needs stdin Arrow bound in-process.
                     if catalog_entry.kind is not ExprKind.UnboundExpr:
                         if not catalog_entry.is_content_local:
                             catalog_entry.fetch()
@@ -1467,11 +1439,8 @@ def run(
                             )
                         return
 
-                # Re-invoke path: transforms or multi-entry under
-                # --no-use-this-venv. Spawn `uv tool run xorq catalog run`
-                # against the entries' pinned env so the in-process
-                # expression deserialization happens where the pickled UDF
-                # class refs are resolvable.
+                # Re-invoke path: defer expression deserialization to the
+                # entries' pinned env.
                 if not use_this_venv:
                     span.set_attribute("path", "uv-reinvoke")
                     inner_cmd = (

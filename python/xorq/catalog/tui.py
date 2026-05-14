@@ -1224,12 +1224,8 @@ class DataViewScreen(Screen):
     def _run_catalog_subprocess(self, code=None):
         """Run xorq catalog run and return a pandas DataFrame.
 
-        First tries the in-process fast path via `--use-this-venv` —
-        typically completes in ~150ms when the calling venv has all the
-        entries' packages. Any failure (non-zero exit incl. SIGSEGV from
-        cloudpickle on missing UDF wheels, truncated Arrow stream, or
-        subprocess error) falls through to the uv-isolated path so
-        correctness wins over speed.
+        Try `--use-this-venv` first; fall back to the uv-isolated path
+        on any failure.
         """
         import pyarrow as pa  # noqa: PLC0415
 

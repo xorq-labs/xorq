@@ -29,6 +29,7 @@ from attr import (
     frozen,
 )
 from attr.validators import (
+    deep_iterable,
     instance_of,
     optional,
 )
@@ -79,10 +80,10 @@ def _requires_python_from_pyproject(pyproject_path):
 
 
 def _read_wheel_metadata(wheel_path):
-    """Read METADATA from a wheel and return all top-level fields as a dict.
+    """Read METADATA top-level fields from a wheel as a dict.
 
-    Stops at the first blank line (end of headers) so multi-paragraph
-    Description bodies don't shadow real fields.
+    Stops at the first blank line so multi-paragraph Description bodies
+    don't shadow real fields.
     """
     with zipfile.ZipFile(wheel_path) as zf:
         metadata_names = [n for n in zf.namelist() if n.endswith(".dist-info/METADATA")]
@@ -100,13 +101,10 @@ def _read_wheel_metadata(wheel_path):
 
 
 def _read_build_python_minor(build_path):
-    """Return a `==X.Y.*` specifier pinning the Python minor the archive
-    was packaged with, or None if build_metadata.json is missing/malformed.
-
-    Cloudpickled UDF closures embed Python-version-specific bytecode and
-    object layouts; loading them under a different minor risks SIGSEGV
-    on C-extension refs. Pinning to the build's minor keeps `uv tool run`
-    from picking a newer interpreter than the archive was tested on.
+    """Return a `==X.Y.*` specifier pinning the archive's Python minor, or
+    None if build_metadata.json is missing/malformed. Cloudpickled UDFs
+    embed minor-specific bytecode; running under a different minor can
+    SIGSEGV.
     """
     import json  # noqa: PLC0415
 
@@ -199,7 +197,13 @@ class WheelBundle:
 class JointBundle:
     """Immutable N-wheel bundle: list of wheels + unified requirements.txt."""
 
-    wheel_paths = field(converter=lambda xs: tuple(Path(x) for x in xs))
+    wheel_paths = field(
+        converter=lambda xs: tuple(Path(x) for x in xs),
+        validator=deep_iterable(
+            member_validator=instance_of(Path),
+            iterable_validator=instance_of(tuple),
+        ),
+    )
     requirements_path = field(validator=instance_of(Path), converter=Path)
     python_version = field(validator=_validate_python_version, default=None)
 

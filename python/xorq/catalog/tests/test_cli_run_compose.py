@@ -597,7 +597,7 @@ def test_assert_requirements_identical_raises_on_mismatch():
     with pytest.raises(click.ClickException) as exc_info:
         _assert_requirements_identical([("a", b"foo==1.0\n"), ("b", b"foo==2.0\n")])
     msg = exc_info.value.message
-    assert "joint resolution is deferred" in msg
+    assert "requirements.txt differs across entries" in msg
     assert "'a'" in msg and "'b'" in msg
 
 
