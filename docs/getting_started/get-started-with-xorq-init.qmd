@@ -99,15 +99,14 @@ That's a complete, locked Python project: `pyproject.toml`, `uv.lock`, a `requir
 
 ### Pin the project's environment
 
-Add `uv` itself to the project's dependencies, sync, and activate. After this, the `uv` and `xorq` on your `PATH` come from `.venv/bin/`, locked to the project's `pyproject.toml`:
+Sync the project's `.venv` from `uv.lock` and activate it. After this, the `uv` and `xorq` on your `PATH` come from `.venv/bin/`, locked to the project's `pyproject.toml`:
 
 ```bash
-uv add uv
 uv sync
 source .venv/bin/activate
 ```
 
-`uv add uv` does two useful things at once: it pins the `uv` binary as a project dep (so the local uv `xorq uv build` shells out to matches the one that generated the project's lockfile artifacts), and it re-exports `requirements.txt` from `uv.lock` using your local uv, which sidesteps the byte-match check in [xorq-labs/xorq#1941](https://github.com/xorq-labs/xorq/issues/1941). The rest of the tutorial uses plain `xorq …` --- no more `uvx`.
+The template already pins `uv` as a project dep, so the local `uv` that `xorq uv build` shells out to matches the one that generated the project's lockfile artifacts. The rest of the tutorial uses plain `xorq …` --- no more `uvx`.
 
 ### Download the Moneyball dataset
 
