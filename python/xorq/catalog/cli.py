@@ -1069,7 +1069,7 @@ def _forward_run_args(code, limit, fuse, raw_params, raw_rename_params, instream
         args += ["--rename-params", rp]
     instream_name = getattr(instream, "name", None)
     if instream_name and instream_name not in ("<stdin>", "-"):
-        args += ["-i", instream_name]
+        args += ["-i", str(Path(instream_name).resolve())]
     return args
 
 
