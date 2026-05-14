@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778666707887,
+  "lastUpdate": 1778776291585,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -12036,6 +12036,114 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.011026700681516718",
             "extra": "mean: 3.992293726377276 msec\nrounds: 508"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "paddy@paddymullen.com",
+            "name": "Paddy Mullen",
+            "username": "paddymul"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "66bf4c08d2591b9d12df4d78277277fa78cbd165",
+          "message": "fix(packager): default to uv --link-mode hardlink on macOS (#1942) (#1946)\n\n## Summary\n\nPer [standup discussion with\nDan](https://github.com/xorq-labs/xorq/issues/1942): partial mitigation\nfor #1942's repeat-invocation `xorq uv build` cost on macOS.\n\n- Adds `options.uv.use_hardlink` (settable via `XORQ_UV_USE_HARDLINK`),\ndefaulting to `True` on macOS and `False` elsewhere.\n- When `True`, `WheelPackager._build_wheel` and `uv_tool_run` pass\n`--link-mode hardlink` to the uv subprocess. This avoids the\nper-invocation syspolicyd rescan that uv's default `--link-mode=clone`\ntriggers on macOS (astral-sh/uv#18577).\n- Does **not** address the root cause from #1942 (fresh tmp wheel path\non every build defeats uv's tool-env cache) — that's still the larger\nfix on the umbrella issue.\n\nA/B from #1942 (with this default on macOS, second-build steady state,\n3-trial average):\n\n| Step | `clone` (current default) | `hardlink` (this PR's default on\nmacOS) |\n|---|---|---|\n| `xorq uv build` (2nd) | ~14s | ~7s |\n\n## Why is it still ~7s? Deep-dive\n\nDecomposing `xorq uv build` over 3 trials (averaged, macOS, this\nbranch):\n\n```\n                                         hardlink     clone     delta\nuv build --wheel                            0.32s     0.21s    -0.11s\nuv export (requirements.txt)                0.03s     0.03s    -0.00s\nuv tool run xorq build                      7.03s    14.35s    +7.32s\n                                         ─────────────────────────────\nTOTAL                                       7.38s    14.59s    +7.21s\n```\n\nWheel build + uv export are negligible (~0.25s). All cost is in `uv tool\nrun`. Decomposing that further:\n\n```\n                                         hardlink     clone\nuv tool run + python -c 'pass'              2.76s     0.49s    ← env install only\nuv tool run + import xorq.api               5.43s     7.31s    ← + ~2.7s of imports\nuv tool run + xorq build (full)             7.03s    14.35s    ← + ~1.6s of build work\n```\n\n**What's eating the 7s on hardlink:**\n\n| Component | Time | Why |\n|---|---|---|\n| uv installs 76 packages into fresh ephemeral env | **2.76s** |\n`--isolated` + new wheel path every build defeats tool-env cache |\n| `import xorq.api` (ibis, datafusion, etc.) | **2.67s** | Python import\ncost; pays per invocation |\n| `xorq build` work (parse, serialize, write) | **1.57s** | Actual build\nlogic |\n\n**Asymmetry on `python -c 'pass'`:** hardlink is *slower* (2.76s) than\nclone (0.49s) for env-creation-only workloads — hardlink pays more\nkernel overhead per file linked, and uv's cache layout for this minimal\ncase favors clone. But once you start *reading* .so files (the `import\nxorq.api` and the actual build), syspolicyd rescans on clone destroy\nthat lead. Hardlink wins on workloads that read many native extensions,\nwhich is our case.\n\n**The remaining ~7s is structural, not link-mode:**\n\n- **2.76s is recoverable** if we kill the per-invocation env install.\nIssue #1942's suggested fix #1 (content-address the wheel → stable\n`--with` path → uv tool-env cache hit) would drop this to ~0.5s, putting\ntotal around **~4.5s**.\n- **2.67s `import xorq.api`** is the lower bound for any\nuv-tool-run-style flow. To go below that you'd need either AOT-compiled\nimports or a long-running build daemon.\n- **1.57s** of actual build work is what's left after fixing both.\n\nSo this PR captures the easy ~50% (the syspolicyd workaround); the next\n~40% requires the content-addressed wheel work tracked on #1942.\n\n## Design notes (from chat with Dan)\n\n> settable EnvConfig that propagates to xorq.config.options; defaults to\nTrue on osx, False otherwise … will propagate to\nxorq.ibis_yaml.packager.{PackagedBuilder,PackagedRunner}\n\nImplementation matches that spec: `XORQ_UV_USE_HARDLINK` →\n`options.uv.use_hardlink` → packager reads it at\nuv-subprocess-invocation time and passes `--link-mode hardlink` (the uv\nCLI flag, not the `UV_LINK_MODE` env var — per Dan's preference for\ncommand-line flag over env-var).\n\n## Test plan\n\n- [x] `_link_mode_args()` returns `(\"--link-mode\", \"hardlink\")` when\noption True, `()` when False\n- [x] `uv_tool_run` passes `--link-mode hardlink` to the subprocess when\noption True; omits flag when False\n- [x] `options.uv.use_hardlink` defaults `True` on darwin, `False` on\nlinux\n- [x] `XORQ_UV_USE_HARDLINK=False` overrides the darwin default\n- [x] First commit (failing tests at baseline) was seen failing on CI\n(linux core job) before the fix landed\n- [x] CI green on the fix commit\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-05-14T12:26:37-04:00",
+          "tree_id": "1328ee0ab9900f650aa86420c59d019552a693bc",
+          "url": "https://github.com/xorq-labs/xorq/commit/66bf4c08d2591b9d12df4d78277277fa78cbd165"
+        },
+        "date": 1778776287991,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.592604115838897,
+            "unit": "iter/sec",
+            "range": "stddev: 0.021738102006126067",
+            "extra": "mean: 131.70711718182497 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.782536931556795,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018356771174028515",
+            "extra": "mean: 359.38426859999026 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.670210094962028,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17928525546222562",
+            "extra": "mean: 1.4920694383999944 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.571588418425699,
+            "unit": "iter/sec",
+            "range": "stddev: 0.061162830467888604",
+            "extra": "mean: 388.8647160000005 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.6464311115526677,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04869952832397716",
+            "extra": "mean: 377.86738359998253 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.6508054078056538,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0499377867231033",
+            "extra": "mean: 377.2438358000045 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[simple_filter_agg]",
+            "value": 150.8675985596308,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015453848024909128",
+            "extra": "mean: 6.6283284783958925 msec\nrounds: 324"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[pipeline_50_steps]",
+            "value": 5.970504876012415,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0686580931552894",
+            "extra": "mean: 167.49002316666406 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[nested_into_backend]",
+            "value": 39.09253170215945,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030189555806185018",
+            "extra": "mean: 25.580333543472207 msec\nrounds: 46"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[simple_filter_agg]",
+            "value": 285.0465742212854,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007609739121344676",
+            "extra": "mean: 3.508198625897839 msec\nrounds: 556"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[pipeline_50_steps]",
+            "value": 283.7878646244029,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010669756068303117",
+            "extra": "mean: 3.523758851787103 msec\nrounds: 560"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[nested_into_backend]",
+            "value": 237.61338248369694,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012425653067619395",
+            "extra": "mean: 4.208517169981416 msec\nrounds: 553"
           }
         ]
       }
