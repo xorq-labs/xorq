@@ -1190,6 +1190,13 @@ def compose(
                             f"inner compose produced no build_path; stderr: {result.stderr}"
                         )
                     build_path = Path(lines[-1])
+                    if not build_path.exists():
+                        raise click.ClickException(
+                            f"inner compose returned an invalid build_path "
+                            f"{build_path!r}; the last stdout line was not a valid "
+                            f"path (likely stray output from a library print). "
+                            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+                        )
                     _merge_joint_wheels_into_build(
                         catalog, entries, build_path, bundle=bundle
                     )
