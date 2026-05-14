@@ -1,65 +1,44 @@
-"""Single-dispatch registry with lazy module-load support.
+"""String-keyed single dispatch on fully qualified type names.
 
-Direct port of dask.utils.Dispatch so xorq can drop its dask runtime dependency.
+Dispatches on the first argument's type by walking its MRO and matching
+against registered FQN strings. No imports of target types are needed
+at registration time.
 """
 
 from __future__ import annotations
 
 
-class Dispatch:
-    """Simple single dispatch."""
+def _fqn(typ):
+    return f"{typ.__module__}.{typ.__qualname__}"
 
-    def __init__(self, name=None):
-        self._lookup = {}
-        self._lazy = {}
-        if name:
-            self.__name__ = name
 
-    def register(self, type, func=None):
-        """Register dispatch of ``func`` on arguments of type ``type``."""
+class FQNDispatch:
+    """Declarative single dispatch keyed by fully qualified type name strings.
 
-        def wrapper(func):
-            if isinstance(type, tuple):
-                for t in type:
-                    self.register(t, func)
-            else:
-                self._lookup[type] = func
-            return func
+    Rules are (fqn_string, handler) pairs. Lookup walks the first argument's
+    MRO, converting each class to its FQN, and returns the first match.
+    """
 
-        return wrapper(func) if func is not None else wrapper
-
-    def register_lazy(self, toplevel, func=None):
-        """Register a registration function called when ``toplevel`` loads."""
-
-        def wrapper(func):
-            self._lazy[toplevel] = func
-            return func
-
-        return wrapper(func) if func is not None else wrapper
-
-    def dispatch(self, cls):
-        """Return the function implementation for the given ``cls``."""
-        lk = self._lookup
-        for cls2 in cls.__mro__:
-            toplevel, _, _ = cls2.__module__.partition(".")
-            try:
-                register = self._lazy[toplevel]
-            except KeyError:
-                pass
-            else:
-                register()
-                self._lazy.pop(toplevel, None)
-                return self.dispatch(cls)
-            try:
-                impl = lk[cls2]
-            except KeyError:
-                pass
-            else:
-                if cls is not cls2:
-                    lk[cls] = impl
-                return impl
-        raise TypeError(f"No dispatch for {cls}")
+    def __init__(self, rules, *, default=None):
+        self._rules = dict(rules)
+        self._default = default
+        self._cache = {}
 
     def __call__(self, arg, *args, **kwargs):
-        meth = self.dispatch(type(arg))
-        return meth(arg, *args, **kwargs)
+        cls = type(arg)
+        handler = self._cache.get(cls)
+        if handler is not None:
+            return handler(arg, *args, **kwargs)
+        for mro_cls in cls.__mro__:
+            key = _fqn(mro_cls)
+            handler = self._rules.get(key)
+            if handler is not None:
+                self._cache[cls] = handler
+                return handler(arg, *args, **kwargs)
+        if self._default is not None:
+            return self._default(arg, *args, **kwargs)
+        raise TypeError(f"No dispatch for {cls}")
+
+    @property
+    def registered_fqns(self):
+        return tuple(self._rules.keys())
