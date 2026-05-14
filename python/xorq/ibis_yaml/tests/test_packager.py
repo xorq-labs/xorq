@@ -16,6 +16,11 @@ from xorq.common.utils.zip_utils import (
     ZipProxy,
     append_toplevel,
 )
+from xorq.config import (
+    _default_use_hardlink,
+    env_config,
+    options,
+)
 from xorq.ibis_yaml.enums import DumpFiles
 from xorq.ibis_yaml.packager import (
     PYPROJECT_NAME,
@@ -24,11 +29,13 @@ from xorq.ibis_yaml.packager import (
     PackagedRunner,
     WheelBundle,
     WheelPackager,
+    _link_mode_args,
     _nix_env,
     _read_requires_python,
     _validate_python_version,
     find_file_upwards,
     uv_export_requirements,
+    uv_tool_run,
 )
 from xorq.init_templates import InitTemplates
 
@@ -321,6 +328,114 @@ def test_nix_env_removes_ld_path_inside_nix(monkeypatch):
     env = _nix_env()
     assert env is not None
     assert "LD_LIBRARY_PATH" not in env
+
+
+# ---------------------------------------------------------------------------
+# uv --link-mode propagation (issue #1942)
+# ---------------------------------------------------------------------------
+
+
+def _patch_subprocess_run(monkeypatch):
+    """Replace packager.subprocess.run with a stub recording the last args."""
+    captured = {"args": None, "calls": 0}
+
+    class _Result:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        captured["calls"] += 1
+        return _Result()
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.subprocess.run", fake_run)
+    return captured
+
+
+@pytest.mark.parametrize(
+    ("platform", "env_value", "expected_args"),
+    [
+        ("darwin", "", ("--link-mode", "hardlink")),
+        ("linux", "", ()),
+        ("darwin", "False", ()),
+        ("linux", "True", ("--link-mode", "hardlink")),
+    ],
+)
+def test_link_mode_args_from_platform_and_env(
+    monkeypatch, platform, env_value, expected_args
+):
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setattr(
+        "xorq.config.env_config", env_config.clone(XORQ_UV_USE_HARDLINK=env_value)
+    )
+    monkeypatch.setattr(options.uv, "use_hardlink", _default_use_hardlink())
+    assert _link_mode_args() == expected_args
+
+
+@pytest.mark.parametrize(
+    ("platform", "env_value", "expected"),
+    [
+        # No env override → sys.platform decides.
+        ("darwin", "", True),
+        ("linux", "", False),
+        # Env override beats sys.platform default.
+        ("darwin", "False", False),
+        ("linux", "True", True),
+    ],
+)
+def test_default_use_hardlink(monkeypatch, platform, env_value, expected):
+    """``sys.platform`` and ``env_config.XORQ_UV_USE_HARDLINK`` are
+    monkeypatched (pytest restores both on teardown), so each parametrize
+    case exercises the function end-to-end with no args."""
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setattr(
+        "xorq.config.env_config", env_config.clone(XORQ_UV_USE_HARDLINK=env_value)
+    )
+    assert _default_use_hardlink() is expected
+
+
+@pytest.mark.parametrize("use_hardlink", [True, False])
+def test_uv_export_requirements_omits_link_mode(tmp_path, monkeypatch, use_hardlink):
+    """uv export reads the lockfile only; ``--link-mode`` would be confused
+    intent even when harmless. Guard against future refactors that splice
+    a shared args builder into uv_export_requirements."""
+    monkeypatch.setattr(options.uv, "use_hardlink", use_hardlink)
+    captured = _patch_subprocess_run(monkeypatch)
+    uv_export_requirements(tmp_path, "3.12")
+    assert "--link-mode" not in captured["args"]
+
+
+@pytest.mark.parametrize(
+    ("use_hardlink", "flag_present"),
+    [(True, True), (False, False)],
+)
+def test_uv_tool_run_propagates_link_mode(monkeypatch, use_hardlink, flag_present):
+    monkeypatch.setattr(options.uv, "use_hardlink", use_hardlink)
+    captured = _patch_subprocess_run(monkeypatch)
+    uv_tool_run("xorq", "--version", capture_output=False)
+    args = captured["args"]
+    assert ("--link-mode" in args) is flag_present
+    if flag_present:
+        assert args[args.index("--link-mode") + 1] == "hardlink"
+
+
+@pytest.mark.parametrize(
+    ("use_hardlink", "flag_present"),
+    [(True, True), (False, False)],
+)
+def test_wheel_packager_build_wheel_propagates_link_mode(
+    tmp_path, monkeypatch, use_hardlink, flag_present
+):
+    monkeypatch.setattr(options.uv, "use_hardlink", use_hardlink)
+    _make_pyproject(tmp_path)
+    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
+    captured = _patch_subprocess_run(monkeypatch)
+    WheelPackager(tmp_path)._build_wheel()
+    args = captured["args"]
+    assert ("--link-mode" in args) is flag_present
+    if flag_present:
+        assert args[args.index("--link-mode") + 1] == "hardlink"
 
 
 # ---------------------------------------------------------------------------
