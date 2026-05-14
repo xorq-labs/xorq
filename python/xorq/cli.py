@@ -305,11 +305,9 @@ def run_command(
         ("limit", limit),
     )
 
-    span.add_event("run.params", {k: v for k, v in run_params if v is not None})
-
     try:
         with RunLogger.from_expr_hash(expr_hash, params_tuple=run_params) as rl:
-            rl.log_event("run.start", dict(run_params))
+            rl.log_span_event(span, "run.start", dict(run_params))
 
             with timed() as get_elapsed:
                 try:
