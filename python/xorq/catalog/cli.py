@@ -954,13 +954,15 @@ def _resolve_entry_for_run(catalog, entry):
 def _entry_run_bundle(catalog, entries):
     """Yield a JointBundle suitable for `uv tool run`.
 
-    Single entry: the archive verbatim. Multi-entry: harvest wheels and
-    require byte-identical requirements.txt + matching Python minors.
+    Harvest wheels, requirements.txt, and build_metadata.json directly from
+    each entry's archive (skipping expr.yaml + cloudpickled UDF blobs).
+    Multi-entry additionally requires byte-identical requirements.txt and
+    matching Python minors across entries.
     """
+    import hashlib  # noqa: PLC0415
     import tempfile  # noqa: PLC0415
     import zipfile  # noqa: PLC0415
 
-    from xorq.catalog.zip_utils import extract_build_zip_context  # noqa: PLC0415
     from xorq.ibis_yaml.enums import DumpFiles  # noqa: PLC0415
     from xorq.ibis_yaml.packager import (  # noqa: PLC0415
         JointBundle,
@@ -973,8 +975,35 @@ def _entry_run_bundle(catalog, entries):
     if len(entries) == 1:
         (entry,) = entries
         ce = _resolve_entry_for_run(catalog, entry)
-        with extract_build_zip_context(ce.catalog_path) as src_dir:
-            yield JointBundle.from_build_path(src_dir)
+        with (
+            tempfile.TemporaryDirectory() as harvest_str,
+            zipfile.ZipFile(ce.catalog_path) as zf,
+        ):
+            harvest_dir = Path(harvest_str)
+            wheel_paths = []
+            req_bytes = b""
+            python_pin = None
+            for member in sorted(zf.namelist()):
+                base = Path(member).name
+                if base.endswith(".whl"):
+                    target = harvest_dir / base
+                    target.write_bytes(zf.read(member))
+                    wheel_paths.append(target)
+                elif base == DumpFiles.requirements:
+                    req_bytes = zf.read(member)
+                elif base == DumpFiles.build_metadata:
+                    python_pin = _python_minor_from_metadata_text(
+                        zf.read(member).decode()
+                    )
+            if not wheel_paths:
+                raise click.ClickException("no wheels found in entry")
+            requirements_path = harvest_dir / DumpFiles.requirements
+            requirements_path.write_bytes(req_bytes)
+            yield JointBundle(
+                wheel_paths=tuple(wheel_paths),
+                requirements_path=requirements_path,
+                python_version=python_pin,
+            )
         return
 
     from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
@@ -986,7 +1015,7 @@ def _entry_run_bundle(catalog, entries):
     ):
         span.set_attribute("entries", entries)
         harvest_dir = Path(harvest_str)
-        seen = set()
+        wheel_digests: dict[str, str] = {}
         wheel_paths = []
         req_contents = []
         python_pins = []
@@ -1000,10 +1029,20 @@ def _entry_run_bundle(catalog, entries):
                 names = sorted(zf.namelist())
                 for member in names:
                     base = Path(member).name
-                    if base.endswith(".whl") and base not in seen:
-                        seen.add(base)
+                    if base.endswith(".whl"):
+                        data = zf.read(member)
+                        digest = hashlib.sha256(data).hexdigest()
+                        if base in wheel_digests:
+                            if wheel_digests[base] != digest:
+                                raise click.ClickException(
+                                    f"wheel name collision across entries: "
+                                    f"{base!r} appears with mismatched content "
+                                    f"(entry {entry!r} differs from an earlier entry)"
+                                )
+                            continue
+                        wheel_digests[base] = digest
                         target = harvest_dir / base
-                        target.write_bytes(zf.read(member))
+                        target.write_bytes(data)
                         wheel_paths.append(target)
                 req_member = next(
                     (m for m in names if Path(m).name == DumpFiles.requirements),
