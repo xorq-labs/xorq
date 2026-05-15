@@ -131,6 +131,9 @@ sklearn_pipeline = ...
 xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
 ```
 
+End-to-end sklearn examples live in
+[xorq-labs/xorq-gallery](https://github.com/xorq-labs/xorq-gallery).
+
 ---
 
 # The Catalog
@@ -258,7 +261,7 @@ serve-*` commands.
 
 - **dbt** versions SQL bound to a single warehouse. xorq versions Ibis expressions that run across engines, with the manifest itself as the unit of versioning and lineage.
 - **Dagster / Airflow** orchestrate task DAGs with retry state and checkpoints. xorq has no task graph — expressions stream over Arrow; failures just rerun from the manifest, hitting caches where they exist.
-- **DVC / MLflow** track data and experiments alongside the work. xorq versions the *recipe*: inputs are content-addressed, the artifact is the executable expression, and provides a git-native catalog.
+- **MLflow** tracks experiments alongside the work. xorq versions the *recipe*: inputs are content-addressed, the artifact is the executable expression, and provides a git-native catalog.
 
 ---
 
