@@ -8,6 +8,16 @@ of falling back to the global, data-sensitive HASHER).
 
 from __future__ import annotations
 
+import contextvars
+
+
+# Per-outer-call memo for ``_parent_token``.  Cross-engine nested expressions
+# (``RemoteTable`` containing a ``RemoteTable`` containing …) trigger a fresh
+# ``hasher.tokenize`` of every opaque parent at every level
+_parent_token_memo: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "_xorq_parent_token_memo", default=None
+)
+
 
 def _rename_unbound_xorq(op, prefix="static"):
     """Rewrite UnboundTable nodes to sequential placeholder names.
@@ -60,20 +70,40 @@ def _parent_token(thing):
     Uses ``_current_hasher`` when set (so snapshot tokenize propagates its
     data-blind rules into recursive parent normalization); otherwise falls
     back to the global HASHER.
+
+    Memoized per outer call via :data:`_parent_token_memo` — without this,
+    deep cross-engine ``into_backend`` chains pay O(depth²) re-tokenization
+    of shared parent sub-expressions.  Key includes ``id(hasher)`` so
+    snapshot-flavored and default-flavored calls don't share entries.
     """
     # Lazy: HASHER is constructed in ``__init__`` *after* this module is
     # imported, so a top-level import here would create a bootstrap cycle.
     from xorq.common.utils.dasher import HASHER, _current_hasher  # noqa: PLC0415
 
+    memo = _parent_token_memo.get()
+    is_outer = memo is None
+    if is_outer:
+        memo = {}
+        reset_token = _parent_token_memo.set(memo)
     try:
-        if hasattr(thing, "to_expr") and not hasattr(thing, "op"):
-            thing = thing.to_expr()
-        hasher = _current_hasher.get() or HASHER
-        return hasher.tokenize(thing)
-    except Exception:
-        import xxhash  # noqa: PLC0415
+        try:
+            if hasattr(thing, "to_expr") and not hasattr(thing, "op"):
+                thing = thing.to_expr()
+            hasher = _current_hasher.get() or HASHER
+            op = thing.op() if hasattr(thing, "op") else thing
+            key = (id(hasher), op)
+            if key in memo:
+                return memo[key]
+            tok = hasher.tokenize(thing)
+            memo[key] = tok
+            return tok
+        except Exception:
+            import xxhash  # noqa: PLC0415
 
-        return xxhash.xxh128(repr(thing).encode("utf-8")).hexdigest()
+            return xxhash.xxh128(repr(thing).encode("utf-8")).hexdigest()
+    finally:
+        if is_outer:
+            _parent_token_memo.reset(reset_token)
 
 
 def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
