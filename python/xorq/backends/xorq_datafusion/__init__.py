@@ -566,8 +566,6 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         )
 
     def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
-        import pyarrow.dataset as ds  # noqa: PLC0415
-
         name = op.name
         schema = op.schema
 
@@ -575,6 +573,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         if batches := op.data.to_pyarrow(schema).to_batches():
             self.con.register_record_batches(name, [batches])
         else:
+            import pyarrow.dataset as ds  # noqa: PLC0415
+
             empty_dataset = ds.dataset([], schema=schema.to_pyarrow())
             self.con.register_dataset(name=name, dataset=empty_dataset)
 
