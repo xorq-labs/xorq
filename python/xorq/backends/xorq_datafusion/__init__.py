@@ -6,12 +6,14 @@ import inspect
 import typing
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pandas as pd
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import pyarrow.dataset as ds
+
 import pyarrow as pa
-import pyarrow.dataset as ds
-import pyarrow.parquet as pq
 import pyarrow_hotfix  # noqa: F401
 import sqlglot as sg
 import sqlglot.expressions as sge
@@ -289,16 +291,14 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                     self.con.register_udaf(udaf)
 
     def _compile_pyarrow_expr_udf(self, udf_node):
-        def extract_computed_arg(expr):
-            value = expr.execute()
-            if isinstance(value, pd.DataFrame):
-                if value.shape != (1, 1):
-                    raise ValueError
-                ((value,),) = value.values
-            value = udf_node.post_process_fn(value)
-            return value
+        import pandas as pd  # noqa: PLC0415
 
-        computed_arg = extract_computed_arg(udf_node.computed_kwargs_expr)
+        value = udf_node.computed_kwargs_expr.execute()
+        if isinstance(value, pd.DataFrame):
+            if value.shape != (1, 1):
+                raise ValueError
+            ((value,),) = value.values
+        computed_arg = udf_node.post_process_fn(value)
         return df.udf(
             functools.partial(udf_node.__func__, computed_arg=computed_arg),
             input_types=[PyArrowType.from_ibis(arg.dtype) for arg in udf_node.args],
@@ -458,68 +458,48 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             Datafusion-specific keyword arguments
 
         """
+        import pandas as pd  # noqa: PLC0415
+        import pyarrow.dataset as ds  # noqa: PLC0415
+
+        # Phase 1: resolve ir.Expr to a concrete type before dispatch.
         if isinstance(source, ir.Expr):
-            backends, has_unbound = source._find_backends()
-            if len(backends) > 1:
-                raise ValueError("Multiple backends found for this expression")
-            elif len(backends) == 1 and isinstance(backends[0], Backend):
-                # Compile to native DataFrame — avoids IbisTableProvider nested tokio panic
-                backend = backends[0]
-                backend._register_udfs(source)
-                backend._register_in_memory_tables(source)
-                raw_sql = backend.compile(source.as_table(), **kwargs)
-                source = backend.con.sql(raw_sql)
-            elif not backends and not has_unbound:
-                source = self.execute(source)
-            elif has_unbound:
-                raise ValueError(
-                    "Cannot register an expression with unbound tables; "
-                    "bind all tables to a backend before registering"
-                )
+            source = self._resolve_expr_for_register(source)
 
         table_name = table_name or gen_name("register")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
 
+        # Phase 2: path sources delegate entirely to read helpers.
         if isinstance(source, (str, Path)):
-            first = str(source)
-            if first.startswith(("parquet://", "parq://")) or first.endswith(
-                ("parq", "parquet")
-            ):
-                return self.read_parquet(source, table_name=table_name, **kwargs)
-            elif first.startswith(("csv://", "txt://")) or first.endswith(
-                ("csv", "tsv", "txt")
-            ):
-                return self.read_csv(source, table_name=table_name, **kwargs)
-            else:
-                self._register_failure()
+            return self._register_path(str(source), table_name=table_name, **kwargs)
 
+        # Phase 3: normalize pandas DataFrame to Arrow Table before dispatch.
         if isinstance(source, pd.DataFrame):
             source = pa.Table.from_pandas(source)
             source = source.drop(
-                filter(
-                    lambda col: col.startswith("__index_level_"), source.column_names
-                )
+                [col for col in source.column_names if col.startswith("__index_level_")]
             )
 
-        if isinstance(source, pa.RecordBatchReader) and "ordering" in kwargs:
-            kwargs["sort_order"] = self._translate_sort(kwargs.pop("ordering"))
-
+        # Phase 4: dispatch to the DataFusion registration API.
         self.con.deregister_table(table_ident)
         match source:
             case pa.Table():
                 self.con.register_record_batches(table_ident, [source.to_batches()])
             case pa.RecordBatch():
                 self.con.register_record_batches(table_ident, [[source]])
+            case pa.RecordBatchReader():
+                if "ordering" in kwargs:
+                    kwargs["sort_order"] = self._translate_sort(kwargs.pop("ordering"))
+                self.con.register_record_batch_reader(table_ident, source, **kwargs)
             case ds.Dataset():
                 self.con.register_dataset(table_ident, source)
             case ir.Table():
+                # Cross-backend expr: IbisTableProvider executes via source's own backend.
                 self.con.register_table_provider(table_ident, IbisTableProvider(source))
             case ir.Expr():
+                # Cross-backend non-table expr: materialize via source's own backend.
                 self.con.register_record_batch_reader(
                     table_ident, source.to_pyarrow_batches()
                 )
-            case pa.RecordBatchReader():
-                self.con.register_record_batch_reader(table_ident, source, **kwargs)
             case Table():
                 self.con.register_table(table_ident, source)
             case DataFrame():
@@ -528,6 +508,40 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 raise ValueError(f"Unknown `source` type {type(source)}")
 
         return self.table(table_name)
+
+    def _resolve_expr_for_register(self, source: ir.Expr) -> Any:
+        backends, has_unbound = source._find_backends()
+        if has_unbound:
+            raise ValueError(
+                "Cannot register an expression with unbound tables; "
+                "bind all tables to a backend before registering"
+            )
+        if len(backends) > 1:
+            raise ValueError("Multiple backends found for this expression")
+        if not backends:
+            # Pure in-memory expr (e.g. memtable): materialize now.
+            return self.execute(source)
+        backend = backends[0]
+        if not isinstance(backend, Backend):
+            # Cross-backend expr: leave as ir.Expr; match arms handle it.
+            return source
+        # Same-backend DataFusion expr: compile to native DataFrame to avoid
+        # nested tokio runtime panic that IbisTableProvider.scan() would cause.
+        backend._register_udfs(source)
+        backend._register_in_memory_tables(source)
+        raw_sql = backend.compile(source.as_table())
+        return backend.con.sql(raw_sql)
+
+    def _register_path(self, path: str, table_name: str, **kwargs) -> ir.Table:
+        if path.startswith(("parquet://", "parq://")) or path.endswith(
+            ("parq", "parquet")
+        ):
+            return self.read_parquet(path, table_name=table_name, **kwargs)
+        if path.startswith(("csv://", "txt://")) or path.endswith(
+            ("csv", "tsv", "txt")
+        ):
+            return self.read_csv(path, table_name=table_name, **kwargs)
+        self._register_failure()
 
     def register_table_provider(
         self,
@@ -550,6 +564,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         )
 
     def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
+        import pyarrow.dataset as ds  # noqa: PLC0415
+
         name = op.name
         schema = op.schema
 
@@ -844,6 +860,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         params: Mapping[ir.Scalar, Any] | None = None,
         **kwargs: Any,
     ) -> None:
+        import pyarrow.parquet as pq  # noqa: PLC0415
+
         with expr.to_pyarrow_batches(params=params) as batch_reader:
             with pq.ParquetWriter(path, batch_reader.schema, **kwargs) as writer:
                 for batch in batch_reader:
