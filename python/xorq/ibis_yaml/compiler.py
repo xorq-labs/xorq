@@ -241,9 +241,7 @@ def _sanitize_generated_names(expr, normalize_method):
     for node in walk_nodes((InMemoryTable, Read), expr):
         if isinstance(node, InMemoryTable):
             if prefix := get_uid_prefix(node.name):
-                name = (
-                    f"{prefix}{tokenize(recreate(node, name='name').to_expr())}"
-                )
+                name = f"{prefix}{tokenize(recreate(node, name='name').to_expr())}"
                 replacements[node] = recreate(
                     node, name=name, normalize_method=normalize_method
                 )

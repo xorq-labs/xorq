@@ -36,6 +36,7 @@ from xorq.common.utils.dasher import HASHER, tokenize
 from xorq.common.utils.defer_utils import normalize_read_path_stat
 from xorq.expr.udf import agg, make_pandas_expr_udf
 
+
 # --- file-change invalidation ---------------------------------------------
 
 

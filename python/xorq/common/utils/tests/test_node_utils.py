@@ -150,9 +150,7 @@ def test_expr_to_unbound(expr_to_hash, tag_value):
 
     expr_cached = dct["expr_cached"]
     (to_replace_hash, to_replace_tag) = (
-        (tokenize(dct[expr_to_hash]), None)
-        if expr_to_hash
-        else (None, tag_value)
+        (tokenize(dct[expr_to_hash]), None) if expr_to_hash else (None, tag_value)
     )
 
     unbound = expr_to_unbound(expr_cached, to_replace_hash, to_replace_tag, None)
