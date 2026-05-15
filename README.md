@@ -21,7 +21,7 @@ git-native catalog for publishing and reusing them.
 Additionally, Xorq context engine comes with:
 1. Embedded [DataFusion](https://datafusion.apache.org) based engine
 2. Deterministic Caching
-3. Arrow-native with Arrow Flight RPC support
+3. [Arrow](https://arrow.apache.org) Flight-based serving
 
 ![xorq catalog TUI](docs/images/catalog-tui.png)
 
