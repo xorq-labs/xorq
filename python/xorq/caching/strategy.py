@@ -25,6 +25,7 @@ from xorq.common.utils.dasher import (
     fqn,
     snapshot_hasher,
     tokenize,
+    with_caches,
 )
 from xorq.config import options
 from xorq.expr.relations import (
@@ -81,6 +82,7 @@ class ModificationTimeStrategy(CacheStrategy):
 
 @frozen
 class SnapshotStrategy(CacheStrategy):
+    @with_caches
     def calc_key(self, expr: ir.Expr):
         with self.normalization_context(expr) as local:
             replaced = self._replace_remote_table(expr, local)

@@ -9,11 +9,26 @@ ep_str-only DT rule loses.
 
 from __future__ import annotations
 
+import contextvars
+
 from xorq.common.utils.dasher._opaque import _rename_unbound_xorq
 from xorq.common.utils.dasher._paths import (
     _extract_datafusion_plan_paths,
     _extract_duckdb_file_paths,
     _stat_or_canonical,
+)
+
+
+# Per-outer-call memo for ``_databasetable_dispatcher``.  Cross-engine nested
+# expressions cause the same underlying ``DatabaseTable`` to be normalized
+# many times (``walk_nodes(DatabaseTable, op)`` descends through opaque
+# sub-expressions, so each recursive ``_normalize_expr_xorq`` invocation
+# returns the same deep DTs again).  Each call hits ``to_pyarrow_batches``
+# on the underlying table — for an 8-level ``into_backend`` chain this is
+# 1280 conversions of the same data.  The memo collapses it back to one
+# per unique DT, per outer tokenize call.
+_dt_normalize_memo: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "_xorq_dt_normalize_memo", default=None
 )
 
 
@@ -175,7 +190,29 @@ def _databasetable_dispatcher(dt):
     rule outranks the more-specific Read/CachedNode/RemoteTable rules in
     MRO-with-earliest-match-wins lookup. This wrapper restores the
     most-specific-wins behavior xorq depends on.
+
+    Memoized per outer call via :data:`_dt_normalize_memo` — see the
+    contextvar's docstring for the perf rationale.  Result is a pure
+    function of ``dt`` (the per-subclass normalizers don't consult the
+    active hasher), so the memo doesn't need to key on it.
     """
+    memo = _dt_normalize_memo.get()
+    is_outer = memo is None
+    if is_outer:
+        memo = {}
+        reset_token = _dt_normalize_memo.set(memo)
+    try:
+        if dt in memo:
+            return memo[dt]
+        result = _dispatch_databasetable(dt)
+        memo[dt] = result
+        return result
+    finally:
+        if is_outer:
+            _dt_normalize_memo.reset(reset_token)
+
+
+def _dispatch_databasetable(dt):
     from xorq_dasher.rules.expr import (  # noqa: PLC0415
         normalize_cached_node,
         normalize_databasetable,

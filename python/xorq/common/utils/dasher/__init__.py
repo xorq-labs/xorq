@@ -133,11 +133,55 @@ def _build_extra_rules():
 HASHER: Hasher = DEFAULT_HASHER.override(*_build_extra_rules())
 
 
+def _install_per_call_memos():
+    """Install per-call memos for the duration of one outer tokenize/normalize.
+
+    Returns the list of contextvar reset tokens; the caller must reset each
+    in ``finally``.  Only installs each memo if it isn't already set, so
+    nested ``tokenize`` calls share the outermost memo (snapshot strategy
+    cooperatively installs the same memos via :func:`with_caches`).
+    """
+    from xorq.common.utils.dasher._opaque import _parent_token_memo  # noqa: PLC0415
+    from xorq.common.utils.dasher._relations import _dt_normalize_memo  # noqa: PLC0415
+
+    tokens = []
+    if _parent_token_memo.get() is None:
+        tokens.append((_parent_token_memo, _parent_token_memo.set({})))
+    if _dt_normalize_memo.get() is None:
+        tokens.append((_dt_normalize_memo, _dt_normalize_memo.set({})))
+    return tokens
+
+
+def _reset_per_call_memos(tokens):
+    for var, token in tokens:
+        var.reset(token)
+
+
+def with_caches(fn):
+    """Wrap a callable so a single invocation installs+tears down the dasher
+    per-call memos.  Use at user-facing entry points (``tokenize``,
+    ``SnapshotStrategy.calc_key``) so all rule invocations within the call
+    share the same memos."""
+    import functools  # noqa: PLC0415
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        tokens = _install_per_call_memos()
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _reset_per_call_memos(tokens)
+
+    return wrapper
+
+
+@with_caches
 def tokenize(*objs) -> str:
     """Return a deterministic hex digest for one or more objects."""
     return HASHER.tokenize(*objs)
 
 
+@with_caches
 def normalize(obj):
     """Return the primitive-tuple normalization of an object."""
     return HASHER.normalize(obj)
