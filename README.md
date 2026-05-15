@@ -18,6 +18,10 @@
 Xorq is a CLI and a TUI application for building data pipelines as
 content-addressed [Ibis](https://ibis-project.org) expressions, with a
 git-native catalog for publishing and reusing them.
+Additionally, Xorq context engine comes with:
+1. Embedded [DataFusion](https://datafusion.apache.org) based engine
+2. Deterministic Caching
+3. Arrow-native with Arrow Flight RPC support
 
 ![xorq catalog TUI](docs/images/catalog-tui.png)
 
