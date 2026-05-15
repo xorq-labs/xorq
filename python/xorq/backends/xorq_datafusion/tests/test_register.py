@@ -1,5 +1,6 @@
 import pandas as pd
 import pyarrow as pa
+import pytest
 
 import xorq.api as xo
 
@@ -26,3 +27,10 @@ def test_register_table_provider():
     # None table_name generates a name; returned table reflects it
     t = con.register_table_provider(source)
     assert t.get_name() in con.list_tables()
+
+
+def test_register_unbound_expr_raises():
+    con = xo.connect()
+    t = xo.table({"a": "int64"}, name="unbound")
+    with pytest.raises(ValueError, match="unbound tables"):
+        con.register(t)
