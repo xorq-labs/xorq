@@ -240,7 +240,6 @@ git history side-by-side.
 ❯ xorq catalog list-aliases
 penguins-agg
 
-xorq hussain/docs/readme-context-engine* ≡
 ❯ xorq catalog list
 fa2122f6a9e9
 ```
