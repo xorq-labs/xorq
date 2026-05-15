@@ -10,12 +10,16 @@ from __future__ import annotations
 
 import contextvars
 
-
 # Per-outer-call memo for ``_parent_token``.  Cross-engine nested expressions
 # (``RemoteTable`` containing a ``RemoteTable`` containing …) trigger a fresh
 # ``hasher.tokenize`` of every opaque parent at every level
 _parent_token_memo: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
     "_xorq_parent_token_memo", default=None
+)
+
+# Per-outer-call memo for ``_normalize_expr_xorq`` keyed by ``op``.
+_expr_normalize_memo: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "_xorq_expr_normalize_memo", default=None
 )
 
 
@@ -273,7 +277,22 @@ def _normalize_scalar_udf_xorq(udf):
 
 
 def _normalize_expr_xorq(expr):
-    """Deterministic Expr normalizer; replaces dasher's id()-based version."""
+    """Deterministic Expr normalizer; replaces dasher's id()-based version.
+
+    Memoized per outer call via :data:`_expr_normalize_memo` keyed by ``op``
+    (the same underlying op tree always produces the same normalization).
+    """
+    op = expr.op()
+    memo = _expr_normalize_memo.get()
+    if memo is not None and op in memo:
+        return memo[op]
+    result = _normalize_expr_xorq_impl(expr, op)
+    if memo is not None:
+        memo[op] = result
+    return result
+
+
+def _normalize_expr_xorq_impl(expr, op):
     from xorq_dasher.rules.expr import normalize_inmemorytable  # noqa: PLC0415
 
     from xorq.common.utils.graph_utils import replace_nodes, walk_nodes  # noqa: PLC0415
@@ -285,7 +304,6 @@ def _normalize_expr_xorq(expr):
     )
     from xorq.vendor.ibis.expr.operations.udf import AggUDF, ScalarUDF  # noqa: PLC0415
 
-    op = expr.op()
     compiler = get_compiler(expr)
     # Use replace_nodes (not op.replace) so the opaque-placeholder rewrite
     # descends into Any-typed sub-expressions (RemoteTable.remote_expr,

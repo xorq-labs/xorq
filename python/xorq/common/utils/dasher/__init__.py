@@ -141,7 +141,10 @@ def _install_per_call_memos():
     nested ``tokenize`` calls share the outermost memo (snapshot strategy
     cooperatively installs the same memos via :func:`with_caches`).
     """
-    from xorq.common.utils.dasher._opaque import _parent_token_memo  # noqa: PLC0415
+    from xorq.common.utils.dasher._opaque import (  # noqa: PLC0415
+        _expr_normalize_memo,
+        _parent_token_memo,
+    )
     from xorq.common.utils.dasher._relations import _dt_normalize_memo  # noqa: PLC0415
 
     tokens = []
@@ -149,6 +152,8 @@ def _install_per_call_memos():
         tokens.append((_parent_token_memo, _parent_token_memo.set({})))
     if _dt_normalize_memo.get() is None:
         tokens.append((_dt_normalize_memo, _dt_normalize_memo.set({})))
+    if _expr_normalize_memo.get() is None:
+        tokens.append((_expr_normalize_memo, _expr_normalize_memo.set({})))
     return tokens
 
 
