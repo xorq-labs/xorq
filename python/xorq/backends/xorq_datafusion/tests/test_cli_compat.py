@@ -88,7 +88,7 @@ def test_python_udf_process_exits_cleanly(tmp_path):
         timeout=30,
         capture_output=True,
     )
-    assert result.returncode == 0, result.stderr.decode()
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
     assert sentinel.exists(), (
         "atexit did not run — process likely hung or called os._exit"
     )

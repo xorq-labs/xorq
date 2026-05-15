@@ -83,9 +83,7 @@ def map_cast(cast, kwargs=None):
 def map_sort_key(key, kwargs=None):
     # ibis 12 renamed SortKey.expr → SortKey.arg; support both upstream
     # versions since the vendored copy still uses expr.
-    src = getattr(key, "arg", None)
-    if src is None:
-        src = key.expr
+    src = key.arg if hasattr(key, "arg") else key.expr
     return ops.SortKey(
         expr=map_ibis(src, None),
         ascending=key.ascending,
