@@ -212,7 +212,7 @@ class RunLogger:
         self._fh.flush()
 
     def log_span_event(self, span, event: str, fields: dict = None):
-        """Log to both the run log and an OTel span. Cleans up OTel re #1940."""
+        """Log to both the run log and an OTel span."""
         self.log_event(event, fields)
         if span is not None:
             span.add_event(
