@@ -36,7 +36,6 @@ from xorq.common.utils.dasher import HASHER, tokenize
 from xorq.common.utils.defer_utils import normalize_read_path_stat
 from xorq.expr.udf import agg, make_pandas_expr_udf
 
-
 # --- file-change invalidation ---------------------------------------------
 
 
@@ -252,3 +251,160 @@ def test_canonicalize_catalog_path_passes_through_non_catalog():
     canonical, did_strip = _canonicalize_catalog_path(raw)
     assert not did_strip
     assert canonical == raw
+
+
+@pytest.mark.parametrize(
+    "ep_str, expected",
+    [
+        (
+            "DataSourceExec: partitions=1, partition_sizes=[1]",
+            (),
+        ),
+        (
+            "DataSourceExec: file_groups={1 group: [[tmp/path/file.parquet]]}, file_type=parquet",
+            ("/tmp/path/file.parquet",),
+        ),
+        (
+            "DataSourceExec: file_groups={2 groups: [[tmp/a.parquet], [tmp/b.parquet]]}, file_type=parquet",
+            ("/tmp/a.parquet", "/tmp/b.parquet"),
+        ),
+        (
+            "DataSourceExec: file_groups={1 group: [[tmp/a.parquet, tmp/b.parquet]]}, file_type=parquet",
+            ("/tmp/a.parquet", "/tmp/b.parquet"),
+        ),
+        (
+            "DataSourceExec: file_groups={1 group: [[/tmp/already/absolute.parquet]]}, file_type=parquet",
+            ("/tmp/already/absolute.parquet",),
+        ),
+        (
+            "DataSourceExec: file_groups={1 group: [[tmp/data.csv]]}, file_type=csv, has_header=true",
+            ("/tmp/data.csv",),
+        ),
+        (
+            "DataSourceExec: file_groups={1 group: [[https://example.com/data.parquet]]}, file_type=parquet",
+            ("https://example.com/data.parquet",),
+        ),
+    ],
+)
+def test_extract_datafusion_plan_paths(ep_str, expected):
+    from xorq.common.utils.dasher import _extract_datafusion_plan_paths  # noqa: PLC0415
+
+    assert _extract_datafusion_plan_paths(ep_str) == expected
+
+
+@pytest.mark.parametrize(
+    "ddl, expected",
+    [
+        (
+            "CREATE VIEW v AS SELECT * FROM read_parquet('/tmp/file.parquet')",
+            ("/tmp/file.parquet",),
+        ),
+        (
+            "CREATE VIEW v AS SELECT * FROM read_parquet(['/tmp/a.parquet', '/tmp/b.parquet'])",
+            ("/tmp/a.parquet", "/tmp/b.parquet"),
+        ),
+        (
+            "CREATE VIEW v AS SELECT * FROM read_csv('/tmp/file.csv')",
+            ("/tmp/file.csv",),
+        ),
+        (
+            "CREATE TABLE t (a BIGINT, b DOUBLE)",
+            (),
+        ),
+        (
+            "CREATE VIEW v AS SELECT * FROM read_parquet('https://example.com/data.parquet')",
+            ("https://example.com/data.parquet",),
+        ),
+    ],
+)
+def test_extract_duckdb_file_paths(ddl, expected):
+    from xorq.common.utils.dasher import _extract_duckdb_file_paths  # noqa: PLC0415
+
+    assert _extract_duckdb_file_paths(ddl) == expected
+
+
+# --- multi-path cache-key invalidation -------------------------------------
+
+
+def test_duckdb_multi_path_cache_key_invalidates_on_file_change(tmp_path):
+    """ParquetCache key changes when one of multiple parquet files backing a view changes."""
+    df = pd.DataFrame({"a": [1, 2, 3], "b": [1.0, 2.0, 3.0]})
+    path1 = tmp_path / "part1.parquet"
+    path2 = tmp_path / "part2.parquet"
+    df.to_parquet(path1)
+    df.to_parquet(path2)
+
+    con = xo.duckdb.connect()
+    con.raw_sql(
+        f"CREATE VIEW test_view AS SELECT * FROM read_parquet(['{path1}', '{path2}'])"
+    )
+    cache = ParquetCache.from_kwargs(
+        source=con, relative_path="cache", base_path=tmp_path
+    )
+    key_before = cache.calc_key(con.table("test_view"))
+
+    # Modify only path1 — cache key must change even though path2 is unchanged.
+    df.iloc[:1].to_parquet(path1)
+
+    con2 = xo.duckdb.connect()
+    con2.raw_sql(
+        f"CREATE VIEW test_view AS SELECT * FROM read_parquet(['{path1}', '{path2}'])"
+    )
+    cache2 = ParquetCache.from_kwargs(
+        source=con2, relative_path="cache", base_path=tmp_path
+    )
+    key_after = cache2.calc_key(con2.table("test_view"))
+
+    assert key_before != key_after
+
+
+def test_xorq_multi_csv_path_cache_key_invalidates_on_file_change(tmp_path):
+    """ParquetCache key changes when one of multiple CSV files backing an xorq table changes."""
+    df = pd.DataFrame({"a": [1, 2, 3], "b": [1.0, 2.0, 3.0]})
+    path1 = tmp_path / "part1.csv"
+    path2 = tmp_path / "part2.csv"
+    df.to_csv(path1, index=False)
+    df.to_csv(path2, index=False)
+
+    con = xo.connect()
+    con.read_csv([path1, path2], table_name="t")
+    cache = ParquetCache.from_kwargs(
+        source=con, relative_path="cache", base_path=tmp_path
+    )
+    key_before = cache.calc_key(con.table("t"))
+
+    df.iloc[:1].to_csv(path1, index=False)
+
+    con2 = xo.connect()
+    con2.read_csv([path1, path2], table_name="t")
+    cache2 = ParquetCache.from_kwargs(
+        source=con2, relative_path="cache", base_path=tmp_path
+    )
+    key_after = cache2.calc_key(con2.table("t"))
+
+    assert key_before != key_after
+
+
+# --- HTTP-backed table stability -------------------------------------------
+
+_ASTRONAUTS_CSV_URL = (
+    "https://raw.githubusercontent.com/ibis-project/testing-data/"
+    "refs/heads/master/csv/astronauts.csv"
+)
+
+
+def _duckdb_http_csv_table():
+    con = xo.duckdb.connect()
+    con.read_csv(_ASTRONAUTS_CSV_URL, table_name="t")
+    return con.table("t")
+
+
+@pytest.mark.parametrize("make_table", [_duckdb_http_csv_table], ids=["duckdb"])
+def test_http_csv_token_is_stable(make_table):
+    """Token for an HTTP-backed CSV table is deterministic across repeated tokenization.
+
+    Only DuckDB is exercised here: xorq/DataFusion strips scheme+host from HTTP
+    URLs, rendering them as local-looking paths that ``_normalize_path_stat``
+    cannot resolve (covered by the older xfail test in test_dask_normalize).
+    """
+    assert tokenize(make_table()) == tokenize(make_table())

@@ -148,19 +148,21 @@ class SnapshotStrategy(CacheStrategy):
 
     @staticmethod
     def normalize_databasetable(dt):
-        # Read and CachedNode are subclasses of DatabaseTable. Dasher's
-        # earliest-match-wins MRO lookup picks this DatabaseTable rule over
-        # the more specific Read/CachedNode rules, so we must isinstance-
-        # dispatch here or those subclasses get a wrong (path/parent-blind)
-        # normalization.
-        if isinstance(dt, Read):
-            return snapshot_normalize_read(dt)
-        if isinstance(dt, CachedNode):
-            return normalize_cached_node(dt)
-        if isinstance(dt, RemoteTable):
-            return normalize_remote_table(dt)
-        keys = ("name", "schema", "source", "namespace")
-        return tuple((k, getattr(dt, k)) for k in keys)
+        # Read, CachedNode, and RemoteTable are subclasses of DatabaseTable.
+        # Dasher's earliest-match-wins MRO lookup picks this DatabaseTable
+        # rule over the more specific subclass rules, so we must dispatch on
+        # the concrete type here or those subclasses get a wrong (path-,
+        # parent-, or remote_expr-blind) normalization.
+        match dt:
+            case Read():
+                return snapshot_normalize_read(dt)
+            case CachedNode():
+                return normalize_cached_node(dt)
+            case RemoteTable():
+                return normalize_remote_table(dt)
+            case _:
+                keys = ("name", "schema", "source", "namespace")
+                return tuple((k, getattr(dt, k)) for k in keys)
 
 
 __all__ = [
