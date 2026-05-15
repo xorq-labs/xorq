@@ -6,7 +6,7 @@ import inspect
 import typing
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 
 if TYPE_CHECKING:
@@ -296,7 +296,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         value = udf_node.computed_kwargs_expr.execute()
         if isinstance(value, pd.DataFrame):
             if value.shape != (1, 1):
-                raise ValueError
+                raise ValueError(
+                    f"Expected scalar (1,1) DataFrame, got shape {value.shape}"
+                )
             ((value,),) = value.values
         computed_arg = udf_node.post_process_fn(value)
         return df.udf(
@@ -463,7 +465,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         # Phase 1: resolve ir.Expr to a concrete type before dispatch.
         if isinstance(source, ir.Expr):
-            source = self._resolve_expr_for_register(source)
+            source = self._resolve_expr_for_register(source, **kwargs)
 
         table_name = table_name or gen_name("register")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
@@ -509,7 +511,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         return self.table(table_name)
 
-    def _resolve_expr_for_register(self, source: ir.Expr) -> Any:
+    def _resolve_expr_for_register(self, source: ir.Expr, **kwargs) -> Any:
         backends, has_unbound = source._find_backends()
         if has_unbound:
             raise ValueError(
@@ -529,7 +531,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         # nested tokio runtime panic that IbisTableProvider.scan() would cause.
         backend._register_udfs(source)
         backend._register_in_memory_tables(source)
-        raw_sql = backend.compile(source.as_table())
+        raw_sql = backend.compile(source.as_table(), **kwargs)
         return backend.con.sql(raw_sql)
 
     def _register_path(self, path: str, table_name: str, **kwargs) -> ir.Table:
@@ -554,7 +556,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         self.con.register_table_provider(table_ident, IbisTableProvider(source))
         return self.table(table_name)
 
-    def _register_failure(self):
+    def _register_failure(self) -> NoReturn:
         msg = ", ".join(
             m[0] for m in inspect.getmembers(self) if m[0].startswith("read_")
         )
