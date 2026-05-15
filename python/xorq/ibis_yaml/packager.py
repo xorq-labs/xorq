@@ -490,7 +490,13 @@ def uv_tool_run(
         env = _nix_env()
         if env is not None:
             kwargs["env"] = env
-        return subprocess.run(run_args, check=check, **kwargs)
+        try:
+            return subprocess.run(run_args, check=check, **kwargs)
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(
+                f"uv tool run failed (exit {e.returncode}):\n"
+                f"{e.stderr or ''}{e.stdout or ''}"
+            ) from e
 
 
 def uv_export_requirements(project_dir, python_version, extras=(), all_extras=True):
