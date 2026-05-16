@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778939810749,
+  "lastUpdate": 1778946070704,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -12576,6 +12576,114 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.01330645261496532",
             "extra": "mean: 4.600171305803512 msec\nrounds: 448"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "paddy@paddymullen.com",
+            "name": "Paddy Mullen",
+            "username": "paddymul"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "463314d6d670141af597915f5a9c86cf2bf55df4",
+          "message": "fix(logging): drop None attribute values from RunLogger.log_span_event (#1940) (#1944)\n\n## Summary\n\nWhen calling `add_event` with a dictionary with `None` values a warning\nis thrown that a user can't act on of:\n\n```\nInvalid type NoneType for attribute 'limit' value. Expected one of\n['bool', 'str', 'bytes', 'int', 'float'] or a sequence of those types\n```\n\nCall sites previously had to protect calls to `log_span_event` with\ndictionary comprehensions like\n```\nspan.add_event(\"run.params\", {k: v for k, v in run_params if v is not None})\n```\nThis PR builds that dictionary comprehension into `log_span_event`. it\ndoesn't protect an `add_event` call like above.\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\nCo-authored-by: Dan Lovell <dlovell@gmail.com>",
+          "timestamp": "2026-05-16T11:36:30-04:00",
+          "tree_id": "115efd7a335e4b0e576901a6af825756b1298ace",
+          "url": "https://github.com/xorq-labs/xorq/commit/463314d6d670141af597915f5a9c86cf2bf55df4"
+        },
+        "date": 1778946067919,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.609703843996858,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00399164478374258",
+            "extra": "mean: 104.06147954545925 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.3135581692780485,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07058150716015946",
+            "extra": "mean: 432.2346476000007 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6643342773311275,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18426352335519477",
+            "extra": "mean: 1.5052663005999989 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.2914329911994784,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06277804267325252",
+            "extra": "mean: 436.4081358000078 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.3283828720484285,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05618736076550166",
+            "extra": "mean: 429.4826302000047 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.341234907183481,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05488158294268792",
+            "extra": "mean: 427.1250172000066 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[simple_filter_agg]",
+            "value": 201.9535623926046,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013551517541678541",
+            "extra": "mean: 4.951633376270758 msec\nrounds: 295"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[pipeline_50_steps]",
+            "value": 5.8017358646727315,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10185254986718792",
+            "extra": "mean: 172.3622073333407 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[nested_into_backend]",
+            "value": 48.547408713513455,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00649779886307739",
+            "extra": "mean: 20.598421759257445 msec\nrounds: 54"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[simple_filter_agg]",
+            "value": 304.69307194516506,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0056395219579505555",
+            "extra": "mean: 3.2819912629321872 msec\nrounds: 464"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[pipeline_50_steps]",
+            "value": 266.71299261480095,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011337845338721685",
+            "extra": "mean: 3.749348654507602 msec\nrounds: 466"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[nested_into_backend]",
+            "value": 294.51296864377235,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005829645761057545",
+            "extra": "mean: 3.395436216629049 msec\nrounds: 457"
           }
         ]
       }
