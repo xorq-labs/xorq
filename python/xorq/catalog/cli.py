@@ -1025,10 +1025,22 @@ def _entry_run_bundle(catalog, entries):
         requirements_path = harvest_dir / DumpFiles.requirements
         requirements_path.write_bytes(req_contents[0][1])
         distinct_pins = {pin for _, pin in python_pins if pin is not None}
+        unpinned = [e for e, pin in python_pins if pin is None]
         if len(distinct_pins) > 1:
             detail = ", ".join(f"{e!r}={pin}" for e, pin in python_pins)
             raise click.ClickException(
                 f"entries built on different Python minors: {detail}"
+            )
+        if distinct_pins and unpinned:
+            # Mixing pinned + unpinned: the unpinned archive predates
+            # build_metadata.json, so we can't verify its UDFs were
+            # cloudpickled on the same minor we're about to run.
+            joint = next(iter(distinct_pins))
+            click.echo(
+                f"WARNING: entries {unpinned} lack a Python minor pin; "
+                f"running under {joint} but cloudpickled UDFs in those "
+                f"archives may SIGSEGV if built on a different minor.",
+                err=True,
             )
         joint_python = next(iter(distinct_pins), None)
         span.set_attribute("wheel_count", len(wheel_paths))
