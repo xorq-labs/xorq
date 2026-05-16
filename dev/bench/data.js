@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778938532575,
+  "lastUpdate": 1778938942354,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -12360,6 +12360,114 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.007118214287452078",
             "extra": "mean: 3.74567395671985 msec\nrounds: 439"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b86a2c76b183d988a0f8b66d0e5a3a270be4a6a2",
+          "message": "feat(packager): PEP 723 inline metadata for single-script builds (#1956)\n\n## Summary\n\n- Add `--pep723` flag to `xorq uv build` that builds from a standalone\nPEP 723-annotated `.py` script without requiring a `pyproject.toml` or\nuv project\n- Synthesizes an ephemeral project in a tmpdir, resolves dependencies\nvia `uv lock`, and feeds it into the existing `WheelPackager` pipeline\n- Ambiguity detection: raises when a script has inline metadata AND sits\ninside a project directory, forcing the user to choose `--project-path`\nor `--pep723` explicitly\n\n### Design decisions\n\n- Synthetic wheel named per-script (`xorq-script-{stem}`) to avoid\ncollisions when multiple wheels coexist in the same directory\n- Synthesized project creates an empty package dir so hatchling has a\nvalid target; the wheel carries only dependency metadata, the script\nitself is passed separately via `xorq build`\n- `--extra` raises for PEP 723 builds (no optional groups exist);\n`--all-extras` silently ignored since it's the CLI default\n- `xorq_version` param on `synthesize_project` for test fixture pinning\n- `tmpdir.cleanup()` on `uv lock` failure guarded with\n`contextlib.suppress` to avoid masking the original error\n- Case-insensitive xorq dependency detection via `canonicalize_name`\n(PEP 508 compliance)\n\n### Related\n\n- #1957 — surfaces stderr/stdout in `uv_tool_run` failures (split out\nfrom this PR)\n\n## Test plan\n\n- [ ] Standalone script with inline metadata (no project) — builds\nsuccessfully\n- [ ] `--pep723` forces inline metadata even inside a project — builds\nsuccessfully\n- [ ] Script with inline metadata inside a project (no flags) —\nambiguity error\n- [ ] Script without inline metadata inside a project — uses project\n(unchanged behavior)\n- [ ] Script without inline metadata, no project — clear error\n- [ ] `--project-path` + `--pep723` — mutual-exclusion error\n- [ ] `--extra` + `--pep723` — error\n- [ ] `uv lock` failure in `synthesize_project` — wrapped error with\nscript path\n- [ ] `uv build --wheel` on synthesized project produces a valid wheel\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-16T09:36:46-04:00",
+          "tree_id": "0ac7ae31c64df09f6d89dd6be41764cac124e3d8",
+          "url": "https://github.com/xorq-labs/xorq/commit/b86a2c76b183d988a0f8b66d0e5a3a270be4a6a2"
+        },
+        "date": 1778938939403,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.259231323289386,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01304635066081041",
+            "extra": "mean: 108.00032584613571 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.2439716232388878,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03890040589792229",
+            "extra": "mean: 308.26410219999616 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.77269956319409,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1743239813815501",
+            "extra": "mean: 1.2941640550000102 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.20763901129457,
+            "unit": "iter/sec",
+            "range": "stddev: 0.058922657032211403",
+            "extra": "mean: 311.75577940000494 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.064957514849555,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06266852366185377",
+            "extra": "mean: 326.2687965999703 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.93768964035126,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04387611663286554",
+            "extra": "mean: 340.40355600002385 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[simple_filter_agg]",
+            "value": 265.57534661023317,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004225843419374817",
+            "extra": "mean: 3.7654097519361684 msec\nrounds: 387"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[pipeline_50_steps]",
+            "value": 6.6844466181235145,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0830389412928631",
+            "extra": "mean: 149.60101518182577 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[nested_into_backend]",
+            "value": 57.514558428019726,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006087935385515524",
+            "extra": "mean: 17.38690215715581 msec\nrounds: 70"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[simple_filter_agg]",
+            "value": 343.57097453505713,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009299641575276596",
+            "extra": "mean: 2.910606757026742 msec\nrounds: 605"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[pipeline_50_steps]",
+            "value": 367.14923821734254,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008850548295378416",
+            "extra": "mean: 2.7236880698851587 msec\nrounds: 601"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[nested_into_backend]",
+            "value": 291.7080713100942,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012122232798347874",
+            "extra": "mean: 3.4280847818467484 msec\nrounds: 573"
           }
         ]
       }
