@@ -1,5 +1,6 @@
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import click
@@ -12,6 +13,8 @@ from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import (
     _assert_requirements_identical,
     _entry_run_bundle,
+    _forward_ctx_params,
+    _has_expr_modifications,
     _stage_bundle_into_build,
     cli,
 )
@@ -1026,3 +1029,136 @@ def test_catalog_compose_uv_path_end_to_end(
     assert result.returncode == 0, result.stderr
     catalog = Catalog.from_kwargs(path=catalog_path, init=False)
     assert catalog.catalog_yaml.contains_alias("e2e-composed")
+
+
+# --- _has_expr_modifications ---
+
+
+class TestHasExprModifications:
+    @staticmethod
+    def _ctx(**overrides):
+        params = {
+            "fuse": True,
+            "code": None,
+            "limit": None,
+            "raw_params": (),
+            "raw_rename_params": (),
+        }
+        params.update(overrides)
+        return SimpleNamespace(params=params)
+
+    def test_defaults_no_modifications(self):
+        assert _has_expr_modifications(self._ctx()) is False
+
+    def test_no_fuse(self):
+        assert _has_expr_modifications(self._ctx(fuse=False)) is True
+
+    def test_code_set(self):
+        assert _has_expr_modifications(self._ctx(code="source.limit(1)")) is True
+
+    def test_limit_nonzero(self):
+        assert _has_expr_modifications(self._ctx(limit=10)) is True
+
+    def test_limit_zero(self):
+        assert _has_expr_modifications(self._ctx(limit=0)) is True
+
+    def test_raw_params_set(self):
+        assert _has_expr_modifications(self._ctx(raw_params=("k=v",))) is True
+
+    def test_raw_rename_params_set(self):
+        assert (
+            _has_expr_modifications(self._ctx(raw_rename_params=("e,old,new",))) is True
+        )
+
+    def test_empty_tuples_no_modifications(self):
+        assert (
+            _has_expr_modifications(self._ctx(raw_params=(), raw_rename_params=()))
+            is False
+        )
+
+
+# --- _forward_ctx_params ---
+
+
+_fwd_captured_ctx: dict = {}
+
+
+@click.command("_fwd_fake")
+@click.option("--name", default=None)
+@click.option("--count", type=int, default=None)
+@click.option("--flag/--no-flag", default=False)
+@click.option("--multi", multiple=True)
+@click.option("-i", "--instream", type=click.File("rb"), default="-")
+@click.option("--excluded", default=None)
+@click.pass_context
+def _fwd_fake_cmd(ctx, **kwargs):
+    _fwd_captured_ctx["ctx"] = ctx
+
+
+class TestForwardCtxParams:
+    @staticmethod
+    def _invoke(*args, exclude=frozenset()):
+        _fwd_captured_ctx.clear()
+        CliRunner().invoke(_fwd_fake_cmd, list(args), standalone_mode=False)
+        return _forward_ctx_params(_fwd_captured_ctx["ctx"], exclude=exclude)
+
+    def test_defaults_produce_empty(self):
+        assert self._invoke() == ()
+
+    def test_scalar_option(self):
+        result = self._invoke("--name", "foo")
+        assert "--name" in result
+        assert "foo" in result
+
+    def test_int_option(self):
+        result = self._invoke("--count", "42")
+        idx = result.index("--count")
+        assert result[idx + 1] == "42"
+
+    def test_flag_non_default(self):
+        result = self._invoke("--flag")
+        assert "--flag" in result
+
+    def test_flag_default_omitted(self):
+        result = self._invoke()
+        assert "--flag" not in result
+        assert "--no-flag" not in result
+
+    def test_multiple_option(self):
+        result = self._invoke("--multi", "a", "--multi", "b")
+        indices = [i for i, v in enumerate(result) if v == "--multi"]
+        assert len(indices) == 2
+        assert result[indices[0] + 1] == "a"
+        assert result[indices[1] + 1] == "b"
+
+    def test_file_stdin_not_forwarded(self):
+        result = self._invoke()
+        assert "-i" not in result
+        assert "--instream" not in result
+
+    def test_file_real_path_forwarded(self, tmp_path):
+        f = tmp_path / "input.bin"
+        f.write_bytes(b"")
+        result = self._invoke("-i", str(f))
+        assert "-i" in result
+        assert str(f.resolve()) in result
+
+    def test_exclude(self):
+        result = self._invoke("--name", "foo", "--count", "1", exclude={"name"})
+        assert "--name" not in result
+        assert "--count" in result
+
+    def test_arguments_skipped(self):
+        captured = {}
+
+        @click.command("_fwd_with_arg")
+        @click.argument("pos")
+        @click.option("--opt", default=None)
+        @click.pass_context
+        def cmd(ctx, pos, opt):
+            captured["ctx"] = ctx
+
+        CliRunner().invoke(cmd, ["myarg", "--opt", "val"], standalone_mode=False)
+        result = _forward_ctx_params(captured["ctx"])
+        assert "myarg" not in result
+        assert "--opt" in result
