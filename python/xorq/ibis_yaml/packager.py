@@ -44,7 +44,7 @@ class UvToolRunError(subprocess.CalledProcessError):
             parts.append(f"stderr:\n{self.stderr.rstrip()}")
         if self.stdout:
             parts.append(f"stdout:\n{self.stdout.rstrip()}")
-        return "\n".join(parts)
+        return "\n\n".join(parts)
 
 
 PYPROJECT_NAME = "pyproject.toml"
@@ -503,7 +503,9 @@ def uv_tool_run(
         try:
             return subprocess.run(run_args, check=check, **kwargs)
         except subprocess.CalledProcessError as e:
-            raise UvToolRunError(e.returncode, e.cmd, e.stdout, e.stderr) from e
+            raise UvToolRunError(
+                e.returncode, e.cmd, output=e.output, stderr=e.stderr
+            ) from e
 
 
 def uv_export_requirements(project_dir, python_version, extras=(), all_extras=True):
