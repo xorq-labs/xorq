@@ -9,7 +9,7 @@ import tomlkit
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
-from xorq.ibis_yaml.packager import cap_requires_python
+from xorq.ibis_yaml.packager import _cap_requires_python
 
 
 INLINE_METADATA_REGEX = re.compile(
@@ -69,7 +69,7 @@ def synthesize_project(
     if not any(canonicalize_name(Requirement(d).name) == "xorq" for d in dependencies):
         dependencies.append(f"xorq=={xorq_version}")
 
-    requires_python = cap_requires_python(meta.get("requires-python"))
+    requires_python = _cap_requires_python(meta.get("requires-python"))
 
     tmpdir = TemporaryDirectory()
     tmp = Path(tmpdir.name)

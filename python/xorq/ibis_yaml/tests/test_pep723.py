@@ -12,7 +12,7 @@ from xorq.ibis_yaml.packager import (
     PYPROJECT_NAME,
     PackagedBuilder,
     WheelPackager,
-    cap_requires_python,
+    _cap_requires_python,
 )
 from xorq.ibis_yaml.pep723 import read_inline_metadata, synthesize_project
 
@@ -136,7 +136,7 @@ def test_read_inline_metadata_non_script_block_ignored():
 
 
 # ---------------------------------------------------------------------------
-# cap_requires_python: shared across pyproject and PEP 723 paths
+# _cap_requires_python: shared across pyproject and PEP 723 paths
 # ---------------------------------------------------------------------------
 
 
@@ -150,8 +150,8 @@ def test_read_inline_metadata_non_script_block_ignored():
         (None, "<3.14"),
     ],
 )
-def test_cap_requires_python(raw, expected_fragment):
-    result = cap_requires_python(raw)
+def test__cap_requires_python(raw, expected_fragment):
+    result = _cap_requires_python(raw)
     assert expected_fragment in result
 
 

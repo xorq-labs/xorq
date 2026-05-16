@@ -56,8 +56,7 @@ def _validate_python_version(instance, attribute, value):
             raise ValueError(f"invalid python version specifier: {value!r}") from e
 
 
-def cap_requires_python(raw):
-    """Intersect a requires-python specifier with PYTHON_VERSION_CAP."""
+def _cap_requires_python(raw):
     return str(SpecifierSet(raw or DEFAULT_REQUIRES_PYTHON) & PYTHON_VERSION_CAP)
 
 
@@ -65,7 +64,7 @@ def _requires_python_from_pyproject(pyproject_path):
     """Read requires-python from a pyproject.toml, intersected with PYTHON_VERSION_CAP."""
     data = tomlkit.loads(Path(pyproject_path).read_text())
     raw = toolz.get_in(("project", "requires-python"), data)
-    return cap_requires_python(raw)
+    return _cap_requires_python(raw)
 
 
 def _read_requires_python(path):
