@@ -1123,7 +1123,7 @@ def _forward_ctx_params(ctx, *, exclude=frozenset()):
             return
         if isinstance(param.type, click.File):
             name = getattr(value, "name", None)
-            if not name or name == param.default:
+            if not name or name == param.default or name.startswith("<"):
                 return
             yield param.opts[0]
             yield str(Path(name).resolve())
@@ -1151,7 +1151,9 @@ def _has_expr_modifications(ctx):
     p = ctx.params
     if not p.get("fuse", True):
         return True
-    return any(p.get(name) is not None for name in _EXPR_MODIFYING_PARAMS)
+    if p.get("limit") is not None:
+        return True
+    return bool(p.get("code") or p.get("raw_params") or p.get("raw_rename_params"))
 
 
 def _reinvoke_and_log(ctx, catalog, entries, span, rl):
