@@ -151,14 +151,19 @@ def uv_build_command(
     builds_dir="builds",
     cache_dir=None,
     project_path=None,
+    pep723=False,
     extras=(),
     all_extras=True,
 ):
+    if project_path and pep723:
+        raise click.UsageError("--project-path and --pep723 are mutually exclusive")
+
     from xorq.ibis_yaml.packager import PackagedBuilder
 
     builder = PackagedBuilder.from_script_path(
         script_path,
         project_path=project_path,
+        pep723=pep723,
         expr_name=expr_name,
         builds_dir=builds_dir,
         cache_dir=cache_dir,
@@ -786,6 +791,12 @@ def uv_group(ctx):
     help="Explicit project root (default: search upward from script for pyproject.toml)",
 )
 @click.option(
+    "--pep723",
+    is_flag=True,
+    default=False,
+    help="Use PEP 723 inline metadata from the script instead of a project's pyproject.toml",
+)
+@click.option(
     "--extra",
     "extras",
     multiple=True,
@@ -797,7 +808,14 @@ def uv_group(ctx):
     help="Include all optional dependency groups (default: enabled)",
 )
 def uv_build(
-    script_path, expr_name, builds_dir, cache_dir, project_path, extras, all_extras
+    script_path,
+    expr_name,
+    builds_dir,
+    cache_dir,
+    project_path,
+    pep723,
+    extras,
+    all_extras,
 ):
     """Build an expression with a custom Python environment."""
     uv_build_command(
@@ -806,6 +824,7 @@ def uv_build(
         builds_dir,
         cache_dir,
         project_path=project_path,
+        pep723=pep723,
         extras=extras,
         all_extras=all_extras,
     )
