@@ -81,9 +81,12 @@ def map_cast(cast, kwargs=None):
 
 @map_ibis.register(IbisSortKey)
 def map_sort_key(key, kwargs=None):
-    # ibis 12 renamed SortKey.expr → SortKey.arg; vendored copy still uses expr.
+    # ibis 12 renamed SortKey.expr → SortKey.arg
+    src = getattr(key, "arg", None) or getattr(key, "expr", None)
+    if src is None:
+        raise TypeError(f"SortKey has neither .arg nor .expr: {key!r}")
     return ops.SortKey(
-        expr=map_ibis(key.arg, None),
+        expr=map_ibis(src, None),
         ascending=key.ascending,
         nulls_first=key.nulls_first,
     )
