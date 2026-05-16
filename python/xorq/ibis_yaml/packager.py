@@ -14,6 +14,8 @@ PackagedRunner   build directory → execution output (via `uv tool run xorq run
 """
 
 import functools
+import itertools
+import json
 import operator
 import os
 import shutil
@@ -93,20 +95,16 @@ def _read_wheel_metadata(wheel_path):
         if not metadata_names:
             raise ValueError(f"no .dist-info/METADATA found in {wheel_path}")
         text = zf.read(metadata_names[0]).decode()
-    fields = {}
-    for line in text.splitlines():
-        if not line:
-            break
-        name, sep, value = line.partition(":")
-        if sep:
-            fields[name.strip()] = value.strip()
-    return fields
+    return {
+        name.strip(): value.strip()
+        for line in itertools.takewhile(bool, text.splitlines())
+        for name, sep, value in (line.partition(":"),)
+        if sep
+    }
 
 
 def _python_minor_from_metadata_text(text):
     """Return a `==X.Y.*` specifier from build_metadata.json text, or None."""
-    import json  # noqa: PLC0415
-
     try:
         info = json.loads(text).get("sys-version_info")
         major, minor = int(info[0]), int(info[1])
@@ -633,19 +631,21 @@ def uv_tool_run(
             with_paths = (with_,)
         else:
             with_paths = tuple(with_)
+        link_args = _link_mode_args()
+        parts = [
+            ("--python", python_version) if python_version else None,
+            ("--isolated",) if isolated else None,
+            link_args if link_args else None,  # noqa: FURB110
+            *[("--with", str(w)) for w in with_paths],
+            ("--with-requirements", str(with_requirements))
+            if with_requirements
+            else None,
+        ]
         run_args = (
             "uv",
             "tool",
             "run",
-            *(("--python", python_version) if python_version else ()),
-            *(("--isolated",) if isolated else ()),
-            *_link_mode_args(),
-            *(arg for w in with_paths for arg in ("--with", str(w))),
-            *(
-                ("--with-requirements", str(with_requirements))
-                if with_requirements
-                else ()
-            ),
+            *itertools.chain.from_iterable(filter(None, parts)),
             *args,
         )
         span.set_attribute("args", " ".join(run_args))
