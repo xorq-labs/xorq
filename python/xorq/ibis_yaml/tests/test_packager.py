@@ -1,4 +1,5 @@
 import functools
+import subprocess
 import sys
 import tempfile
 import zipfile
@@ -27,6 +28,7 @@ from xorq.ibis_yaml.packager import (
     UVLOCK_NAME,
     PackagedBuilder,
     PackagedRunner,
+    UvToolRunError,
     WheelBundle,
     WheelPackager,
     _link_mode_args,
@@ -609,3 +611,41 @@ def test_uv_export_requirements_surfaces_stderr_on_failure(monkeypatch):
     with pytest.raises(RuntimeError, match="uv export failed") as exc_info:
         uv_export_requirements("/proj", ">=3.10")
     assert "project has no lock" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# uv_tool_run: error surfacing
+# ---------------------------------------------------------------------------
+
+
+def test_uv_tool_run_surfaces_stderr_and_stdout_on_failure(monkeypatch):
+    def _raise(args, **kw):
+        raise subprocess.CalledProcessError(
+            1, args, output="build output\n", stderr="resolver error\n"
+        )
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.subprocess.run", _raise)
+    with pytest.raises(UvToolRunError) as exc_info:
+        uv_tool_run("xorq", "--version", capture_output=False)
+    err = exc_info.value
+    assert isinstance(err, subprocess.CalledProcessError)
+    assert err.returncode == 1
+    assert err.cmd is not None
+    msg = str(err)
+    assert "stderr:" in msg
+    assert "resolver error" in msg
+    assert "stdout:" in msg
+    assert "build output" in msg
+
+
+def test_uv_tool_run_error_omits_empty_streams(monkeypatch):
+    def _raise(args, **kw):
+        raise subprocess.CalledProcessError(2, args)
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.subprocess.run", _raise)
+    with pytest.raises(UvToolRunError) as exc_info:
+        uv_tool_run("xorq", "--version", capture_output=False)
+    msg = str(exc_info.value)
+    assert "stderr:" not in msg
+    assert "stdout:" not in msg
+    assert "exit status 2" in msg
