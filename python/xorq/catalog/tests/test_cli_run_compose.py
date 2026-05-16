@@ -837,11 +837,10 @@ def test_catalog_compose_reinvokes_via_uv(
     catalog_with_source_and_transform, monkeypatch, tmp_path
 ):
     """Without --use-this-venv, `catalog compose` must (a) spawn the inner
-    via `uv tool run`, (b) pass `--use-this-venv --emit-build-path-only`
+    via `uv tool run`, (b) pass `--use-this-venv --emit-build-path-to <file>`
     to it (otherwise the inner would re-enter the outer path and recurse,
     or would mutate the catalog twice), (c) NOT load .expr in the caller
-    shell. We pre-bake a build_path so the inner's stdout the outer parses
-    is something we control."""
+    shell. The fake uv_tool_run writes pre_built to the requested file."""
     pre_built = tmp_path / "fake-build"
     pre_built.mkdir()
     (pre_built / DumpFiles.expr).write_text("# placeholder\n")
@@ -852,10 +851,12 @@ def test_catalog_compose_reinvokes_via_uv(
     def fake_uv_tool_run(*args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
+        idx = args.index("--emit-build-path-to")
+        Path(args[idx + 1]).write_text(str(pre_built))
 
         class _R:
             returncode = 0
-            stdout = f"{pre_built}\n"
+            stdout = ""
             stderr = ""
 
         return _R()
@@ -891,7 +892,7 @@ def test_catalog_compose_reinvokes_via_uv(
     assert "compose" in args
     assert "src" in args and "trn" in args
     assert "--use-this-venv" in args
-    assert "--emit-build-path-only" in args
+    assert "--emit-build-path-to" in args
     # alias must NOT be forwarded — the outer registers it after pickup.
     assert "--alias" not in args and "-a" not in args
     assert captured["merge_build_path"] == pre_built
@@ -956,15 +957,16 @@ def test_catalog_compose_outer_unknown_entry_fails_before_uv(
     assert "not found" in result.output
 
 
-def test_catalog_compose_emit_build_path_only_short_circuits(
+def test_catalog_compose_emit_build_path_to_short_circuits(
     catalog_with_source_and_transform, monkeypatch, tmp_path
 ):
-    """With `--use-this-venv --emit-build-path-only` (the flags the outer
-    passes when spawning the inner), compose must run _compose_expr +
-    build_expr, print the build_path on stdout, and exit before
+    """With `--use-this-venv --emit-build-path-to <file>` (the flags the
+    outer passes when spawning the inner), compose must run _compose_expr +
+    build_expr, write the build_path to the file, and exit before
     _merge_joint_wheels_into_build / catalog.add fire."""
     pre_built = tmp_path / "inner-build"
     pre_built.mkdir()
+    out_path = tmp_path / "build-path-out.txt"
 
     monkeypatch.setattr(
         "xorq.ibis_yaml.compiler.build_expr",
@@ -972,10 +974,10 @@ def test_catalog_compose_emit_build_path_only_short_circuits(
     )
 
     def spy_merge(catalog, entries, build_path):
-        raise AssertionError("--emit-build-path-only must not call merge")
+        raise AssertionError("--emit-build-path-to must not call merge")
 
     def spy_add(self, *a, **k):
-        raise AssertionError("--emit-build-path-only must not call catalog.add")
+        raise AssertionError("--emit-build-path-to must not call catalog.add")
 
     monkeypatch.setattr(cli_mod, "_merge_joint_wheels_into_build", spy_merge)
     monkeypatch.setattr(Catalog, "add", spy_add)
@@ -991,12 +993,12 @@ def test_catalog_compose_emit_build_path_only_short_circuits(
             "src",
             "trn",
             "--use-this-venv",
-            "--emit-build-path-only",
+            "--emit-build-path-to",
+            str(out_path),
         ],
     )
     assert result.exit_code == 0, result.output
-    last_line = [line for line in result.output.splitlines() if line.strip()][-1]
-    assert last_line == str(pre_built)
+    assert out_path.read_text() == str(pre_built)
 
 
 @pytest.mark.slow(level=1)

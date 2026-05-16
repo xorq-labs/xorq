@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 from contextlib import contextmanager
 from functools import cache, partial
 from pathlib import Path
@@ -1124,14 +1125,15 @@ def _forward_run_args(code, limit, fuse, raw_params, raw_rename_params, instream
     ),
 )
 @click.option(
-    "--emit-build-path-only",
-    is_flag=True,
-    default=False,
+    "--emit-build-path-to",
+    type=click.Path(),
+    default=None,
     hidden=True,
     help=(
-        "Internal: after build_expr, print the build_path on stdout and exit "
-        "without merging wheels or cataloging. The outer reinvoke uses this "
-        "to pick up the inner's build_path."
+        "Internal: after build_expr, write the build_path to the given file "
+        "and exit without merging wheels or cataloging. Out-of-band so library "
+        "prints to stdout can't be mistaken for the build_path. The outer "
+        "reinvoke uses this to pick up the inner's build_path."
     ),
 )
 @click.pass_context
@@ -1144,7 +1146,7 @@ def compose(
     dry_run,
     raw_rename_params,
     use_this_venv,
-    emit_build_path_only,
+    emit_build_path_to,
 ):
     """Assemble expressions from catalog entries, build, and persist to catalog.
 
@@ -1160,58 +1162,63 @@ def compose(
                 raise click.UsageError("At least one entry is required.")
 
             if not use_this_venv:
-                # Inner emits build_path on its last stdout line (or the
-                # dry-run plan); we finalize wheel-merge + cataloging here.
+                # Inner writes build_path to a temp file we control; we
+                # finalize wheel-merge + cataloging here.
                 span.set_attribute("path", "uv-reinvoke")
                 from xorq.ibis_yaml.packager import uv_tool_run  # noqa: PLC0415
 
-                inner_cmd = (
-                    "xorq",
-                    "catalog",
-                    "--path",
-                    str(catalog.repo_path),
-                    "compose",
-                    *entries,
-                    *(("-c", code) if code is not None else ()),
-                    *(("--cache-dir", cache_dir) if cache_dir else ()),
-                    *(("--dry-run",) if dry_run else ()),
-                    *(
-                        arg
-                        for rp in raw_rename_params
-                        for arg in ("--rename-params", rp)
-                    ),
-                    "--use-this-venv",
-                    "--emit-build-path-only",
+                build_path_out_fd, build_path_out = tempfile.mkstemp(
+                    prefix="xorq-compose-build-path-", suffix=".txt"
                 )
-                with _entry_run_bundle(catalog, entries) as bundle:
-                    result = uv_tool_run(
-                        *inner_cmd,
-                        python_version=bundle.python_version,
-                        with_=bundle.wheel_paths,
-                        with_requirements=bundle.requirements_path,
-                        capture_output=True,
+                os.close(build_path_out_fd)
+                try:
+                    inner_cmd = (
+                        "xorq",
+                        "catalog",
+                        "--path",
+                        str(catalog.repo_path),
+                        "compose",
+                        *entries,
+                        *(("-c", code) if code is not None else ()),
+                        *(("--cache-dir", cache_dir) if cache_dir else ()),
+                        *(("--dry-run",) if dry_run else ()),
+                        *(
+                            arg
+                            for rp in raw_rename_params
+                            for arg in ("--rename-params", rp)
+                        ),
+                        "--use-this-venv",
+                        "--emit-build-path-to",
+                        build_path_out,
                     )
-                    if dry_run:
-                        click.echo(result.stdout, nl=False)
-                        return
-                    lines = [
-                        line for line in result.stdout.splitlines() if line.strip()
-                    ]
-                    if not lines:
-                        raise click.ClickException(
-                            f"inner compose produced no build_path; stderr: {result.stderr}"
+                    with _entry_run_bundle(catalog, entries) as bundle:
+                        result = uv_tool_run(
+                            *inner_cmd,
+                            python_version=bundle.python_version,
+                            with_=bundle.wheel_paths,
+                            with_requirements=bundle.requirements_path,
+                            capture_output=True,
                         )
-                    build_path = Path(lines[-1])
-                    if not build_path.exists():
-                        raise click.ClickException(
-                            f"inner compose returned an invalid build_path "
-                            f"{build_path!r}; the last stdout line was not a valid "
-                            f"path (likely stray output from a library print). "
-                            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+                        if dry_run:
+                            click.echo(result.stdout, nl=False)
+                            return
+                        build_path_str = Path(build_path_out).read_text().strip()
+                        if not build_path_str:
+                            raise click.ClickException(
+                                f"inner compose did not write a build_path; "
+                                f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+                            )
+                        build_path = Path(build_path_str)
+                        if not build_path.exists():
+                            raise click.ClickException(
+                                f"inner compose returned a nonexistent build_path "
+                                f"{build_path!r}; stdout:\n{result.stdout}"
+                            )
+                        _merge_joint_wheels_into_build(
+                            catalog, entries, build_path, bundle=bundle
                         )
-                    _merge_joint_wheels_into_build(
-                        catalog, entries, build_path, bundle=bundle
-                    )
+                finally:
+                    Path(build_path_out).unlink(missing_ok=True)
             else:
                 span.set_attribute("path", "in-process")
                 rename_map = (
@@ -1239,8 +1246,8 @@ def compose(
                 )
                 build_path = build_expr(expr, **build_kwargs)
 
-                if emit_build_path_only:
-                    click.echo(str(build_path))
+                if emit_build_path_to:
+                    Path(emit_build_path_to).write_text(str(build_path))
                     return
 
                 _merge_joint_wheels_into_build(catalog, entries, build_path)
