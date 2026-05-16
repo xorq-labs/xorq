@@ -1230,17 +1230,22 @@ class DataViewScreen(Screen):
         import pyarrow as pa  # noqa: PLC0415
 
         cmd = self._catalog_run_cmd(code)
+        fast_stderr = ""
         try:
             returncode, stdout, stderr = self._spawn_run([*cmd, "--use-this-venv"])
+            fast_stderr = stderr.decode(errors="replace").strip()
             if returncode == 0:
                 return pa.ipc.open_stream(stdout).read_pandas()
             logger.debug(
                 "catalog_run_fast_path_nonzero",
                 returncode=returncode,
-                stderr=stderr.decode(errors="replace").strip()[-500:],
+                stderr=fast_stderr[-500:],
             )
         except (OSError, pa.lib.ArrowException):
-            logger.exception("catalog_run_fast_path_failed")
+            logger.exception(
+                "catalog_run_fast_path_failed",
+                stderr=fast_stderr,
+            )
         returncode, stdout, stderr = self._spawn_run(cmd)
         if returncode != 0:
             raise RuntimeError(stderr.decode(errors="replace").strip())

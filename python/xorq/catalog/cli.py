@@ -1116,7 +1116,16 @@ def _uv_reinvoke_xorq_cli(catalog, entries, *inner_args):
         )
 
 
-def _forward_run_args(code, limit, fuse, raw_params, raw_rename_params, instream):
+def _forward_run_args(
+    code,
+    limit,
+    fuse,
+    raw_params,
+    raw_rename_params,
+    instream,
+    output_format,
+    output_path,
+):
     args = []
     if code is not None:
         args += ["-c", code]
@@ -1131,6 +1140,9 @@ def _forward_run_args(code, limit, fuse, raw_params, raw_rename_params, instream
     instream_name = getattr(instream, "name", None)
     if instream_name and instream_name not in ("<stdin>", "-"):
         args += ["-i", str(Path(instream_name).resolve())]
+    if output_path:
+        args += ["--output-path", output_path]
+    args += ["--format", output_format]
     return args
 
 
@@ -1559,11 +1571,15 @@ def run(
                         "run",
                         *entries,
                         *_forward_run_args(
-                            code, limit, fuse, raw_params, raw_rename_params, instream
+                            code,
+                            limit,
+                            fuse,
+                            raw_params,
+                            raw_rename_params,
+                            instream,
+                            output_format,
+                            output_path,
                         ),
-                        *(("--output-path", output_path) if output_path else ()),
-                        "--format",
-                        output_format,
                         "--use-this-venv",
                     )
                     with timed() as get_elapsed:
@@ -1781,15 +1797,19 @@ def run_cached(
                         "run-cached",
                         *entries,
                         *_forward_run_args(
-                            code, limit, fuse, raw_params, raw_rename_params, instream
+                            code,
+                            limit,
+                            fuse,
+                            raw_params,
+                            raw_rename_params,
+                            instream,
+                            output_format,
+                            output_path,
                         ),
                         *(("--cache-dir", str(cache_dir)) if cache_dir else ()),
                         "--cache-type",
                         cache_type,
                         *(("--ttl", str(ttl)) if ttl is not None else ()),
-                        *(("--output-path", output_path) if output_path else ()),
-                        "--format",
-                        output_format,
                         "--use-this-venv",
                     )
                     with timed() as get_elapsed:

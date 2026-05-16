@@ -83,7 +83,10 @@ def _read_wheel_metadata(wheel_path):
     """Read METADATA top-level fields from a wheel as a dict.
 
     Stops at the first blank line so multi-paragraph Description bodies
-    don't shadow real fields.
+    don't shadow real fields. Does not handle RFC 822 continuation lines
+    (indented follow-on lines), which is fine for the fields we read
+    (Name, Version, Requires-Python) but would need extending for
+    multi-line fields like Classifier.
     """
     with zipfile.ZipFile(wheel_path) as zf:
         metadata_names = [n for n in zf.namelist() if n.endswith(".dist-info/METADATA")]
