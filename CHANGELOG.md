@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 #### Removed
+- **Breaking:** Remove `xorq_datafusion.Backend.truncate_table` — DataFusion does not implement DELETE DML; method was a silent no-op
+- **Breaking:** Remove `xorq_datafusion.Backend.read_postgres` — `database` parameter was silently ignored due to `_from_url` overwriting kwargs; no callers found in codebase
+- **Breaking:** Narrow `xorq_datafusion.Backend.register_table_provider` source parameter to `ir.Table` — prior broad annotation (`str | Path | pa.Table | ...`) was never implemented; only `ir.Table` was ever handled
 
 ## [0.3.24] - 2026-05-12
 ### Details
