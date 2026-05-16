@@ -37,6 +37,16 @@ from xorq.common.utils.process_utils import in_nix_shell
 from xorq.ibis_yaml.enums import DumpFiles
 
 
+class UvToolRunError(subprocess.CalledProcessError):
+    def __str__(self):
+        parts = [super().__str__()]
+        if self.stderr:
+            parts.append(f"stderr:\n{self.stderr.rstrip()}")
+        if self.stdout:
+            parts.append(f"stdout:\n{self.stdout.rstrip()}")
+        return "\n".join(parts)
+
+
 PYPROJECT_NAME = "pyproject.toml"
 UVLOCK_NAME = "uv.lock"
 DEFAULT_REQUIRES_PYTHON = ">=3.10"
@@ -493,10 +503,7 @@ def uv_tool_run(
         try:
             return subprocess.run(run_args, check=check, **kwargs)
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(
-                f"uv tool run failed (exit {e.returncode}):\n"
-                f"{e.stderr or ''}{e.stdout or ''}"
-            ) from e
+            raise UvToolRunError(e.returncode, e.cmd, e.stdout, e.stderr) from e
 
 
 def uv_export_requirements(project_dir, python_version, extras=(), all_extras=True):
