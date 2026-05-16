@@ -215,7 +215,10 @@ class RunLogger:
         """Log to both the run log and an OTel span."""
         self.log_event(event, fields)
         if span is not None:
-            span.add_event(event, fields or {})
+            span.add_event(
+                event,
+                {k: v for k, v in (fields or {}).items() if v is not None},
+            )
 
     def finalize(
         self,
