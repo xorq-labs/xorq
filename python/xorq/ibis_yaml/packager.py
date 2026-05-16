@@ -56,11 +56,16 @@ def _validate_python_version(instance, attribute, value):
             raise ValueError(f"invalid python version specifier: {value!r}") from e
 
 
+def cap_requires_python(raw):
+    """Intersect a requires-python specifier with PYTHON_VERSION_CAP."""
+    return str(SpecifierSet(raw or DEFAULT_REQUIRES_PYTHON) & PYTHON_VERSION_CAP)
+
+
 def _requires_python_from_pyproject(pyproject_path):
     """Read requires-python from a pyproject.toml, intersected with PYTHON_VERSION_CAP."""
     data = tomlkit.loads(Path(pyproject_path).read_text())
     raw = toolz.get_in(("project", "requires-python"), data)
-    return str(SpecifierSet(raw or DEFAULT_REQUIRES_PYTHON) & PYTHON_VERSION_CAP)
+    return cap_requires_python(raw)
 
 
 def _read_requires_python(path):
@@ -155,6 +160,12 @@ class WheelPackager:
         repr=False,
         eq=False,
         factory=TemporaryDirectory,
+    )
+    _synth_dir = field(
+        validator=optional(instance_of(TemporaryDirectory)),
+        repr=False,
+        eq=False,
+        default=None,
     )
 
     def __attrs_post_init__(self):
@@ -253,9 +264,46 @@ class WheelPackager:
         )
 
     @classmethod
-    def from_script_path(cls, script_path, **kwargs):
-        pyproject_path = find_file_upwards(script_path, PYPROJECT_NAME)
-        return cls(pyproject_path.parent, **kwargs)
+    def _from_synth(cls, script_path, **kwargs):
+        from xorq.ibis_yaml.pep723 import synthesize_project  # noqa: PLC0415
+
+        extras = kwargs.pop("extras", ())
+        kwargs.pop("all_extras", None)
+        if extras:
+            raise ValueError(
+                "PEP 723 scripts do not support --extra; "
+                "inline dependencies are always included"
+            )
+        synth_dir = synthesize_project(Path(script_path))
+        return cls(Path(synth_dir.name), synth_dir=synth_dir, **kwargs)
+
+    @classmethod
+    def from_script_path(cls, script_path, pep723=False, **kwargs):
+        from xorq.ibis_yaml.pep723 import read_inline_metadata  # noqa: PLC0415
+
+        if pep723:
+            return cls._from_synth(script_path, **kwargs)
+
+        pyproject_path = None
+        try:
+            pyproject_path = find_file_upwards(script_path, PYPROJECT_NAME)
+        except ValueError:
+            pass
+
+        has_project = pyproject_path is not None
+
+        has_inline = read_inline_metadata(Path(script_path).read_text()) is not None
+
+        if has_project:
+            return cls(pyproject_path.parent, **kwargs)
+
+        if has_inline:
+            return cls._from_synth(script_path, **kwargs)
+
+        raise ValueError(
+            f"No pyproject.toml found above {script_path} and script has no "
+            f"PEP 723 inline metadata"
+        )
 
 
 @frozen
@@ -329,13 +377,23 @@ class PackagedBuilder:
 
     @classmethod
     def from_script_path(
-        cls, script_path, project_path=None, extras=(), all_extras=True, **kwargs
+        cls,
+        script_path,
+        project_path=None,
+        pep723=False,
+        extras=(),
+        all_extras=True,
+        **kwargs,
     ):
+        if project_path and pep723:
+            raise ValueError("project_path and pep723 are mutually exclusive")
         packager_kwargs = {"extras": extras, "all_extras": all_extras}
         packager = (
             WheelPackager(project_path, **packager_kwargs)
             if project_path
-            else WheelPackager.from_script_path(script_path, **packager_kwargs)
+            else WheelPackager.from_script_path(
+                script_path, pep723=pep723, **packager_kwargs
+            )
         )
         return cls(
             script_path=script_path,
