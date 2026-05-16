@@ -1015,8 +1015,12 @@ def _entry_run_bundle(catalog, entries):
                 )
             if not wheel_paths:
                 raise click.ClickException("no wheels found in entry")
+            if req_bytes is None:
+                raise click.ClickException(
+                    f"entry {entries[0]!r} has no requirements.txt"
+                )
             req_path = harvest_dir / DumpFiles.requirements
-            req_path.write_bytes(req_bytes or b"")
+            req_path.write_bytes(req_bytes)
             yield JointBundle(
                 wheel_paths=tuple(wheel_paths),
                 requirements_path=req_path,
@@ -1147,7 +1151,7 @@ def _has_expr_modifications(ctx):
     p = ctx.params
     if not p.get("fuse", True):
         return True
-    return any(p.get(name) for name in _EXPR_MODIFYING_PARAMS)
+    return any(p.get(name) is not None for name in _EXPR_MODIFYING_PARAMS)
 
 
 def _reinvoke_and_log(ctx, catalog, entries, span, rl):

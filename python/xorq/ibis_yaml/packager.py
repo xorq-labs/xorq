@@ -108,7 +108,7 @@ def _python_minor_from_metadata_text(text):
     try:
         info = json.loads(text).get("sys-version_info")
         major, minor = int(info[0]), int(info[1])
-    except (ValueError, TypeError, KeyError, IndexError):
+    except (ValueError, TypeError, KeyError, IndexError, AttributeError):
         return None
     return f"=={major}.{minor}.*"
 
