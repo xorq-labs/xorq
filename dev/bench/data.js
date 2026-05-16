@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778933953244,
+  "lastUpdate": 1778938532575,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -12252,6 +12252,114 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.007615807182477653",
             "extra": "mean: 3.836215484648239 msec\nrounds: 456"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2c7a9f2be64f7a936ebc1a48ee620e22101978da",
+          "message": "fix(packager): surface stderr/stdout in uv_tool_run failures (#1957)\n\n## Summary\n\n- When `uv tool run` fails, `CalledProcessError` only shows the exit\ncode because output is captured. This introduces a\n`UvToolRunError(CalledProcessError)` subclass whose `__str__` appends\nlabeled stderr/stdout sections, preserving structured attributes\n(`.cmd`, `.returncode`, `.stdout`, `.stderr`) and `isinstance` checks\nwhile surfacing the root cause.\n\n## Test plan\n\n- [x] Trigger a `uv tool run` failure (e.g. missing dependency) and\nverify the error message includes the actual stderr output\n- [x] Verify empty streams are omitted from the message\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-16T15:30:52+02:00",
+          "tree_id": "ab9f5c08c263c2cfc6b4760493beab469cfd81be",
+          "url": "https://github.com/xorq-labs/xorq/commit/2c7a9f2be64f7a936ebc1a48ee620e22101978da"
+        },
+        "date": 1778938528170,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.160249667500862,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014410202465460056",
+            "extra": "mean: 109.16733018182288 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.3324614394990544,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08431273796598217",
+            "extra": "mean: 428.7316322000038 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6765124553029432,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18363537362882515",
+            "extra": "mean: 1.4781693850000124 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.485324736511623,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08824328207455957",
+            "extra": "mean: 402.36190679999027 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.4503504454942644,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08870781737713088",
+            "extra": "mean: 408.10489039998856 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.4932163385582724,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07440995071649521",
+            "extra": "mean: 401.08833900000036 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[simple_filter_agg]",
+            "value": 189.38090351565072,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011498438560839234",
+            "extra": "mean: 5.280363444444959 msec\nrounds: 288"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[pipeline_50_steps]",
+            "value": 6.245699772273658,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05731365803814289",
+            "extra": "mean: 160.11016162500624 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[nested_into_backend]",
+            "value": 44.75270599737605,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009085570548821982",
+            "extra": "mean: 22.34501752941224 msec\nrounds: 51"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[simple_filter_agg]",
+            "value": 224.40676250548873,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01234856753842201",
+            "extra": "mean: 4.456193694142979 msec\nrounds: 461"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[pipeline_50_steps]",
+            "value": 288.3894111899139,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010547309580571654",
+            "extra": "mean: 3.467533692981075 msec\nrounds: 456"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[nested_into_backend]",
+            "value": 266.97465170612895,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007118214287452078",
+            "extra": "mean: 3.74567395671985 msec\nrounds: 439"
           }
         ]
       }
