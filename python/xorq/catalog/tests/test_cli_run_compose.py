@@ -11,7 +11,8 @@ from xorq.catalog import cli as cli_mod
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import (
     _assert_requirements_identical,
-    _merge_joint_wheels_into_build,
+    _entry_run_bundle,
+    _stage_bundle_into_build,
     cli,
 )
 from xorq.cli import cli as top_cli
@@ -525,21 +526,16 @@ def test_run_cached_no_entries(runner, catalog_with_source_and_transform, tmp_pa
     assert "At least one entry is required" in result.output
 
 
-# --- _merge_joint_wheels_into_build: direct unit tests ---
+# --- _entry_run_bundle / _stage_bundle_into_build: direct unit tests ---
 
 
-def test_merge_joint_wheels_empty_entries_is_noop(
-    catalog_with_source_and_transform, tmp_path
-):
-    catalog_path, _, _ = catalog_with_source_and_transform
-    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
-    build_path = tmp_path / "build"
-    build_path.mkdir()
-    _merge_joint_wheels_into_build(catalog, (), build_path)
-    assert list(build_path.iterdir()) == []
+def test_entry_run_bundle_empty_entries_raises():
+    with pytest.raises(click.ClickException, match="at least one entry"):
+        with _entry_run_bundle(None, ()):
+            pass
 
 
-def test_merge_joint_wheels_single_entry_copies_verbatim(
+def test_stage_bundle_single_entry_copies_verbatim(
     catalog_with_source_and_transform, tmp_path
 ):
     """Single-entry path copies the entry's wheel + requirements verbatim."""
@@ -548,25 +544,25 @@ def test_merge_joint_wheels_single_entry_copies_verbatim(
     build_path = tmp_path / "build"
     build_path.mkdir()
 
-    _merge_joint_wheels_into_build(catalog, ("src",), build_path)
+    with _entry_run_bundle(catalog, ("src",)) as bundle:
+        _stage_bundle_into_build(bundle, build_path)
 
     wheels = list(build_path.glob("*.whl"))
     assert len(wheels) >= 1
     assert (build_path / DumpFiles.requirements).exists()
 
 
-def test_merge_joint_wheels_unknown_entry_raises(
+def test_entry_run_bundle_unknown_entry_raises(
     catalog_with_source_and_transform, tmp_path
 ):
     catalog_path, _, _ = catalog_with_source_and_transform
     catalog = Catalog.from_kwargs(path=catalog_path, init=False)
-    build_path = tmp_path / "build"
-    build_path.mkdir()
-    with pytest.raises(Exception, match="not found in catalog"):
-        _merge_joint_wheels_into_build(catalog, ("no-such-entry",), build_path)
+    with pytest.raises(click.ClickException, match="not found"):
+        with _entry_run_bundle(catalog, ("no-such-entry",)):
+            pass
 
 
-def test_merge_joint_wheels_multi_entry_writes_shared_requirements_verbatim(
+def test_stage_bundle_multi_entry_writes_shared_requirements_verbatim(
     catalog_with_source_and_transform, tmp_path
 ):
     """Multi-entry path requires byte-identical requirements.txt across
@@ -577,7 +573,8 @@ def test_merge_joint_wheels_multi_entry_writes_shared_requirements_verbatim(
     build_path = tmp_path / "build"
     build_path.mkdir()
 
-    _merge_joint_wheels_into_build(catalog, ("src", "trn"), build_path)
+    with _entry_run_bundle(catalog, ("src", "trn")) as bundle:
+        _stage_bundle_into_build(bundle, build_path)
 
     wheels = list(build_path.glob("*.whl"))
     assert len(wheels) >= 1
@@ -658,17 +655,17 @@ def test_catalog_run_fast_path_skips_merge(
     """Single-entry, no-transform `catalog run` short-circuits to the
     archive — it must not deserialize the expression or invoke the
     merge/rebuild path."""
-    merge_calls = []
+    stage_calls = []
     resolve_calls = []
 
-    def spy_merge(catalog, entries, build_path):
-        merge_calls.append(build_path)
+    def spy_stage(bundle, build_path):
+        stage_calls.append(build_path)
 
     def spy_resolve(*args, **kwargs):
         resolve_calls.append(args)
         raise AssertionError("fast path must not call _resolve_single_entry")
 
-    monkeypatch.setattr(cli_mod, "_merge_joint_wheels_into_build", spy_merge)
+    monkeypatch.setattr(cli_mod, "_stage_bundle_into_build", spy_stage)
     monkeypatch.setattr(cli_mod, "_resolve_single_entry", spy_resolve)
     monkeypatch.setattr("xorq.ibis_yaml.packager.PackagedRunner.run", lambda self: self)
 
@@ -678,7 +675,7 @@ def test_catalog_run_fast_path_skips_merge(
 
     result = bare.invoke(cli, args)
     assert result.exit_code == 0, result.output
-    assert merge_calls == []
+    assert stage_calls == []
     assert resolve_calls == []
 
 
@@ -864,7 +861,7 @@ def test_catalog_compose_reinvokes_via_uv(
     def spy_compose_expr(*args, **kwargs):
         raise AssertionError("outer compose must not call _compose_expr")
 
-    def spy_merge(catalog, entries, build_path, bundle=None):
+    def spy_stage(bundle, build_path):
         captured["merge_build_path"] = build_path
         captured["merge_bundle"] = bundle
 
@@ -875,7 +872,7 @@ def test_catalog_compose_reinvokes_via_uv(
 
     monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
     monkeypatch.setattr(cli_mod, "_compose_expr", spy_compose_expr)
-    monkeypatch.setattr(cli_mod, "_merge_joint_wheels_into_build", spy_merge)
+    monkeypatch.setattr(cli_mod, "_stage_bundle_into_build", spy_stage)
     monkeypatch.setattr(Catalog, "add", spy_add)
 
     catalog_path, _, _ = catalog_with_source_and_transform
@@ -896,6 +893,8 @@ def test_catalog_compose_reinvokes_via_uv(
     # alias must NOT be forwarded — the outer registers it after pickup.
     assert "--alias" not in args and "-a" not in args
     assert captured["merge_build_path"] == pre_built
+    assert captured["merge_bundle"] is not None
+    assert len(captured["merge_bundle"].wheel_paths) > 0
     assert captured["add_build_path"] == pre_built
     assert captured["add_aliases"] == ("outer-alias",)
 
@@ -963,7 +962,7 @@ def test_catalog_compose_emit_build_path_to_short_circuits(
     """With `--use-this-venv --emit-build-path-to <file>` (the flags the
     outer passes when spawning the inner), compose must run _compose_expr +
     build_expr, write the build_path to the file, and exit before
-    _merge_joint_wheels_into_build / catalog.add fire."""
+    _stage_bundle_into_build / catalog.add fire."""
     pre_built = tmp_path / "inner-build"
     pre_built.mkdir()
     out_path = tmp_path / "build-path-out.txt"
@@ -973,13 +972,13 @@ def test_catalog_compose_emit_build_path_to_short_circuits(
         lambda expr, **kw: pre_built,
     )
 
-    def spy_merge(catalog, entries, build_path):
-        raise AssertionError("--emit-build-path-to must not call merge")
+    def spy_stage(bundle, build_path):
+        raise AssertionError("--emit-build-path-to must not call stage")
 
     def spy_add(self, *a, **k):
         raise AssertionError("--emit-build-path-to must not call catalog.add")
 
-    monkeypatch.setattr(cli_mod, "_merge_joint_wheels_into_build", spy_merge)
+    monkeypatch.setattr(cli_mod, "_stage_bundle_into_build", spy_stage)
     monkeypatch.setattr(Catalog, "add", spy_add)
 
     catalog_path, _, _ = catalog_with_source_and_transform
