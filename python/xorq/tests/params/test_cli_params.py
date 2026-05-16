@@ -11,6 +11,9 @@ from xorq.cli import _click_type_for_dtype, _ClickDate, _parse_cli_params
 from xorq.expr.api import bind_params
 
 
+pytestmark = pytest.mark.core
+
+
 # --- _ClickDate ---
 
 

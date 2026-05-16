@@ -16,6 +16,9 @@ from xorq.tests.util import assert_frame_equal, assert_series_equal
 from xorq.vendor import ibis
 
 
+pytestmark = pytest.mark.pandas
+
+
 def test_table_column(t, df):
     expr = t.plain_int64
     result = expr.execute()

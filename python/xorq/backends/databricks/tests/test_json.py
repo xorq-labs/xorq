@@ -5,6 +5,9 @@ import pytest
 from xorq.vendor.ibis.util import gen_name
 
 
+pytestmark = pytest.mark.databricks
+
+
 @pytest.fixture
 def tmp_table(con):
     """Create a temporary table in the Databricks backend."""

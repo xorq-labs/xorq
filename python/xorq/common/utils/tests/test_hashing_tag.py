@@ -12,6 +12,9 @@ from xorq.ibis_yaml.compiler import YamlExpressionTranslator
 from xorq.vendor import ibis
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.fixture
 def t():
     return ibis.table(

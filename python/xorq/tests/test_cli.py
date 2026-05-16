@@ -39,6 +39,9 @@ from xorq.ibis_yaml.compiler import (
 from xorq.init_templates import InitTemplates
 
 
+pytestmark = pytest.mark.core
+
+
 build_run_examples_expr_names = (
     ("local_cache.py", "expr"),
     ("multi_engine.py", "expr"),

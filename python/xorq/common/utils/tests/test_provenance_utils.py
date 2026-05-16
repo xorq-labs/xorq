@@ -4,6 +4,7 @@ import datetime
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
 import xorq.api as xo
 from xorq.caching.storage import ParquetStorage, ParquetTTLStorage
@@ -15,6 +16,9 @@ from xorq.common.utils.provenance_utils import (
     inject_metadata_into_schema,
     read_parquet_provenance,
 )
+
+
+pytestmark = pytest.mark.core
 
 
 def test_build_provenance_metadata():

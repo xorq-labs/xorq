@@ -9,6 +9,9 @@ from xorq.vendor import ibis
 from xorq.vendor.ibis import _
 
 
+pytestmark = pytest.mark.xorq_datafusion
+
+
 class SmoothBoundedFromPreviousRow(WindowEvaluator):
     """Smooth over from the previous to current row only."""
 

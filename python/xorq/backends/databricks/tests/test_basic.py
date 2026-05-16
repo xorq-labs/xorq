@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
+
+
+pytestmark = pytest.mark.databricks
 
 
 def test_execute_returns_dataframe(functional_alltypes):

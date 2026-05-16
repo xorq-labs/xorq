@@ -5,6 +5,9 @@ import pytest
 from xorq.backends.pandas.helpers import RowsFrame
 
 
+pytestmark = pytest.mark.pandas
+
+
 lst = list(range(10))
 
 

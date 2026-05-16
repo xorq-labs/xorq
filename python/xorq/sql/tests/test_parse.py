@@ -8,6 +8,9 @@ from xorq.sql import parser
 from xorq.vendor import ibis
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.fixture(scope="session")
 def con():
     return ibis.connect("duckdb://")

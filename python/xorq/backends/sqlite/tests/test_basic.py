@@ -14,6 +14,9 @@ from xorq.caching import (
 from xorq.tests.util import assert_frame_equal
 
 
+pytestmark = pytest.mark.sqlite
+
+
 def test_can_connect(sqlite_con):
     assert sqlite_con is not None
     assert sqlite_con.list_tables() is not None

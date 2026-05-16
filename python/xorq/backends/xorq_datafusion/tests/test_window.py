@@ -14,6 +14,9 @@ from xorq.vendor import ibis
 from xorq.vendor.ibis.legacy.udf.vectorized import analytic, reduction
 
 
+pytestmark = pytest.mark.xorq_datafusion
+
+
 np = pytest.importorskip("numpy")
 pd = pytest.importorskip("pandas")
 

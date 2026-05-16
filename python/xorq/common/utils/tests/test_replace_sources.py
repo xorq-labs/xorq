@@ -15,6 +15,9 @@ from xorq.common.utils.graph_utils import (
 )
 
 
+pytestmark = pytest.mark.core
+
+
 def assert_result_equal(left, right):
     """Compare DataFrames ignoring row order (backends may return different orderings)."""
     left = left.sort_values(left.columns.tolist()).reset_index(drop=True)

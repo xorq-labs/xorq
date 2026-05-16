@@ -1,9 +1,13 @@
 import pandas as pd
+import pytest
 
 import xorq.api as xo
 from xorq.expr.datatypes import Int64, LargeString, String
 from xorq.tests.util import assert_frame_equal, assert_series_equal
 from xorq.vendor import ibis
+
+
+pytestmark = pytest.mark.core
 
 
 def test_can_create_table(utf8_data):

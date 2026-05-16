@@ -16,6 +16,9 @@ from xorq.vendor.ibis import literal as L
 from xorq.vendor.ibis.selectors import of_type
 
 
+pytestmark = pytest.mark.xorq_datafusion
+
+
 pc = pytest.importorskip("pyarrow.compute")
 xgb = pytest.importorskip("xgboost")
 

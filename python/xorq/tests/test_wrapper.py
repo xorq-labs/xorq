@@ -6,6 +6,9 @@ import xorq.api as xo
 from xorq.tests.util import assert_frame_equal
 
 
+pytestmark = pytest.mark.core
+
+
 def test_simple_agg_ops_read_parquet(data_dir):
     path = data_dir / "parquet" / "functional_alltypes.parquet"
 

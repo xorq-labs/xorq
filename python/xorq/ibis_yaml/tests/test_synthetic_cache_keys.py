@@ -1,3 +1,5 @@
+import pytest
+
 import xorq.vendor.ibis as ibis
 from xorq.caching import ParquetSnapshotCache
 from xorq.caching.storage import resolve_parquet_cache_path
@@ -5,6 +7,9 @@ from xorq.cli import run_cached_command
 from xorq.common.utils.caching_utils import CacheKey
 from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.vendor.ibis.expr.types.core import ExprMetadata
+
+
+pytestmark = pytest.mark.core
 
 
 def test_synthetic_key_always_present_for_uncached_expr():

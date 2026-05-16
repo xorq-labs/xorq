@@ -1,8 +1,13 @@
 import re
 
+import pytest
+
 import xorq.api as xo
 from xorq.api import _
 from xorq.common.utils.defer_utils import deferred_read_csv
+
+
+pytestmark = pytest.mark.pandas
 
 
 def test_read(csv_dir):

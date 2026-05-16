@@ -10,6 +10,9 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.expr.operations import _MISSING, NamedScalarParameter
 
 
+pytestmark = pytest.mark.core
+
+
 def test_param_returns_scalar():
     p = xo.param("threshold", "float64")
     assert isinstance(p, ir.Expr)

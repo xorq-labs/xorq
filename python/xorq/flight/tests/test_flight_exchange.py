@@ -21,6 +21,9 @@ from xorq.flight.tests.conftest import (
 )
 
 
+pytestmark = pytest.mark.core
+
+
 def test_unbound_exchanger_command_stable_across_reduce(tmp_path):
     """`UnboundExprExchanger.command` embeds the expression's token.
 

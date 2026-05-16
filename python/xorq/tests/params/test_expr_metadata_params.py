@@ -8,6 +8,9 @@ from xorq.ibis_yaml.compiler import build_expr
 from xorq.vendor.ibis.expr.types.core import ExprMetadata
 
 
+pytestmark = pytest.mark.core
+
+
 def test_params_empty_when_no_named_params():
     t = ibis.memtable({"x": [1.0, 2.0]})
     assert ExprMetadata.from_expr(t).params == ()

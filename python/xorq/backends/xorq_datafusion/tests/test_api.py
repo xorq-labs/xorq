@@ -5,6 +5,9 @@ import xorq.api as xo
 from xorq.api import SessionConfig
 
 
+pytestmark = pytest.mark.xorq_datafusion
+
+
 @pytest.mark.xfail(reason="No purpose with no registration api")
 def test_executed_on_original_backend(parquet_dir, csv_dir, mocker):
     con = xo.config.default_backend()

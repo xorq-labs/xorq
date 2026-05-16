@@ -5,6 +5,9 @@ from xorq.backends.pyiceberg.tests.conftest import QUOTES_TABLE_NAME
 from xorq.vendor.ibis import Schema
 
 
+pytestmark = pytest.mark.pyiceberg
+
+
 def test_create_table_from_expr(iceberg_con, quotes_table):
     t = quotes_table.select("timestamp", "bid", "ask").limit(10).as_table()
 

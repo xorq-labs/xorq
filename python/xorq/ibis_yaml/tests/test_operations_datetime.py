@@ -11,6 +11,9 @@ from xorq.ibis_yaml.common import TranslationContext, translate_to_yaml
 from xorq.ibis_yaml.tests.conftest import get_dtype_yaml
 
 
+pytestmark = pytest.mark.core
+
+
 def test_date_extract(compiler):
     dt_expr = ibis.literal(datetime(2024, 3, 14, 15, 9, 26))
 

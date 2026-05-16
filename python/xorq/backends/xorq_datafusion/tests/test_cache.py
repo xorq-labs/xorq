@@ -31,6 +31,9 @@ from xorq.vendor.ibis import _
 from xorq.vendor.ibis.expr.types.relations import CACHED_NODE_NAME_PLACEHOLDER
 
 
+pytestmark = pytest.mark.xorq_datafusion
+
+
 KEY_PREFIX = xo.config.options.cache.key_prefix
 
 

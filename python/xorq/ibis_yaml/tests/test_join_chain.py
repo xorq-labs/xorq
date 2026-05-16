@@ -3,6 +3,9 @@ import pytest
 import xorq.api as xo
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.fixture(scope="session")
 def con():
     return xo.duckdb.connect()

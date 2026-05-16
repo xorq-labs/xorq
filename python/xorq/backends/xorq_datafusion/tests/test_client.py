@@ -10,6 +10,9 @@ from xorq.tests.util import (
 from xorq.vendor import ibis
 
 
+pytestmark = pytest.mark.xorq_datafusion
+
+
 def test_register_record_batch_reader(alltypes_df):
     con = xo.connect()
     t = con.register(alltypes_df, "alltypes")

@@ -6,6 +6,9 @@ import xorq.vendor.ibis as ibis
 from xorq.ibis_yaml.tests.conftest import get_dtype_yaml
 
 
+pytestmark = pytest.mark.core
+
+
 def test_string_concat(compiler):
     s1 = ibis.literal("hello")
     s2 = ibis.literal("world")

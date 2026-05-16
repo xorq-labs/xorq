@@ -51,6 +51,9 @@ from xorq.ibis_yaml.compiler import build_expr
 from xorq.vendor.ibis.expr.operations.relations import Filter
 
 
+pytestmark = pytest.mark.core
+
+
 def test_ensure_deterministic():
     assert dask.config.get("tokenize.ensure-deterministic")
 

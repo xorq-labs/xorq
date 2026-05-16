@@ -6,6 +6,9 @@ import toolz
 from xorq.common.utils.io_utils import Peeker
 
 
+pytestmark = pytest.mark.core
+
+
 make_bytes_contains = toolz.flip(bytes.__contains__)
 
 

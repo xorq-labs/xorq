@@ -21,6 +21,9 @@ from xorq.tests.util import (
 )
 
 
+pytestmark = pytest.mark.xorq_datafusion
+
+
 pa = pytest.importorskip("pyarrow")
 
 

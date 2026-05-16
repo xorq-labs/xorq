@@ -5,6 +5,9 @@ import pytest
 from xorq.common.utils.io_utils import extract_suffix
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.mark.parametrize(
     "input_path,expected",
     [

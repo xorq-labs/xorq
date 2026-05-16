@@ -18,6 +18,9 @@ from xorq.tests.util import assert_series_equal
 from xorq.vendor import ibis
 
 
+pytestmark = pytest.mark.pandas
+
+
 @pytest.mark.parametrize(
     "op",
     [

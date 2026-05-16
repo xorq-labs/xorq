@@ -2,8 +2,12 @@ import time
 
 import pandas as pd
 import pyarrow as pa
+import pytest
 
 from xorq.flight.metrics import instrument_rpc, setup_console_metrics
+
+
+pytestmark = pytest.mark.core
 
 
 @instrument_rpc("dummy_do_get")

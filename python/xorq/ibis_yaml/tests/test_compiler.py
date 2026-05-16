@@ -49,6 +49,9 @@ from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
 
+pytestmark = pytest.mark.core
+
+
 do_roundtrip_expr = toolz.compose(load_expr, build_expr)
 
 

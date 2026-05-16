@@ -5,6 +5,9 @@ from xorq.api import _
 from xorq.ibis_yaml.compiler import build_expr
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.mark.benchmark
 def test_baseball_stats_compilation(builds_dir):
     pg = xo.postgres.connect_env()

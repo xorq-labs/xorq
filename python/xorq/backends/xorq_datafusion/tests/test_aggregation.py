@@ -13,6 +13,9 @@ from xorq.vendor.ibis import _
 from xorq.vendor.ibis import literal as L
 
 
+pytestmark = pytest.mark.xorq_datafusion
+
+
 @xo.udf.agg.builtin
 def mean_udf(s: dt.double) -> dt.double:
     return s.mean()

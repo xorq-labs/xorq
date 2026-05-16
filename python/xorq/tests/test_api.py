@@ -14,6 +14,9 @@ from xorq.config import default_backend, options
 from xorq.tests.conftest import TEST_TABLES
 
 
+pytestmark = pytest.mark.core
+
+
 def test_list_tables(con):
     tables = con.list_tables()
     assert isinstance(tables, list)

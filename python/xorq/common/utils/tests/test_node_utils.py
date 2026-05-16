@@ -19,6 +19,9 @@ from xorq.common.utils.node_utils import (
 )
 
 
+pytestmark = pytest.mark.core
+
+
 try_find_by_expr_hash = toolz.excepts(Exception, find_by_expr_hash)
 
 

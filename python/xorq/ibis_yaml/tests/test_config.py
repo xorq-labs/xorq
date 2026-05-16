@@ -1,8 +1,13 @@
 import pathlib
 
+import pytest
+
 from xorq.ibis_yaml.config import (
     BuildConfig,  # Replace 'your_module' with the appropriate module name
 )
+
+
+pytestmark = pytest.mark.core
 
 
 def test_default_hash_length():

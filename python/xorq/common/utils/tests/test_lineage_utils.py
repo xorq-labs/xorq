@@ -23,6 +23,9 @@ from xorq.vendor.ibis.expr.operations.reductions import Sum
 from xorq.vendor.ibis.expr.types.core import ExprMetadata
 
 
+pytestmark = pytest.mark.core
+
+
 @xo.udf.make_pandas_udf(
     schema=xo.schema({"price": float, "discount": float}),
     return_type=dt.float,

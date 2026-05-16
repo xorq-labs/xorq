@@ -1,6 +1,11 @@
+import pytest
+
 import xorq
 import xorq.api as xo
 from xorq.backends.xorq_datafusion.datafusion import Backend
+
+
+pytestmark = pytest.mark.xorq_datafusion
 
 
 def test_version():

@@ -13,6 +13,9 @@ from xorq.flight.exchanger import make_udxf
 from xorq.flight.tests.test_server import make_flight_url
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.fixture(scope="module")
 def flight_server():
     flight_url = make_flight_url(None)

@@ -9,6 +9,9 @@ from xorq.tests.util import assert_frame_equal, assert_series_equal
 from xorq.vendor import ibis
 
 
+pytestmark = pytest.mark.pandas
+
+
 @pytest.mark.parametrize("arr", [[1, 3, 5], np.array([1, 3, 5])])
 @pytest.mark.parametrize("create_arr_expr", [ibis.literal, ibis.array])
 def test_array_literal(client, arr, create_arr_expr):

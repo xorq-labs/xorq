@@ -1,6 +1,11 @@
 from pathlib import Path
 
+import pytest
+
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
+
+
+pytestmark = pytest.mark.core
 
 
 def test_default_caching_dir():

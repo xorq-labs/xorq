@@ -17,6 +17,9 @@ from xorq.common.utils.logging_utils import (
 )
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.fixture(name="log_output")
 def fixture_log_output():
     return LogCapture()

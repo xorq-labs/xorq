@@ -10,6 +10,9 @@ import xorq.api as xo
 from xorq.common.utils.process_utils import subprocess_run
 
 
+pytestmark = pytest.mark.core
+
+
 def test_to_pyarrow_stream():
     """Test writing Arrow IPC stream to a buffer."""
     # Create test data

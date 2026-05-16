@@ -12,6 +12,9 @@ from xorq.tests.util import assert_frame_equal, assert_series_equal
 from xorq.vendor import ibis
 
 
+pytestmark = pytest.mark.pandas
+
+
 @pytest.fixture(scope="module")
 def value():
     return OrderedDict([("fruit", "pear"), ("weight", 0)])

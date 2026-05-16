@@ -8,6 +8,9 @@ from xorq.expr.udf import pyarrow_udwf
 from xorq.vendor import ibis
 
 
+pytestmark = pytest.mark.core
+
+
 def test_built_in_udf_properties(compiler):
     t = xo.table({"a": "int64"}, name="t")
 

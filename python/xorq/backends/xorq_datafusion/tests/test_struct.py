@@ -13,6 +13,9 @@ from xorq.tests.util import assert_frame_equal, assert_series_equal
 from xorq.vendor.ibis import _
 
 
+pytestmark = pytest.mark.xorq_datafusion
+
+
 @pytest.mark.parametrize(
     ("field", "expected"),
     [

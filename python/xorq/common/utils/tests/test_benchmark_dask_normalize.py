@@ -12,6 +12,9 @@ from xorq.common.utils.dask_normalize.dask_normalize_expr import (
 )
 
 
+pytestmark = pytest.mark.core
+
+
 def _make_simple():
     con = xo.connect()
     con.create_table("t", pd.DataFrame({"a": range(100), "b": range(100)}))

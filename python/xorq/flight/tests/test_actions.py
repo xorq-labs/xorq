@@ -1,5 +1,6 @@
 import pandas as pd
 import pyarrow as pa
+import pytest
 
 import xorq.api as xo
 import xorq.flight.exchanger as E
@@ -10,6 +11,9 @@ from xorq.flight.action import (
     GetSchemaQueryAction,
     ListTablesAction,
 )
+
+
+pytestmark = pytest.mark.core
 
 
 def test_list_tables_kwargs():

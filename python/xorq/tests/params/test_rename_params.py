@@ -1,9 +1,14 @@
 """Tests for rename_params() utility."""
 
+import pytest
+
 import xorq.api as xo
 import xorq.vendor.ibis as ibis
 from xorq.common.utils.graph_utils import rename_params, walk_nodes
 from xorq.expr.operations import NamedScalarParameter
+
+
+pytestmark = pytest.mark.core
 
 
 def test_rename_single_param():

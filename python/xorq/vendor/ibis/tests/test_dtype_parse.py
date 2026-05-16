@@ -7,6 +7,9 @@ from xorq.vendor.ibis.common.temporal import IntervalUnit
 from xorq.vendor.ibis.expr.datatypes.parse import parse
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.mark.parametrize(
     "text,expected",
     [

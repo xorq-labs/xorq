@@ -53,6 +53,9 @@ from xorq.expr.ml.structer import (  # noqa: E402
 )
 
 
+pytestmark = pytest.mark.core
+
+
 def test_kvfield_is_strenum():
     """Test KVField inherits from StrEnum."""
     assert issubclass(KVField, StrEnum)

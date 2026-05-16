@@ -1,5 +1,10 @@
+import pytest
+
 import xorq.vendor.ibis as ibis
 from xorq.ibis_yaml.common import RefEnum, RegistryEnum
+
+
+pytestmark = pytest.mark.core
 
 
 def test_window_function_roundtrip(compiler, t):

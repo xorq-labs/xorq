@@ -11,6 +11,9 @@ import pytest
 import xorq.api as xo
 
 
+pytestmark = pytest.mark.core
+
+
 # ---------------------------------------------------------------------------
 # Helpers — one callable per output method, uniform signature (expr, params, tmp_path)
 # ---------------------------------------------------------------------------

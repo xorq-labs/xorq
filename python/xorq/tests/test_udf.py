@@ -10,6 +10,9 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq import udf
 
 
+pytestmark = pytest.mark.core
+
+
 pc = pytest.importorskip("pyarrow.compute")
 
 

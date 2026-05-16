@@ -8,6 +8,9 @@ from xorq.ibis_yaml.enums import ExprKind
 from xorq.vendor.ibis.expr.types.core import ExprMetadata
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.mark.parametrize(
     "schema_val,pattern",
     [

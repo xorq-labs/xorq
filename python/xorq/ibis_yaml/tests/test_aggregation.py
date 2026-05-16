@@ -4,6 +4,9 @@ from pytest import param
 import xorq.api as xo
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.mark.parametrize(
     "metrics",
     [

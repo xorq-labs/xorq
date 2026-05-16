@@ -27,6 +27,9 @@ from xorq.vendor import ibis
 from xorq.vendor.ibis.util import gen_name
 
 
+pytestmark = pytest.mark.snowflake
+
+
 KEY_PREFIX = xo.config.options.cache.key_prefix
 
 

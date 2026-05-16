@@ -14,6 +14,9 @@ from xorq.common.utils.postgres_utils import (
 )
 
 
+pytestmark = pytest.mark.postgres
+
+
 @pytest.mark.parametrize(
     "name",
     (

@@ -1,11 +1,15 @@
 import dask
 import pandas as pd
+import pytest
 
 import xorq.api as xo
 from xorq.backends.conftest import KEY_PREFIX, get_cache_uncached
 from xorq.caching import SourceCache, SourceSnapshotCache
 from xorq.expr.relations import into_backend
 from xorq.vendor import ibis
+
+
+pytestmark = pytest.mark.pandas
 
 
 def test_pandas_snapshot(xo_con, alltypes_df):

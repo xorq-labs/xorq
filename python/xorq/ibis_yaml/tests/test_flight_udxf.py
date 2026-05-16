@@ -12,6 +12,9 @@ from xorq.ibis_yaml.compiler import YamlExpressionTranslator
 from xorq.tests.util import assert_frame_equal
 
 
+pytestmark = pytest.mark.core
+
+
 field_name = "price_per_carat"
 schema = xo.schema({"sum_price": "float64", "sum_carat": "float64"})
 return_type = xo.dtype("float64")

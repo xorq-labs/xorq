@@ -14,6 +14,9 @@ from xorq.backends._lazy import LazyBackend
 from xorq.vendor.ibis.backends import BaseBackend
 
 
+pytestmark = pytest.mark.core
+
+
 def make_duckdb_lazy(**kwargs):
     return LazyBackend(duckdb.Backend().connect, database=":memory:", **kwargs)
 

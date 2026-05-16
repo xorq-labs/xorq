@@ -11,6 +11,9 @@ from xorq.caching import (
 )
 
 
+pytestmark = pytest.mark.core
+
+
 def test_into_backend(batting):
     xo.options.interactive = False
 

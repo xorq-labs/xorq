@@ -6,6 +6,9 @@ import xorq.api as xo
 from xorq.caching import ParquetCache, SourceCache
 
 
+pytestmark = pytest.mark.databricks
+
+
 @pytest.fixture
 def ddb_batting(data_dir):
     ddb = xo.duckdb.connect()

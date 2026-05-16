@@ -14,6 +14,9 @@ from xorq.tests.util import assert_frame_equal, check_eq
 from xorq.vendor import ibis
 
 
+pytestmark = pytest.mark.duckdb
+
+
 KEY_PREFIX = xo.config.options.cache.key_prefix
 
 

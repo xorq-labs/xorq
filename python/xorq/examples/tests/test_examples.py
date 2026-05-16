@@ -5,6 +5,9 @@ from xorq.examples import Example, get_name_to_suffix
 from xorq.examples.core import whitelist
 
 
+pytestmark = pytest.mark.core
+
+
 def test_whitelist():
     assert [name in dir(xo.examples) for name in whitelist]
 

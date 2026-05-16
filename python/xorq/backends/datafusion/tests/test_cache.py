@@ -9,6 +9,9 @@ from xorq.caching import (
 )
 
 
+pytestmark = pytest.mark.datafusion
+
+
 @pytest.mark.parametrize(
     "get_expr",
     [

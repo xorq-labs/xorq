@@ -4,6 +4,9 @@ from xorq.backends.pyiceberg.tests.conftest import QUOTES_TABLE_NAME
 from xorq.tests.util import assert_frame_equal
 
 
+pytestmark = pytest.mark.pyiceberg
+
+
 def test_create_table(iceberg_con, quotes_df):
     # the iceberg_con fixture creates the table
     assert QUOTES_TABLE_NAME in iceberg_con.list_tables()

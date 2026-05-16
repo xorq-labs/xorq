@@ -19,6 +19,9 @@ if TYPE_CHECKING:
     pass
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.fixture
 def new_schema():
     return xo.schema([("a", "string"), ("b", "bool"), ("c", "int32")])

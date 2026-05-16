@@ -7,6 +7,9 @@ import xorq.vendor.ibis.expr.schema as sch
 from xorq.vendor.ibis.util import gen_name
 
 
+pytestmark = pytest.mark.databricks
+
+
 @pytest.fixture
 def tmp_table(con):
     name = gen_name("databricks_tmp_table")

@@ -10,6 +10,9 @@ from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.operations import _MISSING, NamedScalarParameter
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.fixture
 def t():
     return ibis.table({"x": "float64", "y": "int64", "s": "string"}, name="t")

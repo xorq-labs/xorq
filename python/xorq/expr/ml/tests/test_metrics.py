@@ -18,6 +18,9 @@ from xorq.expr.ml.metrics import (
 from xorq.expr.ml.pipeline_lib import Pipeline
 
 
+pytestmark = pytest.mark.core
+
+
 # Skip all tests in this module if sklearn is not installed
 sklearn = pytest.importorskip("sklearn")
 

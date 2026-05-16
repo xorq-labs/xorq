@@ -9,6 +9,9 @@ from xorq.backends.pandas import Backend
 from xorq.tests.util import assert_frame_equal
 
 
+pytestmark = pytest.mark.pandas
+
+
 @pytest.fixture
 def dataframe():
     return pd.DataFrame(

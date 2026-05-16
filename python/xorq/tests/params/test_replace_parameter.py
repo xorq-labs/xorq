@@ -8,6 +8,9 @@ from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.operations import NamedScalarParameter
 
 
+pytestmark = pytest.mark.core
+
+
 def test_bound_param_replaced_with_literal():
     p = xo.param("x", "float64")
     t = ibis.table({"v": "float64"}, name="t")

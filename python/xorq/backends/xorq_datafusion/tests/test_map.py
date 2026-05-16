@@ -6,6 +6,9 @@ import xorq.api as xo
 from xorq.tests.util import assert_series_equal
 
 
+pytestmark = pytest.mark.xorq_datafusion
+
+
 def test_map_get_with_compatible_value_smaller(con):
     value = xo.literal({"A": 1000, "B": 2000})
     expr = value.get("C", 3)

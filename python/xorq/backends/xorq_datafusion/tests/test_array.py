@@ -13,6 +13,9 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.tests.util import assert_frame_equal, assert_series_equal
 
 
+pytestmark = pytest.mark.xorq_datafusion
+
+
 @pytest.fixture(scope="module")
 def flatten_data():
     return {

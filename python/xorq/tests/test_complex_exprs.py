@@ -12,6 +12,9 @@ from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.relations import into_backend
 
 
+pytestmark = pytest.mark.core
+
+
 rate_to_rate_str = toolz.compose(operator.methodcaller("replace", ".", "p"), str)
 
 

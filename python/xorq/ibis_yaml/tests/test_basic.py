@@ -11,6 +11,9 @@ from xorq.ibis_yaml.common import (
 from xorq.ibis_yaml.tests.conftest import get_dtype_yaml
 
 
+pytestmark = pytest.mark.core
+
+
 def test_unbound_table(t, compiler):
     yaml_dict = compiler.to_yaml(t)
     node_ref = yaml_dict["expression"][RefEnum.node_ref]

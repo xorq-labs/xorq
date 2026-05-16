@@ -18,6 +18,9 @@ from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis.backends.profiles import Profile
 
 
+pytestmark = pytest.mark.core
+
+
 def _all_sources_lazy(expr):
     return all(isinstance(src, LazyBackend) for src in find_all_sources(expr))
 

@@ -8,6 +8,9 @@ from xorq.caching.strategy import ModificationTimeStrategy, SnapshotStrategy
 from xorq.expr.relations import RemoteTable
 
 
+pytestmark = pytest.mark.core
+
+
 def test_put_get_drop(tmp_path, parquet_dir):
     astronauts_path = parquet_dir.joinpath("astronauts.parquet")
 

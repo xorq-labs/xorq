@@ -12,6 +12,9 @@ import xorq.vendor.ibis.expr.datatypes as dt
 from xorq.vendor import ibis
 
 
+pytestmark = pytest.mark.sqlite
+
+
 # Test with formats 1-7 (with T, Z, and offset modifiers) from:
 # https://sqlite.org/lang_datefunc.html#time_values
 TIMESTAMPS = [

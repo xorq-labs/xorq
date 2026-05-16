@@ -34,6 +34,9 @@ from xorq.expr.ml.pipeline_lib import Pipeline  # noqa: E402
 from xorq.vendor.ibis.expr.types import Expr  # noqa: E402
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.fixture(scope="module")
 def classification_data():
     """Generate a classification dataset as an ibis table."""

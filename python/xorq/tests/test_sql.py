@@ -3,6 +3,9 @@ import pytest
 import xorq.api as xo
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.mark.parametrize("file_format", ["parquet", "csv"])
 def test_sql_on_deferred_read(file_format, request):
     ddb = xo.duckdb.connect()

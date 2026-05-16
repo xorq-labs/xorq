@@ -7,6 +7,9 @@ import xorq.expr.datatypes as dt
 from xorq.tests.util import assert_series_equal, default_series_rename
 
 
+pytestmark = pytest.mark.xorq_datafusion
+
+
 @pytest.mark.parametrize(
     ("column", "raw_value"),
     [

@@ -1,10 +1,14 @@
 import pandas as pd
 import pyarrow as pa
+import pytest
 from datafusion import udwf
 from datafusion.user_defined import WindowEvaluator
 
 import xorq.api as xo
 from xorq.expr.relations import into_backend
+
+
+pytestmark = pytest.mark.datafusion
 
 
 class SmoothTwoColumn(WindowEvaluator):

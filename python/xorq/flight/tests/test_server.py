@@ -29,6 +29,9 @@ from xorq.loader import load_backend
 from xorq.tests.util import assert_frame_equal
 
 
+pytestmark = pytest.mark.core
+
+
 def make_flight_url(port, scheme="grpc", auth=None):
     if port is not None:
         assert not FlightUrl.port_in_use(port), f"Port {port} already in use"

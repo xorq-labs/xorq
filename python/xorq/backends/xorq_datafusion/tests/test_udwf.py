@@ -1,8 +1,12 @@
 import numpy as np
 import pyarrow as pa
+import pytest
 
 import xorq.api as xo
 from xorq.internal import WindowEvaluator, udwf
+
+
+pytestmark = pytest.mark.xorq_datafusion
 
 
 class ExponentialSmoothDefault(WindowEvaluator):

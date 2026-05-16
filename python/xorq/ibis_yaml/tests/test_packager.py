@@ -40,6 +40,9 @@ from xorq.ibis_yaml.packager import (
 from xorq.init_templates import InitTemplates
 
 
+pytestmark = pytest.mark.core
+
+
 @functools.cache
 def get_template_bytes(template=InitTemplates.default):
     with tempfile.TemporaryDirectory() as td:

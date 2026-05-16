@@ -5,6 +5,9 @@ import xorq.api as xo
 from xorq.tests.util import assert_frame_equal
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.fixture(scope="function")
 def con():
     return xo.connect()

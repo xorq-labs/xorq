@@ -19,6 +19,9 @@ from sklearn.datasets import make_regression  # noqa: E402
 from sklearn.model_selection import TimeSeriesSplit  # noqa: E402
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.fixture(scope="module")
 def lasso_timeseries_fold_expr(tmp_path_factory):
     """Build a TimeSeriesSplit fold expression using deferred_read_parquet.

@@ -16,6 +16,9 @@ from xorq.tests.util import assert_series_equal
 from xorq.vendor.ibis import literal as L
 
 
+pytestmark = pytest.mark.pandas
+
+
 @pytest.mark.parametrize(
     ("case_func", "expected_func"),
     [

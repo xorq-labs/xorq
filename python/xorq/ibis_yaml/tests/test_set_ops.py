@@ -7,6 +7,9 @@ import xorq.api as xo
 from xorq.api import _
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.fixture
 def union_subsets(alltypes):
     randomizer = random.Random(42)

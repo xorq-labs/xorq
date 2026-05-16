@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from xorq.tests.util import assert_series_equal
 from xorq.vendor import ibis
+
+
+pytestmark = pytest.mark.pandas
 
 
 def test_map_length_expr(t):

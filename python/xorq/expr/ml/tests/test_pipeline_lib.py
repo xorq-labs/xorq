@@ -20,6 +20,9 @@ sklearn = pytest.importorskip("sklearn")
 from xorq.expr.ml.sklearn_utils import ColumnRemapper  # noqa: E402
 
 
+pytestmark = pytest.mark.core
+
+
 # sklearn submodule imports
 KMeans = sklearn.cluster.KMeans
 MiniBatchKMeans = sklearn.cluster.MiniBatchKMeans

@@ -336,6 +336,9 @@ def test_zip_rejects_invalid():
 from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: E402
 
 
+pytestmark = pytest.mark.core
+
+
 def test_register_duplicate_raises(saved_registry):
     handler = TagHandler(
         tag_names=("dup_test",), from_tag_node=lambda tag_node: "first"

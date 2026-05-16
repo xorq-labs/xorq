@@ -5,6 +5,9 @@ from adbc_driver_manager._lib import OperationalError
 import xorq.api as xo
 
 
+pytestmark = pytest.mark.postgres
+
+
 def test_read_csv(pg, iris_path):
     name = "iris"
     table_name = f"testing-{name}"

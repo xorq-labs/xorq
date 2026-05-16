@@ -9,6 +9,9 @@ from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.operations import NamedScalarParameter
 
 
+pytestmark = pytest.mark.core
+
+
 def test_bind_replaces_all_params():
     threshold = xo.param("threshold", "float64")
     t = xo.memtable({"x": [1.0, 2.0, 3.0]})

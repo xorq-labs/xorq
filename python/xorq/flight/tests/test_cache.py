@@ -1,5 +1,6 @@
 import pathlib
 
+import pytest
 import toolz
 
 import xorq.api as xo
@@ -9,6 +10,9 @@ from xorq.caching import (
 from xorq.common.utils.func_utils import (
     return_constant,
 )
+
+
+pytestmark = pytest.mark.core
 
 
 echo_udxf = xo.expr.relations.flight_udxf(

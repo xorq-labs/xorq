@@ -10,6 +10,9 @@ from xorq.expr.operations import NamedScalarParameter
 from xorq.expr.relations import CachedNode
 
 
+pytestmark = pytest.mark.core
+
+
 def test_param_behind_cached_node():
     """Test parameters work behind CachedNode."""
     threshold = xo.param("threshold", "float64", default=1.5)

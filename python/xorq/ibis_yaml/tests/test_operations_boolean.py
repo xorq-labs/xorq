@@ -1,7 +1,12 @@
 from math import isnan
 
+import pytest
+
 import xorq.vendor.ibis as ibis
 from xorq.ibis_yaml.tests.conftest import get_dtype_yaml
+
+
+pytestmark = pytest.mark.core
 
 
 def test_equals(compiler):

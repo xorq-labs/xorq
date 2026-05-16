@@ -1,9 +1,14 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from xorq.common.utils.otel_utils import (
     _should_use_otlp_exporter,
     is_localhost_collector_listening,
 )
+
+
+pytestmark = pytest.mark.core
 
 
 # -- is_localhost_collector_listening ------------------------------------------

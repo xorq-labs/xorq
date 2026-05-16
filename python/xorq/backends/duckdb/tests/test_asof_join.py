@@ -5,6 +5,9 @@ import pytest
 from xorq.vendor import ibis
 
 
+pytestmark = pytest.mark.duckdb
+
+
 try:
     from duckdb import InvalidInputException as DuckDBInvalidInputException
 except ImportError:

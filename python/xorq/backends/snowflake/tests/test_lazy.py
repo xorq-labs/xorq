@@ -6,6 +6,9 @@ from xorq.backends.snowflake.tests.conftest import inside_temp_schema
 from xorq.vendor.ibis.backends.profiles import Profile
 
 
+pytestmark = pytest.mark.snowflake
+
+
 SU = pytest.importorskip("xorq.common.utils.snowflake_utils")
 
 

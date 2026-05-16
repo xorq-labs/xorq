@@ -8,6 +8,9 @@ from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis.expr import datatypes as dt
 
 
+pytestmark = pytest.mark.pandas
+
+
 table_name = "test"
 
 

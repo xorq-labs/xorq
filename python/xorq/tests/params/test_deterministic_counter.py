@@ -7,6 +7,9 @@ from xorq.common.utils.name_utils import tokenize_to_int
 from xorq.expr.operations import NamedScalarParameter
 
 
+pytestmark = pytest.mark.core
+
+
 def test_counter_is_deterministic_for_same_label():
     a = NamedScalarParameter(dtype="float64", label="threshold")
     b = NamedScalarParameter(dtype="float64", label="threshold")

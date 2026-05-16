@@ -1,4 +1,9 @@
+import pytest
+
 import xorq.vendor.ibis as ibis
+
+
+pytestmark = pytest.mark.core
 
 
 def test_selection_on_view(compiler):

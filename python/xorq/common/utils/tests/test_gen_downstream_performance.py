@@ -7,6 +7,9 @@ from xorq.common.utils.node_utils import gen_downstream
 from xorq.vendor.ibis.expr.operations import InMemoryTable
 
 
+pytestmark = pytest.mark.core
+
+
 def create_expr(depth=3):
     df = pd.DataFrame(
         {

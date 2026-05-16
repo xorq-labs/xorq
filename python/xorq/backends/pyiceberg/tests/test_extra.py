@@ -1,9 +1,13 @@
 import pyarrow as pa
+import pytest
 
 import xorq.api as xo
 from xorq.backends.pyiceberg.tests.conftest import QUOTES_TABLE_NAME
 from xorq.caching import SourceCache
 from xorq.tests.util import assert_frame_equal
+
+
+pytestmark = pytest.mark.pyiceberg
 
 
 def test_into_backend(iceberg_con, trades_df):

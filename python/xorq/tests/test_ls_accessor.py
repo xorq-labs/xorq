@@ -10,6 +10,9 @@ from xorq.caching import (
 )
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.fixture
 def cached_two(con, pg, tmp_path):
     parquet_cache = ParquetCache.from_kwargs(source=con, relative_path=tmp_path)

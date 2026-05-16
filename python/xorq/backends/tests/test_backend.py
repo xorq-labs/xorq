@@ -10,6 +10,9 @@ from xorq.common.utils.graph_utils import (
 )
 
 
+pytestmark = pytest.mark.core
+
+
 pytest.importorskip("psycopg")
 
 

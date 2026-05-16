@@ -10,6 +10,9 @@ from xorq.expr.relations import into_backend
 from xorq.ibis_yaml.compiler import YamlExpressionTranslator
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.fixture(scope="session")
 def duckdb_path(tmp_path_factory):
     db_path = tmp_path_factory.mktemp("duckdb") / "test.db"

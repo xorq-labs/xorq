@@ -12,6 +12,9 @@ from xorq.expr.operations import _MISSING, NamedScalarParameter
 from xorq.ibis_yaml.compiler import build_expr, load_expr
 
 
+pytestmark = pytest.mark.core
+
+
 def test_param_creation_basic():
     threshold = xo.param("threshold", "float64")
     assert threshold.op().label == "threshold"

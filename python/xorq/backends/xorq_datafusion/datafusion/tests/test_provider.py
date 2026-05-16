@@ -5,6 +5,9 @@ import xorq.api as xo
 from xorq.backends.xorq_datafusion.datafusion.provider import IbisTableProvider
 
 
+pytestmark = pytest.mark.xorq_datafusion
+
+
 @pytest.fixture
 def tmp_model_dir(tmpdir):
     # Create a temporary directory for the model

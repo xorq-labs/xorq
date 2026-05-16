@@ -6,6 +6,9 @@ from xorq.flight import BasicAuth, FlightServer
 from xorq.flight.tests.test_server import make_flight_url
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.mark.parametrize("auth", [None, BasicAuth("username", "password")])
 @pytest.mark.parametrize("verify_client", [False, True])
 def test_connect(auth, verify_client):

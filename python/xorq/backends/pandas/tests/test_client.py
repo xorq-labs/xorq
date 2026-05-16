@@ -11,6 +11,9 @@ import xorq.vendor.ibis.expr.operations as ops
 from xorq.tests.util import assert_frame_equal
 
 
+pytestmark = pytest.mark.pandas
+
+
 @pytest.fixture
 def client():
     return xo.pandas.connect(

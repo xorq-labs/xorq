@@ -12,6 +12,9 @@ from xorq.expr.ml import _calculate_bounds
 from xorq.tests.util import assert_frame_equal
 
 
+pytestmark = pytest.mark.core
+
+
 pytest.importorskip("duckdb")
 pytest.importorskip("psycopg")
 pytest.importorskip("datafusion")

@@ -19,6 +19,9 @@ from xorq.vendor.ibis import literal as L
 from xorq.vendor.ibis.expr import datatypes as dt
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.mark.parametrize(
     ("expr",),
     [

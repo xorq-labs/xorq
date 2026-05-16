@@ -10,6 +10,9 @@ from xorq.expr.ml.pipeline_lib import (
 )
 
 
+pytestmark = pytest.mark.core
+
+
 sklearn = pytest.importorskip("sklearn")
 load_iris = sklearn.datasets.load_iris
 train_test_split = sklearn.model_selection.train_test_split

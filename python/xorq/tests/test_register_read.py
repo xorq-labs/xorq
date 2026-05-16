@@ -17,6 +17,9 @@ from xorq.vendor.ibis.common.collections import FrozenDict
 from xorq.vendor.ibis.expr.types.core import ExprMetadata
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.fixture
 def gzip_csv(data_dir, tmp_path):
     basename = "diamonds.csv"

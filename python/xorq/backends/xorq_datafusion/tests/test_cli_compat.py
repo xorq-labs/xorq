@@ -6,6 +6,9 @@ from click.testing import CliRunner
 from xorq.cli import OutputFormats, cli, uv_group
 
 
+pytestmark = pytest.mark.xorq_datafusion
+
+
 @pytest.mark.skipif(
     sys.version_info > (3, 10), reason="compatibility test for Python 3.10"
 )

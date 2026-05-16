@@ -10,6 +10,9 @@ from xorq.common.utils.env_utils import (
 )
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [

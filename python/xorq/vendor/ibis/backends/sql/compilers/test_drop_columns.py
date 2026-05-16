@@ -6,6 +6,9 @@ from xorq.vendor.ibis.backends.sql.compilers.duckdb import DuckDBCompiler
 from xorq.vendor.ibis.backends.sql.compilers.snowflake import SnowflakeCompiler
 
 
+pytestmark = pytest.mark.core
+
+
 def _wide_table(n_cols=10):
     """Create an unbound table wide enough that DropColumns survives the rewrite.
 

@@ -12,6 +12,9 @@ from xorq.api import _
 from xorq.tests.util import assert_frame_equal
 
 
+pytestmark = pytest.mark.xorq_datafusion
+
+
 @pytest.fixture
 def union_subsets(alltypes, alltypes_df):
     cols_a, cols_b, cols_c = (alltypes.columns.copy() for _ in range(3))

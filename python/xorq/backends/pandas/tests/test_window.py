@@ -16,6 +16,9 @@ from xorq.vendor import ibis
 from xorq.vendor.ibis.legacy.udf.vectorized import reduction
 
 
+pytestmark = pytest.mark.pandas
+
+
 @pytest.fixture(scope="session")
 def sort_kind():
     return "mergesort"

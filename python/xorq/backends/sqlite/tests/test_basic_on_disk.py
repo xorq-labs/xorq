@@ -1,6 +1,11 @@
+import pytest
+
 import xorq.api as xo
 from xorq.caching import SourceCache
 from xorq.tests.util import assert_frame_equal
+
+
+pytestmark = pytest.mark.sqlite
 
 
 def test_read_parquet(persistent_sqlite_con, astronauts_parquet_path):

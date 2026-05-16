@@ -5,6 +5,9 @@ import pytest
 from xorq.backends.pyiceberg import Backend as PyIcebergBackend
 
 
+pytestmark = pytest.mark.pyiceberg
+
+
 def test_can_connect(iceberg_con):
     assert iceberg_con is not None
 

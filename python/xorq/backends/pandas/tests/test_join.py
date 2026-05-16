@@ -9,6 +9,9 @@ from xorq.backends.pandas.tests.conftest import is_older_than
 from xorq.tests.util import assert_frame_equal, assert_series_equal
 
 
+pytestmark = pytest.mark.pandas
+
+
 # SEMI and ANTI are checked in backend tests
 mutating_join_type = pytest.mark.parametrize(
     "how",

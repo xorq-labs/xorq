@@ -12,6 +12,9 @@ from xorq.tests.util import assert_series_equal
 from xorq.vendor import ibis
 
 
+pytestmark = pytest.mark.pandas
+
+
 TIMESTAMP = "2022-03-13 06:59:10.467417"
 
 

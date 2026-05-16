@@ -10,6 +10,9 @@ import xorq.api as xo
 from xorq.tests.util import assert_frame_equal, assert_series_equal
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.fixture(scope="session")
 def con():
     return xo.connect()

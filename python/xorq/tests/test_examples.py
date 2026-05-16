@@ -8,6 +8,9 @@ import xorq.api as xo
 from xorq.tests.test_cli import build_run_examples_expr_names
 
 
+pytestmark = pytest.mark.core
+
+
 KEY_PREFIX = xo.config.options.cache.key_prefix
 LIBRARY_SCRIPTS = (
     "pandas_example",

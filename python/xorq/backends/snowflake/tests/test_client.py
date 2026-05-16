@@ -9,6 +9,9 @@ from xorq.backends.snowflake.tests.conftest import (
 from xorq.vendor.ibis.util import gen_name
 
 
+pytestmark = pytest.mark.snowflake
+
+
 SU = pytest.importorskip("xorq.common.utils.snowflake_utils")
 
 

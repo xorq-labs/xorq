@@ -28,6 +28,9 @@ from xorq.common.utils.inspect_utils import (
 from xorq.tests.util import assert_frame_equal
 
 
+pytestmark = pytest.mark.core
+
+
 duckdb = pytest.importorskip("duckdb")
 ProgrammingError = pytest.importorskip("adbc_driver_manager").ProgrammingError
 

@@ -10,6 +10,9 @@ import xorq.vendor.ibis.expr.schema as sch
 from xorq.tests.util import assert_frame_equal, check_eq
 
 
+pytestmark = pytest.mark.xorq_datafusion
+
+
 @pytest.mark.parametrize(
     "how",
     [

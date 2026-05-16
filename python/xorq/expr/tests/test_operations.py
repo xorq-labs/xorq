@@ -5,6 +5,9 @@ from xorq.expr.operations import NamedScalarParameter
 from xorq.vendor.ibis.expr.operations.generic import ScalarParameter
 
 
+pytestmark = pytest.mark.core
+
+
 def test_named_scalar_parameter_creation():
     op = NamedScalarParameter(dtype=dt.float64(), label="threshold")
     assert op.label == "threshold"

@@ -1,7 +1,12 @@
+import pytest
+
 from xorq.ibis_yaml.common import (
     RefEnum,
     RegistryEnum,
 )
+
+
+pytestmark = pytest.mark.core
 
 
 def test_filter(compiler, t):

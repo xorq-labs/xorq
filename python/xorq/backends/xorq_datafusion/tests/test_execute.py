@@ -7,6 +7,9 @@ from xorq.tests.util import (
 )
 
 
+pytestmark = pytest.mark.xorq_datafusion
+
+
 @pytest.fixture(scope="function")
 def ddb_batting(duckdb_con):
     return duckdb_con.create_table(

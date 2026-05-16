@@ -20,6 +20,9 @@ from xorq.common.utils.tls_utils import (
 )
 
 
+pytestmark = pytest.mark.core
+
+
 def test_single_creation():
     TLSCert.from_common_name()
 

@@ -1,6 +1,9 @@
 import pytest
 
 
+pytestmark = pytest.mark.core
+
+
 TPC_H = [
     "tpc_h01",
     "tpc_h02",

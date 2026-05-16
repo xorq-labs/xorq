@@ -18,6 +18,9 @@ from xorq.vendor.ibis import _
 from xorq.vendor.ibis.common.annotations import ValidationError
 
 
+pytestmark = pytest.mark.xorq_datafusion
+
+
 def test_null_literal(con):
     expr = xo.null()
     assert pd.isna(con.execute(expr))

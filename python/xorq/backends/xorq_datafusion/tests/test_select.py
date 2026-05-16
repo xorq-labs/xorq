@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import pytest
+
 from xorq.tests.util import assert_frame_equal
+
+
+pytestmark = pytest.mark.xorq_datafusion
 
 
 def test_where_multiple_conditions(alltypes, alltypes_df):

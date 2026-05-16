@@ -5,6 +5,9 @@ import pytest
 import xorq.api as xo
 
 
+pytestmark = pytest.mark.core
+
+
 @pytest.mark.parametrize(
     "make_connection",
     (

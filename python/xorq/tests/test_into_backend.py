@@ -21,6 +21,9 @@ from xorq.vendor.ibis import _
 from xorq.vendor.ibis.expr.types.relations import CACHED_NODE_NAME_PLACEHOLDER
 
 
+pytestmark = pytest.mark.core
+
+
 expected_tables = (
     "array_types",
     "astronauts",

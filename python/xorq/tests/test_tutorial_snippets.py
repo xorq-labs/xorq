@@ -17,6 +17,9 @@ from pathlib import Path
 import pytest
 
 
+pytestmark = pytest.mark.core
+
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 TUTORIALS_DIR = REPO_ROOT / "docs" / "tutorials"
 SCRIPTS = sorted(TUTORIALS_DIR.rglob("*.snippets.py"))

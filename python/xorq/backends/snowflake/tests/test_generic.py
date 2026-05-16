@@ -9,6 +9,9 @@ from xorq.tests.util import assert_series_equal
 from xorq.vendor.ibis import literal as L
 
 
+pytestmark = pytest.mark.snowflake
+
+
 def calc_hexdigest(string, how):
     return hashlib.new(how, string.encode()).hexdigest()
 

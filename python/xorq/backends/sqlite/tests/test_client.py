@@ -12,6 +12,9 @@ import xorq.vendor.ibis.expr.operations as ops
 from xorq.vendor import ibis
 
 
+pytestmark = pytest.mark.sqlite
+
+
 def test_attach_file(tmp_path):
     dbpath = str(tmp_path / "attached.db")
     path_client = xo.sqlite.connect(dbpath)

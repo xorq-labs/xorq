@@ -1,4 +1,9 @@
+import pytest
+
 from xorq.caching.storage import resolve_parquet_cache_path
+
+
+pytestmark = pytest.mark.core
 
 
 def test_resolve_parquet_cache_path_uses_xorq_cache_dir(tmp_path, monkeypatch):
