@@ -112,10 +112,10 @@ class KindStyle:
 
 
 KIND_STYLES: dict[ExprKind, KindStyle] = {
-    ExprKind.Source:      KindStyle(icon="⊞", color=XORQ_DARK.primary),
-    ExprKind.Expr:        KindStyle(icon="⊕", color=XORQ_DARK.success),
+    ExprKind.Source: KindStyle(icon="⊞", color=XORQ_DARK.primary),
+    ExprKind.Expr: KindStyle(icon="⊕", color=XORQ_DARK.success),
     ExprKind.UnboundExpr: KindStyle(icon="⊘", color=XORQ_DARK.warning),
-    ExprKind.Composed:    KindStyle(icon="⊛", color=XORQ_DARK.secondary),
+    ExprKind.Composed: KindStyle(icon="⊛", color=XORQ_DARK.secondary),
     ExprKind.ExprBuilder: KindStyle(icon="⊡", color=XORQ_DARK.secondary),
 }
 
@@ -1234,6 +1234,11 @@ class DataViewScreen(Screen):
             returncode, stdout, stderr = self._spawn_run([*cmd, "--use-this-venv"])
             if returncode == 0:
                 return pa.ipc.open_stream(stdout).read_pandas()
+            logger.debug(
+                "catalog_run_fast_path_nonzero",
+                returncode=returncode,
+                stderr=stderr.decode(errors="replace").strip()[-500:],
+            )
         except (OSError, pa.lib.ArrowException):
             logger.exception("catalog_run_fast_path_failed")
         returncode, stdout, stderr = self._spawn_run(cmd)
