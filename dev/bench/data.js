@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778938942354,
+  "lastUpdate": 1778939810749,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -12468,6 +12468,114 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.012122232798347874",
             "extra": "mean: 3.4280847818467484 msec\nrounds: 573"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "341af06a755392f6d0d58d0ddbd2dcb11ee43e04",
+          "message": "refactor(xorq_datafusion): flatten DataFusionBackend inheritance (#1869)\n\nMerge two-level xorq_datafusion → datafusion.Backend hierarchy into a\nsingle Backend class. Deletes the datafusion/ subdirectory entirely.\n    \nFixes bundled with the merge:\n- register(): match/case dispatch, single deregister_table, one return;\n    add unbound-expression guard; ir.Table/ir.Expr arms replace verbose\n    ibis.expr.types.* references; drop redundant hasattr guards\n - _compile_pyarrow_udaf: param_name loop var shadowed outer name;\n    materialize parameters to list, guard empty case\n - _to_pyarrow_batches / to_parquet: remove redundant _import_pyarrow()\n    calls — pyarrow unconditionally imported at module level\n - register_table_provider: narrow source to ir.Table; guard None name\n - translate_sort: move to Backend._translate_sort as `@staticmethod`\n- Promote pandas/pyarrow.dataset/pyarrow.parquet to module-level imports\n    \nBREAKING CHANGE: truncate_table removed — DataFusion does not implement\nDELETE DML; the method was a silent no-op.\n    \nBREAKING CHANGE: read_postgres removed — _from_url kwargs silently\nignored database param.update(); no callers found in codebase.\n\n## Follow-up\n\n`register()` has 9 dispatch arms. This PR adds tests for three paths:\n`pd.DataFrame` → `pa.Table`, `ir.Table` via `IbisTableProvider`, and\n`ir.Expr` (memtable → `execute()` path).\n\nThe remaining six arms — `pa.Table`, `pa.RecordBatch`,\n`pa.RecordBatchReader`, `ds.Dataset`, DataFusion `Table`, DataFusion\n`DataFrame`, and the `str`/`Path` (parquet/csv) early-return — are not\ncovered by new tests. They are exercised indirectly by the broader test\nsuite but lack dedicated unit tests. A follow-up PR will add targeted\ntests for each arm, including the `ordering`/`sort_order` kwarg path\nthrough `_translate_sort`.\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-16T09:52:15-04:00",
+          "tree_id": "6a42cef1aa883960209da323e58acd338daebc15",
+          "url": "https://github.com/xorq-labs/xorq/commit/341af06a755392f6d0d58d0ddbd2dcb11ee43e04"
+        },
+        "date": 1778939807793,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.409596661306657,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017226665833550536",
+            "extra": "mean: 134.96011263636765 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.847878613625957,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006422678526392602",
+            "extra": "mean: 351.1385615999927 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6862155949254827,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15067645323506135",
+            "extra": "mean: 1.457267959799998 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.0384027066412034,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00719409270369208",
+            "extra": "mean: 329.12029660000144 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.8997072522832066,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02061158550430468",
+            "extra": "mean: 344.86239919999093 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.020102084572518,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014341221668072564",
+            "extra": "mean: 331.1146352000037 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[simple_filter_agg]",
+            "value": 171.29934818290386,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013013529160610505",
+            "extra": "mean: 5.837733830325239 msec\nrounds: 277"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[pipeline_50_steps]",
+            "value": 6.770608511908288,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05460158445499239",
+            "extra": "mean: 147.697211888884 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[nested_into_backend]",
+            "value": 38.93451328748113,
+            "unit": "iter/sec",
+            "range": "stddev: 0.023517638428165382",
+            "extra": "mean: 25.684153096156372 msec\nrounds: 52"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[simple_filter_agg]",
+            "value": 229.19016853173002,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013040691982396145",
+            "extra": "mean: 4.363188902937414 msec\nrounds: 443"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[pipeline_50_steps]",
+            "value": 302.4964799945854,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006219184052868753",
+            "extra": "mean: 3.305823591791546 msec\nrounds: 463"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[nested_into_backend]",
+            "value": 217.38320891189727,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01330645261496532",
+            "extra": "mean: 4.600171305803512 msec\nrounds: 448"
           }
         ]
       }
