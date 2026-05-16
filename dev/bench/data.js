@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778776291585,
+  "lastUpdate": 1778933953244,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -12144,6 +12144,114 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.012425653067619395",
             "extra": "mean: 4.208517169981416 msec\nrounds: 553"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b7b1e81364c385f2c8bcb8fe19439917a4498007",
+          "message": "fix(deps): bump xorq-datafusion 0.2.5 >> 0.2.7 to fix Py_Finalize hang (#1952)\n\n## Root cause (XOR-357)\n\nxorq-datafusion held a process-wide tokio multi-thread runtime. At exit,\nCPython's Py_Finalize raced with tokio's blocking-pool shutdown: workers\nmid-Python-callback re-entered pyo3 on a finalizing interpreter → panic\n→ process hung forever. The workaround was os._exit() in cli.py main().\n\n## Fix\n\nxorq-datafusion 0.2.7 registers xorq_datafusion.close() via atexit on\nimport. close() calls shutdown_runtime() which takes the runtime out of\nthe process-wide Option<Runtime> before Py_Finalize starts.\nRuntime::drop during finalization is then a no-op (unit struct), no more\nhang.\n\nVerified: explicit close(0) in main() is redundant — the atexit handler\nis the real fix. main() stays as a bare cli() call.\n\n## Tests added\n\n- test_main_atexit_runs_without_os_exit (test_cli.py): subprocess guards\nagainst future os._exit regression; sentinel file proves atexit fired.\n\n- test_python_udf_process_exits_cleanly (test_cli_compat.py): subprocess\nloads real xorq_datafusion, registers + executes a Python UDF through\nDataFusion (spawns tokio blocking workers), then exits. Asserts process\ncompletes within 30s and atexit fires. Catches both the hang and any\nfuture os._exit regression. Verified it fails when os._exit is injected.\n\nCloses XOR-357\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>\nCo-authored-by: Hussain Sultan <hussainz@gmail.com>",
+          "timestamp": "2026-05-16T08:14:35-04:00",
+          "tree_id": "c0fe5a62b4703c97706484fb89272bdca9ddfdc9",
+          "url": "https://github.com/xorq-labs/xorq/commit/b7b1e81364c385f2c8bcb8fe19439917a4498007"
+        },
+        "date": 1778933951002,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.329811442006743,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01603779061131385",
+            "extra": "mean: 136.42915754545274 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.778092134336559,
+            "unit": "iter/sec",
+            "range": "stddev: 0.028921196147780916",
+            "extra": "mean: 359.95926400000826 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6500015926014014,
+            "unit": "iter/sec",
+            "range": "stddev: 0.22257563221145038",
+            "extra": "mean: 1.5384577690000014 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.9047115876050142,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008074517128966351",
+            "extra": "mean: 344.26825859999326 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.915941678031097,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012945923155183003",
+            "extra": "mean: 342.9423872000143 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.883466878131893,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01448400725355162",
+            "extra": "mean: 346.80474659999163 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[simple_filter_agg]",
+            "value": 164.75672606632136,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01589729734018374",
+            "extra": "mean: 6.069554936394274 msec\nrounds: 283"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[pipeline_50_steps]",
+            "value": 6.5418593780204395,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05455074056303207",
+            "extra": "mean: 152.86173887501064 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[nested_into_backend]",
+            "value": 48.025824964443366,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006001231625556941",
+            "extra": "mean: 20.822130608695733 msec\nrounds: 46"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[simple_filter_agg]",
+            "value": 246.73266764802423,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010449105246913169",
+            "extra": "mean: 4.0529695947135265 msec\nrounds: 454"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[pipeline_50_steps]",
+            "value": 267.15088094356094,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012071915515298329",
+            "extra": "mean: 3.7432030786050934 msec\nrounds: 458"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[nested_into_backend]",
+            "value": 260.67357373479103,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007615807182477653",
+            "extra": "mean: 3.836215484648239 msec\nrounds: 456"
           }
         ]
       }
