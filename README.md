@@ -90,14 +90,14 @@ moves data between them.
 
 # Comparison
 
-Agent memory tools (Cognee, Letta, Mem0) store markdown the LLM reads
+Agent memory tools (Mem0) store markdown the LLM reads
 into context — fine for narrative, not for tabular data where LLMs
 can't be trusted to do arithmetic. Xorq's items execute against an
 engine, with provenance and reproducibility guarantees.
 
 | Approach | Memory item | Answer produced by | Provenance & reproducibility |
 |----------|-------------|---------------------|-------------------------------|
-| Agent memory (Cognee, Letta, Mem0) | Markdown snippets | LLM reading the prompt | None |
+| Agent memory (Mem0, etc) | Markdown snippets | LLM reading the prompt | None |
 | MCP / open context servers | Tool bindings | Tool at runtime; LLM consumes as text | Per-tool |
 | dbt | SQL model files | Warehouse executing compiled SQL | `manifest.json` captures lineage; env (warehouse, packages) pinned externally |
 | **Xorq** | Content-addressed expression + pinned env | Engine executing the expression | `expr.yaml` + uv-pinned env shipped with the artifact |
