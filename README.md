@@ -12,14 +12,11 @@
 </div>
 
 ---
-Xorq is a *data context engine*: it turns ephemeral agent work — Python and SQL
-scripts, data tables, "works on my sandbox" environments etc. — into durable,
-executable artifacts that any future agent or human can rerun and compose on
-top of.
+Xorq is a data context engine. It turns ephemeral agent work — Python scripts,
+ad-hoc tables, "works on my sandbox" environments — into durable, executable
+artifacts that any future agent or human can faithfully reuse.
 
-It comes with a CLI for agents and a TUI for humans with a git-native catalog
-for publishing and reuse.
-
+It comes with a CLI for agents and a TUI for humans with a git-native catalog.
 ![xorq catalog TUI](docs/images/catalog-tui.png)
 
 ---
