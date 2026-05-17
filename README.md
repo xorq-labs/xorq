@@ -87,7 +87,10 @@ engine, with provenance and reproducibility guarantees.
 | **xorq** | Content-addressed expression + pinned env | Engine executing the expression | `expr.yaml` + uv-pinned env |
 
 
-# The Expression
+# Under the hood
+
+<details>
+<summary><b>The Expression</b> — declarative Ibis, multi-engine, Arrow-native</summary>
 
 Write declarative Ibis expressions that run like a tool. Xorq extends Ibis with
 caching, multi-engine execution, and UDFs.
@@ -111,9 +114,7 @@ expr = (
 )
 ```
 
-
-## One expression, many engines
-
+### One expression, many engines
 
 ```python
 expr = penguins.into_backend(xo.sqlite.connect())
@@ -124,7 +125,7 @@ expr.ls.backends
  <xorq.backends.xorq_datafusion.Backend at 0x1669002c0>)
 ```
 
-## Expressions are tools, Arrow is the pipe
+### Expressions are tools, Arrow is the pipe
 
 Unix gave us small programs that compose via stdout. Xorq gives you expressions
 that compose via Arrow.
@@ -134,12 +135,12 @@ In [6]: expr.to_pyarrow_batches()
 Out[6]: <pyarrow.lib.RecordBatchReader at 0x15dc3f570>
 ```
 
-## Workflows, without state
+### Workflows, without state
 
 Xorq executes expressions as Arrow RecordBatch streams — no DAG of tasks to
 checkpoint, just data flowing through transforms.
 
-## Scikit-learn pipelines
+### Scikit-learn pipelines
 
 Xorq translates `scikit-learn` Pipeline objects to deferred expressions:
 
@@ -153,15 +154,16 @@ xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
 End-to-end sklearn examples live in
 [xorq-labs/xorq-gallery](https://github.com/xorq-labs/xorq-gallery).
 
----
+</details>
 
-# The Catalog
+<details>
+<summary><b>The Catalog</b> — a git repo of build artifacts on the filesystem</summary>
 
 The catalog is a git repo of build artifacts on filesystem. `xorq catalog add`
 packages a build directory -- manifest (`expr.yaml` + `*_metadata.json`),
 Python environment via `uv` -- into an entry.
 
-## Build and add
+### Build and add
 
 ```bash
 $ xorq uv build expr.p❯ xorq uv build expr2.py
@@ -176,7 +178,7 @@ Initialized catalog at /git-catalogs/penguins
 Added fa2122f6a9e9
 ```
 
-## Git history
+### Git history
 
 Every catalog operation is a commit you can read:
 
@@ -187,7 +189,7 @@ Every catalog operation is a commit you can read:
 9915df3 HEAD@{2}: commit: Switching to main
 ```
 
-## Catalog layout
+### Catalog layout
 
 ```
 ❯ tree git-catalogs/penguins
@@ -219,7 +221,7 @@ operations — no service to call, no API to learn:
 ❯ grep -l 'kind: source' git-catalogs/penguins/metadata/*.yaml
 ```
 
-## Inside an entry
+### Inside an entry
 
 A build directory contains the manifest plus everything needed to reproduce
 it. The zipped build is the entry stored in the catalog.
@@ -281,15 +283,16 @@ expression:
   schema_ref: { schema_ref: schema_9271d5e9d443 }
 ```
 
----
+</details>
 
-# The Tools
+<details>
+<summary><b>The Tools</b> — catalog, run, serve</summary>
 
 The entry is the unit of executable context that includes the manifest plus
 environment to run it. The tools — catalog, run, serve — are how agents and
 humans compose with it.
 
-## Catalog
+### Catalog
 
 Once an entry is published, agents discover it straight from the catalog
 filesystem — `metadata/*.yaml` sidecars sit next to the zipped entries, so
@@ -305,13 +308,15 @@ penguins-agg
 fa2122f6a9e9
 ```
 
-## Run
+### Run
 
 ```bash
 $ xorq run builds/fa2122f6a9e9 -o out.parquet
 ```
 Additionally, you can serve an unbound expression over Arrow Flight. with `xorq
 serve-*` commands.
+
+</details>
 
 ---
 
