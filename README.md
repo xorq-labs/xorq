@@ -72,7 +72,7 @@ The agent does the building; you keep the catalog.
 | Choice | What it enables |
 |--------|-----------------|
 | **Ibis as expression system** | Declarative dataframe expressions that compile to many engines. |
-| **Git for state and storage** | The catalog *is* a git repo of entries.  |
+| **Git for state and storage** | The catalog is a git repo of entries.  |
 | **uv for reproducible environments** | Each entry ships with a wheel and pinned `requirements.txt`. |
 | **DataFusion for embedded compute** | Pipelines execute in-process SQL and UDF execution |
 | **Arrow for IPC and network** | Operators exchange Arrow RecordBatches |
