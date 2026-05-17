@@ -14,9 +14,10 @@
 </div>
 
 ---
-Xorq is a *context engine*: it turns ephemeral agent work — Python and SQL
-scripts, data tables, "works on my sandbox" environments — into a durable,
-executable entries that any future agent or human can rerun.
+Xorq is a *data context engine*: it turns ephemeral agent work — Python and SQL
+scripts, data tables, "works on my sandbox" environments — into durable,
+executable artifacts that any future agent or human can rerun and compose on
+top of.
 
 It comes with a CLI for agents and a TUI for humans with a git-native catalog
 for publishing and reuse.
@@ -47,11 +48,10 @@ productionizing any of it, means rewriting most of it.
 | Pain | Symptom |
 |------|---------|
 | **Scripts as deliverables** | The output of an agent run is a folder of `.py`, `.json`, and `.html`. Reproducing it means re-running scripts in the right order with the right state. |
-| **Redundant compute** | Agents on the same task can't see each other's caches. The same join gets recomputed every session. |
+| **Caches you can't share or trust** | Agents on the same task can't see each other's caches, so the same join runs every session. When caches *are* reused ad-hoc, they can silently return stale results. |
 | **Opaque runs** | Agents report what they did in prose. There's no versioned artifact to point at; supervising means reading transcripts. |
 | **Lineage in chat history** | An upstream column rename breaks a downstream model. The dependency was never captured outside the chat that produced it. |
-| **No way to publish** | An agent produces something reusable, but there's no shared store the next agent can discover it from. |
-| **"Works on my sandbox"** | An environment that worked in one agent session doesn't work in the next. Reproducing means rebuilding the setup from scratch. |
+| **Research-to-production gap** | A pipeline that runs in one agent session has no path to another sandbox or to production — no shared store to publish to, no environment captured to rebuild from. |
 
 
 # Two ways to start
@@ -128,7 +128,7 @@ Out[6]: <pyarrow.lib.RecordBatchReader at 0x15dc3f570>
 ## Workflows, without state
 
 Xorq executes expressions as Arrow RecordBatch streams — no DAG of tasks to
-checkpoint, just data flowing through operators.
+checkpoint, just data flowing through transforms.
 
 ## Scikit-learn pipelines
 
@@ -176,6 +176,38 @@ Every catalog operation is a commit you can read:
 17dd4e9 (HEAD -> main) HEAD@{0}: add: fa2122f6a9e9 (aliases penguins-agg)
 9f5d242 HEAD@{1}: add catalog.yaml
 9915df3 HEAD@{2}: commit: Switching to main
+```
+
+## Catalog layout
+
+```
+❯ tree git-catalogs/penguins
+git-catalogs/penguins
+├── aliases
+│   └── penguins-agg.zip -> ../entries/fa2122f6a9e9.zip
+├── entries
+│   └── fa2122f6a9e9.zip
+├── metadata
+│   └── fa2122f6a9e9.zip.metadata.yaml
+└── catalog.yaml
+```
+
+Aliases are symlinks, entries are zipped builds, and metadata sidecars are
+plain YAML. An agent that clones the repo can discover everything with file
+operations — no service to call, no API to learn:
+
+```bash
+# List aliased entries
+❯ ls git-catalogs/penguins/aliases/
+
+# Find entries that emit an 'avg_bill_length' column
+❯ grep -l 'avg_bill_length' git-catalogs/penguins/metadata/*.yaml
+
+# Find entries running on DataFusion
+❯ grep -l 'xorq_datafusion' git-catalogs/penguins/metadata/*.yaml
+
+# Find bound entries (vs. unbound, composable ones)
+❯ grep -l 'kind: source' git-catalogs/penguins/metadata/*.yaml
 ```
 
 ## Inside an entry
@@ -250,9 +282,11 @@ humans compose with it.
 
 ## Catalog
 
-Once a build is published, agents discover it by alias or by hash; humans
-browse it like git refs — or open the TUI to preview data, schema, lineage, and
-git history side-by-side.
+Once an entry is published, agents discover it straight from the catalog
+filesystem — `metadata/*.yaml` sidecars sit next to the zipped entries, so
+listing, filtering, and lookup-by-alias/hash all work with plain file reads
+and `git` (no service required). Humans open the TUI to preview data,
+schema, lineage, and git history side-by-side.
 
 ```bash
 ❯ xorq catalog list-aliases
