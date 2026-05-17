@@ -7,14 +7,17 @@
 ![PyPI - Version](https://img.shields.io/pypi/v/xorq)
 ![CI Status](https://img.shields.io/github/actions/workflow/status/xorq-labs/xorq/ci-test.yml)
 
+
 [Documentation](https://docs.xorq.dev) • [Website](https://www.xorq.dev) • [Claude Code plugin](https://github.com/xorq-labs/claude-plugins)
 </div>
 
 ---
-Xorq is an executable memory system for tabular data work. It turns ephemeral
-agent work — Python scripts, ad-hoc tables, "works on my sandbox" environments
-— into durable, composable, executable artifacts that any future agent or
-human can faithfully reuse.
+Xorq is an executable memory system for tabular data work. Xorq gives
+agents a catalog of executable pipelines instead of markdown notes. It
+turns ephemeral agent work — pandas scripts, sklearn pipelines, ad-hoc
+tables, "works on my sandbox" environments — into durable, composable,
+executable artifacts that any future agent or human can reproduce and
+reuse.
 
 It comes with a CLI for agents and a TUI for humans with a git-native catalog.
 ![xorq catalog TUI](docs/images/catalog-tui.png)
@@ -31,11 +34,11 @@ productionizing any of it, means rewriting most of it.
 
 | Pain | Symptom |
 |------|---------|
-| **Scripts as deliverables** | The output of an agent run is a folder of `.py`, `.json`, and `.html`. Reproducing it means re-running scripts in the right order with the right state. |
-| **Caches you can't share or trust** | Agents on the same task can't see each other's caches, so the same join runs every session. When caches *are* reused ad-hoc, they can silently return stale results. |
-| **Opaque runs** | Agents report what they did in prose. There's no versioned artifact to point at; supervising means reading transcripts. |
-| **Lineage in chat history** | An upstream column rename breaks a downstream model. The dependency was never captured outside the chat that produced it. |
-| **Research-to-production gap** | A pipeline that runs in one agent session has no path to another sandbox or to production — no shared store to publish to, no environment captured to rebuild from. |
+| **No memory of how** | An agent run leaves you with a folder of `.py`, `.json`, and `.html` files. To reproduce the result you re-run the scripts in the right order, with the right state. |
+| **No shared memory** | Two agents working the same task can't see each other's caches, so the same join runs in both sessions. When a cache does get reused ad-hoc, it can hand back stale results without warning. |
+| **No memory of what** | Agents describe what they did in prose. There is no versioned artifact to point at, so supervision means reading transcripts. |
+| **No memory of dependencies** | Someone renames a column upstream and a downstream model breaks. The dependency between them was never recorded outside the chat that produced them. |
+| **No memory across environments** | A pipeline that ran in one agent session has no path to another sandbox, your machine, or production. There is no shared store to publish to and no environment captured that you could rebuild from. |
 
 # Two ways to start
 
@@ -106,14 +109,13 @@ engine, with provenance and reproducibility guarantees.
 # Benchmark
 
 On [DABStep](https://huggingface.co/spaces/adyen/DABstep) — 450 data-analysis
-questions over payment transaction data — giving Haiku a Xorq semantic catalog
-of 33 named expressions takes it from 50% to 84%, surpassing the Sonnet
-baseline by 8pp.
+questions over payment transaction data — a Xorq semantic catalog of 33 named
+expressions takes Haiku from 50% to 84%, 8pp above the Sonnet baseline.
 
 ![DABStep accuracy: Haiku 50%, Sonnet 75%, Haiku + Semantic Catalog 84%](docs/images/dabstep-benchmark.png)
 
-Orientation beat reasoning: pointing the agent at the right context mattered
-more than swapping in a stronger base model. Full write-up:
+Where the agent looks for context mattered more than which base model it
+used. Full write-up:
 [Orientation Over Reasoning](https://xorq.dev/blog/orientation-over-reasoning/).
 
 
@@ -350,7 +352,7 @@ serve-*` commands.
 - [Claude Code plugin](https://github.com/xorq-labs/claude-plugins)
 - [Scikit-learn ](https://github.com/xorq-labs/xorq-template-sklearn)
 - [A Git-Native Semantic Layer](https://xorq.dev/blog/bsl-xorq/) — building a portable semantic catalog with Xorq
-- [Orientation Over Reasoning](https://xorq.dev/blog/orientation-over-reasoning/) — Haiku + Xorq catalog hits 84% on DABStep, beating the Sonnet baseline
+- [Orientation Over Reasoning](https://xorq.dev/blog/orientation-over-reasoning/) — Haiku + Xorq catalog hits 84% on DABStep, above the Sonnet baseline
 
 ---
 
