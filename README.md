@@ -8,14 +8,12 @@
 ![CI Status](https://img.shields.io/github/actions/workflow/status/xorq-labs/xorq/ci-test.yml)
 
 **Expression-based context engine with git-native versioning.**
-
 [Documentation](https://docs.xorq.dev) • [Website](https://www.xorq.dev) • [Claude Code plugin](https://github.com/xorq-labs/claude-plugins)
-
 </div>
 
 ---
 Xorq is a *data context engine*: it turns ephemeral agent work — Python and SQL
-scripts, data tables, "works on my sandbox" environments — into durable,
+scripts, data tables, "works on my sandbox" environments etc. — into durable,
 executable artifacts that any future agent or human can rerun and compose on
 top of.
 
@@ -23,17 +21,6 @@ It comes with a CLI for agents and a TUI for humans with a git-native catalog
 for publishing and reuse.
 
 ![xorq catalog TUI](docs/images/catalog-tui.png)
-
-
-# Design choices
-
-| Choice | What it enables |
-|--------|-----------------|
-| **Ibis as expression system** | Declarative dataframe expressions that compile to many engines. The same code runs against DataFusion, DuckDB, SQLite, or a warehouse. |
-| **Git for state and storage** | The catalog *is* a git repo of entries. Every add/remove is a commit; any agent that can clone can discover what's there. |
-| **uv for reproducible environments** | Each entry ships with a wheel and pinned `requirements.txt`. Installs deterministically on any machine. |
-| **DataFusion for embedded compute** | Pipelines execute in-process. No warehouse, no credentials, no network — agents can run entries inside a sealed sandbox. |
-| **Arrow for IPC and network** | Operators exchange Arrow RecordBatches in-process; the same format streams over Arrow Flight when serving. No format conversions, no copies. |
 
 ---
 # The Problem
@@ -52,7 +39,6 @@ productionizing any of it, means rewriting most of it.
 | **Opaque runs** | Agents report what they did in prose. There's no versioned artifact to point at; supervising means reading transcripts. |
 | **Lineage in chat history** | An upstream column rename breaks a downstream model. The dependency was never captured outside the chat that produced it. |
 | **Research-to-production gap** | A pipeline that runs in one agent session has no path to another sandbox or to production — no shared store to publish to, no environment captured to rebuild from. |
-
 
 # Two ways to start
 
@@ -77,6 +63,17 @@ $ pip install xorq[examples]
 $ xorq init -t penguins
 ```
 ---
+
+# Design choices
+
+| Choice | What it enables |
+|--------|-----------------|
+| **Ibis as expression system** | Declarative dataframe expressions that compile to many engines. The same code runs against DataFusion, DuckDB, SQLite, or a warehouse. |
+| **Git for state and storage** | The catalog *is* a git repo of entries. Every add/remove is a commit; any agent that can clone can discover what's there. |
+| **uv for reproducible environments** | Each entry ships with a wheel and pinned `requirements.txt`. Installs deterministically on any machine. |
+| **DataFusion for embedded compute** | Pipelines execute in-process. No warehouse, no credentials, no network — agents can run entries inside a sealed sandbox. |
+| **Arrow for IPC and network** | Operators exchange Arrow RecordBatches in-process; the same format streams over Arrow Flight when serving. No format conversions, no copies. |
+
 
 # The Expression
 
