@@ -7,12 +7,12 @@
 ![PyPI - Version](https://img.shields.io/pypi/v/xorq)
 ![CI Status](https://img.shields.io/github/actions/workflow/status/xorq-labs/xorq/ci-test.yml)
 
-**Expression-based context engine with git-native versioning.**
+**Executable memory system for tabular data. Git-native.**
 [Documentation](https://docs.xorq.dev) • [Website](https://www.xorq.dev) • [Claude Code plugin](https://github.com/xorq-labs/claude-plugins)
 </div>
 
 ---
-Xorq is a data context engine. It turns ephemeral agent work — Python scripts,
+Xorq is an executable memory system for tabular data. It turns ephemeral agent work — Python scripts,
 ad-hoc tables, "works on my sandbox" environments — into durable, executable
 artifacts that any future agent or human can faithfully reuse.
 
@@ -70,6 +70,20 @@ $ xorq init -t penguins
 | **uv for reproducible environments** | Each entry ships with a wheel and pinned `requirements.txt`. Installs deterministically on any machine. |
 | **DataFusion for embedded compute** | Pipelines execute in-process. No warehouse, no credentials, no network — agents can run entries inside a sealed sandbox. |
 | **Arrow for IPC and network** | Operators exchange Arrow RecordBatches in-process; the same format streams over Arrow Flight when serving. No format conversions, no copies. |
+
+
+# Comparison
+
+Agent memory tools (Cognee, Letta, Mem0) store markdown the LLM reads
+into context — fine for narrative, not for tabular data where LLMs
+can't be trusted to do arithmetic. xorq's items execute against an
+engine, with provenance and reproducibility guarantees.
+
+| Approach | Memory item | Answer produced by | Provenance & reproducibility |
+|----------|-------------|---------------------|-------------------------------|
+| Agent memory (Cognee, Letta, Mem0) | Markdown snippets | LLM reading the prompt | None |
+| MCP / open context servers | Tool bindings | Tool at runtime; LLM consumes as text | Per-tool |
+| **xorq** | Content-addressed expression + pinned env | Engine executing the expression | `expr.yaml` + uv-pinned env |
 
 
 # The Expression
