@@ -7,13 +7,13 @@
 ![PyPI - Version](https://img.shields.io/pypi/v/xorq)
 ![CI Status](https://img.shields.io/github/actions/workflow/status/xorq-labs/xorq/ci-test.yml)
 
-**Executable memory system for tabular data. Git-native, reproducible via `uv` and runs on Arrow**
+**Executable memory system for tabular data work. Git-native, reproducible via `uv` and runs on Arrow**
 
 [Documentation](https://docs.xorq.dev) • [Website](https://www.xorq.dev) • [Claude Code plugin](https://github.com/xorq-labs/claude-plugins)
 </div>
 
 ---
-Xorq is an executable memory system for tabular data. It turns ephemeral agent work — Python scripts,
+Xorq is an executable memory system for tabular data work. It turns ephemeral agent work — Python scripts,
 ad-hoc tables, "works on my sandbox" environments — into durable, executable
 artifacts that any future agent or human can faithfully reuse.
 
