@@ -601,6 +601,28 @@ def test_assert_requirements_identical_raises_on_mismatch():
     assert "'a'" in msg and "'b'" in msg
 
 
+# --- uv-subprocess test helpers ---
+
+
+def _fake_uv_tool_run(captured=None, stdout="", stderr="", side_effect=None):
+    def fake(*args, **kwargs):
+        if captured is not None:
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+        if side_effect is not None:
+            side_effect(*args, **kwargs)
+        return SimpleNamespace(returncode=0, stdout=stdout, stderr=stderr)
+
+    return fake
+
+
+def _must_not_call(label):
+    def _spy(*args, **kwargs):
+        raise AssertionError(f"{label} must not be called")
+
+    return _spy
+
+
 # --- uv-subprocess path coverage ---
 #
 # Other tests in this file go through the auto-injecting `runner` fixture
@@ -658,18 +680,12 @@ def test_catalog_run_fast_path_skips_merge(
     """Single-entry, no-transform `catalog run` short-circuits to the
     archive — it must not deserialize the expression or invoke the
     merge/rebuild path."""
-    stage_calls = []
-    resolve_calls = []
-
-    def spy_stage(bundle, build_path):
-        stage_calls.append(build_path)
-
-    def spy_resolve(*args, **kwargs):
-        resolve_calls.append(args)
-        raise AssertionError("fast path must not call _resolve_single_entry")
-
-    monkeypatch.setattr(cli_mod, "_stage_bundle_into_build", spy_stage)
-    monkeypatch.setattr(cli_mod, "_resolve_single_entry", spy_resolve)
+    monkeypatch.setattr(
+        cli_mod, "_stage_bundle_into_build", _must_not_call("_stage_bundle_into_build")
+    )
+    monkeypatch.setattr(
+        cli_mod, "_resolve_single_entry", _must_not_call("_resolve_single_entry")
+    )
     monkeypatch.setattr("xorq.ibis_yaml.packager.PackagedRunner.run", lambda self: self)
 
     catalog_path, _, _ = catalog_with_source_and_transform
@@ -678,8 +694,6 @@ def test_catalog_run_fast_path_skips_merge(
 
     result = bare.invoke(cli, args)
     assert result.exit_code == 0, result.output
-    assert stage_calls == []
-    assert resolve_calls == []
 
 
 def test_catalog_run_no_fuse_bypasses_fast_path(
@@ -688,16 +702,13 @@ def test_catalog_run_no_fuse_bypasses_fast_path(
     """`--no-fuse` must fall through to the re-invoke path; the fast
     path runs PackagedRunner directly and would silently drop the flag."""
     captured = {}
-
-    def fake_uv_tool_run(*args, **kwargs):
-        captured["args"] = args
-        return type("R", (), {"returncode": 0})()
-
-    def spy_packaged_run(self):
-        raise AssertionError("fast path must not fire under --no-fuse")
-
-    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
-    monkeypatch.setattr("xorq.ibis_yaml.packager.PackagedRunner.run", spy_packaged_run)
+    monkeypatch.setattr(
+        "xorq.ibis_yaml.packager.uv_tool_run", _fake_uv_tool_run(captured)
+    )
+    monkeypatch.setattr(
+        "xorq.ibis_yaml.packager.PackagedRunner.run",
+        _must_not_call("PackagedRunner.run"),
+    )
 
     catalog_path, _, _ = catalog_with_source_and_transform
     bare = CliRunner()
@@ -719,21 +730,12 @@ def test_catalog_run_reinvokes_via_uv_for_transforms(
     instead of deserializing the expression in the caller — the caller's
     venv may not have the entry's pinned UDF deps."""
     captured = {}
-
-    def fake_uv_tool_run(*args, **kwargs):
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-
-        class _R:
-            returncode = 0
-
-        return _R()
-
-    def spy_resolve(*args, **kwargs):
-        raise AssertionError("re-invoke path must not call _resolve_single_entry")
-
-    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
-    monkeypatch.setattr(cli_mod, "_resolve_single_entry", spy_resolve)
+    monkeypatch.setattr(
+        "xorq.ibis_yaml.packager.uv_tool_run", _fake_uv_tool_run(captured)
+    )
+    monkeypatch.setattr(
+        cli_mod, "_resolve_single_entry", _must_not_call("_resolve_single_entry")
+    )
 
     catalog_path, _, _ = catalog_with_source_and_transform
     bare = CliRunner()
@@ -762,16 +764,12 @@ def test_catalog_run_cached_reinvokes_via_uv(
     """`run-cached` without --use-this-venv goes through the same
     re-invocation path."""
     captured = {}
-
-    def fake_uv_tool_run(*args, **kwargs):
-        captured["args"] = args
-        return type("R", (), {"returncode": 0})()
-
-    def spy_resolve(*args, **kwargs):
-        raise AssertionError("re-invoke path must not call _resolve_single_entry")
-
-    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
-    monkeypatch.setattr(cli_mod, "_resolve_single_entry", spy_resolve)
+    monkeypatch.setattr(
+        "xorq.ibis_yaml.packager.uv_tool_run", _fake_uv_tool_run(captured)
+    )
+    monkeypatch.setattr(
+        cli_mod, "_resolve_single_entry", _must_not_call("_resolve_single_entry")
+    )
 
     catalog_path, _, _ = catalog_with_source_and_transform
     bare = CliRunner()
@@ -848,21 +846,15 @@ def test_catalog_compose_reinvokes_via_uv(
 
     captured = {}
 
-    def fake_uv_tool_run(*args, **kwargs):
-        captured["args"] = args
-        captured["kwargs"] = kwargs
+    def _write_build_path(*args, **kwargs):
         idx = args.index("--emit-build-path-to")
         Path(args[idx + 1]).write_text(str(pre_built))
 
-        class _R:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        return _R()
-
-    def spy_compose_expr(*args, **kwargs):
-        raise AssertionError("outer compose must not call _compose_expr")
+    monkeypatch.setattr(
+        "xorq.ibis_yaml.packager.uv_tool_run",
+        _fake_uv_tool_run(captured, side_effect=_write_build_path),
+    )
+    monkeypatch.setattr(cli_mod, "_compose_expr", _must_not_call("_compose_expr"))
 
     def spy_stage(bundle, build_path):
         captured["merge_build_path"] = build_path
@@ -873,8 +865,6 @@ def test_catalog_compose_reinvokes_via_uv(
         captured["add_aliases"] = aliases
         return MagicMock(name="catalog_entry")
 
-    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
-    monkeypatch.setattr(cli_mod, "_compose_expr", spy_compose_expr)
     monkeypatch.setattr(cli_mod, "_stage_bundle_into_build", spy_stage)
     monkeypatch.setattr(Catalog, "add", spy_add)
 
@@ -909,23 +899,14 @@ def test_catalog_compose_dry_run_relays_inner_stdout(
     inner and relay its stdout verbatim. The outer must not call .expr or
     catalog.add."""
 
-    def fake_uv_tool_run(*args, **kwargs):
-        class _R:
-            returncode = 0
-            stdout = "Dry run — composition plan:\n  Entries: src -> trn\n"
-            stderr = ""
-
-        return _R()
-
-    def spy_compose_expr(*args, **kwargs):
-        raise AssertionError("outer dry-run must not call _compose_expr")
-
-    def spy_add(self, *a, **k):
-        raise AssertionError("outer dry-run must not call catalog.add")
-
-    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
-    monkeypatch.setattr(cli_mod, "_compose_expr", spy_compose_expr)
-    monkeypatch.setattr(Catalog, "add", spy_add)
+    monkeypatch.setattr(
+        "xorq.ibis_yaml.packager.uv_tool_run",
+        _fake_uv_tool_run(
+            stdout="Dry run — composition plan:\n  Entries: src -> trn\n"
+        ),
+    )
+    monkeypatch.setattr(cli_mod, "_compose_expr", _must_not_call("_compose_expr"))
+    monkeypatch.setattr(Catalog, "add", _must_not_call("catalog.add"))
 
     catalog_path, _, _ = catalog_with_source_and_transform
     bare = CliRunner()
@@ -944,10 +925,9 @@ def test_catalog_compose_outer_unknown_entry_fails_before_uv(
     """`_entry_run_bundle` (called by the outer before spawning) must fail
     cleanly when an entry is unknown — never reaches uv_tool_run."""
 
-    def fake_uv_tool_run(*args, **kwargs):
-        raise AssertionError("uv_tool_run must not be reached for unknown entry")
-
-    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
+    monkeypatch.setattr(
+        "xorq.ibis_yaml.packager.uv_tool_run", _must_not_call("uv_tool_run")
+    )
 
     catalog_path, _, _ = catalog_with_source_and_transform
     bare = CliRunner()
@@ -975,14 +955,10 @@ def test_catalog_compose_emit_build_path_to_short_circuits(
         lambda expr, **kw: pre_built,
     )
 
-    def spy_stage(bundle, build_path):
-        raise AssertionError("--emit-build-path-to must not call stage")
-
-    def spy_add(self, *a, **k):
-        raise AssertionError("--emit-build-path-to must not call catalog.add")
-
-    monkeypatch.setattr(cli_mod, "_stage_bundle_into_build", spy_stage)
-    monkeypatch.setattr(Catalog, "add", spy_add)
+    monkeypatch.setattr(
+        cli_mod, "_stage_bundle_into_build", _must_not_call("_stage_bundle_into_build")
+    )
+    monkeypatch.setattr(Catalog, "add", _must_not_call("catalog.add"))
 
     catalog_path, _, _ = catalog_with_source_and_transform
     bare = CliRunner()

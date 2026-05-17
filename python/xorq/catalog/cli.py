@@ -998,39 +998,19 @@ def _harvest_entry_from_zip(zf, harvest_dir, entry_name=None, seen_wheels=None):
 
 @contextmanager
 def _entry_run_bundle(catalog, entries):
+    from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
     from xorq.ibis_yaml.enums import DumpFiles  # noqa: PLC0415
     from xorq.ibis_yaml.packager import JointBundle  # noqa: PLC0415
 
     if not entries:
         raise click.ClickException("at least one entry is required")
 
+    if len(entries) > 1:
+        click.echo(f"Composing wheels from {len(entries)} entries...", err=True)
+
     with tempfile.TemporaryDirectory() as harvest_str:
         harvest_dir = Path(harvest_str)
 
-        if len(entries) == 1:
-            ce = _resolve_entry_for_run(catalog, entries[0])
-            with zipfile.ZipFile(ce.catalog_path) as zf:
-                wheel_paths, req_bytes, python_pin = _harvest_entry_from_zip(
-                    zf, harvest_dir
-                )
-            if not wheel_paths:
-                raise click.ClickException("no wheels found in entry")
-            if req_bytes is None:
-                raise click.ClickException(
-                    f"entry {entries[0]!r} has no requirements.txt"
-                )
-            req_path = harvest_dir / DumpFiles.requirements
-            req_path.write_bytes(req_bytes)
-            yield JointBundle(
-                wheel_paths=tuple(wheel_paths),
-                requirements_path=req_path,
-                python_version=python_pin,
-            )
-            return
-
-        from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
-
-        click.echo(f"Composing wheels from {len(entries)} entries...", err=True)
         with tracer.start_as_current_span("catalog.compose_bundle") as span:
             span.set_attribute("entries", entries)
             seen_wheels: dict[str, tuple[int, int]] = {}
