@@ -1,6 +1,6 @@
 ---
 pagetitle: "Xorq documentation"
-description: "Official Xorq documentation. Learn how to build portable, multi-engine ML pipelines with deferred execution, caching, lineage tracking, and deployment-ready artifacts."
+description: "Official Xorq documentation. Build data pipelines as content-addressed Ibis expressions, with a git-native catalog for publishing and reusing them."
 toc: false
 page-layout: custom
 classes: homepage
@@ -19,9 +19,9 @@ listing:
 
 ::: {.hero-section}
 ::: {.hero-content}
-# The context engine for data agents — start here.
+# Expression-based context engine with git-native versioning.
 
-Build, version, and serve composable data expressions. Four tutorials, end-to-end. Pick where to start.
+Build data pipelines as content-addressed Ibis expressions, with a git-native catalog for publishing and reusing them.
 
 [BROWSE TUTORIALS ↓](#centerpieces){.hero-btn .hero-btn-primary}
 [VIEW ON GITHUB](https://github.com/xorq-labs/xorq){.hero-btn .hero-btn-secondary}
@@ -30,16 +30,9 @@ Build, version, and serve composable data expressions. Four tutorials, end-to-en
 
 ::: {.content-section}
 
-## <i class="bi bi-rocket-takeoff"></i> Tutorials {#centerpieces}
+## <i class="bi bi-signpost-split"></i> Two ways to start
 
-Four end-to-end walkthroughs. Pick the one closest to what you're building.
-
-:::{#centerpiece-cards}
-:::
-
-## <i class="bi bi-chat-square-text"></i> Drive xorq from Claude
-
-The Claude plugin exposes xorq's CLI as slash commands inside Claude Code --- scaffold, build, catalog, and serve a real pipeline without leaving the chat.
+**With an agent.** Install the xorq plugin in Claude Code and let it build catalogs for you:
 
 ```bash
 $ pip install xorq
@@ -56,6 +49,22 @@ Restart Claude so the new slash commands register, then drive xorq from the chat
 $ claude
 > /xorq:init
 ```
+
+Four slash commands cover the lifecycle: `/xorq:init` ingests CSV or Parquet files into a catalog, `/xorq:composer` joins catalog entries into new aliased expressions, `/xorq:builder` constructs ML pipelines and semantic-layer entries, and `/xorq:catalog-explore` discovers what's already there. The agent does the building; you keep the catalog.
+
+**Manually.** Install the library and start composing expressions in Python:
+
+```bash
+$ pip install xorq[examples]
+$ xorq init -t penguins
+```
+
+## <i class="bi bi-rocket-takeoff"></i> Tutorials {#centerpieces}
+
+Four end-to-end walkthroughs. Pick the one closest to what you're building.
+
+:::{#centerpiece-cards}
+:::
 
 ## <i class="bi bi-grid-3x3"></i> Explore the docs
 
