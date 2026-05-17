@@ -71,11 +71,11 @@ The agent does the building; you keep the catalog.
 
 | Choice | What it enables |
 |--------|-----------------|
-| **Ibis as expression system** | Declarative dataframe expressions that compile to many engines. The same code runs against DataFusion, DuckDB, SQLite, or a warehouse. |
-| **Git for state and storage** | The catalog *is* a git repo of entries. Every add/remove is a commit; any agent that can clone can discover what's there. |
-| **uv for reproducible environments** | Each entry ships with a wheel and pinned `requirements.txt`. Installs deterministically on any machine. |
-| **DataFusion for embedded compute** | Pipelines execute in-process. No warehouse, no credentials, no network — agents can run entries inside a sealed sandbox. |
-| **Arrow for IPC and network** | Operators exchange Arrow RecordBatches in-process; the same format streams over Arrow Flight when serving. No format conversions, no copies. |
+| **Ibis as expression system** | Declarative dataframe expressions that compile to many engines. |
+| **Git for state and storage** | The catalog *is* a git repo of entries.  |
+| **uv for reproducible environments** | Each entry ships with a wheel and pinned `requirements.txt`. |
+| **DataFusion for embedded compute** | Pipelines execute in-process SQL and UDF execution |
+| **Arrow for IPC and network** | Operators exchange Arrow RecordBatches |
 
 
 # Supported engines
