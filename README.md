@@ -48,11 +48,14 @@ catalogs for you:
 /plugin install xorq@xorq-plugins
 ```
 
-Four slash commands cover the lifecycle: `/xorq:init` ingests CSV or Parquet
-files into a catalog, `/xorq:composer` joins catalog entries into new aliased
-expressions, `/xorq:builder` constructs ML pipelines and semantic-layer
-entries, and `/xorq:catalog-explore` discovers what's already there. The agent
-does the building; you keep the catalog.
+The plugin adds four slash commands:
+
+- `/xorq:init` — load CSV or Parquet files as catalog entries
+- `/xorq:catalog-explore` — browse what's already in a catalog
+- `/xorq:composer` — combine entries into new joined/aliased entries
+- `/xorq:builder` — assemble ML pipelines and semantic-layer entries
+
+The agent does the building; you keep the catalog.
 
 **Manually.** Install the library and start composing expressions in Python:
 
