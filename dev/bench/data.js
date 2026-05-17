@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778946070704,
+  "lastUpdate": 1779004995571,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -12684,6 +12684,114 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.005829645761057545",
             "extra": "mean: 3.395436216629049 msec\nrounds: 457"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "98439bd610bcf958c091037943195a09098c82a4",
+          "message": "feat(catalog): joint uv wheel resolution for compose and run (#1938)\n\n## Summary\n\n`xorq catalog run`, `run-cached`, and `compose` now default to executing\ninside the pinned environment recorded in a catalog entry's archive, via\n`uv tool run`. This prevents silent ABI mismatches when the parent venv\ndiverges from the environment the entry was built in.\n\n### Core behavior\n\n- **Default: uv-isolated execution.** Each catalog command re-invokes\nitself through `uv tool run`, using the wheels and `requirements.txt`\nbundled in the entry's archive. The Python minor version is read from\n`build_metadata.json` and forwarded to `uv`.\n- **`--use-this-venv` opt-out.** Skips the uv re-invoke and runs in the\ncaller's environment (used internally by the inner subprocess, and\navailable for local development).\n- **Identical requirements enforced.** When composing multiple entries,\ntheir `requirements.txt` must match byte-for-byte; mismatches are\nrejected before the build starts.\n- **Python minor pin validation.** Entries with conflicting Python minor\nversions are rejected. Entries missing a pin (pre-`build_metadata.json`\narchives) emit a stderr warning about SIGSEGV risk.\n\n### TUI fast path\n\nThe TUI tries an in-process run first (`--use-this-venv`) and falls back\nto the uv-isolated path on any failure. Non-zero fast-path returns are\nlogged at `debug` level (they're expected when deps are missing from the\ncurrent venv).\n\n### Build-path signaling\n\nThe outer `compose` process communicates the inner's build directory via\n`--emit-build-path-to FILE` (a temp file the outer controls), replacing\nthe previous approach of parsing the last stdout line. This eliminates a\nclass of bugs where library output on stdout could hijack the signal.\n\n### Performance\n\n- Wheel deduplication uses zip CRC32 checksums instead of content\nhashing.\n\n### Dependency bumps\n\n- `ibis-framework` upgraded to 12 (and `duckdb` compatibility updated).\nThe `SortKey.expr → .arg` rename is handled in `map_sort_key` with a\nfallback that covers both ibis 11 and 12.\n- `xorq-datafusion`: `DataFusionBackend` inheritance flattened (#1869).\n\n### Refactoring\n\n- Unified single-entry and multi-entry paths in `_entry_run_bundle` —\nthe single-entry case was a special case of multi-entry with all\nvalidation checks being no-ops for N=1.\n- Extracted `_log_run_metrics` to deduplicate the \"log done event +\ncompute file metrics + log output_written\" pattern across\n`_reinvoke_and_log`, `_resolve_and_execute`, and the fast-path block in\n`run`.\n- Extracted `_compose_via_reinvoke`, `_uv_reinvoke_xorq_cli`,\n`_reinvoke_and_log`, and `_resolve_and_execute` to deduplicate the\nrun/compose re-invoke paths.\n- Consolidated `--format`/`--output-path` forwarding into\n`_forward_run_args`.\n- Hoisted stdlib imports (`tempfile`, `subprocess`, etc.) to module\nlevel; removed deferred `# noqa: PLC0415` imports for stdlib modules.\n\n## Known limitations\n\n- `_assert_requirements_identical` compares raw bytes — cross-platform\nline-ending differences (`\\r\\n` vs `\\n`) could cause false mismatches.\n- `_read_wheel_metadata` doesn't handle RFC 822 continuation lines\n(sufficient for current usage).\n- No `uv.lock` in build assets — resolution uses wheels +\n`requirements.txt` only.\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-05-17T03:58:45-04:00",
+          "tree_id": "1b45699b7a12890e07146d03f4d065636acfa335",
+          "url": "https://github.com/xorq-labs/xorq/commit/98439bd610bcf958c091037943195a09098c82a4"
+        },
+        "date": 1779004993851,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.467893094204566,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016707640548400137",
+            "extra": "mean: 118.09312999999975 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.4135499987078166,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07267027064754877",
+            "extra": "mean: 414.3274432000112 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6667976611120359,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1617602379166032",
+            "extra": "mean: 1.4997053204000053 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.8989346276096213,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011732517263218905",
+            "extra": "mean: 344.95431199998166 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.902310121429146,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013717883585140082",
+            "extra": "mean: 344.55311740000525 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.8344419315693434,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01441890505888688",
+            "extra": "mean: 352.8031351999971 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[simple_filter_agg]",
+            "value": 192.51662594306669,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006448511103797733",
+            "extra": "mean: 5.194356565836199 msec\nrounds: 281"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[pipeline_50_steps]",
+            "value": 6.5062455627130955,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06569622566157812",
+            "extra": "mean: 153.69847177778536 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[nested_into_backend]",
+            "value": 40.98804597593036,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02841499354133586",
+            "extra": "mean: 24.397357234039298 msec\nrounds: 47"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[simple_filter_agg]",
+            "value": 260.4923544382836,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012648752811446094",
+            "extra": "mean: 3.838884262673906 msec\nrounds: 434"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[pipeline_50_steps]",
+            "value": 322.5646764603974,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004912662617288221",
+            "extra": "mean: 3.100153466812645 msec\nrounds: 452"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[nested_into_backend]",
+            "value": 244.48099998545607,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016518938056874263",
+            "extra": "mean: 4.090297405767683 msec\nrounds: 451"
           }
         ]
       }
