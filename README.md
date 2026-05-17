@@ -86,7 +86,8 @@ engine, with provenance and reproducibility guarantees.
 |----------|-------------|---------------------|-------------------------------|
 | Agent memory (Cognee, Letta, Mem0) | Markdown snippets | LLM reading the prompt | None |
 | MCP / open context servers | Tool bindings | Tool at runtime; LLM consumes as text | Per-tool |
-| **Xorq** | Content-addressed expression + pinned env | Engine executing the expression | `expr.yaml` + uv-pinned env |
+| dbt | SQL model files | Warehouse executing compiled SQL | `manifest.json` captures lineage; env (warehouse, packages) pinned externally |
+| **Xorq** | Content-addressed expression + pinned env | Engine executing the expression | `expr.yaml` + uv-pinned env shipped with the artifact |
 
 
 # Under the hood
