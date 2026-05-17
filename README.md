@@ -103,6 +103,20 @@ engine, with provenance and reproducibility guarantees.
 | **Xorq** | Content-addressed expression + pinned env | Engine executing the expression | `expr.yaml` + uv-pinned env shipped with the artifact |
 
 
+# Benchmark
+
+On [DABStep](https://huggingface.co/spaces/adyen/DABstep) — 450 data-analysis
+questions over payment transaction data — giving Haiku a Xorq semantic catalog
+of 33 named expressions takes it from 50% to 84%, surpassing the Sonnet
+baseline by 8pp.
+
+![DABStep accuracy: Haiku 50%, Sonnet 75%, Haiku + Semantic Catalog 84%](docs/images/dabstep-benchmark.png)
+
+Orientation beat reasoning: pointing the agent at the right context mattered
+more than swapping in a stronger base model. Full write-up:
+[Orientation Over Reasoning](https://xorq.dev/blog/orientation-over-reasoning/).
+
+
 # Under the hood
 
 <details open>
@@ -336,6 +350,7 @@ serve-*` commands.
 - [Claude Code plugin](https://github.com/xorq-labs/claude-plugins)
 - [Scikit-learn ](https://github.com/xorq-labs/xorq-template-sklearn)
 - [A Git-Native Semantic Layer](https://xorq.dev/blog/bsl-xorq/) — building a portable semantic catalog with Xorq
+- [Orientation Over Reasoning](https://xorq.dev/blog/orientation-over-reasoning/) — Haiku + Xorq catalog hits 84% on DABStep, beating the Sonnet baseline
 
 ---
 
