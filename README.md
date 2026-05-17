@@ -14,18 +14,27 @@
 </div>
 
 ---
+Xorq is a *context engine*: it turns ephemeral agent work — Python and SQL
+scripts, data tables, "works on my sandbox" environments — into a durable,
+executable entries that any future agent or human can rerun.
 
-Xorq is a CLI and a TUI application for building data pipelines as
-content-addressed [Ibis](https://ibis-project.org) expressions, with a
-git-native catalog for publishing and reusing them.
-Additionally, Xorq context engine comes with:
-1. Embedded [DataFusion](https://datafusion.apache.org) based engine
-2. Storage in git repository
-3. Deterministic Caching
-4. [Arrow](https://arrow.apache.org) Flight-based serving
+It comes with a CLI for agents and a TUI for humans with a git-native catalog
+for publishing and reuse.
 
 ![xorq catalog TUI](docs/images/catalog-tui.png)
 
+
+# Design choices
+
+| Choice | What it enables |
+|--------|-----------------|
+| **Ibis as expression system** | Declarative dataframe expressions that compile to many engines. The same code runs against DataFusion, DuckDB, SQLite, or a warehouse. |
+| **Git for state and storage** | The catalog *is* a git repo of entries. Every add/remove is a commit; any agent that can clone can discover what's there. |
+| **uv for reproducible environments** | Each entry ships with a wheel and pinned `requirements.txt`. Installs deterministically on any machine. |
+| **DataFusion for embedded compute** | Pipelines execute in-process. No warehouse, no credentials, no network — agents can run entries inside a sealed sandbox. |
+| **Arrow for IPC and network** | Operators exchange Arrow RecordBatches in-process; the same format streams over Arrow Flight when serving. No format conversions, no copies. |
+
+---
 # The Problem
 
 You ask a coding agent to build a dashboard. A few hours later you have one,
@@ -260,14 +269,6 @@ $ xorq run builds/fa2122f6a9e9 -o out.parquet
 ```
 Additionally, you can serve an unbound expression over Arrow Flight. with `xorq
 serve-*` commands.
-
----
-
-# How is this different from…
-
-- **dbt** versions SQL bound to a single warehouse. xorq versions Ibis expressions that run across engines, with the manifest itself as the unit of versioning and lineage.
-- **Dagster / Airflow** orchestrate task DAGs with retry state and checkpoints. xorq has no task graph — expressions stream over Arrow; failures just rerun from the manifest, hitting caches where they exist.
-- **MLflow** tracks experiments alongside the work. xorq versions the *recipe*: inputs are content-addressed, the artifact is the executable expression, and provides a git-native catalog.
 
 ---
 
