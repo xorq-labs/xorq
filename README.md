@@ -40,7 +40,7 @@ productionizing any of it, means rewriting most of it.
 
 # Two ways to start
 
-**With an agent.** Install the xorq plugin in Claude Code and let it build
+**With an agent.** Install the Xorq plugin in Claude Code and let it build
 catalogs for you:
 
 ```
@@ -77,14 +77,14 @@ $ xorq init -t penguins
 
 Agent memory tools (Cognee, Letta, Mem0) store markdown the LLM reads
 into context — fine for narrative, not for tabular data where LLMs
-can't be trusted to do arithmetic. xorq's items execute against an
+can't be trusted to do arithmetic. Xorq's items execute against an
 engine, with provenance and reproducibility guarantees.
 
 | Approach | Memory item | Answer produced by | Provenance & reproducibility |
 |----------|-------------|---------------------|-------------------------------|
 | Agent memory (Cognee, Letta, Mem0) | Markdown snippets | LLM reading the prompt | None |
 | MCP / open context servers | Tool bindings | Tool at runtime; LLM consumes as text | Per-tool |
-| **xorq** | Content-addressed expression + pinned env | Engine executing the expression | `expr.yaml` + uv-pinned env |
+| **Xorq** | Content-addressed expression + pinned env | Engine executing the expression | `expr.yaml` + uv-pinned env |
 
 
 # Under the hood
