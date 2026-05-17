@@ -1136,9 +1136,21 @@ def _has_expr_modifications(ctx):
     return bool(p.get("code") or p.get("raw_params") or p.get("raw_rename_params"))
 
 
+def _log_run_metrics(rl, span, prefix, elapsed, output_format, output_path):
+    from xorq.common.utils.logging_utils import RunLogger  # noqa: PLC0415
+
+    rl.log_span_event(
+        span,
+        f"{prefix}.done",
+        {"elapsed_s": round(elapsed, 3), "output_format": str(output_format)},
+    )
+    file_metrics = RunLogger._compute_file_metrics(output_format, output_path)
+    if file_metrics:
+        rl.log_span_event(span, f"{prefix}.output_written", file_metrics)
+
+
 def _reinvoke_and_log(ctx, catalog, entries, span, rl):
     """Reinvoke the current Click command in the entries' pinned env and log metrics."""
-    from xorq.common.utils.logging_utils import RunLogger  # noqa: PLC0415
     from xorq.common.utils.profile_utils import timed  # noqa: PLC0415
 
     span.set_attribute("path", "uv-reinvoke")
@@ -1157,19 +1169,14 @@ def _reinvoke_and_log(ctx, catalog, entries, span, rl):
         pass
 
     span_prefix = f"catalog_{ctx.info_name.replace('-', '_')}"
-    output_format = ctx.params.get("output_format")
-    output_path = ctx.params.get("output_path")
-    rl.log_span_event(
+    _log_run_metrics(
+        rl,
         span,
-        f"{span_prefix}.done",
-        {
-            "elapsed_s": round(get_elapsed(), 3),
-            "output_format": str(output_format),
-        },
+        span_prefix,
+        get_elapsed(),
+        ctx.params.get("output_format"),
+        ctx.params.get("output_path"),
     )
-    file_metrics = RunLogger._compute_file_metrics(output_format, output_path)
-    if file_metrics:
-        rl.log_span_event(span, f"{span_prefix}.output_written", file_metrics)
 
 
 def _compose_via_reinvoke(ctx, catalog, entries):
@@ -1384,7 +1391,6 @@ def _resolve_single_entry(catalog, entry, code, instream, rename_map, span):
 
 def _resolve_and_execute(ctx, catalog, span, rl, span_prefix, *, expr_transform=None):
     from xorq.cli import _apply_cli_params, arbitrate_output_format  # noqa: PLC0415
-    from xorq.common.utils.logging_utils import RunLogger  # noqa: PLC0415
     from xorq.common.utils.profile_utils import timed  # noqa: PLC0415
 
     p = ctx.params
@@ -1426,18 +1432,8 @@ def _resolve_and_execute(ctx, catalog, span, rl, span_prefix, *, expr_transform=
 
     with timed() as get_elapsed:
         arbitrate_output_format(expr, output_path, output_format)
-        rl.log_span_event(
-            span,
-            f"{span_prefix}.done",
-            {
-                "elapsed_s": round(get_elapsed(), 3),
-                "output_format": str(output_format),
-            },
-        )
 
-    file_metrics = RunLogger._compute_file_metrics(output_format, output_path)
-    if file_metrics:
-        rl.log_span_event(span, f"{span_prefix}.output_written", file_metrics)
+    _log_run_metrics(rl, span, span_prefix, get_elapsed(), output_format, output_path)
 
 
 @cli.command("run")
@@ -1590,21 +1586,14 @@ def run(
                                 output_path=output_path,
                                 output_format=output_format,
                             ).run()
-                        rl.log_span_event(
+                        _log_run_metrics(
+                            rl,
                             span,
-                            "catalog_run.done",
-                            {
-                                "elapsed_s": round(get_elapsed(), 3),
-                                "output_format": str(output_format),
-                            },
+                            "catalog_run",
+                            get_elapsed(),
+                            output_format,
+                            output_path,
                         )
-                        file_metrics = RunLogger._compute_file_metrics(
-                            output_format, output_path
-                        )
-                        if file_metrics:
-                            rl.log_span_event(
-                                span, "catalog_run.output_written", file_metrics
-                            )
                         return
 
                 if not use_this_venv:
