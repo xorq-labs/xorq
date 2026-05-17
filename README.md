@@ -7,15 +7,15 @@
 ![PyPI - Version](https://img.shields.io/pypi/v/xorq)
 ![CI Status](https://img.shields.io/github/actions/workflow/status/xorq-labs/xorq/ci-test.yml)
 
-**Executable memory system for tabular data work. Git-native, reproducible via `uv` and runs on Arrow**
-
 [Documentation](https://docs.xorq.dev) • [Website](https://www.xorq.dev) • [Claude Code plugin](https://github.com/xorq-labs/claude-plugins)
 </div>
 
 ---
-Xorq is an executable memory system for tabular data work. It turns ephemeral agent work — Python scripts,
-ad-hoc tables, "works on my sandbox" environments — into durable, executable
-artifacts that any future agent or human can faithfully reuse.
+Xorq is an executable memory system for tabular data work. It turns ephemeral
+agent work — Python scripts, ad-hoc tables, "works on my sandbox" environments
+— into durable, **composable**, executable artifacts that any future agent or
+human can faithfully reuse: expressions compose into expressions, entries
+compose into entries, all over Arrow streams.
 
 It comes with a CLI for agents and a TUI for humans with a git-native catalog.
 ![xorq catalog TUI](docs/images/catalog-tui.png)
@@ -220,7 +220,7 @@ operations — no service to call, no API to learn:
 # Find entries running on DataFusion
 ❯ grep -l 'xorq_datafusion' git-catalogs/penguins/metadata/*.yaml
 
-# Find bound entries (vs. unbound, composable ones)
+# Find source entries (vs. unbound, expr_builder kinds)
 ❯ grep -l 'kind: source' git-catalogs/penguins/metadata/*.yaml
 ```
 
