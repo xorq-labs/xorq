@@ -7,7 +7,7 @@
 ![PyPI - Version](https://img.shields.io/pypi/v/xorq)
 ![CI Status](https://img.shields.io/github/actions/workflow/status/xorq-labs/xorq/ci-test.yml)
 
-**The context engine for data agents.**
+**A compute manifest and composable tools for ML.**
 
 [Documentation](https://docs.xorq.dev) • [Website](https://www.xorq.dev)
 
@@ -17,20 +17,22 @@
 
 # The Problem
 
-Data agents need *context* --- composable expressions they can read,
-build, cache, and serve --- not categories like "feature store" or
-"model registry." Today every layer of the data stack is a vertical
-silo with its own opinion of what context is, none of which compose
-with the next.
+You write a feature pipeline. It works on your laptop with DuckDB. Deploying
+it to Snowflake ends up in a rewrite. Intermediate results should be cached so you add infrastructure and a result naming system. A requirement to track pipeline changes is introduced, so you add a metadata store. Congrats, you're going to production! It's time to add a serving layer ...
+
+Six months later: five tools that don't talk to each other and a pipeline only one person understands
 
 | Pain | Symptom |
 |------|---------|
-| **Context lives in five tools** | Feature stores, registries, metadata catalogs, lineage trackers, orchestrators --- none speak the same language. |
 | **Glue code everywhere** | Each engine is a silo. Moving between them means rewriting, not composing. |
+| **Runtime Feedback** | Imperative Python code where you can only tell if something will fail while running the job.
 | **Unnecessary recomputations** | No shared understanding of what changed. Everything runs from scratch. |
-| **Opaque lineage** | Logic, metadata, lineage in different systems. Debugging is archaeology. |
-| **"Works on my machine"** | Environments drift. Reproducing results means reverse-engineering someone's setup. |
-| **Stateful orchestrators** | Retry logic, task states, failure recovery --- another system to manage, another thing that breaks. |
+| **Opaque Lineages** | Feature logic, metadata, lineage. All in different systems. Debugging means archaeology. |
+| **"Works on my machine"** | Environments drift. Reproducing results means reverse engineering someone's setup and interrogating your own. |
+| **Stateful orchestrators** | Retry logic, task states, failure recovery. Another system to manage, another thing that breaks.
+
+Feature stores, Model registries, Orchestrators: Vertical silos that don't
+serve agentic processes, which need context and skills, not categories.
 
 # Xorq
 
@@ -326,43 +328,12 @@ $ xorq init -t <template>
 Templates work as easy to get started components with expressions ready to be
 composed with your sources.
 
----
+## Coming Soon
 
-# Get started with the Claude plugin
-
-The Claude plugin exposes xorq's CLI as slash commands inside Claude
-Code. Scaffold, build, catalog, and serve a real pipeline without
-leaving the chat --- `/xorq:init` is `xorq init`, just driven by the
-agent.
-
-Install xorq first (the plugin drives the CLI it ships with):
-
-```bash
-$ pip install xorq
-```
-
-Then add the marketplace and install the plugin from inside Claude
-Code:
-
-```bash
-$ claude
-> /plugin marketplace add xorq-labs/claude-plugins
-> /plugin install xorq@xorq-plugins
-> /exit
-```
-
-Restart Claude so the new slash commands register, then drive xorq
-from the chat:
-
-```bash
-$ claude
-> /xorq:init
-```
-
-The CLI walkthrough below is the foundation; the plugin makes it
-interactive.
-
-→ **[Get started with `xorq init`](https://docs.xorq.dev/getting_started/get-started-with-xorq-init)** --- a full Moneyball-style walkthrough, from scaffold to catalogued build.
+- `feast` — Feature store integration
+- `boring-semantic-layer` — Metrics and dimensions catalog
+- `dbt` — dbt model composition
+- Feature Selection
 
 ---
 
@@ -377,16 +348,14 @@ engine built on DataFusion. Universal UDFs via Arrow Flight.
 Lineage, caching, and versioning travel with the manifest; cataloged, not locked
 in a vendor's database.
 
-**Integrations:** Ibis • scikit-learn
+**Integrations:** Ibis • scikit-learn • Feast(wip) • dbt (upcoming)
 
 ---
 
 # Learn More
 
-- [Get started with `xorq init`](https://docs.xorq.dev/getting_started/get-started-with-xorq-init) --- Moneyball walkthrough
-- [Build a semantic catalog](https://docs.xorq.dev/tutorials/core_tutorials/build_a_semantic_catalog)
-- [Working with the catalog](https://docs.xorq.dev/tutorials/core_tutorials/working_with_the_catalog)
 - [Quickstart tutorial](https://docs.xorq.dev/getting_started/quickstart)
+- [Why Xorq?](https://docs.xorq.dev/#why-xorq)
 - [Scikit-learn template](https://github.com/xorq-labs/xorq-template-sklearn)
 
 ---
