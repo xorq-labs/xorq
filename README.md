@@ -20,8 +20,9 @@ content-addressed [Ibis](https://ibis-project.org) expressions, with a
 git-native catalog for publishing and reusing them.
 Additionally, Xorq context engine comes with:
 1. Embedded [DataFusion](https://datafusion.apache.org) based engine
-2. Deterministic Caching
-3. [Arrow](https://arrow.apache.org) Flight-based serving
+2. Storage in git repository
+3. Deterministic Caching
+4. [Arrow](https://arrow.apache.org) Flight-based serving
 
 ![xorq catalog TUI](docs/images/catalog-tui.png)
 
@@ -138,8 +139,9 @@ End-to-end sklearn examples live in
 
 # The Catalog
 
-The catalog is a git repo of build artifacts on filesystem — `xorq catalog add`
-packages a build into a zip with python environment and source using `uv`.
+The catalog is a git repo of build artifacts on filesystem. `xorq catalog add`
+packages a build directory -- manifest (`expr.yaml` + `*_metadata.json`),
+Python environment via `uv` -- into an entry.
 
 ## Build and add
 
@@ -169,7 +171,8 @@ Every catalog operation is a commit you can read:
 
 ## Inside an entry
 
-What gets zipped into each entry is human-readable:
+A build directory contains the manifest plus everything needed to reproduce
+it. The zipped build is the entry stored in the catalog.
 
 ```
 $ tree builds/fa2122f6a9e9
@@ -181,7 +184,9 @@ $ tree builds/fa2122f6a9e9
 └── xorq-0.3.24-py3-none-any.whl
 ```
 
-The manifest *is* the versioned, cached, portable artifact.
+The manifest (`expr.yaml` + `*_metadata.json`) is the content-addressed
+specification of the pipeline. The **entry** packages it with deps and source
+for reproducible execution.
 
 ```yaml
 # Input-addressed, composable, portable
@@ -230,8 +235,9 @@ expression:
 
 # The Tools
 
-The manifest is the unit of executable context. The tools — catalog, run, serve
-— are how agents and humans compose with it.
+The entry is the unit of executable context that includes the manifest plus
+environment to run it. The tools — catalog, run, serve — are how agents and
+humans compose with it.
 
 ## Catalog
 
