@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 from packaging import version
 
-from xorq.common.utils.ibis_utils import from_ibis
+from xorq.common.utils.ibis_utils import from_ibis, map_sort_key
 from xorq.tests.util import assert_frame_equal, assert_series_equal
 
 
@@ -25,6 +25,15 @@ def test_sort_keys(make_sort_key):
     xorq_expr = from_ibis(expr)
 
     assert_frame_equal(expr.execute(), xorq_expr.execute())
+
+
+def test_sort_key_missing_attribute():
+    class FakeKey:
+        ascending = True
+        nulls_first = False
+
+    with pytest.raises(TypeError, match="neither .arg nor .expr"):
+        map_sort_key(FakeKey())
 
 
 def test_cases():

@@ -32,8 +32,8 @@ def test_zip(zip_path):
             f"(missing {missing}); found: {sorted(names)}"
         )
         wheels = [name for name in names if name.endswith(".whl")]
-        assert len(wheels) == 1, (
-            f"Archive must contain exactly one .whl file, "
+        assert len(wheels) >= 1, (
+            f"Archive must contain at least one .whl file, "
             f"found {len(wheels)}: {sorted(names)}"
         )
 

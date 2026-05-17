@@ -112,10 +112,10 @@ class KindStyle:
 
 
 KIND_STYLES: dict[ExprKind, KindStyle] = {
-    ExprKind.Source:      KindStyle(icon="⊞", color=XORQ_DARK.primary),
-    ExprKind.Expr:        KindStyle(icon="⊕", color=XORQ_DARK.success),
+    ExprKind.Source: KindStyle(icon="⊞", color=XORQ_DARK.primary),
+    ExprKind.Expr: KindStyle(icon="⊕", color=XORQ_DARK.success),
     ExprKind.UnboundExpr: KindStyle(icon="⊘", color=XORQ_DARK.warning),
-    ExprKind.Composed:    KindStyle(icon="⊛", color=XORQ_DARK.secondary),
+    ExprKind.Composed: KindStyle(icon="⊛", color=XORQ_DARK.secondary),
     ExprKind.ExprBuilder: KindStyle(icon="⊡", color=XORQ_DARK.secondary),
 }
 
@@ -1206,11 +1206,7 @@ class DataViewScreen(Screen):
             cmd.extend(["-c", code])
         return cmd
 
-    def _run_catalog_subprocess(self, code=None):
-        """Run xorq catalog run and return a pandas DataFrame."""
-        import pyarrow as pa  # noqa: PLC0415
-
-        cmd = self._catalog_run_cmd(code)
+    def _spawn_run(self, cmd):
         with self._proc_lock:
             prior = self._active_proc
             if prior is not None and prior.poll() is None:
@@ -1223,10 +1219,37 @@ class DataViewScreen(Screen):
             with self._proc_lock:
                 if self._active_proc is proc:
                     self._active_proc = None
-        if proc.returncode != 0:
-            raise RuntimeError(stderr.decode().strip())
-        reader = pa.ipc.open_stream(stdout)
-        return reader.read_pandas()
+        return proc.returncode, stdout, stderr
+
+    def _run_catalog_subprocess(self, code=None):
+        """Run xorq catalog run and return a pandas DataFrame.
+
+        Try `--use-this-venv` first; fall back to the uv-isolated path
+        on any failure.
+        """
+        import pyarrow as pa  # noqa: PLC0415
+
+        cmd = self._catalog_run_cmd(code)
+        fast_stderr = ""
+        try:
+            returncode, stdout, stderr = self._spawn_run([*cmd, "--use-this-venv"])
+            fast_stderr = stderr.decode(errors="replace").strip()
+            if returncode == 0:
+                return pa.ipc.open_stream(stdout).read_pandas()
+            logger.debug(
+                "catalog_run_fast_path_nonzero",
+                returncode=returncode,
+                stderr=fast_stderr[-500:],
+            )
+        except (OSError, pa.lib.ArrowException):
+            logger.exception(
+                "catalog_run_fast_path_failed",
+                stderr=fast_stderr,
+            )
+        returncode, stdout, stderr = self._spawn_run(cmd)
+        if returncode != 0:
+            raise RuntimeError(stderr.decode(errors="replace").strip())
+        return pa.ipc.open_stream(stdout).read_pandas()
 
     def _kill_active_proc(self) -> None:
         with self._proc_lock:

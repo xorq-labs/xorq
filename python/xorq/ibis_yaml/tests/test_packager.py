@@ -1,4 +1,5 @@
 import functools
+import json
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,7 @@ from xorq.ibis_yaml.enums import DumpFiles
 from xorq.ibis_yaml.packager import (
     PYPROJECT_NAME,
     UVLOCK_NAME,
+    JointBundle,
     PackagedBuilder,
     PackagedRunner,
     UvToolRunError,
@@ -649,3 +651,73 @@ def test_uv_tool_run_error_omits_empty_streams(monkeypatch):
     assert "stderr:" not in msg
     assert "stdout:" not in msg
     assert "exit status 2" in msg
+
+
+# ---------------------------------------------------------------------------
+# JointBundle
+# ---------------------------------------------------------------------------
+
+
+def _make_named_wheel(directory, name, version="0.0.0", requires_python=">=3.10"):
+    """Create a minimal but uv-acceptable .whl (METADATA + WHEEL + RECORD)."""
+    wheel_path = Path(directory) / f"{name}-{version}-py3-none-any.whl"
+    dist_info = f"{name}-{version}.dist-info"
+    metadata = (
+        f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n"
+        f"Requires-Python: {requires_python}\n"
+    )
+    wheel_meta = "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
+    record = f"{dist_info}/METADATA,,\n{dist_info}/WHEEL,,\n{dist_info}/RECORD,,\n"
+    with zipfile.ZipFile(wheel_path, "w") as zf:
+        zf.writestr(f"{dist_info}/METADATA", metadata)
+        zf.writestr(f"{dist_info}/WHEEL", wheel_meta)
+        zf.writestr(f"{dist_info}/RECORD", record)
+    return wheel_path
+
+
+def test_joint_bundle_from_build_path_multi(tmp_path):
+    a = _make_named_wheel(tmp_path, "alpha")
+    b = _make_named_wheel(tmp_path, "beta")
+    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
+    bundle = JointBundle.from_build_path(tmp_path)
+    assert set(bundle.wheel_paths) == {a, b}
+    assert bundle.requirements_path == tmp_path / DumpFiles.requirements
+
+
+def test_joint_bundle_from_build_path_no_wheels(tmp_path):
+    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
+    with pytest.raises(RuntimeError, match="no .whl files found"):
+        JointBundle.from_build_path(tmp_path)
+
+
+def test_from_build_path_pins_python_from_build_metadata(tmp_path):
+    """Both bundles must surface the build's Python minor as `==X.Y.*`
+    when build_metadata.json carries sys-version_info, so cloudpickled
+    UDFs don't get unpickled under a newer interpreter than they were
+    built on."""
+    _make_wheel(tmp_path)
+    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
+    (tmp_path / DumpFiles.build_metadata).write_text(
+        json.dumps({"sys-version_info": [3, 12, 11, "final", 0]})
+    )
+    assert WheelBundle.from_build_path(tmp_path).python_version == "==3.12.*"
+
+    multi_dir = tmp_path / "multi"
+    multi_dir.mkdir()
+    _make_named_wheel(multi_dir, "alpha")
+    _make_named_wheel(multi_dir, "beta")
+    (multi_dir / DumpFiles.requirements).write_text("requests==2.31.0\n")
+    (multi_dir / DumpFiles.build_metadata).write_text(
+        json.dumps({"sys-version_info": [3, 11, 9, "final", 0]})
+    )
+    assert JointBundle.from_build_path(multi_dir).python_version == "==3.11.*"
+
+
+def test_from_build_path_falls_back_when_metadata_missing(tmp_path):
+    """No build_metadata.json (older archives) → fall back to the
+    wheel's Requires-Python intersection. Don't error."""
+    _make_wheel(tmp_path)
+    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
+    bundle = WheelBundle.from_build_path(tmp_path)
+    assert bundle.python_version is not None
+    assert "==" not in bundle.python_version  # Range from Requires-Python.
