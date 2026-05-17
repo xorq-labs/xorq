@@ -14,8 +14,7 @@
 Xorq is an executable memory system for tabular data work. It turns ephemeral
 agent work — Python scripts, ad-hoc tables, "works on my sandbox" environments
 — into durable, **composable**, executable artifacts that any future agent or
-human can faithfully reuse: expressions compose into expressions, entries
-compose into entries, all over Arrow streams.
+human can faithfully reuse.
 
 It comes with a CLI for agents and a TUI for humans with a git-native catalog.
 ![xorq catalog TUI](docs/images/catalog-tui.png)
@@ -329,6 +328,7 @@ serve-*` commands.
 - [Why xorq?](https://docs.xorq.dev/#why-xorq)
 - [Claude Code plugin](https://github.com/xorq-labs/claude-plugins)
 - [Scikit-learn ](https://github.com/xorq-labs/xorq-template-sklearn)
+- [A Git-Native Semantic Layer](https://xorq.dev/blog/bsl-xorq/) — building a portable semantic catalog with Xorq
 
 ---
 
