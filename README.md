@@ -59,8 +59,8 @@ The agent does the building; you keep the catalog.
 **Manually.** Install the library and start composing expressions in Python:
 
 ```bash
-$ pip install xorq[examples]
-$ xorq init -t penguins
+❯ pip install xorq[examples]
+❯ xorq init -t penguins
 ```
 ---
 
@@ -91,11 +91,12 @@ engine, with provenance and reproducibility guarantees.
 
 # Under the hood
 
-<details>
+<details open>
 <summary><b>The Expression</b> — declarative Ibis, multi-engine, Arrow-native</summary>
 
 Write declarative Ibis expressions that run like a tool. Xorq extends Ibis with
-caching, multi-engine execution, and UDFs.
+caching, multi-engine execution, and UDFs. Below, `xo._` is the Ibis row
+reference — `xo._.species` refers to the `species` column of the current table.
 
 ```python
 import xorq.api as xo
@@ -144,16 +145,8 @@ checkpoint, just data flowing through transforms.
 
 ### Scikit-learn pipelines
 
-Xorq translates `scikit-learn` Pipeline objects to deferred expressions:
-
-```python
-from xorq.expr.ml.pipeline_lib import Pipeline
-
-sklearn_pipeline = ...
-xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
-```
-
-End-to-end sklearn examples live in
+Xorq translates `scikit-learn` Pipeline objects to deferred expressions via
+`Pipeline.from_instance(sklearn_pipeline)`. End-to-end sklearn examples live in
 [xorq-labs/xorq-gallery](https://github.com/xorq-labs/xorq-gallery).
 
 </details>
@@ -168,7 +161,7 @@ Python environment via `uv` -- into an entry.
 ### Build and add
 
 ```bash
-$ xorq uv build expr.p❯ xorq uv build expr2.py
+❯ xorq uv build expr.py
 Building wheel...
 Successfully built ...
 builds/fa2122f6a9e9
@@ -229,7 +222,7 @@ A build directory contains the manifest plus everything needed to reproduce
 it. The zipped build is the entry stored in the catalog.
 
 ```
-$ tree builds/fa2122f6a9e9
+❯ tree builds/fa2122f6a9e9
 ├── build_metadata.json
 ├── expr.yaml
 ├── expr_metadata.json
@@ -313,7 +306,7 @@ fa2122f6a9e9
 ### Run
 
 ```bash
-$ xorq run builds/fa2122f6a9e9 -o out.parquet
+❯ xorq run builds/fa2122f6a9e9 -o out.parquet
 ```
 Additionally, you can serve an unbound expression over Arrow Flight. with `xorq
 serve-*` commands.
