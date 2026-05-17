@@ -13,7 +13,7 @@
 ---
 Xorq is an executable memory system for tabular data work. It turns ephemeral
 agent work — Python scripts, ad-hoc tables, "works on my sandbox" environments
-— into durable, **composable**, executable artifacts that any future agent or
+— into durable, composable, executable artifacts that any future agent or
 human can faithfully reuse.
 
 It comes with a CLI for agents and a TUI for humans with a git-native catalog.
@@ -73,6 +73,19 @@ The agent does the building; you keep the catalog.
 | **uv for reproducible environments** | Each entry ships with a wheel and pinned `requirements.txt`. Installs deterministically on any machine. |
 | **DataFusion for embedded compute** | Pipelines execute in-process. No warehouse, no credentials, no network — agents can run entries inside a sealed sandbox. |
 | **Arrow for IPC and network** | Operators exchange Arrow RecordBatches in-process; the same format streams over Arrow Flight when serving. No format conversions, no copies. |
+
+
+# Supported engines
+
+The same expression can run against any of these backends, and `into_backend`
+moves data between them.
+
+| Category | Engines |
+|----------|---------|
+| **Embedded** | DataFusion, DuckDB, SQLite, pandas |
+| **Warehouses** | Snowflake, Databricks, Trino, Postgres |
+| **Lakehouse** | PyIceberg |
+| **Arrow Flight** | GizmoSQL |
 
 
 # Comparison
