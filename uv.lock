@@ -1577,6 +1577,15 @@ wheels = [
 ]
 
 [[package]]
+name = "gizmosql"
+version = "1.26.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/73/25/db9ff2f3403b749c03521eb308ada2bdec34b847da857aeb49d441569bdd/gizmosql-1.26.0.tar.gz", hash = "sha256:a2329674fcef3cad076b2e5d93b5b538401b5f05175aec49fb548557625dba70", size = 16028, upload-time = "2026-05-09T15:25:19.754Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/66/a8/abc96d0246f6a5184e6748a9c14f3b6acf70c9fbb9f48acf07061b788444/gizmosql-1.26.0-py3-none-any.whl", hash = "sha256:596c91d22a0c22af81da1435bfad6acd970bc4fe2655a304e628ab33a71ee4fb", size = 14442, upload-time = "2026-05-09T15:25:18.282Z" },
+]
+
+[[package]]
 name = "google-api-core"
 version = "2.30.3"
 source = { registry = "https://pypi.org/simple" }
@@ -6007,7 +6016,9 @@ examples = [
 ]
 gizmosql = [
     { name = "adbc-driver-gizmosql" },
+    { name = "cryptography" },
     { name = "duckdb" },
+    { name = "gizmosql" },
 ]
 ibis = [
     { name = "ibis-framework" },
@@ -6086,6 +6097,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.0" },
     { name = "cloudpickle", specifier = ">=3.1.1" },
     { name = "cryptography", specifier = ">=45.0.3" },
+    { name = "cryptography", marker = "extra == 'gizmosql'", specifier = ">=42" },
     { name = "dask", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = "==2025.1.0" },
     { name = "databricks-sql-connector", marker = "extra == 'databricks'", specifier = ">=3.0.0" },
     { name = "datafusion", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'datafusion'", specifier = ">=0.6,<49" },
@@ -6097,6 +6109,7 @@ requires-dist = [
     { name = "geoarrow-types", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.2,<1" },
     { name = "git-annex", specifier = ">=10.20250220" },
     { name = "gitpython", specifier = ">=3.1.46" },
+    { name = "gizmosql", marker = "extra == 'gizmosql'", specifier = ">=1.26.0,<2" },
     { name = "ibis-framework", marker = "extra == 'ibis'", specifier = ">=10.5.0" },
     { name = "matplotlib", marker = "extra == 'examples'", specifier = ">=3.8.0" },
     { name = "mcp", marker = "extra == 'examples'", specifier = ">=1.5.0" },
