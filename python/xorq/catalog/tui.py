@@ -509,8 +509,8 @@ class CatalogScreen(Screen):
         Binding("e", "open_data_view", "Explore"),
         Binding("v", "toggle_revisions", "Revisions"),
         Binding("g", "toggle_git_log", "Git Log"),
-        Binding("1", "view_sql", "SQL"),
-        Binding("2", "view_data", "Data"),
+        Binding("1", "view_sql", "SQL", priority=True),
+        Binding("2", "view_data", "Data", priority=True),
     )
 
     FOCUS_CYCLE = (
@@ -914,7 +914,7 @@ class CatalogScreen(Screen):
             if raw.count("\n") > SQL_HIGHLIGHT_MAX_LINES:
                 rich_text = Text(no_wrap=False, overflow="fold")
                 rich_text.append(
-                    f"-- syntax highlighting disabled (query exceeds {SQL_HIGHLIGHT_MAX_LINES} lines)\n\n",
+                    f"-- syntax highlighting disabled (query exceeds {SQL_HIGHLIGHT_MAX_LINES} lines)\n",
                     style="italic #4AA8EC",
                 )
                 rich_text.append(raw)
