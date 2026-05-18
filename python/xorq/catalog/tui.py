@@ -109,7 +109,7 @@ KIND_ORDER: tuple[ExprKind, ...] = (
 _SQL_LEXER = pygments_get_lexer("sql", stripnl=False)
 
 
-@lru_cache(maxsize=256)
+@lru_cache(maxsize=64)
 def _pygments_tokens(sql: str) -> tuple[tuple[str, str], ...]:
     tokens = []
     for ttype, value in pygments_lex(sql, _SQL_LEXER):
