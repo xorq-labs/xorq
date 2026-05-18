@@ -674,11 +674,11 @@ class CatalogScreen(Screen):
                 self._current_sql_hash = None
                 sql_preview.update("(SQL unavailable)")
                 sql_panel.border_subtitle = ""
-            case ((_, engine, _),):
+            case ((_, engine, sql),):
                 sql_panel.border_subtitle = engine
                 self._current_sql_hash = row_data.row_key
                 sql_preview.update("")
-                self._load_sql_preview(row_data.row_key, row_data.sqls)
+                self._load_sql_preview(row_data.row_key, sql)
             case sqls:
                 engines = sorted({engine for _, engine, _ in sqls})
                 sql_panel.border_subtitle = (
@@ -686,7 +686,7 @@ class CatalogScreen(Screen):
                 )
                 self._current_sql_hash = row_data.row_key
                 sql_preview.update("")
-                self._load_sql_preview(row_data.row_key, row_data.sqls)
+                self._load_sql_preview(row_data.row_key, _render_sql_dag(sqls))
 
         # Info panel
         info_content.update(row_data.info_text)
@@ -907,13 +907,12 @@ class CatalogScreen(Screen):
     # --- SQL preview worker ---
 
     @work(thread=True, exit_on_error=False, exclusive=True, group="sql_render")
-    def _load_sql_preview(self, entry_hash: str, sqls: tuple) -> None:
-        match sqls:
-            case ((_, _, sql),):
-                raw = sql
-            case _:
-                raw = _render_sql_dag(sqls)
-        rich_text = _pygments_to_text(raw)
+    def _load_sql_preview(self, entry_hash: str, raw: str) -> None:
+        try:
+            rich_text = _pygments_to_text(raw)
+        except Exception:
+            logger.exception("sql_preview_render_failed", entry_hash=entry_hash)
+            rich_text = Text("(render error)", style="dim")
 
         def _apply():
             if self._current_sql_hash != entry_hash:
