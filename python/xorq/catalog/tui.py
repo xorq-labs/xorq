@@ -107,9 +107,9 @@ KIND_ORDER: tuple[ExprKind, ...] = (
 
 
 @lru_cache(maxsize=256)
-def _pygments_to_text(sql: str) -> Text:
+def _pygments_tokens(sql: str) -> tuple[tuple[str, str], ...]:
     lexer = pygments_get_lexer("sql", stripnl=False)
-    text = Text(no_wrap=False, overflow="fold")
+    tokens = []
     for ttype, value in pygments_lex(sql, lexer):
         info = XorqSQLStyle.style_for_token(ttype)
         parts = []
@@ -119,11 +119,15 @@ def _pygments_to_text(sql: str) -> Text:
             parts.append("italic")
         if info.get("color"):
             parts.append(f"#{info['color']}")
-        text.append(value, style=" ".join(parts))
+        tokens.append((value, " ".join(parts)))
+    return tuple(tokens)
+
+
+def _pygments_to_text(sql: str) -> Text:
+    text = Text(no_wrap=False, overflow="fold")
+    for value, style in _pygments_tokens(sql):
+        text.append(value, style=style)
     return text
-
-
-KIND_ORDER = ("source", "expr", "unbound_expr", "composed")
 
 
 @frozen
