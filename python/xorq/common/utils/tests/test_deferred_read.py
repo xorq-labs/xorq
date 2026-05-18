@@ -229,7 +229,7 @@ def test_cached_deferred_read(get_con, pins_resource, filter_, request, tmp_path
     # we read from cache even if the table disappears
     try:
         con.drop_table(t.op().name, force=True)
-    except duckdb.duckdb.CatalogException:
+    except duckdb.CatalogException:
         con.drop_view(t.op().name)
 
     assert xo.execute(expr).equals(df)

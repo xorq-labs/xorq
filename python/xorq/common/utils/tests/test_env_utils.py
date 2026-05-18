@@ -5,8 +5,41 @@ import pytest
 
 from xorq.common.utils.env_utils import (
     EnvConfigable,
+    parse_bool_env,
     parse_env_file,
 )
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("true", True),
+        ("True", True),
+        ("TRUE", True),
+        ("1", True),
+        ("yes", True),
+        ("on", True),
+        ("false", False),
+        ("False", False),
+        ("FALSE", False),
+        ("0", False),
+        ("no", False),
+        ("off", False),
+        ("  true  ", True),
+        ("  false  ", False),
+    ],
+)
+def test_parse_bool_env(value, expected):
+    assert parse_bool_env(value) is expected
+
+
+def test_parse_bool_env_rejects_garbage():
+    with pytest.raises(ValueError, match="Cannot interpret"):
+        parse_bool_env("maybe")
+    with pytest.raises(ValueError, match="Cannot interpret"):
+        parse_bool_env("2")
+    with pytest.raises(ValueError, match="Cannot interpret"):
+        parse_bool_env("")
 
 
 def test_subclass_from_kwargs(monkeypatch):

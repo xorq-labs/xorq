@@ -1,0 +1,27 @@
+name: detect-changes
+
+on:
+  workflow_call:
+    outputs:
+      code:
+        description: "true if any non-docs files changed (always true for push/dispatch)"
+        value: ${{ jobs.changes.outputs.code }}
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ github.event_name != 'pull_request' || steps.filter.outputs.code == 'true' }}
+    steps:
+      - uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!docs/**'
+              - '!**/*.md'
+              - '!**/*.qmd'
+              - '!codecov.yml'
+              - '!.envrc'

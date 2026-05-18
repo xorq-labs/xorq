@@ -14,6 +14,7 @@ from ibis.expr.datatypes import DataType as IbisDataType
 from ibis.expr.datatypes.core import Interval as IbisInterval
 from ibis.expr.operations.generic import Cast as IbisCast
 from ibis.expr.operations.relations import Namespace as IbisNamespace
+from ibis.expr.operations.sortkeys import SortKey as IbisSortKey
 from ibis.formats.pandas import PandasDataFrameProxy as IbisPandasDataFrameProxy
 from ibis.formats.pyarrow import PyArrowTableProxy as IbisPyArrowTableProxy
 
@@ -76,6 +77,19 @@ def map_builtin_dict(op, kwargs=None):
 @map_ibis.register(IbisCast)
 def map_cast(cast, kwargs=None):
     return ops.Cast(arg=map_ibis(cast.arg, None), to=map_ibis(cast.to, None))
+
+
+@map_ibis.register(IbisSortKey)
+def map_sort_key(key, kwargs=None):
+    # ibis 12 renamed SortKey.expr → SortKey.arg
+    src = getattr(key, "arg", None) or getattr(key, "expr", None)
+    if src is None:
+        raise TypeError(f"SortKey has neither .arg nor .expr: {key!r}")
+    return ops.SortKey(
+        expr=map_ibis(src, None),
+        ascending=key.ascending,
+        nulls_first=key.nulls_first,
+    )
 
 
 @map_ibis.register(IbisSchema)

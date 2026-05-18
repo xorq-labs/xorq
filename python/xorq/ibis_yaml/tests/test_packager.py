@@ -1,4 +1,6 @@
 import functools
+import json
+import subprocess
 import sys
 import tempfile
 import zipfile
@@ -16,19 +18,28 @@ from xorq.common.utils.zip_utils import (
     ZipProxy,
     append_toplevel,
 )
+from xorq.config import (
+    _default_use_hardlink,
+    env_config,
+    options,
+)
 from xorq.ibis_yaml.enums import DumpFiles
 from xorq.ibis_yaml.packager import (
     PYPROJECT_NAME,
     UVLOCK_NAME,
+    JointBundle,
     PackagedBuilder,
     PackagedRunner,
+    UvToolRunError,
     WheelBundle,
     WheelPackager,
+    _link_mode_args,
     _nix_env,
     _read_requires_python,
     _validate_python_version,
     find_file_upwards,
     uv_export_requirements,
+    uv_tool_run,
 )
 from xorq.init_templates import InitTemplates
 
@@ -324,6 +335,114 @@ def test_nix_env_removes_ld_path_inside_nix(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# uv --link-mode propagation (issue #1942)
+# ---------------------------------------------------------------------------
+
+
+def _patch_subprocess_run(monkeypatch):
+    """Replace packager.subprocess.run with a stub recording the last args."""
+    captured = {"args": None, "calls": 0}
+
+    class _Result:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        captured["calls"] += 1
+        return _Result()
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.subprocess.run", fake_run)
+    return captured
+
+
+@pytest.mark.parametrize(
+    ("platform", "env_value", "expected_args"),
+    [
+        ("darwin", "", ("--link-mode", "hardlink")),
+        ("linux", "", ()),
+        ("darwin", "False", ()),
+        ("linux", "True", ("--link-mode", "hardlink")),
+    ],
+)
+def test_link_mode_args_from_platform_and_env(
+    monkeypatch, platform, env_value, expected_args
+):
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setattr(
+        "xorq.config.env_config", env_config.clone(XORQ_UV_USE_HARDLINK=env_value)
+    )
+    monkeypatch.setattr(options.uv, "use_hardlink", _default_use_hardlink())
+    assert _link_mode_args() == expected_args
+
+
+@pytest.mark.parametrize(
+    ("platform", "env_value", "expected"),
+    [
+        # No env override → sys.platform decides.
+        ("darwin", "", True),
+        ("linux", "", False),
+        # Env override beats sys.platform default.
+        ("darwin", "False", False),
+        ("linux", "True", True),
+    ],
+)
+def test_default_use_hardlink(monkeypatch, platform, env_value, expected):
+    """``sys.platform`` and ``env_config.XORQ_UV_USE_HARDLINK`` are
+    monkeypatched (pytest restores both on teardown), so each parametrize
+    case exercises the function end-to-end with no args."""
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setattr(
+        "xorq.config.env_config", env_config.clone(XORQ_UV_USE_HARDLINK=env_value)
+    )
+    assert _default_use_hardlink() is expected
+
+
+@pytest.mark.parametrize("use_hardlink", [True, False])
+def test_uv_export_requirements_omits_link_mode(tmp_path, monkeypatch, use_hardlink):
+    """uv export reads the lockfile only; ``--link-mode`` would be confused
+    intent even when harmless. Guard against future refactors that splice
+    a shared args builder into uv_export_requirements."""
+    monkeypatch.setattr(options.uv, "use_hardlink", use_hardlink)
+    captured = _patch_subprocess_run(monkeypatch)
+    uv_export_requirements(tmp_path, "3.12")
+    assert "--link-mode" not in captured["args"]
+
+
+@pytest.mark.parametrize(
+    ("use_hardlink", "flag_present"),
+    [(True, True), (False, False)],
+)
+def test_uv_tool_run_propagates_link_mode(monkeypatch, use_hardlink, flag_present):
+    monkeypatch.setattr(options.uv, "use_hardlink", use_hardlink)
+    captured = _patch_subprocess_run(monkeypatch)
+    uv_tool_run("xorq", "--version", capture_output=False)
+    args = captured["args"]
+    assert ("--link-mode" in args) is flag_present
+    if flag_present:
+        assert args[args.index("--link-mode") + 1] == "hardlink"
+
+
+@pytest.mark.parametrize(
+    ("use_hardlink", "flag_present"),
+    [(True, True), (False, False)],
+)
+def test_wheel_packager_build_wheel_propagates_link_mode(
+    tmp_path, monkeypatch, use_hardlink, flag_present
+):
+    monkeypatch.setattr(options.uv, "use_hardlink", use_hardlink)
+    _make_pyproject(tmp_path)
+    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
+    captured = _patch_subprocess_run(monkeypatch)
+    WheelPackager(tmp_path)._build_wheel()
+    args = captured["args"]
+    assert ("--link-mode" in args) is flag_present
+    if flag_present:
+        assert args[args.index("--link-mode") + 1] == "hardlink"
+
+
+# ---------------------------------------------------------------------------
 # WheelBundle.from_build_path
 # ---------------------------------------------------------------------------
 
@@ -494,3 +613,111 @@ def test_uv_export_requirements_surfaces_stderr_on_failure(monkeypatch):
     with pytest.raises(RuntimeError, match="uv export failed") as exc_info:
         uv_export_requirements("/proj", ">=3.10")
     assert "project has no lock" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# uv_tool_run: error surfacing
+# ---------------------------------------------------------------------------
+
+
+def test_uv_tool_run_surfaces_stderr_and_stdout_on_failure(monkeypatch):
+    def _raise(args, **kw):
+        raise subprocess.CalledProcessError(
+            1, args, output="build output\n", stderr="resolver error\n"
+        )
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.subprocess.run", _raise)
+    with pytest.raises(UvToolRunError) as exc_info:
+        uv_tool_run("xorq", "--version", capture_output=False)
+    err = exc_info.value
+    assert isinstance(err, subprocess.CalledProcessError)
+    assert err.returncode == 1
+    assert err.cmd is not None
+    msg = str(err)
+    assert "stderr:" in msg
+    assert "resolver error" in msg
+    assert "stdout:" in msg
+    assert "build output" in msg
+
+
+def test_uv_tool_run_error_omits_empty_streams(monkeypatch):
+    def _raise(args, **kw):
+        raise subprocess.CalledProcessError(2, args)
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.subprocess.run", _raise)
+    with pytest.raises(UvToolRunError) as exc_info:
+        uv_tool_run("xorq", "--version", capture_output=False)
+    msg = str(exc_info.value)
+    assert "stderr:" not in msg
+    assert "stdout:" not in msg
+    assert "exit status 2" in msg
+
+
+# ---------------------------------------------------------------------------
+# JointBundle
+# ---------------------------------------------------------------------------
+
+
+def _make_named_wheel(directory, name, version="0.0.0", requires_python=">=3.10"):
+    """Create a minimal but uv-acceptable .whl (METADATA + WHEEL + RECORD)."""
+    wheel_path = Path(directory) / f"{name}-{version}-py3-none-any.whl"
+    dist_info = f"{name}-{version}.dist-info"
+    metadata = (
+        f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n"
+        f"Requires-Python: {requires_python}\n"
+    )
+    wheel_meta = "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
+    record = f"{dist_info}/METADATA,,\n{dist_info}/WHEEL,,\n{dist_info}/RECORD,,\n"
+    with zipfile.ZipFile(wheel_path, "w") as zf:
+        zf.writestr(f"{dist_info}/METADATA", metadata)
+        zf.writestr(f"{dist_info}/WHEEL", wheel_meta)
+        zf.writestr(f"{dist_info}/RECORD", record)
+    return wheel_path
+
+
+def test_joint_bundle_from_build_path_multi(tmp_path):
+    a = _make_named_wheel(tmp_path, "alpha")
+    b = _make_named_wheel(tmp_path, "beta")
+    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
+    bundle = JointBundle.from_build_path(tmp_path)
+    assert set(bundle.wheel_paths) == {a, b}
+    assert bundle.requirements_path == tmp_path / DumpFiles.requirements
+
+
+def test_joint_bundle_from_build_path_no_wheels(tmp_path):
+    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
+    with pytest.raises(RuntimeError, match="no .whl files found"):
+        JointBundle.from_build_path(tmp_path)
+
+
+def test_from_build_path_pins_python_from_build_metadata(tmp_path):
+    """Both bundles must surface the build's Python minor as `==X.Y.*`
+    when build_metadata.json carries sys-version_info, so cloudpickled
+    UDFs don't get unpickled under a newer interpreter than they were
+    built on."""
+    _make_wheel(tmp_path)
+    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
+    (tmp_path / DumpFiles.build_metadata).write_text(
+        json.dumps({"sys-version_info": [3, 12, 11, "final", 0]})
+    )
+    assert WheelBundle.from_build_path(tmp_path).python_version == "==3.12.*"
+
+    multi_dir = tmp_path / "multi"
+    multi_dir.mkdir()
+    _make_named_wheel(multi_dir, "alpha")
+    _make_named_wheel(multi_dir, "beta")
+    (multi_dir / DumpFiles.requirements).write_text("requests==2.31.0\n")
+    (multi_dir / DumpFiles.build_metadata).write_text(
+        json.dumps({"sys-version_info": [3, 11, 9, "final", 0]})
+    )
+    assert JointBundle.from_build_path(multi_dir).python_version == "==3.11.*"
+
+
+def test_from_build_path_falls_back_when_metadata_missing(tmp_path):
+    """No build_metadata.json (older archives) → fall back to the
+    wheel's Requires-Python intersection. Don't error."""
+    _make_wheel(tmp_path)
+    (tmp_path / DumpFiles.requirements).write_text("requests==2.31.0\n")
+    bundle = WheelBundle.from_build_path(tmp_path)
+    assert bundle.python_version is not None
+    assert "==" not in bundle.python_version  # Range from Requires-Python.

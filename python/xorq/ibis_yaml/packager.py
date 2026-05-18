@@ -14,6 +14,9 @@ PackagedRunner   build directory → execution output (via `uv tool run xorq run
 """
 
 import functools
+import itertools
+import json
+import operator
 import os
 import shutil
 import subprocess
@@ -28,6 +31,7 @@ from attr import (
     frozen,
 )
 from attr.validators import (
+    deep_iterable,
     instance_of,
     optional,
 )
@@ -35,6 +39,16 @@ from packaging.specifiers import SpecifierSet
 
 from xorq.common.utils.process_utils import in_nix_shell
 from xorq.ibis_yaml.enums import DumpFiles
+
+
+class UvToolRunError(subprocess.CalledProcessError):
+    def __str__(self):
+        parts = [super().__str__()]
+        if self.stderr:
+            parts.append(f"stderr:\n{self.stderr.rstrip()}")
+        if self.stdout:
+            parts.append(f"stdout:\n{self.stdout.rstrip()}")
+        return "\n\n".join(parts)
 
 
 PYPROJECT_NAME = "pyproject.toml"
@@ -56,11 +70,59 @@ def _validate_python_version(instance, attribute, value):
             raise ValueError(f"invalid python version specifier: {value!r}") from e
 
 
+def _cap_requires_python(raw):
+    return str(SpecifierSet(raw or DEFAULT_REQUIRES_PYTHON) & PYTHON_VERSION_CAP)
+
+
 def _requires_python_from_pyproject(pyproject_path):
     """Read requires-python from a pyproject.toml, intersected with PYTHON_VERSION_CAP."""
     data = tomlkit.loads(Path(pyproject_path).read_text())
     raw = toolz.get_in(("project", "requires-python"), data)
-    return str(SpecifierSet(raw or DEFAULT_REQUIRES_PYTHON) & PYTHON_VERSION_CAP)
+    return _cap_requires_python(raw)
+
+
+def _read_wheel_metadata(wheel_path):
+    """Read METADATA top-level fields from a wheel as a dict.
+
+    Stops at the first blank line so multi-paragraph Description bodies
+    don't shadow real fields. Does not handle RFC 822 continuation lines
+    (indented follow-on lines), which is fine for the fields we read
+    (Name, Version, Requires-Python) but would need extending for
+    multi-line fields like Classifier.
+    """
+    with zipfile.ZipFile(wheel_path) as zf:
+        metadata_names = [n for n in zf.namelist() if n.endswith(".dist-info/METADATA")]
+        if not metadata_names:
+            raise ValueError(f"no .dist-info/METADATA found in {wheel_path}")
+        text = zf.read(metadata_names[0]).decode()
+    return {
+        name.strip(): value.strip()
+        for line in itertools.takewhile(bool, text.splitlines())
+        for name, sep, value in (line.partition(":"),)
+        if sep
+    }
+
+
+def _python_minor_from_metadata_text(text):
+    """Return a `==X.Y.*` specifier from build_metadata.json text, or None."""
+    try:
+        info = json.loads(text).get("sys-version_info")
+        major, minor = int(info[0]), int(info[1])
+    except (ValueError, TypeError, KeyError, IndexError, AttributeError):
+        return None
+    return f"=={major}.{minor}.*"
+
+
+def _read_build_python_minor(build_path):
+    """Return a `==X.Y.*` specifier pinning the archive's Python minor, or
+    None if build_metadata.json is missing/malformed. Cloudpickled UDFs
+    embed minor-specific bytecode; running under a different minor can
+    SIGSEGV.
+    """
+    meta_path = Path(build_path) / DumpFiles.build_metadata
+    if not meta_path.exists():
+        return None
+    return _python_minor_from_metadata_text(meta_path.read_text())
 
 
 def _read_requires_python(path):
@@ -75,18 +137,10 @@ def _read_requires_python(path):
     elif path.is_dir() and path.joinpath(PYPROJECT_NAME).exists():
         return _requires_python_from_pyproject(path / PYPROJECT_NAME)
     elif path.suffix == ".whl":
-        with zipfile.ZipFile(path) as zf:
-            metadata_names = [
-                n for n in zf.namelist() if n.endswith(".dist-info/METADATA")
-            ]
-            if not metadata_names:
-                raise ValueError(f"no .dist-info/METADATA found in {path}")
-            metadata_text = zf.read(metadata_names[0]).decode()
-            for line in metadata_text.splitlines():
-                if line.startswith("Requires-Python:"):
-                    raw = line.split(":", 1)[1].strip()
-                    return str(SpecifierSet(raw) & PYTHON_VERSION_CAP)
+        fields = _read_wheel_metadata(path)
+        if "Requires-Python" not in fields:
             raise ValueError(f"no Requires-Python in wheel metadata: {path}")
+        return str(SpecifierSet(fields["Requires-Python"]) & PYTHON_VERSION_CAP)
     else:
         raise ValueError(
             f"can only handle {PYPROJECT_NAME}, a directory containing one, or .whl"
@@ -141,6 +195,56 @@ class WheelBundle:
         return cls(
             wheel_path=_find_single_glob(build_path, "*.whl"),
             requirements_path=build_path / DumpFiles.requirements,
+            python_version=_read_build_python_minor(build_path),
+        )
+
+
+@frozen
+class JointBundle:
+    """Immutable N-wheel bundle: list of wheels + unified requirements.txt."""
+
+    wheel_paths = field(
+        converter=lambda xs: tuple(Path(x) for x in xs),
+        validator=deep_iterable(
+            member_validator=instance_of(Path),
+            iterable_validator=instance_of(tuple),
+        ),
+    )
+    requirements_path = field(validator=instance_of(Path), converter=Path)
+    python_version = field(validator=_validate_python_version, default=None)
+
+    def __attrs_post_init__(self):
+        if not self.wheel_paths:
+            raise ValueError("at least one wheel required")
+        for w in self.wheel_paths:
+            if not w.exists():
+                raise FileNotFoundError(f"wheel not found: {w}")
+        if not self.requirements_path.exists():
+            raise FileNotFoundError(f"requirements not found: {self.requirements_path}")
+        if self.python_version is None:
+            # Requires-Python is optional per PEP 566.
+            constraints = [
+                SpecifierSet(rp) & PYTHON_VERSION_CAP
+                for w in self.wheel_paths
+                if (rp := _read_wheel_metadata(w).get("Requires-Python"))
+            ]
+            joint = (
+                functools.reduce(operator.and_, constraints)
+                if constraints
+                else PYTHON_VERSION_CAP
+            )
+            object.__setattr__(self, "python_version", str(joint))
+
+    @classmethod
+    def from_build_path(cls, build_path):
+        build_path = Path(build_path)
+        wheels = sorted(build_path.glob("*.whl"))
+        if not wheels:
+            raise RuntimeError(f"no .whl files found in {build_path}")
+        return cls(
+            wheel_paths=wheels,
+            requirements_path=build_path / DumpFiles.requirements,
+            python_version=_read_build_python_minor(build_path),
         )
 
 
@@ -155,6 +259,12 @@ class WheelPackager:
         repr=False,
         eq=False,
         factory=TemporaryDirectory,
+    )
+    _synth_dir = field(
+        validator=optional(instance_of(TemporaryDirectory)),
+        repr=False,
+        eq=False,
+        default=None,
     )
 
     def __attrs_post_init__(self):
@@ -204,6 +314,7 @@ class WheelPackager:
                 "--wheel",
                 "--python",
                 self.python_version,
+                *_link_mode_args(),
                 "--out-dir",
                 str(self.tmpdir),
                 str(self.pyproject_path.parent),
@@ -252,9 +363,46 @@ class WheelPackager:
         )
 
     @classmethod
-    def from_script_path(cls, script_path, **kwargs):
-        pyproject_path = find_file_upwards(script_path, PYPROJECT_NAME)
-        return cls(pyproject_path.parent, **kwargs)
+    def _from_synth(cls, script_path, **kwargs):
+        from xorq.ibis_yaml.pep723 import synthesize_project  # noqa: PLC0415
+
+        extras = kwargs.pop("extras", ())
+        kwargs.pop("all_extras", None)
+        if extras:
+            raise ValueError(
+                "PEP 723 scripts do not support --extra; "
+                "inline dependencies are always included"
+            )
+        synth_dir = synthesize_project(Path(script_path))
+        return cls(Path(synth_dir.name), synth_dir=synth_dir, **kwargs)
+
+    @classmethod
+    def from_script_path(cls, script_path, pep723=False, **kwargs):
+        from xorq.ibis_yaml.pep723 import read_inline_metadata  # noqa: PLC0415
+
+        if pep723:
+            return cls._from_synth(script_path, **kwargs)
+
+        pyproject_path = None
+        try:
+            pyproject_path = find_file_upwards(script_path, PYPROJECT_NAME)
+        except ValueError:
+            pass
+
+        has_project = pyproject_path is not None
+
+        has_inline = read_inline_metadata(Path(script_path).read_text()) is not None
+
+        if has_project:
+            return cls(pyproject_path.parent, **kwargs)
+
+        if has_inline:
+            return cls._from_synth(script_path, **kwargs)
+
+        raise ValueError(
+            f"No pyproject.toml found above {script_path} and script has no "
+            f"PEP 723 inline metadata"
+        )
 
 
 @frozen
@@ -328,13 +476,23 @@ class PackagedBuilder:
 
     @classmethod
     def from_script_path(
-        cls, script_path, project_path=None, extras=(), all_extras=True, **kwargs
+        cls,
+        script_path,
+        project_path=None,
+        pep723=False,
+        extras=(),
+        all_extras=True,
+        **kwargs,
     ):
+        if project_path and pep723:
+            raise ValueError("project_path and pep723 are mutually exclusive")
         packager_kwargs = {"extras": extras, "all_extras": all_extras}
         packager = (
             WheelPackager(project_path, **packager_kwargs)
             if project_path
-            else WheelPackager.from_script_path(script_path, **packager_kwargs)
+            else WheelPackager.from_script_path(
+                script_path, pep723=pep723, **packager_kwargs
+            )
         )
         return cls(
             script_path=script_path,
@@ -356,7 +514,7 @@ class PackagedRunner:
         if not self.build_path.exists():
             raise FileNotFoundError(f"build path does not exist: {self.build_path}")
         try:
-            bundle = WheelBundle.from_build_path(self.build_path)
+            bundle = JointBundle.from_build_path(self.build_path)
         except (RuntimeError, FileNotFoundError) as e:
             raise FileNotFoundError(
                 f"invalid build path {self.build_path}: {e}"
@@ -366,8 +524,8 @@ class PackagedRunner:
             object.__setattr__(self, "python_version", bundle.python_version)
 
     @property
-    def wheel_path(self):
-        return self._bundle.wheel_path
+    def wheel_paths(self):
+        return self._bundle.wheel_paths
 
     @property
     def requirements_path(self):
@@ -387,7 +545,7 @@ class PackagedRunner:
         result = uv_tool_run(
             *args,
             python_version=self.python_version,
-            with_=self.wheel_path,
+            with_=self.wheel_paths,
             with_requirements=self.requirements_path,
             capture_output=False,
         )
@@ -434,6 +592,13 @@ def _normalize_xorq_cmd(args):
     return args
 
 
+def _link_mode_args():
+    """Return uv ``--link-mode hardlink`` args when options.uv.use_hardlink is set."""
+    from xorq.config import options  # noqa: PLC0415
+
+    return ("--link-mode", "hardlink") if options.uv.use_hardlink else ()
+
+
 def _nix_env():
     """Return an env dict with LD_LIBRARY_PATH fixed for nix, or None outside nix."""
     if not in_nix_shell():
@@ -460,18 +625,27 @@ def uv_tool_run(
 
     with tracer.start_as_current_span("packager.uv_tool_run") as span:
         args = _normalize_xorq_cmd(args)
+        if with_ is None:
+            with_paths = ()
+        elif isinstance(with_, (str, Path)):
+            with_paths = (with_,)
+        else:
+            with_paths = tuple(with_)
+        link_args = _link_mode_args()
+        parts = [
+            ("--python", python_version) if python_version else None,
+            ("--isolated",) if isolated else None,
+            link_args if link_args else None,  # noqa: FURB110
+            *[("--with", str(w)) for w in with_paths],
+            ("--with-requirements", str(with_requirements))
+            if with_requirements
+            else None,
+        ]
         run_args = (
             "uv",
             "tool",
             "run",
-            *(("--python", python_version) if python_version else ()),
-            *(("--isolated",) if isolated else ()),
-            *(("--with", str(with_)) if with_ else ()),
-            *(
-                ("--with-requirements", str(with_requirements))
-                if with_requirements
-                else ()
-            ),
+            *itertools.chain.from_iterable(filter(None, parts)),
             *args,
         )
         span.set_attribute("args", " ".join(run_args))
@@ -481,7 +655,12 @@ def uv_tool_run(
         env = _nix_env()
         if env is not None:
             kwargs["env"] = env
-        return subprocess.run(run_args, check=check, **kwargs)
+        try:
+            return subprocess.run(run_args, check=check, **kwargs)
+        except subprocess.CalledProcessError as e:
+            raise UvToolRunError(
+                e.returncode, e.cmd, output=e.output, stderr=e.stderr
+            ) from e
 
 
 def uv_export_requirements(project_dir, python_version, extras=(), all_extras=True):
