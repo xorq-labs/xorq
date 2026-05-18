@@ -15,9 +15,9 @@ from xorq.common.utils.dasher._opaque import _rename_unbound_xorq
 from xorq.common.utils.dasher._paths import (
     _extract_datafusion_plan_paths,
     _extract_duckdb_file_paths,
+    _normalize_path_stat,
     _stat_or_canonical,
 )
-
 
 # Per-outer-call memo for ``_databasetable_dispatcher``.  Cross-engine nested
 # expressions cause the same underlying ``DatabaseTable`` to be normalized
@@ -50,32 +50,9 @@ def _normalize_read_xorq(read):
     if isinstance(path, (str, pathlib.Path)):
         path = str(path)
         if path.startswith(("http://", "https://", "s3://", "gs://", "gcs://")):
-            # Remote paths: defer to the legacy stat helper if available.
-            from xorq.expr import api  # noqa: PLC0415
 
-            if path.startswith(("http://", "https://")):
-                import urllib.request  # noqa: PLC0415
-
-                req = urllib.request.Request(
-                    path, method="HEAD", headers={"User-Agent": "xorq-cache"}
-                )
-                resp = urllib.request.urlopen(req, timeout=10)
-                headers = resp.info()
-                tpls = (
-                    ("url", path),
-                    *(
-                        (k, headers.get(k))
-                        for k in ("Last-Modified", "Content-Length", "Content-Type")
-                    ),
-                )
-            else:
-                meta = api.get_object_metadata(
-                    path, **{k: v for k, v in read_kwargs.items() if k != "hash_path"}
-                )
-                tpls = tuple(
-                    (k, meta.get(k))
-                    for k in ("location", "last_modified", "size", "e_tag", "version")
-                )
+            stat_kwargs = {k: v for k, v in read_kwargs.items() if k != "hash_path"}
+            tpls = _normalize_path_stat(path, **stat_kwargs)
         elif not pathlib.Path(path).is_absolute() and path == read_kwargs.get(
             "read_path"
         ):
