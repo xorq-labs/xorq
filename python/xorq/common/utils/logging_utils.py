@@ -1,5 +1,6 @@
 import datetime
 import hashlib
+import importlib.metadata
 import json
 import logging.handlers
 import pathlib
@@ -230,8 +231,14 @@ class RunLogger:
         if self._finalized:
             return
 
+        try:
+            xorq_version = importlib.metadata.version("xorq")
+        except importlib.metadata.PackageNotFoundError:
+            xorq_version = "unknown"
+
         meta = {
             "run_id": self.run_id,
+            "xorq_version": xorq_version,
             "started_at": self._started_at,
             "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "status": status,
