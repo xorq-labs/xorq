@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import contextvars
 
-
 # Per-outer-call memo for ``_parent_token``.  Cross-engine nested expressions
 # (``RemoteTable`` containing a ``RemoteTable`` containing …) trigger a fresh
 # ``hasher.tokenize`` of every opaque parent at every level
@@ -68,9 +67,7 @@ def _parent_token(thing):
 
     Used to fold the inner expression's identity into the placeholder name so
     two opaque wrappers with the same schema/cache-type/etc. but different
-    inner expressions do not collide. Accepts either Op or Expr; falls back
-    to repr-hash if neither is recognized so the function never raises in
-    pathological op trees.
+    inner expressions do not collide. Accepts either Op or Expr.
 
     Uses ``_current_hasher`` when set (so snapshot tokenize propagates its
     data-blind rules into recursive parent normalization); otherwise falls
@@ -91,21 +88,29 @@ def _parent_token(thing):
         memo = {}
         reset_token = _parent_token_memo.set(memo)
     try:
+        if hasattr(thing, "to_expr") and not hasattr(thing, "op"):
+            thing = thing.to_expr()
+        hasher = _current_hasher.get() or HASHER
+        op = thing.op() if hasattr(thing, "op") else thing
+        key = (id(hasher), op)
+        if key in memo:
+            return memo[key]
         try:
-            if hasattr(thing, "to_expr") and not hasattr(thing, "op"):
-                thing = thing.to_expr()
-            hasher = _current_hasher.get() or HASHER
-            op = thing.op() if hasattr(thing, "op") else thing
-            key = (id(hasher), op)
-            if key in memo:
-                return memo[key]
             tok = hasher.tokenize(thing)
-            memo[key] = tok
-            return tok
-        except Exception:
+        except RecursionError:
+            import logging  # noqa: PLC0415
+
             import xxhash  # noqa: PLC0415
 
-            return xxhash.xxh128(repr(thing).encode("utf-8")).hexdigest()
+            logging.getLogger(__name__).warning(
+                "RecursionError tokenizing %r in _parent_token; falling back "
+                "to repr-hash.  Result is not reproducible across runs "
+                "investigate the op graph for cycles or unbounded nesting.",
+                type(thing).__name__,
+            )
+            tok = xxhash.xxh128(repr(thing).encode("utf-8")).hexdigest()
+        memo[key] = tok
+        return tok
     finally:
         if is_outer:
             _parent_token_memo.reset(reset_token)
