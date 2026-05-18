@@ -34,6 +34,7 @@ from xorq.catalog.tui import (
     GIT_LOG_COLUMNS,
     KIND_ORDER,
     KIND_STYLES,
+    SQL_HIGHLIGHT_MAX_LINES,
     CatalogRowData,
     CatalogScreen,
     CatalogTUI,
@@ -47,6 +48,7 @@ from xorq.catalog.tui import (
     _format_cached,
     _pygments_to_text,
     _pygments_tokens,
+    _render_sql_text,
     _styled_branch_label,
     get_cache_key_path,
 )
@@ -1249,7 +1251,6 @@ def test_pygments_tokens_cached_returns_same_object():
 
 
 def test_pygments_tokens_keyword_bold():
-    # SELECT is Keyword.DML → bold in XorqSQLStyle
     tokens = _pygments_tokens("SELECT 1")
     select_styles = [s for v, s in tokens if v.strip().upper() == "SELECT"]
     assert any("bold" in s for s in select_styles)
@@ -1265,3 +1266,17 @@ def test_pygments_to_text_word_wrap_config():
     text = _pygments_to_text("SELECT 1")
     assert text.no_wrap is False
     assert text.overflow == "fold"
+
+
+def test_render_sql_text_fallback_for_large_query():
+    big_sql = "SELECT 1\n" * (SQL_HIGHLIGHT_MAX_LINES + 1)
+    text = _render_sql_text(big_sql)
+    plain = text.plain
+    assert plain.startswith("-- syntax highlighting disabled")
+    assert "SELECT 1" in plain
+
+
+def test_render_sql_text_highlights_small_query():
+    text = _render_sql_text("SELECT 1")
+    assert text.no_wrap is False
+    assert any(span.style for span in text._spans)

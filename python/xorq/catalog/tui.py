@@ -106,11 +106,13 @@ KIND_ORDER: tuple[ExprKind, ...] = (
 )
 
 
+_SQL_LEXER = pygments_get_lexer("sql", stripnl=False)
+
+
 @lru_cache(maxsize=256)
 def _pygments_tokens(sql: str) -> tuple[tuple[str, str], ...]:
-    lexer = pygments_get_lexer("sql", stripnl=False)
     tokens = []
-    for ttype, value in pygments_lex(sql, lexer):
+    for ttype, value in pygments_lex(sql, _SQL_LEXER):
         info = XorqSQLStyle.style_for_token(ttype)
         parts = []
         if info.get("bold"):
@@ -131,6 +133,20 @@ def _pygments_to_text(sql: str) -> Text:
 
 
 SQL_HIGHLIGHT_MAX_LINES = 500
+
+
+def _render_sql_text(raw: str) -> Text:
+    # Line-length is intentionally unchecked: extremely wide lines render slowly
+    # in Textual, but that's an acceptable tradeoff vs. adding another heuristic.
+    if raw.count("\n") > SQL_HIGHLIGHT_MAX_LINES:
+        rich_text = Text(no_wrap=False, overflow="fold")
+        rich_text.append(
+            f"-- syntax highlighting disabled (query exceeds {SQL_HIGHLIGHT_MAX_LINES} lines)\n",
+            style="italic #4AA8EC",
+        )
+        rich_text.append(raw)
+        return rich_text
+    return _pygments_to_text(raw)
 
 
 @frozen
@@ -689,7 +705,7 @@ class CatalogScreen(Screen):
                 )
                 self._current_sql_hash = row_data.row_key
                 sql_preview.update(Text("Rendering SQL Query…", style="dim"))
-                self._load_sql_preview(row_data.row_key, _render_sql_dag(sqls))
+                self._load_sql_preview(row_data.row_key, sqls)
 
         # Info panel
         info_content.update(row_data.info_text)
@@ -771,6 +787,7 @@ class CatalogScreen(Screen):
         self._row_cache = {
             k: v for k, v in self._row_cache.items() if k in expected_keys
         }
+
         # Track new keys for pink highlighting (skip first load — everything is new)
         if cached_rows:
             self._new_keys = set(new_keys)
@@ -909,17 +926,15 @@ class CatalogScreen(Screen):
     # --- SQL preview worker ---
 
     @work(thread=True, exit_on_error=False, exclusive=True, group="sql_render")
-    def _load_sql_preview(self, entry_hash: str, raw: str) -> None:
+    def _load_sql_preview(
+        self,
+        entry_hash: str,
+        raw: str | tuple[tuple[str, str, str], ...],
+    ) -> None:
         try:
-            if raw.count("\n") > SQL_HIGHLIGHT_MAX_LINES:
-                rich_text = Text(no_wrap=False, overflow="fold")
-                rich_text.append(
-                    f"-- syntax highlighting disabled (query exceeds {SQL_HIGHLIGHT_MAX_LINES} lines)\n",
-                    style="italic #4AA8EC",
-                )
-                rich_text.append(raw)
-            else:
-                rich_text = _pygments_to_text(raw)
+            if not isinstance(raw, str):
+                raw = _render_sql_dag(raw)
+            rich_text = _render_sql_text(raw)
         except Exception:
             logger.exception("sql_preview_render_failed", entry_hash=entry_hash)
             rich_text = Text("(render error)", style="dim")
