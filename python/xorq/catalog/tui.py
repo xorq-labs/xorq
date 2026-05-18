@@ -123,12 +123,14 @@ def _pygments_tokens(sql: str) -> tuple[tuple[str, str], ...]:
     return tuple(tokens)
 
 
-@lru_cache(maxsize=256)
 def _pygments_to_text(sql: str) -> Text:
     text = Text(no_wrap=False, overflow="fold")
     for value, style in _pygments_tokens(sql):
         text.append(value, style=style)
     return text
+
+
+SQL_HIGHLIGHT_MAX_LINES = 500
 
 
 @frozen
@@ -920,7 +922,14 @@ class CatalogScreen(Screen):
     @work(thread=True, exit_on_error=False, exclusive=True, group="sql_render")
     def _load_sql_preview(self, entry_hash: str, raw: str) -> None:
         try:
-            rich_text = _pygments_to_text(raw)
+            if raw.count("\n") > SQL_HIGHLIGHT_MAX_LINES:
+                rich_text = Text(raw, no_wrap=False, overflow="fold")
+                rich_text.append(
+                    f"\n\n(syntax highlighting disabled — query exceeds {SQL_HIGHLIGHT_MAX_LINES} lines)",
+                    style="dim",
+                )
+            else:
+                rich_text = _pygments_to_text(raw)
         except Exception:
             logger.exception("sql_preview_render_failed", entry_hash=entry_hash)
             rich_text = Text("(render error)", style="dim")
