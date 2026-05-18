@@ -940,7 +940,7 @@ class CatalogScreen(Screen):
             rich_text = Text("(render error)", style="dim")
 
         def _apply():
-            if self._current_sql_hash != entry_hash:
+            if not self.is_attached or self._current_sql_hash != entry_hash:
                 return
             self.query_one("#sql-preview", Static).update(rich_text)
 
