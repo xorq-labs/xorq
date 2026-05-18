@@ -7,7 +7,7 @@ import sys
 import uuid
 from itertools import chain
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pyarrow.parquet as pq
@@ -17,6 +17,7 @@ import xorq.api as xo
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.cli import (
     OutputFormats,
+    arbitrate_output_format,
     build_command,
     run_command,
 )
@@ -1162,3 +1163,23 @@ def test_serve_penguins_template(tmpdir, tmp_path):
             assert len(actual) == len(sample_data)
     else:
         raise AssertionError("No expression hash")
+
+
+def test_batch_size_forwarded_to_pyarrow_stream(monkeypatch):
+    """Verify batch_size reaches to_pyarrow_stream as chunk_size."""
+    mock_stream = MagicMock()
+    monkeypatch.setattr("xorq.expr.api.to_pyarrow_stream", mock_stream)
+
+    sentinel = MagicMock()
+    arbitrate_output_format(sentinel, "/dev/null", "arrow", batch_size=512)
+    mock_stream.assert_called_once_with(sentinel, "/dev/null", chunk_size=512)
+
+
+def test_batch_size_omitted_when_none(monkeypatch):
+    """Verify no chunk_size kwarg when batch_size is None."""
+    mock_stream = MagicMock()
+    monkeypatch.setattr("xorq.expr.api.to_pyarrow_stream", mock_stream)
+
+    sentinel = MagicMock()
+    arbitrate_output_format(sentinel, "/dev/null", "arrow", batch_size=None)
+    mock_stream.assert_called_once_with(sentinel, "/dev/null")

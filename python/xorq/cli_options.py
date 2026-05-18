@@ -87,12 +87,12 @@ def unbind_options(fn):
         help="Type of the node to unbind.",
     )(fn)
     fn = click.option(
-        "--to_unbind_tag",
+        "--to-unbind-tag",
         default=None,
         help="Tag of the node to unbind.",
     )(fn)
     fn = click.option(
-        "--to_unbind_hash",
+        "--to-unbind-hash",
         default=None,
         help="Hash of the node to unbind.",
     )(fn)

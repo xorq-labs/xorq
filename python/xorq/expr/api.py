@@ -509,9 +509,11 @@ def to_pyarrow_stream(
     expr: ir.Expr,
     sink: Any,
     params: Mapping[ir.Scalar, Any] | None = None,
+    chunk_size: int | None = None,
     **kwargs: Any,
 ):
-    rbr = expr.to_pyarrow_batches(params=params)
+    batch_kwargs = {"chunk_size": chunk_size} if chunk_size is not None else {}
+    rbr = expr.to_pyarrow_batches(params=params, **batch_kwargs)
     with maybe_open(sink, "wb") as fh:
         try:
             writer = pa.ipc.new_stream(fh, rbr.schema, **kwargs)

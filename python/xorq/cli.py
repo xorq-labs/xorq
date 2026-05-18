@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from xorq.cli_constants import DEFAULT_OUTPUT_FORMAT, OutputFormats
+from xorq.cli_constants import DEFAULT_CACHE_TYPE, DEFAULT_OUTPUT_FORMAT, OutputFormats
 from xorq.cli_options import (
     cache_dir_option,
     cache_strategy_options,
@@ -148,6 +148,7 @@ def uv_build_command(
     pep723=False,
     extras=(),
     all_extras=True,
+    debug=False,
 ):
     if project_path and pep723:
         raise click.UsageError("--project-path and --pep723 are mutually exclusive")
@@ -163,6 +164,7 @@ def uv_build_command(
         cache_dir=cache_dir,
         extras=extras,
         all_extras=all_extras,
+        debug=debug,
     )
     builder.build()
     print(builder.build_path)
@@ -175,14 +177,22 @@ def uv_run_command(
     cache_dir=None,
     output_path=None,
     output_format="parquet",
+    limit=None,
+    raw_params=(),
 ):
-    from xorq.ibis_yaml.packager import PackagedRunner
+    from xorq.ibis_yaml.packager import PackagedRunner, validate_params_early
 
+    try:
+        validate_params_early(expr_path, raw_params)
+    except ValueError as e:
+        raise click.BadParameter(str(e)) from None
     runner = PackagedRunner(
         expr_path,
         cache_dir=cache_dir,
         output_path=output_path,
         output_format=output_format,
+        limit=limit,
+        raw_params=raw_params,
     )
     runner.run()
     return runner
@@ -290,6 +300,12 @@ def run_command(
     from xorq.common.utils.logging_utils import RunLogger
     from xorq.common.utils.profile_utils import timed
     from xorq.ibis_yaml.compiler import load_expr
+    from xorq.ibis_yaml.packager import validate_params_early
+
+    try:
+        validate_params_early(expr_path, raw_params)
+    except ValueError as e:
+        raise click.BadParameter(str(e)) from None
 
     cache_dir = _get_cache_dir(cache_dir)
 
@@ -365,7 +381,7 @@ def run_cached_command(
     output_format=DEFAULT_OUTPUT_FORMAT,
     cache_dir=None,
     limit=None,
-    cache_type="modification-time",
+    cache_type=DEFAULT_CACHE_TYPE,
     ttl=None,
     raw_params=(),
 ):
@@ -384,7 +400,7 @@ def run_cached_command(
         Directory where the parquet cache files will be generated
     limit : int, optional
         Limit number of rows to output. Defaults to None (no limit).
-    cache_type : str, optional
+    cache_type : str
         Cache type: "modification-time" for ParquetCache (default), "snapshot"
         for ParquetSnapshotCache (or ParquetTTLSnapshotCache when --ttl is set).
     ttl : int, optional
@@ -464,7 +480,7 @@ def run_cached_command(
             rl.log_span_event(span, "run_cached.output_written", file_metrics)
 
 
-def arbitrate_output_format(expr, output_path, output_format):
+def arbitrate_output_format(expr, output_path, output_format, batch_size=None):
     match (output_path, output_format):
         case (None, _):
             output_path = os.devnull
@@ -483,7 +499,8 @@ def arbitrate_output_format(expr, output_path, output_format):
         case OutputFormats.arrow:
             from xorq.expr.api import to_pyarrow_stream
 
-            to_pyarrow_stream(expr, output_path)
+            batch_kwargs = {"chunk_size": batch_size} if batch_size is not None else {}
+            to_pyarrow_stream(expr, output_path, **batch_kwargs)
         case OutputFormats.parquet:
             expr.to_parquet(output_path)
         case _:
@@ -493,6 +510,7 @@ def arbitrate_output_format(expr, output_path, output_format):
 @_lazy_span("cli.run_unbound_command")
 def run_unbound_command(
     expr_path,
+    *,
     to_unbind_hash=None,
     to_unbind_tag=None,
     output_path=None,
@@ -501,6 +519,7 @@ def run_unbound_command(
     limit=None,
     typ=None,
     instream=sys.stdin.buffer,
+    batch_size=None,
 ):
     """
     Execute an unbound expression by reading Arrow IPC from stdin and binding it
@@ -570,7 +589,9 @@ def run_unbound_command(
 
         if limit is not None:
             bound_expr = bound_expr.limit(limit)
-        arbitrate_output_format(bound_expr, output_path, output_format)
+        arbitrate_output_format(
+            bound_expr, output_path, output_format, batch_size=batch_size
+        )
 
 
 @_lazy_span("cli.unbind_and_serve_command")
@@ -746,9 +767,9 @@ class PdbGroup(click.Group):
 
 
 @click.group(cls=PdbGroup)
-@click.option("--pdb", "use_pdb", is_flag=True, help="Drop into pdb on failure")
+@click.option("--pdb", "use_pdb", is_flag=True, help="Drop into pdb on failure.")
 @click.option(
-    "--pdb-runcall", "pdb_runcall", is_flag=True, help="Invoke with pdb.runcall"
+    "--pdb-runcall", "pdb_runcall", is_flag=True, help="Invoke with pdb.runcall."
 )
 def cli(use_pdb, pdb_runcall):
     pass
@@ -768,34 +789,39 @@ def uv_group(ctx):
     "-e",
     "--expr-name",
     default="expr",
-    help="Name of the expression variable in the Python script",
+    help="Name of the expression variable in the Python script.",
 )
 @click.option(
-    "--builds-dir", default="builds", help="Directory for all generated artifacts"
+    "--builds-dir", default="builds", help="Directory for all generated artifacts."
 )
 @cache_dir_option
 @click.option(
     "--project-path",
     default=None,
     type=click.Path(exists=True, file_okay=False),
-    help="Explicit project root (default: search upward from script for pyproject.toml)",
+    help="Explicit project root (default: search upward from script for pyproject.toml).",
 )
 @click.option(
     "--pep723",
     is_flag=True,
     default=False,
-    help="Use PEP 723 inline metadata from the script instead of a project's pyproject.toml",
+    help="Use PEP 723 inline metadata from the script instead of a project's pyproject.toml.",
 )
 @click.option(
     "--extra",
     "extras",
     multiple=True,
-    help="Optional dependency group to include in requirements (repeatable)",
+    help="Optional dependency group to include in requirements (repeatable).",
 )
 @click.option(
     "--all-extras/--no-all-extras",
     default=True,
-    help="Include all optional dependency groups (default: enabled)",
+    help="Include all optional dependency groups (default: enabled).",
+)
+@click.option(
+    "--debug",
+    is_flag=True,
+    help="Output SQL files and other debug artifacts.",
 )
 def uv_build(
     script_path,
@@ -806,6 +832,7 @@ def uv_build(
     pep723,
     extras,
     all_extras,
+    debug,
 ):
     """Build an expression with a custom Python environment."""
     uv_build_command(
@@ -817,6 +844,7 @@ def uv_build(
         pep723=pep723,
         extras=extras,
         all_extras=all_extras,
+        debug=debug,
     )
 
 
@@ -824,9 +852,23 @@ def uv_build(
 @click.argument("build_path")
 @cache_dir_option
 @output_options
-def uv_run(build_path, cache_dir, output_path, output_format):
+@limit_option
+@params_options
+def uv_run(build_path, cache_dir, output_path, output_format, limit, raw_params):
     """Run an expression with a custom Python environment."""
-    uv_run_command(build_path, cache_dir, output_path, output_format)
+    uv_run_command(
+        build_path,
+        cache_dir,
+        output_path,
+        output_format,
+        limit=limit,
+        raw_params=raw_params,
+    )
+
+
+_UNBOUND_OUTPUT_PATH_HELP = (
+    f"Path to write output (default: stdout for arrow, {os.devnull} otherwise)."
+)
 
 
 @cli.command("build")
@@ -835,16 +877,16 @@ def uv_run(build_path, cache_dir, output_path, output_format):
     "-e",
     "--expr-name",
     default="expr",
-    help="Name of the expression variable in the Python script",
+    help="Name of the expression variable in the Python script.",
 )
 @click.option(
-    "--builds-dir", default="builds", help="Directory for all generated artifacts"
+    "--builds-dir", default="builds", help="Directory for all generated artifacts."
 )
 @cache_dir_option
 @click.option(
     "--debug",
     is_flag=True,
-    help="Output SQL files and other debug artifacts",
+    help="Output SQL files and other debug artifacts.",
 )
 def build(script_path, expr_name, builds_dir, cache_dir, debug):
     """Generate artifacts from an expression."""
@@ -895,20 +937,7 @@ def run_cached(
 @cli.command("run-unbound")
 @click.argument("build_path")
 @unbind_options
-@click.option(
-    "-o",
-    "--output-path",
-    default=None,
-    help=f"Path to write output (default: stdout for arrow, {os.devnull} otherwise).",
-)
-@click.option(
-    "-f",
-    "--format",
-    "output_format",
-    type=click.Choice(tuple(f.value for f in OutputFormats)),
-    default=DEFAULT_OUTPUT_FORMAT,
-    help=f"Output format (default: {DEFAULT_OUTPUT_FORMAT}).",
-)
+@output_options(output_path_help=_UNBOUND_OUTPUT_PATH_HELP)
 @limit_option
 @click.option(
     "--batch-size",
@@ -939,14 +968,15 @@ def run_unbound(
     """Run an unbound expr by reading Arrow IPC from stdin."""
     run_unbound_command(
         build_path,
-        to_unbind_hash,
-        to_unbind_tag,
-        output_path,
-        output_format,
-        cache_dir,
-        limit,
-        typ,
-        instream,
+        to_unbind_hash=to_unbind_hash,
+        to_unbind_tag=to_unbind_tag,
+        output_path=output_path,
+        output_format=output_format,
+        cache_dir=cache_dir,
+        limit=limit,
+        typ=typ,
+        instream=instream,
+        batch_size=batch_size,
     )
 
 
@@ -997,20 +1027,20 @@ def serve_flight_udxf(build_path, host, port, duckdb_path, prometheus_port, cach
     "-p",
     "--path",
     default="./xorq-template",
-    help="Path to initialize the template",
+    help="Path to initialize the template.",
 )
 @click.option(
     "-t",
     "--template",
     type=click.Choice([str(t) for t in InitTemplates]),
     default=str(InitTemplates.default),
-    help="Template to use",
+    help="Template to use.",
 )
 @click.option(
     "-b",
     "--branch",
     default=None,
-    help="Branch to use for the template",
+    help="Branch to use for the template.",
 )
 def init(path, template, branch):
     """Initialize a xorq project."""

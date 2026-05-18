@@ -47,7 +47,9 @@ def build_expr_context_zip(expr, project_path=None):
             yield zip_path
 
 
-def load_expr_from_zip(zip_path, lazy=False, read_only_parquet_metadata=False):
+def load_expr_from_zip(
+    zip_path, lazy=False, read_only_parquet_metadata=False, cache_dir=None
+):
     from xorq.ibis_yaml.compiler import load_expr  # noqa: PLC0415
 
     td = tempfile.mkdtemp(prefix="xorq-catalog-")
@@ -62,6 +64,7 @@ def load_expr_from_zip(zip_path, lazy=False, read_only_parquet_metadata=False):
             build_dir,
             lazy=lazy,
             read_only_parquet_metadata=read_only_parquet_metadata,
+            cache_dir=cache_dir,
         )
     except BaseException:
         _cleanup_one(td)

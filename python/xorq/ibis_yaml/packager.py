@@ -14,7 +14,6 @@ PackagedRunner   build directory → execution output (via `uv tool run xorq run
 """
 
 import functools
-import itertools
 import json
 import operator
 import os
@@ -37,6 +36,7 @@ from attr.validators import (
 )
 from packaging.specifiers import SpecifierSet
 
+from xorq.cli_constants import DEFAULT_CACHE_TYPE
 from xorq.common.utils.process_utils import in_nix_shell
 from xorq.ibis_yaml.enums import DumpFiles
 
@@ -81,26 +81,34 @@ def _requires_python_from_pyproject(pyproject_path):
     return _cap_requires_python(raw)
 
 
-def _read_wheel_metadata(wheel_path):
-    """Read METADATA top-level fields from a wheel as a dict.
+def _read_requires_python(path):
+    """Read requires-python from a project source, intersected with PYTHON_VERSION_CAP.
 
-    Stops at the first blank line so multi-paragraph Description bodies
-    don't shadow real fields. Does not handle RFC 822 continuation lines
-    (indented follow-on lines), which is fine for the fields we read
-    (Name, Version, Requires-Python) but would need extending for
-    multi-line fields like Classifier.
+    Accepts a pyproject.toml path, a directory containing one, or a .whl file.
+    Returns a PEP 440 specifier string.
     """
-    with zipfile.ZipFile(wheel_path) as zf:
-        metadata_names = [n for n in zf.namelist() if n.endswith(".dist-info/METADATA")]
-        if not metadata_names:
-            raise ValueError(f"no .dist-info/METADATA found in {wheel_path}")
-        text = zf.read(metadata_names[0]).decode()
-    return {
-        name.strip(): value.strip()
-        for line in itertools.takewhile(bool, text.splitlines())
-        for name, sep, value in (line.partition(":"),)
-        if sep
-    }
+    path = Path(path)
+    if path.name == PYPROJECT_NAME:
+        return _requires_python_from_pyproject(path)
+    elif path.is_dir() and path.joinpath(PYPROJECT_NAME).exists():
+        return _requires_python_from_pyproject(path / PYPROJECT_NAME)
+    elif path.suffix == ".whl":
+        with zipfile.ZipFile(path) as zf:
+            metadata_names = [
+                n for n in zf.namelist() if n.endswith(".dist-info/METADATA")
+            ]
+            if not metadata_names:
+                raise ValueError(f"no .dist-info/METADATA found in {path}")
+            metadata_text = zf.read(metadata_names[0]).decode()
+            for line in metadata_text.splitlines():
+                if line.startswith("Requires-Python:"):
+                    raw = line.split(":", 1)[1].strip()
+                    return str(SpecifierSet(raw) & PYTHON_VERSION_CAP)
+            raise ValueError(f"no Requires-Python in wheel metadata: {path}")
+    else:
+        raise ValueError(
+            f"can only handle {PYPROJECT_NAME}, a directory containing one, or .whl"
+        )
 
 
 def _python_minor_from_metadata_text(text):
@@ -115,7 +123,7 @@ def _python_minor_from_metadata_text(text):
 
 def _read_build_python_minor(build_path):
     """Return a `==X.Y.*` specifier pinning the archive's Python minor, or
-    None if build_metadata.json is missing/malformed. Cloudpickled UDFs
+    None if build_metadata.json is missing/malformed.  Cloudpickled UDFs
     embed minor-specific bytecode; running under a different minor can
     SIGSEGV.
     """
@@ -123,28 +131,6 @@ def _read_build_python_minor(build_path):
     if not meta_path.exists():
         return None
     return _python_minor_from_metadata_text(meta_path.read_text())
-
-
-def _read_requires_python(path):
-    """Read requires-python from a project source, intersected with PYTHON_VERSION_CAP.
-
-    Accepts a pyproject.toml path, a directory containing one, or a .whl file.
-    Returns a PEP 440 specifier string.
-    """
-    path = Path(path)
-    if path.name == PYPROJECT_NAME:
-        return _requires_python_from_pyproject(path)
-    elif path.is_dir() and path.joinpath(PYPROJECT_NAME).exists():
-        return _requires_python_from_pyproject(path / PYPROJECT_NAME)
-    elif path.suffix == ".whl":
-        fields = _read_wheel_metadata(path)
-        if "Requires-Python" not in fields:
-            raise ValueError(f"no Requires-Python in wheel metadata: {path}")
-        return str(SpecifierSet(fields["Requires-Python"]) & PYTHON_VERSION_CAP)
-    else:
-        raise ValueError(
-            f"can only handle {PYPROJECT_NAME}, a directory containing one, or .whl"
-        )
 
 
 def _find_single_glob(directory, pattern):
@@ -222,12 +208,12 @@ class JointBundle:
         if not self.requirements_path.exists():
             raise FileNotFoundError(f"requirements not found: {self.requirements_path}")
         if self.python_version is None:
-            # Requires-Python is optional per PEP 566.
-            constraints = [
-                SpecifierSet(rp) & PYTHON_VERSION_CAP
-                for w in self.wheel_paths
-                if (rp := _read_wheel_metadata(w).get("Requires-Python"))
-            ]
+            constraints = []
+            for w in self.wheel_paths:
+                try:
+                    constraints.append(SpecifierSet(_read_requires_python(w)))
+                except ValueError:
+                    pass
             joint = (
                 functools.reduce(operator.and_, constraints)
                 if constraints
@@ -412,6 +398,7 @@ class PackagedBuilder:
     expr_name = field(validator=instance_of(str), default="expr")
     builds_dir = field(validator=instance_of(str), default="builds")
     cache_dir = field(validator=optional(instance_of(str)), default=None)
+    debug = field(validator=instance_of(bool), default=False)
 
     @property
     def wheel_path(self):
@@ -439,6 +426,7 @@ class PackagedBuilder:
             "--builds-dir",
             self.builds_dir,
             *(("--cache-dir", self.cache_dir) if self.cache_dir else ()),
+            *(("--debug",) if self.debug else ()),
         )
         with tracer.start_as_current_span("packager.build"):
             result = uv_tool_run(
@@ -501,51 +489,103 @@ class PackagedBuilder:
         )
 
 
+def _validate_build_path(build_path):
+    """Validate a build path and return its WheelBundle."""
+    build_path = Path(build_path)
+    if not build_path.exists():
+        raise FileNotFoundError(f"build path does not exist: {build_path}")
+    try:
+        return WheelBundle.from_build_path(build_path)
+    except (RuntimeError, FileNotFoundError) as e:
+        raise FileNotFoundError(f"invalid build path {build_path}: {e}") from None
+
+
+def validate_params_early(build_path, raw_params):
+    """Validate --params against expr_metadata.json before subprocess launch.
+
+    Raises ``ValueError`` for unknown param names or when params
+    are supplied but the expression declares none.
+    """
+    if not raw_params:
+        return
+
+    build_path = Path(build_path)
+    metadata_path = build_path / DumpFiles.expr_metadata
+    if not metadata_path.exists():
+        raise ValueError(
+            f"Cannot validate parameters: {metadata_path} not found. "
+            f"Rebuild the expression to generate metadata."
+        )
+
+    with metadata_path.open() as f:
+        metadata = json.load(f)
+
+    declared = frozenset(p["param_name"] for p in metadata.get("params") or ())
+
+    errors = []
+    for kv in raw_params:
+        key, sep, _ = kv.partition("=")
+        if not sep:
+            errors.append(f"Expected key=value, got {kv!r}")
+            continue
+        if not declared:
+            errors.append(f"Expression declares no parameters, got {key!r}")
+        elif key not in declared:
+            errors.append(
+                f"Unknown parameter {key!r}. Available: {', '.join(sorted(declared))}"
+            )
+
+    if errors:
+        raise ValueError("\n".join(errors))
+
+
 @frozen
-class PackagedRunner:
+class _BasePackagedRunner:
     build_path = field(validator=instance_of(Path), converter=Path)
     cache_dir = field(validator=optional(instance_of(str)), default=None)
     output_path = field(validator=optional(instance_of(str)), default=None)
     output_format = field(validator=instance_of(str), default="parquet")
+    limit = field(validator=optional(instance_of(int)), default=None)
     python_version = field(validator=_validate_python_version, default=None)
     _bundle = field(init=False, repr=False, eq=False, default=None)
 
     def __attrs_post_init__(self):
-        if not self.build_path.exists():
-            raise FileNotFoundError(f"build path does not exist: {self.build_path}")
-        try:
-            bundle = JointBundle.from_build_path(self.build_path)
-        except (RuntimeError, FileNotFoundError) as e:
-            raise FileNotFoundError(
-                f"invalid build path {self.build_path}: {e}"
-            ) from None
+        bundle = _validate_build_path(self.build_path)
         object.__setattr__(self, "_bundle", bundle)
         if self.python_version is None:
             object.__setattr__(self, "python_version", bundle.python_version)
 
     @property
-    def wheel_paths(self):
-        return self._bundle.wheel_paths
+    def wheel_path(self):
+        return self._bundle.wheel_path
 
     @property
     def requirements_path(self):
         return self._bundle.requirements_path
 
+    def _subcommand(self):
+        raise NotImplementedError
+
+    def _extra_args(self):
+        return ()
+
     @functools.cached_property
     def _run(self):
         args = (
             "xorq",
-            "run",
+            self._subcommand(),
             str(self.build_path),
             *(("--cache-dir", self.cache_dir) if self.cache_dir else ()),
             *(("--output-path", self.output_path) if self.output_path else ()),
             "--format",
             self.output_format,
+            *(("--limit", str(self.limit)) if self.limit is not None else ()),
+            *self._extra_args(),
         )
         result = uv_tool_run(
             *args,
             python_version=self.python_version,
-            with_=self.wheel_paths,
+            with_=self.wheel_path,
             with_requirements=self.requirements_path,
             capture_output=False,
         )
@@ -558,6 +598,60 @@ class PackagedRunner:
     @property
     def run_result(self):
         return self._run
+
+
+@frozen
+class PackagedRunner(_BasePackagedRunner):
+    raw_params = field(factory=tuple, converter=tuple)
+
+    def _subcommand(self):
+        return "run"
+
+    def _extra_args(self):
+        return tuple(arg for kv in self.raw_params for arg in ("--params", kv))
+
+
+@frozen
+class PackagedCachedRunner(_BasePackagedRunner):
+    cache_type = field(validator=instance_of(str), default=DEFAULT_CACHE_TYPE)
+    ttl = field(validator=optional(instance_of(int)), default=None)
+    raw_params = field(factory=tuple, converter=tuple)
+
+    def _subcommand(self):
+        return "run-cached"
+
+    def _extra_args(self):
+        return (
+            "--cache-type",
+            self.cache_type,
+            *(("--ttl", str(self.ttl)) if self.ttl is not None else ()),
+            *(arg for kv in self.raw_params for arg in ("--params", kv)),
+        )
+
+
+@frozen
+class PackagedUnboundRunner(_BasePackagedRunner):
+    to_unbind_hash = field(validator=optional(instance_of(str)), default=None)
+    to_unbind_tag = field(validator=optional(instance_of(str)), default=None)
+    typ = field(validator=optional(instance_of(str)), default=None)
+    batch_size = field(validator=optional(instance_of(int)), default=None)
+    instream = field(validator=optional(instance_of(str)), default=None)
+
+    def _subcommand(self):
+        return "run-unbound"
+
+    def _extra_args(self):
+        return (
+            *(("--to_unbind_hash", self.to_unbind_hash) if self.to_unbind_hash else ()),
+            *(("--to_unbind_tag", self.to_unbind_tag) if self.to_unbind_tag else ()),
+            *(("--typ", self.typ) if self.typ else ()),
+            *(
+                ("--batch-size", str(self.batch_size))
+                if self.batch_size is not None
+                else ()
+            ),
+            *(("--instream", self.instream) if self.instream else ()),
+        )
 
 
 def find_file_upwards(start, name):
@@ -612,6 +706,14 @@ def _nix_env():
     return env
 
 
+def _with_args(with_):
+    if with_ is None:
+        return ()
+    if isinstance(with_, (str, Path)):
+        return ("--with", str(with_))
+    return tuple(arg for w in with_ for arg in ("--with", str(w)))
+
+
 def uv_tool_run(
     *args,
     isolated=True,
@@ -625,27 +727,19 @@ def uv_tool_run(
 
     with tracer.start_as_current_span("packager.uv_tool_run") as span:
         args = _normalize_xorq_cmd(args)
-        if with_ is None:
-            with_paths = ()
-        elif isinstance(with_, (str, Path)):
-            with_paths = (with_,)
-        else:
-            with_paths = tuple(with_)
-        link_args = _link_mode_args()
-        parts = [
-            ("--python", python_version) if python_version else None,
-            ("--isolated",) if isolated else None,
-            link_args if link_args else None,  # noqa: FURB110
-            *[("--with", str(w)) for w in with_paths],
-            ("--with-requirements", str(with_requirements))
-            if with_requirements
-            else None,
-        ]
         run_args = (
             "uv",
             "tool",
             "run",
-            *itertools.chain.from_iterable(filter(None, parts)),
+            *(("--python", python_version) if python_version else ()),
+            *(("--isolated",) if isolated else ()),
+            *_link_mode_args(),
+            *_with_args(with_),
+            *(
+                ("--with-requirements", str(with_requirements))
+                if with_requirements
+                else ()
+            ),
             *args,
         )
         span.set_attribute("args", " ".join(run_args))

@@ -1232,17 +1232,23 @@ class CatalogEntry:
         ).with_suffix(PREFERRED_SUFFIX)
         return catalog_path
 
-    @property
-    def expr(self):
+    def load_expr(self, lazy=False, read_only_parquet_metadata=False, cache_dir=None):
         if not self.is_content_local:
             self.fetch()
-        return load_expr_from_zip(self.catalog_path)
+        return load_expr_from_zip(
+            self.catalog_path,
+            lazy=lazy,
+            read_only_parquet_metadata=read_only_parquet_metadata,
+            cache_dir=cache_dir,
+        )
+
+    @property
+    def expr(self):
+        return self.load_expr()
 
     @property
     def lazy_expr(self):
-        if not self.is_content_local:
-            self.fetch()
-        return load_expr_from_zip(self.catalog_path, lazy=True)
+        return self.load_expr(lazy=True)
 
     @property
     def projected_cache_key(self):
