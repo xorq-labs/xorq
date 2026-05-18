@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pyarrow.parquet as pq
 import pytest
+from click.testing import CliRunner
 
 import xorq.api as xo
 from xorq.caching.strategy import SnapshotStrategy
@@ -19,6 +20,7 @@ from xorq.cli import (
     OutputFormats,
     arbitrate_output_format,
     build_command,
+    cli,
     run_command,
 )
 from xorq.common.utils.io_utils import Peeker
@@ -1163,6 +1165,43 @@ def test_serve_penguins_template(tmpdir, tmp_path):
             assert len(actual) == len(sample_data)
     else:
         raise AssertionError("No expression hash")
+
+
+# ---------------------------------------------------------------------------
+# uv run-cached / uv run-unbound: help-text tests
+# ---------------------------------------------------------------------------
+
+
+def test_uv_run_cached_help():
+    result = CliRunner().invoke(cli, ["uv", "run-cached", "--help"])
+    assert result.exit_code == 0
+    for flag in (
+        "--cache-type",
+        "--ttl",
+        "--limit",
+        "--params",
+        "--cache-dir",
+        "--output-path",
+        "--format",
+    ):
+        assert flag in result.output, f"missing {flag}"
+
+
+def test_uv_run_unbound_help():
+    result = CliRunner().invoke(cli, ["uv", "run-unbound", "--help"])
+    assert result.exit_code == 0
+    for flag in (
+        "--to_unbind_hash",
+        "--to_unbind_tag",
+        "--typ",
+        "--batch-size",
+        "--instream",
+        "--limit",
+        "--output-path",
+        "--format",
+    ):
+        assert flag in result.output, f"missing {flag}"
+    assert "stdout" in result.output, "--output-path help text should mention stdout"
 
 
 def test_batch_size_forwarded_to_pyarrow_stream(monkeypatch):

@@ -866,9 +866,95 @@ def uv_run(build_path, cache_dir, output_path, output_format, limit, raw_params)
     )
 
 
+@uv_group.command("run-cached")
+@click.argument("build_path")
+@cache_dir_option
+@output_options
+@limit_option
+@cache_strategy_options
+@params_options
+def uv_run_cached(
+    build_path,
+    cache_dir,
+    output_path,
+    output_format,
+    limit,
+    cache_type,
+    ttl,
+    raw_params,
+):
+    """Run a cached expression with a custom Python environment."""
+    from xorq.ibis_yaml.packager import PackagedCachedRunner, validate_params_early
+
+    try:
+        validate_params_early(build_path, raw_params)
+    except ValueError as e:
+        raise click.BadParameter(str(e)) from None
+    runner = PackagedCachedRunner(
+        build_path,
+        cache_dir=cache_dir,
+        output_path=output_path,
+        output_format=output_format,
+        cache_type=cache_type,
+        ttl=ttl,
+        limit=limit,
+        raw_params=raw_params,
+    )
+    runner.run()
+
+
 _UNBOUND_OUTPUT_PATH_HELP = (
     f"Path to write output (default: stdout for arrow, {os.devnull} otherwise)."
 )
+
+
+@uv_group.command("run-unbound")
+@click.argument("build_path")
+@unbind_options
+@output_options(output_path_help=_UNBOUND_OUTPUT_PATH_HELP)
+@limit_option
+@click.option(
+    "--batch-size",
+    type=int,
+    default=None,
+    help="Batch size for Arrow streaming output (default: use table default).",
+)
+@cache_dir_option
+@click.option(
+    "-i",
+    "--instream",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to file with Arrow IPC data (default: read from stdin).",
+)
+def uv_run_unbound(
+    build_path,
+    to_unbind_hash,
+    to_unbind_tag,
+    typ,
+    output_path,
+    output_format,
+    limit,
+    batch_size,
+    cache_dir,
+    instream,
+):
+    """Run an unbound expr with a custom Python environment."""
+    from xorq.ibis_yaml.packager import PackagedUnboundRunner
+
+    runner = PackagedUnboundRunner(
+        build_path,
+        cache_dir=cache_dir,
+        output_path=output_path,
+        output_format=output_format,
+        to_unbind_hash=to_unbind_hash,
+        to_unbind_tag=to_unbind_tag,
+        typ=typ,
+        limit=limit,
+        batch_size=batch_size,
+        instream=instream,
+    )
+    runner.run()
 
 
 @cli.command("build")
