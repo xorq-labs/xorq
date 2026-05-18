@@ -183,7 +183,7 @@ batting = batting.mutate(
 
 batting = batting.mutate(
     OBP=(batting.H + batting.BB + batting.HBP)
-        / (batting.AB + batting.BB + batting.HBP + batting.SF)
+        / (batting.AB.cast("float64") + batting.BB + batting.HBP + batting.SF)
 )
 ```
 
