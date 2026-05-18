@@ -123,6 +123,7 @@ def _pygments_tokens(sql: str) -> tuple[tuple[str, str], ...]:
     return tuple(tokens)
 
 
+@lru_cache(maxsize=256)
 def _pygments_to_text(sql: str) -> Text:
     text = Text(no_wrap=False, overflow="fold")
     for value, style in _pygments_tokens(sql):
@@ -530,6 +531,7 @@ class CatalogScreen(Screen):
         self._active_view: Literal["sql", "data"] = "sql"
         self._data_preview_hash: str | None = None
         self._current_sql_hash: str | None = None
+        self._sql_render_cache: dict[str, Text] = {}
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -677,16 +679,22 @@ class CatalogScreen(Screen):
             case ((_, engine, sql),):
                 sql_panel.border_subtitle = engine
                 self._current_sql_hash = row_data.row_key
-                sql_preview.update(Text("Rendering SQL Query…", style="dim"))
-                self._load_sql_preview(row_data.row_key, sql)
+                if row_data.row_key in self._sql_render_cache:
+                    sql_preview.update(self._sql_render_cache[row_data.row_key])
+                else:
+                    sql_preview.update(Text("Rendering SQL Query…", style="dim"))
+                    self._load_sql_preview(row_data.row_key, sql)
             case sqls:
                 engines = sorted({engine for _, engine, _ in sqls})
                 sql_panel.border_subtitle = (
                     f"{len(sqls)} queries · {', '.join(engines)}"
                 )
                 self._current_sql_hash = row_data.row_key
-                sql_preview.update(Text("Rendering SQL Query…", style="dim"))
-                self._load_sql_preview(row_data.row_key, _render_sql_dag(sqls))
+                if row_data.row_key in self._sql_render_cache:
+                    sql_preview.update(self._sql_render_cache[row_data.row_key])
+                else:
+                    sql_preview.update(Text("Rendering SQL Query…", style="dim"))
+                    self._load_sql_preview(row_data.row_key, _render_sql_dag(sqls))
 
         # Info panel
         info_content.update(row_data.info_text)
@@ -767,6 +775,9 @@ class CatalogScreen(Screen):
         # evict removed entries
         self._row_cache = {
             k: v for k, v in self._row_cache.items() if k in expected_keys
+        }
+        self._sql_render_cache = {
+            k: v for k, v in self._sql_render_cache.items() if k in expected_keys
         }
 
         # Track new keys for pink highlighting (skip first load — everything is new)
@@ -917,6 +928,7 @@ class CatalogScreen(Screen):
         def _apply():
             if self._current_sql_hash != entry_hash:
                 return
+            self._sql_render_cache[entry_hash] = rich_text
             self.query_one("#sql-preview", Static).update(rich_text)
 
         self.app.call_from_thread(_apply)
