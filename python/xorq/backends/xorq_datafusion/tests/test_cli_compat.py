@@ -1,10 +1,11 @@
 import subprocess
 import sys
 
-import pytest
 from click.testing import CliRunner
 
+import pytest
 from xorq.cli import OutputFormats, cli, uv_group
+from xorq.cli_constants import DEFAULT_OUTPUT_FORMAT
 
 
 @pytest.mark.skipif(
@@ -14,7 +15,7 @@ from xorq.cli import OutputFormats, cli, uv_group
 def test_output_formats_enum():
     for fmt in OutputFormats:
         assert OutputFormats(fmt.value) == fmt
-    assert OutputFormats.default == OutputFormats.parquet
+    assert DEFAULT_OUTPUT_FORMAT == OutputFormats.parquet
 
 
 @pytest.mark.skipif(

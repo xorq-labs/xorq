@@ -7,23 +7,17 @@ from pathlib import Path
 
 import click
 
+from xorq.cli_constants import DEFAULT_OUTPUT_FORMAT, OutputFormats
+from xorq.cli_options import (
+    cache_dir_option,
+    cache_strategy_options,
+    limit_option,
+    output_options,
+    params_options,
+    serve_options,
+    unbind_options,
+)
 from xorq.init_templates import InitTemplates
-
-
-try:
-    from enum import StrEnum
-except ImportError:
-    from strenum import StrEnum
-
-
-class OutputFormats(StrEnum):
-    csv = "csv"
-    json = "json"
-    parquet = "parquet"
-    arrow = "arrow"
-
-
-OutputFormats.default = OutputFormats.parquet
 
 
 def _lazy_span(name):
@@ -264,7 +258,7 @@ def build_command(
 def run_command(
     expr_path,
     output_path=None,
-    output_format=OutputFormats.default,
+    output_format=DEFAULT_OUTPUT_FORMAT,
     cache_dir=None,
     limit=None,
     raw_params=(),
@@ -368,7 +362,7 @@ def run_command(
 def run_cached_command(
     expr_path,
     output_path=None,
-    output_format=OutputFormats.default,
+    output_format=DEFAULT_OUTPUT_FORMAT,
     cache_dir=None,
     limit=None,
     cache_type="modification-time",
@@ -502,7 +496,7 @@ def run_unbound_command(
     to_unbind_hash=None,
     to_unbind_tag=None,
     output_path=None,
-    output_format=OutputFormats.default,
+    output_format=DEFAULT_OUTPUT_FORMAT,
     cache_dir=None,
     limit=None,
     typ=None,
@@ -779,11 +773,7 @@ def uv_group(ctx):
 @click.option(
     "--builds-dir", default="builds", help="Directory for all generated artifacts"
 )
-@click.option(
-    "--cache-dir",
-    default=None,
-    help="Directory for all generated parquet files cache",
-)
+@cache_dir_option
 @click.option(
     "--project-path",
     default=None,
@@ -832,25 +822,8 @@ def uv_build(
 
 @uv_group.command("run")
 @click.argument("build_path")
-@click.option(
-    "--cache-dir",
-    default=None,
-    help="Directory for all generated parquet files cache",
-)
-@click.option(
-    "-o",
-    "--output-path",
-    default=None,
-    help=f"Path to write output (default: {os.devnull})",
-)
-@click.option(
-    "-f",
-    "--format",
-    "output_format",
-    type=click.Choice([f.value for f in OutputFormats]),
-    default=OutputFormats.default,
-    help="Output format (default: parquet)",
-)
+@cache_dir_option
+@output_options
 def uv_run(build_path, cache_dir, output_path, output_format):
     """Run an expression with a custom Python environment."""
     uv_run_command(build_path, cache_dir, output_path, output_format)
@@ -867,11 +840,7 @@ def uv_run(build_path, cache_dir, output_path, output_format):
 @click.option(
     "--builds-dir", default="builds", help="Directory for all generated artifacts"
 )
-@click.option(
-    "--cache-dir",
-    default=None,
-    help="Directory for all generated parquet files cache",
-)
+@cache_dir_option
 @click.option(
     "--debug",
     is_flag=True,
@@ -884,38 +853,10 @@ def build(script_path, expr_name, builds_dir, cache_dir, debug):
 
 @cli.command("run")
 @click.argument("build_path")
-@click.option(
-    "--cache-dir",
-    default=None,
-    help="Directory for all generated parquet files cache",
-)
-@click.option(
-    "-o",
-    "--output-path",
-    default=None,
-    help=f"Path to write output (default: {os.devnull})",
-)
-@click.option(
-    "-f",
-    "--format",
-    "output_format",
-    type=click.Choice([f.value for f in OutputFormats]),
-    default=OutputFormats.default,
-    help="Output format (default: parquet)",
-)
-@click.option(
-    "--limit",
-    type=int,
-    default=None,
-    help="Limit number of rows to output",
-)
-@click.option(
-    "-p",
-    "--params",
-    "raw_params",
-    multiple=True,
-    help="Parameter as key=value (repeatable). e.g. --params threshold=0.5",
-)
+@cache_dir_option
+@output_options
+@limit_option
+@params_options
 def run(build_path, cache_dir, output_path, output_format, limit, raw_params):
     """Run a build from a builds directory."""
     run_command(build_path, output_path, output_format, cache_dir, limit, raw_params)
@@ -923,50 +864,11 @@ def run(build_path, cache_dir, output_path, output_format, limit, raw_params):
 
 @cli.command("run-cached")
 @click.argument("build_path")
-@click.option(
-    "--cache-dir",
-    default=None,
-    help="Directory for all generated parquet files cache",
-)
-@click.option(
-    "-o",
-    "--output-path",
-    default=None,
-    help=f"Path to write output (default: {os.devnull})",
-)
-@click.option(
-    "-f",
-    "--format",
-    "output_format",
-    type=click.Choice([f.value for f in OutputFormats]),
-    default=OutputFormats.default,
-    help="Output format (default: parquet)",
-)
-@click.option(
-    "--limit",
-    type=int,
-    default=None,
-    help="Limit number of rows to output",
-)
-@click.option(
-    "--cache-type",
-    type=click.Choice(["modification-time", "snapshot"]),
-    default="modification-time",
-    help="Cache strategy: 'modification-time' (ParquetCache, default) or 'snapshot' (ParquetSnapshotCache)",
-)
-@click.option(
-    "--ttl",
-    type=int,
-    default=None,
-    help="TTL in seconds for snapshot cache (uses ParquetTTLSnapshotCache when set)",
-)
-@click.option(
-    "-p",
-    "--params",
-    "raw_params",
-    multiple=True,
-    help="Parameter as key=value (repeatable). e.g. --params threshold=0.5",
-)
+@cache_dir_option
+@output_options
+@limit_option
+@cache_strategy_options
+@params_options
 def run_cached(
     build_path,
     cache_dir,
@@ -992,46 +894,35 @@ def run_cached(
 
 @cli.command("run-unbound")
 @click.argument("build_path")
-@click.option("--to_unbind_hash", default=None, help="Hash of the node to unbind")
-@click.option("--to_unbind_tag", default=None, help="Tag of the node to unbind")
-@click.option("--typ", default=None, help="Type of the node to unbind")
+@unbind_options
 @click.option(
     "-o",
     "--output-path",
     default=None,
-    help=f"Path to write output (default: stdout for arrow, {os.devnull} otherwise)",
+    help=f"Path to write output (default: stdout for arrow, {os.devnull} otherwise).",
 )
 @click.option(
     "-f",
     "--format",
     "output_format",
-    type=click.Choice([f.value for f in OutputFormats]),
-    default=OutputFormats.default,
-    help=f"Output format (default: {OutputFormats.default})",
+    type=click.Choice(tuple(f.value for f in OutputFormats)),
+    default=DEFAULT_OUTPUT_FORMAT,
+    help=f"Output format (default: {DEFAULT_OUTPUT_FORMAT}).",
 )
-@click.option(
-    "--limit",
-    type=int,
-    default=None,
-    help="Limit number of rows to output",
-)
+@limit_option
 @click.option(
     "--batch-size",
     type=int,
     default=None,
-    help="Batch size for Arrow streaming output (default: use table default)",
+    help="Batch size for Arrow streaming output (default: use table default).",
 )
-@click.option(
-    "--cache-dir",
-    default=None,
-    help="Directory for all generated parquet files cache",
-)
+@cache_dir_option
 @click.option(
     "-i",
     "--instream",
     type=click.File("rb"),
     default="-",
-    help="Stream to read record batches from",
+    help="Stream to read record batches from.",
 )
 def run_unbound(
     build_path,
@@ -1061,31 +952,9 @@ def run_unbound(
 
 @cli.command("serve-unbound")
 @click.argument("build_path")
-@click.option("--to_unbind_hash", default=None, help="Hash of the expr to replace")
-@click.option("--to_unbind_tag", default=None, help="Tag of the expr to replace")
-@click.option(
-    "--host",
-    default="localhost",
-    help="Host to bind Flight Server (default: localhost)",
-)
-@click.option(
-    "--port",
-    type=int,
-    default=None,
-    help="Port to bind Flight Server (default: random)",
-)
-@click.option(
-    "--cache-dir",
-    default=None,
-    help="Directory for all generated parquet files cache",
-)
-@click.option("--typ", default=None, help="Type of the node to unbind")
-@click.option(
-    "--prometheus-port",
-    type=int,
-    default=None,
-    help="Port to expose Prometheus metrics (default: disabled)",
-)
+@unbind_options
+@serve_options
+@cache_dir_option
 def serve_unbound(
     build_path,
     to_unbind_hash,
@@ -1111,33 +980,13 @@ def serve_unbound(
 
 @cli.command("serve-flight-udxf")
 @click.argument("build_path")
-@click.option(
-    "--host",
-    default="localhost",
-    help="Host to bind Flight Server (default: localhost)",
-)
-@click.option(
-    "--port",
-    type=int,
-    default=None,
-    help="Port to bind Flight Server (default: random)",
-)
+@serve_options
 @click.option(
     "--duckdb-path",
     default=None,
-    help="Path to duckdb DB (default: <build_path>/xorq_serve.db)",
+    help="Path to duckdb DB (default: <build_path>/xorq_serve.db).",
 )
-@click.option(
-    "--prometheus-port",
-    type=int,
-    default=None,
-    help="Port to expose Prometheus metrics (default: disabled)",
-)
-@click.option(
-    "--cache-dir",
-    default=None,
-    help="Directory for all generated parquet files cache",
-)
+@cache_dir_option
 def serve_flight_udxf(build_path, host, port, duckdb_path, prometheus_port, cache_dir):
     """Serve a build via Flight Server."""
     serve_command(build_path, host, port, duckdb_path, prometheus_port, cache_dir)

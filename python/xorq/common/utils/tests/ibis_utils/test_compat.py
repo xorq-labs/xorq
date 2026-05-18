@@ -1,8 +1,8 @@
 import ibis
 import pandas as pd
-import pytest
 from packaging import version
 
+import pytest
 from xorq.common.utils.ibis_utils import from_ibis, map_sort_key
 from xorq.tests.util import assert_frame_equal, assert_series_equal
 

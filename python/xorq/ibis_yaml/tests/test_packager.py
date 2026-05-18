@@ -9,7 +9,6 @@ from pathlib import (
 )
 
 import pytest
-
 from xorq.catalog.catalog import _ensure_wheel_artifacts
 from xorq.common.utils.download_utils import (
     download_xorq_template,

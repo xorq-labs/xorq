@@ -13,7 +13,20 @@ from types import SimpleNamespace
 
 import click
 
-from xorq.cli import OutputFormats
+from xorq.cli_options import (
+    cache_dir_option,
+    cache_strategy_options,
+    code_option,
+    env_options,
+    fuse_option,
+    gcs_option,
+    json_option,
+    limit_option,
+    output_options,
+    params_options,
+    rename_params_option,
+    sync_option,
+)
 
 
 def click_handler(e):
@@ -199,18 +212,8 @@ def _resolve_annex_option(env_file, env_prefix, gcs):
 
 
 @cli.command()
-@click.option(
-    "--env-file",
-    type=click.Path(exists=True, dir_okay=False),
-    default=None,
-    help="Env file for annex remote (e.g. .env.catalog.s3).",
-)
-@click.option(
-    "--env-prefix",
-    default=None,
-    help="Env var prefix for annex remote (e.g. XORQ_CATALOG_S3_).",
-)
-@click.option("--gcs", is_flag=True, help="Apply GCS defaults to S3 remote config.")
+@env_options
+@gcs_option
 @click.option(
     "--remote-url",
     default=None,
@@ -239,7 +242,7 @@ def init(ctx, env_file, env_prefix, gcs, remote_url):
 
 @cli.command()
 @click.argument("paths", nargs=-1, required=True, type=click.Path(exists=True))
-@click.option("--sync/--no-sync", default=True)
+@sync_option
 @click.option(
     "-a",
     "--alias",
@@ -260,7 +263,7 @@ def add(ctx, paths, sync, aliases):
 
 @cli.command()
 @click.argument("names", nargs=-1, required=True, shell_complete=_complete_entry_names)
-@click.option("--sync/--no-sync", default=True)
+@sync_option
 @click.pass_context
 def remove(ctx, names, sync):
     """Remove entries by name."""
@@ -275,7 +278,7 @@ def remove(ctx, names, sync):
 @cli.command("add-alias")
 @click.argument("name", shell_complete=_complete_entry_names)
 @click.argument("alias")
-@click.option("--sync/--no-sync", default=True)
+@sync_option
 @click.pass_context
 def add_alias(ctx, name, alias, sync):
     """Add an alias for an entry."""
@@ -289,7 +292,7 @@ def add_alias(ctx, name, alias, sync):
 @click.argument(
     "aliases", nargs=-1, required=True, shell_complete=_complete_alias_names
 )
-@click.option("--sync/--no-sync", default=True)
+@sync_option
 @click.pass_context
 def remove_alias(ctx, aliases, sync):
     """Remove one or more aliases."""
@@ -495,7 +498,7 @@ def clone(ctx, url, dest_name, dest_path):
 
 @cli.command()
 @click.argument("name", shell_complete=_complete_entry_or_alias_names)
-@click.option("--json", "as_json", is_flag=True, default=False, help="Output as JSON.")
+@json_option
 @click.pass_context
 def schema(ctx, name, as_json):
     """Show schema of a catalog entry (name or alias)."""
@@ -530,7 +533,7 @@ def schema(ctx, name, as_json):
 
 @cli.command()
 @click.argument("name", shell_complete=_complete_entry_or_alias_names)
-@click.option("--json", "as_json", is_flag=True, default=False, help="Output as JSON.")
+@json_option
 @click.option(
     "--raw",
     "as_raw",
@@ -630,7 +633,7 @@ def check(ctx):
 
 
 @cli.command()
-@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+@json_option
 @click.pass_context
 def log(ctx, as_json):
     """Show catalog history as structured operations."""
@@ -657,18 +660,8 @@ def log(ctx, as_json):
 
 @cli.command()
 @click.argument("target_path", type=click.Path(file_okay=False))
-@click.option(
-    "--env-file",
-    type=click.Path(exists=True, dir_okay=False),
-    default=None,
-    help="Env file for target annex remote (e.g. .env.catalog.s3).",
-)
-@click.option(
-    "--env-prefix",
-    default=None,
-    help="Env var prefix for target annex remote (e.g. XORQ_CATALOG_S3_).",
-)
-@click.option("--gcs", is_flag=True, help="Apply GCS defaults to S3 remote config.")
+@env_options
+@gcs_option
 @click.option(
     "--remote-url",
     default=None,
@@ -740,18 +733,8 @@ def replay(
 
 
 @cli.command("embed-readonly")
-@click.option(
-    "--env-file",
-    type=click.Path(exists=True, dir_okay=False),
-    default=None,
-    help="Env file for read-only credentials to embed.",
-)
-@click.option(
-    "--env-prefix",
-    default=None,
-    help="Env var prefix for read-only credentials (e.g. XORQ_CATALOG_S3_).",
-)
-@click.option("--gcs", is_flag=True, help="Apply GCS defaults to S3 remote config.")
+@env_options
+@gcs_option
 @click.pass_context
 def embed_readonly(ctx, env_file, env_prefix, gcs):
     """Embed read-only S3 credentials into the catalog's git-annex branch.
@@ -1233,31 +1216,21 @@ def _compose_via_reinvoke(ctx, catalog, entries):
 
 @cli.command("compose")
 @click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
-@click.option(
-    "-c",
-    "--code",
-    default=None,
-    help="Inline Ibis code expression applied to `source`.",
-)
+@code_option
 @click.option(
     "-a",
     "--alias",
     default=None,
     help="Also register this alias for the cataloged entry.",
 )
-@click.option("--cache-dir", default=None, help="Directory for parquet cache files.")
+@cache_dir_option
 @click.option(
     "--dry-run",
     is_flag=True,
     default=False,
     help="Show composition plan without building.",
 )
-@click.option(
-    "--rename-params",
-    "raw_rename_params",
-    multiple=True,
-    help="Rename a parameter: entry,old_name,new_name (repeatable).",
-)
+@rename_params_option
 @click.option(
     "--use-this-venv/--no-use-this-venv",
     default=False,
@@ -1438,27 +1411,9 @@ def _resolve_and_execute(ctx, catalog, span, rl, span_prefix, *, expr_transform=
 
 @cli.command("run")
 @click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
-@click.option(
-    "-c",
-    "--code",
-    default=None,
-    help="Inline Ibis code expression applied to `source`.",
-)
-@click.option(
-    "-o",
-    "--output-path",
-    default=None,
-    help=f"Path to write output (default: {os.devnull})",
-)
-@click.option(
-    "-f",
-    "--format",
-    "output_format",
-    type=click.Choice([f.value for f in OutputFormats]),
-    default=OutputFormats.default,
-    help="Output format (default: parquet).",
-)
-@click.option("--limit", type=int, default=None, help="Limit number of rows to output.")
+@code_option
+@output_options
+@limit_option
 @click.option(
     "-i",
     "--instream",
@@ -1466,24 +1421,9 @@ def _resolve_and_execute(ctx, catalog, span, rl, span_prefix, *, expr_transform=
     default="-",
     help="Stream to read Arrow IPC record batches from (default: stdin).",
 )
-@click.option(
-    "--fuse/--no-fuse",
-    default=True,
-    help="Enable/disable catalog source fusion (default: enabled).",
-)
-@click.option(
-    "--rename-params",
-    "raw_rename_params",
-    multiple=True,
-    help="Rename a parameter: entry,old_name,new_name (repeatable).",
-)
-@click.option(
-    "-p",
-    "--params",
-    "raw_params",
-    multiple=True,
-    help="Parameter as key=value (repeatable). e.g. --params threshold=0.5",
-)
+@fuse_option
+@rename_params_option
+@params_options
 @click.option(
     "--use-this-venv/--no-use-this-venv",
     default=False,
@@ -1605,27 +1545,9 @@ def run(
 
 @cli.command("run-cached")
 @click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
-@click.option(
-    "-c",
-    "--code",
-    default=None,
-    help="Inline Ibis code expression applied to `source`.",
-)
-@click.option(
-    "-o",
-    "--output-path",
-    default=None,
-    help=f"Path to write output (default: {os.devnull})",
-)
-@click.option(
-    "-f",
-    "--format",
-    "output_format",
-    type=click.Choice([f.value for f in OutputFormats]),
-    default=OutputFormats.default,
-    help="Output format (default: parquet).",
-)
-@click.option("--limit", type=int, default=None, help="Limit number of rows to output.")
+@code_option
+@output_options
+@limit_option
 @click.option(
     "-i",
     "--instream",
@@ -1633,41 +1555,11 @@ def run(
     default="-",
     help="Stream to read Arrow IPC record batches from (default: stdin).",
 )
-@click.option(
-    "--fuse/--no-fuse",
-    default=True,
-    help="Enable/disable catalog source fusion (default: enabled).",
-)
-@click.option(
-    "--rename-params",
-    "raw_rename_params",
-    multiple=True,
-    help="Rename a parameter: entry,old_name,new_name (repeatable).",
-)
-@click.option(
-    "-p",
-    "--params",
-    "raw_params",
-    multiple=True,
-    help="Parameter as key=value (repeatable). e.g. --params threshold=0.5",
-)
-@click.option(
-    "--cache-dir",
-    default=None,
-    help="Directory for all generated parquet files cache.",
-)
-@click.option(
-    "--cache-type",
-    type=click.Choice(["modification-time", "snapshot"]),
-    default="modification-time",
-    help="Cache strategy: 'modification-time' (ParquetCache, default) or 'snapshot' (ParquetSnapshotCache).",
-)
-@click.option(
-    "--ttl",
-    type=int,
-    default=None,
-    help="TTL in seconds for snapshot cache (uses ParquetTTLSnapshotCache when set).",
-)
+@fuse_option
+@rename_params_option
+@params_options
+@cache_dir_option
+@cache_strategy_options
 @click.option(
     "--use-this-venv/--no-use-this-venv",
     default=False,

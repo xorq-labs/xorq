@@ -5,9 +5,9 @@ from unittest.mock import MagicMock
 
 import click
 import pyarrow as pa
-import pytest
 from click.testing import CliRunner
 
+import pytest
 from xorq.catalog import cli as cli_mod
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import (

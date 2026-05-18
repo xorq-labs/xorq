@@ -4,7 +4,6 @@ import pathlib
 
 import dask
 import pandas as pd
-import pytest
 from attr import (
     field,
     frozen,
@@ -14,6 +13,7 @@ from attr.validators import (
     optional,
 )
 
+import pytest
 import xorq.api as xo
 from xorq.caching import (
     ParquetCache,
