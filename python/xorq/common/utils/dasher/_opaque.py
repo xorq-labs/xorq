@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextvars
 
+
 # Per-outer-call memo for ``_parent_token``.  Cross-engine nested expressions
 # (``RemoteTable`` containing a ``RemoteTable`` containing …) trigger a fresh
 # ``hasher.tokenize`` of every opaque parent at every level
@@ -172,10 +173,14 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
                 _parent_token(_rename_unbound_xorq(node.unbound_expr.op()).to_expr()),
             )
         case FlightUDXF():
+            # See ``_dispatch_databasetable``: fold type-identity alongside
+            # ``exchange_f`` so two UDXF classes that both lack
+            # ``exchange_f`` don't collide.
             name = _stable_opaque_name(
                 "flight-udxf",
                 node.schema,
                 _parent_token(node.input_expr),
+                type(node.udxf).__qualname__,
                 _parent_token(getattr(node.udxf, "exchange_f", None)),
             )
         case HashingTag():

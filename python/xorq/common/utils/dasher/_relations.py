@@ -19,6 +19,7 @@ from xorq.common.utils.dasher._paths import (
     _stat_or_canonical,
 )
 
+
 # Per-outer-call memo for ``_databasetable_dispatcher``.  Cross-engine nested
 # expressions cause the same underlying ``DatabaseTable`` to be normalized
 # many times (``walk_nodes(DatabaseTable, op)`` descends through opaque
@@ -225,9 +226,14 @@ def _dispatch_databasetable(dt):
                 dt.make_connection,
             )
         case FlightUDXF():
+            # ``type(dt.udxf).__qualname__`` distinguishes UDXF classes even
+            # when ``exchange_f`` is absent or shared — bare
+            # ``getattr(..., None)`` would otherwise collapse two distinct
+            # UDXFs (both missing ``exchange_f``) onto the same token.
             return (
                 "xorq.FlightUDXF",
                 dt.input_expr,
+                type(dt.udxf).__qualname__,
                 getattr(dt.udxf, "exchange_f", None),
                 dt.make_connection,
             )
