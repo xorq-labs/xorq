@@ -11,8 +11,8 @@ from unittest.mock import patch
 
 import pandas as pd
 import pyarrow.parquet as pq
-
 import pytest
+
 import xorq.api as xo
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.cli import (

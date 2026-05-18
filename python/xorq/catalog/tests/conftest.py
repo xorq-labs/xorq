@@ -1,6 +1,7 @@
 import shutil
 from pathlib import Path
 
+import pytest
 import toolz
 from click.testing import CliRunner
 from git import (
@@ -8,7 +9,6 @@ from git import (
     Repo,
 )
 
-import pytest
 import xorq.api as xo
 import xorq.catalog.catalog as catalog_mod
 from xorq.catalog.annex import LOCAL_ANNEX, Annex, _do_inside

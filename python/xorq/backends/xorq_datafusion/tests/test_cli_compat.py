@@ -1,9 +1,9 @@
 import subprocess
 import sys
 
+import pytest
 from click.testing import CliRunner
 
-import pytest
 from xorq.cli import OutputFormats, cli, uv_group
 from xorq.cli_constants import DEFAULT_OUTPUT_FORMAT
 
