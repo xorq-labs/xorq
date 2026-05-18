@@ -140,11 +140,13 @@ def _render_sql_text(raw: str) -> Text:
     # in Textual, but that's an acceptable tradeoff vs. adding another heuristic.
     max_lines = options.tui.sql_highlight_max_lines
     if max_lines == 0 or raw.count("\n") > max_lines:
-        rich_text = Text(no_wrap=False, overflow="fold")
-        rich_text.append(
-            f"-- syntax highlighting disabled (query exceeds {max_lines} lines)\n",
-            style="italic #4AA8EC",
+        note = (
+            "-- syntax highlighting disabled\n"
+            if max_lines == 0
+            else f"-- syntax highlighting disabled (query exceeds {max_lines} lines)\n"
         )
+        rich_text = Text(no_wrap=False, overflow="fold")
+        rich_text.append(note, style="italic #4AA8EC")
         rich_text.append(raw)
         return rich_text
     return _pygments_to_text(raw)
