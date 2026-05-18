@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779004995571,
+  "lastUpdate": 1779107013307,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -12792,6 +12792,114 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.016518938056874263",
             "extra": "mean: 4.090297405767683 msec\nrounds: 451"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "philip@gizmodata.com",
+            "name": "Philip Moore",
+            "username": "prmoore77"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "24ffdf2677cc124e98a062b008814ff7c6928012",
+          "message": "test(gizmosql): start GizmoSQL via gizmosql PyPI package, drop Docker (#1936)\n\n## Summary\n\nReplaces the Docker-managed GizmoSQL test container with the new\n[`gizmosql`](https://pypi.org/project/gizmosql/) PyPI package, which\nwraps the same server binary as a managed Python subprocess\n(download-on-first-use, free-port auto-pick, context-managed teardown).\n\n- `python/xorq/backends/gizmosql/tests/conftest.py` — replace docker\ncontainer fixture with `gizmosql.Server(...)`; read\nhost/port/credentials from the server object.\n- `compose.yaml` — drop the `gizmosql` service and its dedicated\nnetwork; the gizmosql tests no longer participate in compose.\n- `.github/workflows/ci-test.yml` — flip the gizmosql matrix entry from\n`services: gizmosql` to `services: false`.\n- `pyproject.toml` — add `gizmosql>=1.26.0` to the existing `[gizmosql]`\noptional-dependencies group so `--extra gizmosql` brings it in.\n\n## Why\n\nThe `gizmosql` PyPI package is released in lockstep with the GizmoSQL\nserver, so tests always exercise the latest stable server without\nmanaging image tags. Local contributors no longer need Docker running\nfor the GizmoSQL backend tests, and CI shaves a Docker service container\noff the gizmosql matrix entry. The package picks a free port on each\nrun, so multiple test runs can coexist without stepping on a fixed\n`31337`.\n\n## Test plan\n\n- [ ] CI `linux / gizmosql` job is green (it'll exercise the new fixture\nend-to-end on the matrix Python versions).\n- [ ] `uv run --no-sync pytest -m gizmosql -k 'not script_execution and\nnot slow' python/xorq/backends/gizmosql/tests` passes locally with\n`--extra gizmosql --extra duckdb`.\n- [ ] No remaining references to `gizmodata/gizmosql:latest`, port\n`31337`, or the `gizmosql` compose service in test infrastructure (the\nonly remaining `31337` literals are in `test_coverage.py`, which\nexercises URL-parsing).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-05-18T14:19:36+02:00",
+          "tree_id": "b3078ba1c86737f5c73141e9c7443e852c31f04b",
+          "url": "https://github.com/xorq-labs/xorq/commit/24ffdf2677cc124e98a062b008814ff7c6928012"
+        },
+        "date": 1779107010352,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.560987067753003,
+            "unit": "iter/sec",
+            "range": "stddev: 0.025077343556778535",
+            "extra": "mean: 132.25786409090938 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.945451991672604,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012291968498967505",
+            "extra": "mean: 339.5064672000103 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6458727684300118,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19304458419344256",
+            "extra": "mean: 1.548292556800004 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.866493210576217,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03862182462772654",
+            "extra": "mean: 348.8583179999864 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.995142005463074,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01464181944923818",
+            "extra": "mean: 333.87398600000324 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.9942862114262403,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02405705646937048",
+            "extra": "mean: 333.9694101999953 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[simple_filter_agg]",
+            "value": 172.7157122721095,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008418149299092076",
+            "extra": "mean: 5.7898611935463276 msec\nrounds: 279"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[pipeline_50_steps]",
+            "value": 7.055428706133145,
+            "unit": "iter/sec",
+            "range": "stddev: 0.057353616046964366",
+            "extra": "mean: 141.7348316666739 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[nested_into_backend]",
+            "value": 51.973103450253085,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007108153323661804",
+            "extra": "mean: 19.240721327275878 msec\nrounds: 55"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[simple_filter_agg]",
+            "value": 273.62617539980204,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006108582916442811",
+            "extra": "mean: 3.6546211214584097 msec\nrounds: 494"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[pipeline_50_steps]",
+            "value": 265.8741841411288,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010623761246887301",
+            "extra": "mean: 3.7611775029244265 msec\nrounds: 513"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[nested_into_backend]",
+            "value": 248.4016650420564,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006560637561771135",
+            "extra": "mean: 4.025737910535713 msec\nrounds: 503"
           }
         ]
       }
