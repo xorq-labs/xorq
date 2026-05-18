@@ -4,7 +4,7 @@ import subprocess
 import threading
 from collections import Counter
 from datetime import datetime
-from functools import cache, cached_property
+from functools import cache, cached_property, lru_cache
 from pathlib import Path
 from typing import Literal
 
@@ -105,9 +105,11 @@ KIND_ORDER: tuple[ExprKind, ...] = (
     ExprKind.ExprBuilder,
 )
 
+
+@lru_cache(maxsize=256)
 def _pygments_to_text(sql: str) -> Text:
     lexer = pygments_get_lexer("sql", stripnl=False)
-    text = Text()
+    text = Text(no_wrap=False, overflow="fold")
     for ttype, value in pygments_lex(sql, lexer):
         info = XorqSQLStyle.style_for_token(ttype)
         parts = []
@@ -523,7 +525,6 @@ class CatalogScreen(Screen):
         self._refresh_lock = threading.Lock()
         self._active_view: Literal["sql", "data"] = "sql"
         self._data_preview_hash: str | None = None
-        self._sql_render_cache: dict[str, Text] = {}
         self._current_sql_hash: str | None = None
 
     def compose(self) -> ComposeResult:
@@ -903,14 +904,12 @@ class CatalogScreen(Screen):
 
     @work(thread=True, exit_on_error=False, exclusive=True, group="sql_render")
     def _load_sql_preview(self, entry_hash: str, sqls: tuple) -> None:
-        if entry_hash not in self._sql_render_cache:
-            match sqls:
-                case ((_, _, sql),):
-                    raw = sql
-                case _:
-                    raw = _render_sql_dag(sqls)
-            self._sql_render_cache[entry_hash] = _pygments_to_text(raw)
-        rich_text = self._sql_render_cache[entry_hash]
+        match sqls:
+            case ((_, _, sql),):
+                raw = sql
+            case _:
+                raw = _render_sql_dag(sqls)
+        rich_text = _pygments_to_text(raw)
 
         def _apply():
             if self._current_sql_hash != entry_hash:
