@@ -1341,6 +1341,12 @@ def get_predict_return_type(fitted_step):
     )
 
 
+# Preserves the legacy extension point: external callers can do
+# ``get_predict_return_type.register(MyEstimator, my_handler)`` to extend
+# the dispatch table for custom sklearn-compatible estimators.
+get_predict_return_type.register = _predict_return_type_dispatch.register
+
+
 def get_sklearn_pipeline_tags(expr):
     pipeline_tags = tuple(
         node

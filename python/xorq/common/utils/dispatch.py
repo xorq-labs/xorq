@@ -39,6 +39,22 @@ class FQNDispatch:
             return self._default(arg, *args, **kwargs)
         raise TypeError(f"No dispatch for {cls}")
 
+    def register(self, typ_or_fqn, handler):
+        """Register ``handler`` for an estimator type at runtime.
+
+        Accepts either a type (whose FQN is computed via ``_fqn``) or a
+        pre-computed FQN string.  Clears the MRO-lookup cache so existing
+        subclasses re-resolve through the new rule.  Returns ``self`` for
+        chaining.
+
+        Preserves the extension point that the legacy dask-derived
+        ``Dispatch`` exposed via ``get_predict_return_type.register``.
+        """
+        key = typ_or_fqn if isinstance(typ_or_fqn, str) else _fqn(typ_or_fqn)
+        self._rules[key] = handler
+        self._cache.clear()
+        return self
+
     @property
     def registered_fqns(self):
         return tuple(self._rules.keys())
