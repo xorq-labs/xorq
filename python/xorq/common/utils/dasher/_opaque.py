@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextvars
 
+
 # Per-outer-call memo for ``_parent_token``.  Cross-engine nested expressions
 # (``RemoteTable`` containing a ``RemoteTable`` containing …) trigger a fresh
 # ``hasher.tokenize`` of every opaque parent at every level
