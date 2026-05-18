@@ -138,10 +138,11 @@ SQL_HIGHLIGHT_MAX_LINES = 500
 def _render_sql_text(raw: str) -> Text:
     # Line-length is intentionally unchecked: extremely wide lines render slowly
     # in Textual, but that's an acceptable tradeoff vs. adding another heuristic.
-    if raw.count("\n") > SQL_HIGHLIGHT_MAX_LINES:
+    max_lines = options.tui.sql_highlight_max_lines
+    if max_lines == 0 or raw.count("\n") > max_lines:
         rich_text = Text(no_wrap=False, overflow="fold")
         rich_text.append(
-            f"-- syntax highlighting disabled (query exceeds {SQL_HIGHLIGHT_MAX_LINES} lines)\n",
+            f"-- syntax highlighting disabled (query exceeds {max_lines} lines)\n",
             style="italic #4AA8EC",
         )
         rich_text.append(raw)
