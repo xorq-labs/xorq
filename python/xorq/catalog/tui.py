@@ -677,7 +677,7 @@ class CatalogScreen(Screen):
             case ((_, engine, sql),):
                 sql_panel.border_subtitle = engine
                 self._current_sql_hash = row_data.row_key
-                sql_preview.update("")
+                sql_preview.update(Text("Rendering SQL Query…", style="dim"))
                 self._load_sql_preview(row_data.row_key, sql)
             case sqls:
                 engines = sorted({engine for _, engine, _ in sqls})
@@ -685,7 +685,7 @@ class CatalogScreen(Screen):
                     f"{len(sqls)} queries · {', '.join(engines)}"
                 )
                 self._current_sql_hash = row_data.row_key
-                sql_preview.update("")
+                sql_preview.update(Text("Rendering SQL Query…", style="dim"))
                 self._load_sql_preview(row_data.row_key, _render_sql_dag(sqls))
 
         # Info panel
