@@ -34,7 +34,6 @@ from xorq.catalog.tui import (
     GIT_LOG_COLUMNS,
     KIND_ORDER,
     KIND_STYLES,
-    SQL_HIGHLIGHT_MAX_LINES,
     CatalogRowData,
     CatalogScreen,
     CatalogTUI,
@@ -1269,11 +1268,22 @@ def test_pygments_to_text_word_wrap_config():
 
 
 def test_render_sql_text_fallback_for_large_query():
-    big_sql = "SELECT 1\n" * (SQL_HIGHLIGHT_MAX_LINES + 1)
-    text = _render_sql_text(big_sql)
-    plain = text.plain
-    assert plain.startswith("-- syntax highlighting disabled")
-    assert "SELECT 1" in plain
+    with options.tui({"sql_highlight_max_lines": 10}):
+        big_sql = "SELECT 1\n" * 11
+        text = _render_sql_text(big_sql)
+        plain = text.plain
+        assert plain.startswith("-- syntax highlighting disabled")
+        assert "10 lines" in plain
+        assert "SELECT 1" in plain
+
+
+def test_render_sql_text_disabled_when_max_lines_zero():
+    with options.tui({"sql_highlight_max_lines": 0}):
+        text = _render_sql_text("SELECT 1")
+        plain = text.plain
+        assert plain.startswith("-- syntax highlighting disabled\n")
+        assert "lines" not in plain.split("\n")[0]
+        assert "SELECT 1" in plain
 
 
 def test_render_sql_text_highlights_small_query():
