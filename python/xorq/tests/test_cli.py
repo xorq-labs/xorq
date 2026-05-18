@@ -550,6 +550,7 @@ def test_run_command_writes_run_logger(tmp_path):
         assert meta["output_format"] == "parquet"
         assert "started_at" in meta
         assert "completed_at" in meta
+        assert meta["xorq_version"] == xorq.__version__
 
         events = run.read_events()
         event_names = [e["event"] for e in events]
