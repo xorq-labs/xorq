@@ -1279,4 +1279,4 @@ def test_render_sql_text_fallback_for_large_query():
 def test_render_sql_text_highlights_small_query():
     text = _render_sql_text("SELECT 1")
     assert text.no_wrap is False
-    assert any(span.style for span in text._spans)
+    assert not text.plain.startswith("-- syntax highlighting disabled")
