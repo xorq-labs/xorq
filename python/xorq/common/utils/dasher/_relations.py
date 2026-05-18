@@ -19,7 +19,6 @@ from xorq.common.utils.dasher._paths import (
     _stat_or_canonical,
 )
 
-
 # Per-outer-call memo for ``_databasetable_dispatcher``.  Cross-engine nested
 # expressions cause the same underlying ``DatabaseTable`` to be normalized
 # many times (``walk_nodes(DatabaseTable, op)`` descends through opaque
@@ -245,6 +244,15 @@ def _dispatch_databasetable(dt):
         return _normalize_datafusion_databasetable_xorq(dt)
     if dt.source.name == "duckdb":
         return _normalize_duckdb_databasetable_xorq(dt)
+    # All other backends fall through to ``xorq_dasher`` ``normalize_databasetable``,
+    # which is itself a per-backend dispatch table postgres calls
+    # ``get_postgres_n_reltuples``, snowflake calls
+    # ``get_snowflake_last_modification_time``, bigquery queries
+    # ``__TABLES__.last_modified_time``, pyiceberg calls
+    # ``get_iceberg_snapshots_ids``, sqlite calls ``get_sqlite_stats``,
+    # trino/gizmosql fall back to ``normalize_remote_databasetable``.
+    # Data-sensitivity is preserved upstream, not blindly flattened to
+    # schema+name, see xorq_dasher/rules/expr.py::normalize_databasetable.
     return normalize_databasetable(dt)
 
 
