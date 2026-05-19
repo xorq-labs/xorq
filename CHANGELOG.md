@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Details
+
+## [0.3.25] - 2026-05-19
+### Details
+#### Added
+- Add parse_bool_env for consistent env var parsing by @dlovell in [#1949](https://github.com/xorq-labs/xorq/pull/1949)
+
+#### Changed
+- Skip docs-only PRs via paths-filter, always run on push to main by @mesejo in [#1947](https://github.com/xorq-labs/xorq/pull/1947)
+- PEP 723 inline metadata for single-script builds by @dlovell in [#1956](https://github.com/xorq-labs/xorq/pull/1956)
+- Flatten DataFusionBackend inheritance by @mesejo in [#1869](https://github.com/xorq-labs/xorq/pull/1869)
+- Joint uv wheel resolution for compose and run by @hussainsultan in [#1938](https://github.com/xorq-labs/xorq/pull/1938)
+
+#### Fixed
+- Default to uv --link-mode hardlink on macOS by @paddymul in [#1946](https://github.com/xorq-labs/xorq/pull/1946)
+- Bump xorq-datafusion 0.2.5 >> 0.2.7 to fix Py_Finalize hang by @mesejo in [#1952](https://github.com/xorq-labs/xorq/pull/1952)
+- Surface stderr/stdout in uv_tool_run failures by @dlovell in [#1957](https://github.com/xorq-labs/xorq/pull/1957)
+- Drop None attribute values from RunLogger.log_span_event by @paddymul in [#1944](https://github.com/xorq-labs/xorq/pull/1944)
+- Start GizmoSQL via gizmosql PyPI package, drop Docker by @prmoore77 in [#1936](https://github.com/xorq-labs/xorq/pull/1936)
+
 #### Removed
 - **Breaking:** Remove `xorq_datafusion.Backend.truncate_table` — DataFusion does not implement DELETE DML; method was a silent no-op
 - **Breaking:** Remove `xorq_datafusion.Backend.read_postgres` — `database` parameter was silently ignored due to `_from_url` overwriting kwargs; no callers found in codebase
