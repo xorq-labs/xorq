@@ -64,3 +64,5 @@ jobs:
         uses: codecov/codecov-action@v5.5.4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          flags: library
+          fail_ci_if_error: false

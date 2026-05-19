@@ -1,3 +1,21 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: auto
+        threshold: 1%
+
 flag_management:
   default_rules:
     carryforward: true
+
+comment:
+  layout: "reach,diff,flags,tree"
+  require_changes: false
+  require_base: false
+  require_head: true
+
