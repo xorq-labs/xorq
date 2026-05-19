@@ -200,7 +200,7 @@ def deferred_read_csv(
     """
 
     infer_schema = kwargs.pop("infer_schema", infer_csv_schema_pandas)
-    deferred_read_csv.method_name = method_name = "read_csv"
+    method_name = "read_csv"
 
     if con is None:
         con = default_backend()
@@ -273,7 +273,7 @@ def deferred_read_parquet(
          An expression representing the deferred read operation.
     """
 
-    deferred_read_parquet.method_name = method_name = "read_parquet"
+    method_name = "read_parquet"
     if con is None:
         con = default_backend()
     method = getattr(con, method_name)
