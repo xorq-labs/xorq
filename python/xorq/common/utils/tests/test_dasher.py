@@ -409,3 +409,21 @@ def test_http_csv_token_is_stable(make_table):
     cannot resolve (covered by the older xfail test in test_dask_normalize).
     """
     assert tokenize(make_table()) == tokenize(make_table())
+
+
+def test_dasher_tokenize_dunder_is_invoked():
+    """xorq_dasher's fallback rule must consult ``__dasher_tokenize__``.
+
+    Cache, ParquetStorage, SourceStorage, GCStorage and others rely on it
+    for their cache keys.
+    """
+
+    class _Probe:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def __dasher_tokenize__(self):
+            return ("Probe.dunder", self.payload)
+
+    assert tokenize(_Probe("same")) == tokenize(_Probe("same"))
+    assert tokenize(_Probe("same")) != tokenize(_Probe("different"))
