@@ -106,6 +106,12 @@ def normalize_numpy_dtype(dtype):
 
 
 def normalize_pandas_series(series):
+    """Series elements go through ``to_pylist()`` because dasher has no
+    ``pa.Array`` rule to delegate to.  ``normalize_pandas_dataframe`` below
+    uses the faster ``pa.Table`` path because dasher *does* register a
+    ``pa.Table`` rule (serialize each batch to bytes, xxhash) — the two
+    helpers look inconsistent for that reason, not because either is wrong.
+    """
     import pyarrow as pa  # noqa: PLC0415
 
     return (
@@ -117,6 +123,11 @@ def normalize_pandas_series(series):
 
 
 def normalize_pandas_dataframe(df):
+    """Returns the raw ``pa.Table`` so dasher's registered ``pa.Table`` rule
+    (``xorq_dasher.rules.other.normalize_pyarrow_table``) does the hashing —
+    serializes each batch to bytes and xxhashes, identical to the legacy
+    dask-era path.
+    """
     import pyarrow as pa  # noqa: PLC0415
 
     table = pa.Table.from_pandas(df)
