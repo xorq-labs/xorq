@@ -310,9 +310,12 @@ def _normalize_expr_xorq(expr: Any) -> tuple:
     return result
 
 
-def _normalize_expr_xorq_impl(expr: Any, op: Any) -> tuple:
-    from xorq_dasher.rules.expr import normalize_inmemorytable  # noqa: PLC0415
+def _decompose_expr(expr: Any, op: Any) -> tuple:
+    """Split an expression into structural SQL, data leaves, and UDFs.
 
+    Returns ``(sql, reads, dts, udfs, mems)`` where *reads*/*dts*/*mems* are
+    the data-carrying leaf ops and *udfs* are structural code-identity ops.
+    """
     from xorq.common.utils.graph_utils import replace_nodes, walk_nodes  # noqa: PLC0415
     from xorq.expr.api import get_compiler, to_sql  # noqa: PLC0415
     from xorq.expr.relations import CachedNode, Read  # noqa: PLC0415
@@ -341,17 +344,100 @@ def _normalize_expr_xorq_impl(expr: Any, op: Any) -> tuple:
     )
     udfs = tuple(walk_nodes((AggUDF, ScalarUDF), op))
     mems = tuple(walk_nodes(InMemoryTable, op))
-    return (
-        "ibis.Expr",
-        sql,
-        reads,
-        dts,
-        udfs,
-        tuple(normalize_inmemorytable(m) for m in mems),
+    return sql, reads, dts, udfs, mems
+
+
+def _normalize_expr_xorq_impl(expr: Any, op: Any) -> tuple:
+    from xorq_dasher.rules.expr import normalize_inmemorytable  # noqa: PLC0415
+
+    from xorq.common.utils.dasher import HASHER, _current_hasher  # noqa: PLC0415
+
+    sql, reads, dts, udfs, mems = _decompose_expr(expr, op)
+    hasher = _current_hasher.get() or HASHER
+
+    structural_hash = hasher.tokenize("ibis.Expr.structural", sql, udfs)
+    slot_hashes = tuple(
+        [hasher.tokenize(r) for r in reads]
+        + [hasher.tokenize(dt) for dt in dts]
+        + [hasher.tokenize(normalize_inmemorytable(m)) for m in mems]
     )
+    return ("ibis.Expr.v3", structural_hash, *slot_hashes)
+
+
+def expr_metadata(expr: Any) -> dict:
+    """Produce serializable metadata for cross-environment token recomputation.
+
+    Returns a dict of the form::
+
+        {
+          "version": 3,
+          "structural_hash": "<xxh128 hex>",
+          "slots": [
+              {"index": 0, "kind": "Read", "name": "...", "hash": "<xxh128 hex>"},
+              ...
+          ],
+        }
+
+    The expression token can be recomputed from this dict using
+    :func:`~xorq.common.utils.dasher._recompute.compute_expr_token`, which
+    only needs ``xxhash`` and ``struct`` — no xorq or ibis import required.
+    """
+    from xorq_dasher.rules.expr import normalize_inmemorytable  # noqa: PLC0415
+
+    from xorq.common.utils.dasher import HASHER, _current_hasher  # noqa: PLC0415
+
+    op = expr.op()
+    sql, reads, dts, udfs, mems = _decompose_expr(expr, op)
+    hasher = _current_hasher.get() or HASHER
+
+    structural_hash = hasher.tokenize("ibis.Expr.structural", sql, udfs)
+
+    slots: list[dict] = []
+    idx = 0
+    for r in reads:
+        read_kwargs = dict(r.read_kwargs)
+        name = read_kwargs.get("read_path") or read_kwargs.get("hash_path", "")
+        if isinstance(name, (list, tuple)):
+            name = str(name[0]) if name else ""
+        slots.append(
+            {
+                "index": idx,
+                "kind": "Read",
+                "name": str(name),
+                "hash": hasher.tokenize(r),
+            }
+        )
+        idx += 1
+    for dt in dts:
+        slots.append(
+            {
+                "index": idx,
+                "kind": "DatabaseTable",
+                "name": getattr(dt, "name", ""),
+                "hash": hasher.tokenize(dt),
+            }
+        )
+        idx += 1
+    for m in mems:
+        slots.append(
+            {
+                "index": idx,
+                "kind": "InMemoryTable",
+                "name": getattr(m, "name", ""),
+                "hash": hasher.tokenize(normalize_inmemorytable(m)),
+            }
+        )
+        idx += 1
+
+    return {
+        "version": 3,
+        "structural_hash": structural_hash,
+        "slots": slots,
+    }
 
 
 __all__ = [
+    "_decompose_expr",
     "_normalize_computed_kwargs_expr",
     "_normalize_expr_xorq",
     "_normalize_scalar_udf_xorq",
@@ -359,4 +445,5 @@ __all__ = [
     "_rename_unbound_xorq",
     "_stable_opaque_name",
     "_xorq_opaque_to_placeholder",
+    "expr_metadata",
 ]

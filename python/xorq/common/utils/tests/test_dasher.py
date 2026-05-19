@@ -42,6 +42,8 @@ from xorq.common.utils.dasher import (
     _canonicalize_catalog_path,
     _extract_datafusion_plan_paths,
     _extract_duckdb_file_paths,
+    compute_expr_token,
+    expr_metadata,
     tokenize,
 )
 from xorq.common.utils.dasher._gap_rules import (
@@ -630,3 +632,126 @@ def test_parent_token_fallback_distinguishes_same_type_different_ops(monkeypatch
     tok_b = _parent_token(op_b)
 
     assert tok_a != tok_b
+
+
+# --- expr_metadata / compute_expr_token ------------------------------------
+
+
+def test_expr_metadata_round_trip_memtable():
+    """tokenize(expr) == compute_expr_token(structural_hash, slot_hashes)."""
+    t = xo.memtable({"x": [1, 2, 3], "y": ["a", "b", "c"]})
+    expr = t.filter(t.x > 1)
+    token = tokenize(expr)
+    meta = expr_metadata(expr)
+
+    assert meta["version"] == 3
+    assert isinstance(meta["structural_hash"], str)
+    assert len(meta["slots"]) >= 1
+
+    recomputed = compute_expr_token(
+        meta["structural_hash"], tuple(s["hash"] for s in meta["slots"])
+    )
+    assert recomputed == token
+
+
+def test_expr_metadata_round_trip_parquet(tmp_path):
+    """Round-trip works for file-backed expressions (Read + DatabaseTable)."""
+    df = pd.DataFrame({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]})
+    path = tmp_path / "data.parquet"
+    df.to_parquet(path)
+
+    con = xo.connect()
+    t = con.read_parquet(path, table_name="rt_test")
+    expr = t.filter(t.a > 1)
+
+    token = tokenize(expr)
+    meta = expr_metadata(expr)
+    recomputed = compute_expr_token(
+        meta["structural_hash"], tuple(s["hash"] for s in meta["slots"])
+    )
+    assert recomputed == token
+
+
+def test_expr_metadata_round_trip_deferred_read(tmp_path):
+    """Round-trip works for deferred reads (Read slots)."""
+    df = pd.DataFrame({"a": [10, 20, 30]})
+    path = tmp_path / "deferred.parquet"
+    df.to_parquet(path)
+
+    con = xo.connect()
+    t = xo.deferred_read_parquet(str(path), con, table_name="dr_test")
+
+    token = tokenize(t)
+    meta = expr_metadata(t)
+    assert any(s["kind"] == "Read" for s in meta["slots"])
+
+    recomputed = compute_expr_token(
+        meta["structural_hash"], tuple(s["hash"] for s in meta["slots"])
+    )
+    assert recomputed == token
+
+
+def test_expr_metadata_structural_hash_stable_across_data(parquet_dir):
+    """Same query shape on identically-named tables → same structural hash."""
+    con = xo.connect()
+    t1 = con.read_parquet(
+        parquet_dir / "astronauts.parquet",
+        table_name="data",
+    )
+    t2 = con.read_parquet(
+        parquet_dir / "batting.parquet",
+        table_name="data",
+    )
+    meta1 = expr_metadata(t1.head(10))
+    meta2 = expr_metadata(t2.head(10))
+    assert meta1["structural_hash"] == meta2["structural_hash"]
+    assert meta1["slots"][0]["hash"] != meta2["slots"][0]["hash"]
+
+
+def test_expr_metadata_slot_hash_changes_on_file_edit(tmp_path):
+    """Editing the backing file changes the slot hash but not the structural hash."""
+    df = pd.DataFrame({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]})
+    path = tmp_path / "data.parquet"
+    df.to_parquet(path)
+
+    con = xo.connect()
+    meta_before = expr_metadata(con.read_parquet(path, table_name="t"))
+
+    df.iloc[:1].to_parquet(path)
+    con2 = xo.connect()
+    meta_after = expr_metadata(con2.read_parquet(path, table_name="t"))
+
+    assert meta_before["structural_hash"] == meta_after["structural_hash"]
+    assert meta_before["slots"][0]["hash"] != meta_after["slots"][0]["hash"]
+
+
+def test_expr_metadata_schema_validation():
+    """Returned metadata has the expected schema."""
+    t = xo.memtable({"x": [1]})
+    meta = expr_metadata(t)
+
+    assert set(meta.keys()) == {"version", "structural_hash", "slots"}
+    for slot in meta["slots"]:
+        assert set(slot.keys()) == {"index", "kind", "name", "hash"}
+        assert isinstance(slot["index"], int)
+        assert slot["kind"] in ("Read", "DatabaseTable", "InMemoryTable")
+        assert isinstance(slot["name"], str)
+        assert isinstance(slot["hash"], str) and len(slot["hash"]) == 32
+
+
+def test_compute_expr_token_minimal_env():
+    """compute_expr_token works with only xxhash + struct (no xorq import)."""
+    from xorq.common.utils.dasher._recompute import (  # noqa: PLC0415
+        compute_expr_token as _standalone,
+    )
+
+    structural = "a" * 32
+    slots = ("b" * 32, "c" * 32)
+    result = _standalone(structural, slots)
+    assert isinstance(result, str) and len(result) == 32
+
+    # Deterministic
+    assert _standalone(structural, slots) == result
+
+    # Different inputs → different output
+    assert _standalone(structural, ("d" * 32, "c" * 32)) != result
