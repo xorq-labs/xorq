@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779196919573,
+  "lastUpdate": 1779197947722,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -13224,6 +13224,114 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.010955213718603642",
             "extra": "mean: 3.554884879121193 msec\nrounds: 455"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cf889faa207518868ec13fa61f8c0775aa7614fb",
+          "message": "fix(docs): pin griffe<2.0 to fix quartodoc compatibility (#1970)\n\ngriffe 2.0 removed the `allow_section_blank_line` parameter from\n`parse_numpy()` which quartodoc 0.11.1 still passes, causing docs-apigen\nto fail with TypeError.\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-19T15:34:57+02:00",
+          "tree_id": "815aea0b45c18d62774abfa92049d1b70ac8630d",
+          "url": "https://github.com/xorq-labs/xorq/commit/cf889faa207518868ec13fa61f8c0775aa7614fb"
+        },
+        "date": 1779197945841,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 6.600708772226793,
+            "unit": "iter/sec",
+            "range": "stddev: 0.019340605605108526",
+            "extra": "mean: 151.49888209090665 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.8316331947122344,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012868870576648874",
+            "extra": "mean: 353.1530855999961 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6352636239557635,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2121040442625518",
+            "extra": "mean: 1.5741496321999933 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.618201885604417,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06486812295267329",
+            "extra": "mean: 381.94151699999566 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.7219693357557615,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04596836146949621",
+            "extra": "mean: 367.3810673999924 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.5885110980870367,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06406386469992086",
+            "extra": "mean: 386.32246960000316 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[simple_filter_agg]",
+            "value": 136.00081979164514,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014717860551906235",
+            "extra": "mean: 7.3528968540925845 msec\nrounds: 281"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[pipeline_50_steps]",
+            "value": 6.2322834155953295,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07559415040784141",
+            "extra": "mean: 160.45483385714678 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[nested_into_backend]",
+            "value": 45.755535668121524,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007622447361498541",
+            "extra": "mean: 21.855279047617245 msec\nrounds: 42"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[simple_filter_agg]",
+            "value": 242.38837796338336,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010426884747707813",
+            "extra": "mean: 4.125610346512018 msec\nrounds: 430"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[pipeline_50_steps]",
+            "value": 256.6928646851712,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01207564391552049",
+            "extra": "mean: 3.8957062605790806 msec\nrounds: 449"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[nested_into_backend]",
+            "value": 255.82185633205017,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00737475967688505",
+            "extra": "mean: 3.908970149532594 msec\nrounds: 428"
           }
         ]
       }
