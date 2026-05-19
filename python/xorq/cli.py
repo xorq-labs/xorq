@@ -752,6 +752,7 @@ class PdbGroup(click.Group):
 
 
 @click.group(cls=PdbGroup)
+@click.version_option(package_name="xorq")
 @click.option("--pdb", "use_pdb", is_flag=True, help="Drop into pdb on failure")
 @click.option(
     "--pdb-runcall", "pdb_runcall", is_flag=True, help="Invoke with pdb.runcall"

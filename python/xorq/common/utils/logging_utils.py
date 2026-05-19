@@ -1,5 +1,7 @@
 import datetime
+import functools
 import hashlib
+import importlib.metadata
 import json
 import logging.handlers
 import pathlib
@@ -169,6 +171,14 @@ def get_xorq_runs_dir() -> Path:
     return Path("~/.local/share/xorq/runs").expanduser()
 
 
+@functools.cache
+def _get_xorq_version() -> str:
+    try:
+        return importlib.metadata.version("xorq")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
+
+
 @frozen
 class RunLogger:
     """Writes structured events to run.jsonl and a summary to meta.json."""
@@ -232,6 +242,7 @@ class RunLogger:
 
         meta = {
             "run_id": self.run_id,
+            "xorq_version": _get_xorq_version(),
             "started_at": self._started_at,
             "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "status": status,
