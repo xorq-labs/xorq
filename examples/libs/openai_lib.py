@@ -4,12 +4,12 @@ import os
 from pathlib import Path
 from urllib.parse import unquote_plus
 
-import dask
 import pandas as pd
 import toolz
 from openai import OpenAI
 
 import xorq.api as xo
+from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.toolz_utils import curry
 from xorq.flight.utils import (
     schema_concat,
@@ -31,7 +31,7 @@ def simple_disk_cache(f, cache_dir, serde):
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     def wrapped(*args, **kwargs):
-        name = dask.base.tokenize(*args, **kwargs)
+        name = tokenize(*args, **kwargs)
         path = cache_dir.joinpath(name)
         if path.exists():
             value = serde.loads(path.read_text())

@@ -43,7 +43,8 @@ def snapshot_normalize_read(read):
     # Materialized build-bundle reads carry a content-hash-named read_path that is
     # stable across environments. Their hash_path is an absolute tmpdir path that
     # changes every run, so prefer read_path when available.
-    path = read_kwargs.get("read_path") or read_kwargs["hash_path"]
+    rp = read_kwargs.get("read_path")
+    path = rp if rp is not None else read_kwargs["hash_path"]
     match path:
         case list() | tuple() if len(path) == 1:
             tpls = (("path", str(path[0])),)
@@ -143,6 +144,9 @@ class SnapshotStrategy(CacheStrategy):
 
     @staticmethod
     def normalize_backend(con):
+        # In-memory backends (pandas, duckdb, datafusion) are identified by
+        # name alone.  Remote backends delegate to HASHER.normalize(con),
+        # which raises if no backend-specific normalizer is registered.
         name = con.name
         if name in ("pandas", "duckdb", "datafusion", "xorq_datafusion"):
             return (name, None)

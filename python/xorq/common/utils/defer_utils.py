@@ -116,7 +116,7 @@ def read_csv_rbr(*args, schema=None, chunksize=DEFAULT_CHUNKSIZE, dtype=None, **
     import pandas as pd  # noqa: PLC0415
 
     if dtype is not None:
-        raise Exception("pass `dtype` as pyarrow `schema`")
+        raise TypeError("pass `dtype` as pyarrow `schema`")
     if chunksize is None:
         raise ValueError("chunksize must not be `None`")
     if schema is not None:
@@ -139,7 +139,7 @@ def read_csv_rbr(*args, schema=None, chunksize=DEFAULT_CHUNKSIZE, dtype=None, **
         ),
     )
     if schema is None:
-        (el, gen) = toolz.peek(gen)
+        el, gen = toolz.peek(gen)
         schema = el.schema
 
     def cast_gen():

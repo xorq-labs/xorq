@@ -55,8 +55,18 @@ class PinsResource:
     def path(self):
         return pathlib.Path(xo.options.pins.get_path(self.name))
 
+    @property
+    def method_name(self):
+        match self.suffix:
+            case ".parquet":
+                return "read_parquet"
+            case ".csv":
+                return "read_csv"
+            case _:
+                raise ValueError(f"unsupported suffix {self.suffix!r}")
+
     def get_underlying_method(self, con):
-        return getattr(con, self.deferred_reader.method_name)
+        return getattr(con, self.method_name)
 
     @property
     def deferred_reader(self):

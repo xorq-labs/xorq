@@ -150,10 +150,10 @@ class ParquetCache(Cache):
 class ParquetSnapshotCache(Cache):
     """Cache expressions as Parquet files using a snapshot invalidation strategy.
 
-    This storage class saves intermediate results as Parquet files in a specified
-    directory and uses a snapshot-based approach for cache invalidation.
-    The snapshot strategy ensures cached data is only invalidated when the
-    expression's definition changes, making it suitable for stable datasets.
+    Unlike :class:`ParquetCache` (which uses ``ModificationTimeStrategy`` and
+    re-hashes when source files change), this class uses ``SnapshotStrategy``
+    which normalizes cache keys based on expression structure only — source
+    data changes do not invalidate cached results.
 
     Parameters
     ----------

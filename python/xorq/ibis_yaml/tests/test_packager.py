@@ -105,7 +105,24 @@ def test_wheel_builder(template, tmpdir):
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
 )
-@pytest.mark.parametrize("template", tuple(InitTemplates))
+@pytest.mark.parametrize(
+    "template",
+    [
+        pytest.param(
+            t,
+            marks=pytest.mark.xfail(
+                t == InitTemplates.sklearn,
+                reason=(
+                    "sklearn template pins released xorq in requirements.txt; "
+                    "the isolated uv runner resolves xorq-dasher-unaware xorq "
+                    "from PyPI, causing a build-format mismatch"
+                ),
+                strict=False,
+            ),
+        )
+        for t in InitTemplates
+    ],
+)
 def test_wheel_runner(template, tmpdir):
     tmpdir = Path(tmpdir)
     output_path = tmpdir.joinpath("output")

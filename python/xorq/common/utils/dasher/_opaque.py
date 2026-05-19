@@ -9,7 +9,13 @@ of falling back to the global, data-sensitive HASHER).
 from __future__ import annotations
 
 import contextvars
+import logging
+from typing import Any
 
+import xxhash
+
+
+_MISSING = object()
 
 # Per-outer-call memo for ``_parent_token``.  Cross-engine nested expressions
 # (``RemoteTable`` containing a ``RemoteTable`` containing …) trigger a fresh
@@ -24,7 +30,7 @@ _expr_normalize_memo: contextvars.ContextVar[dict | None] = contextvars.ContextV
 )
 
 
-def _rename_unbound_xorq(op, prefix="static"):
+def _rename_unbound_xorq(op: Any, prefix: str = "static") -> Any:
     """Rewrite UnboundTable nodes to sequential placeholder names.
 
     Equivalent of ``xorq_dasher.rules.expr._rename_unbound`` but with a correct
@@ -49,7 +55,7 @@ def _rename_unbound_xorq(op, prefix="static"):
     return op.replace(rename)
 
 
-def _stable_opaque_name(prefix, *parts):
+def _stable_opaque_name(prefix: str, *parts: Any) -> str:
     """Build a deterministic placeholder name from xxhash of structural parts.
 
     xorq_dasher 0.1.0's ``_opaque_to_placeholder`` uses ``id(node)`` for some
@@ -57,13 +63,11 @@ def _stable_opaque_name(prefix, *parts):
     identities for semantically-identical Reads). This helper keys on a
     content-stable hash of the supplied parts instead.
     """
-    import xxhash  # noqa: PLC0415
-
     payload = "|".join(str(p) for p in parts).encode("utf-8")
     return f"{prefix}-{xxhash.xxh128(payload).hexdigest()[:16]}"
 
 
-def _parent_token(thing):
+def _parent_token(thing: Any) -> str:
     """Tokenize an opaque sub-expression's parent / inner expr structurally.
 
     Used to fold the inner expression's identity into the placeholder name so
@@ -99,17 +103,17 @@ def _parent_token(thing):
         try:
             tok = hasher.tokenize(thing)
         except RecursionError:
-            import logging  # noqa: PLC0415
-
-            import xxhash  # noqa: PLC0415
-
             logging.getLogger(__name__).warning(
                 "RecursionError tokenizing %r in _parent_token; falling back "
-                "to repr-hash.  Result is not reproducible across runs "
-                "investigate the op graph for cycles or unbounded nesting.",
+                "to type+schema hash.  Investigate the op graph for cycles "
+                "or unbounded nesting.",
                 type(thing).__name__,
             )
-            tok = xxhash.xxh128(repr(thing).encode("utf-8")).hexdigest()
+            typ = type(thing)
+            fallback_op = thing.op() if hasattr(thing, "op") else thing
+            schema = getattr(thing, "schema", getattr(fallback_op, "schema", ""))
+            payload = f"{typ.__module__}.{typ.__qualname__}|{schema}"
+            tok = xxhash.xxh128(payload.encode("utf-8")).hexdigest()
         memo[key] = tok
         return tok
     finally:
@@ -117,7 +121,9 @@ def _parent_token(thing):
             _parent_token_memo.reset(reset_token)
 
 
-def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
+def _xorq_opaque_to_placeholder(
+    node: Any, _kwargs: dict | None = None, **_kw: Any
+) -> Any:
     """Replace opaque leaf nodes with UnboundTable placeholders.
 
     Mirrors xorq_dasher.rules.expr._opaque_to_placeholder but
@@ -152,7 +158,8 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
             )
         case Read():
             read_kwargs = dict(node.read_kwargs)
-            anchor = read_kwargs.get("read_path") or read_kwargs.get("hash_path")
+            rp = read_kwargs.get("read_path")
+            anchor = rp if rp is not None else read_kwargs.get("hash_path")
             name = _stable_opaque_name("read", node.schema, anchor)
         case RemoteTable():
             name = _stable_opaque_name(
@@ -181,7 +188,7 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
                 node.schema,
                 _parent_token(node.input_expr),
                 type(node.udxf).__qualname__,
-                _parent_token(getattr(node.udxf, "exchange_f", None)),
+                _parent_token(getattr(node.udxf, "exchange_f", _MISSING)),
             )
         case HashingTag():
             name = _stable_opaque_name(
@@ -206,7 +213,7 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
     return api.table(node.schema, name=name).op()
 
 
-def _normalize_computed_kwargs_expr(cke):
+def _normalize_computed_kwargs_expr(cke: Any) -> tuple:
     """Content-stable, structural-only normalization of a ``computed_kwargs_expr``.
 
     The default Expr rule routes through SQL compilation, which embeds the
@@ -262,7 +269,7 @@ def _normalize_computed_kwargs_expr(cke):
     )
 
 
-def _normalize_scalar_udf_xorq(udf):
+def _normalize_scalar_udf_xorq(udf: Any) -> tuple:
     """ScalarUDF normalizer that routes ``computed_kwargs_expr`` through the
     data-free :func:`_normalize_computed_kwargs_expr` helper.
 
@@ -287,7 +294,7 @@ def _normalize_scalar_udf_xorq(udf):
     )
 
 
-def _normalize_expr_xorq(expr):
+def _normalize_expr_xorq(expr: Any) -> tuple:
     """Deterministic Expr normalizer; replaces dasher's id()-based version.
 
     Memoized per outer call via :data:`_expr_normalize_memo` keyed by ``op``
@@ -303,7 +310,7 @@ def _normalize_expr_xorq(expr):
     return result
 
 
-def _normalize_expr_xorq_impl(expr, op):
+def _normalize_expr_xorq_impl(expr: Any, op: Any) -> tuple:
     from xorq_dasher.rules.expr import normalize_inmemorytable  # noqa: PLC0415
 
     from xorq.common.utils.graph_utils import replace_nodes, walk_nodes  # noqa: PLC0415
