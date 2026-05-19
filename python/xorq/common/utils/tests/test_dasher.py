@@ -427,3 +427,61 @@ def test_dasher_tokenize_dunder_is_invoked():
 
     assert tokenize(_Probe("same")) == tokenize(_Probe("same"))
     assert tokenize(_Probe("same")) != tokenize(_Probe("different"))
+
+
+def test_opaque_placeholders_are_content_addressed(tmp_path):
+    """Each opaque arm in ``_xorq_opaque_to_placeholder`` should produce a
+    stable, schema-derived placeholder — re-constructing the same expr in a
+    fresh process must produce the same token (no ``id()`` leakage)."""
+    df = pd.DataFrame({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]})
+    path = tmp_path / "data.parquet"
+    df.to_parquet(path)
+
+    def build_cached():
+        return xo.connect().read_parquet(path, table_name="t").filter(xo._.a > 0).cache()
+
+    def build_remote():
+        src = xo.connect()
+        src.create_table("t", df)
+        return src.table("t").into_backend(xo.connect(), name="t_remote")
+
+    def build_param():
+        threshold = xo.param("threshold", "float64", default=1.5)
+        return xo.table([("x", "float64")], name="t").filter(xo._.x > threshold)
+
+    for build in (build_cached, build_remote, build_param):
+        assert tokenize(build()) == tokenize(build())
+
+
+def test_normalize_computed_kwargs_expr_is_data_free():
+    """``_normalize_computed_kwargs_expr`` is data-free per ADR-0010 — two
+    cked expressions with the same shape but different ``InMemoryTable``
+    contents must produce identical helper output."""
+    from xorq.common.utils.dasher._opaque import (  # noqa: PLC0415
+        _normalize_computed_kwargs_expr,
+    )
+
+    cke_a = xo.memtable(pd.DataFrame({"x": [1, 2, 3]})).filter(xo._.x > 0)
+    cke_b = xo.memtable(pd.DataFrame({"x": [10, 20, 30]})).filter(xo._.x > 0)
+    assert _normalize_computed_kwargs_expr(cke_a) == _normalize_computed_kwargs_expr(
+        cke_b
+    )
+
+
+def test_replace_nodes_raises_on_unhandled_opaque(monkeypatch):
+    """A future addition to ``opaque_ops`` without a corresponding ``case``
+    arm in ``replace_nodes.process_node`` must raise loudly rather than
+    silently producing a wrong hash."""
+    from xorq.common.utils import graph_utils  # noqa: PLC0415
+    from xorq.vendor.ibis.expr.operations.generic import Cast  # noqa: PLC0415
+
+    monkeypatch.setattr(
+        graph_utils, "opaque_ops", graph_utils.opaque_ops + (Cast,)
+    )
+
+    con = xo.connect()
+    con.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))
+    expr = con.table("t").mutate(a_float=xo._.a.cast("float64"))
+
+    with pytest.raises(ValueError, match="unhandled opaque op"):
+        graph_utils.replace_nodes(lambda op, _kw: op, expr.op())
