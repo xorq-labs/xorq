@@ -25,7 +25,7 @@ class InitTemplates(StrEnum):
 
 # NOTE: These are commit hashes from when the template update occurred
 templates_branches = (
-    (InitTemplates.cached_fetcher, "574dbc1d8eb5636633592bda43e5f2e92ae94f46"),
-    (InitTemplates.sklearn, "3449258697314e12e3473044a3fabcc3a0b8cbad"),
-    (InitTemplates.penguins, "9424469bf9128a39f9c58f6904fb747b721eaaf1"),
+    (InitTemplates.cached_fetcher, "2c6c69f62e29ffd762d95b440a013de3a11c4750"),
+    (InitTemplates.sklearn, "f63e5658d250f5b42b24ddbd1bcdb2f0d2e0d830"),
+    (InitTemplates.penguins, "6ef79e76c27ef1f2cfd396c7424b976d06df4770"),
 )
