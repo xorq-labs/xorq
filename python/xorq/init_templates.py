@@ -27,7 +27,7 @@ class InitTemplates(StrEnum):
 templates_branches = (
     # cached_fetcher pinned to the template revision that addresses
     # the requirements.txt / uv.lock byte-match issue (#1941).
-    (InitTemplates.cached_fetcher, "574dbc1d8eb5636633592bda43e5f2e92ae94f46"),
+    (InitTemplates.cached_fetcher, "2c6c69f62e29ffd762d95b440a013de3a11c4750"),
     (InitTemplates.sklearn, "a915733da8fe69408e3254aa51e539017e0ac92a"),
     (InitTemplates.penguins, "034e12236e4935a62616253a7b096f7f29b92134"),
 )
