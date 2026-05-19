@@ -19,6 +19,7 @@ from xorq.common.utils.dasher._paths import (
     _stat_or_canonical,
 )
 
+
 # Per-outer-call memo for ``_databasetable_dispatcher``.  Cross-engine nested
 # expressions cause the same underlying ``DatabaseTable`` to be normalized
 # many times (``walk_nodes(DatabaseTable, op)`` descends through opaque
