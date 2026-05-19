@@ -73,7 +73,7 @@ jobs:
               - --extra sqlite
               - --extra duckdb
           - name: gizmosql
-            services: gizmosql
+            services: false
             extras:
               - --extra gizmosql
               - --extra duckdb

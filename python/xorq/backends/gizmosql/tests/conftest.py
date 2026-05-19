@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import contextlib
-import socket
-import time
+import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
 
@@ -12,15 +10,9 @@ import xorq.api as xo
 from xorq.vendor.ibis import util
 
 
-if TYPE_CHECKING:
-    pass
-
 # ── Constants ────────────────────────────────────────────────────────────────
-GIZMOSQL_PORT = 31337
-GIZMOSQL_IMAGE = "gizmodata/gizmosql:latest"
 GIZMOSQL_USERNAME = "ibis"
 GIZMOSQL_PASSWORD = "ibis_password"
-CONTAINER_NAME = "xorq-gizmosql-test"
 
 ROOT_DIR = Path(__file__).resolve().parents[5]  # xorq repo root
 DATA_DIR = ROOT_DIR / "ci" / "ibis-testing-data"
@@ -34,86 +26,115 @@ PARQUET_TABLES = (
 )
 
 
-# ── Docker container management ──────────────────────────────────────────────
-def _port_is_listening(port: int, host: str = "localhost") -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(1)
-        return s.connect_ex((host, port)) == 0
+def _generate_self_signed_cert(out_dir: Path) -> tuple[Path, Path]:
+    """Mint a self-signed RSA cert + key for ``localhost`` and write both as
+    PEM into ``out_dir``. Used to enable TLS on the test server so the test
+    suite still exercises the encrypted Flight SQL path (the previous Docker
+    image baked this in; the bare server binary needs explicit cert files).
+    """
+    from cryptography import x509  # noqa: PLC0415
+    from cryptography.hazmat.primitives import hashes, serialization  # noqa: PLC0415
+    from cryptography.hazmat.primitives.asymmetric import rsa  # noqa: PLC0415
+    from cryptography.x509.oid import NameOID  # noqa: PLC0415
 
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(minutes=1))
+        .not_valid_after(now + datetime.timedelta(days=1))
+        .add_extension(
+            x509.SubjectAlternativeName([x509.DNSName("localhost")]),
+            critical=False,
+        )
+        .sign(key, hashes.SHA256())
+    )
 
-def _wait_for_container_log(
-    container,
-    timeout=60,
-    poll_interval=1,
-    ready_message="GizmoSQL server - started",
-):
-    start_time = time.time()
-    while time.time() - start_time < timeout:
-        logs = container.logs().decode("utf-8")
-        if ready_message in logs:
-            return True
-        time.sleep(poll_interval)
-    raise TimeoutError(f"Container did not show '{ready_message}' within {timeout}s.")
+    cert_path = out_dir / "gizmosql_test_cert.pem"
+    key_path = out_dir / "gizmosql_test_key.pem"
+    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    # The key is written unencrypted because the server has to read it back
+    # at startup with no passphrase prompt available, and the tmp dir is
+    # session-scoped + per-pytest-invocation. The cert is loopback-only and
+    # ~1 day valid, so the on-disk plaintext window is bounded and the
+    # blast radius is limited to the same shell user already running pytest.
+    key_path.write_bytes(
+        key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+    )
+    return cert_path, key_path
 
 
 @pytest.fixture(scope="session")
-def gizmosql_server():
-    """Start the GizmoSQL Docker container for testing.
+def gizmosql_server(tmp_path_factory):
+    """Start the GizmoSQL server as a managed subprocess via the
+    [gizmosql](https://pypi.org/project/gizmosql/) PyPI package.
 
-    If a server is already listening on GIZMOSQL_PORT, skip Docker management
-    and use that server instead.
+    The package downloads + caches the matching server binary on first use,
+    auto-picks a free port, and tears the server down on exit — no Docker
+    is needed for the test fixture. A short-lived self-signed cert is
+    generated at session start and passed via ``--tls`` so the encrypted
+    Flight SQL path is still exercised by the tests. The CLI flag contract
+    (``--tls <cert> <key>``) is covered by the ``gizmosql>=1.26.0,<2``
+    version pin in ``pyproject.toml``.
+
+    Note: unlike the previous Docker-based fixture, this version does not
+    reuse a pre-existing server listening on a fixed port — it always
+    starts its own subprocess on a freshly-picked free port. Developers
+    who used to run a local GizmoSQL alongside pytest no longer benefit
+    from that fallback.
     """
-    if _port_is_listening(GIZMOSQL_PORT):
-        yield None
-        return
+    gizmosql = pytest.importorskip("gizmosql")
 
-    docker = pytest.importorskip("docker")
-    client = docker.from_env()
-    parquet_dir = str(DATA_DIR / "parquet")
+    cert_dir = tmp_path_factory.mktemp("gizmosql-tls")
+    # Restrict directory access to the owner before writing the unencrypted
+    # key — important on shared CI runners where the system tmp dir would
+    # otherwise be world-readable by default.
+    cert_dir.chmod(0o700)
+    cert_path, key_path = _generate_self_signed_cert(cert_dir)
 
-    try:
-        container = client.containers.get(CONTAINER_NAME)
-        if container.status == "running":
-            yield container
-            return
-        container.remove(force=True)
-    except docker.errors.NotFound:
-        pass
-
-    container = client.containers.run(
-        image=GIZMOSQL_IMAGE,
-        name=CONTAINER_NAME,
-        detach=True,
-        remove=True,
-        tty=True,
-        init=True,
-        ports={f"{GIZMOSQL_PORT}/tcp": GIZMOSQL_PORT},
-        volumes={parquet_dir: {"bind": "/data/parquet", "mode": "ro"}},
-        environment={
-            "GIZMOSQL_USERNAME": GIZMOSQL_USERNAME,
-            "GIZMOSQL_PASSWORD": GIZMOSQL_PASSWORD,
-            "TLS_ENABLED": "1",
-            "PRINT_QUERIES": "0",
-            "DATABASE_FILENAME": ":memory:",
-        },
-        stdout=True,
-        stderr=True,
-    )
-
-    _wait_for_container_log(container)
-    yield container
-    container.stop()
+    with gizmosql.Server(
+        username=GIZMOSQL_USERNAME,
+        password=GIZMOSQL_PASSWORD,
+        extra_args=["--tls", str(cert_path), str(key_path)],
+        # Match the previous Docker config's PRINT_QUERIES=0 explicitly
+        # rather than relying on the binary's default, so a future change
+        # to the default wouldn't quietly flip CI log volume.
+        extra_env={"PRINT_QUERIES": "0"},
+    ) as srv:
+        # Verify the public Server API surface this conftest depends on.
+        # The `gizmosql` pin (`>=1.26.0,<2`) prevents major-version drift;
+        # this check exists to degrade gracefully (skip rather than error)
+        # if a future patch release renames an attribute on us.
+        for attr in ("host", "port", "username", "password"):
+            if not hasattr(srv, attr):
+                pytest.skip(
+                    f"gizmosql.Server is missing expected attribute {attr!r}; "
+                    "the fixture needs updating for this gizmosql version."
+                )
+        yield srv
 
 
 @pytest.fixture(scope="session")
 def con(gizmosql_server):
     """GizmoSQL connection with test data loaded."""
     conn = xo.gizmosql.connect(
-        host="localhost",
-        user=GIZMOSQL_USERNAME,
-        password=GIZMOSQL_PASSWORD,
-        port=GIZMOSQL_PORT,
+        host=gizmosql_server.host,
+        user=gizmosql_server.username,
+        password=gizmosql_server.password,
+        port=gizmosql_server.port,
         use_encryption=True,
+        # The test cert is self-signed and freshly minted per session; skip
+        # cert-chain verification rather than wiring a CA bundle into the
+        # client for what is purely a loopback test connection.
         disable_certificate_verification=True,
     )
 
