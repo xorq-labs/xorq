@@ -45,6 +45,9 @@ from xorq.catalog.tui import (
     _build_git_log_rows,
     _entry_info,
     _format_cached,
+    _pygments_to_text,
+    _pygments_tokens,
+    _render_sql_text,
     _styled_branch_label,
     get_cache_key_path,
 )
@@ -1233,3 +1236,57 @@ def test_tui_options_apply_column_widths(catalog):
                 assert screen.query_one("#git-log-panel").display is True
 
     _run(_test())
+
+
+# ---------------------------------------------------------------------------
+# 14. SQL highlight pipeline: pure unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_pygments_tokens_cached_returns_same_object():
+    r1 = _pygments_tokens("SELECT id FROM t")
+    r2 = _pygments_tokens("SELECT id FROM t")
+    assert r1 is r2
+
+
+def test_pygments_tokens_keyword_bold():
+    tokens = _pygments_tokens("SELECT 1")
+    select_styles = [s for v, s in tokens if v.strip().upper() == "SELECT"]
+    assert any("bold" in s for s in select_styles)
+
+
+def test_pygments_to_text_fresh_object_per_call():
+    t1 = _pygments_to_text("SELECT 1")
+    t2 = _pygments_to_text("SELECT 1")
+    assert t1 is not t2
+
+
+def test_pygments_to_text_word_wrap_config():
+    text = _pygments_to_text("SELECT 1")
+    assert text.no_wrap is False
+    assert text.overflow == "fold"
+
+
+def test_render_sql_text_fallback_for_large_query():
+    with options.tui({"sql_highlight_max_lines": 10}):
+        big_sql = "SELECT 1\n" * 11
+        text = _render_sql_text(big_sql)
+        plain = text.plain
+        assert plain.startswith("-- syntax highlighting disabled")
+        assert "10 lines" in plain
+        assert "SELECT 1" in plain
+
+
+def test_render_sql_text_disabled_when_max_lines_zero():
+    with options.tui({"sql_highlight_max_lines": 0}):
+        text = _render_sql_text("SELECT 1")
+        plain = text.plain
+        assert plain.startswith("-- syntax highlighting disabled\n")
+        assert "lines" not in plain.split("\n")[0]
+        assert "SELECT 1" in plain
+
+
+def test_render_sql_text_highlights_small_query():
+    text = _render_sql_text("SELECT 1")
+    assert text.no_wrap is False
+    assert not text.plain.startswith("-- syntax highlighting disabled")

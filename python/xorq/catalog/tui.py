@@ -4,12 +4,14 @@ import subprocess
 import threading
 from collections import Counter
 from datetime import datetime
-from functools import cache, cached_property
+from functools import cache, cached_property, lru_cache
 from pathlib import Path
 from typing import Literal
 
 from attr import evolve, field, frozen
 from attr.validators import instance_of, optional
+from pygments import lex as pygments_lex
+from pygments.lexers import get_lexer_by_name as pygments_get_lexer
 from pygments.style import Style as PygmentsStyle
 from pygments.token import (
     Comment,
@@ -21,7 +23,6 @@ from pygments.token import (
     String,
     Token,
 )
-from rich.syntax import Syntax
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -103,6 +104,52 @@ KIND_ORDER: tuple[ExprKind, ...] = (
     ExprKind.Composed,
     ExprKind.ExprBuilder,
 )
+
+
+_SQL_LEXER = pygments_get_lexer("sql", stripnl=False)
+
+
+@lru_cache(maxsize=64)
+def _pygments_tokens(sql: str) -> tuple[tuple[str, str], ...]:
+    tokens = []
+    for ttype, value in pygments_lex(sql, _SQL_LEXER):
+        info = XorqSQLStyle.style_for_token(ttype)
+        parts = []
+        if info.get("bold"):
+            parts.append("bold")
+        if info.get("italic"):
+            parts.append("italic")
+        if info.get("color"):
+            parts.append(f"#{info['color']}")
+        tokens.append((value, " ".join(parts)))
+    return tuple(tokens)
+
+
+def _pygments_to_text(sql: str) -> Text:
+    text = Text(no_wrap=False, overflow="fold")
+    for value, style in _pygments_tokens(sql):
+        text.append(value, style=style)
+    return text
+
+
+SQL_HIGHLIGHT_MAX_LINES = 500
+
+
+def _render_sql_text(raw: str) -> Text:
+    # Line-length is intentionally unchecked: extremely wide lines render slowly
+    # in Textual, but that's an acceptable tradeoff vs. adding another heuristic.
+    max_lines = options.tui.sql_highlight_max_lines
+    if max_lines == 0 or raw.count("\n") > max_lines:
+        note = (
+            "-- syntax highlighting disabled\n"
+            if max_lines == 0
+            else f"-- syntax highlighting disabled (query exceeds {max_lines} lines)\n"
+        )
+        rich_text = Text(no_wrap=False, overflow="fold")
+        rich_text.append(note, style="italic #4AA8EC")
+        rich_text.append(raw)
+        return rich_text
+    return _pygments_to_text(raw)
 
 
 @frozen
@@ -481,8 +528,8 @@ class CatalogScreen(Screen):
         Binding("e", "open_data_view", "Explore"),
         Binding("v", "toggle_revisions", "Revisions"),
         Binding("g", "toggle_git_log", "Git Log"),
-        Binding("1", "view_sql", "SQL"),
-        Binding("2", "view_data", "Data"),
+        Binding("1", "view_sql", "SQL", priority=True),
+        Binding("2", "view_data", "Data", priority=True),
     )
 
     FOCUS_CYCLE = (
@@ -504,6 +551,7 @@ class CatalogScreen(Screen):
         self._refresh_lock = threading.Lock()
         self._active_view: Literal["sql", "data"] = "sql"
         self._data_preview_hash: str | None = None
+        self._current_sql_hash: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -616,6 +664,7 @@ class CatalogScreen(Screen):
             else None
         )
         if row_data is None:
+            self._current_sql_hash = None
             sql_preview.update("")
             info_content.update("")
             self.query_one("#schema-in-half").display = False
@@ -644,26 +693,22 @@ class CatalogScreen(Screen):
         sql_panel = self.query_one("#sql-panel")
         match row_data.sqls:
             case ():
+                self._current_sql_hash = None
                 sql_preview.update("(SQL unavailable)")
                 sql_panel.border_subtitle = ""
             case ((_, engine, sql),):
-                sql_preview.update(
-                    Syntax(sql, "sql", theme=XorqSQLStyle, word_wrap=True)
-                )
                 sql_panel.border_subtitle = engine
+                self._current_sql_hash = row_data.row_key
+                sql_preview.update(Text("Rendering SQL Query…", style="dim"))
+                self._load_sql_preview(row_data.row_key, sql)
             case sqls:
-                sql_preview.update(
-                    Syntax(
-                        _render_sql_dag(sqls),
-                        "sql",
-                        theme=XorqSQLStyle,
-                        word_wrap=True,
-                    )
-                )
                 engines = sorted({engine for _, engine, _ in sqls})
                 sql_panel.border_subtitle = (
                     f"{len(sqls)} queries · {', '.join(engines)}"
                 )
+                self._current_sql_hash = row_data.row_key
+                sql_preview.update(Text("Rendering SQL Query…", style="dim"))
+                self._load_sql_preview(row_data.row_key, sqls)
 
         # Info panel
         info_content.update(row_data.info_text)
@@ -880,6 +925,29 @@ class CatalogScreen(Screen):
         parts.append(str(repo_path))
         parts.append(stamp)
         self.query_one("#status-bar", Static).update(" · ".join(parts))
+
+    # --- SQL preview worker ---
+
+    @work(thread=True, exit_on_error=False, exclusive=True, group="sql_render")
+    def _load_sql_preview(
+        self,
+        entry_hash: str,
+        raw: str | tuple[tuple[str, str, str], ...],
+    ) -> None:
+        try:
+            if not isinstance(raw, str):
+                raw = _render_sql_dag(raw)
+            rich_text = _render_sql_text(raw)
+        except Exception:
+            logger.exception("sql_preview_render_failed", entry_hash=entry_hash)
+            rich_text = Text("(render error)", style="dim")
+
+        def _apply():
+            if not self.is_attached or self._current_sql_hash != entry_hash:
+                return
+            self.query_one("#sql-preview", Static).update(rich_text)
+
+        self.app.call_from_thread(_apply)
 
     # --- Toggle: Git Log ---
 

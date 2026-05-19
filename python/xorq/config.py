@@ -174,6 +174,9 @@ class TUI(Config):
         Whether the Revisions panel is shown at startup.
     git_log_open : bool
         Whether the Git log panel is shown at startup.
+    sql_highlight_max_lines : int
+        Queries exceeding this line count are shown as plain text without
+        syntax highlighting. Set to 0 to disable highlighting entirely.
     """
 
     left_ratio: int = max(int(env_config.XORQ_TUI_LEFT_RATIO or 2), 1)
@@ -183,6 +186,9 @@ class TUI(Config):
     )
     git_log_open: bool = bool(env_config.XORQ_TUI_GIT_LOG_OPEN) and parse_bool_env(
         env_config.XORQ_TUI_GIT_LOG_OPEN
+    )
+    sql_highlight_max_lines: int = max(
+        int(env_config.XORQ_TUI_SQL_HIGHLIGHT_MAX_LINES or 500), 0
     )
 
 
