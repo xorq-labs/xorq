@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779107013307,
+  "lastUpdate": 1779192058688,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -12900,6 +12900,114 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.006560637561771135",
             "extra": "mean: 4.025737910535713 msec\nrounds: 503"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "105f2feaab678c9988751bb9449944eb56cda38b",
+          "message": "perf(tui): move SQL highlighting off the UI thread (#1934)\n\nPygments lexing and Rich Syntax rendering previously ran synchronously\non the main thread on every NodeHighlighted event, freezing the TUI for\ndeeply nested CTEs (~1k+ lines). Fix:\n\n- Add `_pygments_tokens()` that tokenises SQL with Pygments and builds a\npre-styled `rich.Text` using `XorqSQLStyle.style_for_token()`, cached\nvia `lru_cache(maxsize=256)` keyed on the SQL string.\n- Add `_render_sql_text()` helper that applies the 500-line fallback\n(plain text with a `-- syntax highlighting disabled` note) or delegates\nto `_pygments_tokens`.\n- Add `_load_sql_preview` worker (`exclusive=True`,\n`group=\"sql_render\"`) that runs off-thread, cancelling stale in-flight\nrenders on rapid navigation.\n- Pass multi-query `sqls` tuple to the worker so `_render_sql_dag` also\nruns off the UI thread.\n- Guard worker result against `_current_sql_hash` and `is_attached` to\nprevent stale updates after navigation or screen dismissal.\n- Add `priority=True` to `Binding(\"1\", ...)` and `Binding(\"2\", ...)` so\nDataTable focus no longer swallows the view-switch keys.\n\nCloses XOR-305.\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-19T07:56:38-04:00",
+          "tree_id": "2aefccd2f0ae8a1de74558cf41356f08bc8f2914",
+          "url": "https://github.com/xorq-labs/xorq/commit/105f2feaab678c9988751bb9449944eb56cda38b"
+        },
+        "date": 1779192055625,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.104657434020616,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005361817405847956",
+            "extra": "mean: 109.83389624999873 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.3448677834505895,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06778890950877373",
+            "extra": "mean: 426.4632773999949 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6098179215711761,
+            "unit": "iter/sec",
+            "range": "stddev: 0.22944906948263172",
+            "extra": "mean: 1.639833735000002 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.335891866684405,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08118296810353973",
+            "extra": "mean: 428.1020086000012 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.281905055445513,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08024851123074375",
+            "extra": "mean: 438.2303276000073 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.4777687439926748,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06935667759263416",
+            "extra": "mean: 403.58891539999036 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[simple_filter_agg]",
+            "value": 192.33983750738136,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006670363579396451",
+            "extra": "mean: 5.199130939068321 msec\nrounds: 279"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[pipeline_50_steps]",
+            "value": 6.247326612759427,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07660325902766488",
+            "extra": "mean: 160.06846799999508 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_full[nested_into_backend]",
+            "value": 37.728379008407764,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02590079327147112",
+            "extra": "mean: 26.50524687999848 msec\nrounds: 50"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[simple_filter_agg]",
+            "value": 220.72822186434172,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01387505669674764",
+            "extra": "mean: 4.53045827830115 msec\nrounds: 424"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[pipeline_50_steps]",
+            "value": 257.46739003710866,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012649812502420081",
+            "extra": "mean: 3.883987016203763 msec\nrounds: 432"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dask_normalize.py::test_benchmark_tokenize_cached_structural[nested_into_backend]",
+            "value": 226.67347805856207,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008017384815322383",
+            "extra": "mean: 4.411632135196892 msec\nrounds: 429"
           }
         ]
       }
