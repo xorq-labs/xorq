@@ -12,12 +12,11 @@
 </div>
 
 ---
-Xorq is an executable memory system for tabular data work. Xorq gives
-agents a catalog of executable pipelines instead of markdown notes. It
-turns ephemeral agent work — pandas scripts, sklearn pipelines, ad-hoc
-tables, "works on my sandbox" environments — into durable, composable,
-executable artifacts that any future agent or human can reproduce and
-reuse.
+Xorq is an executable memory system for tabular data work. Xorq gives agents a
+catalog of executable pipelines instead of markdown notes. It turns ephemeral
+agent work — pandas scripts, sklearn pipelines, ad-hoc tables, "works on my
+sandbox" environments — into durable, composable, executable artifacts that any
+future agent or human can discover, reproduce and reuse.
 
 It comes with a CLI for agents and a TUI for humans with a git-native catalog.
 ![xorq catalog TUI](docs/images/catalog-tui.png)
@@ -34,11 +33,20 @@ productionizing any of it, means rewriting most of it.
 
 | Pain | Symptom |
 |------|---------|
-| **No memory of how** | An agent run leaves you with a folder of `.py`, `.json`, and `.html` files. To reproduce the result you re-run the scripts in the right order, with the right state. |
-| **No shared memory** | Two agents working the same task can't see each other's caches, so the same join runs in both sessions. When a cache does get reused ad-hoc, it can hand back stale results without warning. |
-| **No memory of what** | Agents describe what they did in prose. There is no versioned artifact to point at, so supervision means reading transcripts. |
-| **No memory of dependencies** | Someone renames a column upstream and a downstream model breaks. The dependency between them was never recorded outside the chat that produced them. |
-| **No memory across environments** | A pipeline that ran in one agent session has no path to another sandbox, your machine, or production. There is no shared store to publish to and no environment captured that you could rebuild from. |
+| **Imperative, stateful artifacts** | An agent run leaves you with a folder of
+`.py`, `.json`, and `.html` files. Reproducing the result means re-running them
+in the right order |
+| **No discoverable, shared index** | "Team memory" today is
+`~/.claude/memory/*.md` joined by symlinks, with a `MEMORY.md` index of
+one-liners pointing to the notes. There's no executable catalog two agents
+can both pull into context |
+| **No declarative spec of work** | Agents describe what they built in prose.
+There's no declarative artifact to open, explore, or reuse |
+| **No lineage graph** | Rename a column upstream and a downstream model breaks
+at runtime. The dependency lived only in chat history, not in a graph that
+could have flagged it before it shipped. |
+| **No portable environment** | A pipeline that ran in one agent session has no
+path to another sandbox, your machine, or production.|
 
 # Two ways to start
 
@@ -93,10 +101,9 @@ moves data between them.
 
 # Comparison
 
-Agent memory tools (Mem0) store markdown the LLM reads
-into context — fine for narrative, not for tabular data where LLMs
-can't be trusted to do arithmetic. Xorq's items execute against an
-engine, with provenance and reproducibility guarantees.
+A Xorq memory is a computation you reason about by its invariants (schema,
+lineage, content hash, deterministic execution), the way you reason about a
+matrix by its properties rather than its entries.
 
 | Approach | Memory item | Answer produced by | Provenance & reproducibility |
 |----------|-------------|---------------------|-------------------------------|
@@ -112,7 +119,8 @@ On [DABStep](https://huggingface.co/spaces/adyen/DABstep) — 450 data-analysis
 questions over payment transaction data — a Xorq semantic catalog of 33 named
 expressions takes Haiku from 50% to 84%, 8pp above the Sonnet baseline.
 
-![DABStep accuracy: Haiku 50%, Sonnet 75%, Haiku + Semantic Catalog 84%](docs/images/dabstep-benchmark.png)
+![DABStep accuracy: Haiku 4.5 50%, Sonnet 4.6 75%, Haiku 4.5 + Semantic Catalog
+84%](docs/images/dabstep-benchmark.png)
 
 Where the agent looks for context mattered more than which base model it
 used. Full write-up:
@@ -160,8 +168,10 @@ expr.ls.backends
 
 ### Expressions are tools, Arrow is the pipe
 
-Unix gave us small programs that compose via stdout. Xorq gives you expressions
-that compose via Arrow.
+Unix pipes text streams between small programs. Xorq pipes Arrow streams
+between expressions.
+
+`unix : programs :: xorq : arrow-transforms`
 
 ```
 In [6]: expr.to_pyarrow_batches()
