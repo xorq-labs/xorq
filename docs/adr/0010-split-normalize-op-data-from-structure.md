@@ -1,7 +1,7 @@
 # ADR-0010: Split data-dependent tokens out of expression normalization
 
-- **Status:** Accepted
-- **Date:** 2026-04-27
+- **Status:** Amended
+- **Date:** 2026-05-19
 - **Deciders:** Dan, Pierre
 
 ## Context
@@ -279,3 +279,66 @@ Rejected because:
 - `graph_utils.py:96-138` — `replace_nodes`
 - `graph_utils.py:32-55` — `gen_children_of`
 - `scripts/2026-04-27-pierre-sync.py` — example expression used for validation
+
+## Amendment — 2026-05-19: dasher migration (v2 → v3)
+
+PR #1951 replaced `dask.base.tokenize` with `xorq-dasher`, changing the
+hash algorithm and encoding underneath this ADR's decomposition. The
+decision (structural + per-slot data hashes, cheap substitution, minimal-env
+recomputation) is unchanged; only the mechanism moved.
+
+### What changed
+
+| | v2 (dask) | v3 (dasher) |
+|---|---|---|
+| Hash algorithm | MD5 (32-char hex) | xxh128 (32-char hex) |
+| Encoding | `str(normalized_tuple)` | Binary `_encode` (type-tagged, struct-packed) |
+| Recomputation dependency | `hashlib` only | `xxhash` + `struct` |
+| Normalizer return | `(tuple_of_slot_hashes, structural_hash)` | `("ibis.Expr.v3", structural_hash, *slot_hashes)` |
+| Metadata version | 2 | 3 |
+| Slot metadata | `{index, name, hash}` | `{index, kind, name, hash}` |
+
+### `_normalize_expr_xorq_impl` return shape
+
+The Expr normalizer now hashes data leaves inline and returns an
+all-strings tuple:
+
+```python
+structural_hash = hasher.tokenize("ibis.Expr.structural", sql, udfs)
+slot_hashes = tuple(
+    [hasher.tokenize(r) for r in reads]
+    + [hasher.tokenize(dt) for dt in dts]
+    + [hasher.tokenize(normalize_inmemorytable(m)) for m in mems]
+)
+return ("ibis.Expr.v3", structural_hash, *slot_hashes)
+```
+
+Because every element is a hex string (a primitive), `_normalize_recursive`
+passes through without further recursion, making the normalized form
+directly decomposable.
+
+### `compute_expr_token`
+
+Lives in `dasher/_recompute.py` with a vendored copy of `_encode`/`_write`
+so it imports only `xxhash` and `struct`:
+
+```python
+def compute_expr_token(structural_hash, slot_hashes):
+    inner = ("ibis.Expr.v3", structural_hash) + tuple(slot_hashes)
+    return xxhash.xxh128(_encode((inner,))).hexdigest()
+```
+
+### Why `xxhash` is acceptable as a minimal-env dependency
+
+The v2 formula needed only `hashlib` (stdlib). The v3 formula needs
+`xxhash`, a single-file C extension with no transitive dependencies and
+wheels for every platform. It is already a required dependency of
+`xorq-dasher` and thus present in any environment that produced the
+metadata in the first place.
+
+### References
+
+- `dasher/_opaque.py` — `_decompose_expr`, `_normalize_expr_xorq_impl`, `expr_metadata`
+- `dasher/_recompute.py` — `compute_expr_token`, vendored `_encode`/`_write`
+- `dasher/__init__.py` — public exports, `with_caches` wrapper
+- `tests/test_dasher.py` — round-trip, structural stability, slot invalidation, minimal-env tests
