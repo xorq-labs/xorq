@@ -126,14 +126,13 @@ ls "$BUILD"
 If `expr.py` changes its build changes. Edit `expr.py` and run `xorq uv build` again --- bump the year filter from 1965 to 1970:
 
 ```bash
-sed -i '' 's/1965/1970/' expr.py
 xorq uv build expr.py -e expr --builds-dir builds
 ```
 
 You'll get a new directory next to the old one:
 
 ```bash
-tree -L 1 builds
+ls -1 builds
 ```
 
 Nothing is overwritten. Re-running `xorq uv build` with no changes returns the same hash, no new directory.
@@ -141,10 +140,7 @@ Nothing is overwritten. Re-running `xorq uv build` with no changes returns the s
 ## Inspect
 
 ```bash
-xorq uv run "$BUILD" \
-    --format csv \
-    --limit 5 \
-    -o /dev/stdout
+xorq uv run "$BUILD" --format csv -o /dev/stdout 2>/dev/null | head -6
 ```
 
 ## What you used
