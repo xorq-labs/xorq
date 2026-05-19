@@ -33,20 +33,11 @@ productionizing any of it, means rewriting most of it.
 
 | Pain | Symptom |
 |------|---------|
-| **Imperative, stateful artifacts** | An agent run leaves you with a folder of
-`.py`, `.json`, and `.html` files. Reproducing the result means re-running them
-in the right order |
-| **No discoverable, shared index** | "Team memory" today is
-`~/.claude/memory/*.md` joined by symlinks, with a `MEMORY.md` index of
-one-liners pointing to the notes. There's no executable catalog two agents
-can both pull into context |
-| **No declarative spec of work** | Agents describe what they built in prose.
-There's no declarative artifact to open, explore, or reuse |
-| **No lineage graph** | Rename a column upstream and a downstream model breaks
-at runtime. The dependency lived only in chat history, not in a graph that
-could have flagged it before it shipped. |
-| **No portable environment** | A pipeline that ran in one agent session has no
-path to another sandbox, your machine, or production.|
+| **Imperative, stateful artifacts** | An agent run leaves you with a folder of `.py`, `.json`, and `.html` files. Reproducing the result means re-running them in the right order |
+| **No discoverable, shared index** | "Team memory" today is `~/.claude/memory/*.md` joined by symlinks, with a `MEMORY.md` index of one-liners pointing to the notes. There's no executable catalog two agents can both pull into context |
+| **No declarative spec of work** | Agents describe what they built in prose. There's no declarative artifact to open, explore, or reuse |
+| **No lineage graph** | Rename a column upstream and a downstream model breaks at runtime. The dependency lived only in chat history, not in a graph that could have flagged it before it shipped. |
+| **No portable environment** | A pipeline that ran in one agent session has no path to another sandbox, your machine, or production.|
 
 # Two ways to start
 
