@@ -286,6 +286,7 @@ ensure_up() {
         }
 
         setup_claude_credentials
+        install_hooks
         ensure_external_volumes
         if [ "$DEV_WORKSPACE" != "$DEV_MAIN_TREE" ]; then
             (cd "$DEV_WORKSPACE" && "$DEV_MAIN_TREE/dev/setup-worktree")

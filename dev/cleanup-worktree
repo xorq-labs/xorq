@@ -18,4 +18,9 @@ if [ -f "$manifest" ]; then
 fi
 
 cd "$main"
-git worktree remove "$here"
+git worktree unlock "$here" 2>/dev/null || true
+git worktree remove "$here" || {
+    git worktree lock "$here" \
+        --reason "re-locked after failed remove" 2>/dev/null || true
+    exit 1
+}

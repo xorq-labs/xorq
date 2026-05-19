@@ -12,3 +12,18 @@ dev_main_tree() {
     fi
     printf '%s\n' "$out" | head -1 | sed 's/^worktree //'
 }
+
+# Symlink the committable post-checkout hook into .git/hooks/ so that every
+# `git worktree add` — whether from dev/new-worktree, an agent, or a human —
+# auto-locks the new worktree.  Refuses to clobber a non-symlink hook.
+install_hooks() {
+    local main
+    main="$(dev_main_tree)" || return 1
+    local hook="$main/dev/hooks/post-checkout"
+    local dest="$main/.git/hooks/post-checkout"
+    [ -f "$hook" ] || return 0
+    if [ -e "$dest" ] && ! [ -L "$dest" ]; then
+        return 0
+    fi
+    ln -sf "../../dev/hooks/post-checkout" "$dest"
+}
