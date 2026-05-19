@@ -17,10 +17,32 @@ import xxhash
 
 
 if TYPE_CHECKING:
+    from typing import Literal, TypedDict
+
     from xorq.vendor.ibis.common.collections import FrozenOrderedDict
     from xorq.vendor.ibis.expr.operations.core import Node
+    from xorq.vendor.ibis.expr.operations.relations import (
+        DatabaseTable,
+        InMemoryTable,
+    )
+    from xorq.vendor.ibis.expr.operations.udf import AggUDF, ScalarUDF
+    from xorq.vendor.ibis.expr.relations import Read
     from xorq.vendor.ibis.expr.schema import Schema
     from xorq.vendor.ibis.expr.types.core import Expr
+
+    SlotKind = Literal["Read", "DatabaseTable", "InMemoryTable"]
+
+    class SlotDict(TypedDict):
+        index: int
+        kind: SlotKind
+        name: str
+        hash: str
+
+    class ExprMetadata(TypedDict):
+        version: Literal[3]
+        structural_hash: str
+        slots: list[SlotDict]
+
 
 logger = logging.getLogger(__name__)
 
@@ -318,9 +340,20 @@ def _normalize_expr_xorq(expr):
     return result
 
 
-def _normalize_expr_xorq_impl(expr, op):
-    from xorq_dasher.rules.expr import normalize_inmemorytable  # noqa: PLC0415
+def _decompose_expr(
+    expr: Expr, op: Node
+) -> tuple[
+    str,
+    tuple[Read, ...],
+    tuple[DatabaseTable, ...],
+    tuple[AggUDF | ScalarUDF, ...],
+    tuple[InMemoryTable, ...],
+]:
+    """Split an expression into structural SQL, data leaves, and UDFs.
 
+    Returns ``(sql, reads, dts, udfs, mems)`` where *reads*/*dts*/*mems* are
+    the data-carrying leaf ops and *udfs* are structural code-identity ops.
+    """
     from xorq.common.utils.graph_utils import replace_nodes, walk_nodes  # noqa: PLC0415
     from xorq.expr.api import get_compiler, to_sql  # noqa: PLC0415
     from xorq.expr.relations import CachedNode, Read  # noqa: PLC0415
@@ -349,14 +382,81 @@ def _normalize_expr_xorq_impl(expr, op):
     )
     udfs = tuple(walk_nodes((AggUDF, ScalarUDF), op))
     mems = tuple(walk_nodes(InMemoryTable, op))
-    return (
-        "ibis.Expr",
-        sql,
-        reads,
-        dts,
-        udfs,
-        tuple(normalize_inmemorytable(m) for m in mems),
+    return sql, reads, dts, udfs, mems
+
+
+def _hash_expr_components(expr: Expr, op: Node) -> tuple[str, list[SlotDict]]:
+    from xorq_dasher.rules.expr import normalize_inmemorytable  # noqa: PLC0415
+
+    from xorq.common.utils.dasher import HASHER, _current_hasher  # noqa: PLC0415
+
+    sql, reads, dts, udfs, mems = _decompose_expr(expr, op)
+    hasher = _current_hasher.get() or HASHER
+
+    structural_hash = hasher.tokenize("ibis.Expr.structural", sql, udfs)
+
+    def _read_name(r):
+        read_kwargs = dict(r.read_kwargs)
+        name = read_kwargs.get("read_path") or read_kwargs.get("hash_path", "")
+        if isinstance(name, (list, tuple)):
+            name = str(name[0]) if name else ""
+        return str(name)
+
+    labeled = itertools.chain(
+        (("Read", _read_name(r), hasher.tokenize(r)) for r in reads),
+        (("DatabaseTable", getattr(dt, "name", ""), hasher.tokenize(dt)) for dt in dts),
+        (
+            (
+                "InMemoryTable",
+                getattr(m, "name", ""),
+                hasher.tokenize(normalize_inmemorytable(m)),
+            )
+            for m in mems
+        ),
     )
+    slots: list[SlotDict] = [
+        {"index": idx, "kind": kind, "name": name, "hash": h}
+        for idx, (kind, name, h) in enumerate(labeled)
+    ]
+
+    return structural_hash, slots
+
+
+def _normalize_expr_xorq_impl(expr: Expr, op: Node) -> tuple[str, ...]:
+    structural_hash, slots = _hash_expr_components(expr, op)
+    slot_hashes = tuple(s["hash"] for s in slots)
+    return ("ibis.Expr.v3", structural_hash, *slot_hashes)
+
+
+def expr_metadata(expr: Expr) -> ExprMetadata:
+    """Produce serializable metadata for cross-environment token recomputation.
+
+    Returns a dict of the form::
+
+        {
+          "version": 3,
+          "structural_hash": "<xxh128 hex>",
+          "slots": [
+              {"index": 0, "kind": "Read", "name": "...", "hash": "<xxh128 hex>"},
+              ...
+          ],
+        }
+
+    UDFs (``AggUDF``, ``ScalarUDF``) contribute to ``structural_hash``
+    rather than appearing as separate slots.
+
+    The expression token can be recomputed from this dict using
+    :func:`~xorq.common.utils.dasher._recompute.compute_expr_token`, which
+    only needs ``xxhash`` and ``struct`` — no xorq or ibis import required.
+    """
+    op = expr.op()
+    structural_hash, slots = _hash_expr_components(expr, op)
+
+    return {
+        "version": 3,
+        "structural_hash": structural_hash,
+        "slots": slots,
+    }
 
 
 __all__ = [
@@ -367,4 +467,5 @@ __all__ = [
     "_rename_unbound_xorq",
     "_stable_opaque_name",
     "_xorq_opaque_to_placeholder",
+    "expr_metadata",
 ]
