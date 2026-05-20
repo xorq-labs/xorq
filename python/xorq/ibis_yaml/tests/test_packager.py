@@ -123,6 +123,49 @@ def test_wheel_runner(template, tmpdir):
     assert output_path.exists()
 
 
+# SHA on xorq-template-sklearn whose uv.lock pins xorq==0.3.25 + xorq-datafusion==0.2.7.
+# Running its packaged build hits a regression in execute_stream():
+#   "Arrow error: C Data interface error: Invalid: Mismatching number of
+#    fields and child arrays"
+# raised at xorq/backends/xorq_datafusion/__init__.py during cache write.
+# Once xorq-datafusion (or the xorq_datafusion backend wrapper from #1869)
+# is fixed, this test will pass and can be folded back into test_wheel_runner.
+_SKLEARN_PIN_UV_SHA = "d94dd60fe2328af70ba5652effb442e022719186"
+
+
+@pytest.mark.slow(level=2)
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
+)
+def test_wheel_runner_sklearn_xorq_datafusion_execute_stream_regression(tmpdir):
+    tmpdir = Path(tmpdir)
+    output_path = tmpdir.joinpath("output")
+    zip_path = tmpdir.joinpath("template.zip")
+    download_xorq_template(
+        InitTemplates.sklearn, branch=_SKLEARN_PIN_UV_SHA, target=zip_path
+    )
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        names = zf.namelist()
+        (first, *_) = names
+        root_dir = first.rstrip("/").split("/")[0]
+        zf.extractall(tmpdir)
+    project_path = tmpdir.joinpath(root_dir)
+    (project_path / DumpFiles.requirements).unlink(missing_ok=True)
+    script_path = project_path.joinpath("expr.py")
+    packager = WheelPackager(project_path)
+    packaged_builder = PackagedBuilder(
+        script_path=script_path,
+        bundle=packager.build(),
+    )
+    packaged_runner = PackagedRunner(
+        packaged_builder.build_path, output_path=str(output_path)
+    )
+    assert packaged_runner.run_result.returncode == 0, (
+        packaged_runner.run_result.stderr
+    )
+    assert output_path.exists()
+
+
 # ---------------------------------------------------------------------------
 # Unit tests for pure helpers (no subprocess / network)
 # ---------------------------------------------------------------------------
