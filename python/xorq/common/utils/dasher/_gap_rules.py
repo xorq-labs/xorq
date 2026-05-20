@@ -29,7 +29,14 @@ def normalize_attrs(obj):
     """Stable normalization for any ``attrs.frozen`` object.
 
     Used by classes that previously aliased ``__dask_tokenize__ = normalize_attrs``.
+    Raises ``TypeError`` if ``obj`` isn't an attrs class, so callers get a
+    clear diagnostic instead of an ``AttributeError: __getstate__`` from the
+    fallback.
     """
+    if not hasattr(type(obj), "__attrs_attrs__"):
+        raise TypeError(
+            f"normalize_attrs expected an attrs class, got {type(obj).__name__!r}"
+        )
     return tuple(sorted(obj.__getstate__().items()))
 
 

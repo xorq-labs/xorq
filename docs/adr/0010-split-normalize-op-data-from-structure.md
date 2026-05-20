@@ -1,8 +1,20 @@
 # ADR-0010: Split data-dependent tokens out of expression normalization
 
-- **Status:** Amended
+- **Status:** Amended (compute_expr_token / expr_metadata not shipped — see below)
 - **Date:** 2026-05-19
 - **Deciders:** Dan, Pierre
+
+> **Implementation status (2026-05-20):** The cheap-recompute protocol
+> described in §"`compute_expr_token`" and §"References" was not shipped.
+> ``expr_metadata`` was never added to ``dasher/`` and the
+> ``_normalize_expr_xorq_impl`` Expr-rule return shape was never converted
+> to the documented ``("ibis.Expr.v3", structural_hash, *slot_hashes)``
+> tuple-of-hex-strings format.  The half-written ``dasher/_recompute.py``
+> file (compute_expr_token only) was deleted as dead code; with no
+> producer of the v3 shape it had no callers.  This ADR is retained for
+> historical context; treat the §"`compute_expr_token`" and
+> §"Metadata schema" sections as describing a design that was deferred,
+> not the current API.
 
 ## Context
 

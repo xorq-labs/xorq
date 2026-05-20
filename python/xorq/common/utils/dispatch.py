@@ -36,6 +36,9 @@ class FQNDispatch:
                 self._cache[cls] = handler
                 return handler(arg, *args, **kwargs)
         if self._default is not None:
+            # Cache the default so future calls for the same unregistered type
+            # skip the full MRO walk.
+            self._cache[cls] = self._default
             return self._default(arg, *args, **kwargs)
         raise TypeError(f"No dispatch for {cls}")
 
