@@ -20,7 +20,7 @@ from __future__ import annotations
 _CATALOG_EXTRACT_DIR_RE = None
 
 
-def _canonicalize_catalog_path(s):
+def _canonicalize_catalog_path(s: str) -> tuple[str, bool]:
     """Strip the ``xorq-catalog-<random>/`` tempdir prefix if present.
 
     Returns the canonicalized path AND whether canonicalization actually
@@ -40,7 +40,7 @@ def _canonicalize_catalog_path(s):
     return canonical, canonical != s
 
 
-def _normalize_path_stat(path, **kwargs):
+def _normalize_path_stat(path: str, **kwargs) -> tuple:
     """Stable metadata for a path: HTTP HEAD, cloud metadata, or local stat."""
     import pathlib  # noqa: PLC0415
 
@@ -75,7 +75,7 @@ def _normalize_path_stat(path, **kwargs):
     raise FileNotFoundError(f"local path does not exist: {path!r}")
 
 
-def _stat_or_canonical(path):
+def _stat_or_canonical(path: str) -> tuple:
     """Token for an extracted file path.
 
     Paths that were canonicalized (relative after stripping the
@@ -98,7 +98,7 @@ def _stat_or_canonical(path):
     return ("canonical-build-path", path)
 
 
-def _extract_duckdb_file_paths(sql_ddl):
+def _extract_duckdb_file_paths(sql_ddl: str) -> tuple[str, ...]:
     """Extract file paths from a DuckDB DDL's read_parquet/read_csv literals.
 
     Paths are canonicalized via :func:`_canonicalize_catalog_path` so loads of
@@ -136,7 +136,7 @@ def _extract_duckdb_file_paths(sql_ddl):
     return parquet_paths + csv_paths
 
 
-def _extract_datafusion_plan_paths(ep_str):
+def _extract_datafusion_plan_paths(ep_str: str) -> tuple[str, ...]:
     """Extract file paths from a DataFusion execution plan's ``file_groups``.
 
     DataFusion's plan repr strips the leading ``/`` from absolute local paths;
