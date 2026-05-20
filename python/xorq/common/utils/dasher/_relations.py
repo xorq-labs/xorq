@@ -10,11 +10,9 @@ ep_str-only DT rule loses.
 from __future__ import annotations
 
 import contextvars
-from typing import Any
 
-from xorq.common.utils.dasher._opaque import _MISSING, _rename_unbound_xorq
+from xorq.common.utils.dasher._opaque import _rename_unbound_xorq
 from xorq.common.utils.dasher._paths import (
-    _REMOTE_SCHEMES,
     _extract_datafusion_plan_paths,
     _extract_duckdb_file_paths,
     _normalize_path_stat,
@@ -35,7 +33,7 @@ _dt_normalize_memo: contextvars.ContextVar[dict | None] = contextvars.ContextVar
 )
 
 
-def _normalize_read_xorq(read: Any) -> tuple:
+def _normalize_read_xorq(read):
     """xorq-flavored Read normalizer.
 
     xorq stores the read path under the canonical ``hash_path`` key (defer_utils
@@ -48,46 +46,32 @@ def _normalize_read_xorq(read: Any) -> tuple:
 
     read_kwargs = dict(read.read_kwargs)
     path = read_kwargs["hash_path"]
-    match path:
-        case list() | tuple() if len(path) == 1:
-            path = str(path[0])
-        case list() | tuple():
-            tpls = tuple(
-                _normalize_single_path(str(p), read_kwargs, read) for p in path
-            )
-            tpls += _read_extra_kwargs(read)
-            return ("xorq.Read", read.schema, tpls)
-        case str() | pathlib.Path():
-            path = str(path)
-        case _:
-            raise NotImplementedError(f"Don't know how to deal with path {path!r}")
-    tpls = (_normalize_single_path(path, read_kwargs, read),)
-    tpls += _read_extra_kwargs(read)
+    if isinstance(path, (list, tuple)):
+        path = path[0] if len(path) == 1 else path
+    if isinstance(path, (str, pathlib.Path)):
+        path = str(path)
+        if path.startswith(("http://", "https://", "s3://", "gs://", "gcs://")):
+
+            stat_kwargs = {k: v for k, v in read_kwargs.items() if k != "hash_path"}
+            tpls = _normalize_path_stat(path, **stat_kwargs)
+        elif not pathlib.Path(path).is_absolute() and path == read_kwargs.get(
+            "read_path"
+        ):
+            # Build-bundled Read: relative read_path is already a content hash.
+            tpls = (("build-relative-path", path),)
+        elif (p := pathlib.Path(path)).exists():
+            tpls = read.normalize_method(p)
+        else:
+            raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
+    else:
+        raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
+    tpls += tuple(
+        (k, v) for k, v in read.read_kwargs if k in ("mode", "schema", "temporary")
+    )
     return ("xorq.Read", read.schema, tpls)
 
 
-def _normalize_single_path(path: str, read_kwargs: dict, read: Any) -> tuple:
-    """Normalize a single string path for Read tokenization."""
-    import pathlib  # noqa: PLC0415
-
-    if path.startswith(_REMOTE_SCHEMES):
-        stat_kwargs = {k: v for k, v in read_kwargs.items() if k != "hash_path"}
-        return _normalize_path_stat(path, **stat_kwargs)
-    elif not pathlib.Path(path).is_absolute() and path == read_kwargs.get("read_path"):
-        return (("build-relative-path", path),)
-    elif (p := pathlib.Path(path)).exists():
-        return read.normalize_method(p)
-    else:
-        raise NotImplementedError(f"Don't know how to deal with path {path!r}")
-
-
-def _read_extra_kwargs(read: Any) -> tuple:
-    return tuple(
-        (k, v) for k, v in read.read_kwargs if k in ("mode", "schema", "temporary")
-    )
-
-
-def _normalize_duckdb_databasetable_xorq(dt: Any) -> tuple:
+def _normalize_duckdb_databasetable_xorq(dt):
     """DuckDB DT normalizer with catalog-extract path canonicalization.
 
     Dasher 0.1.0's ``normalize_duckdb_file_databasetable`` returns the raw
@@ -108,10 +92,7 @@ def _normalize_duckdb_databasetable_xorq(dt: Any) -> tuple:
     )
     ((_, plan),) = dt.source.raw_sql(f"EXPLAIN SELECT * FROM {name}").fetchall()
     scan_line = plan.split("\n")[1]
-    m = re.match(r"\s*│\s*(\w+)\s*│\s*", scan_line)
-    if m is None:
-        raise ValueError(f"unexpected DuckDB EXPLAIN format: {scan_line!r}")
-    scan_kind = m.group(1)
+    scan_kind = re.match(r"\s*│\s*(\w+)\s*│\s*", scan_line).group(1)
     if scan_kind in ("ARROW_SCAN", "PANDAS_SCAN"):
         return normalize_memory_databasetable(dt)
     if scan_kind in ("READ_PARQUET", "READ_CSV", "SEQ_SCAN"):
@@ -134,7 +115,7 @@ def _normalize_duckdb_databasetable_xorq(dt: Any) -> tuple:
     raise NotImplementedError(scan_line)
 
 
-def _normalize_datafusion_databasetable_xorq(dt: Any) -> tuple:
+def _normalize_datafusion_databasetable_xorq(dt):
     """Datafusion DT normalizer that stats Parquet/CSV files for content sensitivity.
 
     Dasher 0.1.0's rule returns just ``(schema, ep_str)`` for parquet/csv-backed
@@ -179,7 +160,7 @@ def _normalize_datafusion_databasetable_xorq(dt: Any) -> tuple:
     raise ValueError(f"unrecognized DataFusion execution plan: {ep_str!r}")
 
 
-def _databasetable_dispatcher(dt: Any) -> tuple:
+def _databasetable_dispatcher(dt):
     """Dispatch DatabaseTable subclasses to their specific normalizers.
 
     xorq_dasher 0.1.0's normalize_databasetable does not handle the
@@ -209,7 +190,7 @@ def _databasetable_dispatcher(dt: Any) -> tuple:
             _dt_normalize_memo.reset(reset_token)
 
 
-def _dispatch_databasetable(dt: Any) -> tuple:
+def _dispatch_databasetable(dt):
     from xorq_dasher.rules.expr import (  # noqa: PLC0415
         normalize_cached_node,
         normalize_databasetable,
@@ -253,7 +234,7 @@ def _dispatch_databasetable(dt: Any) -> tuple:
                 "xorq.FlightUDXF",
                 dt.input_expr,
                 type(dt.udxf).__qualname__,
-                getattr(dt.udxf, "exchange_f", _MISSING),
+                getattr(dt.udxf, "exchange_f", None),
                 dt.make_connection,
             )
     # For datafusion-backed file tables, dasher's normalize_datafusion_

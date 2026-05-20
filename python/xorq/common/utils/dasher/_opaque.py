@@ -9,13 +9,7 @@ of falling back to the global, data-sensitive HASHER).
 from __future__ import annotations
 
 import contextvars
-import logging
-from typing import Any
 
-import xxhash
-
-
-_MISSING = object()
 
 # Per-outer-call memo for ``_parent_token``.  Cross-engine nested expressions
 # (``RemoteTable`` containing a ``RemoteTable`` containing …) trigger a fresh
@@ -30,7 +24,7 @@ _expr_normalize_memo: contextvars.ContextVar[dict | None] = contextvars.ContextV
 )
 
 
-def _rename_unbound_xorq(op: Any, prefix: str = "static") -> Any:
+def _rename_unbound_xorq(op, prefix="static"):
     """Rewrite UnboundTable nodes to sequential placeholder names.
 
     Equivalent of ``xorq_dasher.rules.expr._rename_unbound`` but with a correct
@@ -55,7 +49,7 @@ def _rename_unbound_xorq(op: Any, prefix: str = "static") -> Any:
     return op.replace(rename)
 
 
-def _stable_opaque_name(prefix: str, *parts: Any) -> str:
+def _stable_opaque_name(prefix, *parts):
     """Build a deterministic placeholder name from xxhash of structural parts.
 
     xorq_dasher 0.1.0's ``_opaque_to_placeholder`` uses ``id(node)`` for some
@@ -63,11 +57,13 @@ def _stable_opaque_name(prefix: str, *parts: Any) -> str:
     identities for semantically-identical Reads). This helper keys on a
     content-stable hash of the supplied parts instead.
     """
+    import xxhash  # noqa: PLC0415
+
     payload = "|".join(str(p) for p in parts).encode("utf-8")
     return f"{prefix}-{xxhash.xxh128(payload).hexdigest()[:16]}"
 
 
-def _parent_token(thing: Any) -> str:
+def _parent_token(thing):
     """Tokenize an opaque sub-expression's parent / inner expr structurally.
 
     Used to fold the inner expression's identity into the placeholder name so
@@ -103,17 +99,17 @@ def _parent_token(thing: Any) -> str:
         try:
             tok = hasher.tokenize(thing)
         except RecursionError:
+            import logging  # noqa: PLC0415
+
+            import xxhash  # noqa: PLC0415
+
             logging.getLogger(__name__).warning(
                 "RecursionError tokenizing %r in _parent_token; falling back "
-                "to type+schema hash.  Investigate the op graph for cycles "
-                "or unbounded nesting.",
+                "to repr-hash.  Result is not reproducible across runs "
+                "investigate the op graph for cycles or unbounded nesting.",
                 type(thing).__name__,
             )
-            typ = type(thing)
-            fallback_op = thing.op() if hasattr(thing, "op") else thing
-            schema = getattr(thing, "schema", getattr(fallback_op, "schema", ""))
-            payload = f"{typ.__module__}.{typ.__qualname__}|{schema}"
-            tok = xxhash.xxh128(payload.encode("utf-8")).hexdigest()
+            tok = xxhash.xxh128(repr(thing).encode("utf-8")).hexdigest()
         memo[key] = tok
         return tok
     finally:
@@ -121,9 +117,7 @@ def _parent_token(thing: Any) -> str:
             _parent_token_memo.reset(reset_token)
 
 
-def _xorq_opaque_to_placeholder(
-    node: Any, _kwargs: dict | None = None, **_kw: Any
-) -> Any:
+def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
     """Replace opaque leaf nodes with UnboundTable placeholders.
 
     Mirrors xorq_dasher.rules.expr._opaque_to_placeholder but
@@ -158,8 +152,7 @@ def _xorq_opaque_to_placeholder(
             )
         case Read():
             read_kwargs = dict(node.read_kwargs)
-            rp = read_kwargs.get("read_path")
-            anchor = rp if rp is not None else read_kwargs.get("hash_path")
+            anchor = read_kwargs.get("read_path") or read_kwargs.get("hash_path")
             name = _stable_opaque_name("read", node.schema, anchor)
         case RemoteTable():
             name = _stable_opaque_name(
@@ -188,7 +181,7 @@ def _xorq_opaque_to_placeholder(
                 node.schema,
                 _parent_token(node.input_expr),
                 type(node.udxf).__qualname__,
-                _parent_token(getattr(node.udxf, "exchange_f", _MISSING)),
+                _parent_token(getattr(node.udxf, "exchange_f", None)),
             )
         case HashingTag():
             name = _stable_opaque_name(
@@ -213,7 +206,7 @@ def _xorq_opaque_to_placeholder(
     return api.table(node.schema, name=name).op()
 
 
-def _normalize_computed_kwargs_expr(cke: Any) -> tuple:
+def _normalize_computed_kwargs_expr(cke):
     """Content-stable, structural-only normalization of a ``computed_kwargs_expr``.
 
     The default Expr rule routes through SQL compilation, which embeds the
@@ -269,7 +262,7 @@ def _normalize_computed_kwargs_expr(cke: Any) -> tuple:
     )
 
 
-def _normalize_scalar_udf_xorq(udf: Any) -> tuple:
+def _normalize_scalar_udf_xorq(udf):
     """ScalarUDF normalizer that routes ``computed_kwargs_expr`` through the
     data-free :func:`_normalize_computed_kwargs_expr` helper.
 
@@ -294,7 +287,7 @@ def _normalize_scalar_udf_xorq(udf: Any) -> tuple:
     )
 
 
-def _normalize_expr_xorq(expr: Any) -> tuple:
+def _normalize_expr_xorq(expr):
     """Deterministic Expr normalizer; replaces dasher's id()-based version.
 
     Memoized per outer call via :data:`_expr_normalize_memo` keyed by ``op``
@@ -310,12 +303,9 @@ def _normalize_expr_xorq(expr: Any) -> tuple:
     return result
 
 
-def _decompose_expr(expr: Any, op: Any) -> tuple:
-    """Split an expression into structural SQL, data leaves, and UDFs.
+def _normalize_expr_xorq_impl(expr, op):
+    from xorq_dasher.rules.expr import normalize_inmemorytable  # noqa: PLC0415
 
-    Returns ``(sql, reads, dts, udfs, mems)`` where *reads*/*dts*/*mems* are
-    the data-carrying leaf ops and *udfs* are structural code-identity ops.
-    """
     from xorq.common.utils.graph_utils import replace_nodes, walk_nodes  # noqa: PLC0415
     from xorq.expr.api import get_compiler, to_sql  # noqa: PLC0415
     from xorq.expr.relations import CachedNode, Read  # noqa: PLC0415
@@ -344,100 +334,17 @@ def _decompose_expr(expr: Any, op: Any) -> tuple:
     )
     udfs = tuple(walk_nodes((AggUDF, ScalarUDF), op))
     mems = tuple(walk_nodes(InMemoryTable, op))
-    return sql, reads, dts, udfs, mems
-
-
-def _normalize_expr_xorq_impl(expr: Any, op: Any) -> tuple:
-    from xorq_dasher.rules.expr import normalize_inmemorytable  # noqa: PLC0415
-
-    from xorq.common.utils.dasher import HASHER, _current_hasher  # noqa: PLC0415
-
-    sql, reads, dts, udfs, mems = _decompose_expr(expr, op)
-    hasher = _current_hasher.get() or HASHER
-
-    structural_hash = hasher.tokenize("ibis.Expr.structural", sql, udfs)
-    slot_hashes = tuple(
-        [hasher.tokenize(r) for r in reads]
-        + [hasher.tokenize(dt) for dt in dts]
-        + [hasher.tokenize(normalize_inmemorytable(m)) for m in mems]
+    return (
+        "ibis.Expr",
+        sql,
+        reads,
+        dts,
+        udfs,
+        tuple(normalize_inmemorytable(m) for m in mems),
     )
-    return ("ibis.Expr.v3", structural_hash, *slot_hashes)
-
-
-def expr_metadata(expr: Any) -> dict:
-    """Produce serializable metadata for cross-environment token recomputation.
-
-    Returns a dict of the form::
-
-        {
-          "version": 3,
-          "structural_hash": "<xxh128 hex>",
-          "slots": [
-              {"index": 0, "kind": "Read", "name": "...", "hash": "<xxh128 hex>"},
-              ...
-          ],
-        }
-
-    The expression token can be recomputed from this dict using
-    :func:`~xorq.common.utils.dasher._recompute.compute_expr_token`, which
-    only needs ``xxhash`` and ``struct`` — no xorq or ibis import required.
-    """
-    from xorq_dasher.rules.expr import normalize_inmemorytable  # noqa: PLC0415
-
-    from xorq.common.utils.dasher import HASHER, _current_hasher  # noqa: PLC0415
-
-    op = expr.op()
-    sql, reads, dts, udfs, mems = _decompose_expr(expr, op)
-    hasher = _current_hasher.get() or HASHER
-
-    structural_hash = hasher.tokenize("ibis.Expr.structural", sql, udfs)
-
-    slots: list[dict] = []
-    idx = 0
-    for r in reads:
-        read_kwargs = dict(r.read_kwargs)
-        name = read_kwargs.get("read_path") or read_kwargs.get("hash_path", "")
-        if isinstance(name, (list, tuple)):
-            name = str(name[0]) if name else ""
-        slots.append(
-            {
-                "index": idx,
-                "kind": "Read",
-                "name": str(name),
-                "hash": hasher.tokenize(r),
-            }
-        )
-        idx += 1
-    for dt in dts:
-        slots.append(
-            {
-                "index": idx,
-                "kind": "DatabaseTable",
-                "name": getattr(dt, "name", ""),
-                "hash": hasher.tokenize(dt),
-            }
-        )
-        idx += 1
-    for m in mems:
-        slots.append(
-            {
-                "index": idx,
-                "kind": "InMemoryTable",
-                "name": getattr(m, "name", ""),
-                "hash": hasher.tokenize(normalize_inmemorytable(m)),
-            }
-        )
-        idx += 1
-
-    return {
-        "version": 3,
-        "structural_hash": structural_hash,
-        "slots": slots,
-    }
 
 
 __all__ = [
-    "_decompose_expr",
     "_normalize_computed_kwargs_expr",
     "_normalize_expr_xorq",
     "_normalize_scalar_udf_xorq",
@@ -445,5 +352,4 @@ __all__ = [
     "_rename_unbound_xorq",
     "_stable_opaque_name",
     "_xorq_opaque_to_placeholder",
-    "expr_metadata",
 ]

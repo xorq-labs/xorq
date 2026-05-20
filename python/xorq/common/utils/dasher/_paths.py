@@ -9,22 +9,18 @@ HTTP and cloud paths use ``HEAD`` / object-metadata calls.
 
 from __future__ import annotations
 
-import re
-
 
 # Catalog-extract tempdir prefix. ``xorq.catalog.expr_utils.load_expr_from_zip``
 # extracts each load into a fresh ``tempfile.mkdtemp(prefix="xorq-catalog-")``,
 # so the absolute paths embedded in DataFusion/DuckDB plan strings differ per
 # load and would otherwise leak per-load randomness into the DT token. The
-# regex strips everything up to and including the last ``xorq-catalog-<…>/``
+# regex strips everything up to and including the first ``xorq-catalog-<…>/``
 # segment, leaving the build-hashed suffix (which IS content-addressed and
 # stable across reloads). Owned by ADR-0007.
-_REMOTE_SCHEMES = ("http://", "https://", "s3://", "gs://", "gcs://")
-
-_CATALOG_EXTRACT_DIR_RE = re.compile(r".*/xorq-catalog-[^/]+/")
+_CATALOG_EXTRACT_DIR_RE = None
 
 
-def _canonicalize_catalog_path(s: str) -> tuple[str, bool]:
+def _canonicalize_catalog_path(s):
     """Strip the ``xorq-catalog-<random>/`` tempdir prefix if present.
 
     Returns the canonicalized path AND whether canonicalization actually
@@ -32,27 +28,26 @@ def _canonicalize_catalog_path(s: str) -> tuple[str, bool]:
     because the canonicalized form is now relative and the per-load tempfile
     has a fresh inode/mtime that would defeat catalog-reload stability.
     """
+    import re  # noqa: PLC0415
+
+    global _CATALOG_EXTRACT_DIR_RE
+    if _CATALOG_EXTRACT_DIR_RE is None:
+        _CATALOG_EXTRACT_DIR_RE = re.compile(r".*?/xorq-catalog-[^/]+/")
     canonical = _CATALOG_EXTRACT_DIR_RE.sub("", s)
     return canonical, canonical != s
 
 
-def _normalize_path_stat(path: str, **kwargs) -> tuple:
+def _normalize_path_stat(path, **kwargs):
     """Stable metadata for a path: HTTP HEAD, cloud metadata, or local stat."""
     import pathlib  # noqa: PLC0415
 
     if isinstance(path, str) and path.startswith(("http://", "https://")):
-        import urllib.error  # noqa: PLC0415
         import urllib.request  # noqa: PLC0415
 
         req = urllib.request.Request(
             path, method="HEAD", headers={"User-Agent": "xorq-cache"}
         )
-        try:
-            resp = urllib.request.urlopen(req, timeout=10)
-        except (urllib.error.URLError, OSError) as exc:
-            raise OSError(
-                f"failed to HEAD {path!r} for cache-key metadata: {exc}"
-            ) from exc
+        resp = urllib.request.urlopen(req, timeout=10)
         headers = resp.info()
         return (
             ("url", path),
@@ -77,7 +72,7 @@ def _normalize_path_stat(path: str, **kwargs) -> tuple:
     raise FileNotFoundError(f"local path does not exist: {path!r}")
 
 
-def _stat_or_canonical(path: str) -> tuple:
+def _stat_or_canonical(path):
     """Token for an extracted file path.
 
     Paths that were canonicalized (relative after stripping the
@@ -93,13 +88,14 @@ def _stat_or_canonical(path: str) -> tuple:
     import pathlib  # noqa: PLC0415
 
     if isinstance(path, str) and (
-        path.startswith(_REMOTE_SCHEMES) or pathlib.Path(path).is_absolute()
+        path.startswith(("http://", "https://", "s3://", "gs://", "gcs://"))
+        or pathlib.Path(path).is_absolute()
     ):
         return _normalize_path_stat(path)
     return ("canonical-build-path", path)
 
 
-def _extract_duckdb_file_paths(sql_ddl: str) -> tuple[str, ...]:
+def _extract_duckdb_file_paths(sql_ddl):
     """Extract file paths from a DuckDB DDL's read_parquet/read_csv literals.
 
     Paths are canonicalized via :func:`_canonicalize_catalog_path` so loads of
@@ -112,20 +108,17 @@ def _extract_duckdb_file_paths(sql_ddl: str) -> tuple[str, ...]:
     tree = sg.parse_one(sql_ddl, dialect="duckdb")
 
     def canon(raw):
-        if raw.startswith(_REMOTE_SCHEMES):
+        if raw.startswith(("http://", "https://", "s3://", "gs://", "gcs://")):
             return raw
         p = pathlib.Path(raw)
         absolute = str(p if p.is_absolute() else pathlib.Path("/") / raw)
         canonical, _ = _canonicalize_catalog_path(absolute)
         return canonical
 
-    # ReadParquet stores the path in expressions[0] (not func.this like ReadCSV).
-    # Restrict to the first expression to avoid capturing string-valued kwargs.
     parquet_paths = tuple(
         canon(lit.this)
         for func in tree.find_all(sg.exp.ReadParquet)
-        if func.expressions
-        for lit in func.expressions[0].find_all(sg.exp.Literal)
+        for lit in func.find_all(sg.exp.Literal)
         if lit.is_string
     )
     # ReadCSV's func.expressions hold keyword args whose string literals are
@@ -140,7 +133,7 @@ def _extract_duckdb_file_paths(sql_ddl: str) -> tuple[str, ...]:
     return parquet_paths + csv_paths
 
 
-def _extract_datafusion_plan_paths(ep_str: str) -> tuple[str, ...]:
+def _extract_datafusion_plan_paths(ep_str):
     """Extract file paths from a DataFusion execution plan's ``file_groups``.
 
     DataFusion's plan repr strips the leading ``/`` from absolute local paths;
@@ -162,7 +155,7 @@ def _extract_datafusion_plan_paths(ep_str: str) -> tuple[str, ...]:
     (groups,) = parsed.values()
     out = []
     for raw in itertools.chain.from_iterable(groups):
-        if raw.startswith(_REMOTE_SCHEMES):
+        if raw.startswith(("http://", "https://", "s3://", "gs://", "gcs://")):
             out.append(raw)
             continue
         p = pathlib.Path(raw)
@@ -173,7 +166,6 @@ def _extract_datafusion_plan_paths(ep_str: str) -> tuple[str, ...]:
 
 
 __all__ = [
-    "_REMOTE_SCHEMES",
     "_canonicalize_catalog_path",
     "_extract_datafusion_plan_paths",
     "_extract_duckdb_file_paths",

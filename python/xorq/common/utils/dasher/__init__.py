@@ -69,9 +69,6 @@ from xorq.common.utils.dasher._opaque import (  # noqa: E402, F401
     _normalize_scalar_udf_xorq,
     _xorq_opaque_to_placeholder,
 )
-from xorq.common.utils.dasher._opaque import (  # noqa: E402
-    expr_metadata as _expr_metadata_unwrapped,
-)
 
 # Re-exported so existing callers (and tests) keep ``from
 # xorq.common.utils.dasher import _canonicalize_catalog_path`` working after
@@ -83,9 +80,6 @@ from xorq.common.utils.dasher._paths import (  # noqa: E402, F401
     _extract_datafusion_plan_paths,
     _extract_duckdb_file_paths,
     _normalize_path_stat,
-)
-from xorq.common.utils.dasher._recompute import (  # noqa: E402, F401
-    compute_expr_token,
 )
 from xorq.common.utils.dasher._relations import (  # noqa: E402, F401
     _databasetable_dispatcher,
@@ -198,15 +192,6 @@ def normalize(obj):
     return HASHER.normalize(obj)
 
 
-@with_caches
-def expr_metadata(expr) -> dict:
-    """Decompose an expression token into structural + per-slot data hashes.
-
-    See :func:`~xorq.common.utils.dasher._opaque.expr_metadata` for details.
-    """
-    return _expr_metadata_unwrapped(expr)
-
-
 def snapshot_hasher(*extra_rules) -> Hasher:
     """Return a Hasher with snapshot-specific overrides layered on top of HASHER.
 
@@ -219,8 +204,6 @@ def snapshot_hasher(*extra_rules) -> Hasher:
 __all__ = [
     "HASHER",
     "Hasher",
-    "compute_expr_token",
-    "expr_metadata",
     "fqn",
     "tokenize",
     "normalize",
