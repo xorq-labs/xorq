@@ -14,9 +14,9 @@
 ---
 Xorq is an executable memory system for tabular data work. Xorq gives agents a
 catalog of executable pipelines instead of markdown notes. It turns ephemeral
-agent work — pandas scripts, sklearn pipelines, ad-hoc tables, "works on my
-sandbox" environments — into durable, composable, executable artifacts that any
-future agent or human can discover, reproduce and reuse.
+agent work such as pandas scripts, sklearn pipelines, ad-hoc tables into
+durable, composable, executable artifacts that any future agent or human can
+discover, reproduce and reuse.
 
 It comes with a CLI for agents and a TUI for humans with a git-native catalog.
 ![xorq catalog TUI](docs/images/catalog-tui.png)
@@ -24,12 +24,16 @@ It comes with a CLI for agents and a TUI for humans with a git-native catalog.
 ---
 # The Problem
 
-You ask a coding agent to build a dashboard. A few hours later you have one,
-along with a folder of one-off Python scripts that import each other in
-non-obvious ways, an embedded JSON holding intermediate state, and a
-`requirements.txt` that was last regenerated two sessions ago. It runs
-end-to-end on your laptop. Reproducing it on another machine, or
-productionizing any of it, means rewriting most of it.
+Coding agents are great at accomplishing closed-loop task but in the process
+accumulate tech-debt and unnecessary complexity. For example, if you ask a
+coding agent to build a dashboard, you are more likely than not to get a folder
+of one-off Python scripts that import each other in non-obvious ways, an
+embedded JSON holding intermediate state, and a `requirements.txt` that was
+last regenerated two sessions ago. It may also runs end-to-end on your laptop.
+Verifying by reproducing on another machine, or productionizing any of it,
+means rewriting most of it. And every time you rewrite, more complexity gets
+introduced.
+
 
 | Pain | Symptom |
 |------|---------|
