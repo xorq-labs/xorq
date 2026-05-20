@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextvars
 
+from xorq.common.utils.dasher._gap_rules import normalize_ibis_schema
 from xorq.common.utils.dasher._opaque import _rename_unbound_xorq
 from xorq.common.utils.dasher._paths import (
     _extract_datafusion_plan_paths,
@@ -106,7 +107,9 @@ def _normalize_duckdb_databasetable_xorq(dt):
     scan_line = lines[1]
     m = re.match(r"\s*│\s*(\w+)\s*│\s*", scan_line)
     if m is None:
-        raise ValueError(f"unrecognized EXPLAIN scan line for {dt.name!r}: {scan_line!r}")
+        raise ValueError(
+            f"unrecognized EXPLAIN scan line for {dt.name!r}: {scan_line!r}"
+        )
     scan_kind = m.group(1)
     if scan_kind in ("ARROW_SCAN", "PANDAS_SCAN"):
         return normalize_memory_databasetable(dt)
@@ -121,12 +124,16 @@ def _normalize_duckdb_databasetable_xorq(dt):
             file_metadata = tuple((p, _stat_or_canonical(p)) for p in sorted(paths))
             return (
                 "ibis.DatabaseTable.duckdb.file",
-                dt.schema.to_pandas(),
+                normalize_ibis_schema(dt.schema),
                 file_metadata,
             )
         # Fallback to the raw-DDL form when we can't parse paths (preserves
         # dasher 0.1.0 behavior).
-        return ("ibis.DatabaseTable.duckdb.file", dt.schema.to_pandas(), sql_ddl)
+        return (
+            "ibis.DatabaseTable.duckdb.file",
+            normalize_ibis_schema(dt.schema),
+            sql_ddl,
+        )
     raise NotImplementedError(scan_line)
 
 
@@ -156,7 +163,7 @@ def _normalize_datafusion_databasetable_xorq(dt):
             file_metadata = tuple((p, _stat_or_canonical(p)) for p in sorted(paths))
             return (
                 "ibis.DatabaseTable.datafusion.file",
-                dt.schema.to_pandas(),
+                normalize_ibis_schema(dt.schema),
                 file_metadata,
             )
         raise ValueError(
@@ -167,7 +174,7 @@ def _normalize_datafusion_databasetable_xorq(dt):
     if "PyRecordBatchProviderExec" in ep_str:
         return (
             "ibis.DatabaseTable.datafusion.recordbatch",
-            dt.schema.to_pandas(),
+            normalize_ibis_schema(dt.schema),
             dt.name,
         )
     if ep_str.startswith("EmptyExec"):

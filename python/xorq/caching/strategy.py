@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import functools
 import pathlib
 from abc import (
@@ -35,6 +36,17 @@ from xorq.expr.relations import (
 )
 from xorq.vendor import ibis
 from xorq.vendor.ibis.expr import types as ir
+
+
+# Per-outer-call memo for ``SnapshotStrategy.normalize_databasetable``.
+# Mirrors ``_dt_normalize_memo`` in ``_relations.py`` but kept separate so
+# snapshot-flavored DT results don't alias on the same ``dt`` key used by
+# the global-hasher dispatcher.  Installed by ``with_caches`` on
+# ``SnapshotStrategy.calc_key`` so transitive normalizes within one outer
+# tokenize share results.
+_snapshot_dt_normalize_memo: contextvars.ContextVar[dict | None] = (
+    contextvars.ContextVar("_xorq_snapshot_dt_normalize_memo", default=None)
+)
 
 
 def snapshot_normalize_read(read):
@@ -99,16 +111,25 @@ class SnapshotStrategy(CacheStrategy):
         installed in ``_current_hasher`` so transitive tokenize calls inside
         the opaque-placeholder replacer (``_parent_token``) propagate the
         snapshot-flavored rules instead of falling back to the data-sensitive
-        global HASHER.
+        global HASHER.  A per-call DT memo is installed alongside so repeated
+        visits of the same DT under deeply nested into_backend chains
+        normalize once.
         """
         from xorq.common.utils.dasher import _current_hasher  # noqa: PLC0415
 
         local = self._build_hasher(expr)
-        token = _current_hasher.set(local)
+        hasher_token = _current_hasher.set(local)
+        memo_token = (
+            _snapshot_dt_normalize_memo.set({})
+            if _snapshot_dt_normalize_memo.get() is None
+            else None
+        )
         try:
             yield local
         finally:
-            _current_hasher.reset(token)
+            _current_hasher.reset(hasher_token)
+            if memo_token is not None:
+                _snapshot_dt_normalize_memo.reset(memo_token)
 
     def _build_hasher(self, expr):
         extra = [
@@ -155,16 +176,26 @@ class SnapshotStrategy(CacheStrategy):
         # rule over the more specific subclass rules, so we must dispatch on
         # the concrete type here or those subclasses get a wrong (path-,
         # parent-, or remote_expr-blind) normalization.
+        #
+        # Memoized per outer call via ``_snapshot_dt_normalize_memo`` so
+        # nested into_backend chains don't renormalize the same DT N times
+        # (mirrors ``_databasetable_dispatcher`` in ``_relations.py``).
+        memo = _snapshot_dt_normalize_memo.get()
+        if memo is not None and dt in memo:
+            return memo[dt]
         match dt:
             case Read():
-                return snapshot_normalize_read(dt)
+                result = snapshot_normalize_read(dt)
             case CachedNode():
-                return normalize_cached_node(dt)
+                result = normalize_cached_node(dt)
             case RemoteTable():
-                return normalize_remote_table(dt)
+                result = normalize_remote_table(dt)
             case _:
                 keys = ("name", "schema", "source", "namespace")
-                return tuple((k, getattr(dt, k)) for k in keys)
+                result = tuple((k, getattr(dt, k)) for k in keys)
+        if memo is not None:
+            memo[dt] = result
+        return result
 
 
 __all__ = [
