@@ -46,23 +46,26 @@ def _normalize_read_xorq(read):
 
     read_kwargs = dict(read.read_kwargs)
     path = read_kwargs["hash_path"]
-    if isinstance(path, (list, tuple)):
-        path = path[0] if len(path) == 1 else path
-    if isinstance(path, (str, pathlib.Path)):
-        path = str(path)
-        if path.startswith(("http://", "https://", "s3://", "gs://", "gcs://")):
+    if isinstance(path, (list, tuple)) and len(path) == 1:
+        path = path[0]
 
+    def _one(p):
+        s = str(p)
+        if s.startswith(("http://", "https://", "s3://", "gs://", "gcs://")):
             stat_kwargs = {k: v for k, v in read_kwargs.items() if k != "hash_path"}
-            tpls = _normalize_path_stat(path, **stat_kwargs)
-        elif not pathlib.Path(path).is_absolute() and path == read_kwargs.get(
-            "read_path"
-        ):
+            return _normalize_path_stat(s, **stat_kwargs)
+        if not pathlib.Path(s).is_absolute() and s == read_kwargs.get("read_path"):
             # Build-bundled Read: relative read_path is already a content hash.
-            tpls = (("build-relative-path", path),)
-        elif (p := pathlib.Path(path)).exists():
-            tpls = read.normalize_method(p)
-        else:
-            raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
+            return (("build-relative-path", s),)
+        pp = pathlib.Path(s)
+        if pp.exists():
+            return read.normalize_method(pp)
+        raise NotImplementedError(f'Don\'t know how to deal with path "{p}"')
+
+    if isinstance(path, (list, tuple)):
+        tpls = tuple(t for p in path for t in _one(p))
+    elif isinstance(path, (str, pathlib.Path)):
+        tpls = _one(path)
     else:
         raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
     tpls += tuple(
