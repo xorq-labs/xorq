@@ -45,7 +45,13 @@ def _normalize_read_xorq(read):
     import pathlib  # noqa: PLC0415
 
     read_kwargs = dict(read.read_kwargs)
-    path = read_kwargs["hash_path"]
+    path = read_kwargs.get("hash_path")
+    if path is None:
+        raise ValueError(
+            f"Read op {getattr(read, 'name', read)!r} has no 'hash_path' in "
+            f"read_kwargs (keys: {sorted(read_kwargs)!r}); "
+            f"normalize_filenames must run before tokenization."
+        )
     if isinstance(path, (list, tuple)) and len(path) == 1:
         path = path[0]
 
@@ -94,8 +100,14 @@ def _normalize_duckdb_databasetable_xorq(dt):
         dialect=dt.source.name
     )
     ((_, plan),) = dt.source.raw_sql(f"EXPLAIN SELECT * FROM {name}").fetchall()
-    scan_line = plan.split("\n")[1]
-    scan_kind = re.match(r"\s*│\s*(\w+)\s*│\s*", scan_line).group(1)
+    lines = plan.split("\n")
+    if len(lines) < 2:
+        raise ValueError(f"unexpected EXPLAIN output for {dt.name!r}: {plan!r}")
+    scan_line = lines[1]
+    m = re.match(r"\s*│\s*(\w+)\s*│\s*", scan_line)
+    if m is None:
+        raise ValueError(f"unrecognized EXPLAIN scan line for {dt.name!r}: {scan_line!r}")
+    scan_kind = m.group(1)
     if scan_kind in ("ARROW_SCAN", "PANDAS_SCAN"):
         return normalize_memory_databasetable(dt)
     if scan_kind in ("READ_PARQUET", "READ_CSV", "SEQ_SCAN"):

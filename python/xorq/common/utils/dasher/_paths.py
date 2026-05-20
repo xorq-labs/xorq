@@ -33,7 +33,10 @@ def _canonicalize_catalog_path(s):
     global _CATALOG_EXTRACT_DIR_RE
     if _CATALOG_EXTRACT_DIR_RE is None:
         _CATALOG_EXTRACT_DIR_RE = re.compile(r".*?/xorq-catalog-[^/]+/")
-    canonical = _CATALOG_EXTRACT_DIR_RE.sub("", s)
+    # ``count=1`` so paths that somehow contain multiple ``xorq-catalog-*``
+    # segments only get their leading tempdir prefix stripped, not every
+    # nested one.
+    canonical = _CATALOG_EXTRACT_DIR_RE.sub("", s, count=1)
     return canonical, canonical != s
 
 

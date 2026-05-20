@@ -103,9 +103,9 @@ def _parent_token(thing):
 
             import xxhash  # noqa: PLC0415
 
-            logging.getLogger(__name__).warning(
+            logging.getLogger(__name__).error(
                 "RecursionError tokenizing %r in _parent_token; falling back "
-                "to repr-hash.  Result is not reproducible across runs "
+                "to repr-hash.  Result is not reproducible across runs — "
                 "investigate the op graph for cycles or unbounded nesting.",
                 type(thing).__name__,
             )
