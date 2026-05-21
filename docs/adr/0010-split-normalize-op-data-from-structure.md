@@ -1,20 +1,8 @@
 # ADR-0010: Split data-dependent tokens out of expression normalization
 
-- **Status:** Amended (compute_expr_token / expr_metadata not shipped — see below)
+- **Status:** Amended
 - **Date:** 2026-05-19
 - **Deciders:** Dan, Pierre
-
-> **Implementation status (2026-05-20):** The cheap-recompute protocol
-> described in §"`compute_expr_token`" and §"References" was not shipped.
-> ``expr_metadata`` was never added to ``dasher/`` and the
-> ``_normalize_expr_xorq_impl`` Expr-rule return shape was never converted
-> to the documented ``("ibis.Expr.v3", structural_hash, *slot_hashes)``
-> tuple-of-hex-strings format.  The half-written ``dasher/_recompute.py``
-> file (compute_expr_token only) was deleted as dead code; with no
-> producer of the v3 shape it had no callers.  This ADR is retained for
-> historical context; treat the §"`compute_expr_token`" and
-> §"Metadata schema" sections as describing a design that was deferred,
-> not the current API.
 
 ## Context
 
@@ -339,6 +327,16 @@ def compute_expr_token(structural_hash, slot_hashes):
     inner = ("ibis.Expr.v3", structural_hash) + tuple(slot_hashes)
     return xxhash.xxh128(_encode((inner,))).hexdigest()
 ```
+
+### On-disk cache invalidation
+
+The algorithm change means every token value differs from its v2
+equivalent. Existing on-disk cache entries (Parquet files keyed by v2
+tokens) will simply be cache misses under the new v3 keys — no stale
+data will be served. Orphaned v2 files can be deleted manually or via
+the cache storage's TTL/eviction logic; no automated migration is
+provided because a clean recompute is the safest path and the
+performance cost is one-time.
 
 ### Why `xxhash` is acceptable as a minimal-env dependency
 
