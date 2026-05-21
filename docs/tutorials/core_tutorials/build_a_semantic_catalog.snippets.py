@@ -6,8 +6,8 @@ so the snippets file mirrors the reader's experience top-to-bottom; the final
 unified script in the tutorial is the same code in one piece, so we don't
 repeat it here.
 
-The tutorial tells readers to ``uv init`` and ``uv add "xorq[bsl,duckdb]"`` in
-a project directory before running the script. We mimic that here by chdir'ing
+The tutorial tells readers to ``uv init`` and ``uv add "xorq[bsl]"`` in a
+project directory before running the script. We mimic that here by chdir'ing
 into a fresh tempdir with a pyproject.toml + requirements.txt that name xorq
 as a dep — that's the same shape the wheel packager sees in the reader's
 project, just hand-written instead of resolved by ``uv lock``. Skipping the
@@ -16,7 +16,7 @@ starts to depend on a fully-resolved transitive lock, this fixture should be
 upgraded to run ``uv lock`` for real.
 """
 
-# %% --- test fixture: stand in for `uv init && uv add "xorq[bsl,duckdb]"`
+# %% --- test fixture: stand in for `uv init && uv add "xorq[bsl]"`
 import os as _os
 import shutil as _shutil
 import tempfile as _tempfile
@@ -25,10 +25,10 @@ from pathlib import Path as _Path
 _workdir = _Path(_tempfile.mkdtemp(prefix="xorq-build-tutorial-"))
 (_workdir / "pyproject.toml").write_text(
     '[project]\nname = "flights-tutorial"\nversion = "0.0.0"\n'
-    'dependencies = ["xorq[bsl,duckdb]"]\n'
+    'dependencies = ["xorq[bsl]"]\n'
     "[tool.setuptools]\npackages = []\n"
 )
-(_workdir / "requirements.txt").write_text("xorq[bsl,duckdb]\n")
+(_workdir / "requirements.txt").write_text("xorq[bsl]\n")
 _os.chdir(_workdir)
 # --- end fixture ---
 
