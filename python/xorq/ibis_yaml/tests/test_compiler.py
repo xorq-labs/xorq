@@ -1111,7 +1111,7 @@ def test_tokenize_non_catalog_read_unchanged(parquet_dir):
 
 def test_tokenize_missing_path_still_raises(parquet_dir):
     """A Read without `read_path` whose `hash_path` is a bogus relative path
-    must still raise NotImplementedError. The read_path-preferring branch only
+    must still raise FileNotFoundError. The read_path-preferring branch only
     kicks in when the catalog contract is in effect."""
     parquet_path = parquet_dir / "awards_players.parquet"
     backend = xo.duckdb.connect()
@@ -1125,5 +1125,5 @@ def test_tokenize_missing_path_still_raises(parquet_dir):
         dict(zip(op.__argnames__, op.__args__)) | {"read_kwargs": bogus}
     )
 
-    with pytest.raises(NotImplementedError, match="memtables/does-not-exist"):
+    with pytest.raises(FileNotFoundError, match="memtables/does-not-exist"):
         tokenize(bad.to_expr())
