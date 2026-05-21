@@ -10,7 +10,6 @@ from __future__ import annotations
 import functools
 import operator
 import types
-from ctypes import POINTER, Structure, c_size_t, c_void_p, cast, py_object
 from typing import TYPE_CHECKING
 
 import toolz
@@ -24,26 +23,22 @@ if TYPE_CHECKING:
     from xorq.vendor.ibis.expr.schema import Schema
 
 
-_PYOBJECT_HEAD = [("ob_refcnt", c_size_t), ("ob_type", c_void_p)]
-
-
-def _ctypes_field(fields: tuple[str, ...], field: str, obj: object):
-    cls = type(
-        "ctypes-hack",
-        (Structure,),
-        {"_fields_": _PYOBJECT_HEAD + [(f, c_void_p) for f in fields]},
-    )
-    inst = cast(c_void_p(id(obj)), POINTER(cls)).contents
-    return cast(getattr(inst, field), py_object).value
+def _extract_methodcaller_fields(
+    mc: operator.methodcaller,
+) -> tuple[str, tuple, dict]:
+    """Uses the pickle protocol (__reduce__) instead of ctypes, so this works
+    on CPython, PyPy, GraalPy, and any other Python implementation.
+    """
+    constructor, constructor_args = mc.__reduce__()[:2]
+    if isinstance(constructor, functools.partial):
+        return constructor.args[0], constructor_args, constructor.keywords
+    return constructor_args[0], constructor_args[1:], {}
 
 
 def normalize_attrs(obj: object) -> tuple:
     """Stable normalization for any ``attrs.frozen`` object.
 
     Used by classes that previously aliased ``__dask_tokenize__ = normalize_attrs``.
-    Raises ``TypeError`` if ``obj`` isn't an attrs class, so callers get a
-    clear diagnostic instead of an ``AttributeError: __getstate__`` from the
-    fallback.
     """
     if not hasattr(type(obj), "__attrs_attrs__"):
         raise TypeError(
@@ -81,8 +76,7 @@ def normalize_toolz_excepts(f: toolz.functoolz.excepts) -> tuple:
 
 
 def normalize_methodcaller(obj: operator.methodcaller) -> tuple:
-    fields = ("name", "args", "kwargs")
-    return ("operator.methodcaller", *(_ctypes_field(fields, f, obj) for f in fields))
+    return ("operator.methodcaller", *_extract_methodcaller_fields(obj))
 
 
 def normalize_functools_partial(p: functools.partial) -> tuple:
@@ -127,27 +121,16 @@ def normalize_numpy_dtype(dtype: np.dtype) -> tuple:
 
 
 def normalize_pandas_series(series: pd.Series) -> tuple:
-    """Series elements go through ``to_pylist()`` because dasher has no
-    ``pa.Array`` rule to delegate to.  ``normalize_pandas_dataframe`` below
-    uses the faster ``pa.Table`` path because dasher *does* register a
-    ``pa.Table`` rule (serialize each batch to bytes, xxhash) — the two
-    helpers look inconsistent for that reason, not because either is wrong.
+    """Promotes to a single-column DataFrame and delegates so both paths
+    share the same ``pa.Table`` → ``normalize_pyarrow_table`` hashing.
     """
-    import pyarrow as pa  # noqa: PLC0415
-
-    return (
-        "pandas.Series",
-        series.name,
-        str(series.dtype),
-        pa.Array.from_pandas(series).to_pylist(),
-    )
+    return ("pandas.Series", series.name, normalize_pandas_dataframe(series.to_frame()))
 
 
 def normalize_pandas_dataframe(df: pd.DataFrame) -> tuple:
     """Returns the raw ``pa.Table`` so dasher's registered ``pa.Table`` rule
     (``xorq_dasher.rules.other.normalize_pyarrow_table``) does the hashing —
-    serializes each batch to bytes and xxhashes, identical to the legacy
-    dask-era path.
+    serializes each batch to bytes and xxhashes.
     """
     import pyarrow as pa  # noqa: PLC0415
 

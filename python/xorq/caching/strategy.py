@@ -25,7 +25,6 @@ from xorq.common.utils.dasher import (
     HASHER,
     fqn,
     snapshot_hasher,
-    tokenize,
     with_caches,
 )
 from xorq.config import options
@@ -41,9 +40,7 @@ from xorq.vendor.ibis.expr import types as ir
 # Per-outer-call memo for ``SnapshotStrategy.normalize_databasetable``.
 # Mirrors ``_dt_normalize_memo`` in ``_relations.py`` but kept separate so
 # snapshot-flavored DT results don't alias on the same ``dt`` key used by
-# the global-hasher dispatcher.  Installed by ``with_caches`` on
-# ``SnapshotStrategy.calc_key`` so transitive normalizes within one outer
-# tokenize share results.
+# the global-hasher dispatcher.
 _snapshot_dt_normalize_memo: contextvars.ContextVar[dict | None] = (
     contextvars.ContextVar("_xorq_snapshot_dt_normalize_memo", default=None)
 )
@@ -55,7 +52,8 @@ def snapshot_normalize_read(read):
     # Materialized build-bundle reads carry a content-hash-named read_path that is
     # stable across environments. Their hash_path is an absolute tmpdir path that
     # changes every run, so prefer read_path when available.
-    path = read_kwargs.get("read_path") or read_kwargs["hash_path"]
+    rp = read_kwargs.get("read_path")
+    path = rp if rp is not None else read_kwargs["hash_path"]
     match path:
         case list() | tuple() if len(path) == 1:
             tpls = (("path", str(path[0])),)
@@ -164,6 +162,8 @@ class SnapshotStrategy(CacheStrategy):
 
     @staticmethod
     def normalize_backend(con):
+        # In-memory backends identified by name alone; remote backends
+        # delegate to HASHER.normalize which raises if unregistered.
         name = con.name
         if name in ("pandas", "duckdb", "datafusion", "xorq_datafusion"):
             return (name, None)
@@ -171,15 +171,9 @@ class SnapshotStrategy(CacheStrategy):
 
     @staticmethod
     def normalize_databasetable(dt):
-        # Read, CachedNode, and RemoteTable are subclasses of DatabaseTable.
-        # Dasher's earliest-match-wins MRO lookup picks this DatabaseTable
-        # rule over the more specific subclass rules, so we must dispatch on
-        # the concrete type here or those subclasses get a wrong (path-,
-        # parent-, or remote_expr-blind) normalization.
-        #
-        # Memoized per outer call via ``_snapshot_dt_normalize_memo`` so
-        # nested into_backend chains don't renormalize the same DT N times
-        # (mirrors ``_databasetable_dispatcher`` in ``_relations.py``).
+        # DatabaseTable subclasses (Read, CachedNode, RemoteTable) need
+        # concrete-type dispatch here — dasher's MRO lookup would otherwise
+        # pick this broader DatabaseTable rule over them.
         memo = _snapshot_dt_normalize_memo.get()
         if memo is not None and dt in memo:
             return memo[dt]
@@ -203,5 +197,4 @@ __all__ = [
     "ModificationTimeStrategy",
     "SnapshotStrategy",
     "snapshot_normalize_read",
-    "tokenize",
 ]

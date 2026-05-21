@@ -23,17 +23,30 @@ still apply to the dasher-backed cache-key subsystem:
 
 from __future__ import annotations
 
+import functools
+import operator
 import pickle
 
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 import xorq.api as xo
+import xorq.common.utils.dasher as dasher
 import xorq.expr.datatypes as dt
 import xorq.expr.relations as rel
 from xorq.caching import ParquetCache
 from xorq.common.utils.dasher import HASHER, tokenize
+from xorq.common.utils.dasher._gap_rules import (
+    normalize_methodcaller,
+    normalize_pandas_dataframe,
+    normalize_pandas_series,
+)
+from xorq.common.utils.dasher._opaque import (
+    _parent_token,
+)
 from xorq.common.utils.defer_utils import normalize_read_path_stat
+from xorq.common.utils.tests._test_helpers import BombHasher, MockOp, Probe
 from xorq.expr.udf import agg, make_pandas_expr_udf
 
 
@@ -188,7 +201,7 @@ def test_normalize_read_multi_path_raises():
     read = _make_read(
         (("hash_path", ("file1.parquet", "file2.parquet")),),
     )
-    with pytest.raises(NotImplementedError, match="Don't know how to deal with path"):
+    with pytest.raises(FileNotFoundError, match="local path does not exist"):
         HASHER.normalize(read)
 
 
@@ -196,7 +209,7 @@ def test_normalize_read_nonexistent_absolute_path_raises():
     read = _make_read(
         (("hash_path", "/nonexistent/path/to/data.parquet"),),
     )
-    with pytest.raises(NotImplementedError, match="Don't know how to deal with path"):
+    with pytest.raises(FileNotFoundError, match="local path does not exist"):
         HASHER.normalize(read)
 
 
@@ -418,15 +431,8 @@ def test_dasher_tokenize_dunder_is_invoked():
     for their cache keys.
     """
 
-    class _Probe:
-        def __init__(self, payload):
-            self.payload = payload
-
-        def __dasher_tokenize__(self):
-            return ("Probe.dunder", self.payload)
-
-    assert tokenize(_Probe("same")) == tokenize(_Probe("same"))
-    assert tokenize(_Probe("same")) != tokenize(_Probe("different"))
+    assert tokenize(Probe("same")) == tokenize(Probe("same"))
+    assert tokenize(Probe("same")) != tokenize(Probe("different"))
 
 
 def test_opaque_placeholders_are_content_addressed(tmp_path):
@@ -485,3 +491,138 @@ def test_replace_nodes_raises_on_unhandled_opaque(monkeypatch):
 
     with pytest.raises(ValueError, match="unhandled opaque op"):
         graph_utils.replace_nodes(lambda op, _kw: op, expr.op())
+
+
+# --- _gap_rules normalizers ------------------------------------------------
+
+
+def test_normalize_methodcaller_no_kwargs():
+    mc = operator.methodcaller("upper")
+    result = normalize_methodcaller(mc)
+    assert result == ("operator.methodcaller", "upper", (), {})
+
+
+def test_normalize_methodcaller_positional_args_only():
+    mc = operator.methodcaller("startswith", "foo", 1)
+    result = normalize_methodcaller(mc)
+    assert result == ("operator.methodcaller", "startswith", ("foo", 1), {})
+
+
+def test_normalize_methodcaller_with_kwargs():
+    mc = operator.methodcaller("encode", encoding="utf-8")
+    result = normalize_methodcaller(mc)
+    assert result[0] == "operator.methodcaller"
+    assert result[1] == "encode"
+    assert result[2] == ()
+    assert result[3] == {"encoding": "utf-8"}
+
+
+def test_normalize_methodcaller_portable():
+    mc = operator.methodcaller("upper")
+    result = normalize_methodcaller(mc)
+    assert result == ("operator.methodcaller", "upper", (), {})
+
+
+def test_methodcaller_reduce_shape_no_args():
+    """Guard: __reduce__ for methodcaller(name) returns (cls, (name,)).
+
+    _extract_methodcaller_fields relies on this shape.  If a Python upgrade
+    changes it, this test fails loudly instead of silently mis-extracting fields.
+    """
+    mc = operator.methodcaller("upper")
+    reduced = mc.__reduce__()
+    assert len(reduced) == 2
+    constructor, args = reduced
+    assert constructor is operator.methodcaller
+    assert args == ("upper",)
+
+
+def test_methodcaller_reduce_shape_positional_args():
+    """Guard: __reduce__ for methodcaller(name, *args) returns (cls, (name, *args))."""
+    mc = operator.methodcaller("startswith", "foo", 1)
+    reduced = mc.__reduce__()
+    assert len(reduced) == 2
+    constructor, args = reduced
+    assert constructor is operator.methodcaller
+    assert args == ("startswith", "foo", 1)
+
+
+def test_methodcaller_reduce_shape_kwargs():
+    """Guard: __reduce__ for methodcaller(name, **kw) wraps constructor in functools.partial."""
+    mc = operator.methodcaller("encode", encoding="utf-8")
+    reduced = mc.__reduce__()
+    assert len(reduced) == 2
+    constructor, args = reduced
+    assert isinstance(constructor, functools.partial)
+    assert constructor.func is operator.methodcaller
+    assert constructor.args == ("encode",)
+    assert constructor.keywords == {"encoding": "utf-8"}
+    assert args == ()
+
+
+def test_normalize_pandas_series_delegates_to_dataframe():
+    series = pd.Series([1, 2, 3], name="x")
+    result = normalize_pandas_series(series)
+    assert result[0] == "pandas.Series"
+    assert result[1] == "x"
+    inner = result[2]
+    assert inner[0] == "pandas.DataFrame"
+
+
+def test_normalize_pandas_series_same_data_same_hash():
+    s1 = pd.Series([1, 2, 3], name="x")
+    s2 = pd.Series([1, 2, 3], name="x")
+    assert normalize_pandas_series(s1) == normalize_pandas_series(s2)
+
+
+def test_normalize_pandas_series_different_data_different_hash():
+    s1 = pd.Series([1, 2, 3], name="x")
+    s2 = pd.Series([1, 2, 4], name="x")
+    assert normalize_pandas_series(s1) != normalize_pandas_series(s2)
+
+
+def test_normalize_pandas_dataframe_returns_pa_table():
+    """normalize_pandas_dataframe returns a raw pa.Table for dasher's
+    normalize_pyarrow_table rule to hash."""
+    df = pd.DataFrame({"a": [1, 2, 3]})
+    result = normalize_pandas_dataframe(df)
+    assert result[0] == "pandas.DataFrame"
+    assert isinstance(result[3], pa.Table)
+
+
+# --- _parent_token fallback ------------------------------------------------
+
+
+def test_parent_token_fallback_is_reproducible(monkeypatch):
+    """The RecursionError fallback in _parent_token must produce the same
+    token for semantically identical objects regardless of memory address.
+    """
+    monkeypatch.setattr(dasher, "HASHER", BombHasher())
+
+    tok1 = _parent_token(MockOp())
+    tok2 = _parent_token(MockOp())
+
+    assert tok1 == tok2
+    assert isinstance(tok1, str) and len(tok1) > 0
+
+
+@pytest.mark.xfail(
+    reason="fallback hashes only type+schema — same-type, same-schema ops collide",
+    strict=True,
+)
+def test_parent_token_fallback_distinguishes_same_type_different_ops(monkeypatch):
+    """KNOWN LIMITATION: the RecursionError fallback hashes
+    ``{module}.{qualname}|{schema}``.  Two distinct ops of the *same* class
+    with the *same* schema produce identical fallback tokens.
+    """
+    monkeypatch.setattr(dasher, "HASHER", BombHasher())
+
+    op_a = MockOp()
+    op_a.schema = "shared-schema"
+    op_b = MockOp()
+    op_b.schema = "shared-schema"
+
+    tok_a = _parent_token(op_a)
+    tok_b = _parent_token(op_b)
+
+    assert tok_a != tok_b

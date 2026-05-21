@@ -9,7 +9,21 @@ of falling back to the global, data-sensitive HASHER).
 from __future__ import annotations
 
 import contextvars
+import itertools
+import logging
 
+import xxhash
+
+
+class _MissingSentinel:
+    def __dasher_tokenize__(self):
+        return ("_MISSING",)
+
+    def __repr__(self):
+        return "_MISSING"
+
+
+_MISSING = _MissingSentinel()
 
 # Per-outer-call memo for ``_parent_token``.  Cross-engine nested expressions
 # (``RemoteTable`` containing a ``RemoteTable`` containing …) trigger a fresh
@@ -33,7 +47,6 @@ def _rename_unbound_xorq(op, prefix="static"):
     positional, then crashes when ``__recreate__({})`` is called on ops with
     required fields (e.g. ``Field`` needs ``rel`` and ``name``).
     """
-    import itertools  # noqa: PLC0415
 
     from xorq.vendor.ibis.expr.operations.relations import UnboundTable  # noqa: PLC0415
 
@@ -57,8 +70,6 @@ def _stable_opaque_name(prefix, *parts):
     identities for semantically-identical Reads). This helper keys on a
     content-stable hash of the supplied parts instead.
     """
-    import xxhash  # noqa: PLC0415
-
     payload = "|".join(str(p) for p in parts).encode("utf-8")
     return f"{prefix}-{xxhash.xxh128(payload).hexdigest()[:16]}"
 
@@ -84,37 +95,30 @@ def _parent_token(thing):
     from xorq.common.utils.dasher import HASHER, _current_hasher  # noqa: PLC0415
 
     memo = _parent_token_memo.get()
-    is_outer = memo is None
-    if is_outer:
-        memo = {}
-        reset_token = _parent_token_memo.set(memo)
+    if hasattr(thing, "to_expr") and not hasattr(thing, "op"):
+        thing = thing.to_expr()
+    hasher = _current_hasher.get() or HASHER
+    op = thing.op() if hasattr(thing, "op") else thing
+    key = (id(hasher), op)
+    if memo is not None and key in memo:
+        return memo[key]
     try:
-        if hasattr(thing, "to_expr") and not hasattr(thing, "op"):
-            thing = thing.to_expr()
-        hasher = _current_hasher.get() or HASHER
-        op = thing.op() if hasattr(thing, "op") else thing
-        key = (id(hasher), op)
-        if key in memo:
-            return memo[key]
-        try:
-            tok = hasher.tokenize(thing)
-        except RecursionError:
-            import logging  # noqa: PLC0415
-
-            import xxhash  # noqa: PLC0415
-
-            logging.getLogger(__name__).error(
-                "RecursionError tokenizing %r in _parent_token; falling back "
-                "to repr-hash.  Result is not reproducible across runs — "
-                "investigate the op graph for cycles or unbounded nesting.",
-                type(thing).__name__,
-            )
-            tok = xxhash.xxh128(repr(thing).encode("utf-8")).hexdigest()
+        tok = hasher.tokenize(thing)
+    except RecursionError:
+        logging.getLogger(__name__).warning(
+            "RecursionError tokenizing %r in _parent_token; falling back "
+            "to type+schema hash.  Investigate the op graph for cycles "
+            "or unbounded nesting.",
+            type(thing).__name__,
+        )
+        typ = type(thing)
+        fallback_op = thing.op() if hasattr(thing, "op") else thing
+        schema = getattr(thing, "schema", getattr(fallback_op, "schema", ""))
+        payload = f"{typ.__module__}.{typ.__qualname__}|{schema}"
+        tok = xxhash.xxh128(payload.encode("utf-8")).hexdigest()
+    if memo is not None:
         memo[key] = tok
-        return tok
-    finally:
-        if is_outer:
-            _parent_token_memo.reset(reset_token)
+    return tok
 
 
 def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
@@ -152,7 +156,8 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
             )
         case Read():
             read_kwargs = dict(node.read_kwargs)
-            anchor = read_kwargs.get("read_path") or read_kwargs.get("hash_path")
+            rp = read_kwargs.get("read_path")
+            anchor = rp if rp is not None else read_kwargs["hash_path"]
             name = _stable_opaque_name("read", node.schema, anchor)
         case RemoteTable():
             name = _stable_opaque_name(
@@ -181,7 +186,7 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
                 node.schema,
                 _parent_token(node.input_expr),
                 type(node.udxf).__qualname__,
-                _parent_token(getattr(node.udxf, "exchange_f", None)),
+                _parent_token(getattr(node.udxf, "exchange_f", _MISSING)),
             )
         case HashingTag():
             name = _stable_opaque_name(

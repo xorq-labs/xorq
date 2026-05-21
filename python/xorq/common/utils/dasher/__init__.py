@@ -167,7 +167,6 @@ def with_caches(fn):
     per-call memos.  Use at user-facing entry points (``tokenize``,
     ``SnapshotStrategy.calc_key``) so all rule invocations within the call
     share the same memos."""
-    import functools  # noqa: PLC0415
 
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):

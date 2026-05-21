@@ -10,10 +10,13 @@ ep_str-only DT rule loses.
 from __future__ import annotations
 
 import contextvars
+import pathlib
+import re
 
 from xorq.common.utils.dasher._gap_rules import normalize_ibis_schema
-from xorq.common.utils.dasher._opaque import _rename_unbound_xorq
+from xorq.common.utils.dasher._opaque import _MISSING, _rename_unbound_xorq
 from xorq.common.utils.dasher._paths import (
+    _REMOTE_SCHEMES,
     _extract_datafusion_plan_paths,
     _extract_duckdb_file_paths,
     _normalize_path_stat,
@@ -43,42 +46,51 @@ def _normalize_read_xorq(read):
     legacy xorq behavior covering http(s), cloud, build-bundle relative, and
     local-filesystem paths.
     """
-    import pathlib  # noqa: PLC0415
 
     read_kwargs = dict(read.read_kwargs)
-    path = read_kwargs.get("hash_path")
+    path = read_kwargs["hash_path"]
     if path is None:
         raise ValueError(
-            f"Read op {getattr(read, 'name', read)!r} has no 'hash_path' in "
+            f"Read op {getattr(read, 'name', read)!r} has hash_path=None in "
             f"read_kwargs (keys: {sorted(read_kwargs)!r}); "
             f"normalize_filenames must run before tokenization."
         )
-    if isinstance(path, (list, tuple)) and len(path) == 1:
-        path = path[0]
+    match path:
+        case list() | tuple() if len(path) == 1:
+            path = str(path[0])
+        case list() | tuple():
+            tpls = tuple(
+                _normalize_single_path(str(p), read_kwargs, read) for p in path
+            )
+            tpls += _read_extra_kwargs(read)
+            return ("xorq.Read", read.schema, tpls)
+        case str() | pathlib.Path():
+            path = str(path)
+        case _:
+            raise NotImplementedError(f"Don't know how to deal with path {path!r}")
+    tpls = (_normalize_single_path(path, read_kwargs, read),)
+    tpls += _read_extra_kwargs(read)
+    return ("xorq.Read", read.schema, tpls)
 
-    def _one(p):
-        s = str(p)
-        if s.startswith(("http://", "https://", "s3://", "gs://", "gcs://")):
-            stat_kwargs = {k: v for k, v in read_kwargs.items() if k != "hash_path"}
-            return _normalize_path_stat(s, **stat_kwargs)
-        if not pathlib.Path(s).is_absolute() and s == read_kwargs.get("read_path"):
-            # Build-bundled Read: relative read_path is already a content hash.
-            return (("build-relative-path", s),)
-        pp = pathlib.Path(s)
-        if pp.exists():
-            return read.normalize_method(pp)
-        raise NotImplementedError(f'Don\'t know how to deal with path "{p}"')
 
-    if isinstance(path, (list, tuple)):
-        tpls = tuple(t for p in path for t in _one(p))
-    elif isinstance(path, (str, pathlib.Path)):
-        tpls = _one(path)
+def _normalize_single_path(path, read_kwargs, read):
+    """Normalize a single string path for Read tokenization."""
+
+    if path.startswith(_REMOTE_SCHEMES):
+        stat_kwargs = {k: v for k, v in read_kwargs.items() if k != "hash_path"}
+        return _normalize_path_stat(path, **stat_kwargs)
+    elif not pathlib.Path(path).is_absolute() and path == read_kwargs.get("read_path"):
+        return (("build-relative-path", path),)
+    elif (p := pathlib.Path(path)).exists():
+        return read.normalize_method(p)
     else:
-        raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
-    tpls += tuple(
+        raise FileNotFoundError(f"local path does not exist: {path!r}")
+
+
+def _read_extra_kwargs(read):
+    return tuple(
         (k, v) for k, v in read.read_kwargs if k in ("mode", "schema", "temporary")
     )
-    return ("xorq.Read", read.schema, tpls)
 
 
 def _normalize_duckdb_databasetable_xorq(dt):
@@ -90,7 +102,6 @@ def _normalize_duckdb_databasetable_xorq(dt):
     ``xorq-catalog-<random>/`` tempdir and leaks into the token. Parse paths
     out, canonicalize, then stat-or-pass-through (see :func:`_stat_or_canonical`).
     """
-    import re  # noqa: PLC0415
 
     import sqlglot as sg  # noqa: PLC0415
     from xorq_dasher.rules.expr import (  # noqa: PLC0415
@@ -105,12 +116,12 @@ def _normalize_duckdb_databasetable_xorq(dt):
     if len(lines) < 2:
         raise ValueError(f"unexpected EXPLAIN output for {dt.name!r}: {plan!r}")
     scan_line = lines[1]
-    m = re.match(r"\s*│\s*(\w+)\s*│\s*", scan_line)
-    if m is None:
+    scan_match = re.match(r"\s*│\s*(\w+)\s*│\s*", scan_line)
+    if scan_match is None:
         raise ValueError(
             f"unrecognized EXPLAIN scan line for {dt.name!r}: {scan_line!r}"
         )
-    scan_kind = m.group(1)
+    scan_kind = scan_match.group(1)
     if scan_kind in ("ARROW_SCAN", "PANDAS_SCAN"):
         return normalize_memory_databasetable(dt)
     if scan_kind in ("READ_PARQUET", "READ_CSV", "SEQ_SCAN"):
@@ -146,7 +157,6 @@ def _normalize_datafusion_databasetable_xorq(dt):
     ``test_parquet_cache_storage``). Mirror the legacy xorq behavior: extract
     file paths from the plan and stat them.
     """
-    import re  # noqa: PLC0415
 
     from xorq_dasher.rules.expr import (  # noqa: PLC0415
         normalize_memory_databasetable,
@@ -197,19 +207,12 @@ def _databasetable_dispatcher(dt):
     active hasher), so the memo doesn't need to key on it.
     """
     memo = _dt_normalize_memo.get()
-    is_outer = memo is None
-    if is_outer:
-        memo = {}
-        reset_token = _dt_normalize_memo.set(memo)
-    try:
-        if dt in memo:
-            return memo[dt]
-        result = _dispatch_databasetable(dt)
+    if memo is not None and dt in memo:
+        return memo[dt]
+    result = _dispatch_databasetable(dt)
+    if memo is not None:
         memo[dt] = result
-        return result
-    finally:
-        if is_outer:
-            _dt_normalize_memo.reset(reset_token)
+    return result
 
 
 def _dispatch_databasetable(dt):
@@ -256,7 +259,7 @@ def _dispatch_databasetable(dt):
                 "xorq.FlightUDXF",
                 dt.input_expr,
                 type(dt.udxf).__qualname__,
-                getattr(dt.udxf, "exchange_f", None),
+                getattr(dt.udxf, "exchange_f", _MISSING),
                 dt.make_connection,
             )
     # For datafusion-backed file tables, dasher's normalize_datafusion_
