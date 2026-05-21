@@ -12,12 +12,15 @@ from unittest.mock import patch
 import pandas as pd
 import pyarrow.parquet as pq
 import pytest
+from click.testing import CliRunner
 
+import xorq
 import xorq.api as xo
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.cli import (
     OutputFormats,
     build_command,
+    cli,
     run_command,
 )
 from xorq.common.utils.io_utils import Peeker
@@ -56,6 +59,12 @@ build_run_examples_expr_names = (
     ("pyiceberg_backend_simple.py", "expr"),
     ("python_udwf.py", "expr"),
 )
+
+
+def test_version():
+    result = CliRunner().invoke(cli, ["--version"])
+    assert result.exit_code == 0
+    assert xorq.__version__ in result.output
 
 
 def test_build_command_function(tmp_path, fixture_dir):
@@ -541,6 +550,7 @@ def test_run_command_writes_run_logger(tmp_path):
         assert meta["output_format"] == "parquet"
         assert "started_at" in meta
         assert "completed_at" in meta
+        assert meta["xorq_version"] == xorq.__version__
 
         events = run.read_events()
         event_names = [e["event"] for e in events]

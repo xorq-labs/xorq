@@ -25,7 +25,7 @@ only-include = ["python"]
 
 [project]
 name = "xorq"
-version = "0.3.24"
+version = "0.3.25"
 dependencies = [
     "attrs>=24.1.0; python_version >= '3.10' and python_version < '4.0'",
     "pyarrow>=13.0.0,<22; python_version >= '3.10' and python_version < '4.0'",
@@ -179,6 +179,7 @@ test = [
 ]
 docs = [
     "quartodoc<0.11.2,>=0.7.2",
+    "griffe<2.0",
     "nbformat<6.0.0,>=5.10.4",
     "nbclient<1.0.0,>=0.10.0",
     "ipykernel<7.3.0,>=6.29.4",
