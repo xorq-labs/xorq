@@ -289,6 +289,19 @@ markers = [
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"
 
+[tool.coverage.run]
+source = ["python/xorq"]
+omit = [
+    "*/tests/*",
+    "*/vendor/*",
+]
+parallel = true
+concurrency = ["multiprocessing", "thread"]
+sigterm = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
 
 [tool.git-cliff.changelog]
 header = """
