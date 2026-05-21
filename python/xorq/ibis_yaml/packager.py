@@ -647,7 +647,10 @@ class _BasePackagedRunner(ABC):
         default=None,
     )
     output_path = field(validator=optional(instance_of(str)), default=None)
-    output_format = field(validator=in_(OutputFormats), default=DEFAULT_OUTPUT_FORMAT)
+    output_format = field(converter=OutputFormats,
+        validator=in_(OutputFormats),
+        default=DEFAULT_OUTPUT_FORMAT,
+    )
     limit = field(validator=optional(instance_of(int)), default=None)
     python_version = field(validator=_validate_python_version, default=None)
     _bundle: Bundle = field(init=False, repr=False, eq=False, default=None)
