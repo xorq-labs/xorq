@@ -1341,9 +1341,7 @@ def get_predict_return_type(fitted_step):
     )
 
 
-# Preserves the legacy extension point: external callers can do
-# ``get_predict_return_type.register(MyEstimator, my_handler)`` to extend
-# the dispatch table for custom sklearn-compatible estimators.
+# Extension point for custom sklearn-compatible estimators.
 get_predict_return_type.register = _predict_return_type_dispatch.register
 
 

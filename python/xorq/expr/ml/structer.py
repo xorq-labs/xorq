@@ -848,9 +848,7 @@ structer_from_instance = FQNDispatch(
         ("sklearn.impute._base.MissingIndicator", _structer_missing_indicator),
         ("sklearn.base.OneToOneFeatureMixin", _structer_one_to_one),
         ("sklearn.feature_selection._base.SelectorMixin", _structer_selector),
-        # Birch appears before ClassNamePrefixFeaturesOutMixin in Birch's MRO,
-        # so the dispatcher's MRO walk picks the Birch rule first — insertion
-        # order in this dict is not what determines priority.
+        # Birch resolves first because it precedes ClassNamePrefixFeaturesOutMixin in Birch's MRO.
         ("sklearn.cluster._birch.Birch", _structer_kv_encoded),
         ("sklearn.base.ClassNamePrefixFeaturesOutMixin", _structer_class_name_prefix),
         ("sklearn.preprocessing._encoders.OneHotEncoder", _structer_kv_encoded),
