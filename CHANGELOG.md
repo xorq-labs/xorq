@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.3.26] - 2026-05-22
+### Details
+#### Added
+- Add version visibility to CLI and run metadata
+
+#### Changed
+- Configure coverage reporting
+- Rewrite README as executable memory system
+
+#### Fixed
+- Pin griffe<2.0 to fix quartodoc compatibility
+
 ## [0.3.25] - 2026-05-19
 ### Details
 #### Added
