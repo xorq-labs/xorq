@@ -429,7 +429,11 @@ class PackagedBuilder:
     bundle = field(validator=instance_of(WheelBundle))
     expr_name = field(validator=instance_of(str), default="expr")
     builds_dir = field(validator=instance_of(str), default="builds")
-    cache_dir = field(validator=optional(instance_of(str)), default=None)
+    cache_dir = field(
+        validator=optional(instance_of(str)),
+        converter=lambda v: str(v) if v is not None else None,
+        default=None,
+    )
     debug = field(validator=instance_of(bool), default=False)
 
     @property
@@ -580,7 +584,11 @@ def validate_params_early(build_path, raw_params):
 @frozen
 class _BasePackagedRunner(ABC):
     build_path = field(validator=instance_of(Path), converter=Path)
-    cache_dir = field(validator=optional(instance_of(str)), default=None)
+    cache_dir = field(
+        validator=optional(instance_of(str)),
+        converter=lambda v: str(v) if v is not None else None,
+        default=None,
+    )
     output_path = field(validator=optional(instance_of(str)), default=None)
     output_format = field(
         validator=in_(OutputFormats), default=DEFAULT_OUTPUT_FORMAT
