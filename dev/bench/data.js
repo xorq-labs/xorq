@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779458113355,
+  "lastUpdate": 1779484319720,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -13701,6 +13701,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.013227500772274858",
             "extra": "mean: 95.59310622222483 msec\nrounds: 9"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9c70940fe89da5e98db585f8a64e94a1db88442e",
+          "message": "refactor(cli): shared Click decorators, runner hierarchy, and uv parity commands (#1962)\n\n## Summary\n\nExtract reusable Click option decorators, introduce a runner class\nhierarchy, and add missing `uv` subcommands to close CLI parity gaps.\n\n### Phase 1 — Shared decorators\n- Create `cli_constants.py` with `OutputFormats` enum,\n`DEFAULT_OUTPUT_FORMAT`, and `DEFAULT_CACHE_TYPE`, replacing the fragile\n`OutputFormats.default` class mutation\n- Create `cli_options.py` with 14 shared Click option decorators\n(`output_options`, `limit_option`, `params_options`, `cache_dir_option`,\n`cache_strategy_options`, `unbind_options`, `serve_options`,\n`fuse_option`, `rename_params_option`, `code_option`, `sync_option`,\n`env_options`, `gcs_option`, `json_option`)\n- Single-option decorators are bare `click.option()` calls; multi-option\ndecorators (`output_options`, `cache_strategy_options`,\n`unbind_options`, `serve_options`, `env_options`) are wrapper functions\n- Migrate `cli.py` and `catalog/cli.py` to use the shared decorators,\neliminating copy-pasted `@click.option` blocks\n\n### Phase 2 — Runner hierarchy and bug fixes\n- Add `_BasePackagedRunner(ABC)` template-method base class in\n`packager.py` with `@abstractmethod _subcommand()` and `_extra_args()`\nhooks\n- Add `PackagedCachedRunner` and `PackagedUnboundRunner` alongside the\nexisting `PackagedRunner`\n- Add `validate_params_early()` to catch invalid `--params` before\nsubprocess launch\n- Support both single-wheel (`WheelBundle`) and multi-wheel\n(`JointBundle`) build paths via a unified `.wheel_paths` property and\nwheel-count dispatch in `_validate_build_path`\n- Close parity gaps in `catalog/cli.py` (missing options, inconsistent\nhelp text)\n- Strip redundant `# noqa: PLC0415` from lazy imports across `cli.py`\nand `catalog/cli.py`\n\n### Phase 3 — New `uv` commands\n- Add `xorq uv run-cached` with `--cache-type`, `--ttl`, `--limit`,\n`--params` support\n- Add `xorq uv run-unbound` with `--to_unbind_hash`, `--to_unbind_tag`,\n`--typ`, `--batch-size`, `--instream` support\n- Both delegate to their respective `Packaged*Runner` classes\n\n### Bug fixes\n- Fix `duckdb.duckdb.CatalogException` → `duckdb.CatalogException` in\n`test_deferred_read.py` (the submodule doesn't exist)\n- Restore TUI `--use-this-venv` fast-path with uv fallback in\n`_run_catalog_subprocess`\n\n### ADR\n- Add ADR-0012 documenting shared decorator design, runner hierarchy,\n`run-unbound` output_options special case, and alternatives considered\n\n## Test plan\n\n- [ ] `xorq --help`, `xorq run --help`, `xorq run-cached --help`, `xorq\nrun-unbound --help`, `xorq serve-unbound --help`, `xorq\nserve-flight-udxf --help` produce expected output\n- [ ] `xorq catalog run --help`, `xorq catalog run-cached --help`, `xorq\ncatalog compose --help`, `xorq catalog init --help` produce expected\noutput\n- [ ] `xorq uv run-cached --help` and `xorq uv run-unbound --help`\nproduce expected output\n- [x] Full CLI test suite passes: `test_cli.py`, `test_cli_compat.py`\n- [x] Full catalog CLI test suite passes: `test_cli_init_crud.py`,\n`test_cli_run_compose.py`, `test_cli_inspect_git.py`\n- [x] `validate_params_early` unit tests pass (valid, unknown,\nmalformed, missing metadata)\n- [x] `PackagedCachedRunner` and `PackagedUnboundRunner` validation\ntests pass\n- [x] `JointBundle` tests pass (multi-wheel, no-wheels, python pinning,\nmetadata fallback)\n- [x] Restored unit tests pass: `_has_expr_modifications`,\n`_forward_ctx_params`, `_entry_run_bundle`, `_stage_bundle_into_build`,\n`_assert_requirements_identical`\n- [x] Restored integration tests pass: uv-subprocess path for run,\nrun-cached, compose\n- [x] No circular imports between `cli_constants`, `cli_options`, `cli`,\nand `catalog/cli`\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-22T17:08:21-04:00",
+          "tree_id": "cb0b5d68e76c18fdc410fb40143020e48b804a4d",
+          "url": "https://github.com/xorq-labs/xorq/commit/9c70940fe89da5e98db585f8a64e94a1db88442e"
+        },
+        "date": 1779484317584,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.580138355994162,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004867161280186034",
+            "extra": "mean: 104.38262609999924 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.436508830370197,
+            "unit": "iter/sec",
+            "range": "stddev: 0.073276318813167",
+            "extra": "mean: 410.4233022000017 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6224684464273943,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15970701877396848",
+            "extra": "mean: 1.606507134200001 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.780822857596807,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06064444733072668",
+            "extra": "mean: 359.60578980000264 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.6705293844610702,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0749818556477173",
+            "extra": "mean: 374.45759099999805 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.7217277592265696,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06745639447382579",
+            "extra": "mean: 367.41367560000526 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 194.24494284279052,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01501605960880905",
+            "extra": "mean: 5.1481391760573985 msec\nrounds: 284"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.12432019054909,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11954503099372965",
+            "extra": "mean: 195.14783674999947 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 10.802006163707361,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00463103882375633",
+            "extra": "mean: 92.57539616666814 msec\nrounds: 12"
           }
         ]
       }
