@@ -10,7 +10,7 @@ from xorq.vendor.ibis.expr.operations.generic import ScalarParameter
 
 
 class _MissingSentinel:
-    """Sentinel for 'no default provided'. Singleton with deterministic dask token."""
+    """Sentinel for 'no default provided'. Singleton with deterministic hash."""
 
     _instance = None
 

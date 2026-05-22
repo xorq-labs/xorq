@@ -372,13 +372,15 @@ def test_deferred_read_csv_multiple_paths(csv_dir):
 
 @pytest.fixture(scope="function")
 def backend(request, con):
-    lookup = {
-        "duckdb": xo.duckdb.connect(),
-        "postgres": con,
-        "xorq_datafusion": xo.connect(),
-    }
-
-    return lookup.get(request.param, con)
+    match request.param:
+        case "duckdb":
+            return xo.duckdb.connect()
+        case "postgres":
+            return con
+        case "xorq_datafusion":
+            return xo.connect()
+        case _:
+            return con
 
 
 @pytest.mark.parametrize(

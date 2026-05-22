@@ -1,3 +1,4 @@
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -5,6 +6,7 @@ import pytest
 import xorq.api as xo
 from xorq.caching import ParquetCache
 from xorq.caching.strategy import ModificationTimeStrategy, SnapshotStrategy
+from xorq.catalog.expr_utils import build_expr_context_zip, load_expr_from_zip
 from xorq.expr.relations import RemoteTable
 
 
@@ -82,14 +84,6 @@ def test_snapshot_strategy_calc_key_with_hashing_tag_over_remote_table():
     assert key.startswith(f"{strategy.key_prefix}snapshot-")
 
 
-# test_rename_remote_table_outside_normalization_context_raises removed: the
-# guarded helper (``_rename_remote_table`` as a module-level function with a
-# context-var assertion) was specific to the dask-monkeypatching design.
-# SnapshotStrategy now uses a per-call local hasher built via ``snapshot_hasher``
-# (no shared mutable state, no global cache to poison), so the failure mode the
-# guard protected against can no longer occur.
-
-
 @pytest.mark.parametrize(
     "backend_factory",
     (
@@ -107,13 +101,6 @@ def test_loaded_dt_has_stable_token_across_zip_reloads(tmp_path, backend_factory
     canonicalization the DT token diverges per reload, defeating
     content-addressed catalog entries.
     """
-    import pandas as pd  # noqa: PLC0415
-
-    from xorq.catalog.expr_utils import (  # noqa: PLC0415
-        build_expr_context_zip,
-        load_expr_from_zip,
-    )
-
     con = backend_factory()
     t = con.create_table("users", pd.DataFrame({"x": [1, 2, 3]}))
     expr = t.select("x")

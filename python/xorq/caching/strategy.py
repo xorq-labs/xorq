@@ -52,8 +52,8 @@ def snapshot_normalize_read(read):
     # Materialized build-bundle reads carry a content-hash-named read_path that is
     # stable across environments. Their hash_path is an absolute tmpdir path that
     # changes every run, so prefer read_path when available.
-    rp = read_kwargs.get("read_path")
-    path = rp if rp is not None else read_kwargs["hash_path"]
+    read_path = read_kwargs.get("read_path")
+    path = read_path if read_path is not None else read_kwargs["hash_path"]
     match path:
         case list() | tuple() if len(path) == 1:
             tpls = (("path", str(path[0])),)
@@ -134,13 +134,12 @@ class SnapshotStrategy(CacheStrategy):
             (fqn(ibis.backends.BaseBackend), self.normalize_backend),
             (fqn(ops.DatabaseTable), self.normalize_databasetable),
             (fqn(Read), snapshot_normalize_read),
+            # Each concrete backend subclass on the expression also needs the
+            # snapshot backend rule registered against its concrete FQN, otherwise
+            # the MRO lookup picks the more-specific subclass and bypasses our
+            # override on BaseBackend.
+            *((fqn(type(backend)), self.normalize_backend) for backend in expr.ls.backends),
         ]
-        # Each concrete backend subclass on the expression also needs the
-        # snapshot backend rule registered against its concrete FQN, otherwise
-        # the MRO lookup picks the more-specific subclass and bypasses our
-        # override on BaseBackend.
-        for backend in expr.ls.backends:
-            extra.append((fqn(type(backend)), self.normalize_backend))
         return snapshot_hasher(*extra)
 
     def _replace_remote_table(self, expr, local_hasher):

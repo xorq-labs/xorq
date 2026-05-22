@@ -5,6 +5,7 @@ import pytest
 from xorq.caching.strategy import SnapshotStrategy, snapshot_normalize_read
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.dasher._relations import _normalize_read_xorq
+from xorq.common.utils.tests._test_helpers import FakeRead
 
 
 def test_default_caching_dir():
@@ -18,16 +19,15 @@ def test_default_caching_dir():
 # --- SnapshotStrategy.normalize_backend ------------------------------------
 
 
-def test_snapshot_normalize_backend_in_memory():
+@pytest.mark.parametrize("name", ["pandas", "duckdb", "datafusion", "xorq_datafusion"])
+def test_snapshot_normalize_backend_in_memory(name):
     """In-memory backends get structure-only (name, None) normalization."""
 
-    for name in ("pandas", "duckdb", "datafusion", "xorq_datafusion"):
+    class InMemoryBackend:
+        pass
 
-        class InMemoryBackend:
-            pass
-
-        InMemoryBackend.name = name
-        assert SnapshotStrategy.normalize_backend(InMemoryBackend()) == (name, None)
+    InMemoryBackend.name = name
+    assert SnapshotStrategy.normalize_backend(InMemoryBackend()) == (name, None)
 
 
 def test_snapshot_normalize_backend_remote_falls_through():
@@ -63,14 +63,7 @@ def test_normalize_read_xorq_multi_element_paths(tmp_path):
     def fake_normalize_method(p):
         return (("file", str(p)),)
 
-    class MultiRead:
-        schema = "fake-schema"
-
-        def __init__(self, paths):
-            self.read_kwargs = (("hash_path", paths),)
-            self.normalize_method = fake_normalize_method
-
-    read = MultiRead([str(f1), str(f2)])
+    read = FakeRead([str(f1), str(f2)], normalize_method=fake_normalize_method)
 
     snap_result = snapshot_normalize_read(read)
     assert snap_result[0] == "snapshot_normalize_read"
@@ -89,14 +82,7 @@ def test_normalize_read_xorq_single_path(tmp_path):
     def fake_normalize_method(p):
         return (("file", str(p)),)
 
-    class SingleRead:
-        schema = "fake-schema"
-
-        def __init__(self, paths):
-            self.read_kwargs = (("hash_path", paths),)
-            self.normalize_method = fake_normalize_method
-
-    read = SingleRead([path_str])
+    read = FakeRead([path_str], normalize_method=fake_normalize_method)
 
     snap_result = snapshot_normalize_read(read)
     assert ("path", path_str) in snap_result[2]

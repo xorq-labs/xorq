@@ -35,5 +35,7 @@ class FakeRead:
 
     schema = "fake-schema"
 
-    def __init__(self, hash_path):
+    def __init__(self, hash_path, normalize_method=None):
         self.read_kwargs = (("hash_path", hash_path),)
+        if normalize_method is not None:
+            self.normalize_method = normalize_method

@@ -1151,7 +1151,7 @@ class LETSQLAccessor:
 
     @property
     def tokenized(self):
-        from xorq.common.utils.dasher import tokenize
+        from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
 
         # NOTE: this should almost certainly not be functools.cache'd: it can obscure filesystem / source table changes within the same process run
         return tokenize(self.expr)

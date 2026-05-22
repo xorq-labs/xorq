@@ -36,18 +36,27 @@ import xorq.common.utils.dasher as dasher
 import xorq.expr.datatypes as dt
 import xorq.expr.relations as rel
 from xorq.caching import ParquetCache
-from xorq.common.utils.dasher import HASHER, tokenize
+from xorq.common.utils import graph_utils
+from xorq.common.utils.dasher import (
+    HASHER,
+    _canonicalize_catalog_path,
+    _extract_datafusion_plan_paths,
+    _extract_duckdb_file_paths,
+    tokenize,
+)
 from xorq.common.utils.dasher._gap_rules import (
     normalize_methodcaller,
     normalize_pandas_dataframe,
     normalize_pandas_series,
 )
 from xorq.common.utils.dasher._opaque import (
+    _normalize_computed_kwargs_expr,
     _parent_token,
 )
 from xorq.common.utils.defer_utils import normalize_read_path_stat
 from xorq.common.utils.tests._test_helpers import BombHasher, MockOp, Probe
 from xorq.expr.udf import agg, make_pandas_expr_udf
+from xorq.vendor.ibis.expr.operations.generic import Cast
 
 
 # --- file-change invalidation ---------------------------------------------
@@ -250,8 +259,6 @@ def test_expr_with_named_param_tokenizes_without_raising():
 
 
 def test_canonicalize_catalog_path_strips_tempdir_prefix():
-    from xorq.common.utils.dasher import _canonicalize_catalog_path  # noqa: PLC0415
-
     raw = "/var/tmp/xorq-catalog-abc123def/build_xxx/data.parquet"
     canonical, did_strip = _canonicalize_catalog_path(raw)
     assert did_strip
@@ -259,8 +266,6 @@ def test_canonicalize_catalog_path_strips_tempdir_prefix():
 
 
 def test_canonicalize_catalog_path_passes_through_non_catalog():
-    from xorq.common.utils.dasher import _canonicalize_catalog_path  # noqa: PLC0415
-
     raw = "/home/user/data/foo.parquet"
     canonical, did_strip = _canonicalize_catalog_path(raw)
     assert not did_strip
@@ -301,8 +306,6 @@ def test_canonicalize_catalog_path_passes_through_non_catalog():
     ],
 )
 def test_extract_datafusion_plan_paths(ep_str, expected):
-    from xorq.common.utils.dasher import _extract_datafusion_plan_paths  # noqa: PLC0415
-
     assert _extract_datafusion_plan_paths(ep_str) == expected
 
 
@@ -332,8 +335,6 @@ def test_extract_datafusion_plan_paths(ep_str, expected):
     ],
 )
 def test_extract_duckdb_file_paths(ddl, expected):
-    from xorq.common.utils.dasher import _extract_duckdb_file_paths  # noqa: PLC0415
-
     assert _extract_duckdb_file_paths(ddl) == expected
 
 
@@ -463,10 +464,6 @@ def test_normalize_computed_kwargs_expr_is_data_free():
     """``_normalize_computed_kwargs_expr`` is data-free per ADR-0010 — two
     cked expressions with the same shape but different ``InMemoryTable``
     contents must produce identical helper output."""
-    from xorq.common.utils.dasher._opaque import (  # noqa: PLC0415
-        _normalize_computed_kwargs_expr,
-    )
-
     cke_a = xo.memtable(pd.DataFrame({"x": [1, 2, 3]})).filter(xo._.x > 0)
     cke_b = xo.memtable(pd.DataFrame({"x": [10, 20, 30]})).filter(xo._.x > 0)
     assert _normalize_computed_kwargs_expr(cke_a) == _normalize_computed_kwargs_expr(
@@ -478,9 +475,6 @@ def test_replace_nodes_raises_on_unhandled_opaque(monkeypatch):
     """A future addition to ``opaque_ops`` without a corresponding ``case``
     arm in ``replace_nodes.process_node`` must raise loudly rather than
     silently producing a wrong hash."""
-    from xorq.common.utils import graph_utils  # noqa: PLC0415
-    from xorq.vendor.ibis.expr.operations.generic import Cast  # noqa: PLC0415
-
     monkeypatch.setattr(
         graph_utils, "opaque_ops", graph_utils.opaque_ops + (Cast,)
     )
