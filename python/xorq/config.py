@@ -114,16 +114,13 @@ class SQL(Config):
 
 
 class Pins(Config):
-    """Pin board configuration options.
+    """SQL-related options.
 
     Attributes
     ----------
-    protocol : str
-        Storage protocol for the pin board (e.g. ``"gcs"``).
-    path : str
-        Root path for the pin board.
-    storage_options : dict
-        Backend-specific storage options passed to the pin board.
+    dialect : str
+        Dialect to use for printing SQL when the backend cannot be determined.
+
     """
 
     protocol: str = "gcs"

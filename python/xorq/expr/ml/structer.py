@@ -75,6 +75,7 @@ class KVEncoder:
         if hasattr(result, "toarray"):
             result = result.toarray()
 
+        # Force float64 to match return_type and ensure PyArrow compatibility
         return pd.Series(KVEncoder._make_kv_tuple(names, row) for row in result)
 
     @staticmethod
