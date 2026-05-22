@@ -737,8 +737,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         TypeError
             If ``source`` is not a ``pa.Table``, ``pa.RecordBatchReader``, or iterable.
         ValueError
-            If ``source`` has no rows, or if a batch is missing columns required
-            by the declared schema.
+            If ``source`` is an iterable with no rows (schema cannot be inferred),
+            or if a batch is missing columns required by the declared schema.
             Cast errors from type incompatibilities are deferred: they surface
             during ``.execute()``, not at this call site, because batches are
             cast lazily as DataFusion consumes the reader.
@@ -768,8 +768,6 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         batches: Iterable[pa.RecordBatch]
         match source:
             case pa.Table():
-                if source.num_rows == 0:
-                    raise ValueError("source has no rows")
                 schema = source.schema
                 batches = source.to_batches()
             case pa.RecordBatchReader():
@@ -777,8 +775,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 try:
                     first = source.read_next_batch()
                 except StopIteration:
-                    raise ValueError("source has no rows") from None
-                batches = itertools.chain([first], source)
+                    batches = iter([])
+                else:
+                    batches = itertools.chain([first], source)
             case _:
                 it = iter(source)
                 try:
