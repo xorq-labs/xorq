@@ -34,12 +34,13 @@ from attr import (
 )
 from attr.validators import (
     deep_iterable,
+    in_,
     instance_of,
     optional,
 )
 from packaging.specifiers import SpecifierSet
 
-from xorq.cli_constants import DEFAULT_CACHE_TYPE, DEFAULT_OUTPUT_FORMAT
+from xorq.cli_constants import DEFAULT_CACHE_TYPE, DEFAULT_OUTPUT_FORMAT, OutputFormats
 from xorq.common.utils.process_utils import in_nix_shell
 from xorq.ibis_yaml.enums import DumpFiles
 
@@ -581,7 +582,9 @@ class _BasePackagedRunner(ABC):
     build_path = field(validator=instance_of(Path), converter=Path)
     cache_dir = field(validator=optional(instance_of(str)), default=None)
     output_path = field(validator=optional(instance_of(str)), default=None)
-    output_format = field(validator=instance_of(str), default=DEFAULT_OUTPUT_FORMAT)
+    output_format = field(
+        validator=in_(OutputFormats), default=DEFAULT_OUTPUT_FORMAT
+    )
     limit = field(validator=optional(instance_of(int)), default=None)
     python_version = field(validator=_validate_python_version, default=None)
     _bundle: Bundle = field(init=False, repr=False, eq=False, default=None)
