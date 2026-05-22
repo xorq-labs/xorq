@@ -20,10 +20,17 @@ install_hooks() {
     local main
     main="$(dev_main_tree)" || return 1
     local hook="$main/dev/hooks/post-checkout"
-    local dest="$main/.git/hooks/post-checkout"
     [ -f "$hook" ] || return 0
-    if [ -e "$dest" ] && ! [ -L "$dest" ]; then
-        return 0
+
+    # Unset core.hooksPath so git uses the default .git/hooks/.
+    # Tools like Claude Code may set this to a linked-worktree path where
+    # .git is a file (not a directory), breaking all hooks. pre-commit also
+    # refuses to install when core.hooksPath is set.
+    git config --unset-all core.hooksPath 2>/dev/null || true
+
+    local hooks_dir="$main/.git/hooks"
+    mkdir -p "$hooks_dir"
+    if ! [ -e "$hooks_dir/post-checkout" ] || [ -L "$hooks_dir/post-checkout" ]; then
+        ln -sf "../../dev/hooks/post-checkout" "$hooks_dir/post-checkout"
     fi
-    ln -sf "../../dev/hooks/post-checkout" "$dest"
 }

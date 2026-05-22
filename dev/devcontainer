@@ -344,7 +344,7 @@ case "${1:-up}" in
         dc down --volumes
         ;;
     clean)
-        read -rp "This will destroy the container, volumes, images, and host-side artifacts. Continue? [y/N] " answer
+        read -rp "This will destroy $DEV_CONTAINER_NAME (container, volumes, images, and host-side artifacts). Continue? [y/N] " answer
         if [[ "$answer" != [yY]* ]]; then
             exit 0
         fi
