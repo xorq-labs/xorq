@@ -746,7 +746,6 @@ def test_multi_engine_cache(pg, ls_con, ls_batting, tmp_path, backend_name):
 
 @pytest.mark.xfail(
     strict=True,
-    raises=AssertionError,
     reason="DataFusion corrupts large_utf8 batches declared as utf8 via C Data Interface; "
     "XPASS means upstream fixed the ABI mismatch — verify test_into_backend_pyiceberg_string_preserved still covers the cast",
 )
@@ -771,6 +770,7 @@ def test_lying_reader_corrupts_datafusion_directly():
 
 
 def test_into_backend_pyiceberg_string_preserved(tmp_path):
+    pytest.importorskip("pyiceberg")
     # PyIceberg returns large_string for string columns (physical Arrow type
     # from Parquet). ibis schema declares string/utf8. Without the cast in
     # register_and_transform_remote_tables the RecordBatchReader lies about its

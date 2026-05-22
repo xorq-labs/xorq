@@ -585,8 +585,10 @@ _count = itertools.count()
 
 
 @tracer.start_as_current_span("register_and_transform_remote_tables")
-def register_and_transform_remote_tables(expr, **kwargs):
-    created = {}
+def register_and_transform_remote_tables(
+    expr: Expr, **kwargs: Any
+) -> tuple[Expr, dict[str, Any]]:
+    created: dict[str, Any] = {}
 
     op = expr.op()
     graph, _ = Graph.from_bfs(op).toposort()
@@ -604,7 +606,7 @@ def register_and_transform_remote_tables(expr, **kwargs):
         trace.get_current_span().add_event(
             "remote_table.replace", {"counts.values": tuple(counts.values())}
         )
-    batches_table = {}
+    batches_table: dict[Node, tuple[pa.Schema, list[SafeTee]]] = {}
     for arg, count in counts.items():
         ex = arg.remote_expr
         batches = ex.to_pyarrow_batches()
@@ -612,10 +614,12 @@ def register_and_transform_remote_tables(expr, **kwargs):
         replicas = SafeTee.tee(batches, count)
         batches_table[arg] = (schema, list(replicas))
 
-    def mark_remote_table(node):
+    def mark_remote_table(node: Node) -> Node:
+        schema: pa.Schema
+        batchess: list[SafeTee]
         schema, batchess = batches_table[node]
-        name = f"{node.name}_cu{next(_count)}_t{len(batchess)}"
-        reader = pa.RecordBatchReader.from_batches(
+        name: str = f"{node.name}_cu{next(_count)}_t{len(batchess)}"
+        reader: pa.RecordBatchReader = pa.RecordBatchReader.from_batches(
             schema,
             (batch.select(schema.names).cast(schema) for batch in batchess.pop()),
         )
