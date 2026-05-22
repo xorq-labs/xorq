@@ -9,7 +9,9 @@ import toolz
 import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.api import make_pandas_expr_udf, make_pandas_udf, udf
+from xorq.common.utils import classproperty
 from xorq.expr.ml.enums import ResponseMethod
+from xorq.expr.pyaggregator import PyAggregator, make_struct_type
 from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis import _
 from xorq.vendor.ibis import literal as L
@@ -28,6 +30,33 @@ def my_mean(arr: dt.float64) -> dt.float64:
 @udf.agg.pyarrow
 def add_mean(a: dt.float64, b: dt.float64) -> dt.float64:
     return pc.mean(pc.add(a, b))
+
+
+def test_pyarrow_udaf_empty_input():
+    # Regression: PyAggregator.pystate() called pa.concat_arrays([]) when
+    # _states is empty (zero rows fed to UDAF), raising ArrowInvalid.
+    # Verify it returns an empty struct array instead of crashing.
+    class _TestAgg(PyAggregator):
+        @classproperty
+        def struct_type(cls):
+            return make_struct_type(["x"], [pa.float64()])
+
+        def py_evaluate(self):
+            return pc.mean(self.pystate().field("x"))
+
+        @classproperty
+        def return_type(cls):
+            return pa.float64()
+
+        @classproperty
+        def name(cls):
+            return "_test_agg"
+
+    agg = _TestAgg()
+    assert agg._states == []
+    result = agg.pystate()
+    assert isinstance(result, pa.StructArray)
+    assert len(result) == 0
 
 
 return_type = pa.struct(

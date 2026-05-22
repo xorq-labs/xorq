@@ -29,6 +29,8 @@ class PyAggregator(Accumulator, ABC):
         self._states = []
 
     def pystate(self):
+        if not self._states:
+            return pa.array([], type=self.struct_type)
         return pa.concat_arrays(map(pickle.loads, self._states))
 
     def state(self):
