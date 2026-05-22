@@ -615,7 +615,10 @@ def register_and_transform_remote_tables(expr, **kwargs):
     def mark_remote_table(node):
         schema, batchess = batches_table[node]
         name = f"{node.name}_cu{next(_count)}_t{len(batchess)}"
-        reader = pa.RecordBatchReader.from_batches(schema, batchess.pop())
+        reader = pa.RecordBatchReader.from_batches(
+            schema,
+            (batch.select(schema.names).cast(schema) for batch in batchess.pop()),
+        )
         result = node.source.read_record_batches(
             reader,
             table_name=name,

@@ -3,14 +3,17 @@ import operator
 import random
 from operator import methodcaller
 from pathlib import PosixPath
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pytest
+import sqlglot as sg
 from pytest import param
 
 import xorq.api as xo
+from xorq.backends.xorq_datafusion import Backend
 from xorq.caching import ParquetCache, SourceCache
 from xorq.common.exceptions import XorqError
 from xorq.expr.relations import register_and_transform_remote_tables
@@ -19,6 +22,7 @@ from xorq.tests.util import assert_frame_equal, check_eq
 from xorq.vendor import ibis
 from xorq.vendor.ibis import _
 from xorq.vendor.ibis.expr.types.relations import CACHED_NODE_NAME_PLACEHOLDER
+from xorq.vendor.ibis.util import gen_name
 
 
 expected_tables = (
@@ -742,6 +746,85 @@ def test_multi_engine_cache(pg, ls_con, ls_batting, tmp_path, backend_name):
     )
 
     assert expr.execute() is not None
+
+
+def _make_large_utf8_backend(con):
+    """Return a wrapper that overrides to_pyarrow_batches to emit large_utf8.
+
+    Simulates backends (e.g. psycopg3 for Postgres TEXT columns) that emit
+    large_utf8 where ibis schema declares utf8. Used to verify that
+    register_and_transform_remote_tables casts batches before constructing
+    the RecordBatchReader, preventing silent C Data Interface corruption.
+    """
+    orig = con.__class__.to_pyarrow_batches
+
+    def large_utf8_batches(self, expr, **kwargs):
+        reader = orig(self, expr, **kwargs)
+        large_schema = pa.schema(
+            [
+                pa.field(
+                    f.name, pa.large_utf8() if pa.types.is_string(f.type) else f.type
+                )
+                for f in reader.schema
+            ]
+        )
+        return pa.RecordBatchReader.from_batches(
+            large_schema,
+            (batch.cast(large_schema) for batch in reader),
+        )
+
+    return patch.object(con.__class__, "to_pyarrow_batches", large_utf8_batches)
+
+
+def _naive_read_record_batches(self, source, table_name=None):
+    """read_record_batches without any cast — exposes lying-reader corruption."""
+    table_name = table_name or gen_name("read_record_batches")
+    table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
+    self.con.deregister_table(table_ident)
+    self.con.register_record_batch_reader(table_ident, source)
+    return self.table(table_name)
+
+
+def test_lying_reader_corrupts_datafusion_directly():
+    # Confirm the threat model at the DataFusion level: a RecordBatchReader
+    # that declares utf8 but carries large_utf8 batches silently corrupts
+    # string values when passed directly to register_record_batch_reader via
+    # the C Data Interface (64-bit offsets misread as 32-bit).
+    con = xo.connect()
+    utf8_schema = pa.schema([("x", pa.utf8())])
+    batch = pa.record_batch({"x": pa.array(["hello", "world"], type=pa.large_utf8())})
+    lying_reader = pa.RecordBatchReader.from_batches(utf8_schema, [batch])
+
+    con.con.register_record_batch_reader("lying_table", lying_reader)
+    result = con.table("lying_table").execute()["x"].tolist()
+
+    assert result != ["hello", "world"], (
+        "DataFusion should corrupt data from a lying reader — "
+        "if this assertion fails the underlying C Data Interface behaviour changed"
+    )
+
+
+def test_register_and_transform_casts_lying_reader(monkeypatch):
+    # register_and_transform_remote_tables must cast each batch to the declared
+    # schema before constructing the RecordBatchReader. Without this cast the
+    # lying reader (large_utf8 physical, utf8 declared schema) silently
+    # corrupts string values in DataFusion via the C Data Interface.
+    # This test fails when the cast is absent from
+    # register_and_transform_remote_tables (even if read_record_batches is naive).
+    duck = xo.duckdb.connect()
+    duck.create_table("src_strings", pa.table({"x": ["hello", "world"], "n": [1, 2]}))
+    t = duck.table("src_strings")
+
+    con = xo.connect()
+    monkeypatch.setattr(Backend, "read_record_batches", _naive_read_record_batches)
+
+    with _make_large_utf8_backend(duck):
+        remote = t.into_backend(con)
+        expr, _ = register_and_transform_remote_tables(remote)
+        result = expr.execute()
+
+    assert result["x"].tolist() == ["hello", "world"]
+    assert result["n"].tolist() == [1, 2]
 
 
 def test_multi_backend(parquet_dir):
