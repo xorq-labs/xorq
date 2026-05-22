@@ -13,7 +13,20 @@ from types import SimpleNamespace
 
 import click
 
-from xorq.cli import OutputFormats
+from xorq.cli_options import (
+    cache_dir_option,
+    cache_strategy_options,
+    code_option,
+    env_options,
+    fuse_option,
+    gcs_option,
+    json_option,
+    limit_option,
+    output_options,
+    params_option,
+    rename_params_option,
+    sync_option,
+)
 
 
 def click_handler(e):
@@ -51,7 +64,7 @@ def click_context(ctx, *typs):
 
 @contextmanager
 def click_context_catalog(ctx):
-    from git import NoSuchPathError
+    from git import NoSuchPathError  # noqa: PLC0415
 
     try:
         yield
@@ -74,7 +87,7 @@ def click_context_default(ctx):
 
 @cache
 def _make_catalog_for_completion(ctx):
-    from xorq.catalog.catalog import Catalog
+    from xorq.catalog.catalog import Catalog  # noqa: PLC0415
 
     catalog_ctx = ctx.parent
     return Catalog.from_kwargs(
@@ -87,7 +100,7 @@ def _make_catalog_for_completion(ctx):
 
 
 def _complete_entry_names(ctx, param, incomplete):
-    from click.shell_completion import CompletionItem
+    from click.shell_completion import CompletionItem  # noqa: PLC0415
 
     try:
         catalog = _make_catalog_for_completion(ctx)
@@ -97,7 +110,7 @@ def _complete_entry_names(ctx, param, incomplete):
 
 
 def _complete_alias_names(ctx, param, incomplete):
-    from click.shell_completion import CompletionItem
+    from click.shell_completion import CompletionItem  # noqa: PLC0415
 
     try:
         catalog = _make_catalog_for_completion(ctx)
@@ -135,14 +148,14 @@ def _complete_entry_or_alias_names(ctx, param, incomplete):
     "-u",
     "--url",
     default=None,
-    help="Remote repo url to clone",
+    help="Remote repo url to clone.",
 )
 @click.option(
     "-r",
     "--root-repo",
     default=None,
     type=click.Path(file_okay=False, exists=True),
-    help="Repo root to add this catalog to as a submodule",
+    help="Repo root to add this catalog to as a submodule.",
 )
 @click.option(
     "--init/--no-init",
@@ -152,7 +165,7 @@ def _complete_entry_or_alias_names(ctx, param, incomplete):
 @click.pass_context
 def cli(ctx, name, path, url, root_repo, init):
     """Manage xorq build-artifact catalogs."""
-    from xorq.catalog.catalog import Catalog
+    from xorq.catalog.catalog import Catalog  # noqa: PLC0415
 
     ctx.obj = SimpleNamespace(
         make_catalog=partial(
@@ -175,7 +188,7 @@ def tui(ctx, refresh):
     """Launch terminal UI."""
     with click_context_catalog(ctx):
         ctx.obj.make_catalog(init=False)  # validate catalog exists
-    from xorq.catalog.tui import CatalogTUI
+    from xorq.catalog.tui import CatalogTUI  # noqa: PLC0415
 
     app = CatalogTUI(
         partial(ctx.obj.make_catalog, init=False), refresh_interval=refresh
@@ -188,29 +201,19 @@ def _resolve_annex_option(env_file, env_prefix, gcs):
     if env_file and env_prefix:
         raise click.UsageError("--env-file and --env-prefix are mutually exclusive.")
     if env_file:
-        from xorq.catalog.annex import remote_config_from_env_file
+        from xorq.catalog.annex import remote_config_from_env_file  # noqa: PLC0415
 
         return remote_config_from_env_file(env_file, gcs=gcs)
     elif env_prefix:
-        from xorq.catalog.annex import remote_config_from_prefix
+        from xorq.catalog.annex import remote_config_from_prefix  # noqa: PLC0415
 
         return remote_config_from_prefix(env_prefix, gcs=gcs)
     return None
 
 
 @cli.command()
-@click.option(
-    "--env-file",
-    type=click.Path(exists=True, dir_okay=False),
-    default=None,
-    help="Env file for annex remote (e.g. .env.catalog.s3).",
-)
-@click.option(
-    "--env-prefix",
-    default=None,
-    help="Env var prefix for annex remote (e.g. XORQ_CATALOG_S3_).",
-)
-@click.option("--gcs", is_flag=True, help="Apply GCS defaults to S3 remote config.")
+@env_options
+@gcs_option
 @click.option(
     "--remote-url",
     default=None,
@@ -231,7 +234,7 @@ def init(ctx, env_file, env_prefix, gcs, remote_url):
             ) from err
         click.echo(f"Initialized catalog at {catalog.repo_path}")
         if remote_url:
-            from xorq.catalog.constants import DEFAULT_REMOTE
+            from xorq.catalog.constants import DEFAULT_REMOTE  # noqa: PLC0415
 
             remote = catalog.set_remote(DEFAULT_REMOTE, remote_url)
             click.echo(f"Set remote {remote.name} -> {remote_url}")
@@ -239,7 +242,7 @@ def init(ctx, env_file, env_prefix, gcs, remote_url):
 
 @cli.command()
 @click.argument("paths", nargs=-1, required=True, type=click.Path(exists=True))
-@click.option("--sync/--no-sync", default=True)
+@sync_option
 @click.option(
     "-a",
     "--alias",
@@ -260,7 +263,7 @@ def add(ctx, paths, sync, aliases):
 
 @cli.command()
 @click.argument("names", nargs=-1, required=True, shell_complete=_complete_entry_names)
-@click.option("--sync/--no-sync", default=True)
+@sync_option
 @click.pass_context
 def remove(ctx, names, sync):
     """Remove entries by name."""
@@ -275,7 +278,7 @@ def remove(ctx, names, sync):
 @cli.command("add-alias")
 @click.argument("name", shell_complete=_complete_entry_names)
 @click.argument("alias")
-@click.option("--sync/--no-sync", default=True)
+@sync_option
 @click.pass_context
 def add_alias(ctx, name, alias, sync):
     """Add an alias for an entry."""
@@ -289,7 +292,7 @@ def add_alias(ctx, name, alias, sync):
 @click.argument(
     "aliases", nargs=-1, required=True, shell_complete=_complete_alias_names
 )
-@click.option("--sync/--no-sync", default=True)
+@sync_option
 @click.pass_context
 def remove_alias(ctx, aliases, sync):
     """Remove one or more aliases."""
@@ -350,9 +353,9 @@ def info(ctx):
 @click.option("--unset", is_flag=True, help="Remove the persisted default.")
 def default_catalog(set_name, unset):
     """Show or change the persisted default catalog name."""
-    from xorq.catalog.catalog import Catalog
-    from xorq.catalog.constants import DEFAULT_CATALOG_CONFIG
-    from xorq.vendor.ibis.config import env_config
+    from xorq.catalog.catalog import Catalog  # noqa: PLC0415
+    from xorq.catalog.constants import DEFAULT_CATALOG_CONFIG  # noqa: PLC0415
+    from xorq.vendor.ibis.config import env_config  # noqa: PLC0415
 
     if set_name and unset:
         raise click.UsageError("--set and --unset are mutually exclusive.")
@@ -449,8 +452,8 @@ def set_remote(ctx, url, name, force):
     — guarding against typos that would silently delete the configured
     remote.
     """
-    from xorq.catalog.constants import DEFAULT_REMOTE
-    from xorq.catalog.exceptions import CatalogConfigurationError
+    from xorq.catalog.constants import DEFAULT_REMOTE  # noqa: PLC0415
+    from xorq.catalog.exceptions import CatalogConfigurationError  # noqa: PLC0415
 
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
@@ -477,7 +480,7 @@ def set_remote(ctx, url, name, force):
 @click.pass_context
 def clone(ctx, url, dest_name, dest_path):
     """Clone a catalog from a remote URL."""
-    from xorq.catalog.catalog import Catalog
+    from xorq.catalog.catalog import Catalog  # noqa: PLC0415
 
     with click_context_default(ctx):
         match (dest_path, dest_name):
@@ -495,7 +498,7 @@ def clone(ctx, url, dest_name, dest_path):
 
 @cli.command()
 @click.argument("name", shell_complete=_complete_entry_or_alias_names)
-@click.option("--json", "as_json", is_flag=True, default=False, help="Output as JSON.")
+@json_option
 @click.pass_context
 def schema(ctx, name, as_json):
     """Show schema of a catalog entry (name or alias)."""
@@ -530,7 +533,7 @@ def schema(ctx, name, as_json):
 
 @cli.command()
 @click.argument("name", shell_complete=_complete_entry_or_alias_names)
-@click.option("--json", "as_json", is_flag=True, default=False, help="Output as JSON.")
+@json_option
 @click.option(
     "--raw",
     "as_raw",
@@ -566,29 +569,23 @@ def show(ctx, name, as_json, as_raw):
             ExprKind.Composed: "Composed",
             ExprKind.ExprBuilder: "Expression Builder",
         }.get(entry.kind, str(entry.kind))
+        click.echo(f"{'Name:':<15} {entry.name}")
+        aliases = tuple(a.alias for a in entry.aliases)
+        if aliases:
+            click.echo(f"{'Aliases:':<15} {', '.join(aliases)}")
+        click.echo(f"{'Type:':<15} {type_label}")
+        if meta.root_tag:
+            click.echo(f"{'Root tag:':<15} {meta.root_tag}")
         backends = entry.backends
-        cache_key = (
-            meta.projected_cache_key.key
-            if meta.projected_cache_key and meta.projected_cache_key.key
-            else None
+        if backends:
+            click.echo(f"{'Backends:':<15} {', '.join(backends)}")
+        click.echo(
+            f"{'Content local:':<15} {'yes' if entry.is_content_local else 'no'}"
         )
-        aliases_str = ", ".join(a.alias for a in entry.aliases) or None
-        fields = [
-            ("Name:", entry.name),
-            ("Aliases:", aliases_str),
-            ("Type:", type_label),
-            ("Root tag:", meta.root_tag if meta.root_tag else None),  # noqa: FURB110
-            ("Backends:", ", ".join(backends) if backends else None),
-            ("Content local:", "yes" if entry.is_content_local else "no"),
-            (
-                "Composed from:",
-                str(len(meta.composed_from)) if meta.composed_from else None,
-            ),
-            ("Cache key:", cache_key),
-        ]
-        for label, value in fields:
-            if value is not None:
-                click.echo(f"{label:<15} {value}")
+        if meta.composed_from:
+            click.echo(f"{'Composed from:':<15} {len(meta.composed_from)}")
+        if meta.projected_cache_key and meta.projected_cache_key.key:
+            click.echo(f"{'Cache key:':<15} {meta.projected_cache_key.key}")
         if meta.params:
             click.echo()
             click.echo("Params:")
@@ -630,13 +627,13 @@ def check(ctx):
 
 
 @cli.command()
-@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+@json_option
 @click.pass_context
 def log(ctx, as_json):
     """Show catalog history as structured operations."""
-    import attr
+    import attr  # noqa: PLC0415
 
-    from xorq.catalog.replay import Replayer
+    from xorq.catalog.replay import Replayer  # noqa: PLC0415
 
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
@@ -657,18 +654,8 @@ def log(ctx, as_json):
 
 @cli.command()
 @click.argument("target_path", type=click.Path(file_okay=False))
-@click.option(
-    "--env-file",
-    type=click.Path(exists=True, dir_okay=False),
-    default=None,
-    help="Env file for target annex remote (e.g. .env.catalog.s3).",
-)
-@click.option(
-    "--env-prefix",
-    default=None,
-    help="Env var prefix for target annex remote (e.g. XORQ_CATALOG_S3_).",
-)
-@click.option("--gcs", is_flag=True, help="Apply GCS defaults to S3 remote config.")
+@env_options
+@gcs_option
 @click.option(
     "--remote-url",
     default=None,
@@ -710,8 +697,8 @@ def replay(
     recomposed against their already-rebuilt dependencies in the
     target catalog. Outer builder wrappings pass through untouched.
     """
-    from xorq.catalog.catalog import Catalog
-    from xorq.catalog.replay import Replayer
+    from xorq.catalog.catalog import Catalog  # noqa: PLC0415
+    from xorq.catalog.replay import Replayer  # noqa: PLC0415
 
     with click_context_catalog(ctx):
         source = ctx.obj.make_catalog(init=False)
@@ -724,7 +711,11 @@ def replay(
         replayer.replay(target, preserve_commits=preserve_commits)
         click.echo(f"Replayed {len(replayer.ops)} operations into {target_path}")
         if remote_url:
-            from xorq.catalog.constants import ANNEX_BRANCH, DEFAULT_REMOTE, MAIN_BRANCH
+            from xorq.catalog.constants import (  # noqa: PLC0415
+                ANNEX_BRANCH,
+                DEFAULT_REMOTE,
+                MAIN_BRANCH,
+            )
 
             origin = target.repo.create_remote(DEFAULT_REMOTE, remote_url)
             refspec_prefix = "+" if force else ""
@@ -740,18 +731,8 @@ def replay(
 
 
 @cli.command("embed-readonly")
-@click.option(
-    "--env-file",
-    type=click.Path(exists=True, dir_okay=False),
-    default=None,
-    help="Env file for read-only credentials to embed.",
-)
-@click.option(
-    "--env-prefix",
-    default=None,
-    help="Env var prefix for read-only credentials (e.g. XORQ_CATALOG_S3_).",
-)
-@click.option("--gcs", is_flag=True, help="Apply GCS defaults to S3 remote config.")
+@env_options
+@gcs_option
 @click.pass_context
 def embed_readonly(ctx, env_file, env_prefix, gcs):
     """Embed read-only S3 credentials into the catalog's git-annex branch.
@@ -770,19 +751,38 @@ def embed_readonly(ctx, env_file, env_prefix, gcs):
         click.echo(f"Embedded read-only credentials into {catalog.repo_path}")
 
 
-def _eval_entry(catalog_entry, code, instream=None):
+def _get_catalog_entry(catalog, name):
+    """Look up an entry by name or alias, raising a helpful ClickException."""
+    try:
+        return catalog.get_catalog_entry(name, maybe_alias=True)
+    except (ValueError, AssertionError) as err:
+        raise click.ClickException(
+            f"Entry {name!r} not found — run 'xorq catalog list' "
+            f"or 'xorq catalog list-aliases' to see available entries and aliases."
+        ) from err
+
+
+def _resolve_entry_for_run(catalog, entry):
+    ce = _get_catalog_entry(catalog, entry)
+    if not ce.is_content_local:
+        ce.fetch()
+    return ce
+
+
+def _eval_entry(catalog_entry, code, instream=None, cache_dir=None):
     """Evaluate a single catalog entry to an expression."""
-    from xorq.catalog.bind import _eval_code, _make_source_expr
-    from xorq.ibis_yaml.enums import ExprKind
+    from xorq.catalog.bind import _eval_code, _make_source_expr  # noqa: PLC0415
+    from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
 
     match catalog_entry.kind:
         case ExprKind.UnboundExpr:
-            import pyarrow as pa
+            import pyarrow as pa  # noqa: PLC0415
 
-            from xorq.common.utils.graph_utils import replace_unbound
-            from xorq.common.utils.io_utils import maybe_open
-            from xorq.expr.api import read_pyarrow_stream
+            from xorq.common.utils.graph_utils import replace_unbound  # noqa: PLC0415
+            from xorq.common.utils.io_utils import maybe_open  # noqa: PLC0415
+            from xorq.expr.api import read_pyarrow_stream  # noqa: PLC0415
 
+            loaded_expr = catalog_entry.load_expr(cache_dir=cache_dir)
             try:
                 with maybe_open(instream, "rb") as stream:
                     input_expr = read_pyarrow_stream(stream)
@@ -792,9 +792,9 @@ def _eval_entry(catalog_entry, code, instream=None):
                     f"pipe Arrow data into it or pass a source entry: "
                     f"'xorq catalog run SOURCE {catalog_entry.name} -o - -f csv'."
                 ) from err
-            expr = replace_unbound(catalog_entry.expr, input_expr.op())
+            expr = replace_unbound(loaded_expr, input_expr.op())
         case ExprKind.Source | ExprKind.Expr | ExprKind.Composed | ExprKind.ExprBuilder:
-            expr = _make_source_expr(catalog_entry)
+            expr = _make_source_expr(catalog_entry, cache_dir=cache_dir)
         case _:
             raise click.ClickException(
                 f"Unsupported entry kind {catalog_entry.kind!r} for 'run'."
@@ -825,7 +825,7 @@ def _parse_rename_params(raw_rename_params):
     return result
 
 
-def _compose_expr(catalog, entries, code, rename_map=None):
+def _compose_expr(catalog, entries, code, rename_map=None, cache_dir=None):
     """Build a composed expression from catalog entries and/or inline code."""
 
     from xorq.catalog.bind import (  # noqa: PLC0415
@@ -843,7 +843,6 @@ def _compose_expr(catalog, entries, code, rename_map=None):
         name: catalog.get_catalog_entry(name, maybe_alias=True) for name in entries
     }
 
-    # Validate that rename_map keys refer to actual entry names
     unknown = set(rename_map) - set(catalog_entries)
     if unknown:
         raise click.BadParameter(
@@ -854,8 +853,8 @@ def _compose_expr(catalog, entries, code, rename_map=None):
 
     source_name, *transform_names = entries
 
-    if not rename_map:
-        # Fast path: no renames, use ExprComposer directly
+    # Fast path: delegate to ExprComposer when no per-entry transformations are needed
+    if not rename_map and cache_dir is None:
         from xorq.catalog.composer import ExprComposer  # noqa: PLC0415
 
         return ExprComposer(
@@ -864,11 +863,13 @@ def _compose_expr(catalog, entries, code, rename_map=None):
             code=code,
         ).expr
 
-    # Slow path: apply renames per-entry, then compose manually
+    def _load(entry):
+        return entry.load_expr(cache_dir=cache_dir)
+
     if source_name in rename_map:
-        source_expr = rename_params(source_entry.expr, rename_map[source_name])
+        source_expr = rename_params(_load(source_entry), rename_map[source_name])
     else:
-        source_expr = source_entry.expr
+        source_expr = _load(source_entry)
 
     source_tagged, resolved_con = _resolve_source(source_expr, None, None)
 
@@ -880,9 +881,9 @@ def _compose_expr(catalog, entries, code, rename_map=None):
         def _bind_one_with_rename(current_expr, entry_and_name):
             entry, name = entry_and_name
             if name in rename_map:
-                transform_expr = rename_params(entry.expr, rename_map[name])
+                transform_expr = rename_params(_load(entry), rename_map[name])
             else:
-                transform_expr = entry.expr
+                transform_expr = _load(entry)
             source_node = _ensure_remote(current_expr.op(), resolved_con, current_expr)
             composed_expr = replace_unbound(transform_expr, source_node)
             return RemoteTable(
@@ -925,24 +926,6 @@ def _stage_bundle_into_build(bundle, build_path):
         if not dst.exists():
             shutil.copy2(w, dst)
     shutil.copy2(bundle.requirements_path, build_path / DumpFiles.requirements)
-
-
-def _get_catalog_entry(catalog, entry):
-    """Look up an entry by name or alias, raising a helpful ClickException."""
-    try:
-        return catalog.get_catalog_entry(entry, maybe_alias=True)
-    except (ValueError, AssertionError) as err:
-        raise click.ClickException(
-            f"Entry {entry!r} not found — run 'xorq catalog list' "
-            f"or 'xorq catalog list-aliases' to see available entries and aliases."
-        ) from err
-
-
-def _resolve_entry_for_run(catalog, entry):
-    ce = _get_catalog_entry(catalog, entry)
-    if not ce.is_content_local:
-        ce.fetch()
-    return ce
 
 
 def _extract_wheel(zf, member, harvest_dir, seen_wheels, entry_name):
@@ -1120,65 +1103,6 @@ def _forward_ctx_params(ctx, *, exclude=frozenset()):
     )
 
 
-# Params on the ``run`` command that rewrite the expression.  The fast path
-# (PackagedRunner from archive) is only valid when none of these are set.
-# Update this set when adding new expression-rewriting options to ``run``.
-_EXPR_MODIFYING_PARAMS = frozenset({"code", "limit", "raw_params", "raw_rename_params"})
-
-
-def _has_expr_modifications(ctx):
-    """True when the user passed flags that modify the expression."""
-    p = ctx.params
-    if not p.get("fuse", True):
-        return True
-    if p.get("limit") is not None:
-        return True
-    return bool(p.get("code") or p.get("raw_params") or p.get("raw_rename_params"))
-
-
-def _log_run_metrics(rl, span, prefix, elapsed, output_format, output_path):
-    from xorq.common.utils.logging_utils import RunLogger  # noqa: PLC0415
-
-    rl.log_span_event(
-        span,
-        f"{prefix}.done",
-        {"elapsed_s": round(elapsed, 3), "output_format": str(output_format)},
-    )
-    file_metrics = RunLogger._compute_file_metrics(output_format, output_path)
-    if file_metrics:
-        rl.log_span_event(span, f"{prefix}.output_written", file_metrics)
-
-
-def _reinvoke_and_log(ctx, catalog, entries, span, rl):
-    """Reinvoke the current Click command in the entries' pinned env and log metrics."""
-    from xorq.common.utils.profile_utils import timed  # noqa: PLC0415
-
-    span.set_attribute("path", "uv-reinvoke")
-    forwarded = _forward_ctx_params(ctx, exclude={"use_this_venv"})
-    inner_cmd = (
-        "xorq",
-        "catalog",
-        "--path",
-        str(catalog.repo_path),
-        ctx.info_name,
-        *entries,
-        *forwarded,
-        "--use-this-venv",
-    )
-    with timed() as get_elapsed, _uv_reinvoke_xorq_cli(catalog, entries, *inner_cmd):
-        pass
-
-    span_prefix = f"catalog_{ctx.info_name.replace('-', '_')}"
-    _log_run_metrics(
-        rl,
-        span,
-        span_prefix,
-        get_elapsed(),
-        ctx.params.get("output_format"),
-        ctx.params.get("output_path"),
-    )
-
-
 def _compose_via_reinvoke(ctx, catalog, entries):
     dry_run = ctx.params.get("dry_run", False)
     forwarded = _forward_ctx_params(
@@ -1233,31 +1157,21 @@ def _compose_via_reinvoke(ctx, catalog, entries):
 
 @cli.command("compose")
 @click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
-@click.option(
-    "-c",
-    "--code",
-    default=None,
-    help="Inline Ibis code expression applied to `source`.",
-)
+@code_option
 @click.option(
     "-a",
     "--alias",
     default=None,
     help="Also register this alias for the cataloged entry.",
 )
-@click.option("--cache-dir", default=None, help="Directory for parquet cache files.")
+@cache_dir_option
 @click.option(
     "--dry-run",
     is_flag=True,
     default=False,
     help="Show composition plan without building.",
 )
-@click.option(
-    "--rename-params",
-    "raw_rename_params",
-    multiple=True,
-    help="Rename a parameter: entry,old_name,new_name (repeatable).",
-)
+@rename_params_option
 @click.option(
     "--use-this-venv/--no-use-this-venv",
     default=False,
@@ -1276,9 +1190,7 @@ def _compose_via_reinvoke(ctx, catalog, entries):
     hidden=True,
     help=(
         "Internal: after build_expr, write the build_path to the given file "
-        "and exit without merging wheels or cataloging. Out-of-band so library "
-        "prints to stdout can't be mistaken for the build_path. The outer "
-        "reinvoke uses this to pick up the inner's build_path."
+        "and exit without merging wheels or cataloging."
     ),
 )
 @click.pass_context
@@ -1369,14 +1281,16 @@ def compose(
             span.set_attribute("cataloged", label)
 
 
-def _resolve_single_entry(catalog, entry, code, instream, rename_map, span):
+def _resolve_single_entry(
+    catalog, entry, code, instream, rename_map, span, cache_dir=None
+):
     """Resolve a single catalog entry to an expression."""
-    catalog_entry = _resolve_entry_for_run(catalog, entry)
+    catalog_entry = _get_catalog_entry(catalog, entry)
 
     from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
 
     span.set_attribute("kind", str(catalog_entry.kind))
-    expr = _eval_entry(catalog_entry, code, instream)
+    expr = _eval_entry(catalog_entry, code, instream, cache_dir=cache_dir)
 
     if rename_map and entry in rename_map:
         from xorq.common.utils.graph_utils import rename_params  # noqa: PLC0415
@@ -1389,7 +1303,65 @@ def _resolve_single_entry(catalog, entry, code, instream, rename_map, span):
     return expr
 
 
-def _resolve_and_execute(ctx, catalog, span, rl, span_prefix, *, expr_transform=None):
+_EXPR_MODIFYING_PARAMS = frozenset({"code", "limit", "raw_params", "raw_rename_params"})
+
+
+def _has_expr_modifications(ctx):
+    """True when the user passed flags that modify the expression."""
+    p = ctx.params
+    if not p.get("fuse", True):
+        return True
+    if p.get("limit") is not None:
+        return True
+    return bool(p.get("code") or p.get("raw_params") or p.get("raw_rename_params"))
+
+
+def _log_run_metrics(rl, span, prefix, elapsed, output_format, output_path):
+    from xorq.common.utils.logging_utils import RunLogger  # noqa: PLC0415
+
+    rl.log_span_event(
+        span,
+        f"{prefix}.done",
+        {"elapsed_s": round(elapsed, 3), "output_format": str(output_format)},
+    )
+    file_metrics = RunLogger._compute_file_metrics(output_format, output_path)
+    if file_metrics:
+        rl.log_span_event(span, f"{prefix}.output_written", file_metrics)
+
+
+def _reinvoke_and_log(ctx, catalog, entries, span, rl):
+    """Reinvoke the current Click command in the entries' pinned env and log metrics."""
+    from xorq.common.utils.profile_utils import timed  # noqa: PLC0415
+
+    span.set_attribute("path", "uv-reinvoke")
+    forwarded = _forward_ctx_params(ctx, exclude={"use_this_venv"})
+    inner_cmd = (
+        "xorq",
+        "catalog",
+        "--path",
+        str(catalog.repo_path),
+        ctx.info_name,
+        *entries,
+        *forwarded,
+        "--use-this-venv",
+    )
+    with timed() as get_elapsed, _uv_reinvoke_xorq_cli(catalog, entries, *inner_cmd):
+        pass
+
+    span_prefix = f"catalog_{ctx.info_name.replace('-', '_')}"
+    _log_run_metrics(
+        rl,
+        span,
+        span_prefix,
+        get_elapsed(),
+        ctx.params.get("output_format"),
+        ctx.params.get("output_path"),
+    )
+
+
+def _resolve_and_execute(
+    ctx, catalog, span, rl, span_prefix, *, expr_transform=None, cache_dir=None
+):
     from xorq.cli import _apply_cli_params, arbitrate_output_format  # noqa: PLC0415
     from xorq.common.utils.profile_utils import timed  # noqa: PLC0415
 
@@ -1405,15 +1377,18 @@ def _resolve_and_execute(ctx, catalog, span, rl, span_prefix, *, expr_transform=
     output_format = p.get("output_format")
 
     rename_map = _parse_rename_params(raw_rename_params) if raw_rename_params else None
+    user_cache_dir = p.get("cache_dir")
 
     span.set_attribute("path", "in-process")
     with timed() as get_elapsed:
         if len(entries) > 1:
-            expr = _compose_expr(catalog, entries, code, rename_map=rename_map)
+            expr = _compose_expr(
+                catalog, entries, code, rename_map=rename_map, cache_dir=user_cache_dir
+            )
         else:
             (entry,) = entries
             expr = _resolve_single_entry(
-                catalog, entry, code, instream, rename_map, span
+                catalog, entry, code, instream, rename_map, span, cache_dir=cache_dir
             )
         rl.log_span_event(
             span,
@@ -1438,27 +1413,9 @@ def _resolve_and_execute(ctx, catalog, span, rl, span_prefix, *, expr_transform=
 
 @cli.command("run")
 @click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
-@click.option(
-    "-c",
-    "--code",
-    default=None,
-    help="Inline Ibis code expression applied to `source`.",
-)
-@click.option(
-    "-o",
-    "--output-path",
-    default=None,
-    help=f"Path to write output (default: {os.devnull})",
-)
-@click.option(
-    "-f",
-    "--format",
-    "output_format",
-    type=click.Choice([f.value for f in OutputFormats]),
-    default=OutputFormats.default,
-    help="Output format (default: parquet).",
-)
-@click.option("--limit", type=int, default=None, help="Limit number of rows to output.")
+@code_option
+@output_options
+@limit_option
 @click.option(
     "-i",
     "--instream",
@@ -1466,24 +1423,10 @@ def _resolve_and_execute(ctx, catalog, span, rl, span_prefix, *, expr_transform=
     default="-",
     help="Stream to read Arrow IPC record batches from (default: stdin).",
 )
-@click.option(
-    "--fuse/--no-fuse",
-    default=True,
-    help="Enable/disable catalog source fusion (default: enabled).",
-)
-@click.option(
-    "--rename-params",
-    "raw_rename_params",
-    multiple=True,
-    help="Rename a parameter: entry,old_name,new_name (repeatable).",
-)
-@click.option(
-    "-p",
-    "--params",
-    "raw_params",
-    multiple=True,
-    help="Parameter as key=value (repeatable). e.g. --params threshold=0.5",
-)
+@fuse_option
+@rename_params_option
+@params_option
+@cache_dir_option
 @click.option(
     "--use-this-venv/--no-use-this-venv",
     default=False,
@@ -1508,6 +1451,7 @@ def run(
     fuse,
     raw_rename_params,
     raw_params,
+    cache_dir,
     use_this_venv,
 ):
     """Compose and execute catalog entries.
@@ -1526,9 +1470,12 @@ def run(
 
     To persist composed results, use 'compose'.
     """
+    from xorq.cli import _get_cache_dir  # noqa: PLC0415
     from xorq.common.utils.logging_utils import RunLogger  # noqa: PLC0415
     from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
     from xorq.common.utils.profile_utils import timed  # noqa: PLC0415
+
+    cache_dir = _get_cache_dir(cache_dir)
 
     with tracer.start_as_current_span("catalog.run") as span:
         span.set_attributes({"entries": entries, "has_code": code is not None})
@@ -1583,6 +1530,7 @@ def run(
                         ):
                             PackagedRunner(
                                 build_path,
+                                cache_dir=cache_dir,
                                 output_path=output_path,
                                 output_format=output_format,
                             ).run()
@@ -1600,32 +1548,16 @@ def run(
                     _reinvoke_and_log(ctx, catalog, entries, span, rl)
                     return
 
-                _resolve_and_execute(ctx, catalog, span, rl, "catalog_run")
+                _resolve_and_execute(
+                    ctx, catalog, span, rl, "catalog_run", cache_dir=cache_dir
+                )
 
 
 @cli.command("run-cached")
 @click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
-@click.option(
-    "-c",
-    "--code",
-    default=None,
-    help="Inline Ibis code expression applied to `source`.",
-)
-@click.option(
-    "-o",
-    "--output-path",
-    default=None,
-    help=f"Path to write output (default: {os.devnull})",
-)
-@click.option(
-    "-f",
-    "--format",
-    "output_format",
-    type=click.Choice([f.value for f in OutputFormats]),
-    default=OutputFormats.default,
-    help="Output format (default: parquet).",
-)
-@click.option("--limit", type=int, default=None, help="Limit number of rows to output.")
+@code_option
+@output_options
+@limit_option
 @click.option(
     "-i",
     "--instream",
@@ -1633,41 +1565,11 @@ def run(
     default="-",
     help="Stream to read Arrow IPC record batches from (default: stdin).",
 )
-@click.option(
-    "--fuse/--no-fuse",
-    default=True,
-    help="Enable/disable catalog source fusion (default: enabled).",
-)
-@click.option(
-    "--rename-params",
-    "raw_rename_params",
-    multiple=True,
-    help="Rename a parameter: entry,old_name,new_name (repeatable).",
-)
-@click.option(
-    "-p",
-    "--params",
-    "raw_params",
-    multiple=True,
-    help="Parameter as key=value (repeatable). e.g. --params threshold=0.5",
-)
-@click.option(
-    "--cache-dir",
-    default=None,
-    help="Directory for all generated parquet files cache.",
-)
-@click.option(
-    "--cache-type",
-    type=click.Choice(["modification-time", "snapshot"]),
-    default="modification-time",
-    help="Cache strategy: 'modification-time' (ParquetCache, default) or 'snapshot' (ParquetSnapshotCache).",
-)
-@click.option(
-    "--ttl",
-    type=int,
-    default=None,
-    help="TTL in seconds for snapshot cache (uses ParquetTTLSnapshotCache when set).",
-)
+@fuse_option
+@rename_params_option
+@params_option
+@cache_dir_option
+@cache_strategy_options
 @click.option(
     "--use-this-venv/--no-use-this-venv",
     default=False,
@@ -1773,4 +1675,5 @@ def run_cached(
                     rl,
                     "catalog_run_cached",
                     expr_transform=_wrap_cache,
+                    cache_dir=resolved_cache_dir,
                 )

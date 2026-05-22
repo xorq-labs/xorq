@@ -621,6 +621,14 @@ def test_test_zip_missing_wheel(catalog, tmpdir):
         BuildZip(zip_path)
 
 
+def test_test_zip_multi_wheel(catalog, tmpdir):
+    names = {**dict.fromkeys(REQUIRED_ARCHIVE_NAMES, b""), TEST_WHEEL_NAME: b""}
+    names["extra-0.0.0-py3-none-any.whl"] = b""
+    zip_path = write_zip(Path(tmpdir).joinpath("build.zip"), names)
+    bz = BuildZip(zip_path)
+    assert bz.path == zip_path
+
+
 def test_assert_consistency(catalog, tmpdir):
     zip_path = write_zip(
         Path(tmpdir).joinpath("build.zip"),

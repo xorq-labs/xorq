@@ -47,51 +47,6 @@ def _replay_rebuild(source_catalog_obj, target_path, on_unrebuilt_builder="raise
 TEST_WHEEL_NAME = "pkg-0.0.0-py3-none-any.whl"
 
 
-class _AutoVenvCliRunner(CliRunner):
-    """CliRunner that auto-injects `--use-this-venv` on `run` / `run-cached`
-    / `compose` invocations.
-
-    These commands default to spawning `uv tool run` for isolated execution.
-    Under CliRunner the subprocess writes to OS fd 1, which bypasses
-    CliRunner's `sys.stdout` capture and yields an empty `result.output`.
-    The `--use-this-venv` flag opts into the in-process path so tests stay
-    fast and output-capturable; production callers that need isolation
-    simply omit the flag.
-    """
-
-    def invoke(self, cli, args=(), **kwargs):
-        # Only inject at the subcommand position so entry/alias names
-        # literally equal to "run", "run-cached", or "compose" don't get
-        # mistaken for the subcommand.
-        args = list(args)
-        catalog_opts_with_value = {
-            "-n",
-            "--name",
-            "-p",
-            "--path",
-            "-u",
-            "--url",
-            "-r",
-            "--root-repo",
-        }
-        i = 0
-        while i < len(args):
-            a = args[i]
-            if a in catalog_opts_with_value:
-                i += 2
-                continue
-            if any(a.startswith(f"{opt}=") for opt in catalog_opts_with_value):
-                i += 1
-                continue
-            if a.startswith("-"):
-                i += 1
-                continue
-            if a in ("run", "run-cached", "compose"):
-                args = args[: i + 1] + ["--use-this-venv"] + args[i + 1 :]
-            break
-        return super().invoke(cli, args, **kwargs)
-
-
 @pytest.fixture(scope="session", autouse=True)
 def _cached_wheel_artifacts():
     """Build the wheel once per test session and patch _ensure_wheel_artifacts to reuse it."""
@@ -264,6 +219,47 @@ def root_repo(tmpdir):
     repo.index.add(["README.md"])
     repo.index.commit("initial commit")
     yield repo
+
+
+class _AutoVenvCliRunner(CliRunner):
+    """CliRunner that auto-injects ``--use-this-venv`` on ``run`` /
+    ``run-cached`` / ``compose`` invocations.
+
+    These commands default to spawning ``uv tool run`` for isolated execution.
+    Under CliRunner the subprocess writes to OS fd 1, which bypasses
+    CliRunner's ``sys.stdout`` capture and yields an empty ``result.output``.
+    The ``--use-this-venv`` flag opts into the in-process path so tests stay
+    fast and output-capturable.
+    """
+
+    def invoke(self, cli, args=(), **kwargs):
+        args = list(args)
+        catalog_opts_with_value = {
+            "-n",
+            "--name",
+            "-p",
+            "--path",
+            "-u",
+            "--url",
+            "-r",
+            "--root-repo",
+        }
+        i = 0
+        while i < len(args):
+            a = args[i]
+            if a in catalog_opts_with_value:
+                i += 2
+                continue
+            if any(a.startswith(f"{opt}=") for opt in catalog_opts_with_value):
+                i += 1
+                continue
+            if a.startswith("-"):
+                i += 1
+                continue
+            if a in ("run", "run-cached", "compose"):
+                args = args[: i + 1] + ["--use-this-venv"] + args[i + 1 :]
+            break
+        return super().invoke(cli, args, **kwargs)
 
 
 @pytest.fixture

@@ -1,6 +1,10 @@
 # ADR-NNNN: <title — the decision, not the problem>
 
 <!--
+Save this file as docs/adr/NNNN-<slug>.md (e.g. 0012-click-option-decorators.md),
+where NNNN is the next sequential number after the highest existing ADR in
+this directory.
+
 The title should name the decision or design choice, not the bug or symptom.
 Good:  "Make git-annex optional via a CatalogBackend abstraction"
 Bad:   "Fix catalog dependency issue"

@@ -1,3 +1,4 @@
+import datetime
 import os
 import pdb
 import sys
@@ -7,23 +8,17 @@ from pathlib import Path
 
 import click
 
+from xorq.cli_constants import DEFAULT_CACHE_TYPE, DEFAULT_OUTPUT_FORMAT, OutputFormats
+from xorq.cli_options import (
+    cache_dir_option,
+    cache_strategy_options,
+    limit_option,
+    output_options,
+    params_option,
+    serve_options,
+    unbind_options,
+)
 from xorq.init_templates import InitTemplates
-
-
-try:
-    from enum import StrEnum
-except ImportError:
-    from strenum import StrEnum
-
-
-class OutputFormats(StrEnum):
-    csv = "csv"
-    json = "json"
-    parquet = "parquet"
-    arrow = "arrow"
-
-
-OutputFormats.default = OutputFormats.parquet
 
 
 def _lazy_span(name):
@@ -32,7 +27,7 @@ def _lazy_span(name):
     def decorator(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
-            from xorq.common.utils.otel_utils import tracer
+            from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
 
             with tracer.start_as_current_span(name):
                 return fn(*args, **kwargs)
@@ -44,7 +39,7 @@ def _lazy_span(name):
 
 def _get_cache_dir(cache_dir):
     if cache_dir is None:
-        from xorq.common.utils.caching_utils import get_xorq_cache_dir
+        from xorq.common.utils.caching_utils import get_xorq_cache_dir  # noqa: PLC0415
 
         cache_dir = get_xorq_cache_dir()
     return cache_dir
@@ -54,8 +49,6 @@ class _ClickDate(click.ParamType):
     name = "date"
 
     def convert(self, value, param, ctx):
-        import datetime  # noqa: PLC0415
-
         try:
             return datetime.date.fromisoformat(value)
         except (ValueError, TypeError):
@@ -154,11 +147,12 @@ def uv_build_command(
     pep723=False,
     extras=(),
     all_extras=True,
+    debug=False,
 ):
     if project_path and pep723:
         raise click.UsageError("--project-path and --pep723 are mutually exclusive")
 
-    from xorq.ibis_yaml.packager import PackagedBuilder
+    from xorq.ibis_yaml.packager import PackagedBuilder  # noqa: PLC0415
 
     builder = PackagedBuilder.from_script_path(
         script_path,
@@ -169,6 +163,7 @@ def uv_build_command(
         cache_dir=cache_dir,
         extras=extras,
         all_extras=all_extras,
+        debug=debug,
     )
     builder.build()
     print(builder.build_path)
@@ -181,14 +176,25 @@ def uv_run_command(
     cache_dir=None,
     output_path=None,
     output_format="parquet",
+    limit=None,
+    raw_params=(),
 ):
-    from xorq.ibis_yaml.packager import PackagedRunner
+    from xorq.ibis_yaml.packager import (  # noqa: PLC0415
+        PackagedRunner,
+        validate_params_early,
+    )
 
+    try:
+        validate_params_early(expr_path, raw_params)
+    except ValueError as e:
+        raise click.BadParameter(str(e)) from None
     runner = PackagedRunner(
         expr_path,
         cache_dir=cache_dir,
         output_path=output_path,
         output_format=output_format,
+        limit=limit,
+        raw_params=raw_params,
     )
     runner.run()
     return runner
@@ -216,12 +222,12 @@ def build_command(
     -------
 
     """
-    from opentelemetry import trace
+    from opentelemetry import trace  # noqa: PLC0415
 
-    import xorq.common.utils.pickle_utils  # noqa: F401
-    from xorq.common.utils.import_utils import import_from_path
-    from xorq.ibis_yaml.compiler import build_expr
-    from xorq.vendor.ibis import Expr
+    import xorq.common.utils.pickle_utils  # noqa: F401, PLC0415
+    from xorq.common.utils.import_utils import import_from_path  # noqa: PLC0415
+    from xorq.ibis_yaml.compiler import build_expr  # noqa: PLC0415
+    from xorq.vendor.ibis import Expr  # noqa: PLC0415
 
     cache_dir = _get_cache_dir(cache_dir)
 
@@ -264,7 +270,7 @@ def build_command(
 def run_command(
     expr_path,
     output_path=None,
-    output_format=OutputFormats.default,
+    output_format=DEFAULT_OUTPUT_FORMAT,
     cache_dir=None,
     limit=None,
     raw_params=(),
@@ -289,13 +295,19 @@ def run_command(
     -------
 
     """
-    from opentelemetry import trace
-    from opentelemetry.trace import StatusCode
+    from opentelemetry import trace  # noqa: PLC0415
+    from opentelemetry.trace import StatusCode  # noqa: PLC0415
 
-    from xorq.common.exceptions import UnboundExpressionError
-    from xorq.common.utils.logging_utils import RunLogger
-    from xorq.common.utils.profile_utils import timed
-    from xorq.ibis_yaml.compiler import load_expr
+    from xorq.common.exceptions import UnboundExpressionError  # noqa: PLC0415
+    from xorq.common.utils.logging_utils import RunLogger  # noqa: PLC0415
+    from xorq.common.utils.profile_utils import timed  # noqa: PLC0415
+    from xorq.ibis_yaml.compiler import load_expr  # noqa: PLC0415
+    from xorq.ibis_yaml.packager import validate_params_early  # noqa: PLC0415
+
+    try:
+        validate_params_early(expr_path, raw_params)
+    except ValueError as e:
+        raise click.BadParameter(str(e)) from None
 
     cache_dir = _get_cache_dir(cache_dir)
 
@@ -368,10 +380,10 @@ def run_command(
 def run_cached_command(
     expr_path,
     output_path=None,
-    output_format=OutputFormats.default,
+    output_format=DEFAULT_OUTPUT_FORMAT,
     cache_dir=None,
     limit=None,
-    cache_type="modification-time",
+    cache_type=DEFAULT_CACHE_TYPE,
     ttl=None,
     raw_params=(),
 ):
@@ -390,21 +402,23 @@ def run_cached_command(
         Directory where the parquet cache files will be generated
     limit : int, optional
         Limit number of rows to output. Defaults to None (no limit).
-    cache_type : str, optional
+    cache_type : str
         Cache type: "modification-time" for ParquetCache (default), "snapshot"
         for ParquetSnapshotCache (or ParquetTTLSnapshotCache when --ttl is set).
     ttl : int, optional
         TTL in seconds for snapshot cache type. When set, uses
         ParquetTTLSnapshotCache instead of ParquetSnapshotCache.
     """
-    import datetime
+    from opentelemetry import trace  # noqa: PLC0415
 
-    from opentelemetry import trace
-
-    from xorq.caching import ParquetCache, ParquetSnapshotCache, ParquetTTLSnapshotCache
-    from xorq.common.utils.logging_utils import RunLogger
-    from xorq.common.utils.profile_utils import timed
-    from xorq.ibis_yaml.compiler import load_expr
+    from xorq.caching import (  # noqa: PLC0415
+        ParquetCache,
+        ParquetSnapshotCache,
+        ParquetTTLSnapshotCache,
+    )
+    from xorq.common.utils.logging_utils import RunLogger  # noqa: PLC0415
+    from xorq.common.utils.profile_utils import timed  # noqa: PLC0415
+    from xorq.ibis_yaml.compiler import load_expr  # noqa: PLC0415
 
     cache_dir = _get_cache_dir(cache_dir)
 
@@ -470,7 +484,7 @@ def run_cached_command(
             rl.log_span_event(span, "run_cached.output_written", file_metrics)
 
 
-def arbitrate_output_format(expr, output_path, output_format):
+def arbitrate_output_format(expr, output_path, output_format, batch_size=None):
     match (output_path, output_format):
         case (None, _):
             output_path = os.devnull
@@ -487,9 +501,10 @@ def arbitrate_output_format(expr, output_path, output_format):
         case OutputFormats.json:
             expr.to_json(output_path)
         case OutputFormats.arrow:
-            from xorq.expr.api import to_pyarrow_stream
+            from xorq.expr.api import to_pyarrow_stream  # noqa: PLC0415
 
-            to_pyarrow_stream(expr, output_path)
+            batch_kwargs = {"chunk_size": batch_size} if batch_size is not None else {}
+            to_pyarrow_stream(expr, output_path, **batch_kwargs)
         case OutputFormats.parquet:
             expr.to_parquet(output_path)
         case _:
@@ -499,14 +514,16 @@ def arbitrate_output_format(expr, output_path, output_format):
 @_lazy_span("cli.run_unbound_command")
 def run_unbound_command(
     expr_path,
+    *,
     to_unbind_hash=None,
     to_unbind_tag=None,
     output_path=None,
-    output_format=OutputFormats.default,
+    output_format=DEFAULT_OUTPUT_FORMAT,
     cache_dir=None,
     limit=None,
     typ=None,
     instream=sys.stdin.buffer,
+    batch_size=None,
 ):
     """
     Execute an unbound expression by reading Arrow IPC from stdin and binding it
@@ -534,13 +551,13 @@ def run_unbound_command(
     -------
 
     """
-    from opentelemetry import trace
+    from opentelemetry import trace  # noqa: PLC0415
 
-    from xorq.common.utils.io_utils import maybe_open
-    from xorq.common.utils.node_utils import expr_to_unbound
-    from xorq.expr.api import read_pyarrow_stream
-    from xorq.flight.exchanger import replace_one_unbound
-    from xorq.ibis_yaml.compiler import load_expr
+    from xorq.common.utils.io_utils import maybe_open  # noqa: PLC0415
+    from xorq.common.utils.node_utils import expr_to_unbound  # noqa: PLC0415
+    from xorq.expr.api import read_pyarrow_stream  # noqa: PLC0415
+    from xorq.flight.exchanger import replace_one_unbound  # noqa: PLC0415
+    from xorq.ibis_yaml.compiler import load_expr  # noqa: PLC0415
 
     cache_dir = _get_cache_dir(cache_dir)
 
@@ -576,7 +593,9 @@ def run_unbound_command(
 
         if limit is not None:
             bound_expr = bound_expr.limit(limit)
-        arbitrate_output_format(bound_expr, output_path, output_format)
+        arbitrate_output_format(
+            bound_expr, output_path, output_format, batch_size=batch_size
+        )
 
 
 @_lazy_span("cli.unbind_and_serve_command")
@@ -590,11 +609,11 @@ def unbind_and_serve_command(
     cache_dir=None,
     typ=None,
 ):
-    import xorq.expr.relations
-    from xorq.caching.strategy import SnapshotStrategy
-    from xorq.common.utils.logging_utils import get_print_logger
-    from xorq.common.utils.node_utils import expr_to_unbound
-    from xorq.ibis_yaml.compiler import load_expr
+    import xorq.expr.relations  # noqa: PLC0415
+    from xorq.caching.strategy import SnapshotStrategy  # noqa: PLC0415
+    from xorq.common.utils.logging_utils import get_print_logger  # noqa: PLC0415
+    from xorq.common.utils.node_utils import expr_to_unbound  # noqa: PLC0415
+    from xorq.ibis_yaml.compiler import load_expr  # noqa: PLC0415
 
     logger = get_print_logger()
     cache_dir = _get_cache_dir(cache_dir)
@@ -604,7 +623,7 @@ def unbind_and_serve_command(
     logger.info(f"Loading expression from {expr_path}")
     try:
         # initialize console and optional Prometheus metrics
-        from xorq.flight.metrics import setup_console_metrics
+        from xorq.flight.metrics import setup_console_metrics  # noqa: PLC0415
 
         setup_console_metrics(prometheus_port=prometheus_port)
     except ImportError:
@@ -659,12 +678,12 @@ def serve_command(
     cache_dir : str or None
         Path to the dir to store the parquet cache files
     """
-    from opentelemetry import trace
+    from opentelemetry import trace  # noqa: PLC0415
 
-    from xorq.common.utils.logging_utils import get_print_logger
-    from xorq.flight import FlightServer
-    from xorq.ibis_yaml.compiler import load_expr
-    from xorq.loader import load_backend
+    from xorq.common.utils.logging_utils import get_print_logger  # noqa: PLC0415
+    from xorq.flight import FlightServer  # noqa: PLC0415
+    from xorq.ibis_yaml.compiler import load_expr  # noqa: PLC0415
+    from xorq.loader import load_backend  # noqa: PLC0415
 
     logger = get_print_logger()
     cache_dir = _get_cache_dir(cache_dir)
@@ -691,7 +710,7 @@ def serve_command(
     logger.info(f"Using duckdb at {db_path}")
 
     try:
-        from xorq.flight.metrics import setup_console_metrics
+        from xorq.flight.metrics import setup_console_metrics  # noqa: PLC0415
 
         setup_console_metrics(prometheus_port=prometheus_port)
     except ImportError:
@@ -717,7 +736,9 @@ def init_command(
     template=InitTemplates.default,
     branch=None,
 ):
-    from xorq.common.utils.download_utils import download_unpacked_xorq_template
+    from xorq.common.utils.download_utils import (  # noqa: PLC0415
+        download_unpacked_xorq_template,
+    )
 
     path = download_unpacked_xorq_template(path, template, branch=branch)
     print(f"initialized xorq template `{template}` to {path}")
@@ -753,9 +774,9 @@ class PdbGroup(click.Group):
 
 @click.group(cls=PdbGroup)
 @click.version_option(package_name="xorq")
-@click.option("--pdb", "use_pdb", is_flag=True, help="Drop into pdb on failure")
+@click.option("--pdb", "use_pdb", is_flag=True, help="Drop into pdb on failure.")
 @click.option(
-    "--pdb-runcall", "pdb_runcall", is_flag=True, help="Invoke with pdb.runcall"
+    "--pdb-runcall", "pdb_runcall", is_flag=True, help="Invoke with pdb.runcall."
 )
 def cli(use_pdb, pdb_runcall):
     pass
@@ -775,38 +796,39 @@ def uv_group(ctx):
     "-e",
     "--expr-name",
     default="expr",
-    help="Name of the expression variable in the Python script",
+    help="Name of the expression variable in the Python script.",
 )
 @click.option(
-    "--builds-dir", default="builds", help="Directory for all generated artifacts"
+    "--builds-dir", default="builds", help="Directory for all generated artifacts."
 )
-@click.option(
-    "--cache-dir",
-    default=None,
-    help="Directory for all generated parquet files cache",
-)
+@cache_dir_option
 @click.option(
     "--project-path",
     default=None,
     type=click.Path(exists=True, file_okay=False),
-    help="Explicit project root (default: search upward from script for pyproject.toml)",
+    help="Explicit project root (default: search upward from script for pyproject.toml).",
 )
 @click.option(
     "--pep723",
     is_flag=True,
     default=False,
-    help="Use PEP 723 inline metadata from the script instead of a project's pyproject.toml",
+    help="Use PEP 723 inline metadata from the script instead of a project's pyproject.toml.",
 )
 @click.option(
     "--extra",
     "extras",
     multiple=True,
-    help="Optional dependency group to include in requirements (repeatable)",
+    help="Optional dependency group to include in requirements (repeatable).",
 )
 @click.option(
     "--all-extras/--no-all-extras",
     default=True,
-    help="Include all optional dependency groups (default: enabled)",
+    help="Include all optional dependency groups (default: enabled).",
+)
+@click.option(
+    "--debug",
+    is_flag=True,
+    help="Output SQL files and other debug artifacts.",
 )
 def uv_build(
     script_path,
@@ -817,6 +839,7 @@ def uv_build(
     pep723,
     extras,
     all_extras,
+    debug,
 ):
     """Build an expression with a custom Python environment."""
     uv_build_command(
@@ -828,33 +851,120 @@ def uv_build(
         pep723=pep723,
         extras=extras,
         all_extras=all_extras,
+        debug=debug,
     )
 
 
 @uv_group.command("run")
 @click.argument("build_path")
-@click.option(
-    "--cache-dir",
-    default=None,
-    help="Directory for all generated parquet files cache",
-)
-@click.option(
-    "-o",
-    "--output-path",
-    default=None,
-    help=f"Path to write output (default: {os.devnull})",
-)
-@click.option(
-    "-f",
-    "--format",
-    "output_format",
-    type=click.Choice([f.value for f in OutputFormats]),
-    default=OutputFormats.default,
-    help="Output format (default: parquet)",
-)
-def uv_run(build_path, cache_dir, output_path, output_format):
+@cache_dir_option
+@output_options
+@limit_option
+@params_option
+def uv_run(build_path, cache_dir, output_path, output_format, limit, raw_params):
     """Run an expression with a custom Python environment."""
-    uv_run_command(build_path, cache_dir, output_path, output_format)
+    uv_run_command(
+        build_path,
+        cache_dir,
+        output_path,
+        output_format,
+        limit=limit,
+        raw_params=raw_params,
+    )
+
+
+@uv_group.command("run-cached")
+@click.argument("build_path")
+@cache_dir_option
+@output_options
+@limit_option
+@cache_strategy_options
+@params_option
+def uv_run_cached(
+    build_path,
+    cache_dir,
+    output_path,
+    output_format,
+    limit,
+    cache_type,
+    ttl,
+    raw_params,
+):
+    """Run a cached expression with a custom Python environment."""
+    from xorq.ibis_yaml.packager import (  # noqa: PLC0415
+        PackagedCachedRunner,
+        validate_params_early,
+    )
+
+    try:
+        validate_params_early(build_path, raw_params)
+    except ValueError as e:
+        raise click.BadParameter(str(e)) from None
+    runner = PackagedCachedRunner(
+        build_path,
+        cache_dir=cache_dir,
+        output_path=output_path,
+        output_format=output_format,
+        cache_type=cache_type,
+        ttl=ttl,
+        limit=limit,
+        raw_params=raw_params,
+    )
+    runner.run()
+
+
+_UNBOUND_OUTPUT_PATH_HELP = (
+    f"Path to write output (default: stdout for arrow, {os.devnull} otherwise)."
+)
+
+
+@uv_group.command("run-unbound")
+@click.argument("build_path")
+@unbind_options
+@output_options(output_path_help=_UNBOUND_OUTPUT_PATH_HELP)
+@limit_option
+@click.option(
+    "--batch-size",
+    type=int,
+    default=None,
+    help="Batch size for Arrow streaming output (default: use table default).",
+)
+@cache_dir_option
+@click.option(
+    "-i",
+    "--instream",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to file with Arrow IPC data (default: read from stdin).",
+)
+def uv_run_unbound(
+    build_path,
+    to_unbind_hash,
+    to_unbind_tag,
+    typ,
+    output_path,
+    output_format,
+    limit,
+    batch_size,
+    cache_dir,
+    instream,
+):
+    """Run an unbound expr with a custom Python environment."""
+    from xorq.ibis_yaml.packager import PackagedUnboundRunner  # noqa: PLC0415
+
+    runner = PackagedUnboundRunner(
+        build_path,
+        cache_dir=cache_dir,
+        output_path=output_path,
+        output_format=output_format,
+        to_unbind_hash=to_unbind_hash,
+        to_unbind_tag=to_unbind_tag,
+        typ=typ,
+        limit=limit,
+        batch_size=batch_size,
+        instream=instream,
+    )
+    runner.run()
 
 
 @cli.command("build")
@@ -863,20 +973,16 @@ def uv_run(build_path, cache_dir, output_path, output_format):
     "-e",
     "--expr-name",
     default="expr",
-    help="Name of the expression variable in the Python script",
+    help="Name of the expression variable in the Python script.",
 )
 @click.option(
-    "--builds-dir", default="builds", help="Directory for all generated artifacts"
+    "--builds-dir", default="builds", help="Directory for all generated artifacts."
 )
-@click.option(
-    "--cache-dir",
-    default=None,
-    help="Directory for all generated parquet files cache",
-)
+@cache_dir_option
 @click.option(
     "--debug",
     is_flag=True,
-    help="Output SQL files and other debug artifacts",
+    help="Output SQL files and other debug artifacts.",
 )
 def build(script_path, expr_name, builds_dir, cache_dir, debug):
     """Generate artifacts from an expression."""
@@ -885,38 +991,10 @@ def build(script_path, expr_name, builds_dir, cache_dir, debug):
 
 @cli.command("run")
 @click.argument("build_path")
-@click.option(
-    "--cache-dir",
-    default=None,
-    help="Directory for all generated parquet files cache",
-)
-@click.option(
-    "-o",
-    "--output-path",
-    default=None,
-    help=f"Path to write output (default: {os.devnull})",
-)
-@click.option(
-    "-f",
-    "--format",
-    "output_format",
-    type=click.Choice([f.value for f in OutputFormats]),
-    default=OutputFormats.default,
-    help="Output format (default: parquet)",
-)
-@click.option(
-    "--limit",
-    type=int,
-    default=None,
-    help="Limit number of rows to output",
-)
-@click.option(
-    "-p",
-    "--params",
-    "raw_params",
-    multiple=True,
-    help="Parameter as key=value (repeatable). e.g. --params threshold=0.5",
-)
+@cache_dir_option
+@output_options
+@limit_option
+@params_option
 def run(build_path, cache_dir, output_path, output_format, limit, raw_params):
     """Run a build from a builds directory."""
     run_command(build_path, output_path, output_format, cache_dir, limit, raw_params)
@@ -924,50 +1002,11 @@ def run(build_path, cache_dir, output_path, output_format, limit, raw_params):
 
 @cli.command("run-cached")
 @click.argument("build_path")
-@click.option(
-    "--cache-dir",
-    default=None,
-    help="Directory for all generated parquet files cache",
-)
-@click.option(
-    "-o",
-    "--output-path",
-    default=None,
-    help=f"Path to write output (default: {os.devnull})",
-)
-@click.option(
-    "-f",
-    "--format",
-    "output_format",
-    type=click.Choice([f.value for f in OutputFormats]),
-    default=OutputFormats.default,
-    help="Output format (default: parquet)",
-)
-@click.option(
-    "--limit",
-    type=int,
-    default=None,
-    help="Limit number of rows to output",
-)
-@click.option(
-    "--cache-type",
-    type=click.Choice(["modification-time", "snapshot"]),
-    default="modification-time",
-    help="Cache strategy: 'modification-time' (ParquetCache, default) or 'snapshot' (ParquetSnapshotCache)",
-)
-@click.option(
-    "--ttl",
-    type=int,
-    default=None,
-    help="TTL in seconds for snapshot cache (uses ParquetTTLSnapshotCache when set)",
-)
-@click.option(
-    "-p",
-    "--params",
-    "raw_params",
-    multiple=True,
-    help="Parameter as key=value (repeatable). e.g. --params threshold=0.5",
-)
+@cache_dir_option
+@output_options
+@limit_option
+@cache_strategy_options
+@params_option
 def run_cached(
     build_path,
     cache_dir,
@@ -993,46 +1032,22 @@ def run_cached(
 
 @cli.command("run-unbound")
 @click.argument("build_path")
-@click.option("--to_unbind_hash", default=None, help="Hash of the node to unbind")
-@click.option("--to_unbind_tag", default=None, help="Tag of the node to unbind")
-@click.option("--typ", default=None, help="Type of the node to unbind")
-@click.option(
-    "-o",
-    "--output-path",
-    default=None,
-    help=f"Path to write output (default: stdout for arrow, {os.devnull} otherwise)",
-)
-@click.option(
-    "-f",
-    "--format",
-    "output_format",
-    type=click.Choice([f.value for f in OutputFormats]),
-    default=OutputFormats.default,
-    help=f"Output format (default: {OutputFormats.default})",
-)
-@click.option(
-    "--limit",
-    type=int,
-    default=None,
-    help="Limit number of rows to output",
-)
+@unbind_options
+@output_options(output_path_help=_UNBOUND_OUTPUT_PATH_HELP)
+@limit_option
 @click.option(
     "--batch-size",
     type=int,
     default=None,
-    help="Batch size for Arrow streaming output (default: use table default)",
+    help="Batch size for Arrow streaming output (default: use table default).",
 )
-@click.option(
-    "--cache-dir",
-    default=None,
-    help="Directory for all generated parquet files cache",
-)
+@cache_dir_option
 @click.option(
     "-i",
     "--instream",
     type=click.File("rb"),
     default="-",
-    help="Stream to read record batches from",
+    help="Stream to read record batches from.",
 )
 def run_unbound(
     build_path,
@@ -1049,44 +1064,23 @@ def run_unbound(
     """Run an unbound expr by reading Arrow IPC from stdin."""
     run_unbound_command(
         build_path,
-        to_unbind_hash,
-        to_unbind_tag,
-        output_path,
-        output_format,
-        cache_dir,
-        limit,
-        typ,
-        instream,
+        to_unbind_hash=to_unbind_hash,
+        to_unbind_tag=to_unbind_tag,
+        output_path=output_path,
+        output_format=output_format,
+        cache_dir=cache_dir,
+        limit=limit,
+        typ=typ,
+        instream=instream,
+        batch_size=batch_size,
     )
 
 
 @cli.command("serve-unbound")
 @click.argument("build_path")
-@click.option("--to_unbind_hash", default=None, help="Hash of the expr to replace")
-@click.option("--to_unbind_tag", default=None, help="Tag of the expr to replace")
-@click.option(
-    "--host",
-    default="localhost",
-    help="Host to bind Flight Server (default: localhost)",
-)
-@click.option(
-    "--port",
-    type=int,
-    default=None,
-    help="Port to bind Flight Server (default: random)",
-)
-@click.option(
-    "--cache-dir",
-    default=None,
-    help="Directory for all generated parquet files cache",
-)
-@click.option("--typ", default=None, help="Type of the node to unbind")
-@click.option(
-    "--prometheus-port",
-    type=int,
-    default=None,
-    help="Port to expose Prometheus metrics (default: disabled)",
-)
+@unbind_options
+@serve_options
+@cache_dir_option
 def serve_unbound(
     build_path,
     to_unbind_hash,
@@ -1112,33 +1106,13 @@ def serve_unbound(
 
 @cli.command("serve-flight-udxf")
 @click.argument("build_path")
-@click.option(
-    "--host",
-    default="localhost",
-    help="Host to bind Flight Server (default: localhost)",
-)
-@click.option(
-    "--port",
-    type=int,
-    default=None,
-    help="Port to bind Flight Server (default: random)",
-)
+@serve_options
 @click.option(
     "--duckdb-path",
     default=None,
-    help="Path to duckdb DB (default: <build_path>/xorq_serve.db)",
+    help="Path to duckdb DB (default: <build_path>/xorq_serve.db).",
 )
-@click.option(
-    "--prometheus-port",
-    type=int,
-    default=None,
-    help="Port to expose Prometheus metrics (default: disabled)",
-)
-@click.option(
-    "--cache-dir",
-    default=None,
-    help="Directory for all generated parquet files cache",
-)
+@cache_dir_option
 def serve_flight_udxf(build_path, host, port, duckdb_path, prometheus_port, cache_dir):
     """Serve a build via Flight Server."""
     serve_command(build_path, host, port, duckdb_path, prometheus_port, cache_dir)
@@ -1149,20 +1123,20 @@ def serve_flight_udxf(build_path, host, port, duckdb_path, prometheus_port, cach
     "-p",
     "--path",
     default="./xorq-template",
-    help="Path to initialize the template",
+    help="Path to initialize the template.",
 )
 @click.option(
     "-t",
     "--template",
     type=click.Choice([str(t) for t in InitTemplates]),
     default=str(InitTemplates.default),
-    help="Template to use",
+    help="Template to use.",
 )
 @click.option(
     "-b",
     "--branch",
     default=None,
-    help="Branch to use for the template",
+    help="Branch to use for the template.",
 )
 def init(path, template, branch):
     """Initialize a xorq project."""
@@ -1177,7 +1151,7 @@ _COMPLETION_INSTALL_PATHS = {
 
 
 def _get_completion_source(shell):
-    from click.shell_completion import get_completion_class
+    from click.shell_completion import get_completion_class  # noqa: PLC0415
 
     prog_name = "xorq"
     complete_var = "_XORQ_COMPLETE"
@@ -1238,7 +1212,7 @@ def install_completion(shell):
 
 
 def _load_catalog_cli():
-    from xorq.catalog.cli import cli as _catalog_cli
+    from xorq.catalog.cli import cli as _catalog_cli  # noqa: PLC0415
 
     cli.add_command(_catalog_cli, "catalog")
 

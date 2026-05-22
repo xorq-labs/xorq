@@ -240,8 +240,6 @@ ignore = [
 "python/xorq/__init__.py" = ["I001"]
 "python/xorq/api.py" = ["I001"]
 "python/xorq/vendor/**" = ["B", "PLC0415"]
-"python/xorq/cli.py" = ["PLC0415"]
-"python/xorq/catalog/cli.py" = ["PLC0415"]
 # Tutorial snippets are extracted block-by-block from .qmd files, so
 # imports appear next to the block that introduces them.
 "docs/tutorials/**/*.snippets.py" = ["E402", "I001"]
