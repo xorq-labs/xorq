@@ -7,356 +7,356 @@
 ![PyPI - Version](https://img.shields.io/pypi/v/xorq)
 ![CI Status](https://img.shields.io/github/actions/workflow/status/xorq-labs/xorq/ci-test.yml)
 
-**A compute manifest and composable tools for ML.**
 
-[Documentation](https://docs.xorq.dev) • [Website](https://www.xorq.dev)
-
+[Documentation](https://docs.xorq.dev) • [Website](https://www.xorq.dev) • [Claude Code plugin](https://github.com/xorq-labs/claude-plugins)
 </div>
 
 ---
+Xorq is an executable memory system for tabular data work. Xorq gives agents a
+catalog of executable pipelines instead of markdown notes. It turns ephemeral
+agent work such as pandas scripts, sklearn pipelines, ad-hoc tables into
+durable, composable, executable artifacts that any future agent or human can
+discover, reproduce and reuse.
 
+It comes with a CLI for agents and a TUI for humans with a git-native catalog.
+![xorq catalog TUI](docs/images/catalog-tui.png)
+
+---
 # The Problem
 
-You write a feature pipeline. It works on your laptop with DuckDB. Deploying
-it to Snowflake ends up in a rewrite. Intermediate results should be cached so you add infrastructure and a result naming system. A requirement to track pipeline changes is introduced, so you add a metadata store. Congrats, you're going to production! It's time to add a serving layer ...
+Coding agents are great at accomplishing closed-loop task but in the process
+accumulate tech-debt and unnecessary complexity. For example, if you ask a
+coding agent to build a dashboard, you are more likely than not to get a folder
+of one-off Python scripts that import each other in non-obvious ways, an
+embedded JSON holding intermediate state, and a `requirements.txt` that was
+last regenerated two sessions ago. It may also execute end-to-end on your
+laptop. Verifying by reproducing on another machine, or productionizing any of
+it, means rewriting some of it. And every time you rewrite, more complexity
+gets introduced.
 
-Six months later: five tools that don't talk to each other and a pipeline only one person understands
 
 | Pain | Symptom |
 |------|---------|
-| **Glue code everywhere** | Each engine is a silo. Moving between them means rewriting, not composing. |
-| **Runtime Feedback** | Imperative Python code where you can only tell if something will fail while running the job.
-| **Unnecessary recomputations** | No shared understanding of what changed. Everything runs from scratch. |
-| **Opaque Lineages** | Feature logic, metadata, lineage. All in different systems. Debugging means archaeology. |
-| **"Works on my machine"** | Environments drift. Reproducing results means reverse engineering someone's setup and interrogating your own. |
-| **Stateful orchestrators** | Retry logic, task states, failure recovery. Another system to manage, another thing that breaks.
+| **Imperative, stateful artifacts** | An agent run leaves you with a folder of `.py`, `.json`, and `.html` files. Reproducing the result means re-running them in the right order without a declarative spec |
+| **No discoverable, shared index** | "Team memory" today is `~/.claude/memory/*.md`, with a `MEMORY.md` index of one-liners pointing to the notes. There's no executable catalog two agents can both pull into context |
+| **No lineage graph** | Rename a column upstream and a downstream model breaks at runtime. The dependency lived only in chat history, not in a graph that could have flagged it before it shipped. |
+| **No portable environment** | A pipeline that ran in one agent session has no path to another sandbox, your machine, or production.|
 
-Feature stores, Model registries, Orchestrators: Vertical silos that don't
-serve agentic processes, which need context and skills, not categories.
+# Two ways to start
 
-# Xorq
+**With an agent.** Install the Xorq plugin in Claude Code and let it build
+catalogs for you:
 
-![intro](docs/images/intro-light.svg#gh-light-mode-only)
-![intro](docs/images/intro-dark.svg#gh-dark-mode-only)
-
-**Manifest = Context.** Every ML computation becomes a structured,
-input-addressed YAML manifest.
-
-**Exprs = Tools.** A catalog to discover. A build system to deterministically
-execute anywhere with user directed caching.
-
-**Templates = Skills.** Various skills to get started e.g. scikit-learn
-pipeline, feature stores, semantic layers etc.
-
-```bash
-$ pip install xorq[examples]
-$ xorq init -t penguins
+```
+/plugin marketplace add xorq-labs/claude-plugins
+/plugin install xorq@xorq-plugins
 ```
 
+The plugin adds four slash commands:
+
+- `/xorq:init` — load CSV or Parquet files as catalog entries
+- `/xorq:catalog-explore` — browse what's already in a catalog
+- `/xorq:composer` — combine entries into new joined/aliased entries
+- `/xorq:builder` — assemble ML pipelines and semantic-layer entries
+
+The agent does the building; you keep the catalog.
+
+**Manually.** Install the library and start composing expressions in Python:
+
+```bash
+❯ pip install xorq[examples]
+❯ xorq init -t penguins
+```
 ---
 
-# The Expression
+# Design choices
 
-Write declarative [Ibis](https://ibis-project.org) expressions that can be
-run like a tool. Xorq extends Ibis with caching, multi-engine execution, and
-UDFs.
+| Choice | What it enables |
+|--------|-----------------|
+| **[Ibis](https://ibis-project.org/) as expression system** | Declarative dataframe expressions that compile to many engines. |
+| **[Git](https://git-scm.com/) for state and storage** | The catalog is a git repo of entries with git-annex support for large files  |
+| **[uv](https://docs.astral.sh/uv/) for reproducible environments** | Each entry ships with a wheel and pinned `requirements.txt`. |
+| **[DataFusion](https://datafusion.apache.org/) for embedded compute** | Pipelines execute in-process SQL and UDF execution |
+| **[Arrow](https://arrow.apache.org) for IPC and network** | Operators exchange Arrow RecordBatches |
+
+
+# Supported engines
+
+The same expression can run against any of these backends, and `into_backend`
+moves data between them.
+
+| Category | Engines |
+|----------|---------|
+| **Embedded** | DataFusion, DuckDB, SQLite, pandas |
+| **Warehouses** | Snowflake, Databricks, Trino, Postgres |
+| **Lakehouse** | PyIceberg |
+| **Arrow Flight** | GizmoSQL |
+
+
+# Comparison
+
+A Xorq memory is a computation you reason about by its invariants (schema,
+lineage, content hash, deterministic execution), the way you reason about a
+matrix by its properties rather than its entries.
+
+| Approach | Memory item | Answer produced by | Provenance & reproducibility |
+|----------|-------------|---------------------|-------------------------------|
+| Agent memory (Mem0, etc) | Markdown snippets | LLM reading the prompt | None |
+| MCP / open context servers | Tool bindings | Tool at runtime; LLM consumes as text | Per-tool |
+| dbt | SQL model files | Warehouse executing compiled SQL | `manifest.json` captures lineage; env (warehouse, packages) pinned externally |
+| **Xorq** | Content-addressed expression + pinned env | Engine executing the expression | `expr.yaml` + uv-pinned env shipped with the artifact |
+
+
+# Benchmark
+
+On [DABStep](https://huggingface.co/spaces/adyen/DABstep) — 450 data-analysis
+questions over payment transaction data — a Xorq semantic catalog of 33 named
+expressions takes Haiku from 50% to 84%, 8pp above the Sonnet baseline.
+
+![DABStep accuracy: Haiku 4.5 50%, Sonnet 4.6 75%, Haiku 4.5 + Semantic Catalog
+84%](docs/images/dabstep-benchmark.png)
+
+Where the agent looks for context mattered more than which base model it
+used. Full write-up:
+[Orientation Over Reasoning](https://xorq.dev/blog/orientation-over-reasoning/).
+
+
+# Under the hood
+
+<details open>
+<summary><b>The Expression</b> — declarative Ibis, multi-engine, Arrow-native</summary>
+
+Write declarative Ibis expressions that run like a tool. Xorq extends Ibis with
+caching, multi-engine execution, and UDFs. Below, `xo._` is the Ibis row
+reference — `xo._.species` refers to the `species` column of the current table.
 
 ```python
-import ibis
 import xorq.api as xo
-from xorq.common.utils.ibis_utils import from_ibis
 from xorq.caching import ParquetCache
 
-penguins = ibis.examples.penguins.fetch()
+penguins = xo.examples.penguins.fetch()
 
 penguins_agg = (
     penguins
-    .filter(ibis._.species.notnull())
+    .filter(xo._.species.notnull())
     .group_by("species")
-    .agg(avg_bill_length=ibis._.bill_length_mm.mean())
+    .agg(avg_bill_length=xo._.bill_length_mm.mean())
 )
 
 expr = (
-    from_ibis(penguins_agg)
+    penguins_agg
     .cache(ParquetCache.from_kwargs())
 )
 ```
 
-Declare `.cache()` on any node. Xorq handles the rest. No cache keys to generate or manage,
-no invalidation logic to write.
-
-## Compose across engines
-
-One expression, many engines. Part of your pipeline runs on DuckDB, part on
-Xorq's embedded [DataFusion](https://datafusion.apache.org) engine, UDFs
-via Arrow Flight. Xorq systematically handles data transit with low overhead. Bye bye glue code.
+### One expression, many engines
 
 ```python
-expr = from_ibis(penguins).into_backend(xo.sqlite.connect())
+expr = penguins.into_backend(xo.sqlite.connect())
 expr.ls.backends
 ```
 ```
-(<xorq.backends.sqlite.Backend at 0x7926a815caa0>,
- <xorq.backends.duckdb.Backend at 0x7926b409faa0>)
+(<xorq.backends.sqlite.Backend at 0x107debda0>,
+ <xorq.backends.xorq_datafusion.Backend at 0x1669002c0>)
 ```
 
-## Expressions are tools, Arrow is the pipe
+### Expressions are tools, Arrow is the pipe
 
-Unix gave us small programs that compose via stdout. Xorq gives you
-expressions that compose via Arrow.
+Unix pipes text streams between small programs. Xorq pipes Arrow streams
+between expressions.
+
+`unix : programs :: xorq : arrow-transforms`
 
 ```
 In [6]: expr.to_pyarrow_batches()
 Out[6]: <pyarrow.lib.RecordBatchReader at 0x15dc3f570>
 ```
 
----
+### Workflows, without state
 
-# The Manifest
+Xorq executes expressions as Arrow RecordBatch streams — no DAG of tasks to
+checkpoint, just data flowing through transforms.
 
-Build an expression, get a manifest.
+### Scikit-learn pipelines
+
+Xorq translates `scikit-learn` Pipeline objects to deferred expressions via
+`Pipeline.from_instance(sklearn_pipeline)`. End-to-end sklearn examples live in
+[xorq-labs/xorq-gallery](https://github.com/xorq-labs/xorq-gallery).
+
+</details>
+
+<details>
+<summary><b>The Catalog</b> — a git repo of build artifacts on the filesystem</summary>
+
+The catalog is a git repo of build artifacts on filesystem. `xorq catalog add`
+packages a build directory -- manifest (`expr.yaml` + `*_metadata.json`),
+Python environment via `uv` -- into an entry.
+
+### Build and add
 
 ```bash
-$ xorq build expr.py
-builds/28ecab08754e
+❯ xorq uv build expr.py
+Building wheel...
+Successfully built ...
+builds/fa2122f6a9e9
+
+❯ xorq catalog -p git-catalogs/penguins init
+Initialized catalog at /git-catalogs/penguins
+
+❯ xorq catalog add builds/fa2122f6a9e9/ -a penguins-agg
+Added fa2122f6a9e9
 ```
 
+### Git history
+
+Every catalog operation is a commit you can read:
+
 ```
-$ tree builds/28ecab08754e
-builds/28ecab08754e
-├── database_tables
-│   └── f2ac274df56894cb1505bfe8cb03940e.parquet
+❯ git -C git-catalogs/penguins reflog
+17dd4e9 (HEAD -> main) HEAD@{0}: add: fa2122f6a9e9 (aliases penguins-agg)
+9f5d242 HEAD@{1}: add catalog.yaml
+9915df3 HEAD@{2}: commit: Switching to main
+```
+
+### Catalog layout
+
+```
+❯ tree git-catalogs/penguins
+git-catalogs/penguins
+├── aliases
+│   └── penguins-agg.zip -> ../entries/fa2122f6a9e9.zip
+├── entries
+│   └── fa2122f6a9e9.zip
+├── metadata
+│   └── fa2122f6a9e9.zip.metadata.yaml
+└── catalog.yaml
+```
+
+Aliases are symlinks, entries are zipped builds, and metadata sidecars are
+plain YAML. An agent that clones the repo can discover everything with file
+operations — no service to call, no API to learn:
+
+```bash
+# List aliased entries
+❯ ls git-catalogs/penguins/aliases/
+
+# Find entries that emit an 'avg_bill_length' column
+❯ grep -l 'avg_bill_length' git-catalogs/penguins/metadata/*.yaml
+
+# Find entries running on DataFusion
+❯ grep -l 'xorq_datafusion' git-catalogs/penguins/metadata/*.yaml
+
+# Find source entries (vs. unbound, expr_builder kinds)
+❯ grep -l 'kind: source' git-catalogs/penguins/metadata/*.yaml
+```
+
+### Inside an entry
+
+A build directory contains the manifest plus everything needed to reproduce
+it. The zipped build is the entry stored in the catalog.
+
+```
+❯ tree builds/fa2122f6a9e9
+├── build_metadata.json
 ├── expr.yaml
-├── metadata.json
-└── profiles.yaml
+├── expr_metadata.json
+├── profiles.yaml
+├── requirements.txt
+└── xorq-0.3.24-py3-none-any.whl
 ```
 
-No external metadata store. No separate lineage tool. The build directory *is*
-the versioned, cached, portable artifact.
+The manifest (`expr.yaml` + `*_metadata.json`) is the content-addressed
+specification of the pipeline. The **entry** packages it with deps and source
+for reproducible execution.
 
 ```yaml
 # Input-addressed, composable, portable
 # Abridged expr.yaml
-nodes:
-  '@read_31f0a5be3771':
-    op: Read
-    name: penguins
-    source: builds/28ecab08754e/.../f2ac274df56894cb1505bfe8cb03940e.parquet
+definitions:
+  nodes:
+    '@read_b5f228c91f16':
+      op: Read
+      method_name: read_parquet
+      name: penguins
+      read_kwargs:
+        - [hash_path, .../penguins/20250703T145709Z-c3cde/penguins.parquet]
+        - [table_name, penguins]
+      schema_ref: schema_f11dda6745cc
 
-  '@filter_23e7692b7128':
-    op: Filter
-    parent: '@read_31f0a5be3771'
-    predicates:
-      - NotNull(species)
+    '@filter_fa4a3fde7765':
+      op: Filter
+      parent: { node_ref: '@read_b5f228c91f16' }
+      predicates:
+        - { op: NotNull, arg: { op: Field, name: species, ... } }
 
-  '@remotetable_9a92039564d4':
-    op: RemoteTable
-    remote_expr:
+    '@aggregate_eb3109707390':
       op: Aggregate
-      parent: '@filter_23e7692b7128'
-      by: [species]
+      parent: { node_ref: '@filter_fa4a3fde7765' }
+      by:
+        species: { op: Field, name: species, ... }
       metrics:
-        avg_bill_length: Mean(bill_length_mm)
+        avg_bill_length:
+          op: Mean
+          arg: { op: Field, name: bill_length_mm, ... }
 
-  '@cachednode_e7b5fd7cd0a9':
-    op: CachedNode
-    parent: '@remotetable_9a92039564d4'
-    cache:
-      type: ParquetCache
-      path: parquet
+    '@cachednode_fa2122f6a9e9':
+      op: CachedNode
+      parent: { node_ref: '@aggregate_eb3109707390' }
+      cache:
+        type: ParquetCache
+        relative_path: parquet
+      schema_ref: schema_9271d5e9d443
+
+expression:
+  node_ref: '@cachednode_fa2122f6a9e9'
+  schema_ref: { schema_ref: schema_9271d5e9d443 }
 ```
 
-## Reproducible builds
+</details>
 
-The manifest is roundtrippable and machine-writeable. Git-diff
-your pipelines. Code review your features. Track python dependencies. Rebuild from YAML alone.
+<details>
+<summary><b>The Tools</b> — catalog, run, serve</summary>
+
+The entry is the unit of executable memory that includes the manifest plus
+environment to run it. The tools — catalog, run, serve — are how agents and
+humans compose with it.
+
+### Catalog
+
+Once an entry is published, agents discover it straight from the catalog
+filesystem — `metadata/*.yaml` sidecars sit next to the zipped entries, so
+listing, filtering, and lookup-by-alias/hash all work with plain file reads
+and `git` (no service required). Humans open the TUI to preview data,
+schema, lineage, and git history side-by-side.
 
 ```bash
-$ xorq uv build expr.py
-builds/28ecab08754e/
+❯ xorq catalog list-aliases
+penguins-agg
 
-$ ls builds/28ecab08754e/*.tar.gz
-builds/28ecab08754e/sdist.tar.gz  builds/28ecab08754e/my-pipeline-0.1.0.tar.gz
+❯ xorq catalog list
+fa2122f6a9e9
 ```
 
-The build captures everything: expression graph, dependencies, memory tables.
-Share the build that has sdist, get identical results. No "works on my machine."
+### Run
 
-## Only recompute what changed
-
-The manifest is input-addressed: same inputs = same hash. Change an input, get a new hash.
-
-```python
-expr.ls.get_cache_paths()
+```bash
+❯ xorq run builds/fa2122f6a9e9 -o out.parquet
 ```
-```
-(PosixPath('/home/user/.cache/xorq/parquet/letsql_cache-7c3df7ccce5ed4b64c02fbf8af462e70.parquet'),)
-```
+Additionally, you can serve an unbound expression over Arrow Flight. with `xorq
+serve-*` commands.
 
-The hash *is* the cache key. No invalidation logic to debug.
-If the expression is the same, the hash is the same, and the cache is valid.
-Change an input, get a new hash, trigger recomputation.
-
-Traditional caching asks "has this expired?" Input-addressed caching asks "is
-this the same computation?" The second question has a deterministic answer.
+</details>
 
 ---
 
-# The Tools
+# Learn more
 
-The manifest provides context. The tools provide skills: catalog, introspect,
-serve, execute.
-
-## Catalog
-
-```bash
-# Add to catalog
-$ xorq catalog add builds/28ecab08754e/ --alias penguins-agg
-Added build 28ecab08754e as entry a498016e-5bea-4036-aec0-a6393d1b7c0f revision r1
-
-# List entries
-$ xorq catalog ls
-Aliases:
-penguins-agg    a498016e-5bea-4036-aec0-a6393d1b7c0f    r1
-Entries:
-a498016e-5bea-4036-aec0-a6393d1b7c0f    r1      28ecab08754e
-```
-
-## Run
-
-```bash
-$ xorq run builds/28ecab08754e -o out.parquet
-```
-
-## Serve
-
-Serve expressions anywhere via Arrow Flight:
-
-```bash
-$ xorq serve-unbound builds/28ecab08754e/ \
-  --to_unbind_hash 31f0a5be37713fe2c1a2d8ad8fdea69f \
-  --host localhost --port 9002
-```
-
-```python
-import xorq.api as xo
-
-backend = xo.flight.connect(host="localhost", port=9002)
-f = backend.get_exchange("default")
-
-data = {
-    "species": ["Adelie", "Gentoo", "Chinstrap"],
-    "island": ["Torgersen", "Biscoe", "Dream"],
-    "bill_length_mm": [39.1, 47.5, 49.0],
-    "bill_depth_mm": [18.7, 14.2, 18.5],
-    "flipper_length_mm": [181, 217, 195],
-    "body_mass_g": [3750, 5500, 4200],
-    "sex": ["male", "female", "male"],
-    "year": [2007, 2008, 2009],
-}
-
-xo.memtable(data).pipe(f).execute()
-```
-
-```
-     species  avg_bill_length
-0     Adelie             39.1
-1  Chinstrap             49.0
-2     Gentoo             47.5
-```
-
-## Debug with confidence
-
-No more archaeology. Lineage is encoded in the manifest—not scattered across
-tools—and queryable from the CLI.
-
-```bash
-$ xorq lineage penguins-agg
-
-Lineage for column 'avg_bill_length':
-Field:avg_bill_length #1
-└── Cache xorq_cached_node_name_placeholder #2
-    └── RemoteTable:236af67d399a4caaf17e0bf5e1ac4c0f #3
-        └── Aggregate #4
-            ├── Filter #5
-            │   ├── Read #6
-            │   └── NotNull #7
-            │       └── Field:species #8
-            │           └── ↻ see #6
-            ├── Field:species #9
-            │   └── ↻ see #5
-            └── Mean #10
-                └── Field:bill_length_mm #11
-                    └── ↻ see #5
-```
-
-## Workflows, without state
-
-No task states. Just retry on failure.
-
-Xorq executes expressions as Arrow RecordBatch streams. There's no DAG of tasks
-to checkpoint, just data flowing through operators. If something fails, rerun
-from the manifest. Cached nodes resolve instantly; the rest recomputes.
-
-## Scikit-learn Integration
-
-Xorq translates `scikit-learn` Pipeline objects to deferred expressions:
-
-```python
-from xorq.expr.ml.pipeline_lib import Pipeline
-
-sklearn_pipeline = ...
-xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
-```
-
----
-# Templates
-
-Ready-to-start code as skills:
-```bash
-$ xorq init -t <template>
-```
-
-| Template | Description |
-|----------|-------------|
-| `penguins` | Minimal example: caching, aggregation, multi-engine |
-| `sklearn` | Classification pipeline with train/predict separation |
-
-
-## Skills for humans
-
-Templates work as easy to get started components with expressions ready to be
-composed with your sources.
-
-## Coming Soon
-
-- `feast` — Feature store integration
-- `boring-semantic-layer` — Metrics and dimensions catalog
-- `dbt` — dbt model composition
-- Feature Selection
-
----
-
-# The Horizontal Stack
-
-Write in Python. Catalog as YAML. Compose anywhere via Ibis. Portable compute
-engine built on DataFusion. Universal UDFs via Arrow Flight.
-
-![Architecture](docs/images/architecture-light.svg#gh-light-mode-only)
-![Architecture](docs/images/architecture-dark.svg#gh-dark-mode-only)
-
-Lineage, caching, and versioning travel with the manifest; cataloged, not locked
-in a vendor's database.
-
-**Integrations:** Ibis • scikit-learn • Feast(wip) • dbt (upcoming)
-
----
-
-# Learn More
-
-- [Quickstart tutorial](https://docs.xorq.dev/getting_started/quickstart)
-- [Why Xorq?](https://docs.xorq.dev/#why-xorq)
-- [Scikit-learn template](https://github.com/xorq-labs/xorq-template-sklearn)
+- [Quickstart](https://docs.xorq.dev/getting_started/quickstart)
+- [Why xorq?](https://docs.xorq.dev/#why-xorq)
+- [Claude Code plugin](https://github.com/xorq-labs/claude-plugins)
+- [Scikit-learn ](https://github.com/xorq-labs/xorq-template-sklearn)
+- [A Git-Native Semantic Layer](https://xorq.dev/blog/bsl-xorq/) — building a portable semantic catalog with Xorq
+- [Orientation Over Reasoning](https://xorq.dev/blog/orientation-over-reasoning/) — Haiku + Xorq catalog hits 84% on DABStep, above the Sonnet baseline
 
 ---
 
