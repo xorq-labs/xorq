@@ -762,13 +762,6 @@ def _get_catalog_entry(catalog, name):
         ) from err
 
 
-def _resolve_entry_for_run(catalog, entry):
-    ce = _get_catalog_entry(catalog, entry)
-    if not ce.is_content_local:
-        ce.fetch()
-    return ce
-
-
 def _eval_entry(catalog_entry, code, instream=None, cache_dir=None):
     """Evaluate a single catalog entry to an expression."""
     from xorq.catalog.bind import _eval_code, _make_source_expr  # noqa: PLC0415
@@ -1002,7 +995,9 @@ def _entry_run_bundle(catalog, entries):
             python_pins = []
 
             for entry in entries:
-                ce = _resolve_entry_for_run(catalog, entry)
+                ce = _get_catalog_entry(catalog, entry)
+                if not ce.is_content_local:
+                    ce.fetch()
                 with zipfile.ZipFile(ce.catalog_path) as zf:
                     wp, req_bytes, py_pin = _harvest_entry_from_zip(
                         zf, harvest_dir, entry, seen_wheels
@@ -1377,13 +1372,12 @@ def _resolve_and_execute(
     output_format = p.get("output_format")
 
     rename_map = _parse_rename_params(raw_rename_params) if raw_rename_params else None
-    user_cache_dir = p.get("cache_dir")
 
     span.set_attribute("path", "in-process")
     with timed() as get_elapsed:
         if len(entries) > 1:
             expr = _compose_expr(
-                catalog, entries, code, rename_map=rename_map, cache_dir=user_cache_dir
+                catalog, entries, code, rename_map=rename_map, cache_dir=cache_dir
             )
         else:
             (entry,) = entries

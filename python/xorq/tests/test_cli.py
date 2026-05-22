@@ -9,6 +9,7 @@ from itertools import chain
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import click
 import pandas as pd
 import pyarrow.parquet as pq
 import pytest
@@ -1246,3 +1247,113 @@ def test_batch_size_omitted_when_none(monkeypatch):
     sentinel = MagicMock()
     arbitrate_output_format(sentinel, "/dev/null", "arrow", batch_size=None)
     mock_stream.assert_called_once_with(sentinel, "/dev/null")
+
+
+# ---------------------------------------------------------------------------
+# cli_options.py decorator tests
+# ---------------------------------------------------------------------------
+
+
+def _make_test_command(decorator, cmd_name="test"):
+    """Build a minimal Click command using the given decorator(s)."""
+
+    @click.command(cmd_name)
+    @decorator
+    def cmd(**kwargs):
+        for k, v in sorted(kwargs.items()):
+            click.echo(f"{k}={v}")
+
+    return cmd
+
+
+def test_output_options_bare_decorator():
+    from xorq.cli_options import output_options
+
+    cmd = _make_test_command(output_options)
+    result = CliRunner().invoke(cmd, [])
+    assert result.exit_code == 0
+    assert "output_format=parquet" in result.output
+    assert "output_path=None" in result.output
+
+
+def test_output_options_parametrized():
+    from xorq.cli_options import output_options
+
+    @click.command()
+    @output_options(output_path_help="Custom help text.")
+    def cmd(output_path, output_format):
+        click.echo(f"output_format={output_format}")
+
+    result = CliRunner().invoke(cmd, ["--help"])
+    assert result.exit_code == 0
+    assert "Custom help text." in result.output
+
+
+def test_output_options_explicit_values():
+    from xorq.cli_options import output_options
+
+    cmd = _make_test_command(output_options)
+    result = CliRunner().invoke(cmd, ["-o", "/tmp/out.csv", "-f", "csv"])
+    assert result.exit_code == 0
+    assert "output_format=csv" in result.output
+    assert "output_path=/tmp/out.csv" in result.output
+
+
+def test_limit_option_decorator():
+    from xorq.cli_options import limit_option
+
+    cmd = _make_test_command(limit_option)
+    result = CliRunner().invoke(cmd, ["--limit", "42"])
+    assert result.exit_code == 0
+    assert "limit=42" in result.output
+
+
+def test_params_option_dest_name():
+    from xorq.cli_options import params_option
+
+    cmd = _make_test_command(params_option)
+    result = CliRunner().invoke(cmd, ["--params", "x=1", "--params", "y=2"])
+    assert result.exit_code == 0
+    assert "raw_params=('x=1', 'y=2')" in result.output
+
+
+def test_cache_dir_option_decorator():
+    from xorq.cli_options import cache_dir_option
+
+    cmd = _make_test_command(cache_dir_option)
+    result = CliRunner().invoke(cmd, ["--cache-dir", "/tmp/cache"])
+    assert result.exit_code == 0
+    assert "cache_dir=/tmp/cache" in result.output
+
+
+def test_cache_strategy_options_decorator():
+    from xorq.cli_options import cache_strategy_options
+
+    cmd = _make_test_command(cache_strategy_options)
+    result = CliRunner().invoke(cmd, ["--cache-type", "snapshot", "--ttl", "300"])
+    assert result.exit_code == 0
+    assert "cache_type=snapshot" in result.output
+    assert "ttl=300" in result.output
+
+
+def test_unbind_options_decorator():
+    from xorq.cli_options import unbind_options
+
+    cmd = _make_test_command(unbind_options)
+    result = CliRunner().invoke(
+        cmd, ["--to_unbind_hash", "abc", "--to_unbind_tag", "v1", "--typ", "int"]
+    )
+    assert result.exit_code == 0
+    assert "to_unbind_hash=abc" in result.output
+    assert "to_unbind_tag=v1" in result.output
+    assert "typ=int" in result.output
+
+
+def test_serve_options_decorator():
+    from xorq.cli_options import serve_options
+
+    cmd = _make_test_command(serve_options)
+    result = CliRunner().invoke(cmd, ["--host", "0.0.0.0", "--port", "8080"])
+    assert result.exit_code == 0
+    assert "host=0.0.0.0" in result.output
+    assert "port=8080" in result.output
