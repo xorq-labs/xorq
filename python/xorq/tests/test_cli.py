@@ -25,6 +25,15 @@ from xorq.cli import (
     run_command,
 )
 from xorq.cli_constants import OutputFormats
+from xorq.cli_options import (
+    cache_dir_option,
+    cache_strategy_options,
+    limit_option,
+    output_options,
+    params_option,
+    serve_options,
+    unbind_options,
+)
 from xorq.common.utils.io_utils import Peeker
 from xorq.common.utils.logging_utils import Run, Runs
 from xorq.common.utils.node_utils import (
@@ -1267,8 +1276,6 @@ def _make_test_command(decorator, cmd_name="test"):
 
 
 def test_output_options_bare_decorator():
-    from xorq.cli_options import output_options
-
     cmd = _make_test_command(output_options)
     result = CliRunner().invoke(cmd, [])
     assert result.exit_code == 0
@@ -1277,8 +1284,6 @@ def test_output_options_bare_decorator():
 
 
 def test_output_options_parametrized():
-    from xorq.cli_options import output_options
-
     @click.command()
     @output_options(output_path_help="Custom help text.")
     def cmd(output_path, output_format):
@@ -1290,8 +1295,6 @@ def test_output_options_parametrized():
 
 
 def test_output_options_explicit_values():
-    from xorq.cli_options import output_options
-
     cmd = _make_test_command(output_options)
     result = CliRunner().invoke(cmd, ["-o", "/tmp/out.csv", "-f", "csv"])
     assert result.exit_code == 0
@@ -1300,8 +1303,6 @@ def test_output_options_explicit_values():
 
 
 def test_limit_option_decorator():
-    from xorq.cli_options import limit_option
-
     cmd = _make_test_command(limit_option)
     result = CliRunner().invoke(cmd, ["--limit", "42"])
     assert result.exit_code == 0
@@ -1309,8 +1310,6 @@ def test_limit_option_decorator():
 
 
 def test_params_option_dest_name():
-    from xorq.cli_options import params_option
-
     cmd = _make_test_command(params_option)
     result = CliRunner().invoke(cmd, ["--params", "x=1", "--params", "y=2"])
     assert result.exit_code == 0
@@ -1318,8 +1317,6 @@ def test_params_option_dest_name():
 
 
 def test_cache_dir_option_decorator():
-    from xorq.cli_options import cache_dir_option
-
     cmd = _make_test_command(cache_dir_option)
     result = CliRunner().invoke(cmd, ["--cache-dir", "/tmp/cache"])
     assert result.exit_code == 0
@@ -1327,8 +1324,6 @@ def test_cache_dir_option_decorator():
 
 
 def test_cache_strategy_options_decorator():
-    from xorq.cli_options import cache_strategy_options
-
     cmd = _make_test_command(cache_strategy_options)
     result = CliRunner().invoke(cmd, ["--cache-type", "snapshot", "--ttl", "300"])
     assert result.exit_code == 0
@@ -1337,8 +1332,6 @@ def test_cache_strategy_options_decorator():
 
 
 def test_unbind_options_decorator():
-    from xorq.cli_options import unbind_options
-
     cmd = _make_test_command(unbind_options)
     result = CliRunner().invoke(
         cmd, ["--to_unbind_hash", "abc", "--to_unbind_tag", "v1", "--typ", "int"]
@@ -1350,8 +1343,6 @@ def test_unbind_options_decorator():
 
 
 def test_serve_options_decorator():
-    from xorq.cli_options import serve_options
-
     cmd = _make_test_command(serve_options)
     result = CliRunner().invoke(cmd, ["--host", "0.0.0.0", "--port", "8080"])
     assert result.exit_code == 0
