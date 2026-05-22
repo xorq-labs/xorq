@@ -3,8 +3,9 @@ from __future__ import annotations
 import contextlib
 import functools
 import inspect
+import itertools
 import typing
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -692,15 +693,81 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         return self.register(delta_table.to_pyarrow_dataset(), table_name=table_name)
 
-    def read_record_batches(self, source, table_name=None):
+    def read_record_batches(
+        self,
+        source: pa.Table | pa.RecordBatchReader | Iterable[pa.RecordBatch],
+        table_name: str | None = None,
+    ) -> ir.Table:
+        """Register Arrow data as a table in the current database.
+
+        Each batch is cast to the declared schema before being handed to
+        DataFusion. This prevents silent data corruption when physical Arrow
+        types differ from the declared schema (e.g. ``large_utf8`` batches
+        with a ``utf8`` schema), which would otherwise cause DataFusion to
+        misread 64-bit offsets as 32-bit across the C Data Interface boundary.
+
+        Parameters
+        ----------
+        source
+            The Arrow data to register. Accepts:
+
+            - ``pa.Table`` — converted to batches via ``to_batches()``.
+            - ``pa.RecordBatchReader`` — consumed directly; schema taken from
+              the reader.
+            - Any ``Iterable[pa.RecordBatch]`` (list, tuple, generator) —
+              schema inferred from the first batch.
+        table_name
+            Name for the registered table. Defaults to a sequentially
+            generated name.
+
+        Returns
+        -------
+        ir.Table
+            The just-registered table.
+
+        Raises
+        ------
+        ValueError
+            If ``source`` is an iterable that yields no batches.
+
+        Examples
+        --------
+        From a ``pa.Table``:
+
+        >>> import pyarrow as pa
+        >>> import xorq.api as xo
+        >>> t = xo.connect().read_record_batches(pa.table({"a": [1, 2, 3]}))
+
+        From a list of ``pa.RecordBatch``:
+
+        >>> batches = [pa.record_batch({"a": [1, 2]}), pa.record_batch({"a": [3]})]
+        >>> t = xo.connect().read_record_batches(batches)
+
+        """
         table_name = table_name or gen_name("read_record_batches")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
         self.con.deregister_table(table_ident)
-        schema = source.schema
+        schema: pa.Schema
+        batches: Iterable[pa.RecordBatch]
+        match source:
+            case pa.Table():
+                schema = source.schema
+                batches = source.to_batches()
+            case pa.RecordBatchReader():
+                schema = source.schema
+                batches = source
+            case _:
+                it = iter(source)
+                try:
+                    first = next(it)
+                except StopIteration:
+                    raise ValueError("source contains no record batches") from None
+                schema = first.schema
+                batches = itertools.chain([first], it)
         self.con.register_record_batch_reader(
             table_ident,
             pa.RecordBatchReader.from_batches(
-                schema, (batch.select(schema.names).cast(schema) for batch in source)
+                schema, (batch.select(schema.names).cast(schema) for batch in batches)
             ),
         )
         return self.table(table_name)

@@ -61,6 +61,79 @@ def test_read_record_batches_type_mismatch():
     assert t.execute()["x"].tolist() == ["hello", "world"]
 
 
+def test_read_record_batches_from_table():
+    con = xo.connect()
+    t = con.read_record_batches(pa.table({"a": [1, 2, 3], "b": ["x", "y", "z"]}))
+    result = t.execute()
+    assert result["a"].tolist() == [1, 2, 3]
+    assert result["b"].tolist() == ["x", "y", "z"]
+
+
+def test_read_record_batches_from_list():
+    con = xo.connect()
+    batches = [
+        pa.record_batch({"a": [1, 2], "b": ["x", "y"]}),
+        pa.record_batch({"a": [3], "b": ["z"]}),
+    ]
+    t = con.read_record_batches(batches)
+    result = t.execute()
+    assert result["a"].tolist() == [1, 2, 3]
+    assert result["b"].tolist() == ["x", "y", "z"]
+
+
+def test_read_record_batches_from_tuple():
+    con = xo.connect()
+    batches = (
+        pa.record_batch({"n": [10, 20]}),
+        pa.record_batch({"n": [30]}),
+    )
+    t = con.read_record_batches(batches)
+    assert t.execute()["n"].tolist() == [10, 20, 30]
+
+
+def test_read_record_batches_from_generator():
+    con = xo.connect()
+
+    def gen():
+        yield pa.record_batch({"v": [1.0, 2.0]})
+        yield pa.record_batch({"v": [3.0]})
+
+    t = con.read_record_batches(gen())
+    assert t.execute()["v"].tolist() == [1.0, 2.0, 3.0]
+
+
+def test_read_record_batches_empty_raises():
+    con = xo.connect()
+    with pytest.raises(ValueError, match="no record batches"):
+        con.read_record_batches([])
+
+
+def test_read_record_batches_empty_generator_raises():
+    con = xo.connect()
+
+    def empty():
+        return
+        yield  # noqa: B901
+
+    with pytest.raises(ValueError, match="no record batches"):
+        con.read_record_batches(empty())
+
+
+def test_read_record_batches_wrong_type_raises():
+    con = xo.connect()
+    with pytest.raises((TypeError, AttributeError)):
+        con.read_record_batches("not_a_source")
+
+
+def test_read_record_batches_schema_mismatch_raises():
+    # Passing batches with incompatible schema (field missing) should raise at cast time.
+    con = xo.connect()
+    first = pa.record_batch({"a": [1, 2], "b": [3, 4]})
+    second = pa.record_batch({"a": [5]})  # missing column "b"
+    with pytest.raises(ValueError, match="does not exist in schema"):
+        con.read_record_batches([first, second]).execute()
+
+
 def test_register_unbound_expr_raises():
     con = xo.connect()
     t = xo.table({"a": "int64"}, name="unbound")
