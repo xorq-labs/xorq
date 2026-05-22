@@ -42,7 +42,7 @@ def _git_is_present(cwd=None):
 
 
 def get_git_state(hash_diffs):
-    (commit, diff, diff_cached) = (
+    commit, diff, diff_cached = (
         subprocess.check_output(lst).decode().strip()
         for lst in (
             ["git", "rev-parse", "HEAD"],
@@ -85,7 +85,7 @@ def get_log_path(log_path=default_log_path):
     try:
         log_path.parent.mkdir(exist_ok=True, parents=True)
     except Exception:
-        (_, log_path) = tempfile.mkstemp(suffix=".log", prefix="xorq-")
+        _, log_path = tempfile.mkstemp(suffix=".log", prefix="xorq-")
     return log_path
 
 
@@ -111,9 +111,10 @@ if _log_level_str != "OFF":
     log_level = getattr(logging, _log_level_str)
     _xorq_logger = logging.getLogger("xorq")
     _xorq_logger.setLevel(log_level)
+    _MAX_LOG_BYTES = 50 * 2**20
     try:
         _rfh = logging.handlers.RotatingFileHandler(
-            log_path, maxBytes=50 * 2**20, backupCount=3
+            log_path, maxBytes=_MAX_LOG_BYTES, backupCount=3
         )
         _rfh.setFormatter(
             structlog.stdlib.ProcessorFormatter(
