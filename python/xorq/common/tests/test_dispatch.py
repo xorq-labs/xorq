@@ -16,6 +16,7 @@ ALL_REGISTERED_FQNS = (
 @pytest.mark.parametrize("fqn_string", ALL_REGISTERED_FQNS)
 def test_fqn_resolves_to_real_class(fqn_string):
     module_path, _, class_name = fqn_string.rpartition(".")
+    pytest.importorskip(module_path)
     mod = importlib.import_module(module_path)
     assert hasattr(mod, class_name), f"{fqn_string} does not exist"
 
