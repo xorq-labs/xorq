@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779344131873,
+  "lastUpdate": 1779451533542,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -13440,6 +13440,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.006507526582902947",
             "extra": "mean: 3.6350849455785132 msec\nrounds: 441"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "pierre@barre.sh",
+            "name": "Pierre Barre",
+            "username": "Barre"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3d0a9807d38096278b72dbdb6b34c5f88e6bfd2e",
+          "message": "Replace dask-based tokenization with xorq-dasher (#1951)\n\n## Migrate tokenization from dask to xorq-dasher\n\nReplaces the `xorq.common.utils.dask_normalize/` package with a new\n`xorq.common.utils.dasher` package backed by `xorq-dasher`. Drops dask\nas a runtime dep for cache-key computation.\n\n### Why\n\n`dask.base.tokenize` mutates global registry state and needs\nmonkey-patching\nto swap behavior per call (which is what `SnapshotStrategy` was doing).\n`dasher.Hasher` supports per-call rule overrides and a contextvars\nchannel\nfor transitive tokenize calls — no globals to mutate, no patching.\n\n### Changes\n\n- New `dasher/` package: `__init__.py` (public API + HASHER), plus\n`_gap_rules` / `_paths` / `_relations` / `_opaque` submodules.\n- `SnapshotStrategy` rewritten on top of `snapshot_hasher` + a\n`_current_hasher`\ncontextvar; no more monkey-patching `dask.base.normalize_token`.\n- Per-backend `DatabaseTable` normalizers (DataFusion, DuckDB) extract\nfile\npaths and stat them so `ModificationTimeStrategy` invalidates on file\nedits.\n- Catalog-extract tempdir paths stripped to their build-hashed suffix so\n`load_expr_from_zip` is reload-stable (ADR-0007).\n- Opaque-leaf placeholders use content-addressed names instead of `id()`\nfixes catalog-reload tokenization (ADR-0010).\n- `_normalize_computed_kwargs_expr` is data-free — schema-only for\n`InMemoryTable`, path-stripped for `Read`, cache-class for `CachedNode`.\nFixes the `FittedPipeline.predict`-folds-training-data-into-hash issue.\n\n### Correctness fixes (review round)\n\n- Fix falsy-or path fallback in `snapshot_normalize_read` and\n  `_xorq_opaque_to_placeholder` — use explicit `is not None` so\n  empty-string `read_path` is not silently swallowed (closes #1972)\n- Restrict ReadParquet path extraction to `expressions[0]` to avoid\n  capturing string-valued kwargs as file paths\n- Add `_MISSING` sentinel for FlightUDXF `exchange_f` to distinguish\n  missing attribute from explicit `None`\n- Use atomic pointer swap in `FQNDispatch.register` for thread safety\n- Make catalog-path regex greedy to strip through last catalog segment\n\n---------\n\nCo-authored-by: dlovell <dlovell@gmail.com>\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-22T08:01:36-04:00",
+          "tree_id": "0d500c2d80f0349e97eb0bf8bd988d3d68395cdd",
+          "url": "https://github.com/xorq-labs/xorq/commit/3d0a9807d38096278b72dbdb6b34c5f88e6bfd2e"
+        },
+        "date": 1779451530628,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 11.054969706494944,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006663752912193649",
+            "extra": "mean: 90.45705474999959 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.839715805217812,
+            "unit": "iter/sec",
+            "range": "stddev: 0.056101143751682646",
+            "extra": "mean: 352.14791500000047 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6359393708692395,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19804560873100574",
+            "extra": "mean: 1.572476946400002 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.4176461209104843,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05749744092660059",
+            "extra": "mean: 413.62546460000544 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.8293332580942834,
+            "unit": "iter/sec",
+            "range": "stddev: 0.051157132741131046",
+            "extra": "mean: 353.4401601999889 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.9845864679029903,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05363616362879268",
+            "extra": "mean: 335.054792599999 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 161.11511626411502,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012961082529456082",
+            "extra": "mean: 6.206742254778293 msec\nrounds: 314"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.975615889848612,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07242218532062863",
+            "extra": "mean: 167.3467670000011 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 9.809912036541853,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02411111179469575",
+            "extra": "mean: 101.9377132307616 msec\nrounds: 13"
           }
         ]
       }
