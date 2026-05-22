@@ -92,9 +92,7 @@ def test_log_span_event_drops_none_attributes_from_span(tmp_path):
     rl = RunLogger(run_dir=run_dir)
     span = MagicMock()
 
-    rl.log_span_event(
-        span, "my.event", {"good": "val", "limit": None, "ttl": None}
-    )
+    rl.log_span_event(span, "my.event", {"good": "val", "limit": None, "ttl": None})
 
     span.add_event.assert_called_once_with("my.event", {"good": "val"})
 

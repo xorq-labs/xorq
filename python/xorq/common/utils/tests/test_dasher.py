@@ -445,7 +445,9 @@ def test_opaque_placeholders_are_content_addressed(tmp_path):
     df.to_parquet(path)
 
     def build_cached():
-        return xo.connect().read_parquet(path, table_name="t").filter(xo._.a > 0).cache()
+        return (
+            xo.connect().read_parquet(path, table_name="t").filter(xo._.a > 0).cache()
+        )
 
     def build_remote():
         src = xo.connect()
@@ -475,9 +477,7 @@ def test_replace_nodes_raises_on_unhandled_opaque(monkeypatch):
     """A future addition to ``opaque_ops`` without a corresponding ``case``
     arm in ``replace_nodes.process_node`` must raise loudly rather than
     silently producing a wrong hash."""
-    monkeypatch.setattr(
-        graph_utils, "opaque_ops", graph_utils.opaque_ops + (Cast,)
-    )
+    monkeypatch.setattr(graph_utils, "opaque_ops", graph_utils.opaque_ops + (Cast,))
 
     con = xo.connect()
     con.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))

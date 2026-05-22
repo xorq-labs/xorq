@@ -138,7 +138,10 @@ class SnapshotStrategy(CacheStrategy):
             # snapshot backend rule registered against its concrete FQN, otherwise
             # the MRO lookup picks the more-specific subclass and bypasses our
             # override on BaseBackend.
-            *((fqn(type(backend)), self.normalize_backend) for backend in expr.ls.backends),
+            *(
+                (fqn(type(backend)), self.normalize_backend)
+                for backend in expr.ls.backends
+            ),
         ]
         return snapshot_hasher(*extra)
 
