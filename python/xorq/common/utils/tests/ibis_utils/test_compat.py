@@ -27,7 +27,7 @@ def test_sort_keys(make_sort_key):
     assert_frame_equal(expr.execute(), xorq_expr.execute())
 
 
-def test_sort_key_missing_attribute():
+def test_sort_key_missing_both_attributes():
     class FakeKey:
         ascending = True
         nulls_first = False

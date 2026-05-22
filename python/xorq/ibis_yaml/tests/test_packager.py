@@ -29,7 +29,9 @@ from xorq.ibis_yaml.packager import (
     UVLOCK_NAME,
     JointBundle,
     PackagedBuilder,
+    PackagedCachedRunner,
     PackagedRunner,
+    PackagedUnboundRunner,
     UvToolRunError,
     WheelBundle,
     WheelPackager,
@@ -40,6 +42,7 @@ from xorq.ibis_yaml.packager import (
     find_file_upwards,
     uv_export_requirements,
     uv_tool_run,
+    validate_params_early,
 )
 from xorq.init_templates import InitTemplates
 
@@ -224,7 +227,7 @@ def test_packaged_runner_rejects_missing_wheel(tmp_path):
     build_dir.mkdir()
     # requirements exists but wheel doesn't
     (build_dir / DumpFiles.requirements).write_text("requests==2.31.0")
-    with pytest.raises(FileNotFoundError, match="invalid build path"):
+    with pytest.raises(FileNotFoundError, match="no .whl files found"):
         PackagedRunner(build_path=build_dir)
 
 
@@ -234,6 +237,87 @@ def test_packaged_runner_rejects_missing_requirements(tmp_path):
     _make_wheel(build_dir)
     with pytest.raises(FileNotFoundError, match="invalid build path"):
         PackagedRunner(build_path=build_dir)
+
+
+def test_packaged_cached_runner_rejects_missing_build_path(tmp_path):
+    with pytest.raises(FileNotFoundError, match="build path does not exist"):
+        PackagedCachedRunner(build_path=tmp_path / "nonexistent")
+
+
+def test_packaged_cached_runner_rejects_missing_wheel(tmp_path):
+    build_dir = tmp_path / "build"
+    build_dir.mkdir()
+    (build_dir / DumpFiles.requirements).write_text("requests==2.31.0")
+    with pytest.raises(FileNotFoundError, match="no .whl files found"):
+        PackagedCachedRunner(build_path=build_dir)
+
+
+def test_packaged_unbound_runner_rejects_missing_build_path(tmp_path):
+    with pytest.raises(FileNotFoundError, match="build path does not exist"):
+        PackagedUnboundRunner(build_path=tmp_path / "nonexistent")
+
+
+def test_packaged_unbound_runner_rejects_missing_wheel(tmp_path):
+    build_dir = tmp_path / "build"
+    build_dir.mkdir()
+    (build_dir / DumpFiles.requirements).write_text("requests==2.31.0")
+    with pytest.raises(FileNotFoundError, match="no .whl files found"):
+        PackagedUnboundRunner(build_path=build_dir)
+
+
+# ---------------------------------------------------------------------------
+# validate_params_early
+# ---------------------------------------------------------------------------
+
+
+def _make_expr_metadata(directory, params=()):
+    """Write a minimal expr_metadata.json."""
+    metadata = {"params": [{"param_name": p, "type": "str"} for p in params]}
+    path = Path(directory) / DumpFiles.expr_metadata
+    path.write_text(json.dumps(metadata))
+    return path
+
+
+def test_validate_params_early_passes_valid(tmp_path):
+    _make_expr_metadata(tmp_path, params=("threshold", "name"))
+    validate_params_early(tmp_path, ("threshold=0.5", "name=foo"))
+
+
+def test_validate_params_early_skips_when_no_params_supplied(tmp_path):
+    _make_expr_metadata(tmp_path, params=("threshold",))
+    validate_params_early(tmp_path, ())
+
+
+def test_validate_params_early_rejects_unknown_param(tmp_path):
+    _make_expr_metadata(tmp_path, params=("threshold",))
+    with pytest.raises(ValueError, match="Unknown parameter 'bogus'"):
+        validate_params_early(tmp_path, ("bogus=1",))
+
+
+def test_validate_params_early_rejects_when_no_params_declared(tmp_path):
+    _make_expr_metadata(tmp_path, params=())
+    with pytest.raises(ValueError, match="declares no parameters"):
+        validate_params_early(tmp_path, ("x=1",))
+
+
+def test_validate_params_early_rejects_malformed_kv(tmp_path):
+    _make_expr_metadata(tmp_path, params=("threshold",))
+    with pytest.raises(ValueError, match="Expected key=value"):
+        validate_params_early(tmp_path, ("noequalssign",))
+
+
+def test_validate_params_early_rejects_missing_metadata(tmp_path):
+    with pytest.raises(ValueError, match="not found"):
+        validate_params_early(tmp_path, ("x=1",))
+
+
+def test_validate_params_early_malformed_and_no_params_declared(tmp_path):
+    _make_expr_metadata(tmp_path, params=())
+    with pytest.raises(ValueError) as exc_info:
+        validate_params_early(tmp_path, ("noequalssign", "x=1"))
+    msg = str(exc_info.value)
+    assert "Expected key=value" in msg
+    assert "declares no parameters" in msg
 
 
 # ---------------------------------------------------------------------------

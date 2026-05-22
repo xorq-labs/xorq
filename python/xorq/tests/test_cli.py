@@ -7,8 +7,9 @@ import sys
 import uuid
 from itertools import chain
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import click
 import pandas as pd
 import pyarrow.parquet as pq
 import pytest
@@ -18,10 +19,20 @@ import xorq
 import xorq.api as xo
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.cli import (
-    OutputFormats,
+    arbitrate_output_format,
     build_command,
     cli,
     run_command,
+)
+from xorq.cli_constants import OutputFormats
+from xorq.cli_options import (
+    cache_dir_option,
+    cache_strategy_options,
+    limit_option,
+    output_options,
+    params_option,
+    serve_options,
+    unbind_options,
 )
 from xorq.common.utils.io_utils import Peeker
 from xorq.common.utils.logging_utils import Run, Runs
@@ -1172,3 +1183,168 @@ def test_serve_penguins_template(tmpdir, tmp_path):
             assert len(actual) == len(sample_data)
     else:
         raise AssertionError("No expression hash")
+
+
+# ---------------------------------------------------------------------------
+# uv run-cached / uv run-unbound: help-text tests
+# ---------------------------------------------------------------------------
+
+
+def test_uv_run_cached_help():
+    result = CliRunner().invoke(cli, ["uv", "run-cached", "--help"])
+    assert result.exit_code == 0
+    for flag in (
+        "--cache-type",
+        "--ttl",
+        "--limit",
+        "--params",
+        "--cache-dir",
+        "--output-path",
+        "--format",
+    ):
+        assert flag in result.output, f"missing {flag}"
+
+
+def test_uv_run_unbound_help():
+    result = CliRunner().invoke(cli, ["uv", "run-unbound", "--help"])
+    assert result.exit_code == 0
+    for flag in (
+        "--to_unbind_hash",
+        "--to_unbind_tag",
+        "--typ",
+        "--batch-size",
+        "--instream",
+        "--limit",
+        "--output-path",
+        "--format",
+    ):
+        assert flag in result.output, f"missing {flag}"
+    assert "stdout" in result.output, "--output-path help text should mention stdout"
+
+
+def test_batch_size_forwarded_to_pyarrow_stream(monkeypatch):
+    """Verify batch_size flows from run_unbound CLI through to to_pyarrow_stream."""
+    mock_stream = MagicMock()
+    monkeypatch.setattr("xorq.expr.api.to_pyarrow_stream", mock_stream)
+
+    sentinel = MagicMock()
+    arbitrate_output_format(sentinel, "/dev/null", "arrow", batch_size=512)
+    mock_stream.assert_called_once_with(sentinel, "/dev/null", chunk_size=512)
+
+
+def test_batch_size_forwarded_from_run_unbound_cli():
+    """Verify --batch-size is wired from the Click command to run_unbound_command."""
+    captured = {}
+
+    def spy(*args, **kwargs):
+        captured.update(kwargs)
+
+    with patch("xorq.cli.run_unbound_command", spy):
+        result = CliRunner().invoke(
+            cli,
+            ["run-unbound", "/fake/build", "--batch-size", "256", "-f", "arrow"],
+        )
+    assert result.exit_code == 0, result.output
+    assert captured.get("batch_size") == 256
+
+
+def test_batch_size_omitted_when_none(monkeypatch):
+    """Verify no chunk_size kwarg when batch_size is None."""
+    mock_stream = MagicMock()
+    monkeypatch.setattr("xorq.expr.api.to_pyarrow_stream", mock_stream)
+
+    sentinel = MagicMock()
+    arbitrate_output_format(sentinel, "/dev/null", "arrow", batch_size=None)
+    mock_stream.assert_called_once_with(sentinel, "/dev/null")
+
+
+# ---------------------------------------------------------------------------
+# cli_options.py decorator tests
+# ---------------------------------------------------------------------------
+
+
+def _make_test_command(decorator, cmd_name="test"):
+    """Build a minimal Click command using the given decorator(s)."""
+
+    @click.command(cmd_name)
+    @decorator
+    def cmd(**kwargs):
+        for k, v in sorted(kwargs.items()):
+            click.echo(f"{k}={v}")
+
+    return cmd
+
+
+def test_output_options_bare_decorator():
+    cmd = _make_test_command(output_options)
+    result = CliRunner().invoke(cmd, [])
+    assert result.exit_code == 0
+    assert "output_format=parquet" in result.output
+    assert "output_path=None" in result.output
+
+
+def test_output_options_parametrized():
+    @click.command()
+    @output_options(output_path_help="Custom help text.")
+    def cmd(output_path, output_format):
+        click.echo(f"output_format={output_format}")
+
+    result = CliRunner().invoke(cmd, ["--help"])
+    assert result.exit_code == 0
+    assert "Custom help text." in result.output
+
+
+def test_output_options_explicit_values():
+    cmd = _make_test_command(output_options)
+    result = CliRunner().invoke(cmd, ["-o", "/tmp/out.csv", "-f", "csv"])
+    assert result.exit_code == 0
+    assert "output_format=csv" in result.output
+    assert "output_path=/tmp/out.csv" in result.output
+
+
+def test_limit_option_decorator():
+    cmd = _make_test_command(limit_option)
+    result = CliRunner().invoke(cmd, ["--limit", "42"])
+    assert result.exit_code == 0
+    assert "limit=42" in result.output
+
+
+def test_params_option_dest_name():
+    cmd = _make_test_command(params_option)
+    result = CliRunner().invoke(cmd, ["--params", "x=1", "--params", "y=2"])
+    assert result.exit_code == 0
+    assert "raw_params=('x=1', 'y=2')" in result.output
+
+
+def test_cache_dir_option_decorator():
+    cmd = _make_test_command(cache_dir_option)
+    result = CliRunner().invoke(cmd, ["--cache-dir", "/tmp/cache"])
+    assert result.exit_code == 0
+    assert "cache_dir=/tmp/cache" in result.output
+
+
+def test_cache_strategy_options_decorator():
+    cmd = _make_test_command(cache_strategy_options)
+    result = CliRunner().invoke(cmd, ["--cache-type", "snapshot", "--ttl", "300"])
+    assert result.exit_code == 0
+    assert "cache_type=snapshot" in result.output
+    assert "ttl=300" in result.output
+
+
+def test_unbind_options_decorator():
+    cmd = _make_test_command(unbind_options)
+    result = CliRunner().invoke(
+        cmd, ["--to_unbind_hash", "abc", "--to_unbind_tag", "v1", "--typ", "int"]
+    )
+    assert result.exit_code == 0
+    assert "to_unbind_hash=abc" in result.output
+    assert "to_unbind_tag=v1" in result.output
+    assert "typ=int" in result.output
+
+
+def test_serve_options_decorator():
+    cmd = _make_test_command(serve_options)
+    result = CliRunner().invoke(cmd, ["--host", "0.0.0.0", "--port", "8080"])
+    assert result.exit_code == 0
+    assert "host=0.0.0.0" in result.output
+    assert "port=8080" in result.output

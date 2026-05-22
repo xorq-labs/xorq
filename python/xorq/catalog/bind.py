@@ -103,7 +103,7 @@ def _make_source_tag(expr, entry, alias):
     )
 
 
-def _resolve_source(source, con, alias):
+def _resolve_source(source, con, alias, cache_dir=None):
     """Resolve *source* to a ``(tagged_expr, backend)`` pair."""
     from xorq.catalog.catalog import CatalogEntry  # noqa: PLC0415
     from xorq.vendor.ibis.expr.types.core import Expr  # noqa: PLC0415
@@ -112,8 +112,9 @@ def _resolve_source(source, con, alias):
         case CatalogEntry():
             if not source.is_content_local:
                 source.fetch()
-            resolved_con = con if con is not None else source.expr._find_backend()
-            node = RemoteTable.from_expr(resolved_con, source.expr)
+            loaded = source.load_expr(cache_dir=cache_dir)
+            resolved_con = con if con is not None else loaded._find_backend()
+            node = RemoteTable.from_expr(resolved_con, loaded)
             tagged = _make_source_tag(node.to_expr(), source, alias)
             return tagged, resolved_con
         case Expr():
@@ -210,9 +211,9 @@ def _eval_code(code, source):
     return safe_eval(code, namespace)
 
 
-def _make_source_expr(source, con=None, alias=None):
+def _make_source_expr(source, con=None, alias=None, cache_dir=None):
     """Wrap a CatalogEntry as a RemoteTable + HashingTag without transforms."""
-    source_expr, _ = _resolve_source(source, con, alias)
+    source_expr, _ = _resolve_source(source, con, alias, cache_dir=cache_dir)
     return source_expr
 
 

@@ -1612,7 +1612,7 @@ class DataViewScreen(Screen):
             cmd = self._catalog_compose_cmd(code, alias)
             proc = subprocess.run(cmd, capture_output=True)
             if proc.returncode != 0:
-                raise RuntimeError(proc.stderr.decode().strip())
+                raise RuntimeError(proc.stderr.decode(errors="replace").strip())
             msg = f"Saved as '{alias}'" if alias else "Saved"
             self.app.call_from_thread(self._show_persist_success, msg)
         except Exception as e:

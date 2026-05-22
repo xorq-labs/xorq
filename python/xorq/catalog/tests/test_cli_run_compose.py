@@ -642,7 +642,6 @@ def test_catalog_run_invokes_packaged_runner(
     calls = []
 
     def fake_run(self):
-        # Capture the snapshot while the tmpdir still exists.
         calls.append(
             {
                 "output_path": self.output_path,
@@ -659,7 +658,7 @@ def test_catalog_run_invokes_packaged_runner(
     monkeypatch.setattr("xorq.ibis_yaml.packager.PackagedRunner.run", fake_run)
 
     catalog_path, _, _ = catalog_with_source_and_transform
-    bare = CliRunner()  # NOT the auto-injecting runner fixture
+    bare = CliRunner()
     result = bare.invoke(
         cli,
         ["--path", catalog_path, "run", "src", "-o", "-", "-f", "csv"],
@@ -753,8 +752,6 @@ def test_catalog_run_reinvokes_via_uv_for_transforms(
     assert "src" in args
     assert "--limit" in args
     assert "1" in args
-    # The inner xorq must be told to run in-process, otherwise it would
-    # re-enter the same re-invoke path and recurse without bound.
     assert "--use-this-venv" in args
 
 
@@ -798,7 +795,7 @@ def test_catalog_run_cached_reinvokes_via_uv(
 
 @pytest.mark.slow(level=1)
 def test_catalog_run_uv_path_end_to_end(catalog_with_source_and_transform, tmp_path):
-    """Full pipeline: archive ⇒ `uv tool run xorq run`. Slow because uv
+    """Full pipeline: archive => `uv tool run xorq run`. Slow because uv
     resolves and installs the entry's pinned env."""
     catalog_path, _, _ = catalog_with_source_and_transform
     out = tmp_path / "out.csv"
@@ -883,7 +880,6 @@ def test_catalog_compose_reinvokes_via_uv(
     assert "src" in args and "trn" in args
     assert "--use-this-venv" in args
     assert "--emit-build-path-to" in args
-    # alias must NOT be forwarded — the outer registers it after pickup.
     assert "--alias" not in args and "-a" not in args
     assert captured["merge_build_path"] == pre_built
     assert captured["merge_bundle"] is not None
