@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779451533542,
+  "lastUpdate": 1779456859156,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -13527,6 +13527,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.02411111179469575",
             "extra": "mean: 101.9377132307616 msec\nrounds: 13"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3da2061639f66ebb6ade47432a997a618c074dc1",
+          "message": "docs: rewrite README as executable memory system (#1954)\n\nReframe README around Xorq as an expression-based context engine with\ngit-native versioning.\n\n---------\n\nCo-authored-by: Claude Opus 4.7 <noreply@anthropic.com>",
+          "timestamp": "2026-05-22T09:30:10-04:00",
+          "tree_id": "323b5c5d4167a2219ecee004214d96e271413f68",
+          "url": "https://github.com/xorq-labs/xorq/commit/3da2061639f66ebb6ade47432a997a618c074dc1"
+        },
+        "date": 1779456856341,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.2457420019027,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020735330825099152",
+            "extra": "mean: 121.27471363635323 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.4244773522775693,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08422123208930142",
+            "extra": "mean: 412.46002939998334 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.5700600848631019,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19917642717897638",
+            "extra": "mean: 1.7542010509999955 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.2329203590150457,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07980804225584234",
+            "extra": "mean: 447.8440065999962 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.2540526991832888,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07832538332926754",
+            "extra": "mean: 443.64535059997934 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.314424921006512,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04496815177031414",
+            "extra": "mean: 432.0727758000089 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 159.97086450640947,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01721656551734915",
+            "extra": "mean: 6.2511383125014826 msec\nrounds: 288"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.166584331054166,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04862726545962465",
+            "extra": "mean: 240.00474262499694 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 9.536594698942805,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03169283316285714",
+            "extra": "mean: 104.85923241666721 msec\nrounds: 12"
           }
         ]
       }
