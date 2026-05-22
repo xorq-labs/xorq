@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 import xxhash
 
+
 if TYPE_CHECKING:
     from xorq.vendor.ibis.common.collections import FrozenOrderedDict
     from xorq.vendor.ibis.expr.operations.core import Node

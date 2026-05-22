@@ -206,10 +206,8 @@ def get_rebuild_dispatch(tag_node):
     if callable(getattr(builder, "with_inputs_translated", None)) and hasattr(
         builder, "expr"
     ):
-        return (
-            lambda rebuild_subexpr, remap, to_catalog: builder.with_inputs_translated(
-                remap, to_catalog
-            ).expr
+        return lambda rebuild_subexpr, remap, to_catalog: (
+            builder.with_inputs_translated(remap, to_catalog).expr
         )
     return None
 
