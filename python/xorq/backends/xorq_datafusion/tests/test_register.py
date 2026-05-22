@@ -99,13 +99,13 @@ def test_read_record_batches_from_generator():
 
 def test_read_record_batches_empty_raises():
     con = xo.connect()
-    with pytest.raises(ValueError, match="no record batches"):
+    with pytest.raises(ValueError, match="no rows"):
         con.read_record_batches([])
 
 
 def test_read_record_batches_empty_table_raises():
     con = xo.connect()
-    with pytest.raises(ValueError, match="no record batches"):
+    with pytest.raises(ValueError, match="no rows"):
         con.read_record_batches(pa.table({"a": pa.array([], type=pa.int64())}))
 
 
@@ -116,14 +116,22 @@ def test_read_record_batches_empty_generator_raises():
         return
         yield  # noqa: B901
 
-    with pytest.raises(ValueError, match="no record batches"):
+    with pytest.raises(ValueError, match="no rows"):
         con.read_record_batches(empty())
+
+
+def test_read_record_batches_empty_reader_raises():
+    con = xo.connect()
+    schema = pa.schema([("a", pa.int64())])
+    reader = pa.RecordBatchReader.from_batches(schema, [])
+    with pytest.raises(ValueError, match="no rows"):
+        con.read_record_batches(reader)
 
 
 def test_read_record_batches_wrong_type_raises():
     con = xo.connect()
-    with pytest.raises(AttributeError, match="schema"):
-        con.read_record_batches("not_a_source")
+    with pytest.raises(TypeError, match="unsupported source type"):
+        con.read_record_batches(42)
 
 
 def test_read_record_batches_schema_mismatch_raises():

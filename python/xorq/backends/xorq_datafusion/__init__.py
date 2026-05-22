@@ -734,9 +734,11 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         Raises
         ------
+        TypeError
+            If ``source`` is not a ``pa.Table``, ``pa.RecordBatchReader``, or iterable.
         ValueError
-            If ``source`` is an iterable or ``pa.Table`` that yields no batches,
-            or if a batch is missing columns required by the declared schema.
+            If ``source`` has no rows, or if a batch is missing columns required
+            by the declared schema.
             Cast errors from type incompatibilities are deferred: they surface
             during ``.execute()``, not at this call site, because batches are
             cast lazily as DataFusion consumes the reader.
@@ -758,23 +760,31 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         table_name = table_name or gen_name("read_record_batches")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
         self.con.deregister_table(table_ident)
+        if not isinstance(source, (pa.Table, pa.RecordBatchReader)) and not hasattr(
+            source, "__iter__"
+        ):
+            raise TypeError(f"unsupported source type: {type(source).__name__}")
         schema: pa.Schema
         batches: Iterable[pa.RecordBatch]
         match source:
             case pa.Table():
                 if source.num_rows == 0:
-                    raise ValueError("source contains no record batches")
+                    raise ValueError("source has no rows")
                 schema = source.schema
                 batches = source.to_batches()
             case pa.RecordBatchReader():
                 schema = source.schema
-                batches = source
+                try:
+                    first = source.read_next_batch()
+                except StopIteration:
+                    raise ValueError("source has no rows") from None
+                batches = itertools.chain([first], source)
             case _:
                 it = iter(source)
                 try:
                     first = next(it)
                 except StopIteration:
-                    raise ValueError("source contains no record batches") from None
+                    raise ValueError("source has no rows") from None
                 schema = first.schema
                 batches = itertools.chain([first], it)
         self.con.register_record_batch_reader(
