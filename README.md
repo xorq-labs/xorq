@@ -29,17 +29,16 @@ accumulate tech-debt and unnecessary complexity. For example, if you ask a
 coding agent to build a dashboard, you are more likely than not to get a folder
 of one-off Python scripts that import each other in non-obvious ways, an
 embedded JSON holding intermediate state, and a `requirements.txt` that was
-last regenerated two sessions ago. It may also runs end-to-end on your laptop.
-Verifying by reproducing on another machine, or productionizing any of it,
-means rewriting most of it. And every time you rewrite, more complexity gets
-introduced.
+last regenerated two sessions ago. It may also execute end-to-end on your
+laptop. Verifying by reproducing on another machine, or productionizing any of
+it, means rewriting some of it. And every time you rewrite, more complexity
+gets introduced.
 
 
 | Pain | Symptom |
 |------|---------|
-| **Imperative, stateful artifacts** | An agent run leaves you with a folder of `.py`, `.json`, and `.html` files. Reproducing the result means re-running them in the right order |
-| **No discoverable, shared index** | "Team memory" today is `~/.claude/memory/*.md` joined by symlinks, with a `MEMORY.md` index of one-liners pointing to the notes. There's no executable catalog two agents can both pull into context |
-| **No declarative spec of work** | Agents describe what they built in prose. There's no declarative artifact to open, explore, or reuse |
+| **Imperative, stateful artifacts** | An agent run leaves you with a folder of `.py`, `.json`, and `.html` files. Reproducing the result means re-running them in the right order without a declarative spec |
+| **No discoverable, shared index** | "Team memory" today is `~/.claude/memory/*.md`, with a `MEMORY.md` index of one-liners pointing to the notes. There's no executable catalog two agents can both pull into context |
 | **No lineage graph** | Rename a column upstream and a downstream model breaks at runtime. The dependency lived only in chat history, not in a graph that could have flagged it before it shipped. |
 | **No portable environment** | A pipeline that ran in one agent session has no path to another sandbox, your machine, or production.|
 
@@ -318,7 +317,7 @@ expression:
 <details>
 <summary><b>The Tools</b> — catalog, run, serve</summary>
 
-The entry is the unit of executable context that includes the manifest plus
+The entry is the unit of executable memory that includes the manifest plus
 environment to run it. The tools — catalog, run, serve — are how agents and
 humans compose with it.
 
