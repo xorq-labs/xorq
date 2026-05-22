@@ -11,8 +11,17 @@ from __future__ import annotations
 import contextvars
 import itertools
 import logging
+from typing import TYPE_CHECKING
 
 import xxhash
+
+if TYPE_CHECKING:
+    from xorq.vendor.ibis.common.collections import FrozenOrderedDict
+    from xorq.vendor.ibis.expr.operations.core import Node
+    from xorq.vendor.ibis.expr.schema import Schema
+    from xorq.vendor.ibis.expr.types.core import Expr
+
+logger = logging.getLogger(__name__)
 
 
 class _MissingSentinel:
@@ -62,7 +71,7 @@ def _rename_unbound_xorq(op, prefix="static"):
     return op.replace(rename)
 
 
-def _stable_opaque_name(prefix, *parts):
+def _stable_opaque_name(prefix: str, *parts: str | Schema | FrozenOrderedDict) -> str:
     """Build a deterministic placeholder name from xxhash of structural parts.
 
     xorq_dasher 0.1.0's ``_opaque_to_placeholder`` uses ``id(node)`` for some
@@ -74,7 +83,7 @@ def _stable_opaque_name(prefix, *parts):
     return f"{prefix}-{xxhash.xxh128(payload).hexdigest()[:16]}"
 
 
-def _parent_token(thing):
+def _parent_token(thing: Expr | Node | _MissingSentinel) -> str:
     """Tokenize an opaque sub-expression's parent / inner expr structurally.
 
     Used to fold the inner expression's identity into the placeholder name so
@@ -105,7 +114,7 @@ def _parent_token(thing):
     try:
         tok = hasher.tokenize(thing)
     except RecursionError:
-        logging.getLogger(__name__).warning(
+        logger.warning(
             "RecursionError tokenizing %r in _parent_token; falling back "
             "to type+schema hash.  Investigate the op graph for cycles "
             "or unbounded nesting.",
