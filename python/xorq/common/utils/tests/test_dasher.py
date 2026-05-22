@@ -197,7 +197,7 @@ def test_normalize_read_build_relative_path():
     assert "builds/abc123.parquet" in flat
 
 
-def test_normalize_read_multi_path_raises():
+def test_normalize_read_nonexistent_multi_path_raises():
     read = _make_read(
         (("hash_path", ("file1.parquet", "file2.parquet")),),
     )

@@ -43,10 +43,16 @@ class FQNDispatch:
         raise TypeError(f"No dispatch for {cls}")
 
     def register(self, typ_or_fqn, handler):
-        """Register a handler for a type or FQN string, clearing the MRO cache."""
+        """Register a handler for a type or FQN string, clearing the MRO cache.
+
+        Both arguments are required.  The decorator shorthand
+        ``@dispatch.register(SomeType)`` supported by the legacy
+        dask-derived Dispatch is **not** supported; always use the
+        two-argument form ``dispatch.register(SomeType, handler)``.
+        """
         key = typ_or_fqn if isinstance(typ_or_fqn, str) else _fqn(typ_or_fqn)
-        self._rules[key] = handler
         self._cache = {}
+        self._rules[key] = handler
         return self
 
     @property
