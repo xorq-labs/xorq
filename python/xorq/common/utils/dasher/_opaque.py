@@ -15,6 +15,14 @@ from typing import TYPE_CHECKING
 
 import xxhash
 
+if TYPE_CHECKING:
+    from xorq.vendor.ibis.common.collections import FrozenOrderedDict
+    from xorq.vendor.ibis.expr.operations.core import Node
+    from xorq.vendor.ibis.expr.schema import Schema
+    from xorq.vendor.ibis.expr.types.core import Expr
+
+logger = logging.getLogger(__name__)
+
 
 if TYPE_CHECKING:
     from xorq.vendor.ibis.common.collections import FrozenOrderedDict
