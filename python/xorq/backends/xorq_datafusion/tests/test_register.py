@@ -47,11 +47,6 @@ def test_read_record_batches_type_mismatch():
     lying_reader = pa.RecordBatchReader.from_batches(utf8_schema, [batch])
     assert lying_reader.schema.field("x").type == pa.utf8()
 
-    # Naive registration (bypassing read_record_batches) silently corrupts:
-    con.con.register_record_batch_reader("naive_table", lying_reader)
-    naive_result = con.table("naive_table").execute()["x"].tolist()
-    assert naive_result != ["hello", "world"], "naive registration should corrupt data"
-
     # read_record_batches casts each batch before crossing the C boundary:
     fresh_reader = pa.RecordBatchReader.from_batches(
         utf8_schema,
@@ -108,6 +103,12 @@ def test_read_record_batches_empty_raises():
         con.read_record_batches([])
 
 
+def test_read_record_batches_empty_table_raises():
+    con = xo.connect()
+    with pytest.raises(ValueError, match="no record batches"):
+        con.read_record_batches(pa.table({"a": pa.array([], type=pa.int64())}))
+
+
 def test_read_record_batches_empty_generator_raises():
     con = xo.connect()
 
@@ -121,7 +122,7 @@ def test_read_record_batches_empty_generator_raises():
 
 def test_read_record_batches_wrong_type_raises():
     con = xo.connect()
-    with pytest.raises((TypeError, AttributeError)):
+    with pytest.raises(AttributeError, match="schema"):
         con.read_record_batches("not_a_source")
 
 
@@ -130,7 +131,7 @@ def test_read_record_batches_schema_mismatch_raises():
     con = xo.connect()
     first = pa.record_batch({"a": [1, 2], "b": [3, 4]})
     second = pa.record_batch({"a": [5]})  # missing column "b"
-    with pytest.raises(ValueError, match="does not exist in schema"):
+    with pytest.raises(ValueError, match="batch missing columns required by schema"):
         con.read_record_batches([first, second]).execute()
 
 

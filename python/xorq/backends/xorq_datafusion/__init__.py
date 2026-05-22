@@ -57,6 +57,13 @@ from xorq.vendor.ibis.formats.pyarrow import PyArrowType
 from xorq.vendor.ibis.util import gen_name, normalize_filename, normalize_filenames
 
 
+def _select_and_cast(batch, schema):
+    missing = set(schema.names) - set(batch.schema.names)
+    if missing:
+        raise ValueError(f"batch missing columns required by schema: {sorted(missing)}")
+    return batch.select(schema.names).cast(schema)
+
+
 def _compile_pyarrow_udwf(udwf_node):
     def make_datafusion_udwf(
         input_types,
@@ -728,7 +735,11 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         Raises
         ------
         ValueError
-            If ``source`` is an iterable that yields no batches.
+            If ``source`` is an iterable or ``pa.Table`` that yields no batches,
+            or if a batch is missing columns required by the declared schema.
+            Cast errors from type incompatibilities are deferred: they surface
+            during ``.execute()``, not at this call site, because batches are
+            cast lazily as DataFusion consumes the reader.
 
         Examples
         --------
@@ -751,6 +762,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         batches: Iterable[pa.RecordBatch]
         match source:
             case pa.Table():
+                if source.num_rows == 0:
+                    raise ValueError("source contains no record batches")
                 schema = source.schema
                 batches = source.to_batches()
             case pa.RecordBatchReader():
@@ -767,7 +780,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         self.con.register_record_batch_reader(
             table_ident,
             pa.RecordBatchReader.from_batches(
-                schema, (batch.select(schema.names).cast(schema) for batch in batches)
+                schema, (_select_and_cast(batch, schema) for batch in batches)
             ),
         )
         return self.table(table_name)
