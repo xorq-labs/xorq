@@ -2,18 +2,17 @@ import re
 
 
 def tokenize_to_int(*args) -> int:
-    """Derive a deterministic integer from arbitrary args via dask tokenize."""
-    import dask  # noqa: PLC0415
+    """Derive a deterministic integer from arbitrary args."""
+    from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
 
-    return int(dask.base.tokenize(args), 16) % (2**31)
+    return int(tokenize(args), 16) % (2**31)
 
 
 def make_name(prefix, to_tokenize):
-    import dask  # noqa: PLC0415
-
+    from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
     from xorq.ibis_yaml.config import config  # noqa: PLC0415
 
-    tokenized = dask.base.tokenize(to_tokenize)
+    tokenized = tokenize(to_tokenize)
     name = f"_{prefix}_{tokenized[: config.hash_length]}".lower()
     return name
 

@@ -6,7 +6,6 @@ import os
 import pathlib
 import tempfile
 
-import dask
 import pandas as pd
 import pyarrow as pa
 import pytest
@@ -25,10 +24,11 @@ from xorq.caching import (
 )
 from xorq.catalog.backend import GitBackend
 from xorq.catalog.catalog import Catalog
-from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+from xorq.common.utils.dasher import tokenize
+from xorq.common.utils.defer_utils import (
+    deferred_read_parquet,
     normalize_read_path_md5sum,
 )
-from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.conftest import array_types_df
@@ -167,7 +167,7 @@ def test_compiler_sql(builds_dir, parquet_dir):
     # make sure we can load
     load_expr(build_path)
     expected_relation = find_relations(awards_players)[0]
-    expted_sql_hash = dask.base.tokenize(str(ibis.to_sql(expr)))[: config.hash_length]
+    expted_sql_hash = tokenize(str(ibis.to_sql(expr)))[: config.hash_length]
 
     assert build_path.joinpath(DumpFiles.sql).exists()
     assert build_path.joinpath(DumpFiles.build_metadata).exists()
@@ -220,7 +220,7 @@ def test_deferred_reads_yaml(builds_dir, parquet_dir):
     sql_text = yaml_path.read_text()
 
     sql_str = str(ibis.to_sql(awards_players))
-    expected_sql_file = dask.base.tokenize(sql_str)[: config.hash_length] + ".sql"
+    expected_sql_file = tokenize(sql_str)[: config.hash_length] + ".sql"
 
     expected_read_path = str(config_path)
 
@@ -1076,7 +1076,7 @@ def test_tokenize_survives_side_channel_read(tmp_path):
     catalog = Catalog(backend=GitBackend(repo=repo))
     preds = _build_fitted_pipeline_entry(catalog)
 
-    token = dask.base.tokenize(preds.lazy_expr)
+    token = tokenize(preds.lazy_expr)
     assert isinstance(token, str) and token
 
 
@@ -1091,7 +1091,7 @@ def test_tokenize_stable_across_reload(tmp_path):
     load1 = preds.lazy_expr
     load2 = preds.lazy_expr
     assert load1 is not load2
-    assert dask.base.tokenize(load1) == dask.base.tokenize(load2)
+    assert tokenize(load1) == tokenize(load2)
 
 
 def test_tokenize_non_catalog_read_unchanged(parquet_dir):
@@ -1106,12 +1106,12 @@ def test_tokenize_non_catalog_read_unchanged(parquet_dir):
     assert reads, "deferred_read_parquet must produce a Read"
     assert "read_path" not in dict(reads[0].read_kwargs)
 
-    assert dask.base.tokenize(t) == dask.base.tokenize(t)
+    assert tokenize(t) == tokenize(t)
 
 
 def test_tokenize_missing_path_still_raises(parquet_dir):
     """A Read without `read_path` whose `hash_path` is a bogus relative path
-    must still raise NotImplementedError. The read_path-preferring branch only
+    must still raise FileNotFoundError. The read_path-preferring branch only
     kicks in when the catalog contract is in effect."""
     parquet_path = parquet_dir / "awards_players.parquet"
     backend = xo.duckdb.connect()
@@ -1125,5 +1125,5 @@ def test_tokenize_missing_path_still_raises(parquet_dir):
         dict(zip(op.__argnames__, op.__args__)) | {"read_kwargs": bogus}
     )
 
-    with pytest.raises(NotImplementedError, match="memtables/does-not-exist"):
-        dask.base.tokenize(bad.to_expr())
+    with pytest.raises(FileNotFoundError, match="memtables/does-not-exist"):
+        tokenize(bad.to_expr())

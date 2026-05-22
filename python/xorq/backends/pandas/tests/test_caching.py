@@ -1,4 +1,3 @@
-import dask
 import pandas as pd
 
 import xorq.api as xo
@@ -30,8 +29,8 @@ def test_pandas_snapshot(xo_con, alltypes_df):
     # test cache creation
     executed0 = cached_expr.execute()
 
-    with cache.strategy.normalization_context(uncached):
-        normalized0 = dask.base.normalize_token(uncached)
+    with cache.strategy.normalization_context(uncached) as hasher:
+        normalized0 = hasher.normalize(uncached)
     assert cache.exists(uncached)
 
     # test cache use
@@ -49,11 +48,11 @@ def test_pandas_snapshot(xo_con, alltypes_df):
         .cache(cache)
     )
     (cache, uncached) = get_cache_uncached(cached_expr)
-    with cache.strategy.normalization_context(uncached):
-        normalized1 = dask.base.normalize_token(uncached)
+    with cache.strategy.normalization_context(uncached) as hasher:
+        normalized1 = hasher.normalize(uncached)
 
     # everything else is stable, despite the different data
-    assert normalized0[1][1] == normalized1[1][1]
+    assert normalized0 == normalized1
     assert cache.exists(uncached)
     assert cache.calc_key(uncached).count(KEY_PREFIX) == 1
     executed2 = cached_expr.ls.uncached.execute()

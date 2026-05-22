@@ -12,11 +12,11 @@ from attr import (
     frozen,
 )
 from attr.validators import instance_of
-from dask.base import tokenize
 
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching.strategy import SnapshotStrategy
+from xorq.common.utils.dasher import tokenize
 from xorq.expr.relations import HashingTag, Read, Tag
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.utils import freeze

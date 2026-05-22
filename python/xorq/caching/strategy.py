@@ -8,7 +8,6 @@ from abc import (
     abstractmethod,
 )
 
-import dask
 from attr import (
     field,
     frozen,
@@ -16,24 +15,35 @@ from attr import (
 from attr.validators import (
     instance_of,
 )
-
-import xorq.common.utils.dask_normalize  # noqa: F401
-import xorq.vendor.ibis.expr.operations as ops
-from xorq.common.utils.dask_normalize.dask_normalize_expr import (
-    normalize_backend,
+from xorq_dasher.rules.expr import (
+    normalize_cached_node,
     normalize_remote_table,
 )
-from xorq.common.utils.dask_normalize.dask_normalize_utils import (
-    normalize_seq_with_caller,
-    patch_normalize_op_caching,
-    patch_normalize_token,
+
+import xorq.vendor.ibis.expr.operations as ops
+from xorq.common.utils.dasher import (
+    HASHER,
+    fqn,
+    snapshot_hasher,
+    with_caches,
 )
 from xorq.config import options
 from xorq.expr.relations import (
+    CachedNode,
     Read,
     RemoteTable,
 )
+from xorq.vendor import ibis
 from xorq.vendor.ibis.expr import types as ir
+
+
+# Per-outer-call memo for ``SnapshotStrategy.normalize_databasetable``.
+# Mirrors ``_dt_normalize_memo`` in ``_relations.py`` but kept separate so
+# snapshot-flavored DT results don't alias on the same ``dt`` key used by
+# the global-hasher dispatcher.
+_snapshot_dt_normalize_memo: contextvars.ContextVar[dict | None] = (
+    contextvars.ContextVar("_xorq_snapshot_dt_normalize_memo", default=None)
+)
 
 
 def snapshot_normalize_read(read):
@@ -42,7 +52,8 @@ def snapshot_normalize_read(read):
     # Materialized build-bundle reads carry a content-hash-named read_path that is
     # stable across environments. Their hash_path is an absolute tmpdir path that
     # changes every run, so prefer read_path when available.
-    path = read_kwargs.get("read_path") or read_kwargs["hash_path"]
+    read_path = read_kwargs.get("read_path")
+    path = read_path if read_path is not None else read_kwargs["hash_path"]
     match path:
         case list() | tuple() if len(path) == 1:
             tpls = (("path", str(path[0])),)
@@ -55,38 +66,7 @@ def snapshot_normalize_read(read):
     tpls += tuple(
         (k, v) for k, v in read.read_kwargs if k in ("mode", "schema", "temporary")
     )
-    return normalize_seq_with_caller(
-        read.schema,
-        tpls,
-        caller="snapshot_normalize_read",
-    )
-
-
-# Tracks whether the caller is inside SnapshotStrategy.normalization_context.
-# _rename_remote_table calls dask.base.tokenize, which depends on the patched
-# normalizers that context installs; calling it outside would cache a wrong
-# RemoteTable name forever (cached_replace_remote_table is process-global).
-_in_normalization_context: contextvars.ContextVar[bool] = contextvars.ContextVar(
-    "xorq_snapshot_in_normalization_context", default=False
-)
-
-
-def _rename_remote_table(node, kwargs):
-    if isinstance(node, RemoteTable):
-        if not _in_normalization_context.get():
-            raise RuntimeError(
-                "_rename_remote_table called outside SnapshotStrategy.normalization_context"
-            )
-        name = dask.base.tokenize(node)
-        return RemoteTable(
-            name=name,
-            schema=node.schema,
-            source=node.source,
-            remote_expr=node.remote_expr,
-            namespace=node.namespace,
-        )
-    # kwargs is None when no children were rewritten (graph.py convention)
-    return node.__recreate__(kwargs) if kwargs else node
+    return ("snapshot_normalize_read", read.schema, tpls)
 
 
 @frozen
@@ -100,7 +80,7 @@ class CacheStrategy:
     def calc_key(self, expr):
         pass
 
-    def __dask_tokenize__(self):
+    def __dasher_tokenize__(self):
         return (type(self).__name__, self.key_prefix)
 
 
@@ -112,71 +92,111 @@ class ModificationTimeStrategy(CacheStrategy):
 
 @frozen
 class SnapshotStrategy(CacheStrategy):
+    @with_caches
     def calc_key(self, expr: ir.Expr):
-        with self.normalization_context(expr):
-            replaced = self.replace_remote_table(expr)
-            tokenized = replaced.ls.tokenized
+        with self.normalization_context(expr) as local:
+            replaced = self._replace_remote_table(expr, local)
+            tokenized = local.tokenize(replaced)
             return self.key_prefix + "-".join(("snapshot", tokenized))
 
     @contextlib.contextmanager
     def normalization_context(self, expr):
-        # patch_normalize_op_caching memoizes normalize_op by (op, compiler).
-        # Without it, tokenizing depth-n pipeline expressions is O(2^n) because
-        # normalize_remote_table recursively tokenizes remote_expr and
-        # normalize_scalar_udf recursively tokenizes computed_kwargs_expr, both
-        # of which share sub-expressions that get re-tokenized without caching.
-        typs = map(type, expr.ls.backends)
-        token = _in_normalization_context.set(True)
-        try:
-            with patch_normalize_op_caching():
-                with patch_normalize_token(*typs, f=self.normalize_backend):
-                    with patch_normalize_token(
-                        ops.DatabaseTable,
-                        f=self.normalize_databasetable,
-                    ):
-                        with patch_normalize_token(
-                            Read,
-                            f=self.cached_normalize_read,
-                        ):
-                            yield
-        finally:
-            _in_normalization_context.reset(token)
+        """Yield a snapshot-flavored Hasher; callers tokenize through it.
 
-    def replace_remote_table(self, expr):
-        """replace remote table with deterministic name ***strictly for key calculation***"""
+        Replaces the previous dask-monkeypatching context manager: instead of
+        swapping global normalizers, we hand out a per-call hasher whose rules
+        override DatabaseTable/Read/backend normalization. The hasher is also
+        installed in ``_current_hasher`` so transitive tokenize calls inside
+        the opaque-placeholder replacer (``_parent_token``) propagate the
+        snapshot-flavored rules instead of falling back to the data-sensitive
+        global HASHER.  A per-call DT memo is installed alongside so repeated
+        visits of the same DT under deeply nested into_backend chains
+        normalize once.
+        """
+        from xorq.common.utils.dasher import _current_hasher  # noqa: PLC0415
+
+        local = self._build_hasher(expr)
+        hasher_token = _current_hasher.set(local)
+        memo_token = (
+            _snapshot_dt_normalize_memo.set({})
+            if _snapshot_dt_normalize_memo.get() is None
+            else None
+        )
+        try:
+            yield local
+        finally:
+            _current_hasher.reset(hasher_token)
+            if memo_token is not None:
+                _snapshot_dt_normalize_memo.reset(memo_token)
+
+    def _build_hasher(self, expr):
+        extra = [
+            (fqn(ibis.backends.BaseBackend), self.normalize_backend),
+            (fqn(ops.DatabaseTable), self.normalize_databasetable),
+            (fqn(Read), snapshot_normalize_read),
+            # Each concrete backend subclass on the expression also needs the
+            # snapshot backend rule registered against its concrete FQN, otherwise
+            # the MRO lookup picks the more-specific subclass and bypasses our
+            # override on BaseBackend.
+            *(
+                (fqn(type(backend)), self.normalize_backend)
+                for backend in expr.ls.backends
+            ),
+        ]
+        return snapshot_hasher(*extra)
+
+    def _replace_remote_table(self, expr, local_hasher):
         if expr.op().find(RemoteTable):
-            expr = self.cached_replace_remote_table(expr.op()).to_expr()
+
+            def rename(node, kwargs):
+                if isinstance(node, RemoteTable):
+                    return RemoteTable(
+                        name=local_hasher.tokenize(node),
+                        schema=node.schema,
+                        source=node.source,
+                        remote_expr=node.remote_expr,
+                        namespace=node.namespace,
+                    )
+                return node.__recreate__(kwargs) if kwargs else node
+
+            return expr.op().replace(rename).to_expr()
         return expr
 
     @staticmethod
-    @functools.cache
-    def cached_normalize_read(op):
-        # Wrapped function must be pure over `op` (no file I/O, no clock): the
-        # process-global cache assumes equal ops always produce equal results.
-        return snapshot_normalize_read(op)
-
-    @staticmethod
-    @functools.cache
-    def cached_replace_remote_table(op):
-        return op.replace(_rename_remote_table)
-
-    @staticmethod
     def normalize_backend(con):
+        # In-memory backends identified by name alone; remote backends
+        # delegate to HASHER.normalize which raises if unregistered.
         name = con.name
         if name in ("pandas", "duckdb", "datafusion", "xorq_datafusion"):
             return (name, None)
-        else:
-            return normalize_backend(con)
+        return HASHER.normalize(con)
 
     @staticmethod
     def normalize_databasetable(dt):
-        if isinstance(dt, RemoteTable):
-            # one alternative is to explicitly iterate over the fields name, schema, source, namespace
-            # but explicit is better than implicit, additionally the name is not a safe bet for caching
-            # RemoteTable
-            return normalize_remote_table(dt)
-        else:
-            keys = ["name", "schema", "source", "namespace"]
-            return dask.tokenize._normalize_seq_func(
-                (key, getattr(dt, key)) for key in keys
-            )
+        # DatabaseTable subclasses (Read, CachedNode, RemoteTable) need
+        # concrete-type dispatch here — dasher's MRO lookup would otherwise
+        # pick this broader DatabaseTable rule over them.
+        memo = _snapshot_dt_normalize_memo.get()
+        if memo is not None and dt in memo:
+            return memo[dt]
+        match dt:
+            case Read():
+                result = snapshot_normalize_read(dt)
+            case CachedNode():
+                result = normalize_cached_node(dt)
+            case RemoteTable():
+                result = normalize_remote_table(dt)
+            case _:
+                keys = ("name", "schema", "source", "namespace")
+                result = tuple((k, getattr(dt, k)) for k in keys)
+        if memo is not None:
+            memo[dt] = result
+        return result
+
+
+__all__ = [
+    "CacheStrategy",
+    "ModificationTimeStrategy",
+    "SnapshotStrategy",
+    "snapshot_normalize_read",
+]

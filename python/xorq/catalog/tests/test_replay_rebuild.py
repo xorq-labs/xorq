@@ -325,8 +325,7 @@ def test_rebuild_preserves_outer_builder_wrapping(tmpdir, saved_registry):
 
 
 def test_rebuild_pure_builder_without_catalog_refs(tmpdir, saved_registry):
-    import dask.base  # noqa: PLC0415
-
+    from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
     from xorq.expr.builders import TagHandler, register_tag_handler  # noqa: PLC0415
 
     register_tag_handler(
@@ -348,9 +347,7 @@ def test_rebuild_pure_builder_without_catalog_refs(tmpdir, saved_registry):
     new_pure = target.get_catalog_entry("pure", maybe_alias=True)
     src_entry = catalog.get_catalog_entry("pure", maybe_alias=True)
     # Same content hash: no catalog-tag rewrite should have run.
-    assert dask.base.tokenize(new_pure.lazy_expr) == dask.base.tokenize(
-        src_entry.lazy_expr
-    )
+    assert tokenize(new_pure.lazy_expr) == tokenize(src_entry.lazy_expr)
     assert new_pure.name == src_entry.name
 
 

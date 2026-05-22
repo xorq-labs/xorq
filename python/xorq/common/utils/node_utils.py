@@ -1,6 +1,5 @@
 import importlib
 
-import dask
 import toolz
 
 import xorq.expr.relations as rel
@@ -42,8 +41,8 @@ def compute_expr_hash(expr, strategy=None):
     if strategy is None:
         return expr.ls.tokenized
 
-    with strategy.normalization_context(expr):
-        return dask.base.tokenize(expr.ls.untagged)
+    with strategy.normalization_context(expr) as hasher:
+        return hasher.tokenize(expr.ls.untagged)
 
 
 @toolz.curry

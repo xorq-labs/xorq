@@ -1,6 +1,5 @@
 from operator import methodcaller
 
-import dask
 import pyarrow.parquet as pq
 import pytest
 
@@ -11,6 +10,7 @@ from xorq.caching import (
     SourceCache,
     SourceSnapshotCache,
 )
+from xorq.common.utils.dasher import tokenize
 from xorq.tests.util import assert_frame_equal
 
 
@@ -106,7 +106,7 @@ def test_can_outo_backend_and_tokenize(sqlite_con, astronauts_parquet_path):
         .into_backend(ddb, name="ddb_astronauts")
     )
 
-    assert dask.base.tokenize(expr) is not None
+    assert tokenize(expr) is not None
     assert not expr.execute().empty
 
 

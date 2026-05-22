@@ -1,4 +1,3 @@
-import dask
 import numpy as np
 import pytest
 
@@ -9,6 +8,7 @@ from xorq.caching import (
     SourceCache,
     SourceSnapshotCache,
 )
+from xorq.common.utils.dasher import tokenize
 from xorq.conftest import array_types_df
 from xorq.tests.util import assert_frame_equal, check_eq
 from xorq.vendor import ibis
@@ -165,5 +165,5 @@ def test_array_filter_cached(con, duckdb_con):
     )
     expr = uncached.cache(SourceCache.from_kwargs(source=con))
 
-    assert dask.base.tokenize(uncached)
+    assert tokenize(uncached)
     assert not expr.execute().empty

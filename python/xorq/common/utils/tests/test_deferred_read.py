@@ -2,7 +2,6 @@ import functools
 import itertools
 import pathlib
 
-import dask
 import pandas as pd
 import pytest
 from attr import (
@@ -18,6 +17,7 @@ import xorq.api as xo
 from xorq.caching import (
     ParquetCache,
 )
+from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.defer_utils import (
     deferred_read_csv,
     deferred_read_parquet,
@@ -55,8 +55,18 @@ class PinsResource:
     def path(self):
         return pathlib.Path(xo.options.pins.get_path(self.name))
 
+    @property
+    def method_name(self):
+        match self.suffix:
+            case ".parquet":
+                return "read_parquet"
+            case ".csv":
+                return "read_csv"
+            case _:
+                raise ValueError(f"unsupported suffix {self.suffix!r}")
+
     def get_underlying_method(self, con):
-        return getattr(con, self.deferred_reader.method_name)
+        return getattr(con, self.method_name)
 
     @property
     def deferred_reader(self):
@@ -339,7 +349,7 @@ def test_deferred_read_kwargs(pg):
         xo.examples.get_table_from_name(name, pg, mode=mode)
         for mode in ("create", "replace")
     )
-    hash0, hash1 = (dask.base.tokenize(expr) for expr in (read0, read1))
+    hash0, hash1 = (tokenize(expr) for expr in (read0, read1))
     assert hash0 != hash1
 
 
@@ -362,13 +372,15 @@ def test_deferred_read_csv_multiple_paths(csv_dir):
 
 @pytest.fixture(scope="function")
 def backend(request, con):
-    lookup = {
-        "duckdb": xo.duckdb.connect(),
-        "postgres": con,
-        "xorq_datafusion": xo.connect(),
-    }
-
-    return lookup.get(request.param, con)
+    match request.param:
+        case "duckdb":
+            return xo.duckdb.connect()
+        case "postgres":
+            return con
+        case "xorq_datafusion":
+            return xo.connect()
+        case _:
+            return con
 
 
 @pytest.mark.parametrize(

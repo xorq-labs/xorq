@@ -3,7 +3,6 @@
 from random import Random
 
 import cloudpickle
-import dask
 import numpy as np
 import pyarrow as pa
 import toolz
@@ -11,6 +10,7 @@ from attr import field, frozen
 from attr.validators import deep_iterable, instance_of
 
 import xorq.expr.datatypes as dt
+from xorq.common.utils.dasher import tokenize
 from xorq.expr.udf import pyarrow_udwf
 from xorq.vendor import ibis
 from xorq.vendor.ibis.expr.api import literal
@@ -51,7 +51,7 @@ def make_deterministic_sort_key(expr, random_seed=None):
     if random_seed is None:
         random_seed = 0
     random_str = str(Random(random_seed).getrandbits(256))
-    tmp_name = "_sort_" + dask.base.tokenize(random_str)[:8]
+    tmp_name = "_sort_" + tokenize(random_str)[:8]
     comb_key = literal(",").join(expr[col].cast("str") for col in expr.columns)
     return comb_key.concat(random_str).hash().name(tmp_name)
 

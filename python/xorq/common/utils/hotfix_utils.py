@@ -1,7 +1,8 @@
 import warnings
 
-import dask
 import toolz
+
+from xorq.common.utils.dasher import tokenize
 
 
 try:
@@ -19,7 +20,7 @@ from xorq.common.utils.logging_utils import get_logger
 logger = get_logger(__name__)
 
 
-none_tokenized = dask.base.tokenize(None)
+none_tokenized = tokenize(None)
 
 
 @toolz.curry
@@ -30,14 +31,14 @@ def hotfix(obj, attrname, target_tokenized, hotfix):
 @toolz.curry
 def maybe_hotfix(obj, attrname, target_tokenized, hotfix, definitely=False):
     to_hotfix = getattr(obj, attrname, None)
-    tokenized = dask.base.tokenize(to_hotfix)
+    tokenized = tokenize(to_hotfix)
     dct = {
         "obj.__name__": obj.__name__,
         "obj.__module__": obj.__module__,
         "attrname": attrname,
         "tokenized": tokenized,
         "target_tokenized": target_tokenized,
-        "hotfix_tokenized": dask.base.tokenize(hotfix),
+        "hotfix_tokenized": tokenize(hotfix),
     }
 
     if definitely or (tokenized == target_tokenized):

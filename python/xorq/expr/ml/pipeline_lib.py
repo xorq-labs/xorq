@@ -11,7 +11,6 @@ from attr.validators import (
     instance_of,
     optional,
 )
-from dask.utils import Dispatch
 from toolz import compose
 from toolz.curried import (
     excepts as cexcepts,
@@ -30,9 +29,10 @@ from xorq.common.utils.attr_utils import (
     convert_sorted_kwargs_tuple,
     validate_kwargs_tuple,
 )
-from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+from xorq.common.utils.dasher import (
     normalize_attrs,
 )
+from xorq.common.utils.dispatch import FQNDispatch
 from xorq.common.utils.func_utils import (
     return_constant,
 )
@@ -352,7 +352,7 @@ class Step:
         )
         return cls(typ=typ, name=name)
 
-    __dask_tokenize__ = normalize_attrs
+    __dasher_tokenize__ = normalize_attrs
 
 
 @frozen
@@ -1311,12 +1311,28 @@ def get_target_type(step_instance, step, expr, features, target):
     return expr[target].type()
 
 
-registry = Dispatch()
+def _raise_unregistered(instance, step, expr, features, target):
+    raise ValueError(f"Can't handle {instance.__class__.__name__}")
+
+
+_predict_return_type_dispatch = FQNDispatch(
+    (
+        ("sklearn.linear_model._base.LinearRegression", return_constant(dt.float)),
+        ("sklearn.linear_model._logistic.LogisticRegression", get_target_type),
+        ("sklearn.neighbors._classification.KNeighborsClassifier", get_target_type),
+        ("sklearn.ensemble._forest.RandomForestRegressor", return_constant(dt.float)),
+        ("sklearn.ensemble._forest.RandomForestClassifier", get_target_type),
+        ("sklearn.base.ClassifierMixin", get_target_type),
+        ("sklearn.base.RegressorMixin", return_constant(dt.float)),
+        ("sklearn.base.ClusterMixin", return_constant(dt.int64)),
+    ),
+    default=_raise_unregistered,
+)
 
 
 def get_predict_return_type(fitted_step):
     instance = fitted_step.step.instance
-    return getattr(instance, "return_type", None) or registry(
+    return getattr(instance, "return_type", None) or _predict_return_type_dispatch(
         instance,
         fitted_step.step,
         fitted_step.expr,
@@ -1325,45 +1341,8 @@ def get_predict_return_type(fitted_step):
     )
 
 
-@registry.register(object)
-def raise_on_unregistered(instance, step, expr, features, target):
-    raise ValueError(f"Can't handle {instance.__class__.__name__}")
-
-
-@registry.register_lazy("sklearn")
-def lazy_register_sklearn():
-    from sklearn.base import (  # noqa: PLC0415
-        ClassifierMixin,
-        ClusterMixin,
-        RegressorMixin,
-    )
-    from sklearn.ensemble import (  # noqa: PLC0415
-        RandomForestClassifier,
-        RandomForestRegressor,
-    )
-    from sklearn.linear_model import (  # noqa: PLC0415
-        LinearRegression,
-        LogisticRegression,
-    )
-    from sklearn.neighbors import (  # noqa: PLC0415
-        KNeighborsClassifier,
-    )
-
-    registry.register(LinearRegression, return_constant(dt.float))
-    registry.register(LogisticRegression, get_target_type)
-    registry.register(KNeighborsClassifier, get_target_type)
-    registry.register(ClassifierMixin, get_target_type)
-    registry.register(RandomForestRegressor, return_constant(dt.float))
-    registry.register(RandomForestClassifier, get_target_type)
-    registry.register(
-        RegressorMixin, return_constant(dt.float)
-    )  # General fallback for regressors
-    registry.register(
-        ClusterMixin, return_constant(dt.int64)
-    )  # Clustering predict returns integer labels
-
-
-get_predict_return_type.register = registry.register
+# Extension point for custom sklearn-compatible estimators.
+get_predict_return_type.register = _predict_return_type_dispatch.register
 
 
 def get_sklearn_pipeline_tags(expr):

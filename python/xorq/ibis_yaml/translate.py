@@ -9,7 +9,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import dask
 import toolz
 
 import xorq.expr.datatypes as dt
@@ -18,6 +17,7 @@ import xorq.vendor.ibis.expr.datashape as ds
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.operations.temporal as tm
 import xorq.vendor.ibis.expr.types as ir
+from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.common.utils.node_utils import update_read_kwargs
 from xorq.expr.operations import _MISSING, NamedScalarParameter
@@ -529,7 +529,7 @@ def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
 @translate_to_yaml.register(RemoteTable)
 @convert_to_node_ref
 def _remotetable_to_yaml(op: RemoteTable, context: TranslationContext) -> dict:
-    deterministic_name = dask.base.tokenize(op)
+    deterministic_name = tokenize(op)
     profile_name = op.source._profile.hash_name
     with context.remote_table_scope(op.name):
         remote_expr_yaml = context.translate_to_yaml(op.remote_expr)
@@ -600,7 +600,7 @@ def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
         rename_key = op
         if (outer := context.current_remote_table) is not None:
             rename_key = (op, outer)
-        table_name = f"{prefix}{dask.base.tokenize(rename_key)}"
+        table_name = f"{prefix}{tokenize(rename_key)}"
         read_kwargs = update_read_kwargs(read_kwargs, (("table_name", table_name),))
     return freeze(
         {

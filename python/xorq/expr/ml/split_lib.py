@@ -2,11 +2,11 @@ import operator
 from random import Random
 from typing import Iterable, Iterator, Tuple
 
-import dask
 import toolz
 
 import xorq.expr.selectors as s
 import xorq.vendor.ibis.expr.types as ir
+from xorq.common.utils.dasher import tokenize
 from xorq.vendor.ibis.common.selectors import (
     Selector,
 )
@@ -131,7 +131,7 @@ def calc_split_conditions(
 
     # Set the random seed if set, & Generate a random 256-bit key
     random_str = str(Random(random_seed).getrandbits(256))
-    tmp_name = "_" + dask.base.tokenize(random_str)
+    tmp_name = "_" + tokenize(random_str)
 
     comb_key = literal(",").join(
         table[col].cast("str") for col in table.select(unique_key).columns

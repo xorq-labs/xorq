@@ -5,13 +5,13 @@ from functools import singledispatch
 from itertools import count
 from typing import Any, Callable, Tuple
 
-import dask.base
 from attrs import evolve, field, frozen
 from attrs.validators import instance_of
 
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.graph_utils import (
     bfs,
     gen_children_of,
@@ -269,7 +269,7 @@ def build_tree(
         if gid in token_memo:
             return token_memo[gid]
         op = g.op
-        tok = dask.base.tokenize(
+        tok = tokenize(
             (
                 getattr(op, "name", None),
                 getattr(op, "schema", None),

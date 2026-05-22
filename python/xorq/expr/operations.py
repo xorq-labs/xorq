@@ -10,7 +10,7 @@ from xorq.vendor.ibis.expr.operations.generic import ScalarParameter
 
 
 class _MissingSentinel:
-    """Sentinel for 'no default provided'. Singleton with deterministic dask token."""
+    """Sentinel for 'no default provided'. Singleton with deterministic hash."""
 
     _instance = None
 
@@ -25,7 +25,7 @@ class _MissingSentinel:
     def __bool__(self):
         return False
 
-    def __dask_tokenize__(self):
+    def __dasher_tokenize__(self):
         return (type(self).__qualname__,)
 
 
@@ -71,3 +71,11 @@ class NamedScalarParameter(ScalarParameter):
     @property
     def name(self):
         return self.label
+
+    def __dasher_tokenize__(self):
+        return (
+            "normalize_named_scalar_parameter",
+            self.label,
+            self.dtype,
+            self.default,
+        )

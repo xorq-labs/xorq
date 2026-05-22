@@ -5,7 +5,6 @@ from abc import (
 )
 from typing import Callable
 
-import dask
 import pyarrow as pa
 import toolz
 
@@ -13,6 +12,7 @@ import xorq.expr.relations as rel
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.backends.xorq_datafusion import connect as xo_connect
 from xorq.common.utils import classproperty
+from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.func_utils import (
     return_constant,
 )
@@ -433,7 +433,7 @@ def make_udxf(
             "schema_in_condition": schema_in_condition,
             "calc_schema_out": calc_schema_out,
             "description": description or name,
-            "command": command or dask.base.tokenize(process_df),
+            "command": command or tokenize(process_df),
         },
     )
     return typ

@@ -2,7 +2,6 @@ import itertools
 import json
 from pathlib import Path
 
-import dask
 import toolz
 import yaml12
 from attr import evolve, field, frozen
@@ -198,8 +197,10 @@ class Profile:
 
     @property
     def hash_name(self):
-        dask_hash = dask.base.tokenize(toolz.dissoc(self.as_dict(), "idx"))
-        return f"{dask_hash}_{self.idx}"
+        from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
+
+        dasher_hash = tokenize(toolz.dissoc(self.as_dict(), "idx"))
+        return f"{dasher_hash}_{self.idx}"
 
     def get_con(self, lazy=False, **kwargs):
         """Create a connection using this profile's parameters.

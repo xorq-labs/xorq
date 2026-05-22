@@ -1,4 +1,3 @@
-import dask
 import pandas as pd
 import pytest
 import toolz
@@ -9,6 +8,7 @@ from xorq.caching import (
     SourceCache,
 )
 from xorq.caching.strategy import SnapshotStrategy
+from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.graph_utils import (
     walk_nodes,
 )
@@ -56,7 +56,7 @@ def make_exprs():
 def test_find_by_expr_hash(to_find_name):
     dct = make_exprs()
     (expr_cached, to_find) = (dct[k] for k in ("expr_cached", to_find_name))
-    to_find_hash = dask.base.tokenize(to_find)
+    to_find_hash = tokenize(to_find)
     typs = (type(to_find.op()),)
     result = find_by_expr_hash(expr_cached, to_find_hash, typs=typs)
     assert result
@@ -75,7 +75,7 @@ def test_find_by_expr_hash(to_find_name):
 def test_replace_by_expr_hash(to_replace_name):
     dct = make_exprs()
     (expr_cached, to_replace) = (dct[k] for k in ("expr_cached", to_replace_name))
-    to_replace_hash = dask.base.tokenize(to_replace)
+    to_replace_hash = tokenize(to_replace)
     typs = (type(to_replace.op()),)
     schema = to_replace.schema()
     replace_with = xo.memtable(
@@ -90,7 +90,7 @@ def test_replace_by_expr_hash(to_replace_name):
     found = walk_nodes(typs, expr_cached)
     assert found
 
-    to_replace_hash = dask.base.tokenize(to_replace)
+    to_replace_hash = tokenize(to_replace)
     replaced = replace_by_expr_hash(
         expr_cached, to_replace_hash, replace_with, typs=typs
     )
@@ -123,7 +123,7 @@ def test_unbind_expr_hash(to_replace_name):
     found = walk_nodes(typs, expr_cached)
     assert found
 
-    to_replace_hash = dask.base.tokenize(to_replace)
+    to_replace_hash = tokenize(to_replace)
     replaced = replace_by_expr_hash(
         expr_cached, to_replace_hash, replace_with, typs=typs
     )
@@ -150,9 +150,7 @@ def test_expr_to_unbound(expr_to_hash, tag_value):
 
     expr_cached = dct["expr_cached"]
     (to_replace_hash, to_replace_tag) = (
-        (dask.base.tokenize(dct[expr_to_hash]), None)
-        if expr_to_hash
-        else (None, tag_value)
+        (tokenize(dct[expr_to_hash]), None) if expr_to_hash else (None, tag_value)
     )
 
     unbound = expr_to_unbound(expr_cached, to_replace_hash, to_replace_tag, None)
@@ -176,8 +174,8 @@ def test_snapshot_hash_alignment_with_ibis_yaml(to_find_name):
 
     node = to_find.op()
     node_expr = node.to_expr()
-    with SnapshotStrategy().normalization_context(node_expr):
-        snapshot_hash = dask.base.tokenize(node_expr.ls.untagged)
+    with SnapshotStrategy().normalization_context(node_expr) as hasher:
+        snapshot_hash = hasher.tokenize(node_expr.ls.untagged)
 
     typs = (type(node),)
     found = find_by_expr_hash(

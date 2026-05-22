@@ -8,9 +8,17 @@ Bad:   "Fix catalog dependency issue"
 Delete all guidance comments (HTML comments like this one) before merging.
 -->
 
-- **Status:** Proposed | Accepted | Rejected | Deprecated | Superseded by ADR-NNNN
+- **Status:** Proposed | Accepted | Amended | Rejected | Deprecated | Superseded by ADR-NNNN
 - **Date:** YYYY-MM-DD <!-- when the decision was last updated -->
 - **Deciders:** <names>
+
+<!--
+Status guide:
+- Amended: the decision still holds, but implementation details changed.
+  Append a dated "## Amendment" section; do not alter the original text.
+- Superseded: the decision itself was reversed or replaced by a new ADR.
+  Mark this ADR "Superseded by ADR-NNNN" and write the new ADR.
+-->
 
 ## Context
 

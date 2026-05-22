@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import dask
 import numpy as np
 import pandas as pd
 import pytest
@@ -28,10 +27,6 @@ def saved_registry():
     _builders_mod._BUILTIN_KEYS = saved_keys
     _builders_mod._initialized = saved_init
 
-
-# ensure registration of numpy and pandas objects for tokenization purposes
-dask.base.normalize_token.dispatch(np.dtype)
-dask.base.normalize_token.dispatch(pd.DataFrame)
 
 array_types_df = pd.DataFrame(
     [
