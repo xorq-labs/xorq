@@ -1110,7 +1110,7 @@ def test_serve_penguins_template(tmpdir, tmp_path):
     assert returncode == 0, stderr
 
     if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
-        serve_hash = "fe355f5d27d398b55bf676a3de0f649d"  # RemoteTable (test split)
+        serve_hash = "13dbb957d2e2451358decb8af4034776"  # CachedNode (test split)
 
         serve_args = (
             "xorq",
