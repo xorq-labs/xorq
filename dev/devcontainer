@@ -62,6 +62,21 @@ else
     export DEV_WORKSPACE="$(cd "$DEV_WORKSPACE" && pwd)"
 fi
 
+# Auto-resolve to git root when workspace is a subdirectory of a checkout.
+# Mounting a subdirectory as the container workspace leaves /workspaces/src
+# without a .git entry, so git (and tools like Claude Code) can't find the
+# repo and fail with "not a git repository".
+if [ -d "$DEV_WORKSPACE" ]; then
+    _git_toplevel="$(git -C "$DEV_WORKSPACE" rev-parse --show-toplevel 2>/dev/null)" || {
+        echo "error: $DEV_WORKSPACE is not inside a git repository" >&2
+        exit 1
+    }
+    if [ "$DEV_WORKSPACE" != "$_git_toplevel" ]; then
+        echo "note: resolving workspace to git root: $_git_toplevel (was: $DEV_WORKSPACE)" >&2
+        export DEV_WORKSPACE="$_git_toplevel"
+    fi
+fi
+
 # PROJECT_NAME scopes container names and shared volumes — must be consistent
 # across worktrees, so always read from the main tree's project.env.
 _main_project_env="$DEV_MAIN_TREE/.devcontainer/project/project.env"
