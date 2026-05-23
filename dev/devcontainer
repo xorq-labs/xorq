@@ -62,6 +62,21 @@ else
     export DEV_WORKSPACE="$(cd "$DEV_WORKSPACE" && pwd)"
 fi
 
+# Auto-resolve to git root when workspace is a subdirectory of a checkout.
+# Mounting a subdirectory as the container workspace leaves /workspaces/src
+# without a .git entry, so git (and tools like Claude Code) can't find the
+# repo and fail with "not a git repository".
+if [ -d "$DEV_WORKSPACE" ]; then
+    _git_toplevel="$(git -C "$DEV_WORKSPACE" rev-parse --show-toplevel 2>/dev/null)" || {
+        echo "error: $DEV_WORKSPACE is not inside a git repository" >&2
+        exit 1
+    }
+    if [ "$DEV_WORKSPACE" != "$_git_toplevel" ]; then
+        echo "note: resolving workspace to git root: $_git_toplevel (was: $DEV_WORKSPACE)" >&2
+        export DEV_WORKSPACE="$_git_toplevel"
+    fi
+fi
+
 # PROJECT_NAME scopes container names and shared volumes — must be consistent
 # across worktrees, so always read from the main tree's project.env.
 _main_project_env="$DEV_MAIN_TREE/.devcontainer/project/project.env"
@@ -131,32 +146,81 @@ is_running() {
     dc ps --status running --format '{{.Service}}' 2>/dev/null | grep -q '^app$'
 }
 
-config_hash() {
+config_files() {
     local df="$DEV_MAIN_TREE/.devcontainer/Dockerfile"
     [ -f "$df" ] || { echo "error: $df not found" >&2; return 1; }
-    local files=(
-        "$df"
-        "$COMPOSE_FILE"
-        "$DEV_MAIN_TREE/.devcontainer/setup-claude.py"
-        "$DEV_MAIN_TREE/.devcontainer/audit-hook"
-        "$DEV_MAIN_TREE/.devcontainer/project/install-system.sh"
+    printf '%s\n' \
+        "$df" \
+        "$COMPOSE_FILE" \
+        "$DEV_MAIN_TREE/.devcontainer/setup-claude.py" \
+        "$DEV_MAIN_TREE/.devcontainer/audit-hook" \
+        "$DEV_MAIN_TREE/.devcontainer/project/install-system.sh" \
         "$DEV_MAIN_TREE/.devcontainer/project/setup-env.sh"
-    )
-    [ -f "$COMPOSE_OVERRIDE" ] && files+=("$COMPOSE_OVERRIDE")
+    [ -f "$COMPOSE_OVERRIDE" ] && printf '%s\n' "$COMPOSE_OVERRIDE"
     local hm
     for hm in \
         "$DEV_MAIN_TREE/.devcontainer/project/host-mounts.txt" \
         "$DEV_MAIN_TREE/.devcontainer/project/host-mounts.local.txt"; do
-        [ -f "$hm" ] && files+=("$hm")
+        [ -f "$hm" ] && printf '%s\n' "$hm"
     done
+}
+
+config_hash() {
+    local files
+    files="$(config_files)" || return 1
     {
-        cat "${files[@]}"
+        while IFS= read -r f; do
+            cat "$f"
+        done <<< "$files"
         # Build args interpolated into compose at build time are baked into
         # the image and don't show up in file-content hashing — include them
         # explicitly so a change forces rebuild. Anything else baked via env
         # interpolation must be added here.
         printf 'DEV_CONTAINER_WORKSPACE=%s\n' "$DEV_CONTAINER_WORKSPACE"
     } | sha256sum | cut -d' ' -f1
+}
+
+config_file_desc() {
+    case "$(basename "$1")" in
+        Dockerfile)            echo "base image, system packages" ;;
+        docker-compose.yml)    echo "volumes, ports, orchestration" ;;
+        compose.override.yml)  echo "project compose overrides" ;;
+        setup-claude.py)       echo "Claude Code permissions and settings" ;;
+        audit-hook)            echo "security audit hook" ;;
+        install-system.sh)     echo "system package installation" ;;
+        setup-env.sh)          echo "environment setup" ;;
+        host-mounts.txt)       echo "host directory mounts" ;;
+        host-mounts.local.txt) echo "local host mount overrides" ;;
+        *)                     echo "" ;;
+    esac
+}
+
+save_config_hashes() {
+    config_files | while IFS= read -r f; do
+        sha256sum "$f"
+    done > "/tmp/devcontainer-${DEV_CONTAINER_NAME}.file-hashes"
+}
+
+show_config_changes() {
+    local saved="/tmp/devcontainer-${DEV_CONTAINER_NAME}.file-hashes"
+    if [ ! -f "$saved" ]; then
+        echo "  (no baseline — cannot determine which files changed)"
+        return
+    fi
+    local files
+    files="$(config_files)" || return 1
+    while IFS= read -r f; do
+        local current_hash saved_hash desc
+        current_hash="$(sha256sum "$f" | cut -d' ' -f1)"
+        saved_hash="$(grep -F "  $f" "$saved" | head -1 | cut -d' ' -f1)"
+        desc="$(config_file_desc "$f")"
+        [ -n "$desc" ] && desc=" ($desc)"
+        if [ -z "$saved_hash" ]; then
+            printf '  + %s%s\n' "$(basename "$f")" "$desc"
+        elif [ "$current_hash" != "$saved_hash" ]; then
+            printf '  ~ %s%s\n' "$(basename "$f")" "$desc"
+        fi
+    done <<< "$files"
 }
 
 image_stale() {
@@ -174,6 +238,7 @@ image_stale() {
 tag_image() {
     docker tag "$(dc images -q app)" "${DEV_CONTAINER_NAME}:$(config_hash)" \
         || echo "warning: could not tag image — staleness check will re-trigger next run" >&2
+    save_config_hashes
 }
 
 require_tty() {
@@ -297,14 +362,27 @@ ensure_up() {
             tag_image
             setup
         elif image_stale; then
-            read -rp "Devcontainer config changed. Running container will be stopped. Continue? [y/N] " answer
-            if [[ "$answer" != [yY]* ]]; then
-                exit 0  # exits the subshell, not the script
-            fi
-            dc down
-            dc up --build -d
-            tag_image
-            setup
+            echo "Devcontainer config has changed since the container was built:"
+            show_config_changes
+            echo ""
+            echo "  r) Rebuild container to apply changes"
+            echo "  c) Continue with existing container"
+            echo "  q) Quit"
+            read -rp "Choice [r/c/q]: " answer
+            case "$answer" in
+                [rR]*)
+                    dc down
+                    dc up --build -d
+                    tag_image
+                    setup
+                    ;;
+                [qQ]*)
+                    exit 2
+                    ;;
+                *)
+                    echo "Continuing with existing container. Changes apply on next rebuild."
+                    ;;
+            esac
         fi
 
         setup_git
