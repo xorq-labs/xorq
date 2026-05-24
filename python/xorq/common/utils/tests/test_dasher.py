@@ -810,6 +810,9 @@ def test_recompute_fallback_encode_matches_dasher_core():
         42,
         -7,
         3.14,
+        float("nan"),
+        float("inf"),
+        float("-inf"),
         "",
         "hello",
         b"bytes",
@@ -819,3 +822,27 @@ def test_recompute_fallback_encode_matches_dasher_core():
     ]
     for obj in cases:
         assert _encode_fallback(obj) == _dasher_encode(obj), f"mismatch for {obj!r}"
+
+
+def test_expr_metadata_multi_path_read_slot_name(tmp_path):
+    """Read node with a tuple-valued read_path produces a comma-joined slot name."""
+    df = pd.DataFrame({"a": [1, 2, 3], "b": [1.0, 2.0, 3.0]})
+    path1 = tmp_path / "part1.csv"
+    path2 = tmp_path / "part2.csv"
+    df.to_csv(path1, index=False)
+    df.to_csv(path2, index=False)
+
+    read = _make_read(
+        (
+            ("hash_path", (str(path1), str(path2))),
+            ("read_path", (str(path1), str(path2))),
+        )
+    )
+    meta = expr_metadata(read.to_expr())
+
+    read_slots = [s for s in meta["slots"] if s["kind"] == "Read"]
+    assert len(read_slots) == 1
+    name = read_slots[0]["name"]
+    assert str(path1) in name
+    assert str(path2) in name
+    assert ", " in name
