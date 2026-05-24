@@ -1253,14 +1253,18 @@ def test_uv_run_cached_roundtrip(tmpdir):
         ("xorq", "init", "--path", str(path), "--template", "penguins")
     )
     assert returncode == 0, stderr
+    # Template's requirements.txt may be from a different uv version, causing sync failures
     path.joinpath("requirements.txt").unlink(missing_ok=True)
 
     (returncode, stdout, stderr) = subprocess_run(
         ("xorq", "uv", "build", str(path / "expr.py")), text=True
     )
     assert returncode == 0, stderr
+    # build_command prints the build directory path as the last line of stdout
     build_path = Path(stdout.strip().split("\n")[-1])
-    assert build_path.exists()
+    assert build_path.exists(), (
+        f"build_path not found: {build_path!r} (stdout={stdout!r})"
+    )
 
     output_path = tmpdir / "cached_output.parquet"
     cache_dir = tmpdir / "cache"

@@ -1764,5 +1764,9 @@ def serve_unbound(
             server, _ = xorq.expr.relations.flight_serve_unbound(
                 unbound_expr, make_server=make_server
             )
-            logger.info(f"Serving entry {entry!r} on {flight_url.to_location()}")
-            server.wait()
+            span.add_event(
+                "server_started", {"flight_url": str(flight_url.to_location())}
+            )
+
+    logger.info(f"Serving entry {entry!r} on {flight_url.to_location()}")
+    server.wait()
