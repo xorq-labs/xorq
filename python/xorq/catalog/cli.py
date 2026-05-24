@@ -1768,5 +1768,6 @@ def serve_unbound(
                 "server_started", {"flight_url": str(flight_url.to_location())}
             )
 
+    # Span covers startup only; server.wait() runs outside to avoid a never-exported span.
     logger.info(f"Serving entry {entry!r} on {flight_url.to_location()}")
     server.wait()
