@@ -715,6 +715,42 @@ def test_expr_metadata_slot_hash_changes_on_file_edit(tmp_path):
     assert meta_before["slots"][0]["hash"] != meta_after["slots"][0]["hash"]
 
 
+def test_expr_metadata_structural_hash_changes_on_udf_edit():
+    """Changing a UDF's function body changes structural_hash but not slot hashes."""
+
+    def train(df):
+        return pickle.dumps({"trained": True})
+
+    def predict_v1(model, df):
+        return [0.0] * len(df)
+
+    def predict_v2(model, df):
+        return [1.0] * len(df)
+
+    def _build(predict_fn):
+        t = xo.memtable({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]})
+        schema = t[("a", "b")].schema()
+        model_udaf = agg.pandas_df(
+            fn=train, schema=schema, return_type=dt.binary, name="mymodel"
+        )
+        predict_udf = make_pandas_expr_udf(
+            computed_kwargs_expr=model_udaf.on_expr(t),
+            fn=predict_fn,
+            schema=schema,
+            return_type=dt.float64,
+            name="mypredict",
+        )
+        return predict_udf(t.a, t.b)
+
+    meta_v1 = expr_metadata(_build(predict_v1))
+    meta_v2 = expr_metadata(_build(predict_v2))
+
+    assert meta_v1["structural_hash"] != meta_v2["structural_hash"]
+    v1_slot_hashes = [s["hash"] for s in meta_v1["slots"]]
+    v2_slot_hashes = [s["hash"] for s in meta_v2["slots"]]
+    assert v1_slot_hashes == v2_slot_hashes
+
+
 def test_expr_metadata_schema_validation():
     """Returned metadata has the expected schema."""
     t = xo.memtable({"x": [1]})

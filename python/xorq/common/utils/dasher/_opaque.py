@@ -408,7 +408,7 @@ def _hash_expr_components(expr: Expr, op: Node) -> tuple[str, list[SlotDict]]:
         read_kwargs = dict(r.read_kwargs)
         name = read_kwargs.get("read_path") or read_kwargs.get("hash_path", "")
         if isinstance(name, (list, tuple)):
-            name = str(name[0]) if name else ""
+            name = ", ".join(str(p) for p in name) if name else ""
         return str(name)
 
     labeled = itertools.chain(
