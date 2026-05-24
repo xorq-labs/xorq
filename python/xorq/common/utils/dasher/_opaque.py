@@ -47,15 +47,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-if TYPE_CHECKING:
-    from xorq.vendor.ibis.common.collections import FrozenOrderedDict
-    from xorq.vendor.ibis.expr.operations.core import Node
-    from xorq.vendor.ibis.expr.schema import Schema
-    from xorq.vendor.ibis.expr.types.core import Expr
-
-logger = logging.getLogger(__name__)
-
-
 class _MissingSentinel:
     def __dasher_tokenize__(self):
         return ("_MISSING",)
@@ -406,7 +397,8 @@ def _hash_expr_components(expr: Expr, op: Node) -> tuple[str, list[SlotDict]]:
 
     def _read_name(r):
         read_kwargs = dict(r.read_kwargs)
-        name = read_kwargs.get("read_path") or read_kwargs.get("hash_path", "")
+        rp = read_kwargs.get("read_path")
+        name = rp if rp is not None else read_kwargs.get("hash_path", "")
         if isinstance(name, (list, tuple)):
             name = ", ".join(str(p) for p in name) if name else ""
         return str(name)
