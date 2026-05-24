@@ -976,7 +976,7 @@ def test_serve_unbound_hash(serve_hash, pipeline_https_build):
         "xorq",
         "serve-unbound",
         str(pipeline_https_build),
-        "--to_unbind_hash",
+        "--to-unbind-hash",
         serve_hash,
     ) + (("--typ", typ) if typ else ())
     with serve_process(serve_args) as (proc, peeker):
@@ -1011,7 +1011,7 @@ def test_serve_unbound_tag(serve_tag, pipeline_https_build):
         "xorq",
         "serve-unbound",
         str(pipeline_https_build),
-        "--to_unbind_tag",
+        "--to-unbind-tag",
         serve_tag,
     )
     with serve_process(serve_args) as (proc, peeker):
@@ -1036,7 +1036,7 @@ def test_serve_unbound_tag_get_exchange(pipeline_https_build, parquet_dir):
         "xorq",
         "serve-unbound",
         str(pipeline_https_build),
-        "--to_unbind_tag",
+        "--to-unbind-tag",
         serve_tag,
     )
     with serve_process(serve_args) as (proc, peeker):
@@ -1074,7 +1074,7 @@ def test_serve_unbound_tag_get_exchange_udf(fixture_dir, tmp_path):
         "xorq",
         "serve-unbound",
         str(output.getvalue().strip()),
-        "--to_unbind_tag",
+        "--to-unbind-tag",
         serve_tag,
     )
     with serve_process(serve_args) as (proc, peeker):
@@ -1128,7 +1128,7 @@ def test_serve_penguins_template(tmpdir, tmp_path):
             "xorq",
             "serve-unbound",
             str(target_dir / match.group()),
-            "--to_unbind_hash",
+            "--to-unbind-hash",
             serve_hash,
         )
         with serve_process(serve_args) as (proc, peeker):
@@ -1210,8 +1210,8 @@ def test_uv_run_unbound_help():
     result = CliRunner().invoke(cli, ["uv", "run-unbound", "--help"])
     assert result.exit_code == 0
     for flag in (
-        "--to_unbind_hash",
-        "--to_unbind_tag",
+        "--to-unbind-hash",
+        "--to-unbind-tag",
         "--typ",
         "--batch-size",
         "--instream",
@@ -1227,8 +1227,8 @@ def test_catalog_serve_unbound_help():
     result = CliRunner().invoke(catalog_cli, ["serve-unbound", "--help"])
     assert result.exit_code == 0
     for flag in (
-        "--to_unbind_hash",
-        "--to_unbind_tag",
+        "--to-unbind-hash",
+        "--to-unbind-tag",
         "--typ",
         "--host",
         "--port",
@@ -1250,7 +1250,7 @@ def test_uv_run_cached_roundtrip(tmpdir):
     tmpdir = Path(tmpdir)
     path = tmpdir / "xorq-template-penguins"
     (returncode, _, stderr) = subprocess_run(
-        ("xorq", "init", "--path", str(path), "--template", "penguins")
+        ("xorq", "init", "--path", str(path), "--template", "penguins"), text=True
     )
     assert returncode == 0, stderr
     # Template's requirements.txt may be from a different uv version, causing sync failures
@@ -1285,7 +1285,28 @@ def test_uv_run_cached_roundtrip(tmpdir):
     )
     assert returncode == 0, stderr
     assert output_path.exists()
-    assert output_path.stat().st_size > 0
+    first_size = output_path.stat().st_size
+    assert first_size > 0
+
+    output_path_2 = tmpdir / "cached_output_2.parquet"
+    (returncode, _, stderr) = subprocess_run(
+        (
+            "xorq",
+            "uv",
+            "run-cached",
+            str(build_path),
+            "--cache-type",
+            "modification-time",
+            "--output-path",
+            str(output_path_2),
+            "--cache-dir",
+            str(cache_dir),
+        ),
+        text=True,
+    )
+    assert returncode == 0, stderr
+    assert output_path_2.exists()
+    assert output_path_2.stat().st_size == first_size
 
 
 def test_batch_size_forwarded_to_pyarrow_stream(monkeypatch):
@@ -1400,7 +1421,7 @@ def test_cache_strategy_options_decorator():
 def test_unbind_options_decorator():
     cmd = _make_test_command(unbind_options)
     result = CliRunner().invoke(
-        cmd, ["--to_unbind_hash", "abc", "--to_unbind_tag", "v1", "--typ", "int"]
+        cmd, ["--to-unbind-hash", "abc", "--to-unbind-tag", "v1", "--typ", "int"]
     )
     assert result.exit_code == 0
     assert "to_unbind_hash=abc" in result.output
