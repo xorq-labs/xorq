@@ -1418,7 +1418,7 @@ def test_uv_run_unbound_roundtrip_file(uv_unbound_build, tmp_path):
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
 )
-def test_uv_run_unbound_stdin_inherits_fd(uv_unbound_build, tmp_path):
+def test_uv_run_unbound_roundtrip_popen(uv_unbound_build, tmp_path):
     ipc_data = _make_penguins_ipc_bytes()
     output_path = tmp_path / "fd_output.parquet"
 
@@ -1443,7 +1443,9 @@ def test_uv_run_unbound_stdin_inherits_fd(uv_unbound_build, tmp_path):
     assert proc.returncode == 0, stderr.decode()
     assert output_path.exists()
     table = pq.read_table(output_path)
-    assert len(table) > 0
+    assert len(table) == 2
+    assert set(table.column_names) == {"species", "island", "bill_length_mm"}
+    assert all(v.as_py() == "Adelie" for v in table.column("species"))
 
 
 def test_batch_size_forwarded_to_pyarrow_stream(monkeypatch):

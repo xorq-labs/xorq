@@ -2,6 +2,7 @@ import xorq.api as xo
 from xorq.common.utils.defer_utils import deferred_read_parquet
 
 
+# Pinned snapshot in the public letsql-pins bucket; not expected to be deleted or reorganized.
 data_url = "https://storage.googleapis.com/letsql-pins/penguins/20250703T145709Z-c3cde/penguins.parquet"
 
 con = xo.duckdb.connect()
