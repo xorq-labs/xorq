@@ -139,7 +139,7 @@ def test_read_record_batches_schema_mismatch_raises():
     con = xo.connect()
     first = pa.record_batch({"a": [1, 2], "b": [3, 4]})
     second = pa.record_batch({"a": [5]})  # missing column "b"
-    with pytest.raises(ValueError, match="batch missing columns required by schema"):
+    with pytest.raises(ValueError, match="batch schema mismatch"):
         con.read_record_batches([first, second]).execute()
 
 
@@ -148,7 +148,7 @@ def test_read_record_batches_extra_columns_raises():
     con = xo.connect()
     first = pa.record_batch({"a": [1, 2], "b": [3, 4]})
     second = pa.record_batch({"a": [5], "b": [6], "extra": [7]})
-    with pytest.raises(ValueError, match="batch has columns not in schema"):
+    with pytest.raises(ValueError, match="batch schema mismatch"):
         con.read_record_batches([first, second]).execute()
 
 

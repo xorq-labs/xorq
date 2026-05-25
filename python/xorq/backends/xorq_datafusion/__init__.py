@@ -58,12 +58,9 @@ from xorq.vendor.ibis.util import gen_name, normalize_filename, normalize_filena
 
 
 def _select_and_cast(batch: pa.RecordBatch, schema: pa.Schema) -> pa.RecordBatch:
-    missing = set(schema.names) - set(batch.schema.names)
-    if missing:
-        raise ValueError(f"batch missing columns required by schema: {sorted(missing)}")
-    extra = set(batch.schema.names) - set(schema.names)
-    if extra:
-        raise ValueError(f"batch has columns not in schema: {sorted(extra)}")
+    mismatch = set(schema.names).symmetric_difference(batch.schema.names)
+    if mismatch:
+        raise ValueError(f"batch schema mismatch: {sorted(mismatch)}")
     return batch.select(schema.names).cast(schema)
 
 
