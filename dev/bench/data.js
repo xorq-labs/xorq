@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779707516855,
+  "lastUpdate": 1779719679764,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -14397,6 +14397,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.007403025744667601",
             "extra": "mean: 31.061869647059584 msec\nrounds: 34"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f46446bdda87cb62120b1452b1c35de78f51927d",
+          "message": "fix(datafusion): tolerate extra columns in read_record_batches (#1995)\n\nSymmetric-difference check rejected batches with columns not in the\ntarget schema, breaking callers that pass wider record batches (e.g.\nfeature pipelines that include audit/debug columns). Extra columns are\nnow silently dropped with a warning; only genuinely missing columns\nraise ValueError.\n\nDirect unit tests for _select_and_cast added alongside integration\ntests because DataFusion consumes the RecordBatchReader via the Arrow\nC Stream Interface on Rust threads, where sys.settrace is never\ninstalled, so coverage.py cannot trace the generator body.",
+          "timestamp": "2026-05-25T16:31:01+02:00",
+          "tree_id": "60b8d87a2b969a4cb343e74d9b94f138aad7fe7d",
+          "url": "https://github.com/xorq-labs/xorq/commit/f46446bdda87cb62120b1452b1c35de78f51927d"
+        },
+        "date": 1779719677031,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.569674961712273,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004313859305963725",
+            "extra": "mean: 104.49675710000008 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.2830136720525056,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07398298422356374",
+            "extra": "mean: 438.01752579999516 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6202255186874995,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2252328386775371",
+            "extra": "mean: 1.6123167620000003 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.8739322032070205,
+            "unit": "iter/sec",
+            "range": "stddev: 0.026990416059947245",
+            "extra": "mean: 347.95532020000337 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.7753166408572634,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030573244031500656",
+            "extra": "mean: 360.31924619999813 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.7883189945004903,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05237932587896567",
+            "extra": "mean: 358.63902300000063 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 162.28786965016644,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014657277548721126",
+            "extra": "mean: 6.161889993106914 msec\nrounds: 290"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 6.364021447680979,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07068226533188372",
+            "extra": "mean: 157.13334850001104 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 32.08175946571565,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007083404433323431",
+            "extra": "mean: 31.170360249993628 msec\nrounds: 28"
           }
         ]
       }
