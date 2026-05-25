@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,14 +16,14 @@ from xorq.init_templates import (
 )
 
 
-def _mock_distribution(direct_url, version="0.3.25"):
+def _mock_distribution(direct_url: dict | None, version: str = "0.3.25") -> MagicMock:
     dist = MagicMock()
     dist.version = version
     dist.read_text.return_value = None if direct_url is None else json.dumps(direct_url)
     return dist
 
 
-def test_resolve_xorq_spec_pypi():
+def test_resolve_xorq_spec_pypi() -> None:
     with patch(
         "xorq.init_templates.distribution",
         return_value=_mock_distribution(None, version="0.3.25"),
@@ -31,7 +32,7 @@ def test_resolve_xorq_spec_pypi():
         assert resolve_xorq_spec(extras="[duckdb]") == "xorq[duckdb] == 0.3.25"
 
 
-def test_resolve_xorq_spec_editable():
+def test_resolve_xorq_spec_editable() -> None:
     direct_url = {
         "url": "file:///workspace/xorq",
         "dir_info": {"editable": True},
@@ -44,7 +45,7 @@ def test_resolve_xorq_spec_editable():
         assert spec == "xorq[duckdb] @ file:///workspace/xorq"
 
 
-def test_resolve_xorq_spec_local_dir_non_editable():
+def test_resolve_xorq_spec_local_dir_non_editable() -> None:
     direct_url = {
         "url": "file:///workspace/xorq",
         "dir_info": {},
@@ -56,7 +57,7 @@ def test_resolve_xorq_spec_local_dir_non_editable():
         assert resolve_xorq_spec() == "xorq @ file:///workspace/xorq"
 
 
-def test_resolve_xorq_spec_archive():
+def test_resolve_xorq_spec_archive() -> None:
     direct_url = {
         "url": "https://files.pythonhosted.org/.../xorq-0.3.25.tar.gz",
         "archive_info": {"hash": "sha256=abc"},
@@ -69,7 +70,7 @@ def test_resolve_xorq_spec_archive():
         assert spec == "xorq @ https://files.pythonhosted.org/.../xorq-0.3.25.tar.gz"
 
 
-def test_resolve_xorq_spec_vcs():
+def test_resolve_xorq_spec_vcs() -> None:
     direct_url = {
         "url": "https://github.com/xorq-labs/xorq",
         "vcs_info": {"vcs": "git", "commit_id": "abc123"},
@@ -82,7 +83,7 @@ def test_resolve_xorq_spec_vcs():
         assert spec == "xorq[duckdb] @ git+https://github.com/xorq-labs/xorq@abc123"
 
 
-def test_resolve_xorq_spec_unknown_shape_raises():
+def test_resolve_xorq_spec_unknown_shape_raises() -> None:
     direct_url = {"url": "weird://", "mystery_info": {}}
     with patch(
         "xorq.init_templates.distribution",
@@ -92,14 +93,14 @@ def test_resolve_xorq_spec_unknown_shape_raises():
             resolve_xorq_spec()
 
 
-def test_resolve_xorq_spec_override_verbatim():
+def test_resolve_xorq_spec_override_verbatim() -> None:
     # No mocking; override short-circuits any detection.
     override = "xorq[duckdb] @ git+https://github.com/xorq-labs/xorq@main"
     assert resolve_xorq_spec(override=override) == override
 
 
 @pytest.fixture
-def latest_template(tmp_path):
+def latest_template(tmp_path: Path) -> Path:
     pyproject = tmp_path.joinpath("pyproject.toml")
     pyproject.write_text(
         """
@@ -120,18 +121,18 @@ xorq = { git = "https://github.com/xorq-labs/xorq" }
     return tmp_path
 
 
-def test_has_latest_placeholder_true(latest_template):
+def test_has_latest_placeholder_true(latest_template: Path) -> None:
     assert has_latest_placeholder(latest_template)
 
 
-def test_has_latest_placeholder_false(tmp_path):
+def test_has_latest_placeholder_false(tmp_path: Path) -> None:
     tmp_path.joinpath("pyproject.toml").write_text(
         '[project]\nname="x"\nversion="0.0.1"\ndependencies = ["xorq == 0.1.0"]\n'
     )
     assert not has_latest_placeholder(tmp_path)
 
 
-def test_rewrite_template_xorq_dep(latest_template):
+def test_rewrite_template_xorq_dep(latest_template: Path) -> None:
     spec = "xorq[duckdb] == 0.3.25"
     rewrite_template_xorq_dep(latest_template, spec)
 
@@ -144,7 +145,7 @@ def test_rewrite_template_xorq_dep(latest_template):
     assert not latest_template.joinpath("requirements.txt").exists()
 
 
-def test_rewrite_template_xorq_dep_no_match_raises(tmp_path):
+def test_rewrite_template_xorq_dep_no_match_raises(tmp_path: Path) -> None:
     tmp_path.joinpath("pyproject.toml").write_text(
         '[project]\nname="x"\nversion="0.0.1"\ndependencies = ["xorq == 0.1.0"]\n'
     )
@@ -152,11 +153,13 @@ def test_rewrite_template_xorq_dep_no_match_raises(tmp_path):
         rewrite_template_xorq_dep(tmp_path, "xorq == 0.3.25")
 
 
-def test_init_command_old_template_fallback(tmp_path, capsys):
+def test_init_command_old_template_fallback(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     """Old-format templates (no `LATEST`) keep working with a warning."""
     target = tmp_path.joinpath("out")
 
-    def fake_download(path, template, branch=None):
+    def fake_download(path: str, template: str, branch: str | None = None) -> Path:
         target.mkdir()
         target.joinpath("pyproject.toml").write_text(
             '[project]\nname="x"\nversion="0.0.1"\ndependencies = ["xorq == 0.1.0"]\n'
@@ -174,11 +177,13 @@ def test_init_command_old_template_fallback(tmp_path, capsys):
     assert "does not contain `xorq @ LATEST`" in captured.err
 
 
-def test_init_command_latest_template_rewrites(tmp_path, capsys):
+def test_init_command_latest_template_rewrites(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     """LATEST templates get their dep rewritten and uv.lock generated."""
     target = tmp_path.joinpath("out")
 
-    def fake_download(path, template, branch=None):
+    def fake_download(path: str, template: str, branch: str | None = None) -> Path:
         target.mkdir()
         target.joinpath("pyproject.toml").write_text(
             '[project]\nname = "x"\nversion = "0.0.1"\n'

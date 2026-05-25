@@ -772,7 +772,7 @@ def init_command(
     return path
 
 
-def _extract_latest_extras(template_dir, latest_re):
+def _extract_latest_extras(template_dir: Path, latest_re) -> str:
     import tomlkit  # noqa: PLC0415
 
     pyproject = Path(template_dir).joinpath("pyproject.toml")
