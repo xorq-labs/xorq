@@ -816,7 +816,6 @@ def test_uv_build_with_project_path(tmpdir):
     )
     (returncode, stdout, stderr) = subprocess_run(init_args)
     assert returncode == 0, stderr
-    (path / "requirements.txt").unlink(missing_ok=True)
 
     # Move script outside the project dir so upward search would fail
     script_path = tmpdir / "expr.py"
@@ -845,7 +844,6 @@ def test_uv_build_no_all_extras(tmpdir):
     path = tmpdir.joinpath("xorq-template-default")
     (returncode, _, stderr) = subprocess_run(("xorq", "init", "--path", str(path)))
     assert returncode == 0, stderr
-    (path / "requirements.txt").unlink(missing_ok=True)
     build_args = (
         "xorq",
         "uv",
@@ -876,7 +874,6 @@ def test_uv_build_with_extra(tmpdir):
     data["project"]["optional-dependencies"] = {"testgroup": ["requests>=2"]}
     pyproject.write_text(tomlkit.dumps(data))
     subprocess_run(("uv", "lock", "--directory", str(path)))
-    (path / "requirements.txt").unlink(missing_ok=True)
     build_args = (
         "xorq",
         "uv",
@@ -1108,7 +1105,7 @@ def test_serve_penguins_template(tmpdir, tmp_path):
     assert returncode == 0, stderr
     assert path.exists()
     assert path.joinpath("pyproject.toml").exists()
-    assert path.joinpath("requirements.txt").exists()
+    assert not path.joinpath("requirements.txt").exists()
 
     target_dir = tmp_path / "build"
     build_args = [
@@ -1255,8 +1252,6 @@ def test_uv_run_cached_roundtrip(tmpdir):
         ("xorq", "init", "--path", str(path), "--template", "penguins")
     )
     assert returncode == 0, stderr
-    # Template's requirements.txt may be from a different uv version, causing sync failures
-    path.joinpath("requirements.txt").unlink(missing_ok=True)
 
     (returncode, stdout, stderr) = subprocess_run(
         ("xorq", "uv", "build", str(path / "expr.py")), text=True
@@ -1333,7 +1328,6 @@ def uv_unbound_build(tmp_path_factory, fixture_dir):
         ("xorq", "init", "--path", str(path), "--template", "penguins")
     )
     assert returncode == 0, stderr
-    path.joinpath("requirements.txt").unlink(missing_ok=True)
 
     shutil.copy2(fixture_dir / "pipeline_unbound.py", path / "expr.py")
 
