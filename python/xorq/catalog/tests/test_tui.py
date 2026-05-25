@@ -1303,6 +1303,15 @@ def test_render_sql_text_highlights_small_query():
     assert not text.plain.startswith("-- syntax highlighting disabled")
 
 
+def test_render_sql_text_disabled_at_exact_boundary():
+    # raw.count("\n") == max_lines triggers >= guard → highlighting disabled
+    with options.tui({"sql_highlight_max_lines": 3}):
+        at_boundary = "SELECT 1\nFROM t\nWHERE x = 1\n"
+        assert at_boundary.count("\n") == 3
+        text = _render_sql_text(at_boundary)
+        assert text.plain.startswith("-- syntax highlighting disabled")
+
+
 # ---------------------------------------------------------------------------
 # 15. _render_sql_dag: pure unit tests
 # ---------------------------------------------------------------------------
