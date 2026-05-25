@@ -846,3 +846,15 @@ def test_expr_metadata_multi_path_read_slot_name(tmp_path):
     assert str(path1) in name
     assert str(path2) in name
     assert ", " in name
+
+
+def test_expr_metadata_zero_slot_scalar():
+    """Pure scalar expr has no data leaves → slots == [], round-trip holds."""
+    expr = (xo.literal(1) + 2).name("x")
+    token = tokenize(expr)
+    meta = expr_metadata(expr)
+
+    assert meta["version"] == 3
+    assert meta["slots"] == []
+    assert isinstance(meta["structural_hash"], str)
+    assert compute_expr_token(meta["structural_hash"], ()) == token
