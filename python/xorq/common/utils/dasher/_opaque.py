@@ -25,15 +25,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-if TYPE_CHECKING:
-    from xorq.vendor.ibis.common.collections import FrozenOrderedDict
-    from xorq.vendor.ibis.expr.operations.core import Node
-    from xorq.vendor.ibis.expr.schema import Schema
-    from xorq.vendor.ibis.expr.types.core import Expr
-
-logger = logging.getLogger(__name__)
-
-
 class _MissingSentinel:
     def __dasher_tokenize__(self):
         return ("_MISSING",)
