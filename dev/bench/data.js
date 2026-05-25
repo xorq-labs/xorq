@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779719679764,
+  "lastUpdate": 1779734016682,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -14484,6 +14484,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.007083404433323431",
             "extra": "mean: 31.170360249993628 msec\nrounds: 28"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bdd7300e25e91efaf99ab1dfa6fe5ca310a94372",
+          "message": "chore: remove in-repo devcontainer, point to xorq-labs/devcontainer (#1996)\n\n## Summary\n- Remove `.devcontainer/` and `dev/` directories — tooling now lives in\n[xorq-labs/devcontainer](https://github.com/xorq-labs/devcontainer)\n- Update CONTRIBUTING.md and `.envrcs/README.md` to describe cloning the\nexternal repo and adding it to PATH via `.envrc.user`\n- Remove stale CI path exclusions and `.gitignore.template` entries; add\n`.devcontainer/` ignore for local devcontainer use\n\n## Test plan\n- [x] Verify `new-worktree` / `setup-worktree` / `cleanup-worktree` work\nfrom PATH after cloning the external repo\n- [x] Verify devcontainer up/exec/down work from the external repo\n- [x] Confirm CI detect-changes workflow still filters correctly\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-25T14:29:46-04:00",
+          "tree_id": "2e6177afc5e5a48fe57a2a41d3d96b0e31d2ac34",
+          "url": "https://github.com/xorq-labs/xorq/commit/bdd7300e25e91efaf99ab1dfa6fe5ca310a94372"
+        },
+        "date": 1779734013544,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 6.96252397418539,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01575300570219166",
+            "extra": "mean: 143.6260763636364 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.660965275371717,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05337991793634043",
+            "extra": "mean: 375.80347600000437 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6033356818460305,
+            "unit": "iter/sec",
+            "range": "stddev: 0.20998549543117104",
+            "extra": "mean: 1.6574521118000063 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.2652398200721953,
+            "unit": "iter/sec",
+            "range": "stddev: 0.061017190942212855",
+            "extra": "mean: 441.45436219999397 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.226607475174805,
+            "unit": "iter/sec",
+            "range": "stddev: 0.061097143016638954",
+            "extra": "mean: 449.113735200001 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.2778838675360182,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05517478757271246",
+            "extra": "mean: 439.0039432000094 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 165.07750275372987,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012562240860817041",
+            "extra": "mean: 6.057760647687077 msec\nrounds: 281"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.322861626844266,
+            "unit": "iter/sec",
+            "range": "stddev: 0.048613497945512965",
+            "extra": "mean: 231.32824649999506 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 26.31817838945628,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011812581650738858",
+            "extra": "mean: 37.99655071874675 msec\nrounds: 32"
           }
         ]
       }
