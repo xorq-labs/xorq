@@ -162,4 +162,3 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: core
           fail_ci_if_error: false
-          verbose: true
