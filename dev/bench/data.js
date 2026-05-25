@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779694251880,
+  "lastUpdate": 1779700432936,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -14049,6 +14049,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.00833445835921776",
             "extra": "mean: 97.83093354542416 msec\nrounds: 11"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4ac7d63597adaf8004bf4de3dd393aec34d632d3",
+          "message": "style: cosmetic cleanups split out from dasher migration (#1991)\n\n## Summary\n\n- Add type annotations and module-level logger to dasher `_opaque.py`\n- Revert unrelated cosmetic changes from the dasher migration\n- Run pre-commit across affected files\n\n## Test plan\n\n- [x] No functional changes — style and annotation cleanups only\n- [x] Pre-commit checks pass\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>\nCo-authored-by: Daniel Mesejo <mesejoleon@gmail.com>",
+          "timestamp": "2026-05-25T11:10:08+02:00",
+          "tree_id": "3bcba8785f459d3928638ccf6ae81af7dcd8d11c",
+          "url": "https://github.com/xorq-labs/xorq/commit/4ac7d63597adaf8004bf4de3dd393aec34d632d3"
+        },
+        "date": 1779700430367,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.81992452197883,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007375461213163962",
+            "extra": "mean: 101.83377659999451 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.2313110263845166,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0406661696059738",
+            "extra": "mean: 448.1670139999892 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6112320744615961,
+            "unit": "iter/sec",
+            "range": "stddev: 0.25539472112508044",
+            "extra": "mean: 1.636039798599984 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.9029222916921387,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020479785930155682",
+            "extra": "mean: 344.48045780002303 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.979464627604634,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01708238842306341",
+            "extra": "mean: 335.63076760000286 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.9162579929645474,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03161643079543373",
+            "extra": "mean: 342.9051895999919 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 171.02789206404887,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008456708023237032",
+            "extra": "mean: 5.846999503598549 msec\nrounds: 278"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 6.049278630555184,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06104045537240753",
+            "extra": "mean: 165.30896675001117 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 29.964447811925904,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013771290732115337",
+            "extra": "mean: 33.372882633331834 msec\nrounds: 30"
           }
         ]
       }
