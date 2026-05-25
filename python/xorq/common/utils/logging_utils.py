@@ -122,8 +122,10 @@ if _log_level_str != "OFF":
             )
         )
         _xorq_logger.addHandler(_rfh)
-    except Exception:
-        pass
+    except Exception as e:
+        import warnings  # noqa: PLC0415
+
+        warnings.warn(f"xorq: file logging disabled: {e}", stacklevel=2)
 else:
     log_level = logging.CRITICAL
 
