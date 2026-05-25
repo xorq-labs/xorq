@@ -55,35 +55,33 @@ direnv allow
 
 ## Git worktrees
 
-### Quick start
-
-Check out an existing branch in a fully configured worktree:
+Worktree helpers (`new-worktree`, `setup-worktree`, `cleanup-worktree`) are provided by the [devcontainer repo](https://github.com/xorq-labs/devcontainer). Clone it as a sibling and add to PATH in `.envrc.user`:
 
 ```sh
-dev/new-worktree feat/my-feature
+git clone git@github.com:xorq-labs/devcontainer.git ../devcontainer
+# in .envrcs/.envrc.user:
+PATH_add $direnv_root/../devcontainer/dev
+```
+
+### Quick start
+
+```sh
+new-worktree feat/my-feature
 # creates ../xorq-feat-my-feature, copies envrc files, symlinks .gitignore, runs direnv allow
 ```
 
 ### Manual setup
 
-If you already have a worktree, run `setup-worktree` inside it:
-
 ```sh
 git worktree add ../xorq-pr-123 pr-123-branch
 cd ../xorq-pr-123
-dev/setup-worktree
+setup-worktree
 direnv allow
 ```
-
-### What the scripts do
-
-- **`new-worktree <branch>`** — checks out an existing branch into a sibling worktree at `../xorq-<branch>` (slashes become dashes), runs `setup-worktree`, then `direnv allow`. Prints the worktree path on stdout.
-- **`setup-worktree`** — propagates files from the main worktree according to `.devcontainer/project/worktree-copies.txt` (copied; globs allowed) and `.devcontainer/project/worktree-symlinks.txt` (symlinked). Defaults: copies `.envrc.secrets`, `.envrc.user`, and `.env.*` from `.envrcs/` plus `.devcontainer/project/project.env`; symlinks `ci/ibis-testing-data`. Always symlinks `.claude` (devcontainer audit logs and session captures aggregate in the main checkout) and always copies `.gitignore` (git opens it with `O_NOFOLLOW`, so a symlink would `ELOOP`). Writes all created files to `.envrcs/.worktree-manifest`. Per-developer extras can be listed in the gitignored `.envrcs/.worktree-symlinks`.
-- **`cleanup-worktree`** — removes everything listed in `.envrcs/.worktree-manifest`, then runs `git worktree remove`.
 
 ### Clean removal
 
 ```sh
 cd ../xorq-feat-my-feature
-dev/cleanup-worktree
+cleanup-worktree
 ```

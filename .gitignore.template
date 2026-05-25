@@ -93,5 +93,4 @@ builds
 .envrc.secrets
 .envrcs/.worktree-symlinks
 .worktree-manifest
-.devcontainer/project/project.env
-.devcontainer/project/host-mounts.local.txt
+.devcontainer/
