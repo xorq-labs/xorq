@@ -735,14 +735,53 @@ def init_command(
     path="./xorq-template",
     template=InitTemplates.default,
     branch=None,
+    xorq_spec=None,
+    no_lock=False,
 ):
     from xorq.common.utils.download_utils import (  # noqa: PLC0415
         download_unpacked_xorq_template,
     )
+    from xorq.init_templates import (  # noqa: PLC0415
+        _LATEST_RE,
+        has_latest_placeholder,
+        resolve_xorq_spec,
+        rewrite_template_xorq_dep,
+        run_uv_lock,
+    )
 
     path = download_unpacked_xorq_template(path, template, branch=branch)
-    print(f"initialized xorq template `{template}` to {path}")
+
+    if not has_latest_placeholder(path):
+        click.echo(
+            f"warning: template `{template}` does not contain `xorq @ LATEST`; "
+            "skipping substitution and `uv lock`. Update the template to the "
+            "new placeholder format.",
+            err=True,
+        )
+        click.echo(f"initialized xorq template `{template}` to {path}")
+        return path
+
+    extras = _extract_latest_extras(path, _LATEST_RE)
+    spec = resolve_xorq_spec(override=xorq_spec, extras=extras)
+    rewrite_template_xorq_dep(path, spec)
+    if not no_lock:
+        run_uv_lock(path)
+    click.echo(
+        f"initialized xorq template `{template}` to {path} (xorq pinned to `{spec}`)"
+    )
     return path
+
+
+def _extract_latest_extras(template_dir, latest_re):
+    import tomlkit  # noqa: PLC0415
+
+    pyproject = Path(template_dir).joinpath("pyproject.toml")
+    data = tomlkit.loads(pyproject.read_text())
+    for entry in data.get("project", {}).get("dependencies", []):
+        m = latest_re.match(str(entry).strip())
+        if m:
+            return m.group("extras") or ""
+    return ""
 
 
 class PdbGroup(click.Group):
@@ -1138,9 +1177,24 @@ def serve_flight_udxf(build_path, host, port, duckdb_path, prometheus_port, cach
     default=None,
     help="Branch to use for the template.",
 )
-def init(path, template, branch):
+@click.option(
+    "--xorq-spec",
+    default=None,
+    help=(
+        "Full PEP 508 spec to pin xorq to (e.g. 'xorq[duckdb] == 0.3.25' or "
+        "'xorq @ git+https://github.com/xorq-labs/xorq@main'). Overrides "
+        "auto-detection of the running xorq install."
+    ),
+)
+@click.option(
+    "--no-lock",
+    is_flag=True,
+    default=False,
+    help="Skip running `uv lock` in the generated template directory.",
+)
+def init(path, template, branch, xorq_spec, no_lock):
     """Initialize a xorq project."""
-    init_command(path, template, branch)
+    init_command(path, template, branch, xorq_spec=xorq_spec, no_lock=no_lock)
 
 
 _COMPLETION_INSTALL_PATHS = {
