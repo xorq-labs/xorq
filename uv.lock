@@ -6039,6 +6039,7 @@ dev = [
     { name = "trino" },
     { name = "vendoring" },
     { name = "xgboost" },
+    { name = "xorq-style" },
 ]
 docs = [
     { name = "griffe" },
@@ -6148,6 +6149,7 @@ dev = [
     { name = "trino", specifier = "==0.336.0" },
     { name = "vendoring", specifier = ">=1.2.0" },
     { name = "xgboost", specifier = ">=1.6.1" },
+    { name = "xorq-style", specifier = "~=0.1.2" },
 ]
 docs = [
     { name = "griffe", specifier = "<2.0" },
@@ -6229,6 +6231,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/24/1b/369bfc6a3263ac5c9dbf21a344bda93c3211e3ccd89188550640282badf4/xorq_hash_cache-0.1.0.tar.gz", hash = "sha256:e45c5610b9553fa1a028193116c96154869f2f13dae32471d82b44ca1affcea6", size = 39525, upload-time = "2025-07-09T15:16:11.191Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c3/fb/cc5f7e92b8582cdf88a10b9172c87eb5b01bbd58f98dd4983dc8eac30e32/xorq_hash_cache-0.1.0-py3-none-any.whl", hash = "sha256:760b334b3003e4b96643192f8ddab843eab238e333ff53aecc177e6aaaa06672", size = 8463, upload-time = "2025-07-09T15:16:10.042Z" },
+]
+
+[[package]]
+name = "xorq-style"
+version = "0.1.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "click" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/72/42/9fd69c8b245d95a9c5e8f582e66311b72ccbe05a6f380967101614cd4826/xorq_style-0.1.2.tar.gz", hash = "sha256:4290c022c18bd6399785624e3a0d4bd8ecc3c618a2ebe049f2faff596f7d5fe7", size = 57853, upload-time = "2026-05-25T20:05:28.583Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/84/38/b0cd1b2d73444226a11e6c8deb54aa649a3fb979216170f2ab3b83354584/xorq_style-0.1.2-py3-none-any.whl", hash = "sha256:bc197a1d514cf902bb9b0424094cdd3e078200d8d6221606f5e928b3968e95ae", size = 8797, upload-time = "2026-05-25T20:05:29.689Z" },
 ]
 
 [[package]]
