@@ -25,7 +25,9 @@ from xorq.cli_options import (
     output_options,
     params_option,
     rename_params_option,
+    serve_options,
     sync_option,
+    unbind_options,
 )
 
 
@@ -1671,3 +1673,101 @@ def run_cached(
                     expr_transform=_wrap_cache,
                     cache_dir=resolved_cache_dir,
                 )
+
+
+@cli.command("serve-unbound")
+@click.argument("entry", shell_complete=_complete_entry_or_alias_names)
+@unbind_options
+@serve_options
+@code_option
+@fuse_option
+@rename_params_option
+@params_option
+@cache_dir_option
+@click.pass_context
+def serve_unbound(
+    ctx,
+    entry,
+    to_unbind_hash,
+    to_unbind_tag,
+    typ,
+    host,
+    port,
+    prometheus_port,
+    code,
+    fuse,
+    raw_rename_params,
+    raw_params,
+    cache_dir,
+):
+    """Resolve a catalog entry, unbind a node, and serve via Flight."""
+    from functools import partial  # noqa: PLC0415
+
+    import xorq.expr.relations  # noqa: PLC0415
+    import xorq.flight  # noqa: PLC0415
+    from xorq.caching.strategy import SnapshotStrategy  # noqa: PLC0415
+    from xorq.cli import _apply_cli_params, _get_cache_dir  # noqa: PLC0415
+    from xorq.common.utils.logging_utils import get_print_logger  # noqa: PLC0415
+    from xorq.common.utils.node_utils import expr_to_unbound  # noqa: PLC0415
+    from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
+
+    logger = get_print_logger()
+    cache_dir = _get_cache_dir(cache_dir)
+
+    with tracer.start_as_current_span("catalog.serve_unbound") as span:
+        span.set_attributes({"entry": entry, "has_code": code is not None})
+        with click_context_catalog(ctx):
+            catalog = ctx.obj.make_catalog(init=False)
+            catalog_entry = _get_catalog_entry(catalog, entry)
+
+            if not catalog_entry.is_content_local:
+                catalog_entry.fetch()
+
+            expr = catalog_entry.load_expr(cache_dir=cache_dir)
+
+            if code is not None:
+                from xorq.catalog.bind import _eval_code  # noqa: PLC0415
+
+                expr = _eval_code(code, expr)
+
+            rename_map = (
+                _parse_rename_params(raw_rename_params) if raw_rename_params else None
+            )
+            if rename_map and entry in rename_map:
+                from xorq.common.utils.graph_utils import rename_params  # noqa: PLC0415
+
+                expr = rename_params(expr, rename_map[entry])
+
+            expr = _apply_cli_params(expr, raw_params)
+
+            if fuse:
+                expr = expr.ls.fused
+
+            try:
+                from xorq.flight.metrics import setup_console_metrics  # noqa: PLC0415
+
+                setup_console_metrics(prometheus_port=prometheus_port)
+            except ImportError:
+                logger.warning(
+                    "Metrics support requires 'opentelemetry-sdk' and console exporter"
+                )
+
+            unbound_expr = expr_to_unbound(
+                expr,
+                hash=to_unbind_hash,
+                tag=to_unbind_tag,
+                typs=typ,
+                strategy=SnapshotStrategy(),
+            )
+            flight_url = xorq.flight.FlightUrl(host=host, port=port)
+            make_server = partial(xorq.flight.FlightServer, flight_url=flight_url)
+            server, _ = xorq.expr.relations.flight_serve_unbound(
+                unbound_expr, make_server=make_server
+            )
+            span.add_event(
+                "server_started", {"flight_url": str(flight_url.to_location())}
+            )
+
+    # Span covers startup only; server.wait() runs outside to avoid a never-exported span.
+    logger.info(f"Serving entry {entry!r} on {flight_url.to_location()}")
+    server.wait()

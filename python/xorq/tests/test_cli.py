@@ -18,6 +18,7 @@ from click.testing import CliRunner
 import xorq
 import xorq.api as xo
 from xorq.caching.strategy import SnapshotStrategy
+from xorq.catalog.cli import cli as catalog_cli
 from xorq.cli import (
     arbitrate_output_format,
     build_command,
@@ -1220,6 +1221,71 @@ def test_uv_run_unbound_help():
     ):
         assert flag in result.output, f"missing {flag}"
     assert "stdout" in result.output, "--output-path help text should mention stdout"
+
+
+def test_catalog_serve_unbound_help():
+    result = CliRunner().invoke(catalog_cli, ["serve-unbound", "--help"])
+    assert result.exit_code == 0
+    for flag in (
+        "--to_unbind_hash",
+        "--to_unbind_tag",
+        "--typ",
+        "--host",
+        "--port",
+        "--prometheus-port",
+        "--code",
+        "--fuse",
+        "--rename-params",
+        "--params",
+        "--cache-dir",
+    ):
+        assert flag in result.output, f"missing {flag}"
+
+
+@pytest.mark.slow(level=2)
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
+)
+def test_uv_run_cached_roundtrip(tmpdir):
+    tmpdir = Path(tmpdir)
+    path = tmpdir / "xorq-template-penguins"
+    (returncode, _, stderr) = subprocess_run(
+        ("xorq", "init", "--path", str(path), "--template", "penguins")
+    )
+    assert returncode == 0, stderr
+    # Template's requirements.txt may be from a different uv version, causing sync failures
+    path.joinpath("requirements.txt").unlink(missing_ok=True)
+
+    (returncode, stdout, stderr) = subprocess_run(
+        ("xorq", "uv", "build", str(path / "expr.py")), text=True
+    )
+    assert returncode == 0, stderr
+    # build_command prints the build directory path as the last line of stdout
+    build_path = Path(stdout.strip().split("\n")[-1])
+    assert build_path.exists(), (
+        f"build_path not found: {build_path!r} (stdout={stdout!r})"
+    )
+
+    output_path = tmpdir / "cached_output.parquet"
+    cache_dir = tmpdir / "cache"
+    (returncode, _, stderr) = subprocess_run(
+        (
+            "xorq",
+            "uv",
+            "run-cached",
+            str(build_path),
+            "--cache-type",
+            "modification-time",
+            "--output-path",
+            str(output_path),
+            "--cache-dir",
+            str(cache_dir),
+        ),
+        text=True,
+    )
+    assert returncode == 0, stderr
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0
 
 
 def test_batch_size_forwarded_to_pyarrow_stream(monkeypatch):
