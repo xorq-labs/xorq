@@ -44,11 +44,14 @@ class InitTemplates(StrEnum):
         return dict(templates_branches).get(template, default_branch)
 
 
-# NOTE: These are commit hashes from when the template update occurred
+# NOTE: These are commit hashes from when the template update occurred.
+# Currently pointing at the open draft PRs that switch each template to the
+# `xorq @ LATEST` placeholder scheme (see docs/plans/template_system_redesign.md).
+# Rotate to the merged-main SHA once those PRs land.
 templates_branches = (
-    (InitTemplates.cached_fetcher, "13696303173f138853cc77ae09f8e82a1e17afd4"),
-    (InitTemplates.sklearn, "a915733da8fe69408e3254aa51e539017e0ac92a"),
-    (InitTemplates.penguins, "034e12236e4935a62616253a7b096f7f29b92134"),
+    (InitTemplates.cached_fetcher, "963723a6fdcf66a034e1b9631cd0604a7ee6fdd2"),
+    (InitTemplates.sklearn, "c4bb98075c80c700d829c7986cb1876bd617c641"),
+    (InitTemplates.penguins, "f87520e7a8d9cf541f3d74c8947bb8954fb3142d"),
 )
 
 

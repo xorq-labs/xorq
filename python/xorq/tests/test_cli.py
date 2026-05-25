@@ -771,10 +771,10 @@ def test_init_uv_build_uv_run(template, tmpdir):
     assert returncode == 0, stderr
     assert path.exists()
     assert path.joinpath("pyproject.toml").exists()
-    assert path.joinpath("requirements.txt").exists()
-    # Remove pre-committed requirements.txt; the template's copy may have been
-    # exported with a different uv version than CI, causing a sync-check failure.
-    path.joinpath("requirements.txt").unlink()
+    # xorq init substitutes `xorq @ LATEST` and runs `uv lock` for us, so the
+    # template builds against the in-tree xorq with no extra plumbing.
+    assert path.joinpath("uv.lock").exists()
+    assert not path.joinpath("requirements.txt").exists()
 
     build_args = (
         "xorq",
