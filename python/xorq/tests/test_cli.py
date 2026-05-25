@@ -11,6 +11,8 @@ from unittest.mock import MagicMock, patch
 
 import click
 import pandas as pd
+import pyarrow as pa
+import pyarrow.ipc
 import pyarrow.parquet as pq
 import pytest
 from click.testing import CliRunner
@@ -1286,6 +1288,165 @@ def test_uv_run_cached_roundtrip(tmpdir):
     assert returncode == 0, stderr
     assert output_path.exists()
     assert output_path.stat().st_size > 0
+
+
+_PENGUINS_IPC_SCHEMA = pa.schema(
+    [
+        ("species", pa.string()),
+        ("island", pa.string()),
+        ("bill_length_mm", pa.float64()),
+        ("bill_depth_mm", pa.float64()),
+        ("flipper_length_mm", pa.float64()),
+        ("body_mass_g", pa.float64()),
+        ("sex", pa.string()),
+        ("year", pa.int64()),
+    ]
+)
+
+
+def _make_penguins_ipc_bytes():
+    batch = pa.record_batch(
+        [
+            pa.array(["Adelie", "Gentoo", "Adelie"]),
+            pa.array(["Torgersen", "Biscoe", "Dream"]),
+            pa.array([39.1, 46.1, 36.7]),
+            pa.array([18.7, 13.2, 19.3]),
+            pa.array([181.0, 211.0, 193.0]),
+            pa.array([3750.0, 5200.0, 3450.0]),
+            pa.array(["male", "female", "female"]),
+            pa.array([2007, 2007, 2007]),
+        ],
+        schema=_PENGUINS_IPC_SCHEMA,
+    )
+    buf = io.BytesIO()
+    writer = pa.ipc.new_stream(buf, _PENGUINS_IPC_SCHEMA)
+    writer.write_batch(batch)
+    writer.close()
+    return buf.getvalue()
+
+
+@pytest.fixture(scope="session")
+def uv_unbound_build(tmp_path_factory, fixture_dir):
+    tmpdir = tmp_path_factory.mktemp("uv-unbound")
+    path = tmpdir / "xorq-template-penguins"
+    (returncode, _, stderr) = subprocess_run(
+        ("xorq", "init", "--path", str(path), "--template", "penguins")
+    )
+    assert returncode == 0, stderr
+    path.joinpath("requirements.txt").unlink(missing_ok=True)
+
+    shutil.copy2(fixture_dir / "pipeline_unbound.py", path / "expr.py")
+
+    (returncode, stdout, stderr) = subprocess_run(
+        ("xorq", "uv", "build", str(path / "expr.py")), text=True
+    )
+    assert returncode == 0, stderr
+    build_path = Path(stdout.strip().split("\n")[-1])
+    assert build_path.exists()
+    return build_path
+
+
+@pytest.mark.slow(level=2)
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
+)
+def test_uv_run_unbound_roundtrip_stdin(uv_unbound_build, tmp_path):
+    ipc_data = _make_penguins_ipc_bytes()
+    output_path = tmp_path / "unbound_output.parquet"
+
+    (returncode, _, stderr) = subprocess_run(
+        (
+            "xorq",
+            "uv",
+            "run-unbound",
+            str(uv_unbound_build),
+            "--to_unbind_tag",
+            "source",
+            "--output-path",
+            str(output_path),
+            "--format",
+            "parquet",
+        ),
+        input=ipc_data,
+        timeout=120,
+    )
+    assert returncode == 0, stderr
+    assert output_path.exists()
+    table = pq.read_table(output_path)
+    assert len(table) == 2
+    assert set(table.column_names) == {"species", "island", "bill_length_mm"}
+    assert all(v.as_py() == "Adelie" for v in table.column("species"))
+
+
+@pytest.mark.slow(level=2)
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
+)
+def test_uv_run_unbound_roundtrip_file(uv_unbound_build, tmp_path):
+    ipc_data = _make_penguins_ipc_bytes()
+    ipc_path = tmp_path / "input.arrow"
+    ipc_path.write_bytes(ipc_data)
+
+    output_path = tmp_path / "unbound_output.parquet"
+
+    (returncode, _, stderr) = subprocess_run(
+        (
+            "xorq",
+            "uv",
+            "run-unbound",
+            str(uv_unbound_build),
+            "--to_unbind_tag",
+            "source",
+            "-i",
+            str(ipc_path),
+            "--output-path",
+            str(output_path),
+            "--format",
+            "parquet",
+        ),
+        text=True,
+        timeout=120,
+    )
+    assert returncode == 0, stderr
+    assert output_path.exists()
+    table = pq.read_table(output_path)
+    assert len(table) == 2
+    assert set(table.column_names) == {"species", "island", "bill_length_mm"}
+    assert all(v.as_py() == "Adelie" for v in table.column("species"))
+
+
+@pytest.mark.slow(level=2)
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
+)
+def test_uv_run_unbound_roundtrip_popen(uv_unbound_build, tmp_path):
+    ipc_data = _make_penguins_ipc_bytes()
+    output_path = tmp_path / "fd_output.parquet"
+
+    proc = _subprocess.Popen(
+        (
+            "xorq",
+            "uv",
+            "run-unbound",
+            str(uv_unbound_build),
+            "--to_unbind_tag",
+            "source",
+            "--output-path",
+            str(output_path),
+            "--format",
+            "parquet",
+        ),
+        stdin=_subprocess.PIPE,
+        stdout=_subprocess.PIPE,
+        stderr=_subprocess.PIPE,
+    )
+    stdout, stderr = proc.communicate(input=ipc_data, timeout=120)
+    assert proc.returncode == 0, stderr.decode()
+    assert output_path.exists()
+    table = pq.read_table(output_path)
+    assert len(table) == 2
+    assert set(table.column_names) == {"species", "island", "bill_length_mm"}
+    assert all(v.as_py() == "Adelie" for v in table.column("species"))
 
 
 def test_batch_size_forwarded_to_pyarrow_stream(monkeypatch):
