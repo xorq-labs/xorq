@@ -29,16 +29,19 @@ uv run pre-commit install
 
 ## Dev container
 
-As an alternative to setting up a local environment, you can use the dev container. It works with both the main checkout and git worktrees. See [`.devcontainer/README.md`](.devcontainer/README.md) for full usage, worktree setup, tab completion, and Claude isolation details.
-
-**Quick start** (Linux x86_64, requires Docker + bash + git + Python 3):
+Development tooling (devcontainer, worktree helpers) lives in a separate repository:
 
 ```bash
-devcontainer up      # start (builds on first run)
-devcontainer exec    # open a shell
-devcontainer claude  # run claude
-devcontainer down    # stop
+git clone git@github.com:xorq-labs/devcontainer.git ../devcontainer
 ```
+
+Add the tooling to your PATH in `.envrcs/.envrc.user`:
+
+```bash
+PATH_add $direnv_root/../devcontainer/dev
+```
+
+See the [devcontainer repo](https://github.com/xorq-labs/devcontainer) for full usage details.
 
 ## Running the test suite
 Install the [just](https://github.com/casey/just#installation) command runner, if needed.
