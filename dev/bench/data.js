@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779700432936,
+  "lastUpdate": 1779700600691,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -14136,6 +14136,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.013771290732115337",
             "extra": "mean: 33.372882633331834 msec\nrounds: 30"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c51d7d6b52bc5e9cd47e16b09ae5db72a1cfffeb",
+          "message": "fix(devcontainer): lock host worktrees to prevent container-side prune (#1974)\n\n## Summary\n- `git worktree add` inside a container runs an implicit prune that\ndestroys host-side worktree metadata (host paths are unreachable from\nthe container's mount namespace)\n- `dev/new-worktree` now locks each worktree immediately after creation;\n`dev/cleanup-worktree` unlocks before removal (re-locking if remove\nfails)\n- Adds a committable `post-checkout` hook (`dev/hooks/post-checkout`)\nthat auto-locks worktrees created via raw `git worktree add`, closing\nthe gap for agents or humans bypassing the scripts\n- Adds `install_hooks()` to `.devcontainer/lib/git.sh` — called from\n`dev/new-worktree` and `dev/devcontainer` to symlink the hook into\n`.git/hooks/`\n- `install_hooks()` unsets `core.hooksPath` before installing — tools\nlike Claude Code set this to a linked-worktree path where `.git` is a\nfile, breaking all hooks and causing `pre-commit install` to refuse\n- Removes the `GIT_CONFIG_COUNT` workaround from `setup-env.sh` (no\nlonger needed)\n- `cleanup-worktree` handles manifest entries that were replaced from\nsymlinks to directories (skips with warning instead of failing on `rm`),\nensuring `git worktree remove` always executes\n- `devcontainer clean` prompt now shows the container name\n- Adds `.claude/CLAUDE.md` with devcontainer safety instructions for\nClaude Code agents\n\n## Context\nDiscovered after a Claude Code sub-agent inside a devcontainer created a\nworktree on `integrate-xorq-dasher`, which auto-pruned the existing host\nworktree's metadata at\n`/home/dan/repos/github/xorq-integrate-xorq-dasher/` — orphaning the\ndirectory while the branch was re-checked-out in a container-only path.\n\nThe `core.hooksPath` issue was found when testing the post-checkout hook\ninside a container — Claude Code had set it to\n`/workspaces/src/.git/hooks`, but `/workspaces/src` is a linked worktree\nwhere `.git` is a file (not a directory), so the hooks directory didn't\nexist and no hooks fired.\n\n## Test plan\n- [x] Run `devcontainer up` with existing host worktrees — verify they\nget locked (`git worktree list` shows `locked`)\n- [x] Run `cleanup-worktree` from a locked worktree — verify it unlocks\nand removes cleanly\n- [x] Run `git worktree add` inside the container — verify the\npost-checkout hook auto-locks the new worktree (requires\n`core.hooksPath` to be unset)\n- [x] Run `cleanup-worktree` on a dirty worktree — verify it re-locks\nand exits 1\n- [x] Run `cleanup-worktree` when `.claude` symlink was replaced with a\ndirectory — verify it skips and `git worktree remove` succeeds\n- [x] Run `devcontainer clean` — verify prompt shows container name\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-25T11:12:45+02:00",
+          "tree_id": "a7722c0f8c8081ee7ebdd891faf554c01d1d47bc",
+          "url": "https://github.com/xorq-labs/xorq/commit/c51d7d6b52bc5e9cd47e16b09ae5db72a1cfffeb"
+        },
+        "date": 1779700598366,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.772791578186986,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008172282521910856",
+            "extra": "mean: 113.98880174999704 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.1101568212461186,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05074786275493812",
+            "extra": "mean: 473.8984278000089 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.530773115721405,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1468823345492637",
+            "extra": "mean: 1.8840441808000037 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.4064343804608073,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07108904700736349",
+            "extra": "mean: 415.55257359999587 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.6388754755582307,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01487721825842571",
+            "extra": "mean: 378.9492945999882 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.4782223927273668,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06022792083048069",
+            "extra": "mean: 403.51503680001315 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 164.68144566810054,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006458326009659392",
+            "extra": "mean: 6.072329496155887 msec\nrounds: 260"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 6.042186906984436,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08642372127171295",
+            "extra": "mean: 165.5029901249918 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 30.144725295052794,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0068134023971485064",
+            "extra": "mean: 33.1732994814889 msec\nrounds: 27"
           }
         ]
       }
