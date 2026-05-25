@@ -1,4 +1,4 @@
-name: ci-test-sklearn-template
+name: ci-test-templates
 
 on:
   pull_request:
@@ -14,11 +14,21 @@ jobs:
       contents: read
       pull-requests: read
 
-  sklearn-template:
+  template:
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    name: sklearn template end-to-end build
+    name: ${{ matrix.template }} template end-to-end build
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - template: sklearn
+            path: sklearn_template
+          - template: penguins
+            path: penguins_template
+          - template: cached-fetcher
+            path: cached_fetcher_template
     steps:
       - uses: actions/checkout@v6
 
@@ -34,8 +44,8 @@ jobs:
       - name: Install xorq
         run: uv sync --locked --extra duckdb
 
-      - name: Init sklearn template
-        run: uv run xorq init --path sklearn_template --template sklearn
+      - name: Init ${{ matrix.template }} template
+        run: uv run xorq init --path ${{ matrix.path }} --template ${{ matrix.template }}
 
       - name: Patch template to use checked-out xorq
         run: |
@@ -44,7 +54,8 @@ jobs:
           from pathlib import Path
 
           workspace = os.environ["GITHUB_WORKSPACE"]
-          p = Path("sklearn_template/pyproject.toml")
+          path = os.environ["TEMPLATE_PATH"]
+          p = Path(f"{path}/pyproject.toml")
           doc = tomlkit.parse(p.read_text())
 
           tool = doc.setdefault("tool", tomlkit.table())
@@ -57,9 +68,11 @@ jobs:
 
           p.write_text(tomlkit.dumps(doc))
           EOF
+        env:
+          TEMPLATE_PATH: ${{ matrix.path }}
 
       - name: Re-lock and export template requirements
-        working-directory: sklearn_template
+        working-directory: ${{ matrix.path }}
         run: |
           uv lock
           uv export \
@@ -69,15 +82,17 @@ jobs:
             --no-header \
             --no-annotate \
             --all-extras \
-            --python "<3.14,>=3.10" \
+            --python ">=3.10,<3.14" \
             > requirements.txt
 
-      - name: Build sklearn template
+      - name: Build ${{ matrix.template }} template
         id: uv-build
         run: |
-          build_path=$(uv run xorq uv build sklearn_template/expr.py | tail -1)
+          set -eo pipefail
+          build_path=$(uv run xorq uv build ${{ matrix.path }}/expr.py --builds-dir dist/template-builds | tail -n1)
+          [[ -d "$build_path" ]] || { echo "Build artifact not found: ${build_path}"; exit 1; }
           echo "build_path=${build_path}" >> "$GITHUB_OUTPUT"
           echo "Build written to: ${build_path}"
 
-      - name: Run sklearn template
+      - name: Run ${{ matrix.template }} template
         run: uv run xorq uv run "${{ steps.uv-build.outputs.build_path }}"

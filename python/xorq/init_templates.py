@@ -27,5 +27,5 @@ class InitTemplates(StrEnum):
 templates_branches = (
     (InitTemplates.cached_fetcher, "7d3a3419b271d7354afb114b7a84c56d38a75053"),
     (InitTemplates.sklearn, "f706aa1025a74e9153c28d168f70eb9a9a903847"),
-    (InitTemplates.penguins, "11fab90c37de8fba85b6ca108d2fe1aa1618d8b8"),
+    (InitTemplates.penguins, "aa091f4bbf024b613fec72fdadaba1d407ed1171"),
 )

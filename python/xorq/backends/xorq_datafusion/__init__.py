@@ -66,7 +66,7 @@ def _select_and_cast(batch: pa.RecordBatch, schema: pa.Schema) -> pa.RecordBatch
     if extra:
         warnings.warn(
             f"batch has extra columns not in schema, dropping: {sorted(extra)}",
-            stacklevel=2,
+            stacklevel=1,
         )
     return batch.select(schema.names).cast(schema)
 

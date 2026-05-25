@@ -14,7 +14,7 @@ def test_to_pyarrow_stream():
     """Test writing Arrow IPC stream to a buffer."""
     # Create test data
     table = pa.table({"a": [1, 2, 3], "b": [4, 5, 6]})
-    expr = xo.connect().read_record_batches(table.to_reader())
+    expr = xo.connect().read_record_batches(table)
     # Write to buffer
     buf = io.BytesIO()
     xo.to_pyarrow_stream(expr, sink=buf)
