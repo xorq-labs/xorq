@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779689076415,
+  "lastUpdate": 1779689638440,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -13875,6 +13875,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.028815235033744044",
             "extra": "mean: 100.86776112499152 msec\nrounds: 8"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dafb839be993a4063d059da9dbdcc4c26a4daa7d",
+          "message": "feat(catalog): serve-unbound command and uv run-cached test (#1987)\n\n## Summary\n\n- Add `xorq catalog serve-unbound` command (Phase 4 of CLI parity plan):\nresolves a catalog entry, applies compose options (`--fuse`, `--code`,\n`--rename-params`, `--params`), unbinds a specified node, and serves via\nFlight\n- Add OTel tracing span (`catalog.serve_unbound`) matching the pattern\nused by `catalog run` and `catalog run-cached`\n- Align `rename_map` sentinel to `None` (consistent with\n`_resolve_and_execute` and `_resolve_single_entry`)\n- Add help-text test for `catalog serve-unbound`\n- Add end-to-end roundtrip integration test for `xorq uv run-cached`\n\n> **Depends on:** #1962 (merged)\n\n## Test plan\n\n- [x] `test_catalog_serve_unbound_help` — verifies all expected flags in\n`--help`\n- [x] `test_uv_run_cached_roundtrip` — `xorq init` → `uv build` → `uv\nrun-cached --cache-type modification-time` → output file exists\n- [x] All existing help-text and decorator tests still pass\n- [x] Ruff lint and format clean\n- [ ] `uv run-unbound` roundtrip tests deferred to follow-up PR (needs\nunbound expression fixture)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-25T08:10:14+02:00",
+          "tree_id": "c18b3bbd76bf21020624cf3edae5996ef516ffab",
+          "url": "https://github.com/xorq-labs/xorq/commit/dafb839be993a4063d059da9dbdcc4c26a4daa7d"
+        },
+        "date": 1779689635995,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.489846888997475,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00468683841503193",
+            "extra": "mean: 95.330276083331 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.804256662848467,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04727034361349252",
+            "extra": "mean: 356.6007396000032 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6190846320246725,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18206367832402257",
+            "extra": "mean: 1.6152880369999991 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.594141430113875,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08060633342524778",
+            "extra": "mean: 385.48399420000123 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.360536609022443,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06643129022993718",
+            "extra": "mean: 423.63248939999494 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.418644931703093,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05643336706241838",
+            "extra": "mean: 413.4546525999781 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 200.67684956749244,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010141054400573925",
+            "extra": "mean: 4.983135833332264 msec\nrounds: 324"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.373178699586809,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07283626185303194",
+            "extra": "mean: 186.1095742222195 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 12.193925207828377,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004445264402858455",
+            "extra": "mean: 82.00804769230584 msec\nrounds: 13"
           }
         ]
       }
