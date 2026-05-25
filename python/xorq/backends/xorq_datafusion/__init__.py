@@ -3,8 +3,9 @@ from __future__ import annotations
 import contextlib
 import functools
 import inspect
+import itertools
 import typing
-from collections.abc import Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -56,7 +57,14 @@ from xorq.vendor.ibis.formats.pyarrow import PyArrowType
 from xorq.vendor.ibis.util import gen_name, normalize_filename, normalize_filenames
 
 
-def _compile_pyarrow_udwf(udwf_node):
+def _select_and_cast(batch: pa.RecordBatch, schema: pa.Schema) -> pa.RecordBatch:
+    mismatch = set(schema.names).symmetric_difference(batch.schema.names)
+    if mismatch:
+        raise ValueError(f"batch schema mismatch: {sorted(mismatch)}")
+    return batch.select(schema.names).cast(schema)
+
+
+def _compile_pyarrow_udwf(udwf_node) -> WindowUDF:
     def make_datafusion_udwf(
         input_types,
         return_type,
@@ -162,7 +170,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
     compiler = compiler
 
     @staticmethod
-    def _translate_sort(exprs: list[ir.Expr]):
+    def _translate_sort(exprs: list[ir.Expr]) -> list[Expr]:
         result = []
         for expr in exprs:
             if not isinstance(node := expr.op(), ops.SortKey):
@@ -176,7 +184,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         return result
 
     @property
-    def version(self):
+    def version(self) -> str:
         return xorq.__version__
 
     def do_connect(self, config: SessionConfig | None = None) -> None:
@@ -207,7 +215,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         pass
 
     @contextlib.contextmanager
-    def _safe_raw_sql(self, sql: sge.Statement) -> Any:
+    def _safe_raw_sql(self, sql: sge.Statement) -> Iterator[list[pa.RecordBatch]]:
         yield self.raw_sql(sql).collect()
 
     def _get_schema_using_query(self, query: str) -> sch.Schema:
@@ -241,7 +249,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             }
         )
 
-    def _register_builtin_udfs(self):
+    def _register_builtin_udfs(self) -> None:
         from xorq.backends.xorq_datafusion import udfs  # noqa: PLC0415
 
         for name, func in inspect.getmembers(
@@ -331,7 +339,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             name=udf_node.__func_name__,
         )
 
-    def raw_sql(self, query: str | sge.Expression) -> Any:
+    def raw_sql(self, query: str | sge.Expression) -> DataFrame:
         """Execute a SQL string `query` against the database."""
         with contextlib.suppress(AttributeError):
             query = query.sql(dialect=self.dialect, pretty=True)
@@ -534,7 +542,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         raw_sql = backend.compile(source.as_table(), **kwargs)
         return backend.con.sql(raw_sql)
 
-    def _register_path(self, path: str, table_name: str, **kwargs) -> ir.Table:
+    def _register_path(self, path: str, table_name: str, **kwargs: Any) -> ir.Table:
         if path.startswith(("parquet://", "parq://")) or path.endswith(
             ("parq", "parquet")
         ):
@@ -549,7 +557,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         self,
         source: ir.Table,
         table_name: str | None = None,
-    ):
+    ) -> ir.Table:
         table_name = table_name or gen_name("register_table_provider")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
         self.con.deregister_table(table_ident)
@@ -692,11 +700,93 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         return self.register(delta_table.to_pyarrow_dataset(), table_name=table_name)
 
-    def read_record_batches(self, source, table_name=None):
+    def read_record_batches(
+        self,
+        source: pa.Table | pa.RecordBatchReader | Iterable[pa.RecordBatch],
+        table_name: str | None = None,
+    ) -> ir.Table:
+        """Register Arrow data as a table in the current database.
+
+        Each batch is cast to the declared schema before being handed to
+        DataFusion. This prevents silent data corruption when physical Arrow
+        types differ from the declared schema (e.g. ``large_utf8`` batches
+        with a ``utf8`` schema), which would otherwise cause DataFusion to
+        misread 64-bit offsets as 32-bit across the C Data Interface boundary.
+
+        Parameters
+        ----------
+        source
+            The Arrow data to register. Accepts:
+
+            - ``pa.Table`` — converted to batches via ``to_batches()``.
+            - ``pa.RecordBatchReader`` — consumed directly; schema taken from
+              the reader.
+            - Any ``Iterable[pa.RecordBatch]`` (list, tuple, generator) —
+              schema inferred from the first batch.
+        table_name
+            Name for the registered table. Defaults to a sequentially
+            generated name.
+
+        Returns
+        -------
+        ir.Table
+            The just-registered table.
+
+        Raises
+        ------
+        TypeError
+            If ``source`` is not a ``pa.Table``, ``pa.RecordBatchReader``, or iterable.
+        ValueError
+            If ``source`` is an iterable with no rows (schema cannot be inferred),
+            or if a batch is missing columns required by the declared schema.
+            Cast errors from type incompatibilities are deferred: they surface
+            during ``.execute()``, not at this call site, because batches are
+            cast lazily as DataFusion consumes the reader.
+
+        Examples
+        --------
+        From a ``pa.Table``:
+
+        >>> import pyarrow as pa
+        >>> import xorq.api as xo
+        >>> t = xo.connect().read_record_batches(pa.table({"a": [1, 2, 3]}))
+
+        From a list of ``pa.RecordBatch``:
+
+        >>> batches = [pa.record_batch({"a": [1, 2]}), pa.record_batch({"a": [3]})]
+        >>> t = xo.connect().read_record_batches(batches)
+
+        """
         table_name = table_name or gen_name("read_record_batches")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
         self.con.deregister_table(table_ident)
-        self.con.register_record_batch_reader(table_ident, source.cast(source.schema))
+        if not isinstance(source, (pa.Table, pa.RecordBatchReader)) and (
+            isinstance(source, (str, bytes)) or not hasattr(source, "__iter__")
+        ):
+            raise TypeError(f"unsupported source type: {type(source).__name__}")
+        schema: pa.Schema
+        batches: Iterable[pa.RecordBatch]
+        match source:
+            case pa.Table():
+                schema = source.schema
+                batches = source.to_batches()
+            case pa.RecordBatchReader():
+                schema = source.schema
+                batches = source
+            case _:
+                it = iter(source)
+                try:
+                    first = next(it)
+                except StopIteration:
+                    raise ValueError("source has no rows") from None
+                schema = first.schema
+                batches = itertools.chain([first], it)
+        self.con.register_record_batch_reader(
+            table_ident,
+            pa.RecordBatchReader.from_batches(
+                schema, (_select_and_cast(batch, schema) for batch in batches)
+            ),
+        )
         return self.table(table_name)
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
@@ -725,7 +815,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         *,
         chunk_size: int = 1_000_000,
         **kwargs: Any,
-    ):
+    ) -> pa.ipc.RecordBatchReader:
         self._register_udfs(expr)
         self._register_in_memory_tables(expr)
         table_expr = expr.as_table()
@@ -761,7 +851,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         database: str | None = None,
         temp: bool = False,
         overwrite: bool = False,
-    ):
+    ) -> ir.Table:
         """Create a table in Datafusion.
 
         Parameters
@@ -869,15 +959,15 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 for batch in batch_reader:
                     writer.write_batch(batch)
 
-    def _extract_catalog(self, query):
+    def _extract_catalog(self, query: str) -> dict[str, ir.Table]:
         tables = parse_one(query).find_all(exp.Table)
         return {table.name: self.table(table.name) for table in tables}
 
-    def register_udwf(self, func: WindowUDF):
+    def register_udwf(self, func: WindowUDF) -> None:
         self.con.register_udwf(func)
 
 
-def connect(config: SessionConfig | None = None):
+def connect(config: SessionConfig | None = None) -> Backend:
     con = Backend()
     con.do_connect(config)
     return con
