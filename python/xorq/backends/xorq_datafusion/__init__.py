@@ -5,6 +5,7 @@ import functools
 import inspect
 import itertools
 import typing
+import warnings
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
@@ -58,9 +59,15 @@ from xorq.vendor.ibis.util import gen_name, normalize_filename, normalize_filena
 
 
 def _select_and_cast(batch: pa.RecordBatch, schema: pa.Schema) -> pa.RecordBatch:
-    mismatch = set(schema.names).symmetric_difference(batch.schema.names)
-    if mismatch:
-        raise ValueError(f"batch schema mismatch: {sorted(mismatch)}")
+    missing = set(schema.names) - set(batch.schema.names)
+    if missing:
+        raise ValueError(f"batch schema mismatch: {sorted(missing)}")
+    extra = set(batch.schema.names) - set(schema.names)
+    if extra:
+        warnings.warn(
+            f"batch has extra columns not in schema, dropping: {sorted(extra)}",
+            stacklevel=2,
+        )
     return batch.select(schema.names).cast(schema)
 
 
