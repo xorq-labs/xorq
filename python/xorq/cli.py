@@ -742,8 +742,8 @@ def init_command(
         download_unpacked_xorq_template,
     )
     from xorq.init_templates import (  # noqa: PLC0415
-        _LATEST_RE,
-        has_latest_placeholder,
+        InitTemplateError,
+        find_latest_dep,
         resolve_xorq_spec,
         rewrite_template_xorq_dep,
         run_uv_lock,
@@ -751,7 +751,8 @@ def init_command(
 
     path = download_unpacked_xorq_template(path, template, branch=branch)
 
-    if not has_latest_placeholder(path):
+    has_placeholder, extras = find_latest_dep(path)
+    if not has_placeholder:
         click.echo(
             f"warning: template `{template}` does not contain `xorq @ LATEST`; "
             "skipping substitution and `uv lock`. Update the template to the "
@@ -761,27 +762,18 @@ def init_command(
         click.echo(f"initialized xorq template `{template}` to {path}")
         return path
 
-    extras = _extract_latest_extras(path, _LATEST_RE)
-    spec = resolve_xorq_spec(override=xorq_spec, extras=extras)
-    rewrite_template_xorq_dep(path, spec)
-    if not no_lock:
-        run_uv_lock(path)
+    try:
+        spec = resolve_xorq_spec(override=xorq_spec, extras=extras)
+        rewrite_template_xorq_dep(path, spec)
+        if not no_lock:
+            run_uv_lock(path)
+    except InitTemplateError as e:
+        # Surface to the user as a clean Click error, not a Python traceback.
+        raise click.ClickException(str(e)) from e
     click.echo(
         f"initialized xorq template `{template}` to {path} (xorq pinned to `{spec}`)"
     )
     return path
-
-
-def _extract_latest_extras(template_dir: Path, latest_re) -> str:
-    import tomlkit  # noqa: PLC0415
-
-    pyproject = Path(template_dir).joinpath("pyproject.toml")
-    data = tomlkit.loads(pyproject.read_text())
-    for entry in data.get("project", {}).get("dependencies", []):
-        m = latest_re.match(str(entry).strip())
-        if m:
-            return m.group("extras") or ""
-    return ""
 
 
 class PdbGroup(click.Group):
@@ -1190,7 +1182,11 @@ def serve_flight_udxf(build_path, host, port, duckdb_path, prometheus_port, cach
     "--no-lock",
     is_flag=True,
     default=False,
-    help="Skip running `uv lock` in the generated template directory.",
+    help=(
+        "Skip running `uv lock` in the generated template directory. "
+        "You must run `uv lock` manually before `xorq uv build`, which "
+        "requires a lockfile."
+    ),
 )
 def init(path, template, branch, xorq_spec, no_lock):
     """Initialize a xorq project."""

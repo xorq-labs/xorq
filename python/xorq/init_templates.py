@@ -6,24 +6,22 @@ import subprocess
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 
-import tomlkit
 
-from xorq.common.exceptions import XorqError
-from xorq.common.utils import classproperty
-from xorq.common.utils.logging_utils import get_logger
-
+# `xorq.init_templates` is imported by `xorq.cli` on every CLI invocation,
+# including fast-path commands. The stdlib imports above are essentially free
+# (already loaded transitively via xorq.common); the heavy `tomlkit` import
+# (~15ms cold) is deferred inside the functions that need it.
 
 try:
     from enum import StrEnum
 except ImportError:
     from strenum import StrEnum
 
-
-logger = get_logger(__name__)
+from xorq.common.exceptions import XorqError
+from xorq.common.utils import classproperty
 
 
 default_branch = "main"
-LATEST_PLACEHOLDER = "LATEST"
 _LATEST_RE = re.compile(r"^xorq(?P<extras>\[[^\]]+\])?\s*@\s*LATEST$")
 
 
@@ -77,8 +75,9 @@ def resolve_xorq_spec(
 ) -> str:
     """Return a PEP 508 spec that pins xorq to the currently-running install.
 
-    The optional `extras` (e.g. `"[duckdb]"`) is preserved on the substituted
-    spec. `override`, if given, is returned verbatim — the user opts in.
+    The optional `extras` (e.g. ``"[duckdb]"``) is preserved on the
+    substituted spec. ``override``, if given, is returned verbatim — the user
+    opts in.
     """
     if override is not None:
         return override
@@ -87,19 +86,25 @@ def resolve_xorq_spec(
     extras_str = extras or ""
 
     if direct_url is None:
-        # PyPI release path: no direct_url.json
         return f"xorq{extras_str} == {version}"
 
     url = direct_url.get("url")
+    if url is None:
+        raise InitTemplateError(
+            f"direct_url.json for `{dist_name}` has no `url` field:\n"
+            f"{json.dumps(direct_url, indent=2)}\n"
+            "Pass --xorq-spec explicitly."
+        )
+
     if "vcs_info" in direct_url:
         vcs = direct_url["vcs_info"]
+        vcs_type = vcs.get("vcs", "git")
         commit = vcs.get("commit_id", "")
         at = f"@{commit}" if commit else ""
-        return f"xorq{extras_str} @ git+{url}{at}"
+        return f"xorq{extras_str} @ {vcs_type}+{url}{at}"
     if "archive_info" in direct_url:
         return f"xorq{extras_str} @ {url}"
     if "dir_info" in direct_url:
-        # editable or local-dir install; uv accepts the file:// URL form
         return f"xorq{extras_str} @ {url}"
 
     raise InitTemplateError(
@@ -109,23 +114,46 @@ def resolve_xorq_spec(
     )
 
 
-def has_latest_placeholder(template_dir: Path | str) -> bool:
-    """True iff the template's pyproject.toml declares xorq[…] @ LATEST."""
+def find_latest_dep(template_dir: Path | str) -> tuple[bool, str]:
+    """Return ``(has_placeholder, extras_str)`` for the template's pyproject.
+
+    ``extras_str`` is the literal ``[…]`` block (or ``""``) when present.
+    Reads the pyproject exactly once.
+    """
+    import tomlkit  # noqa: PLC0415
+
     pyproject = Path(template_dir).joinpath("pyproject.toml")
     if not pyproject.exists():
-        return False
+        return False, ""
     data = tomlkit.loads(pyproject.read_text())
     deps = data.get("project", {}).get("dependencies", [])
-    return any(_LATEST_RE.match(str(d).strip()) for d in deps)
+    for entry in deps:
+        m = _LATEST_RE.match(str(entry).strip())
+        if m:
+            return True, m.group("extras") or ""
+    return False, ""
+
+
+def has_latest_placeholder(template_dir: Path | str) -> bool:
+    """True iff the template's pyproject.toml declares xorq[…] @ LATEST."""
+    return find_latest_dep(template_dir)[0]
 
 
 def rewrite_template_xorq_dep(template_dir: Path | str, spec: str) -> None:
-    """Substitute `xorq[extras] @ LATEST` with `spec` in the template.
+    """Substitute ``xorq[extras] @ LATEST`` with ``spec`` in the template.
 
-    Also strips `[tool.uv.sources].xorq` (legacy git source) and deletes any
-    shipped `uv.lock` and `requirements.txt`. Errors loudly if no matching
-    dependency entry is found.
+    Also:
+
+    - strips ``[tool.uv.sources].xorq`` (legacy git source);
+    - sets ``[tool.hatch.metadata].allow-direct-references = true`` when the
+      substituted spec uses a direct-reference (``@ URL``) form, so hatchling
+      will accept it during ``uv build --wheel``;
+    - deletes any shipped ``uv.lock`` and ``requirements.txt``.
+
+    Errors loudly if no matching dependency entry is found.
     """
+    import tomlkit  # noqa: PLC0415
+
     template_dir = Path(template_dir)
     pyproject = template_dir.joinpath("pyproject.toml")
     if not pyproject.exists():
@@ -160,6 +188,16 @@ def rewrite_template_xorq_dep(template_dir: Path | str, spec: str) -> None:
         if sources is not None and "xorq" in sources:
             del sources["xorq"]
 
+    # Hatchling forbids direct references in [project.dependencies] unless
+    # explicitly opted in. The substituted spec is a direct reference whenever
+    # it contains ` @ ` (PyPI `==` pins don't trigger this).
+    if " @ " in spec:
+        tool = data.setdefault("tool", tomlkit.table())
+        hatch_metadata = tool.setdefault("hatch", tomlkit.table()).setdefault(
+            "metadata", tomlkit.table()
+        )
+        hatch_metadata["allow-direct-references"] = True
+
     pyproject.write_text(tomlkit.dumps(data))
 
     for stale in ("uv.lock", "requirements.txt"):
@@ -168,19 +206,22 @@ def rewrite_template_xorq_dep(template_dir: Path | str, spec: str) -> None:
             stale_path.unlink()
 
 
-def run_uv_lock(template_dir: Path | str) -> subprocess.CompletedProcess:
-    """Run `uv lock` in the template dir. Raises on failure with stderr surfaced."""
+def run_uv_lock(template_dir: Path | str):
+    """Run ``uv lock`` in the template dir, streaming stdout to the user.
+
+    Stderr is captured and surfaced via ``InitTemplateError`` on non-zero
+    exit. The half-done substituted ``pyproject.toml`` is intentionally left
+    in place so the failure state is inspectable.
+    """
     template_dir = Path(template_dir)
     result = subprocess.run(
         ["uv", "lock"],
         cwd=str(template_dir),
         check=False,
-        capture_output=True,
+        stderr=subprocess.PIPE,
         text=True,
     )
     if result.returncode != 0:
-        # Per design: leave the substituted pyproject.toml in place so the
-        # half-done state is inspectable.
         raise InitTemplateError(
             "`uv lock` failed in the substituted template "
             f"(cwd={template_dir}):\n{result.stderr}"
