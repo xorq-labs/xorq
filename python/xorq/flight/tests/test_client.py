@@ -78,6 +78,37 @@ def test_healthcheck_generic_exception_does_not_propagate(mocker):
 
 
 # ---------------------------------------------------------------------------
+# pa.ArrowIOError with "Deadline" → log and retry, succeed on next attempt
+# ---------------------------------------------------------------------------
+
+
+def test_healthcheck_retries_on_deadline_arrow_io_error(mocker):
+    client = _make_client()
+    client.do_action = mocker.MagicMock(
+        side_effect=[
+            pa.ArrowIOError("Deadline exceeded"),
+            pa.ArrowIOError("Deadline exceeded"),
+            iter([]),
+        ]
+    )
+    mock_sleep = mocker.patch("xorq.flight.client.time.sleep")
+
+    client._wait_on_healthcheck(n_tries=5, sleep_n=1)
+
+    assert client.do_action.call_count == 3
+    assert mock_sleep.call_count == 2
+
+
+def test_healthcheck_non_deadline_arrow_io_error_raises(mocker):
+    client = _make_client()
+    client.do_action = mocker.MagicMock(side_effect=pa.ArrowIOError("Connection reset"))
+    mocker.patch("xorq.flight.client.time.sleep")
+
+    with pytest.raises(pa.ArrowIOError, match="Connection reset"):
+        client._wait_on_healthcheck(n_tries=3, sleep_n=0)
+
+
+# ---------------------------------------------------------------------------
 # FlightUnavailableError with SSL/Socket match → raise e
 # ---------------------------------------------------------------------------
 
@@ -148,5 +179,5 @@ def test_healthcheck_runtime_error_attempt_count_in_message(mocker):
     client.do_action = mocker.MagicMock(side_effect=ValueError("down"))
     mocker.patch("xorq.flight.client.time.sleep")
 
-    with pytest.raises(RuntimeError, match="2 attempts"):
+    with pytest.raises(RuntimeError, match="3 attempts"):
         client._wait_on_healthcheck(n_tries=3, sleep_n=0)

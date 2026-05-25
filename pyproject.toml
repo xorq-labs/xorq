@@ -301,7 +301,6 @@ sigterm = true
 show_missing = true
 skip_covered = false
 
-
 [tool.git-cliff.changelog]
 header = """
 # Changelog\n
