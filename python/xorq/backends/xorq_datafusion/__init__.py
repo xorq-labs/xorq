@@ -760,8 +760,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         table_name = table_name or gen_name("read_record_batches")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
         self.con.deregister_table(table_ident)
-        if not isinstance(source, (pa.Table, pa.RecordBatchReader)) and not hasattr(
-            source, "__iter__"
+        if not isinstance(source, (pa.Table, pa.RecordBatchReader)) and (
+            isinstance(source, (str, bytes)) or not hasattr(source, "__iter__")
         ):
             raise TypeError(f"unsupported source type: {type(source).__name__}")
         schema: pa.Schema

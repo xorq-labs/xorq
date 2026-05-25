@@ -48,11 +48,7 @@ def test_read_record_batches_type_mismatch():
     assert lying_reader.schema.field("x").type == pa.utf8()
 
     # read_record_batches casts each batch before crossing the C boundary:
-    fresh_reader = pa.RecordBatchReader.from_batches(
-        utf8_schema,
-        [pa.record_batch({"x": pa.array(["hello", "world"], type=pa.large_utf8())})],
-    )
-    t = con.read_record_batches(fresh_reader)
+    t = con.read_record_batches(lying_reader)
     assert t.execute()["x"].tolist() == ["hello", "world"]
 
 
@@ -132,6 +128,12 @@ def test_read_record_batches_wrong_type_raises():
     con = xo.connect()
     with pytest.raises(TypeError, match="unsupported source type"):
         con.read_record_batches(42)
+
+
+def test_read_record_batches_string_raises():
+    con = xo.connect()
+    with pytest.raises(TypeError, match="unsupported source type"):
+        con.read_record_batches("not_a_path")
 
 
 def test_read_record_batches_schema_mismatch_raises():
