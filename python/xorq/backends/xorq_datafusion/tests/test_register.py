@@ -1,8 +1,38 @@
+import warnings
+
 import pandas as pd
 import pyarrow as pa
 import pytest
 
 import xorq.api as xo
+from xorq.backends.xorq_datafusion import _select_and_cast
+
+
+def test_select_and_cast_missing_raises():
+    batch = pa.record_batch({"a": [1, 2]})
+    schema = pa.schema([("a", pa.int64()), ("b", pa.int64())])
+    with pytest.raises(ValueError, match="batch schema mismatch"):
+        _select_and_cast(batch, schema)
+
+
+def test_select_and_cast_extra_warns_and_drops():
+    batch = pa.record_batch({"a": [1, 2], "b": [3, 4], "extra": [5, 6]})
+    schema = pa.schema([("a", pa.int64()), ("b", pa.int64())])
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        result = _select_and_cast(batch, schema)
+    assert len(w) == 1
+    assert "extra" in str(w[0].message)
+    assert result.schema == schema
+    assert result.num_rows == 2
+
+
+def test_select_and_cast_exact_schema():
+    batch = pa.record_batch({"a": [1, 2], "b": [3, 4]})
+    schema = pa.schema([("a", pa.int64()), ("b", pa.int64())])
+    result = _select_and_cast(batch, schema)
+    assert result.schema == schema
+    assert result.num_rows == 2
 
 
 def test_no_name_register():
@@ -145,13 +175,25 @@ def test_read_record_batches_schema_mismatch_raises():
         con.read_record_batches([first, second]).execute()
 
 
-def test_read_record_batches_extra_columns_raises():
-    # Schema inferred from first batch; second batch has extra column → error at cast time.
+def test_read_record_batches_extra_columns_silently_dropped():
+    # Schema inferred from first batch; extra columns in later batches are dropped, not raised.
     con = xo.connect()
     first = pa.record_batch({"a": [1, 2], "b": [3, 4]})
     second = pa.record_batch({"a": [5], "b": [6], "extra": [7]})
-    with pytest.raises(ValueError, match="batch schema mismatch"):
-        con.read_record_batches([first, second]).execute()
+    result = con.read_record_batches([first, second]).execute()
+    assert list(result.columns) == ["a", "b"]
+    assert len(result) == 3
+
+
+def test_read_record_batches_reader_extra_columns_silently_dropped():
+    # RecordBatchReader path: declared schema lacks "extra"; batch carries it → dropped, not raised.
+    con = xo.connect()
+    declared = pa.schema([("a", pa.int64()), ("b", pa.int64())])
+    batch = pa.record_batch({"a": [1, 2], "b": [3, 4], "extra": [5, 6]})
+    reader = pa.RecordBatchReader.from_batches(declared, [batch])
+    result = con.read_record_batches(reader).execute()
+    assert list(result.columns) == ["a", "b"]
+    assert len(result) == 2
 
 
 def test_register_unbound_expr_raises():
