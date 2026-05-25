@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779734016682,
+  "lastUpdate": 1779742352735,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -14571,6 +14571,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.011812581650738858",
             "extra": "mean: 37.99655071874675 msec\nrounds: 32"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bc469fb53fb47472cd58f24400af02277644089a",
+          "message": "feat: add Claude Code style enforcement hook (#1993)\n\n## Summary\n- Adds [`xorq-style`](https://github.com/xorq-labs/xorq-style)\n(`~=0.1.2`) as a dev dependency — an AST-based style checker with\ndiff-aware hook mode\n- Wires it up as a Claude Code `PostToolUse` hook\n(`.claude/settings.json`) so `xorq-check-style --hook` runs\nautomatically on Edit/Write of `.py` files\n- Only flags violations on lines Claude actually changed, so\npre-existing issues don't block work\n- Violations are blocking — the hook exits non-zero when rules are\nviolated; gracefully skips if `xorq-check-style` is not installed\n- Hook reads the native Claude Code stdin envelope directly (0.1.2) — no\n`printf`/pipe wrapper needed\n\n## Test plan\n- [x] Verify hook fires on Edit/Write of `.py` files\n- [x] Verify pre-existing violations don't trigger in hook mode\n- [x] Verify new violations are caught and block in hook mode\n- [x] Verify hook is a no-op when `xorq-check-style` is not installed\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-25T16:48:54-04:00",
+          "tree_id": "31fd1a44270d86123aa4360d9622357cb0815420",
+          "url": "https://github.com/xorq-labs/xorq/commit/bc469fb53fb47472cd58f24400af02277644089a"
+        },
+        "date": 1779742351002,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.635867783368822,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003148680700380894",
+            "extra": "mean: 103.77892499998451 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.2518832304669028,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06597516513376876",
+            "extra": "mean: 444.07275939998954 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6091261753722711,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19589625394076451",
+            "extra": "mean: 1.6416959908000082 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.7110751696044226,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04717991310956525",
+            "extra": "mean: 368.85734899999534 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.677806325269879,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04433482163574972",
+            "extra": "mean: 373.4400022000159 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.585380038970384,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03855167188375593",
+            "extra": "mean: 386.79033060000165 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 146.33477934632714,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017820741870901817",
+            "extra": "mean: 6.833645456445614 msec\nrounds: 287"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.023133851446189,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10554452028673902",
+            "extra": "mean: 199.0789076249868 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 28.325332661442264,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009904568134496432",
+            "extra": "mean: 35.304086696967396 msec\nrounds: 33"
           }
         ]
       }
