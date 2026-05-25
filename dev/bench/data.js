@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779689638440,
+  "lastUpdate": 1779694251880,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -13962,6 +13962,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.004445264402858455",
             "extra": "mean: 82.00804769230584 msec\nrounds: 13"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ad87407c804eef63d1b7ad5037234c4e6db17c40",
+          "message": "ci: skip tests for devcontainer-only PRs (#1984)\n\n## Summary\n- Add `.devcontainer/**` and `dev/**` to the exclusion list in\n`detect-changes.yml`\n- PRs that only touch devcontainer/dev-tooling files will now skip test\njobs, matching the existing behavior for docs-only PRs\n\n## Test plan\n- [ ] Open a PR that only touches files in `.devcontainer/` or `dev/`\nand verify test jobs are skipped\n- [ ] Open a PR that touches both `dev/` and source code and verify test\njobs still run\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-25T09:26:45+02:00",
+          "tree_id": "1a025d974a2b54006c0e5434e74963f2c18bbfa6",
+          "url": "https://github.com/xorq-labs/xorq/commit/ad87407c804eef63d1b7ad5037234c4e6db17c40"
+        },
+        "date": 1779694249223,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.030969275283784,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008758549150811869",
+            "extra": "mean: 110.73008549999486 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.136225805404486,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06666478346017572",
+            "extra": "mean: 468.11530760001006 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.5417495028157057,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11384043729625355",
+            "extra": "mean: 1.8458715601999984 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.0420898946472885,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06672058755924566",
+            "extra": "mean: 489.6944070000018 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.0956906193500853,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08318638650785928",
+            "extra": "mean: 477.1696694000184 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.0663487814985273,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07286311131562101",
+            "extra": "mean: 483.9454060000435 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 187.7959166770229,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007031159411565955",
+            "extra": "mean: 5.3249294111108405 msec\nrounds: 270"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.406614342637477,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07543317053684954",
+            "extra": "mean: 184.95863337501817 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 10.221715808688334,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00833445835921776",
+            "extra": "mean: 97.83093354542416 msec\nrounds: 11"
           }
         ]
       }
