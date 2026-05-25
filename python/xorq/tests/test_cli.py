@@ -1354,7 +1354,7 @@ def test_uv_run_unbound_roundtrip_stdin(uv_unbound_build, tmp_path):
     ipc_data = _make_penguins_ipc_bytes()
     output_path = tmp_path / "unbound_output.parquet"
 
-    result = _subprocess.run(
+    (returncode, _, stderr) = subprocess_run(
         (
             "xorq",
             "uv",
@@ -1368,9 +1368,9 @@ def test_uv_run_unbound_roundtrip_stdin(uv_unbound_build, tmp_path):
             "parquet",
         ),
         input=ipc_data,
-        capture_output=True,
+        timeout=120,
     )
-    assert result.returncode == 0, result.stderr.decode()
+    assert returncode == 0, stderr
     assert output_path.exists()
     table = pq.read_table(output_path)
     assert len(table) == 2
@@ -1405,6 +1405,7 @@ def test_uv_run_unbound_roundtrip_file(uv_unbound_build, tmp_path):
             "parquet",
         ),
         text=True,
+        timeout=120,
     )
     assert returncode == 0, stderr
     assert output_path.exists()
