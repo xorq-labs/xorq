@@ -103,25 +103,31 @@ def get_print_logger():
 
 
 # https://betterstack.com/community/guides/logging/structlog/
-log_path = get_log_path(log_path=default_log_path)
+_configured_log_path = pathlib.Path(_log_env_config.log_path).expanduser()
+log_path = get_log_path(log_path=_configured_log_path)
 _log_level_str = _log_env_config.log_level.upper()
 
 if _log_level_str != "OFF":
     log_level = getattr(logging, _log_level_str)
     _xorq_logger = logging.getLogger("xorq")
     _xorq_logger.setLevel(log_level)
-    _rfh = logging.handlers.RotatingFileHandler(
-        log_path, maxBytes=50 * 2**20, backupCount=3
-    )
-    _rfh.setFormatter(
-        structlog.stdlib.ProcessorFormatter(
-            processors=[
-                structlog.processors.dict_tracebacks,
-                structlog.processors.JSONRenderer(),
-            ],
+    try:
+        _rfh = logging.handlers.RotatingFileHandler(
+            log_path, maxBytes=50 * 2**20, backupCount=3
         )
-    )
-    _xorq_logger.addHandler(_rfh)
+        _rfh.setFormatter(
+            structlog.stdlib.ProcessorFormatter(
+                processors=[
+                    structlog.processors.dict_tracebacks,
+                    structlog.processors.JSONRenderer(),
+                ],
+            )
+        )
+        _xorq_logger.addHandler(_rfh)
+    except Exception as e:
+        import warnings  # noqa: PLC0415
+
+        warnings.warn(f"xorq: file logging disabled: {e}", stacklevel=2)
 else:
     log_level = logging.CRITICAL
 

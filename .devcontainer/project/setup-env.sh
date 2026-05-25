@@ -11,6 +11,8 @@ cmd="${1:-first-run}"
 
 case "$cmd" in
     first-run)
+        mkdir -p "$(dirname "${XORQ_LOG_PATH:-$HOME/.config/xorq/xorq.log}")"
+
         echo "Installing dependencies..."
         uv sync --all-extras --all-groups
         touch .venv/.last-sync
