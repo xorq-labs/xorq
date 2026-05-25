@@ -5,7 +5,7 @@ import functools
 import inspect
 import itertools
 import typing
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -57,14 +57,17 @@ from xorq.vendor.ibis.formats.pyarrow import PyArrowType
 from xorq.vendor.ibis.util import gen_name, normalize_filename, normalize_filenames
 
 
-def _select_and_cast(batch, schema):
+def _select_and_cast(batch: pa.RecordBatch, schema: pa.Schema) -> pa.RecordBatch:
     missing = set(schema.names) - set(batch.schema.names)
     if missing:
         raise ValueError(f"batch missing columns required by schema: {sorted(missing)}")
+    extra = set(batch.schema.names) - set(schema.names)
+    if extra:
+        raise ValueError(f"batch has columns not in schema: {sorted(extra)}")
     return batch.select(schema.names).cast(schema)
 
 
-def _compile_pyarrow_udwf(udwf_node):
+def _compile_pyarrow_udwf(udwf_node) -> WindowUDF:
     def make_datafusion_udwf(
         input_types,
         return_type,
@@ -170,7 +173,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
     compiler = compiler
 
     @staticmethod
-    def _translate_sort(exprs: list[ir.Expr]):
+    def _translate_sort(exprs: list[ir.Expr]) -> list[Expr]:
         result = []
         for expr in exprs:
             if not isinstance(node := expr.op(), ops.SortKey):
@@ -184,7 +187,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         return result
 
     @property
-    def version(self):
+    def version(self) -> str:
         return xorq.__version__
 
     def do_connect(self, config: SessionConfig | None = None) -> None:
@@ -215,7 +218,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         pass
 
     @contextlib.contextmanager
-    def _safe_raw_sql(self, sql: sge.Statement) -> Any:
+    def _safe_raw_sql(self, sql: sge.Statement) -> Iterator[list[pa.RecordBatch]]:
         yield self.raw_sql(sql).collect()
 
     def _get_schema_using_query(self, query: str) -> sch.Schema:
@@ -249,7 +252,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             }
         )
 
-    def _register_builtin_udfs(self):
+    def _register_builtin_udfs(self) -> None:
         from xorq.backends.xorq_datafusion import udfs  # noqa: PLC0415
 
         for name, func in inspect.getmembers(
@@ -339,7 +342,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             name=udf_node.__func_name__,
         )
 
-    def raw_sql(self, query: str | sge.Expression) -> Any:
+    def raw_sql(self, query: str | sge.Expression) -> DataFrame:
         """Execute a SQL string `query` against the database."""
         with contextlib.suppress(AttributeError):
             query = query.sql(dialect=self.dialect, pretty=True)
@@ -542,7 +545,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         raw_sql = backend.compile(source.as_table(), **kwargs)
         return backend.con.sql(raw_sql)
 
-    def _register_path(self, path: str, table_name: str, **kwargs) -> ir.Table:
+    def _register_path(self, path: str, table_name: str, **kwargs: Any) -> ir.Table:
         if path.startswith(("parquet://", "parq://")) or path.endswith(
             ("parq", "parquet")
         ):
@@ -557,7 +560,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         self,
         source: ir.Table,
         table_name: str | None = None,
-    ):
+    ) -> ir.Table:
         table_name = table_name or gen_name("register_table_provider")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
         self.con.deregister_table(table_ident)
@@ -772,12 +775,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 batches = source.to_batches()
             case pa.RecordBatchReader():
                 schema = source.schema
-                try:
-                    first = source.read_next_batch()
-                except StopIteration:
-                    batches = iter([])
-                else:
-                    batches = itertools.chain([first], source)
+                batches = source
             case _:
                 it = iter(source)
                 try:
@@ -820,7 +818,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         *,
         chunk_size: int = 1_000_000,
         **kwargs: Any,
-    ):
+    ) -> pa.ipc.RecordBatchReader:
         self._register_udfs(expr)
         self._register_in_memory_tables(expr)
         table_expr = expr.as_table()
@@ -856,7 +854,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         database: str | None = None,
         temp: bool = False,
         overwrite: bool = False,
-    ):
+    ) -> ir.Table:
         """Create a table in Datafusion.
 
         Parameters
@@ -964,15 +962,15 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 for batch in batch_reader:
                     writer.write_batch(batch)
 
-    def _extract_catalog(self, query):
+    def _extract_catalog(self, query: str) -> dict[str, ir.Table]:
         tables = parse_one(query).find_all(exp.Table)
         return {table.name: self.table(table.name) for table in tables}
 
-    def register_udwf(self, func: WindowUDF):
+    def register_udwf(self, func: WindowUDF) -> None:
         self.con.register_udwf(func)
 
 
-def connect(config: SessionConfig | None = None):
+def connect(config: SessionConfig | None = None) -> Backend:
     con = Backend()
     con.do_connect(config)
     return con

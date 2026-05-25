@@ -143,6 +143,15 @@ def test_read_record_batches_schema_mismatch_raises():
         con.read_record_batches([first, second]).execute()
 
 
+def test_read_record_batches_extra_columns_raises():
+    # Schema inferred from first batch; second batch has extra column → error at cast time.
+    con = xo.connect()
+    first = pa.record_batch({"a": [1, 2], "b": [3, 4]})
+    second = pa.record_batch({"a": [5], "b": [6], "extra": [7]})
+    with pytest.raises(ValueError, match="batch has columns not in schema"):
+        con.read_record_batches([first, second]).execute()
+
+
 def test_register_unbound_expr_raises():
     con = xo.connect()
     t = xo.table({"a": "int64"}, name="unbound")
