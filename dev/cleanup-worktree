@@ -8,7 +8,16 @@ manifest="$here/.envrcs/.worktree-manifest"
 
 if [ -f "$manifest" ]; then
     cd "$here"
-    xargs -d '\n' -r rm -v < "$manifest"
+    while IFS= read -r entry; do
+        [ -z "$entry" ] && continue
+        if [ -L "$entry" ]; then
+            rm -v "$entry"
+        elif [ -f "$entry" ]; then
+            rm -v "$entry" || true
+        elif [ -d "$entry" ]; then
+            echo "skipping $entry (expected symlink, found directory)" >&2
+        fi
+    done < "$manifest"
     # Remove any empty parent directories created by setup
     while IFS= read -r entry; do
         dir=$(dirname "$entry")
@@ -18,4 +27,9 @@ if [ -f "$manifest" ]; then
 fi
 
 cd "$main"
-git worktree remove "$here"
+git worktree unlock "$here" 2>/dev/null || true
+git worktree remove "$here" || {
+    git worktree lock "$here" \
+        --reason "re-locked after failed remove" 2>/dev/null || true
+    exit 1
+}

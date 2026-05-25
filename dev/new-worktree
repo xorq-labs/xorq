@@ -10,7 +10,11 @@ DEV_PROJECT_NAME="${PROJECT_NAME:-$(basename "$main_tree")}"
 unset PROJECT_NAME
 dest="$(dirname "$main_tree")/${DEV_PROJECT_NAME}-${branch//\//-}"
 
+install_hooks
 git worktree add "$dest" "$branch" >&2
+git worktree lock "$dest" \
+    --reason "locked by dev/new-worktree to prevent container-side prune" \
+    2>/dev/null || true
 cd "$dest"
 "$main_tree/dev/setup-worktree" >&2
 direnv allow >&2
