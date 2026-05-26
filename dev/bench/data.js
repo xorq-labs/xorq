@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779785505095,
+  "lastUpdate": 1779827056193,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -14745,6 +14745,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.009354626914268721",
             "extra": "mean: 29.518072659085835 msec\nrounds: 44"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "23960c96c5a9842ddb9438463111f9b33aa1c1a8",
+          "message": "chore: upgrade xorq_dasher to v0.1.1 (#2002)",
+          "timestamp": "2026-05-26T16:20:20-04:00",
+          "tree_id": "cdb731dc0106b3f76650e016203cb76a84de4cb0",
+          "url": "https://github.com/xorq-labs/xorq/commit/23960c96c5a9842ddb9438463111f9b33aa1c1a8"
+        },
+        "date": 1779827052346,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.09081442622995,
+            "unit": "iter/sec",
+            "range": "stddev: 0.024133034189230164",
+            "extra": "mean: 110.00114545454535 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.518063317133184,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07668147500600456",
+            "extra": "mean: 397.1306016000028 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.5956973579735985,
+            "unit": "iter/sec",
+            "range": "stddev: 0.22999188463692202",
+            "extra": "mean: 1.6787047761999987 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.5550933103314812,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07601748194512786",
+            "extra": "mean: 391.37513920001084 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.5982828834957226,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0825780157911098",
+            "extra": "mean: 384.8695637999981 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.790330737880168,
+            "unit": "iter/sec",
+            "range": "stddev: 0.021470173308540327",
+            "extra": "mean: 358.3804551999833 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 166.18056403132292,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013442848962766015",
+            "extra": "mean: 6.017550884058335 msec\nrounds: 276"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 6.071807358420404,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06202036334785839",
+            "extra": "mean: 164.695607249989 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 30.061749237869392,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009848332520539814",
+            "extra": "mean: 33.26486400000569 msec\nrounds: 27"
           }
         ]
       }
