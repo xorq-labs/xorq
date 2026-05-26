@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import warnings
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 
@@ -23,6 +24,13 @@ from xorq.common.utils import classproperty
 
 default_branch = "main"
 _LATEST_RE = re.compile(r"^xorq(?P<extras>\[[^\]]+\])?\s*@\s*LATEST$")
+_SPEC_EXTRAS_RE = re.compile(r"^\s*xorq(?P<extras>\[[^\]]+\])?")
+
+
+def _extract_spec_extras(spec: str) -> str:
+    """Return the ``[…]`` block from a ``xorq[…] …`` spec, or ``""``."""
+    m = _SPEC_EXTRAS_RE.match(spec)
+    return (m.group("extras") or "") if m else ""
 
 
 class InitTemplateError(XorqError):
@@ -80,6 +88,16 @@ def resolve_xorq_spec(
     opts in.
     """
     if override is not None:
+        template_extras = extras or ""
+        override_extras = _extract_spec_extras(override)
+        if template_extras and override_extras != template_extras:
+            warnings.warn(
+                f"--xorq-spec extras {override_extras or '[]'} do not match the "
+                f"template's xorq extras {template_extras}; proceeding with the "
+                "override as-is. The generated project may be missing extras the "
+                "template expects.",
+                stacklevel=2,
+            )
         return override
 
     direct_url, version = _read_direct_url(dist_name)

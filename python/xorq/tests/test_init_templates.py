@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from unittest.mock import patch
 
@@ -82,6 +83,33 @@ def test_resolve_xorq_spec_override_verbatim() -> None:
     # No mocking; override short-circuits any detection.
     override = "xorq[duckdb] @ git+https://github.com/xorq-labs/xorq@main"
     assert resolve_xorq_spec(override=override) == override
+
+
+def test_resolve_xorq_spec_override_extras_match_no_warning() -> None:
+    override = "xorq[duckdb] == 0.3.25"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert resolve_xorq_spec(override=override, extras="[duckdb]") == override
+
+
+def test_resolve_xorq_spec_override_extras_mismatch_warns() -> None:
+    override = "xorq[postgres] == 0.3.25"
+    with pytest.warns(UserWarning, match="do not match the template"):
+        assert resolve_xorq_spec(override=override, extras="[duckdb]") == override
+
+
+def test_resolve_xorq_spec_override_missing_extras_warns() -> None:
+    override = "xorq == 0.3.25"
+    with pytest.warns(UserWarning, match=r"\[\] do not match"):
+        assert resolve_xorq_spec(override=override, extras="[duckdb]") == override
+
+
+def test_resolve_xorq_spec_override_no_template_extras_no_warning() -> None:
+    """Template without extras + override with extras: silent (user opted in)."""
+    override = "xorq[duckdb] == 0.3.25"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert resolve_xorq_spec(override=override, extras="") == override
 
 
 @pytest.fixture
