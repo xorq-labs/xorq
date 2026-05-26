@@ -61,6 +61,10 @@ def _inner_xorq_rejects_emit_option(err):
     Click prints `Error: No such option: --emit-build-path-to` and exits 2
     when an unknown flag is passed. We match on that signature so a normal
     build failure (also exit 2 in some paths) does not trigger the fallback.
+
+    TODO(post-release): remove emit-path fallback once the published xorq
+    on PyPI ships --emit-build-path-to. This whole helper and its caller's
+    stdout-parsing branch become dead code at that point.
     """
     if err.returncode != 2:
         return False
@@ -492,9 +496,12 @@ class PackagedBuilder:
                     )
                     used_emit_file = True
                 except UvToolRunError as e:
+                    # TODO(post-release): remove emit-path fallback.
                     # Inner xorq (resolved by `uv tool run` from requirements)
                     # may predate --emit-build-path-to. Fall back to parsing
-                    # the build path from stdout's last non-empty line.
+                    # the build path from stdout's last non-empty line. Drop
+                    # this branch (and `used_emit_file`) once the published
+                    # xorq supports --emit-build-path-to.
                     if not _inner_xorq_rejects_emit_option(e):
                         raise
                     result = uv_tool_run(
@@ -523,6 +530,8 @@ class PackagedBuilder:
                         )
                     build_path = Path(contents)
                 else:
+                    # TODO(post-release): remove emit-path fallback. Dead once
+                    # the published xorq supports --emit-build-path-to.
                     lines = [
                         line for line in result.stdout.splitlines() if line.strip()
                     ]
