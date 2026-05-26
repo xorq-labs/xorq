@@ -13,17 +13,16 @@ jobs:
       cancel-in-progress: true
     if: github.event.label.name == 'docs-preview'
     steps:
-      - uses: actions/create-github-app-token@v2.2.2
+      - uses: actions/create-github-app-token@v3.2.0
         id: generate_token
         with:
           app-id: ${{ secrets.DOCS_BOT_APP_ID }}
           private-key: ${{ secrets.DOCS_BOT_APP_PRIVATE_KEY }}
 
       - name: reset label
-        uses: actions-ecosystem/action-remove-labels@v1
-        with:
-          labels: docs-preview
-          github_token: ${{ steps.generate_token.outputs.token }}
+        run: gh issue edit ${{ github.event.pull_request.number }} --remove-label "docs-preview"
+        env:
+          GH_TOKEN: ${{ steps.generate_token.outputs.token }}
 
       - name: checkout
         uses: actions/checkout@v6
@@ -31,13 +30,13 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@v4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: cache ibis test data
         id: cache-test-data
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ci/ibis-testing-data
           key: ibis-testing-data-${{ hashFiles('justfile') }}
@@ -46,7 +45,7 @@ jobs:
         if: steps.cache-test-data.outputs.cache-hit != 'true'
         run: just download-data
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -60,7 +59,7 @@ jobs:
         working-directory: ${{ github.workspace }}
 
       - name: cache quarto
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.local/share/quarto
           key: quarto-1.8.24
@@ -81,9 +80,9 @@ jobs:
           POSTGRES_PORT: 5432
           POSTGRES_DATABASE: ibis_testing
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: install netlify cli
         run: npm install -g netlify-cli
@@ -101,7 +100,7 @@ jobs:
 
       - name: create preview link comment
         if: success()
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           token: ${{ steps.generate_token.outputs.token }}
           issue-number: ${{ github.event.pull_request.number }}

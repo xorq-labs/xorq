@@ -24,13 +24,13 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@v4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: cache ibis test data
         id: cache-test-data
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ci/ibis-testing-data
           key: ibis-testing-data-${{ hashFiles('justfile') }}
@@ -39,7 +39,7 @@ jobs:
         if: steps.cache-test-data.outputs.cache-hit != 'true'
         run: just download-data
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -53,7 +53,7 @@ jobs:
         working-directory: ${{ github.workspace }}
 
       - name: cache quarto
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.local/share/quarto
           key: quarto-1.8.24
