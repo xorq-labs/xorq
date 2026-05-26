@@ -125,7 +125,6 @@ Most examples define a top-level `expr` variable and can be conveniently run wit
 | File | Description |
 |------|-------------|
 | `data/iris.csv` | Classic Iris classification dataset |
-| `data/data.rownum.parquet` | Lending Club dataset with row numbering for ML examples |
 
 
 ### Examples that require API keys
