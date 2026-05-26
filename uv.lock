@@ -6123,7 +6123,7 @@ requires-dist = [
     { name = "typing-extensions", specifier = ">=4.3.0" },
     { name = "uv", specifier = ">=0.7.20" },
     { name = "xgboost", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=1.6.1" },
-    { name = "xorq-dasher", specifier = ">=0.1.0" },
+    { name = "xorq-dasher", specifier = ">=0.1.1" },
     { name = "xorq-datafusion", specifier = "==0.2.7" },
     { name = "xorq-feature-utils", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-feature-utils?branch=main" },
     { name = "xorq-weather-lib", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-weather-lib?branch=main" },
@@ -6172,16 +6172,16 @@ test = [
 
 [[package]]
 name = "xorq-dasher"
-version = "0.1.0"
+version = "0.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
     { name = "toolz" },
     { name = "xxhash" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/82/ac/95ae1d45f4ba2cb33fd3bd0ba436700bcbea4a87d1439034bc54318f5b92/xorq_dasher-0.1.0.tar.gz", hash = "sha256:a581a64257fca51cffc27899b46fdec01e2b7ea820f92e029e9b602331f9735c", size = 97783, upload-time = "2026-05-11T13:12:20.021Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/99/be/861c374cc117e77007d6159008c120f3505633620b5e931058a9eaea8acf/xorq_dasher-0.1.1.tar.gz", hash = "sha256:377a590f3c491e9b8dc2599e7869eb8f8c0a3d56e38965073afb284fa5942fef", size = 100088, upload-time = "2026-05-26T13:29:30.58Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/77/de/31c4ad7e6d1550ff6178201c48113bfc7e472948358028279c0f921c234d/xorq_dasher-0.1.0-py3-none-any.whl", hash = "sha256:ce019b21273e2fbbc42cade0beb66c1e297d11384806b505280e1fc80426fb06", size = 9577, upload-time = "2026-05-11T13:12:18.338Z" },
+    { url = "https://files.pythonhosted.org/packages/ee/3c/6e87dc23b6458b83477afd8350e1119cf11b909054d5f04c8e4b867a79d6/xorq_dasher-0.1.1-py3-none-any.whl", hash = "sha256:acaf63a61dea249781107cd88b67d36d5a3f47505832a36919e13f00c51bf3fd", size = 9405, upload-time = "2026-05-26T13:29:29.092Z" },
 ]
 
 [[package]]
