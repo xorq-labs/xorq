@@ -265,6 +265,51 @@ def test_packaged_unbound_runner_rejects_missing_wheel(tmp_path):
         PackagedUnboundRunner(build_path=build_dir)
 
 
+def test_packaged_builder_raises_when_emit_file_missing(tmp_path, monkeypatch):
+    """If xorq build returns successfully but didn't write the emit file,
+    surface a clear error instead of silently falling back to stdout."""
+    wheel = _make_wheel(tmp_path)
+    requirements = tmp_path / DumpFiles.requirements
+    requirements.write_text("requests==2.31.0")
+    script = tmp_path / "script.py"
+    script.write_text("expr = None\n")
+
+    bundle = WheelBundle(wheel_path=wheel, requirements_path=requirements)
+
+    fake_result = subprocess.CompletedProcess(
+        args=(), returncode=0, stdout="", stderr="some-stderr"
+    )
+    monkeypatch.setattr(
+        "xorq.ibis_yaml.packager.uv_tool_run", lambda *a, **kw: fake_result
+    )
+
+    builder = PackagedBuilder(script_path=script, bundle=bundle)
+    with pytest.raises(RuntimeError, match="did not write build path"):
+        builder.build()
+
+
+def test_packaged_builder_raises_when_emit_file_empty(tmp_path, monkeypatch):
+    """If xorq build wrote an empty emit file, surface a clear error."""
+    wheel = _make_wheel(tmp_path)
+    requirements = tmp_path / DumpFiles.requirements
+    requirements.write_text("requests==2.31.0")
+    script = tmp_path / "script.py"
+    script.write_text("expr = None\n")
+
+    bundle = WheelBundle(wheel_path=wheel, requirements_path=requirements)
+
+    def fake_uv_tool_run(*args, **kwargs):
+        emit_path = Path(args[args.index("--emit-build-path-to") + 1])
+        emit_path.write_text("")
+        return subprocess.CompletedProcess(args=(), returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
+
+    builder = PackagedBuilder(script_path=script, bundle=bundle)
+    with pytest.raises(RuntimeError, match="empty build path"):
+        builder.build()
+
+
 # ---------------------------------------------------------------------------
 # validate_params_early
 # ---------------------------------------------------------------------------
