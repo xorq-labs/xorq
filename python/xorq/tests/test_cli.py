@@ -155,12 +155,24 @@ def test_build_command_emit_survives_stdout_pollution(tmp_path, fixture_dir):
         "--emit-build-path-to",
         str(emit_path),
     ]
-    env = {**os.environ, "OTEL_EXPORTER_CONSOLE_FALLBACK": "1"}
+    env = {
+        **os.environ,
+        "OTEL_EXPORTER_CONSOLE_FALLBACK": "1",
+        # Force the console fallback even if the caller's environment
+        # points OTel at a real collector.
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "",
+    }
     (returncode, stdout, stderr) = subprocess_run(test_args, env=env)
     assert returncode == 0, stderr
     assert emit_path.exists()
     emitted = emit_path.read_text().strip()
     assert Path(emitted).is_dir()
+    # Without this the test passes vacuously if OTel didn't actually pollute
+    # stdout, defeating the point of the regression guard.
+    stdout_text = stdout.decode("ascii", errors="replace")
+    assert '"name":' in stdout_text, (
+        f"expected OTel span JSON in stdout; got: {stdout_text!r}"
+    )
 
 
 @pytest.mark.slow(level=1)
