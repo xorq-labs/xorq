@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779742352735,
+  "lastUpdate": 1779785505095,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -14658,6 +14658,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.009904568134496432",
             "extra": "mean: 35.304086696967396 msec\nrounds: 33"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "547c25f49a8665464d74081a46dfdd0b85af9529",
+          "message": "chore: remove unused 24MB parquet file to speed up clones (#1997)\n\n## Summary\n- Removes `examples/data/data.rownum.parquet` (24 MB Lending Club\ndataset) which is not referenced by any code — examples now load this\ndata via the pins system\n- Shrinks `--depth 1` clones from ~23 MB to ~4 MB (estimated ~5x\nspeedup)\n- Updates `examples/README.md` to remove the stale entry\n\n## Test plan\n- [x] CI passes — no code references this file\n- [x] Grep confirms zero imports/reads of this path across all `.py`,\n`.yaml`, `.toml`, `.json`, `.ipynb` files\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-26T10:47:17+02:00",
+          "tree_id": "72dfc372e9bbb71ea247ad3e93340df199670465",
+          "url": "https://github.com/xorq-labs/xorq/commit/547c25f49a8665464d74081a46dfdd0b85af9529"
+        },
+        "date": 1779785502360,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.813321800517238,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013337028885625164",
+            "extra": "mean: 92.47852033333241 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.8950827193138893,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0676280512467812",
+            "extra": "mean: 345.41327379999416 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6979150304921217,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1421697608047361",
+            "extra": "mean: 1.4328391799999907 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.204233396250405,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05877457765223219",
+            "extra": "mean: 312.08712859999537 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.0063145460467595,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05794492166238007",
+            "extra": "mean: 332.6331908000043 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.1717669262445987,
+            "unit": "iter/sec",
+            "range": "stddev: 0.036838257907448865",
+            "extra": "mean: 315.2816783999981 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 249.85012348289467,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004641921447097143",
+            "extra": "mean: 4.002399462766174 msec\nrounds: 376"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 7.45306672985766,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06259245662961609",
+            "extra": "mean: 134.17295674999252 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 33.87755059584469,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009354626914268721",
+            "extra": "mean: 29.518072659085835 msec\nrounds: 44"
           }
         ]
       }
