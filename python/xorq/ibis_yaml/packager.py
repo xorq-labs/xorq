@@ -55,6 +55,19 @@ class UvToolRunError(subprocess.CalledProcessError):
         return "\n\n".join(parts)
 
 
+def _inner_xorq_rejects_emit_option(err):
+    """True if the inner xorq predates --emit-build-path-to.
+
+    Click prints `Error: No such option: --emit-build-path-to` and exits 2
+    when an unknown flag is passed. We match on that signature so a normal
+    build failure (also exit 2 in some paths) does not trigger the fallback.
+    """
+    if err.returncode != 2:
+        return False
+    stderr = err.stderr or ""
+    return "--emit-build-path-to" in stderr and "No such option" in stderr
+
+
 PYPROJECT_NAME = "pyproject.toml"
 UVLOCK_NAME = "uv.lock"
 DEFAULT_REQUIRES_PYTHON = ">=3.10"
@@ -453,45 +466,71 @@ class PackagedBuilder:
         """Run xorq build and copy wheel + requirements into the build dir."""
         from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
 
+        base_args = (
+            "xorq",
+            "build",
+            str(self.script_path),
+            "-e",
+            self.expr_name,
+            "--builds-dir",
+            self.builds_dir,
+            *(("--cache-dir", self.cache_dir) if self.cache_dir else ()),
+            *(("--debug",) if self.debug else ()),
+        )
+
         with TemporaryDirectory() as tmpdir:
             emit_path = Path(tmpdir) / "build_path"
-            args = (
-                "xorq",
-                "build",
-                str(self.script_path),
-                "-e",
-                self.expr_name,
-                "--builds-dir",
-                self.builds_dir,
-                "--emit-build-path-to",
-                str(emit_path),
-                *(("--cache-dir", self.cache_dir) if self.cache_dir else ()),
-                *(("--debug",) if self.debug else ()),
-            )
             with tracer.start_as_current_span("packager.build"):
-                result = uv_tool_run(
-                    *args,
-                    python_version=self.python_version,
-                    with_=self.wheel_path,
-                    with_requirements=self.requirements_path,
-                )
+                try:
+                    result = uv_tool_run(
+                        *base_args,
+                        "--emit-build-path-to",
+                        str(emit_path),
+                        python_version=self.python_version,
+                        with_=self.wheel_path,
+                        with_requirements=self.requirements_path,
+                    )
+                    used_emit_file = True
+                except UvToolRunError as e:
+                    # Inner xorq (resolved by `uv tool run` from requirements)
+                    # may predate --emit-build-path-to. Fall back to parsing
+                    # the build path from stdout's last non-empty line.
+                    if not _inner_xorq_rejects_emit_option(e):
+                        raise
+                    result = uv_tool_run(
+                        *base_args,
+                        python_version=self.python_version,
+                        with_=self.wheel_path,
+                        with_requirements=self.requirements_path,
+                    )
+                    used_emit_file = False
 
             with tracer.start_as_current_span("packager.copy_artifacts"):
-                # xorq build writes the build path to --emit-build-path-to.
-                # Stdout is unreliable: OTel ConsoleSpanExporter may flush
-                # span JSON to it after build_command returns.
-                if not emit_path.exists():
-                    raise RuntimeError(
-                        f"xorq build did not write build path to {emit_path}; "
-                        f"stderr: {result.stderr}"
-                    )
-                contents = emit_path.read_text().strip()
-                if not contents:
-                    raise RuntimeError(
-                        f"xorq build wrote empty build path to {emit_path}; "
-                        f"stderr: {result.stderr}"
-                    )
-                build_path = Path(contents)
+                if used_emit_file:
+                    # xorq build writes the build path to --emit-build-path-to.
+                    # Stdout is unreliable: OTel ConsoleSpanExporter may flush
+                    # span JSON to it after build_command returns.
+                    if not emit_path.exists():
+                        raise RuntimeError(
+                            f"xorq build did not write build path to {emit_path}; "
+                            f"stderr: {result.stderr}"
+                        )
+                    contents = emit_path.read_text().strip()
+                    if not contents:
+                        raise RuntimeError(
+                            f"xorq build wrote empty build path to {emit_path}; "
+                            f"stderr: {result.stderr}"
+                        )
+                    build_path = Path(contents)
+                else:
+                    lines = [
+                        line for line in result.stdout.splitlines() if line.strip()
+                    ]
+                    if not lines:
+                        raise RuntimeError(
+                            f"xorq build produced no stdout path; stderr: {result.stderr}"
+                        )
+                    build_path = Path(lines[-1])
                 shutil.copy2(self.wheel_path, build_path / self.wheel_path.name)
                 shutil.copy2(
                     self.requirements_path, build_path / DumpFiles.requirements

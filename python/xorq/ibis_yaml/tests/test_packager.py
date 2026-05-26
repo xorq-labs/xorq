@@ -310,6 +310,72 @@ def test_packaged_builder_raises_when_emit_file_empty(tmp_path, monkeypatch):
         builder.build()
 
 
+def test_packaged_builder_falls_back_when_inner_xorq_lacks_flag(tmp_path, monkeypatch):
+    """If the inner xorq (resolved by uv tool run from requirements) predates
+    --emit-build-path-to, the packager retries without the flag and parses
+    the build path from stdout. This is required while the published xorq
+    on PyPI is older than the local CLI."""
+    wheel = _make_wheel(tmp_path)
+    requirements = tmp_path / DumpFiles.requirements
+    requirements.write_text("requests==2.31.0")
+    script = tmp_path / "script.py"
+    script.write_text("expr = None\n")
+    target_build = tmp_path / "builds" / "abc"
+    target_build.mkdir(parents=True)
+
+    bundle = WheelBundle(wheel_path=wheel, requirements_path=requirements)
+
+    calls = []
+
+    def fake_uv_tool_run(*args, **kwargs):
+        calls.append(args)
+        if "--emit-build-path-to" in args:
+            raise UvToolRunError(
+                returncode=2,
+                cmd=("uv", "tool", "run", *args),
+                output="",
+                stderr="Error: No such option: --emit-build-path-to\n",
+            )
+        return subprocess.CompletedProcess(
+            args=(), returncode=0, stdout=f"{target_build}\n", stderr=""
+        )
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
+
+    builder = PackagedBuilder(script_path=script, bundle=bundle)
+    builder.build()
+    assert builder.build_path == target_build
+    assert len(calls) == 2
+    assert "--emit-build-path-to" in calls[0]
+    assert "--emit-build-path-to" not in calls[1]
+
+
+def test_packaged_builder_does_not_fall_back_on_unrelated_exit_2(tmp_path, monkeypatch):
+    """A non-zero exit from the inner build that is not the unknown-option
+    signature must propagate, not silently retry."""
+    wheel = _make_wheel(tmp_path)
+    requirements = tmp_path / DumpFiles.requirements
+    requirements.write_text("requests==2.31.0")
+    script = tmp_path / "script.py"
+    script.write_text("expr = None\n")
+
+    bundle = WheelBundle(wheel_path=wheel, requirements_path=requirements)
+
+    def fake_uv_tool_run(*args, **kwargs):
+        raise UvToolRunError(
+            returncode=2,
+            cmd=("uv", "tool", "run", *args),
+            output="",
+            stderr="Error: expression 'expr' not found\n",
+        )
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
+
+    builder = PackagedBuilder(script_path=script, bundle=bundle)
+    with pytest.raises(UvToolRunError):
+        builder.build()
+
+
 # ---------------------------------------------------------------------------
 # validate_params_early
 # ---------------------------------------------------------------------------
