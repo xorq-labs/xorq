@@ -687,13 +687,9 @@ class PackagedUnboundRunner(_BasePackagedRunner):
         return "run-unbound"
 
     @functools.cached_property
-    def _unbind_flag_prefix(self):
-        """Return the flag form accepted by the inner xorq for unbind options.
+    def _unbind_flags(self):
+        # TODO(post-release): hard-code hyphenated form once PyPI xorq ships it.
 
-        TODO(post-release): remove once the published xorq on PyPI ships
-        the hyphenated --to-unbind-hash/--to-unbind-tag flags. Hard-code
-        the hyphenated form and delete this probe.
-        """
         result = uv_tool_run(
             "xorq",
             self._subcommand(),
@@ -708,7 +704,7 @@ class PackagedUnboundRunner(_BasePackagedRunner):
         return ("--to_unbind_hash", "--to_unbind_tag")
 
     def _extra_args(self):
-        hash_flag, tag_flag = self._unbind_flag_prefix
+        hash_flag, tag_flag = self._unbind_flags
         return (
             *((hash_flag, self.to_unbind_hash) if self.to_unbind_hash else ()),
             *((tag_flag, self.to_unbind_tag) if self.to_unbind_tag else ()),
