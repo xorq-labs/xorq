@@ -19,12 +19,12 @@ You need:
 
 ## Set up a project directory
 
-`catalog.add(...)` needs a `pyproject.toml` in the working directory (or an ancestor) so it can pin the xorq version embedded in the entry. Create a fresh project and pull in xorq with the BSL and DuckDB extras:
+`catalog.add(...)` needs a `pyproject.toml` in the working directory (or an ancestor) so it can pin the xorq version embedded in the entry. Create a fresh project and pull in xorq with the BSL extra:
 
 ```bash
 mkdir flights-tutorial && cd flights-tutorial
 uv init --bare
-uv add "xorq[bsl,duckdb]"
+uv add "xorq[bsl]"
 printf '\n[tool.setuptools]\npy-modules = []\n' >> pyproject.toml
 ```
 
@@ -49,11 +49,6 @@ source .venv/bin/activate
 ```
 
 The rest of the tutorial assumes the venv is active.
-:::
-
-::: {.callout-note}
-### Why DuckDB?
-The catalog stores the in-memory `flights` table as a parquet file alongside the entry. Reading that parquet back when you recover the model uses DuckDB by default, so it has to be installed.
 :::
 
 ::: {.callout-note}
