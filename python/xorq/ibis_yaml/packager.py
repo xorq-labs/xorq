@@ -55,21 +55,26 @@ class UvToolRunError(subprocess.CalledProcessError):
         return "\n\n".join(parts)
 
 
-def _inner_xorq_rejects_emit_option(err):
-    """True if the inner xorq predates --emit-build-path-to.
+def _inner_xorq_supports_emit_option(python_version, wheel_path, requirements_path):
+    """Check whether the resolved xorq CLI supports --emit-build-path-to.
 
-    Click prints `Error: No such option: --emit-build-path-to` and exits 2
-    when an unknown flag is passed. We match on that signature so a normal
-    build failure (also exit 2 in some paths) does not trigger the fallback.
+    Runs ``xorq build --help`` and looks for the flag in the output.
+    This is a ~200ms warm-cache call — negligible next to the build itself.
 
-    TODO(post-release): remove emit-path fallback once the published xorq
-    on PyPI ships --emit-build-path-to. This whole helper and its caller's
-    stdout-parsing branch become dead code at that point.
+    TODO(post-release): remove once the published xorq on PyPI ships
+    --emit-build-path-to. This helper and its caller's stdout-parsing
+    branch become dead code at that point.
     """
-    if err.returncode != 2:
-        return False
-    stderr = err.stderr or ""
-    return "--emit-build-path-to" in stderr and "No such option" in stderr
+    result = uv_tool_run(
+        "xorq",
+        "build",
+        "--help",
+        python_version=python_version,
+        with_=wheel_path,
+        with_requirements=requirements_path,
+        check=False,
+    )
+    return result.returncode == 0 and "--emit-build-path-to" in result.stdout
 
 
 PYPROJECT_NAME = "pyproject.toml"
@@ -482,35 +487,27 @@ class PackagedBuilder:
             *(("--debug",) if self.debug else ()),
         )
 
+        # TODO(post-release): remove emit-path fallback once the published
+        # xorq on PyPI ships --emit-build-path-to.
+        used_emit_file = _inner_xorq_supports_emit_option(
+            self.python_version,
+            self.wheel_path,
+            self.requirements_path,
+        )
+
         with TemporaryDirectory() as tmpdir:
             emit_path = Path(tmpdir) / "build_path"
             with tracer.start_as_current_span("packager.build"):
-                try:
-                    result = uv_tool_run(
-                        *base_args,
-                        "--emit-build-path-to",
-                        str(emit_path),
-                        python_version=self.python_version,
-                        with_=self.wheel_path,
-                        with_requirements=self.requirements_path,
-                    )
-                    used_emit_file = True
-                except UvToolRunError as e:
-                    # TODO(post-release): remove emit-path fallback.
-                    # Inner xorq (resolved by `uv tool run` from requirements)
-                    # may predate --emit-build-path-to. Fall back to parsing
-                    # the build path from stdout's last non-empty line. Drop
-                    # this branch (and `used_emit_file`) once the published
-                    # xorq supports --emit-build-path-to.
-                    if not _inner_xorq_rejects_emit_option(e):
-                        raise
-                    result = uv_tool_run(
-                        *base_args,
-                        python_version=self.python_version,
-                        with_=self.wheel_path,
-                        with_requirements=self.requirements_path,
-                    )
-                    used_emit_file = False
+                emit_args = (
+                    ("--emit-build-path-to", str(emit_path)) if used_emit_file else ()
+                )
+                result = uv_tool_run(
+                    *base_args,
+                    *emit_args,
+                    python_version=self.python_version,
+                    with_=self.wheel_path,
+                    with_requirements=self.requirements_path,
+                )
 
             with tracer.start_as_current_span("packager.copy_artifacts"):
                 if used_emit_file:
