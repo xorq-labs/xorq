@@ -704,7 +704,8 @@ class PackagedUnboundRunner(_BasePackagedRunner):
         return ("--to_unbind_hash", "--to_unbind_tag")
 
     def _extra_args(self):
-        hash_flag, tag_flag = self._unbind_flags
+        if self.to_unbind_hash or self.to_unbind_tag:
+            hash_flag, tag_flag = self._unbind_flags
         return (
             *((hash_flag, self.to_unbind_hash) if self.to_unbind_hash else ()),
             *((tag_flag, self.to_unbind_tag) if self.to_unbind_tag else ()),
