@@ -832,9 +832,6 @@ def test_from_build_path_falls_back_when_metadata_missing(tmp_path):
 def test_unbound_runner_uses_hyphenated_flags_when_supported(tmp_path, monkeypatch):
     """When the inner xorq supports --to-unbind-tag (hyphenated), the runner
     should pass the hyphenated form."""
-    _make_wheel(tmp_path)
-    requirements = tmp_path / DumpFiles.requirements
-    requirements.write_text("requests==2.31.0")
     build_dir = tmp_path / "build"
     build_dir.mkdir()
     (build_dir / DumpFiles.requirements).write_text("requests==2.31.0")
@@ -865,9 +862,6 @@ def test_unbound_runner_uses_hyphenated_flags_when_supported(tmp_path, monkeypat
 def test_unbound_runner_falls_back_to_underscore_flags(tmp_path, monkeypatch):
     """When the inner xorq predates the hyphenated flag rename, the runner
     should pass the underscore form."""
-    _make_wheel(tmp_path)
-    requirements = tmp_path / DumpFiles.requirements
-    requirements.write_text("requests==2.31.0")
     build_dir = tmp_path / "build"
     build_dir.mkdir()
     (build_dir / DumpFiles.requirements).write_text("requests==2.31.0")
