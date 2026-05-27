@@ -590,9 +590,7 @@ class _BasePackagedRunner(ABC):
         default=None,
     )
     output_path = field(validator=optional(instance_of(str)), default=None)
-    output_format = field(
-        validator=in_(OutputFormats), default=DEFAULT_OUTPUT_FORMAT
-    )
+    output_format = field(validator=in_(OutputFormats), default=DEFAULT_OUTPUT_FORMAT)
     limit = field(validator=optional(instance_of(int)), default=None)
     python_version = field(validator=_validate_python_version, default=None)
     _bundle: Bundle = field(init=False, repr=False, eq=False, default=None)
@@ -690,8 +688,8 @@ class PackagedUnboundRunner(_BasePackagedRunner):
 
     def _extra_args(self):
         return (
-            *(("--to_unbind_hash", self.to_unbind_hash) if self.to_unbind_hash else ()),
-            *(("--to_unbind_tag", self.to_unbind_tag) if self.to_unbind_tag else ()),
+            *(("--to-unbind-hash", self.to_unbind_hash) if self.to_unbind_hash else ()),
+            *(("--to-unbind-tag", self.to_unbind_tag) if self.to_unbind_tag else ()),
             *(("--typ", self.typ) if self.typ else ()),
             *(
                 ("--batch-size", str(self.batch_size))
