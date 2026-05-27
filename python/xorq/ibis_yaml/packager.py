@@ -495,12 +495,37 @@ class PackagedBuilder:
             self.requirements_path,
         )
 
+        def get_build_path(used_emit_file, emit_path, result):
+            if used_emit_file:
+                if not emit_path.exists():
+                    raise RuntimeError(
+                        f"xorq build did not write build path to {emit_path}; "
+                        f"stderr: {result.stderr}"
+                    )
+                contents = emit_path.read_text().strip()
+                if not contents:
+                    raise RuntimeError(
+                        f"xorq build wrote empty build path to {emit_path}; "
+                        f"stderr: {result.stderr}"
+                    )
+                build_path = Path(contents)
+            else:
+                # TODO(post-release): remove emit-path fallback.
+                lines = [line for line in result.stdout.splitlines() if line.strip()]
+                if not lines:
+                    raise RuntimeError(
+                        f"xorq build produced no stdout path; stderr: {result.stderr}"
+                    )
+                build_path = Path(lines[-1])
+            return build_path
+
         with TemporaryDirectory() as tmpdir:
             emit_path = Path(tmpdir) / "build_path"
+            emit_args = (
+                ("--emit-build-path-to", str(emit_path)) if used_emit_file else ()
+            )
+
             with tracer.start_as_current_span("packager.build"):
-                emit_args = (
-                    ("--emit-build-path-to", str(emit_path)) if used_emit_file else ()
-                )
                 result = uv_tool_run(
                     *base_args,
                     *emit_args,
@@ -510,33 +535,7 @@ class PackagedBuilder:
                 )
 
             with tracer.start_as_current_span("packager.copy_artifacts"):
-                if used_emit_file:
-                    # xorq build writes the build path to --emit-build-path-to.
-                    # Stdout is unreliable: OTel ConsoleSpanExporter may flush
-                    # span JSON to it after build_command returns.
-                    if not emit_path.exists():
-                        raise RuntimeError(
-                            f"xorq build did not write build path to {emit_path}; "
-                            f"stderr: {result.stderr}"
-                        )
-                    contents = emit_path.read_text().strip()
-                    if not contents:
-                        raise RuntimeError(
-                            f"xorq build wrote empty build path to {emit_path}; "
-                            f"stderr: {result.stderr}"
-                        )
-                    build_path = Path(contents)
-                else:
-                    # TODO(post-release): remove emit-path fallback. Dead once
-                    # the published xorq supports --emit-build-path-to.
-                    lines = [
-                        line for line in result.stdout.splitlines() if line.strip()
-                    ]
-                    if not lines:
-                        raise RuntimeError(
-                            f"xorq build produced no stdout path; stderr: {result.stderr}"
-                        )
-                    build_path = Path(lines[-1])
+                build_path = get_build_path(used_emit_file, emit_path, result)
                 shutil.copy2(self.wheel_path, build_path / self.wheel_path.name)
                 shutil.copy2(
                     self.requirements_path, build_path / DumpFiles.requirements
