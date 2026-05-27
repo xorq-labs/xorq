@@ -148,6 +148,7 @@ def uv_build_command(
     extras=(),
     all_extras=True,
     debug=False,
+    emit_build_path_to=None,
 ):
     if project_path and pep723:
         raise click.UsageError("--project-path and --pep723 are mutually exclusive")
@@ -166,6 +167,8 @@ def uv_build_command(
         debug=debug,
     )
     builder.build()
+    if emit_build_path_to:
+        Path(emit_build_path_to).write_text(str(builder.build_path))
     print(builder.build_path)
     return builder
 
@@ -207,6 +210,7 @@ def build_command(
     builds_dir="builds",
     cache_dir=None,
     debug: bool = False,
+    emit_build_path_to=None,
 ):
     """
     Generate artifacts from an expression in a given Python script
@@ -263,6 +267,8 @@ def build_command(
         f"Written '{expr_name}' to {build_path}",
         file=sys.stderr,
     )
+    if emit_build_path_to:
+        Path(emit_build_path_to).write_text(str(build_path))
     print(build_path)
 
 
@@ -830,6 +836,16 @@ def uv_group(ctx):
     is_flag=True,
     help="Output SQL files and other debug artifacts.",
 )
+@click.option(
+    "--emit-build-path-to",
+    type=click.Path(),
+    default=None,
+    help=(
+        "Write the resulting build directory path to this file. Use when "
+        "stdout may be polluted (e.g. by OTel console fallback) and a "
+        "subprocess consumer needs the path unambiguously."
+    ),
+)
 def uv_build(
     script_path,
     expr_name,
@@ -840,6 +856,7 @@ def uv_build(
     extras,
     all_extras,
     debug,
+    emit_build_path_to,
 ):
     """Build an expression with a custom Python environment."""
     uv_build_command(
@@ -852,6 +869,7 @@ def uv_build(
         extras=extras,
         all_extras=all_extras,
         debug=debug,
+        emit_build_path_to=emit_build_path_to,
     )
 
 
@@ -984,9 +1002,26 @@ def uv_run_unbound(
     is_flag=True,
     help="Output SQL files and other debug artifacts.",
 )
-def build(script_path, expr_name, builds_dir, cache_dir, debug):
+@click.option(
+    "--emit-build-path-to",
+    type=click.Path(),
+    default=None,
+    help=(
+        "Write the resulting build directory path to this file. Use when "
+        "stdout may be polluted (e.g. by OTel console fallback) and a "
+        "subprocess consumer needs the path unambiguously."
+    ),
+)
+def build(script_path, expr_name, builds_dir, cache_dir, debug, emit_build_path_to):
     """Generate artifacts from an expression."""
-    build_command(script_path, expr_name, builds_dir, cache_dir, debug)
+    build_command(
+        script_path,
+        expr_name,
+        builds_dir,
+        cache_dir,
+        debug,
+        emit_build_path_to=emit_build_path_to,
+    )
 
 
 @cli.command("run")

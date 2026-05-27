@@ -265,6 +265,180 @@ def test_packaged_unbound_runner_rejects_missing_wheel(tmp_path):
         PackagedUnboundRunner(build_path=build_dir)
 
 
+_HELP_WITH_EMIT = (
+    "Usage: xorq build [OPTIONS] SCRIPT_PATH\n  --emit-build-path-to TEXT\n"
+)
+
+
+def test_packaged_builder_raises_when_emit_file_missing(tmp_path, monkeypatch):
+    """If xorq build returns successfully but didn't write the emit file,
+    surface a clear error instead of silently falling back to stdout."""
+    wheel = _make_wheel(tmp_path)
+    requirements = tmp_path / DumpFiles.requirements
+    requirements.write_text("requests==2.31.0")
+    script = tmp_path / "script.py"
+    script.write_text("expr = None\n")
+
+    bundle = WheelBundle(wheel_path=wheel, requirements_path=requirements)
+
+    def fake_uv_tool_run(*args, **kwargs):
+        if "--help" in args:
+            return subprocess.CompletedProcess(
+                args=(), returncode=0, stdout=_HELP_WITH_EMIT, stderr=""
+            )
+        return subprocess.CompletedProcess(
+            args=(), returncode=0, stdout="", stderr="some-stderr"
+        )
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
+
+    builder = PackagedBuilder(script_path=script, bundle=bundle)
+    with pytest.raises(RuntimeError, match="did not write build path"):
+        builder.build()
+
+
+def test_packaged_builder_raises_when_emit_file_empty(tmp_path, monkeypatch):
+    """If xorq build wrote an empty emit file, surface a clear error."""
+    wheel = _make_wheel(tmp_path)
+    requirements = tmp_path / DumpFiles.requirements
+    requirements.write_text("requests==2.31.0")
+    script = tmp_path / "script.py"
+    script.write_text("expr = None\n")
+
+    bundle = WheelBundle(wheel_path=wheel, requirements_path=requirements)
+
+    def fake_uv_tool_run(*args, **kwargs):
+        if "--help" in args:
+            return subprocess.CompletedProcess(
+                args=(), returncode=0, stdout=_HELP_WITH_EMIT, stderr=""
+            )
+        emit_path = Path(args[args.index("--emit-build-path-to") + 1])
+        emit_path.write_text("")
+        return subprocess.CompletedProcess(args=(), returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
+
+    builder = PackagedBuilder(script_path=script, bundle=bundle)
+    with pytest.raises(RuntimeError, match="empty build path"):
+        builder.build()
+
+
+def test_packaged_builder_falls_back_when_inner_xorq_lacks_flag(tmp_path, monkeypatch):
+    """If the inner xorq (resolved by uv tool run from requirements) predates
+    --emit-build-path-to, the packager skips the flag and parses the build
+    path from stdout. This is required while the published xorq on PyPI is
+    older than the local CLI."""
+    wheel = _make_wheel(tmp_path)
+    requirements = tmp_path / DumpFiles.requirements
+    requirements.write_text("requests==2.31.0")
+    script = tmp_path / "script.py"
+    script.write_text("expr = None\n")
+    target_build = tmp_path / "builds" / "abc"
+    target_build.mkdir(parents=True)
+
+    bundle = WheelBundle(wheel_path=wheel, requirements_path=requirements)
+
+    calls = []
+
+    def fake_uv_tool_run(*args, **kwargs):
+        calls.append(args)
+        if "--help" in args:
+            return subprocess.CompletedProcess(
+                args=(),
+                returncode=0,
+                stdout="Usage: xorq build [OPTIONS] SCRIPT_PATH\n",
+                stderr="",
+            )
+        return subprocess.CompletedProcess(
+            args=(), returncode=0, stdout=f"{target_build}\n", stderr=""
+        )
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
+
+    builder = PackagedBuilder(script_path=script, bundle=bundle)
+    builder.build()
+    assert builder.build_path == target_build
+    assert len(calls) == 2
+    assert "--help" in calls[0]
+    assert "--emit-build-path-to" not in calls[1]
+
+
+def test_packaged_builder_does_not_fall_back_when_flag_supported(tmp_path, monkeypatch):
+    """When the --help probe reports --emit-build-path-to, the builder
+    uses the flag instead of parsing stdout."""
+    wheel = _make_wheel(tmp_path)
+    requirements = tmp_path / DumpFiles.requirements
+    requirements.write_text("requests==2.31.0")
+    script = tmp_path / "script.py"
+    script.write_text("expr = None\n")
+    target_build = tmp_path / "builds" / "abc"
+    target_build.mkdir(parents=True)
+
+    bundle = WheelBundle(wheel_path=wheel, requirements_path=requirements)
+
+    calls = []
+
+    def fake_uv_tool_run(*args, **kwargs):
+        calls.append(args)
+        if "--help" in args:
+            return subprocess.CompletedProcess(
+                args=(),
+                returncode=0,
+                stdout=(
+                    "Usage: xorq build [OPTIONS] SCRIPT_PATH\n"
+                    "  --emit-build-path-to TEXT\n"
+                ),
+                stderr="",
+            )
+        emit_idx = args.index("--emit-build-path-to")
+        Path(args[emit_idx + 1]).write_text(str(target_build))
+        return subprocess.CompletedProcess(args=(), returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
+
+    builder = PackagedBuilder(script_path=script, bundle=bundle)
+    builder.build()
+    assert builder.build_path == target_build
+    assert len(calls) == 2
+    assert "--help" in calls[0]
+    assert "--emit-build-path-to" in calls[1]
+
+
+def test_packaged_builder_propagates_build_failure(tmp_path, monkeypatch):
+    """A build failure must propagate regardless of the capability check."""
+    wheel = _make_wheel(tmp_path)
+    requirements = tmp_path / DumpFiles.requirements
+    requirements.write_text("requests==2.31.0")
+    script = tmp_path / "script.py"
+    script.write_text("expr = None\n")
+
+    bundle = WheelBundle(wheel_path=wheel, requirements_path=requirements)
+
+    def fake_uv_tool_run(*args, **kwargs):
+        if "--help" in args:
+            return subprocess.CompletedProcess(
+                args=(),
+                returncode=0,
+                stdout=(
+                    "Usage: xorq build [OPTIONS] SCRIPT_PATH\n"
+                    "  --emit-build-path-to TEXT\n"
+                ),
+                stderr="",
+            )
+        raise UvToolRunError(
+            returncode=2,
+            cmd=("uv", "tool", "run", *args),
+            output="",
+            stderr="Error: expression 'expr' not found\n",
+        )
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
+
+    builder = PackagedBuilder(script_path=script, bundle=bundle)
+    with pytest.raises(UvToolRunError):
+        builder.build()
+
+
 # ---------------------------------------------------------------------------
 # validate_params_early
 # ---------------------------------------------------------------------------

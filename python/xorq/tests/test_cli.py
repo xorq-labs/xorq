@@ -1,5 +1,6 @@
 import contextlib
 import io
+import os
 import re
 import shutil
 import subprocess as _subprocess
@@ -107,6 +108,70 @@ def test_build_command(tmp_path, fixture_dir):
     assert "Building expr" in stderr.decode("ascii")
     assert returncode == 0, stderr
     assert builds_dir.exists()
+
+
+def test_build_command_emit_build_path_to(tmp_path, fixture_dir):
+    builds_dir = tmp_path / "builds"
+    emit_path = tmp_path / "build_path.txt"
+    script_path = fixture_dir / "pipeline.py"
+
+    test_args = [
+        "xorq",
+        "build",
+        str(script_path),
+        "--expr-name",
+        "expr",
+        "--builds-dir",
+        str(builds_dir),
+        "--emit-build-path-to",
+        str(emit_path),
+    ]
+    env = {**os.environ, "OTEL_EXPORTER_CONSOLE_FALLBACK": ""}
+    (returncode, stdout, stderr) = subprocess_run(test_args, env=env)
+    assert returncode == 0, stderr
+    assert emit_path.exists()
+    emitted = emit_path.read_text().strip()
+    assert emitted, "emit file is empty"
+    # stdout still ends with the path for back-compat with shell consumers.
+    stdout_last = stdout.decode("ascii").strip().splitlines()[-1]
+    assert emitted == stdout_last
+    assert Path(emitted).is_dir()
+
+
+def test_build_command_emit_survives_stdout_pollution(tmp_path, fixture_dir):
+    """OTel console fallback flushes span JSON to stdout at process exit;
+    the build_path file must still hold the correct path."""
+    builds_dir = tmp_path / "builds"
+    emit_path = tmp_path / "build_path.txt"
+    script_path = fixture_dir / "pipeline.py"
+
+    test_args = [
+        "xorq",
+        "build",
+        str(script_path),
+        "--expr-name",
+        "expr",
+        "--builds-dir",
+        str(builds_dir),
+        "--emit-build-path-to",
+        str(emit_path),
+    ]
+    env = {
+        **os.environ,
+        "OTEL_EXPORTER_CONSOLE_FALLBACK": "1",
+        # Force the console fallback even if the caller's environment
+        # points OTel at a real collector.
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "",
+    }
+    (returncode, stdout, stderr) = subprocess_run(test_args, env=env)
+    assert returncode == 0, stderr
+    assert emit_path.exists()
+    emitted = emit_path.read_text().strip()
+    assert Path(emitted).is_dir()
+    stdout_text = stdout.decode("ascii", errors="replace")
+    stdout_has_otel = '"name":' in stdout_text
+    if not stdout_has_otel:
+        pytest.skip("OTel console fallback did not produce stdout output")
 
 
 @pytest.mark.slow(level=1)

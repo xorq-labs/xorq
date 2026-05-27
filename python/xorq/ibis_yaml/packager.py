@@ -55,6 +55,28 @@ class UvToolRunError(subprocess.CalledProcessError):
         return "\n\n".join(parts)
 
 
+def _inner_xorq_supports_emit_option(python_version, wheel_path, requirements_path):
+    """Check whether the resolved xorq CLI supports --emit-build-path-to.
+
+    Runs ``xorq build --help`` and looks for the flag in the output.
+    This is a ~200ms warm-cache call — negligible next to the build itself.
+
+    TODO(post-release): remove once the published xorq on PyPI ships
+    --emit-build-path-to. This helper and its caller's stdout-parsing
+    branch become dead code at that point.
+    """
+    result = uv_tool_run(
+        "xorq",
+        "build",
+        "--help",
+        python_version=python_version,
+        with_=wheel_path,
+        with_requirements=requirements_path,
+        check=False,
+    )
+    return result.returncode == 0 and "--emit-build-path-to" in result.stdout
+
+
 PYPROJECT_NAME = "pyproject.toml"
 UVLOCK_NAME = "uv.lock"
 DEFAULT_REQUIRES_PYTHON = ">=3.10"
@@ -453,7 +475,7 @@ class PackagedBuilder:
         """Run xorq build and copy wheel + requirements into the build dir."""
         from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
 
-        args = (
+        base_args = (
             "xorq",
             "build",
             str(self.script_path),
@@ -464,25 +486,60 @@ class PackagedBuilder:
             *(("--cache-dir", self.cache_dir) if self.cache_dir else ()),
             *(("--debug",) if self.debug else ()),
         )
-        with tracer.start_as_current_span("packager.build"):
-            result = uv_tool_run(
-                *args,
-                python_version=self.python_version,
-                with_=self.wheel_path,
-                with_requirements=self.requirements_path,
+
+        # TODO(post-release): remove emit-path fallback once the published
+        # xorq on PyPI ships --emit-build-path-to.
+        used_emit_file = _inner_xorq_supports_emit_option(
+            self.python_version,
+            self.wheel_path,
+            self.requirements_path,
+        )
+
+        def get_build_path(used_emit_file, emit_path, result):
+            if used_emit_file:
+                if not emit_path.exists():
+                    raise RuntimeError(
+                        f"xorq build did not write build path to {emit_path}; "
+                        f"stderr: {result.stderr}"
+                    )
+                contents = emit_path.read_text().strip()
+                if not contents:
+                    raise RuntimeError(
+                        f"xorq build wrote empty build path to {emit_path}; "
+                        f"stderr: {result.stderr}"
+                    )
+                build_path = Path(contents)
+            else:
+                # TODO(post-release): remove emit-path fallback.
+                lines = [line for line in result.stdout.splitlines() if line.strip()]
+                if not lines:
+                    raise RuntimeError(
+                        f"xorq build produced no stdout path; stderr: {result.stderr}"
+                    )
+                build_path = Path(lines[-1])
+            return build_path
+
+        with TemporaryDirectory() as tmpdir:
+            emit_path = Path(tmpdir) / "build_path"
+            emit_args = (
+                ("--emit-build-path-to", str(emit_path)) if used_emit_file else ()
             )
 
-        with tracer.start_as_current_span("packager.copy_artifacts"):
-            # xorq build writes the build path as its final stdout line;
-            # take the last non-empty line to tolerate stray preceding output.
-            lines = [line for line in result.stdout.splitlines() if line.strip()]
-            if not lines:
-                raise RuntimeError(
-                    f"xorq build produced no stdout path; stderr: {result.stderr}"
+            with tracer.start_as_current_span("packager.build"):
+                result = uv_tool_run(
+                    *base_args,
+                    *emit_args,
+                    python_version=self.python_version,
+                    with_=self.wheel_path,
+                    with_requirements=self.requirements_path,
                 )
-            build_path = Path(lines[-1])
-            shutil.copy2(self.wheel_path, build_path / self.wheel_path.name)
-            shutil.copy2(self.requirements_path, build_path / DumpFiles.requirements)
+
+            with tracer.start_as_current_span("packager.copy_artifacts"):
+                build_path = get_build_path(used_emit_file, emit_path, result)
+                shutil.copy2(self.wheel_path, build_path / self.wheel_path.name)
+                shutil.copy2(
+                    self.requirements_path, build_path / DumpFiles.requirements
+                )
 
         return result, build_path
 
