@@ -686,10 +686,29 @@ class PackagedUnboundRunner(_BasePackagedRunner):
     def _subcommand(self):
         return "run-unbound"
 
+    @functools.cached_property
+    def _unbind_flags(self):
+        # TODO(post-release): hard-code hyphenated form once PyPI xorq ships it.
+
+        result = uv_tool_run(
+            "xorq",
+            self._subcommand(),
+            "--help",
+            python_version=self.python_version,
+            with_=self.wheel_paths,
+            with_requirements=self.requirements_path,
+            check=False,
+        )
+        if result.returncode == 0 and "--to-unbind-tag" in result.stdout:
+            return ("--to-unbind-hash", "--to-unbind-tag")
+        return ("--to_unbind_hash", "--to_unbind_tag")
+
     def _extra_args(self):
+        if self.to_unbind_hash or self.to_unbind_tag:
+            hash_flag, tag_flag = self._unbind_flags
         return (
-            *(("--to-unbind-hash", self.to_unbind_hash) if self.to_unbind_hash else ()),
-            *(("--to-unbind-tag", self.to_unbind_tag) if self.to_unbind_tag else ()),
+            *((hash_flag, self.to_unbind_hash) if self.to_unbind_hash else ()),
+            *((tag_flag, self.to_unbind_tag) if self.to_unbind_tag else ()),
             *(("--typ", self.typ) if self.typ else ()),
             *(
                 ("--batch-size", str(self.batch_size))
