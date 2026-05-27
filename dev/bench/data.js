@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779904163089,
+  "lastUpdate": 1779904639477,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -15180,6 +15180,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.012113757562478088",
             "extra": "mean: 33.62421111538739 msec\nrounds: 26"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "445c0b5487d66135ecd706ae53b706efb8bde3dd",
+          "message": "fix(cli): build emit path file (#1999)\n\n`xorq uv build` parsed the last non-empty line of `xorq build` output to\nfind the build directory. this was failing for the case where we set\nOTEL fallback with `OTEL_EXPORTER_CONSOLE_FALLBACK=1` is set since the\nfallback was polluting the stdout with telemetry information.\n\n\nAdded `--emit-build-path-to` option to `xorq build` and `xorq uv build`\nmirroring the existing pattern in `xorq catalog compose`.\n\n---------\n\nCo-authored-by: dlovell <dlovell@gmail.com>\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-27T13:53:30-04:00",
+          "tree_id": "c4aea695741e11708debf51dd69b59bb75e13293",
+          "url": "https://github.com/xorq-labs/xorq/commit/445c0b5487d66135ecd706ae53b706efb8bde3dd"
+        },
+        "date": 1779904636492,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.448617944134043,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004445520939401362",
+            "extra": "mean: 105.8355841999969 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.1773039245443946,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07892355029035068",
+            "extra": "mean: 459.2836069999976 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.5763024138968568,
+            "unit": "iter/sec",
+            "range": "stddev: 0.142210118314688",
+            "extra": "mean: 1.735200089199998 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.2607122141429192,
+            "unit": "iter/sec",
+            "range": "stddev: 0.049693632525717804",
+            "extra": "mean: 442.3384780000049 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.2856488121939127,
+            "unit": "iter/sec",
+            "range": "stddev: 0.053644360133079945",
+            "extra": "mean: 437.5125323999953 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.3184443050270143,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06313599599949213",
+            "extra": "mean: 431.3237103999995 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 194.50443868353426,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014085018342147322",
+            "extra": "mean: 5.141270845890752 msec\nrounds: 292"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.382819455039135,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07322176380327554",
+            "extra": "mean: 185.77624762499667 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 32.04116501114298,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006336306143450745",
+            "extra": "mean: 31.209851441176664 msec\nrounds: 34"
           }
         ]
       }
