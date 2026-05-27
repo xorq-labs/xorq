@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779855999539,
+  "lastUpdate": 1779875293509,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -14919,6 +14919,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.005858909133465122",
             "extra": "mean: 23.424606142850195 msec\nrounds: 42"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "paddy@paddymullen.com",
+            "name": "Paddy Mullen",
+            "username": "paddymul"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "72d85f0723d4bc2106fc938ee815df3dbfbf3978",
+          "message": "docs(bsl-catalog): drop unneeded duckdb extra from tutorial (#1980)\n\n## Summary\n- The Build-a-Semantic-Catalog tutorial told readers to install\n`xorq[bsl,duckdb]` and included a \"Why DuckDB?\" callout claiming the\ncatalog's parquet read-back path needed it. That's not (or no longer)\ntrue — the default `xorq_datafusion` backend handles the full memtable →\ncatalog → recover → execute round-trip on its own.\n- Drops the `duckdb` extra from the `uv add` line, removes the stale\ncallout, and updates the snippets fixture's embedded\n`pyproject.toml`/`requirements.txt` so it matches.\n\n## Test plan\n- [x] Re-ran\n`docs/tutorials/core_tutorials/build_a_semantic_catalog.snippets.py`\nend-to-end with `duckdb` import-blocked via a `sys.meta_path` finder;\noutput (dimensions, both queries, the deliberate-failure assertion,\nrecover-from-fresh-handle query) matches the tutorial prose verbatim.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-05-27T11:44:26+02:00",
+          "tree_id": "0e2ac1a0266ac6159f6f159cec5c992f539a1e70",
+          "url": "https://github.com/xorq-labs/xorq/commit/72d85f0723d4bc2106fc938ee815df3dbfbf3978"
+        },
+        "date": 1779875290872,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.56062069762432,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02883390431753014",
+            "extra": "mean: 132.26427299999557 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.5989392833709863,
+            "unit": "iter/sec",
+            "range": "stddev: 0.035902100597525397",
+            "extra": "mean: 384.77235940000014 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.5890683096827057,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1228561377892769",
+            "extra": "mean: 1.6975959894000028 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.8218725702001324,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0233349143242346",
+            "extra": "mean: 354.3746130000045 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.8055783849208398,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03893148498650371",
+            "extra": "mean: 356.4327432000141 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.594421479086678,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06043917955386848",
+            "extra": "mean: 385.4423840000095 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 142.4558445281447,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018454574028458636",
+            "extra": "mean: 7.019719010562828 msec\nrounds: 284"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.91949369591711,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08465844476180963",
+            "extra": "mean: 168.9333668333385 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 32.21575270108112,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008071766600386198",
+            "extra": "mean: 31.040715058830248 msec\nrounds: 34"
           }
         ]
       }
