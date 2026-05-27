@@ -822,3 +822,74 @@ def test_from_build_path_falls_back_when_metadata_missing(tmp_path):
     bundle = WheelBundle.from_build_path(tmp_path)
     assert bundle.python_version is not None
     assert "==" not in bundle.python_version  # Range from Requires-Python.
+
+
+# ---------------------------------------------------------------------------
+# PackagedUnboundRunner unbind flag compatibility
+# ---------------------------------------------------------------------------
+
+
+def test_unbound_runner_uses_hyphenated_flags_when_supported(tmp_path, monkeypatch):
+    """When the inner xorq supports --to-unbind-tag (hyphenated), the runner
+    should pass the hyphenated form."""
+    _make_wheel(tmp_path)
+    requirements = tmp_path / DumpFiles.requirements
+    requirements.write_text("requests==2.31.0")
+    build_dir = tmp_path / "build"
+    build_dir.mkdir()
+    (build_dir / DumpFiles.requirements).write_text("requests==2.31.0")
+    _make_wheel(build_dir)
+
+    calls = []
+
+    def fake_uv_tool_run(*args, **kwargs):
+        calls.append(args)
+        if "--help" in args:
+            return subprocess.CompletedProcess(
+                args=(),
+                returncode=0,
+                stdout="Usage: xorq run-unbound [OPTIONS] BUILD_PATH\n  --to-unbind-tag TEXT\n",
+                stderr="",
+            )
+        return subprocess.CompletedProcess(args=(), returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
+
+    runner = PackagedUnboundRunner(build_path=build_dir, to_unbind_tag="source")
+    runner.run()
+    run_call = calls[-1]
+    assert "--to-unbind-tag" in run_call
+    assert "--to_unbind_tag" not in run_call
+
+
+def test_unbound_runner_falls_back_to_underscore_flags(tmp_path, monkeypatch):
+    """When the inner xorq predates the hyphenated flag rename, the runner
+    should pass the underscore form."""
+    _make_wheel(tmp_path)
+    requirements = tmp_path / DumpFiles.requirements
+    requirements.write_text("requests==2.31.0")
+    build_dir = tmp_path / "build"
+    build_dir.mkdir()
+    (build_dir / DumpFiles.requirements).write_text("requests==2.31.0")
+    _make_wheel(build_dir)
+
+    calls = []
+
+    def fake_uv_tool_run(*args, **kwargs):
+        calls.append(args)
+        if "--help" in args:
+            return subprocess.CompletedProcess(
+                args=(),
+                returncode=0,
+                stdout="Usage: xorq run-unbound [OPTIONS] BUILD_PATH\n  --to_unbind_tag TEXT\n",
+                stderr="",
+            )
+        return subprocess.CompletedProcess(args=(), returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
+
+    runner = PackagedUnboundRunner(build_path=build_dir, to_unbind_tag="source")
+    runner.run()
+    run_call = calls[-1]
+    assert "--to_unbind_tag" in run_call
+    assert "--to-unbind-tag" not in run_call
