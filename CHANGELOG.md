@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.3.27] - 2026-05-26
+### Details
+#### Added
+- Add expr_metadata and compute_expr_token by @dlovell in [#1990](https://github.com/xorq-labs/xorq/pull/1990)
+- Add uv run-unbound end-to-end roundtrip tests by @dlovell in [#1992](https://github.com/xorq-labs/xorq/pull/1992)
+- Add Claude Code style enforcement hook by @dlovell in [#1993](https://github.com/xorq-labs/xorq/pull/1993)
+
+#### Changed
+- Shared Click decorators, runner hierarchy, and uv parity commands by @dlovell in [#1962](https://github.com/xorq-labs/xorq/pull/1962)
+- Serve-unbound command and uv run-cached test by @dlovell in [#1987](https://github.com/xorq-labs/xorq/pull/1987)
+- Skip tests for devcontainer-only PRs by @dlovell in [#1984](https://github.com/xorq-labs/xorq/pull/1984)
+- Cosmetic cleanups split out from dasher migration by @dlovell in [#1991](https://github.com/xorq-labs/xorq/pull/1991)
+
+#### Fixed
+- Make file handler resilient and log path configurable by @dlovell in [#1967](https://github.com/xorq-labs/xorq/pull/1967)
+- Lock host worktrees to prevent container-side prune by @dlovell in [#1974](https://github.com/xorq-labs/xorq/pull/1974)
+- Harden read_record_batches and tighten types by @mesejo in [#1981](https://github.com/xorq-labs/xorq/pull/1981)
+- Tolerate extra columns in read_record_batches by @mesejo in [#1995](https://github.com/xorq-labs/xorq/pull/1995)
+
+#### Removed
+- Remove in-repo devcontainer, point to xorq-labs/devcontainer by @dlovell in [#1996](https://github.com/xorq-labs/xorq/pull/1996)
+- Remove unused 24MB parquet file to speed up clones by @dlovell in [#1997](https://github.com/xorq-labs/xorq/pull/1997)
+
 ## [0.3.26] - 2026-05-22
 ### Details
 #### Added
