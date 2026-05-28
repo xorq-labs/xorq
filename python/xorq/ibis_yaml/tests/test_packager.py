@@ -67,11 +67,26 @@ def prep_template_tmpdir(template, tmpdir):
         root_dir = first.rstrip("/").split("/")[0]
         zf.extractall(tmpdir)
     project_path = tmpdir.joinpath(root_dir)
-    # Remove pre-committed requirements.txt so the packager regenerates it
-    # from uv.lock. The templates' requirements.txt may have been exported
-    # with a different uv version than CI uses, causing a sync-check failure.
-    stale_reqs = project_path / DumpFiles.requirements
-    stale_reqs.unlink(missing_ok=True)
+    # Templates with the `xorq @ LATEST` placeholder are usable only via
+    # `xorq init`. The raw archive ships no lockfile and a placeholder spec,
+    # so we mirror init's substitution + lock here to make the project
+    # buildable (this is what `xorq init` does for users).
+    from xorq.init_templates import (  # noqa: PLC0415
+        find_latest_dep,
+        resolve_xorq_spec,
+        rewrite_template_xorq_dep,
+        run_uv_lock,
+    )
+
+    has_placeholder, extras = find_latest_dep(project_path)
+    if has_placeholder:
+        spec = resolve_xorq_spec(extras=extras)
+        rewrite_template_xorq_dep(project_path, spec)
+        run_uv_lock(project_path)
+    else:
+        # Legacy template still ships requirements.txt; the packager prefers
+        # uv.lock, so drop the (possibly stale) requirements.txt.
+        (project_path / DumpFiles.requirements).unlink(missing_ok=True)
     return (zip_path, project_path)
 
 

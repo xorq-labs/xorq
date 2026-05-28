@@ -741,13 +741,44 @@ def init_command(
     path="./xorq-template",
     template=InitTemplates.default,
     branch=None,
+    xorq_spec=None,
+    no_lock=False,
 ):
     from xorq.common.utils.download_utils import (  # noqa: PLC0415
         download_unpacked_xorq_template,
     )
+    from xorq.init_templates import (  # noqa: PLC0415
+        InitTemplateError,
+        find_latest_dep,
+        resolve_xorq_spec,
+        rewrite_template_xorq_dep,
+        run_uv_lock,
+    )
 
     path = download_unpacked_xorq_template(path, template, branch=branch)
-    print(f"initialized xorq template `{template}` to {path}")
+
+    has_placeholder, extras = find_latest_dep(path)
+    if not has_placeholder:
+        click.echo(
+            f"warning: template `{template}` does not contain `xorq @ LATEST`; "
+            "skipping substitution and `uv lock`. Update the template to the "
+            "new placeholder format.",
+            err=True,
+        )
+        click.echo(f"initialized xorq template `{template}` to {path}")
+        return path
+
+    try:
+        spec = resolve_xorq_spec(override=xorq_spec, extras=extras)
+        rewrite_template_xorq_dep(path, spec)
+        if not no_lock:
+            run_uv_lock(path)
+    except InitTemplateError as e:
+        # Surface to the user as a clean Click error, not a Python traceback.
+        raise click.ClickException(str(e)) from e
+    click.echo(
+        f"initialized xorq template `{template}` to {path} (xorq pinned to `{spec}`)"
+    )
     return path
 
 
@@ -1173,9 +1204,28 @@ def serve_flight_udxf(build_path, host, port, duckdb_path, prometheus_port, cach
     default=None,
     help="Branch to use for the template.",
 )
-def init(path, template, branch):
+@click.option(
+    "--xorq-spec",
+    default=None,
+    help=(
+        "Full PEP 508 spec to pin xorq to (e.g. 'xorq[duckdb] == 0.3.25' or "
+        "'xorq @ git+https://github.com/xorq-labs/xorq@main'). Overrides "
+        "auto-detection of the running xorq install."
+    ),
+)
+@click.option(
+    "--no-lock",
+    is_flag=True,
+    default=False,
+    help=(
+        "Skip running `uv lock` in the generated template directory. "
+        "You must run `uv lock` manually before `xorq uv build`, which "
+        "requires a lockfile."
+    ),
+)
+def init(path, template, branch, xorq_spec, no_lock):
     """Initialize a xorq project."""
-    init_command(path, template, branch)
+    init_command(path, template, branch, xorq_spec=xorq_spec, no_lock=no_lock)
 
 
 _COMPLETION_INSTALL_PATHS = {
