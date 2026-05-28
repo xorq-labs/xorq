@@ -34,7 +34,6 @@ from attr import (
 )
 from attr.validators import (
     deep_iterable,
-    in_,
     instance_of,
     optional,
 )
@@ -658,9 +657,7 @@ class _BasePackagedRunner(ABC):
     )
     output_path = field(validator=optional(instance_of(str)), default=None)
     output_format = field(
-        converter=lambda v: _convert_output_format(v),
-        validator=in_(OutputFormats),
-        default=DEFAULT_OUTPUT_FORMAT,
+        converter=_convert_output_format, default=DEFAULT_OUTPUT_FORMAT
     )
     limit = field(validator=optional(instance_of(int)), default=None)
     python_version = field(validator=_validate_python_version, default=None)
