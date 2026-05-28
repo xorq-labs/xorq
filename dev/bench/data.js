@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779972010012,
+  "lastUpdate": 1779972327941,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -15354,6 +15354,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0445785129733109",
             "extra": "mean: 38.19200408823566 msec\nrounds: 34"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5ac9bf8e0dd75adf40ee9a405540c95489c1a3c1",
+          "message": "deps(geospatial): move geoarrow-types to geospatial extra, drop envyaml/pythran (#1964)\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-28T08:41:45-04:00",
+          "tree_id": "0c7f8f809ba1aa521fcc8ee8ee2a1641e2143f21",
+          "url": "https://github.com/xorq-labs/xorq/commit/5ac9bf8e0dd75adf40ee9a405540c95489c1a3c1"
+        },
+        "date": 1779972325478,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.488294983555997,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005440894537414437",
+            "extra": "mean: 105.39301336363204 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.209283654616968,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07479320681849767",
+            "extra": "mean: 452.635404199998 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.5933693642520206,
+            "unit": "iter/sec",
+            "range": "stddev: 0.24462966489107726",
+            "extra": "mean: 1.685290917000009 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.6560088440249667,
+            "unit": "iter/sec",
+            "range": "stddev: 0.051700928156282314",
+            "extra": "mean: 376.50477040000396 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.560036805546668,
+            "unit": "iter/sec",
+            "range": "stddev: 0.061244439811418104",
+            "extra": "mean: 390.6193840000128 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.449092960249892,
+            "unit": "iter/sec",
+            "range": "stddev: 0.050770522481001085",
+            "extra": "mean: 408.3144316000016 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 147.8204408358825,
+            "unit": "iter/sec",
+            "range": "stddev: 0.019552019137129523",
+            "extra": "mean: 6.764964265735407 msec\nrounds: 286"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.619154393684512,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09502242212029398",
+            "extra": "mean: 177.96271999999172 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 32.356605710763155,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006165514113570749",
+            "extra": "mean: 30.90559031250173 msec\nrounds: 32"
           }
         ]
       }
