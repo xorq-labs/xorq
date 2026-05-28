@@ -16,6 +16,7 @@ PackagedRunner   build directory → execution output (via `uv tool run xorq run
 import functools
 import itertools
 import json
+import logging
 import operator
 import os
 import shutil
@@ -45,6 +46,9 @@ from xorq.common.utils.process_utils import in_nix_shell
 from xorq.ibis_yaml.enums import DumpFiles
 
 
+logger = logging.getLogger(__name__)
+
+
 class UvToolRunError(subprocess.CalledProcessError):
     def __str__(self):
         parts = [super().__str__()]
@@ -55,26 +59,48 @@ class UvToolRunError(subprocess.CalledProcessError):
         return "\n\n".join(parts)
 
 
-def _inner_xorq_supports_emit_option(python_version, wheel_path, requirements_path):
-    """Check whether the resolved xorq CLI supports --emit-build-path-to.
+@frozen
+class CliCapabilities:
+    _help_text: str = field(repr=False)
 
-    Runs ``xorq build --help`` and looks for the flag in the output.
-    This is a ~200ms warm-cache call — negligible next to the build itself.
+    @classmethod
+    def probe(cls, subcommand, *, python_version, with_, with_requirements):
+        result = uv_tool_run(
+            "xorq",
+            subcommand,
+            "--help",
+            python_version=python_version,
+            with_=with_,
+            with_requirements=with_requirements,
+            check=False,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "xorq %s --help exited %d; capability detection disabled",
+                subcommand,
+                result.returncode,
+            )
+            return cls(help_text="")
+        return cls(help_text=result.stdout)
 
-    TODO(post-release): remove once the published xorq on PyPI ships
-    --emit-build-path-to. This helper and its caller's stdout-parsing
-    branch become dead code at that point.
-    """
-    result = uv_tool_run(
-        "xorq",
-        "build",
-        "--help",
-        python_version=python_version,
-        with_=wheel_path,
-        with_requirements=requirements_path,
-        check=False,
-    )
-    return result.returncode == 0 and "--emit-build-path-to" in result.stdout
+    def has_flag(self, name: str) -> bool:
+        return any(
+            tok == name or tok.startswith(name + "=") for tok in self._help_text.split()
+        )
+
+    def resolve_flag(self, *candidates: str) -> str | None:
+        return next((f for f in candidates if self.has_flag(f)), None)
+
+    def optional_args(self, value, *flag_candidates, fallback=()):
+        if value is None:
+            return ()
+        flag = self.resolve_flag(*flag_candidates)
+        if flag is None:
+            logger.debug(
+                "inner xorq does not recognize any of %s; argument dropped",
+                flag_candidates,
+            )
+        return (flag, value) if flag is not None else fallback
 
 
 PYPROJECT_NAME = "pyproject.toml"
@@ -487,12 +513,11 @@ class PackagedBuilder:
             *(("--debug",) if self.debug else ()),
         )
 
-        # TODO(post-release): remove emit-path fallback once the published
-        # xorq on PyPI ships --emit-build-path-to.
-        used_emit_file = _inner_xorq_supports_emit_option(
-            self.python_version,
-            self.wheel_path,
-            self.requirements_path,
+        caps = CliCapabilities.probe(
+            "build",
+            python_version=self.python_version,
+            with_=self.wheel_path,
+            with_requirements=self.requirements_path,
         )
 
         def get_build_path(used_emit_file, emit_path, result):
@@ -521,9 +546,8 @@ class PackagedBuilder:
 
         with TemporaryDirectory() as tmpdir:
             emit_path = Path(tmpdir) / "build_path"
-            emit_args = (
-                ("--emit-build-path-to", str(emit_path)) if used_emit_file else ()
-            )
+            emit_args = caps.optional_args(str(emit_path), "--emit-build-path-to")
+            used_emit_file = bool(emit_args)
 
             with tracer.start_as_current_span("packager.build"):
                 result = uv_tool_run(
@@ -743,29 +767,26 @@ class PackagedUnboundRunner(_BasePackagedRunner):
     def _subcommand(self):
         return "run-unbound"
 
-    @functools.cached_property
-    def _unbind_flags(self):
-        # TODO(post-release): hard-code hyphenated form once PyPI xorq ships it.
-
-        result = uv_tool_run(
-            "xorq",
-            self._subcommand(),
-            "--help",
-            python_version=self.python_version,
-            with_=self.wheel_paths,
-            with_requirements=self.requirements_path,
-            check=False,
-        )
-        if result.returncode == 0 and "--to-unbind-tag" in result.stdout:
-            return ("--to-unbind-hash", "--to-unbind-tag")
-        return ("--to_unbind_hash", "--to_unbind_tag")
-
     def _extra_args(self):
         if self.to_unbind_hash or self.to_unbind_tag:
-            hash_flag, tag_flag = self._unbind_flags
+            caps = CliCapabilities.probe(
+                "run-unbound",
+                python_version=self.python_version,
+                with_=self.wheel_paths,
+                with_requirements=self.requirements_path,
+            )
+            unbind_hash_args = caps.optional_args(
+                self.to_unbind_hash, "--to-unbind-hash", "--to_unbind_hash"
+            )
+            unbind_tag_args = caps.optional_args(
+                self.to_unbind_tag, "--to-unbind-tag", "--to_unbind_tag"
+            )
+        else:
+            unbind_hash_args = ()
+            unbind_tag_args = ()
         return (
-            *((hash_flag, self.to_unbind_hash) if self.to_unbind_hash else ()),
-            *((tag_flag, self.to_unbind_tag) if self.to_unbind_tag else ()),
+            *unbind_hash_args,
+            *unbind_tag_args,
             *(("--typ", self.typ) if self.typ else ()),
             *(
                 ("--batch-size", str(self.batch_size))

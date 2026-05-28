@@ -27,6 +27,7 @@ from xorq.ibis_yaml.enums import DumpFiles
 from xorq.ibis_yaml.packager import (
     PYPROJECT_NAME,
     UVLOCK_NAME,
+    CliCapabilities,
     JointBundle,
     PackagedBuilder,
     PackagedCachedRunner,
@@ -265,9 +266,8 @@ def test_packaged_unbound_runner_rejects_missing_wheel(tmp_path):
         PackagedUnboundRunner(build_path=build_dir)
 
 
-_HELP_WITH_EMIT = (
-    "Usage: xorq build [OPTIONS] SCRIPT_PATH\n  --emit-build-path-to TEXT\n"
-)
+_CAPS_WITH_EMIT = CliCapabilities(help_text="--emit-build-path-to")
+_CAPS_WITHOUT_EMIT = CliCapabilities(help_text="")
 
 
 def test_packaged_builder_raises_when_emit_file_missing(tmp_path, monkeypatch):
@@ -281,11 +281,11 @@ def test_packaged_builder_raises_when_emit_file_missing(tmp_path, monkeypatch):
 
     bundle = WheelBundle(wheel_path=wheel, requirements_path=requirements)
 
+    monkeypatch.setattr(
+        CliCapabilities, "probe", staticmethod(lambda *a, **kw: _CAPS_WITH_EMIT)
+    )
+
     def fake_uv_tool_run(*args, **kwargs):
-        if "--help" in args:
-            return subprocess.CompletedProcess(
-                args=(), returncode=0, stdout=_HELP_WITH_EMIT, stderr=""
-            )
         return subprocess.CompletedProcess(
             args=(), returncode=0, stdout="", stderr="some-stderr"
         )
@@ -307,11 +307,11 @@ def test_packaged_builder_raises_when_emit_file_empty(tmp_path, monkeypatch):
 
     bundle = WheelBundle(wheel_path=wheel, requirements_path=requirements)
 
+    monkeypatch.setattr(
+        CliCapabilities, "probe", staticmethod(lambda *a, **kw: _CAPS_WITH_EMIT)
+    )
+
     def fake_uv_tool_run(*args, **kwargs):
-        if "--help" in args:
-            return subprocess.CompletedProcess(
-                args=(), returncode=0, stdout=_HELP_WITH_EMIT, stderr=""
-            )
         emit_path = Path(args[args.index("--emit-build-path-to") + 1])
         emit_path.write_text("")
         return subprocess.CompletedProcess(args=(), returncode=0, stdout="", stderr="")
@@ -324,10 +324,8 @@ def test_packaged_builder_raises_when_emit_file_empty(tmp_path, monkeypatch):
 
 
 def test_packaged_builder_falls_back_when_inner_xorq_lacks_flag(tmp_path, monkeypatch):
-    """If the inner xorq (resolved by uv tool run from requirements) predates
-    --emit-build-path-to, the packager skips the flag and parses the build
-    path from stdout. This is required while the published xorq on PyPI is
-    older than the local CLI."""
+    """If the inner xorq predates --emit-build-path-to, the packager skips
+    the flag and parses the build path from stdout."""
     wheel = _make_wheel(tmp_path)
     requirements = tmp_path / DumpFiles.requirements
     requirements.write_text("requests==2.31.0")
@@ -338,17 +336,14 @@ def test_packaged_builder_falls_back_when_inner_xorq_lacks_flag(tmp_path, monkey
 
     bundle = WheelBundle(wheel_path=wheel, requirements_path=requirements)
 
+    monkeypatch.setattr(
+        CliCapabilities, "probe", staticmethod(lambda *a, **kw: _CAPS_WITHOUT_EMIT)
+    )
+
     calls = []
 
     def fake_uv_tool_run(*args, **kwargs):
         calls.append(args)
-        if "--help" in args:
-            return subprocess.CompletedProcess(
-                args=(),
-                returncode=0,
-                stdout="Usage: xorq build [OPTIONS] SCRIPT_PATH\n",
-                stderr="",
-            )
         return subprocess.CompletedProcess(
             args=(), returncode=0, stdout=f"{target_build}\n", stderr=""
         )
@@ -358,13 +353,12 @@ def test_packaged_builder_falls_back_when_inner_xorq_lacks_flag(tmp_path, monkey
     builder = PackagedBuilder(script_path=script, bundle=bundle)
     builder.build()
     assert builder.build_path == target_build
-    assert len(calls) == 2
-    assert "--help" in calls[0]
-    assert "--emit-build-path-to" not in calls[1]
+    assert len(calls) == 1
+    assert "--emit-build-path-to" not in calls[0]
 
 
 def test_packaged_builder_does_not_fall_back_when_flag_supported(tmp_path, monkeypatch):
-    """When the --help probe reports --emit-build-path-to, the builder
+    """When CliCapabilities reports --emit-build-path-to, the builder
     uses the flag instead of parsing stdout."""
     wheel = _make_wheel(tmp_path)
     requirements = tmp_path / DumpFiles.requirements
@@ -376,20 +370,14 @@ def test_packaged_builder_does_not_fall_back_when_flag_supported(tmp_path, monke
 
     bundle = WheelBundle(wheel_path=wheel, requirements_path=requirements)
 
+    monkeypatch.setattr(
+        CliCapabilities, "probe", staticmethod(lambda *a, **kw: _CAPS_WITH_EMIT)
+    )
+
     calls = []
 
     def fake_uv_tool_run(*args, **kwargs):
         calls.append(args)
-        if "--help" in args:
-            return subprocess.CompletedProcess(
-                args=(),
-                returncode=0,
-                stdout=(
-                    "Usage: xorq build [OPTIONS] SCRIPT_PATH\n"
-                    "  --emit-build-path-to TEXT\n"
-                ),
-                stderr="",
-            )
         emit_idx = args.index("--emit-build-path-to")
         Path(args[emit_idx + 1]).write_text(str(target_build))
         return subprocess.CompletedProcess(args=(), returncode=0, stdout="", stderr="")
@@ -399,9 +387,8 @@ def test_packaged_builder_does_not_fall_back_when_flag_supported(tmp_path, monke
     builder = PackagedBuilder(script_path=script, bundle=bundle)
     builder.build()
     assert builder.build_path == target_build
-    assert len(calls) == 2
-    assert "--help" in calls[0]
-    assert "--emit-build-path-to" in calls[1]
+    assert len(calls) == 1
+    assert "--emit-build-path-to" in calls[0]
 
 
 def test_packaged_builder_propagates_build_failure(tmp_path, monkeypatch):
@@ -414,17 +401,11 @@ def test_packaged_builder_propagates_build_failure(tmp_path, monkeypatch):
 
     bundle = WheelBundle(wheel_path=wheel, requirements_path=requirements)
 
+    monkeypatch.setattr(
+        CliCapabilities, "probe", staticmethod(lambda *a, **kw: _CAPS_WITH_EMIT)
+    )
+
     def fake_uv_tool_run(*args, **kwargs):
-        if "--help" in args:
-            return subprocess.CompletedProcess(
-                args=(),
-                returncode=0,
-                stdout=(
-                    "Usage: xorq build [OPTIONS] SCRIPT_PATH\n"
-                    "  --emit-build-path-to TEXT\n"
-                ),
-                stderr="",
-            )
         raise UvToolRunError(
             returncode=2,
             cmd=("uv", "tool", "run", *args),
@@ -1011,17 +992,13 @@ def test_unbound_runner_uses_hyphenated_flags_when_supported(tmp_path, monkeypat
     (build_dir / DumpFiles.requirements).write_text("requests==2.31.0")
     _make_wheel(build_dir)
 
+    caps = CliCapabilities(help_text="--to-unbind-tag --to-unbind-hash")
+    monkeypatch.setattr(CliCapabilities, "probe", staticmethod(lambda *a, **kw: caps))
+
     calls = []
 
     def fake_uv_tool_run(*args, **kwargs):
         calls.append(args)
-        if "--help" in args:
-            return subprocess.CompletedProcess(
-                args=(),
-                returncode=0,
-                stdout="Usage: xorq run-unbound [OPTIONS] BUILD_PATH\n  --to-unbind-tag TEXT\n",
-                stderr="",
-            )
         return subprocess.CompletedProcess(args=(), returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
@@ -1041,17 +1018,13 @@ def test_unbound_runner_falls_back_to_underscore_flags(tmp_path, monkeypatch):
     (build_dir / DumpFiles.requirements).write_text("requests==2.31.0")
     _make_wheel(build_dir)
 
+    caps = CliCapabilities(help_text="--to_unbind_tag --to_unbind_hash")
+    monkeypatch.setattr(CliCapabilities, "probe", staticmethod(lambda *a, **kw: caps))
+
     calls = []
 
     def fake_uv_tool_run(*args, **kwargs):
         calls.append(args)
-        if "--help" in args:
-            return subprocess.CompletedProcess(
-                args=(),
-                returncode=0,
-                stdout="Usage: xorq run-unbound [OPTIONS] BUILD_PATH\n  --to_unbind_tag TEXT\n",
-                stderr="",
-            )
         return subprocess.CompletedProcess(args=(), returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr("xorq.ibis_yaml.packager.uv_tool_run", fake_uv_tool_run)
@@ -1061,3 +1034,59 @@ def test_unbound_runner_falls_back_to_underscore_flags(tmp_path, monkeypatch):
     run_call = calls[-1]
     assert "--to_unbind_tag" in run_call
     assert "--to-unbind-tag" not in run_call
+
+
+# ---------------------------------------------------------------------------
+# CliCapabilities
+# ---------------------------------------------------------------------------
+
+
+def test_has_flag():
+    caps = CliCapabilities(help_text="  --emit-build-path-to  --debug")
+    assert caps.has_flag("--emit-build-path-to")
+    assert caps.has_flag("--debug")
+    assert not caps.has_flag("--nonexistent")
+
+
+def test_has_flag_equals_format():
+    caps = CliCapabilities(help_text="  --emit-build-path-to=PATH  --debug")
+    assert caps.has_flag("--emit-build-path-to")
+
+
+def test_has_flag_no_prefix_bleed():
+    """--to-unbind must not match --to-unbind-tag."""
+    caps = CliCapabilities(help_text="  --to-unbind-tag TEXT")
+    assert not caps.has_flag("--to-unbind")
+
+
+def test_resolve_flag_prefers_first_candidate():
+    caps = CliCapabilities(help_text="--to-unbind-tag --to_unbind_tag")
+    assert caps.resolve_flag("--to-unbind-tag", "--to_unbind_tag") == "--to-unbind-tag"
+
+
+def test_resolve_flag_falls_back_to_second():
+    caps = CliCapabilities(help_text="--to_unbind_tag")
+    assert caps.resolve_flag("--to-unbind-tag", "--to_unbind_tag") == "--to_unbind_tag"
+
+
+def test_resolve_flag_returns_none_when_absent():
+    caps = CliCapabilities(help_text="--something-else")
+    assert caps.resolve_flag("--to-unbind-tag", "--to_unbind_tag") is None
+
+
+def test_optional_args_returns_flag_and_value():
+    caps = CliCapabilities(help_text="--emit-build-path-to")
+    assert caps.optional_args("/tmp/out", "--emit-build-path-to") == (
+        "--emit-build-path-to",
+        "/tmp/out",
+    )
+
+
+def test_optional_args_returns_fallback_when_missing():
+    caps = CliCapabilities(help_text="--something-else")
+    assert caps.optional_args("/tmp/out", "--emit-build-path-to", fallback=()) == ()
+
+
+def test_optional_args_returns_empty_when_value_is_none():
+    caps = CliCapabilities(help_text="--emit-build-path-to")
+    assert caps.optional_args(None, "--emit-build-path-to") == ()
