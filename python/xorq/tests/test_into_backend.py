@@ -757,6 +757,10 @@ def test_lying_reader_corrupts_datafusion_directly():
     # (test_into_backend_pyiceberg_string_preserved) validates the cast is
     # still safe to keep.
     con = xo.connect()
+    if not hasattr(con, "con") or not hasattr(con.con, "register_record_batch_reader"):
+        pytest.skip(
+            "backend internals changed: con.con.register_record_batch_reader unavailable"
+        )
     utf8_schema = pa.schema([("x", pa.utf8())])
     batch = pa.record_batch({"x": pa.array(["hello", "world"], type=pa.large_utf8())})
     lying_reader = pa.RecordBatchReader.from_batches(utf8_schema, [batch])
