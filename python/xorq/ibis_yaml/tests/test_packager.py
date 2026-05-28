@@ -11,6 +11,7 @@ from pathlib import (
 import pytest
 
 from xorq.catalog.catalog import _ensure_wheel_artifacts
+from xorq.cli_constants import OutputFormats
 from xorq.common.utils.download_utils import (
     download_xorq_template,
 )
@@ -35,6 +36,7 @@ from xorq.ibis_yaml.packager import (
     UvToolRunError,
     WheelBundle,
     WheelPackager,
+    _convert_output_format,
     _link_mode_args,
     _nix_env,
     _read_requires_python,
@@ -1061,3 +1063,23 @@ def test_unbound_runner_falls_back_to_underscore_flags(tmp_path, monkeypatch):
     run_call = calls[-1]
     assert "--to_unbind_tag" in run_call
     assert "--to-unbind-tag" not in run_call
+
+
+@pytest.mark.parametrize("value", [f.value for f in OutputFormats])
+def test_convert_output_format_valid(value):
+    result = _convert_output_format(value)
+    assert isinstance(result, OutputFormats)
+    assert result.value == value
+
+
+@pytest.mark.parametrize("value", list(OutputFormats))
+def test_convert_output_format_accepts_enum_member(value):
+    assert _convert_output_format(value) is value
+
+
+def test_convert_output_format_invalid_raises_with_choices():
+    with pytest.raises(ValueError, match="invalid output_format") as exc_info:
+        _convert_output_format("invalid_format")
+    msg = str(exc_info.value)
+    for fmt in OutputFormats:
+        assert fmt.value in msg
