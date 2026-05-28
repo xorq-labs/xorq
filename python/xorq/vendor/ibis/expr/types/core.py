@@ -1063,6 +1063,16 @@ class LETSQLAccessor:
         return find_all_sources(self.expr)
 
     @property
+    def is_plot(self):
+        from xorq.common.utils.node_utils import find_by_expr_tag
+        from xorq.common.utils.plot_utils import PLOT_TAG
+
+        return any(
+            any(dtype.is_binary() for dtype in node.schema.values())
+            for node in find_by_expr_tag(self.expr, PLOT_TAG)
+        )
+
+    @property
     def is_multiengine(self):
         (_, *rest) = set(self.backends)
         return bool(rest)
