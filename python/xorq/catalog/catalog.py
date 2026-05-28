@@ -797,6 +797,7 @@ class Catalog:
         check_consistency=True,
         annex=None,
         git_config=None,
+        depth=None,
         **remote_kwargs,
     ):
         """Clone a catalog repo and optionally init git-annex.
@@ -812,6 +813,11 @@ class Catalog:
         - Any ``AnnexConfig`` instance — git-annex is initialised and
           the remote is enabled if remote.log has a special remote configured.
 
+        *depth*, when set to an integer, performs a shallow clone
+        (``git clone --depth=<n>``).  Safe for read-only or
+        forward-commit workflows; avoid with git-annex catalogs
+        unless you have verified compatibility.
+
         Content is **not** fetched eagerly; it is retrieved on demand
         when ``entry.expr`` is accessed (via ``fetch_content``).
         For S3 remotes without embedded credentials, the caller
@@ -824,7 +830,8 @@ class Catalog:
         if repo_path is None:
             name = Path(urlparse(url).path).stem
             repo_path = cls.name_to_repo_path(name)
-        repo = Repo.clone_from(url, repo_path)
+        multi_options = [f"--depth={int(depth)}"] if depth is not None else None
+        repo = Repo.clone_from(url, repo_path, multi_options=multi_options)
 
         # annex=False → force plain git
         if annex is False:
@@ -986,12 +993,16 @@ class Catalog:
 
     @classmethod
     def clone_from_as_submodule(
-        cls, root_repo, url, check_consistency=True, annex=None
+        cls, root_repo, url, check_consistency=True, annex=None, depth=None
     ):
         name = Path(urlparse(url).path).stem
         repo_path = Path(root_repo.working_dir).joinpath(cls.submodule_rel_path, name)
         self = cls.clone_from(
-            url, repo_path, check_consistency=check_consistency, annex=annex
+            url,
+            repo_path,
+            check_consistency=check_consistency,
+            annex=annex,
+            depth=depth,
         )
         self.add_as_submodule(root_repo)
         return self
@@ -1017,6 +1028,7 @@ class Catalog:
         init=None,
         check_consistency=True,
         annex=None,
+        depth=None,
     ):
         if isinstance(root_repo, (str, Path)):
             root_repo = Repo(root_repo)
@@ -1028,6 +1040,7 @@ class Catalog:
                         url=url,
                         check_consistency=check_consistency,
                         annex=annex,
+                        depth=depth,
                     )
                 case (str(), None, None):
                     return cls.from_name_as_submodule(
@@ -1053,6 +1066,7 @@ class Catalog:
                     repo_path=path,
                     check_consistency=check_consistency,
                     annex=annex,
+                    depth=depth,
                 )
         else:
             match (name, path):
