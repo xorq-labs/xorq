@@ -40,14 +40,25 @@ from xorq.catalog.annex import (
     AnnexError,
     RemoteConfig,
 )
-from xorq.catalog.backend import CatalogBackend, GitAnnexBackend, GitBackend
+from xorq.catalog.backend import (
+    CatalogBackend,
+    GitAnnexBackend,
+    GitBackend,
+    GitPointerBackend,
+)
 from xorq.catalog.constants import (
     ANNEX_BRANCH,
     CATALOG_YAML_NAME,
+    CONTENT_STORE_YAML,
     MAIN_BRANCH,
     METADATA_APPEND,
     PREFERRED_SUFFIX,
     CatalogInfix,
+)
+from xorq.catalog.content_store import (
+    ContentCache,
+    ContentStore,
+    ContentStoreConfig,
 )
 from xorq.catalog.exceptions import CatalogConfigurationError, CatalogPushError
 from xorq.catalog.expr_utils import (
@@ -766,6 +777,13 @@ class Catalog:
 
         # everything else in repo is either catalog_path or metadata_path from an entry the catalog_yaml knows about, or an alias symlink
         actual = sorted(el for el in path_strings if el != catalog_yaml_relpath_string)
+        gitignore_relpath = str(Path(".gitignore"))
+        content_store_relpath = str(Path(CONTENT_STORE_YAML))
+        actual = sorted(
+            el
+            for el in actual
+            if el not in (gitignore_relpath, content_store_relpath)
+        )
         expected = sorted(
             (
                 *(
@@ -773,7 +791,7 @@ class Catalog:
                     for catalog_entry in self.catalog_entries
                     for path in (
                         catalog_entry.metadata_path,
-                        catalog_entry.catalog_path,
+                        self.backend.entry_tracked_path(catalog_entry.catalog_path),
                     )
                 ),
                 *(
@@ -825,6 +843,23 @@ class Catalog:
             name = Path(urlparse(url).path).stem
             repo_path = cls.name_to_repo_path(name)
         repo = Repo.clone_from(url, repo_path)
+
+        # pointer backend detection: content_store.yaml in cloned repo
+        content_store_path = Path(repo_path) / CONTENT_STORE_YAML
+        if content_store_path.exists():
+            config = ContentStoreConfig.from_yaml(content_store_path)
+            store = config.make_store()
+            cache = ContentCache.default()
+            backend = GitPointerBackend(
+                repo=repo,
+                content_store=store,
+                cache=cache,
+                catalog_id=config.catalog_id,
+            )
+            catalog = cls(backend=backend)
+            if check_consistency:
+                catalog.assert_consistency()
+            return catalog
 
         # annex=False → force plain git
         if annex is False:
@@ -887,14 +922,43 @@ class Catalog:
         init=None,
         check_consistency=True,
         annex=None,
+        content_store=None,
         **remote_kwargs,
     ):
         remote_config = annex if isinstance(annex, RemoteConfig) else None
         init = not Path(repo_path).exists() if init is None else init
         if init:
-            repo = cls.init_repo_path(repo_path, annex=annex)
+            repo = cls.init_repo_path(
+                repo_path, annex=annex, content_store=content_store
+            )
         else:
             repo = Repo(repo_path)
+
+        # content_store detection: explicit param or content_store.yaml on disk
+        content_store_path = Path(repo_path) / CONTENT_STORE_YAML
+        if content_store is not None or content_store_path.exists():
+            if content_store_path.exists():
+                config = ContentStoreConfig.from_yaml(content_store_path)
+                if not init and content_store is not None and content_store != config:
+                    raise ValueError(
+                        f"explicit content_store conflicts with committed "
+                        f"{CONTENT_STORE_YAML} at {repo_path}: "
+                        f"passed {content_store}, on disk {config}"
+                    )
+            else:
+                config = content_store
+            store = config.make_store()
+            cache = ContentCache.default()
+            backend = GitPointerBackend(
+                repo=repo,
+                content_store=store,
+                cache=cache,
+                catalog_id=config.catalog_id,
+            )
+            catalog = cls(backend=backend)
+            if check_consistency:
+                catalog.assert_consistency()
+            return catalog
 
         # annex=False → force plain git
         if annex is False:
@@ -1086,11 +1150,33 @@ class Catalog:
         return repo_path
 
     @staticmethod
-    def init_repo_path(repo_path, bare=False, annex=None):
+    def init_repo_path(repo_path, bare=False, annex=None, content_store=None):
         assert not (repo_path := Path(repo_path)).exists(), (
             f"Catalog repo already exists at {repo_path}"
         )
         repo = Repo.init(repo_path, mkdir=True, bare=bare, initial_branch=MAIN_BRANCH)
+        if content_store is not None:
+            import uuid  # noqa: PLC0415
+
+            config = content_store
+            if isinstance(content_store, ContentStore):
+                raise TypeError(
+                    "Pass a ContentStoreConfig to init_repo_path, not a ContentStore"
+                )
+            if not isinstance(config, ContentStoreConfig):
+                raise TypeError(
+                    f"content_store must be a ContentStoreConfig; got {type(config)}"
+                )
+            if not config.catalog_id:
+                config = ContentStoreConfig(
+                    type=config.type,
+                    catalog_id=str(uuid.uuid4()),
+                    config=config.config,
+                )
+            config.write_yaml(repo_path / CONTENT_STORE_YAML)
+            gitignore_path = repo_path / ".gitignore"
+            gitignore_path.write_text("entries/*.zip\n")
+            repo.index.add([CONTENT_STORE_YAML, ".gitignore"])
         repo.index.commit("initial commit")
         if isinstance(annex, AnnexConfig):
             remote_config = annex if isinstance(annex, RemoteConfig) else None
@@ -1315,10 +1401,11 @@ class CatalogEntry:
     def _exists_components(self):
         # catalog_path may be an annex symlink pointing to content not yet
         # available locally; lexists / is_symlink handles that case.
-        catalog_path = self.catalog_path
+        # For the pointer backend, the tracked path is a .pointer file.
+        tracked = self.catalog.backend.entry_tracked_path(self.catalog_path)
         return {
             "metadata_path": self.metadata_path.exists(),
-            "catalog_path": catalog_path.exists() or catalog_path.is_symlink(),
+            "catalog_path": tracked.exists() or self.catalog_path.is_symlink(),
             "catalog_yaml_contents": self.catalog.catalog_yaml.contains(self.name),
         }
 

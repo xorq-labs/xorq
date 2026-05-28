@@ -21,7 +21,7 @@ from xorq.catalog.annex import (
     S3RemoteConfig,
     _do_inside,
 )
-from xorq.catalog.backend import GitAnnexBackend, GitBackend
+from xorq.catalog.backend import GitAnnexBackend, GitBackend, GitPointerBackend
 from xorq.catalog.catalog import (
     Catalog,
     CatalogAddition,
@@ -29,7 +29,12 @@ from xorq.catalog.catalog import (
     CatalogEntry,
     _format_push_failures,
 )
-from xorq.catalog.constants import MAIN_BRANCH, CatalogInfix
+from xorq.catalog.constants import CONTENT_STORE_YAML, MAIN_BRANCH, CatalogInfix
+from xorq.catalog.content_store import (
+    ContentCache,
+    ContentStoreConfig,
+    DirectoryContentStore,
+)
 from xorq.catalog.exceptions import (
     CatalogConfigurationError,
     CatalogPushError,
@@ -599,6 +604,76 @@ def test_from_repo_path_false_forces_plain_git(tmpdir):
     assert isinstance(reopened.backend, GitBackend)
 
 
+def test_content_cache_fetch_from_protects_fetched_file(tmp_path):
+    """A fetched file larger than max_bytes is not evicted by its own insertion."""
+    store = DirectoryContentStore(directory=str(tmp_path / "store"))
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10)
+    key = "cat/aa/bb/deadbeef.zip"
+    src = tmp_path / "big.bin"
+    src.write_bytes(b"x" * 100)  # 100 bytes > max_bytes
+    store.put(key, src)
+
+    dest = cache.fetch_from(store, key)
+    assert dest.exists()  # protected from its own eviction
+    assert dest.read_bytes() == b"x" * 100
+    assert cache.get_path(key) is not None
+
+
+def test_content_cache_evicts_older_entries(tmp_path):
+    """Older entries are evicted once the cache exceeds max_bytes."""
+    store = DirectoryContentStore(directory=str(tmp_path / "store"))
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=150)
+    keys = []
+    for i in range(3):
+        src = tmp_path / f"f{i}.bin"
+        src.write_bytes(bytes([i]) * 100)
+        key = f"cat/{i:02d}/x/h{i}.zip"
+        store.put(key, src)
+        cache.fetch_from(store, key)
+        keys.append(key)
+
+    total = sum(p.stat().st_size for p in (tmp_path / "cache").rglob("*") if p.is_file())
+    assert total <= 150
+    assert cache.get_path(keys[-1]) is not None  # most recent survives
+    assert cache.get_path(keys[0]) is None  # oldest evicted
+
+
+def _directory_store_config(directory, catalog_id=""):
+    return ContentStoreConfig(
+        type="directory",
+        catalog_id=catalog_id,
+        config={"directory": str(directory)},
+    )
+
+
+def test_from_repo_path_conflicting_content_store_raises(tmpdir):
+    """Opening an existing pointer repo with a conflicting content_store raises."""
+    repo_path = Path(tmpdir).joinpath("pointer-repo")
+    Catalog.from_repo_path(
+        repo_path,
+        init=True,
+        content_store=_directory_store_config(Path(tmpdir) / "store-a"),
+    )
+
+    conflicting = _directory_store_config(Path(tmpdir) / "store-b", catalog_id="other")
+    with pytest.raises(ValueError, match="conflicts with committed"):
+        Catalog.from_repo_path(repo_path, init=False, content_store=conflicting)
+
+
+def test_from_repo_path_matching_content_store_ok(tmpdir):
+    """Reopening with a content_store equal to the committed config is accepted."""
+    repo_path = Path(tmpdir).joinpath("pointer-repo")
+    Catalog.from_repo_path(
+        repo_path,
+        init=True,
+        content_store=_directory_store_config(Path(tmpdir) / "store-a"),
+    )
+
+    committed = ContentStoreConfig.from_yaml(repo_path / CONTENT_STORE_YAML)
+    reopened = Catalog.from_repo_path(repo_path, init=False, content_store=committed)
+    assert isinstance(reopened.backend, GitPointerBackend)
+
+
 _VALID_ARCHIVE_NAMES = (*REQUIRED_ARCHIVE_NAMES, TEST_WHEEL_NAME)
 
 
@@ -637,12 +712,14 @@ def test_assert_consistency(catalog, tmpdir):
     catalog_addition = CatalogAddition(BuildZip(zip_path), catalog)
     catalog_addition.ensure_dirs()
     catalog_path = catalog_addition.catalog_entry.catalog_path
+    tracked_path = catalog.backend.entry_tracked_path(catalog_path)
     with catalog.commit_context("bad commit"):
-        shutil.copy(
-            zip_path,
-            catalog_path,
-        )
-        catalog.repo.index.add((catalog_path,))
+        if tracked_path != catalog_path:
+            tracked_path.write_text("xorq-pointer v1\nsha256 abc\nsize 0\n")
+            catalog.repo.index.add((tracked_path,))
+        else:
+            shutil.copy(zip_path, catalog_path)
+            catalog.repo.index.add((catalog_path,))
     with pytest.raises(AssertionError):
         catalog.assert_consistency()
     with pytest.raises(AssertionError):

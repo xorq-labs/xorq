@@ -1,4 +1,5 @@
 import abc
+import shutil
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -10,6 +11,15 @@ from attr.validators import instance_of
 from git import Repo
 
 from xorq.catalog.annex import Annex, AnnexError
+from xorq.catalog.constants import POINTER_SUFFIX
+from xorq.catalog.content_store import (
+    ContentCache,
+    ContentStore,
+    compute_sha256,
+    content_key,
+    parse_pointer,
+    write_pointer,
+)
 
 
 class CatalogBackend(abc.ABC):
@@ -32,6 +42,9 @@ class CatalogBackend(abc.ABC):
 
     @abc.abstractmethod
     def fetch_content(self, *paths): ...
+
+    def entry_tracked_path(self, catalog_path):
+        return Path(catalog_path)
 
 
 @frozen
@@ -122,3 +135,90 @@ class GitAnnexBackend(CatalogBackend):
             return
         relpaths = [self.get_relpath(p) for p in paths]
         self.annex.get(*relpaths)
+
+
+class ContentIntegrityError(Exception):
+    pass
+
+
+@frozen
+class GitPointerBackend(CatalogBackend):
+    repo = field(validator=instance_of(Repo))
+    content_store = field(validator=instance_of(ContentStore))
+    cache = field(validator=instance_of(ContentCache))
+    catalog_id = field(validator=instance_of(str))
+
+    @property
+    def repo_path(self):
+        return Path(self.repo.working_dir)
+
+    def _pointer_path(self, catalog_path):
+        return Path(catalog_path).with_suffix(POINTER_SUFFIX)
+
+    def stage(self, path):
+        self.repo.index.add([str(path)])
+
+    def stage_content(self, path):
+        archive_path = Path(path)
+        sha256 = compute_sha256(archive_path)
+        size = archive_path.stat().st_size
+        key = content_key(self.catalog_id, sha256)
+
+        self.content_store.put(key, archive_path)
+        self.cache.put(key, archive_path)
+
+        pointer_path = self._pointer_path(path)
+        write_pointer(pointer_path, sha256, size)
+        self.repo.index.add([str(pointer_path)])
+
+    def stage_unlink(self, path):
+        pointer_path = self._pointer_path(path)
+        if pointer_path.exists():
+            self.repo.index.remove([str(pointer_path)])
+            pointer_path.unlink()
+            archive_path = Path(path)
+            if archive_path.exists():
+                archive_path.unlink()
+        else:
+            self.repo.index.remove([str(path)])
+            Path(path).unlink()
+
+    @contextmanager
+    def commit_context(self, message):
+        yield self.repo.index
+        self.repo.index.commit(message)
+
+    def is_content_local(self, path) -> bool:
+        if Path(path).exists():
+            return True
+        pointer_path = self._pointer_path(path)
+        if not pointer_path.exists():
+            return False
+        sha256, _ = parse_pointer(pointer_path)
+        key = content_key(self.catalog_id, sha256)
+        return self.cache.contains(key)
+
+    def fetch_content(self, *paths):
+        for path in paths:
+            archive_path = Path(path)
+            if archive_path.exists():
+                continue
+            pointer_path = self._pointer_path(path)
+            sha256, _size = parse_pointer(pointer_path)
+            key = content_key(self.catalog_id, sha256)
+
+            cached = self.cache.get_path(key)
+            if cached is None:
+                cached = self.cache.fetch_from(self.content_store, key)
+
+            actual = compute_sha256(cached)
+            if actual != sha256:
+                raise ContentIntegrityError(
+                    f"SHA256 mismatch for {path}: expected {sha256}, got {actual}"
+                )
+
+            archive_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(cached, archive_path)
+
+    def entry_tracked_path(self, catalog_path):
+        return self._pointer_path(catalog_path)
