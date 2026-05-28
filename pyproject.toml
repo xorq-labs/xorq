@@ -33,8 +33,6 @@ dependencies = [
     "cityhash>=0.4.7,<1 ; python_version >= '3.10' and python_version < '4.0'",
     "pandas>=1.5.3,<3 ; python_version >= '3.10' and python_version < '4.0'",
     "pyarrow-hotfix>=0.4,<1 ; python_version >= '3.10' and python_version < '4.0'",
-    "geoarrow-types>=0.2,<1 ; python_version >= '3.10' and python_version < '4.0'",
-    "pythran>=0.17.0 ; sys_platform == 'darwin'",
     "atpublic>=5.1",
     "parsy>=2",
     "python-dateutil>=2.8.2",
@@ -45,7 +43,6 @@ dependencies = [
     "typing-extensions>=4.3.0",
     "py-yaml12",
     "cloudpickle>=3.1.1",
-    "envyaml>=1.10.211231",
     "xorq-datafusion==0.2.7",
     "opentelemetry-sdk>=1.32.1",
     "opentelemetry-exporter-otlp>=1.32.1",
@@ -136,6 +133,9 @@ gizmosql = [
 ]
 ibis = [
     "ibis-framework>=10.5.0",
+]
+geospatial = [
+    "geoarrow-types>=0.2,<1",
 ]
 trino = [
     "trino==0.336.0",

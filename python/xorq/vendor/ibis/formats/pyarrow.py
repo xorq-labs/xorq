@@ -215,7 +215,13 @@ class PyArrowType(TypeMapper):
             )
             return pa.map_(key_field, value_field, keys_sorted=False)
         elif dtype.is_geospatial():
-            from geoarrow import types as gat
+            try:
+                from geoarrow import types as gat
+            except ImportError:
+                raise ImportError(
+                    "Geospatial type conversion requires the 'geospatial' extra: "
+                    "pip install xorq[geospatial]"
+                ) from None
 
             # Resolve CRS
             if dtype.srid is None:
