@@ -12,7 +12,7 @@ from git import (
 import xorq.api as xo
 import xorq.catalog.catalog as catalog_mod
 from xorq.catalog.annex import LOCAL_ANNEX, Annex, _do_inside
-from xorq.catalog.backend import GitAnnexBackend, GitBackend
+from xorq.catalog.backend import GitAnnexBackend, GitBackend, GitPointerBackend
 from xorq.catalog.catalog import (
     CATALOG_YAML_NAME,
     METADATA_APPEND,
@@ -20,7 +20,12 @@ from xorq.catalog.catalog import (
     Catalog,
     CatalogAlias,
 )
-from xorq.catalog.constants import MAIN_BRANCH
+from xorq.catalog.constants import MAIN_BRANCH, POINTER_SUFFIX
+from xorq.catalog.content_store import (
+    ContentCache,
+    ContentStoreConfig,
+    DirectoryContentStore,
+)
 from xorq.catalog.enums import CatalogInfix
 from xorq.catalog.expr_utils import build_expr_context_zip
 from xorq.catalog.replay import Replayer
@@ -93,15 +98,29 @@ def get_split_tree(repo):
 
 
 def compare_repo_and_catalog(repo, catalog):
+    is_pointer = isinstance(catalog.backend, GitPointerBackend)
     tree = get_split_tree(repo)
 
     toplevel_names, toplevel_suffixes = tree["."]
-    assert toplevel_names == (Path(CATALOG_YAML_NAME).stem,)
-    assert toplevel_suffixes == (Path(CATALOG_YAML_NAME).suffix,)
+    if is_pointer:
+        expected_top_names = tuple(
+            sorted(
+                (
+                    Path(CATALOG_YAML_NAME).stem,
+                    ".gitignore",  # dotfile: no suffix to strip
+                    "content_store",  # content_store.yaml stem
+                )
+            )
+        )
+        assert tuple(sorted(toplevel_names)) == expected_top_names
+    else:
+        assert toplevel_names == (Path(CATALOG_YAML_NAME).stem,)
+        assert toplevel_suffixes == (Path(CATALOG_YAML_NAME).suffix,)
 
+    expected_entry_suffix = POINTER_SUFFIX if is_pointer else PREFERRED_SUFFIX
     entry_names, entry_suffixes = tree[CatalogInfix.ENTRY]
     (entry_suffix, *rest) = set(entry_suffixes)
-    assert entry_suffix == PREFERRED_SUFFIX and not rest, (entry_suffix, *rest)
+    assert entry_suffix == expected_entry_suffix and not rest, (entry_suffix, *rest)
 
     metadata_names, metadata_suffixes = tree[CatalogInfix.METADATA]
     (metadata_suffix, *rest) = set(metadata_suffixes)
@@ -121,21 +140,52 @@ def compare_repo_and_catalog(repo, catalog):
     assert tuple(sorted(alias_names)) == tuple(sorted(catalog.list_aliases()))
 
 
-@pytest.fixture(scope="session", params=["git", "annex"])
+@pytest.fixture(scope="session", params=["git", "annex", "pointer"])
 def backend_type(request):
     return request.param
 
 
-def _make_catalog_from_repo(repo, backend_type):
+def _make_pointer_backend(repo, store_dir):
+    import uuid  # noqa: PLC0415
+
+    repo_path = Path(repo.working_dir)
+    from xorq.catalog.constants import CONTENT_STORE_YAML  # noqa: PLC0415
+
+    config_path = repo_path / CONTENT_STORE_YAML
+    if config_path.exists():
+        config = ContentStoreConfig.from_yaml(config_path)
+        catalog_id = config.catalog_id
+    else:
+        catalog_id = str(uuid.uuid4())
+    store = DirectoryContentStore(directory=str(store_dir))
+    cache_dir = repo_path / ".xorq-cache"
+    cache = ContentCache(cache_dir=cache_dir, max_bytes=1024 * 1024 * 1024)
+    return GitPointerBackend(
+        repo=repo, content_store=store, cache=cache, catalog_id=catalog_id
+    )
+
+
+def _make_catalog_from_repo(repo, backend_type, store_dir=None):
     repo_path = Path(repo.working_dir)
     if backend_type == "annex":
         backend = GitAnnexBackend(repo=repo, annex=Annex(repo_path=repo_path))
+    elif backend_type == "pointer":
+        backend = _make_pointer_backend(repo, store_dir or repo_path / ".store")
     else:
         backend = GitBackend(repo=repo)
     return Catalog(backend=backend)
 
 
-def _init_catalog_repo(repo_path, backend_type):
+def _init_catalog_repo(repo_path, backend_type, store_dir=None):
+    if backend_type == "pointer":
+        store_dir = store_dir or Path(repo_path).parent / "content-store"
+        store_dir.mkdir(parents=True, exist_ok=True)
+        config = ContentStoreConfig(
+            type="directory",
+            catalog_id="",
+            config={"directory": str(store_dir)},
+        )
+        return Catalog.init_repo_path(repo_path, content_store=config)
     annex = LOCAL_ANNEX if backend_type == "annex" else None
     return Catalog.init_repo_path(repo_path, annex=annex)
 
@@ -180,11 +230,12 @@ def data_dict(tmpdir, _data_dict_template):
 def _catalog_populated_template(tmp_path_factory, backend_type, _data_dict_template):
     root = tmp_path_factory.mktemp(f"catalog-populated-template-{backend_type}")
     repo_path = root / "repo"
-    repo = _init_catalog_repo(repo_path, backend_type)
-    catalog = _make_catalog_from_repo(repo, backend_type)
+    store_dir = root / "content-store"
+    repo = _init_catalog_repo(repo_path, backend_type, store_dir=store_dir)
+    catalog = _make_catalog_from_repo(repo, backend_type, store_dir=store_dir)
     for path in _data_dict_template.values():
         catalog.add(path)
-    return repo_path
+    return repo_path, store_dir
 
 
 @pytest.fixture
@@ -195,7 +246,8 @@ def repo(tmpdir, backend_type):
 
 @pytest.fixture
 def catalog(repo, backend_type):
-    yield _make_catalog_from_repo(repo, backend_type)
+    store_dir = Path(repo.working_dir).parent / "content-store"
+    yield _make_catalog_from_repo(repo, backend_type, store_dir=store_dir)
 
 
 @pytest.fixture
@@ -205,10 +257,14 @@ def catalog_path(catalog):
 
 @pytest.fixture
 def catalog_populated(tmpdir, backend_type, _catalog_populated_template):
+    template_repo_path, template_store_dir = _catalog_populated_template
     dst = Path(tmpdir).joinpath("repo")
-    shutil.copytree(_catalog_populated_template, dst, symlinks=True)
+    shutil.copytree(template_repo_path, dst, symlinks=True)
+    store_dir = Path(tmpdir).joinpath("content-store")
+    if template_store_dir.exists():
+        shutil.copytree(template_store_dir, store_dir)
     repo = Repo(dst)
-    yield _make_catalog_from_repo(repo, backend_type)
+    yield _make_catalog_from_repo(repo, backend_type, store_dir=store_dir)
 
 
 @pytest.fixture
