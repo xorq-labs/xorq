@@ -1,11 +1,10 @@
 import functools
-import itertools
 import operator
-from collections import defaultdict
 from typing import Any, Callable
 
 import pyarrow as pa
 import toolz
+from batchcorder import StreamCache
 from opentelemetry import trace
 
 from xorq.backends.xorq_datafusion import connect as xo_connect
@@ -20,10 +19,9 @@ from xorq.vendor.ibis.common.collections import (
     FrozenDict,
     FrozenOrderedDict,
 )
-from xorq.vendor.ibis.common.graph import Graph
 from xorq.vendor.ibis.expr import operations as ops
 from xorq.vendor.ibis.expr.format import fmt, render_schema
-from xorq.vendor.ibis.expr.operations import Node, Relation
+from xorq.vendor.ibis.expr.operations import Node
 
 
 def replace_cache_table(node, kwargs):
@@ -37,34 +35,6 @@ def replace_cache_table(node, kwargs):
             return node.remote_expr.op().replace(replace_cache_table)
         case _:
             return node
-
-
-# https://stackoverflow.com/questions/6703594/is-the-result-of-itertools-tee-thread-safe-python
-class SafeTee(object):
-    """tee object wrapped to make it thread-safe"""
-
-    def __init__(self, teeobj, lock):
-        self.teeobj = teeobj
-        self.lock = lock
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        with self.lock:
-            return next(self.teeobj)
-
-    def __copy__(self):
-        return SafeTee(self.teeobj.__copy__(), self.lock)
-
-    @classmethod
-    def tee(cls, iterable, n=2):
-        """tuple of n independent thread-safe iterators"""
-        from itertools import tee  # noqa: PLC0415
-        from threading import Lock  # noqa: PLC0415
-
-        lock = Lock()
-        return tuple(cls(teeobj, lock) for teeobj in tee(iterable, n))
 
 
 def recursive_update(obj, replacements):
@@ -581,78 +551,44 @@ class Read(ops.DatabaseTable):
         )
 
 
-_count = itertools.count()
-
-
 @tracer.start_as_current_span("register_and_transform_remote_tables")
 def register_and_transform_remote_tables(expr, **kwargs):
     created = {}
+    caches = []
 
     op = expr.op()
-    graph, _ = Graph.from_bfs(op).toposort()
-    counts = defaultdict(int)
-    for node in graph:
-        if isinstance(node, RemoteTable):
-            counts[node] += 1
-
-        if isinstance(node, Relation):
-            for arg in node.__args__:
-                if isinstance(arg, RemoteTable):
-                    counts[arg] += 1
-
-    if counts:
-        trace.get_current_span().add_event(
-            "remote_table.replace", {"counts.values": tuple(counts.values())}
-        )
-    batches_table = {}
-    for arg, count in counts.items():
-        ex = arg.remote_expr
-        batches = ex.to_pyarrow_batches()
-        schema = ex.as_table().schema().to_pyarrow()
-        replicas = SafeTee.tee(batches, count)
-        batches_table[arg] = (schema, list(replicas))
-
-    def mark_remote_table(node):
-        schema, batchess = batches_table[node]
-        name = f"{node.name}_cu{next(_count)}_t{len(batchess)}"
-        reader = pa.RecordBatchReader.from_batches(schema, batchess.pop())
-        result = node.source.read_record_batches(
-            reader,
-            table_name=name,
-            **kwargs,
-        )
-        created[name] = node.source
-        return result.op()
 
     def replacer(node, kwargs):
         if isinstance(node, RemoteTable):
-            result = mark_remote_table(node)
-            batches_table[result] = batches_table.pop(node)
-            node = result
-        else:
-            kwargs = kwargs or {}
-            if isinstance(node, Relation):
-                updated = {}
-                for _k, v in list(kwargs.items()):
-                    try:
-                        if v in batches_table:
-                            updated[v] = mark_remote_table(v)
+            remote_expr = node.remote_expr
+            schema = remote_expr.as_table().schema().to_pyarrow()
+            cache = StreamCache(
+                pa.RecordBatchReader.from_batches(
+                    schema, remote_expr.to_pyarrow_batches()
+                )
+            )
+            caches.append(cache)
+            table_name = gen_name()
+            result = node.source.read_record_batches(cache, table_name=table_name)
+            created[table_name] = node.source
+            return result.op()
 
-                    except TypeError:  # v may not be hashable
-                        continue
-
-                if len(updated) > 0:
-                    kwargs = {
-                        k: recursive_update(v, updated) for k, v in kwargs.items()
-                    }
-
-            if kwargs:
-                node = node.__recreate__(kwargs)
+        if kwargs:
+            node = node.__recreate__(kwargs)
 
         return node
 
-    expr = op.replace(replacer).to_expr()
-    return expr, created
+    try:
+        expr = op.replace(replacer).to_expr()
+    except Exception:
+        for cache in caches:
+            cache.close()
+        raise
+    if caches:
+        trace.get_current_span().add_event(
+            "remote_table.replace", {"remote_table.count": len(caches)}
+        )
+    return expr, created, caches
 
 
 def render_backend(con):
@@ -705,5 +641,9 @@ def prepare_create_table_from_expr(con, expr, **kwargs):
 
     if (expr_backend := expr._find_backend()) != con:
         raise ValueError(f"expr backend must be {con}, is {expr_backend}")
-    (table, _) = _transform_expr(expr, **kwargs)
-    return table
+    (table, _, _caches) = _transform_expr(expr, **kwargs)
+    try:
+        return table
+    finally:
+        for cache in _caches:
+            cache.close()

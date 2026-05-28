@@ -293,7 +293,9 @@ def deferred_read_parquet(
 
 def rbr_wrapper(reader, clean_up):
     def gen():
-        yield from reader
-        clean_up()
+        try:
+            yield from reader
+        finally:
+            clean_up()
 
     return pa.RecordBatchReader.from_batches(reader.schema, gen())
