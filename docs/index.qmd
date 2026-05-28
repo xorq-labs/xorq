@@ -5,26 +5,15 @@ toc: false
 page-layout: custom
 classes: homepage
 listing:
-  - id: getting-started-cards
+  - id: centerpiece-cards
     template: "style/gallery.ejs"
     contents:
-      - "getting_started/introduction.qmd"
-      - "getting_started/quickstart.qmd"
-      - "getting_started/installation.qmd"
-      - "getting_started/understand_deferred_execution.qmd"
-      - "getting_started/explore_caching.qmd"
-      - "getting_started/switch_backends.qmd"
-    type: grid
-    grid-columns: 6
-    fields: [title, description]
-  - id: ml-tutorials-cards
-    template: "style/gallery.ejs"
-    contents:
-      - "tutorials/ml_tutorials/split_data_for_training.qmd"
+      - "tutorials/core_tutorials/get-started-with-xorq-init.qmd"
+      - "tutorials/core_tutorials/build_a_semantic_catalog.qmd"
+      - "tutorials/core_tutorials/working_with_the_catalog.qmd"
       - "tutorials/ml_tutorials/train_your_first_model.qmd"
-      - "tutorials/ml_tutorials/explore_model_evaluation.qmd"
     type: grid
-    grid-columns: 3
+    grid-columns: 4
     fields: [title, description]
 ---
 
@@ -41,18 +30,11 @@ Write your ML pipelines once. Run them anywhere. Xorq handles caching, lineage, 
 
 ::: {.content-section}
 
-## <i class="bi bi-rocket-takeoff"></i> Getting started
+## <i class="bi bi-rocket-takeoff"></i> Tutorials
 
-New to Xorq? Start here to build your first pipeline.
+Four end-to-end walkthroughs. Pick the one closest to what you're building.
 
-:::{#getting-started-cards}
-:::
-
-## <i class="bi bi-cpu"></i> ML tutorials
-
-Train models, split data, and deploy predictions with Xorq's ML workflow.
-
-:::{#ml-tutorials-cards}
+:::{#centerpiece-cards}
 :::
 
 ## <i class="bi bi-grid-3x3"></i> Explore the docs

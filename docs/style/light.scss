@@ -216,6 +216,14 @@ pre code {
     background: rgba(5, 24, 26, 0.04) !important;
 }
 
+.callout-title code,
+.callout-header code {
+    background-color: rgba($black, 0.08) !important;
+    color: $black !important;
+    font-weight: 500;
+    padding: 0.1em 0.35em;
+}
+
 div.cell-output > pre {
   color: $black !important;
 }
