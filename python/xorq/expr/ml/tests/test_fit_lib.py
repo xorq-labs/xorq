@@ -20,6 +20,7 @@ from xorq.expr.ml.structer import KV_ENCODED_TYPE
 from xorq.ml import (
     deferred_fit_predict_sklearn,
     deferred_fit_transform_series_sklearn,
+    deferred_fit_transform_sklearn_struct,
 )
 
 
@@ -522,3 +523,72 @@ def test_from_fitted_step_ct_kv_fields_mixed_executes_correctly():
     # encoder should be KV-encoded (list of dicts)
     assert isinstance(first_row["encoder"], list)
     assert all("key" in d and "value" in d for d in first_row["encoder"])
+
+
+# --- deferred_fit_transform_sklearn_struct --------------------------------
+
+
+def test_deferred_fit_transform_sklearn_struct_returns_deferred_fit_other():
+    t = xo.memtable({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
+    instance = deferred_fit_transform_sklearn_struct(
+        t, features=("a", "b"), cls=sk_preprocessing.StandardScaler
+    )
+    assert isinstance(instance, DeferredFitOther)
+
+
+def test_deferred_fit_transform_sklearn_struct_return_type_is_struct_with_feature_names():
+    t = xo.memtable({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
+    instance = deferred_fit_transform_sklearn_struct(
+        t, features=("a", "b"), cls=sk_preprocessing.StandardScaler
+    )
+    assert isinstance(instance.return_type, dt.Struct)
+    assert set(instance.return_type.names) == {"a", "b"}
+
+
+def test_deferred_fit_transform_sklearn_struct_default_name_infix():
+    t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+    instance = deferred_fit_transform_sklearn_struct(
+        t, features=("a", "b"), cls=sk_preprocessing.StandardScaler
+    )
+    assert instance.name_infix == "transformed"
+
+
+def test_deferred_fit_transform_sklearn_struct_executes():
+    t = xo.memtable({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
+    instance = deferred_fit_transform_sklearn_struct(
+        t, features=("a", "b"), cls=sk_preprocessing.StandardScaler
+    )
+    result = t.mutate(out=instance.deferred_other.on_expr(t)).execute()
+    assert "out" in result.columns
+    assert set(result["out"].iloc[0].keys()) == {"a", "b"}
+
+
+# --- DeferredFitOther.deferred_model_udaf_other ---------------------------
+
+
+def test_deferred_model_udaf_other_returns_three_tuple():
+    t = xo.memtable({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
+    instance = deferred_fit_transform_sklearn_struct(
+        t, features=("a", "b"), cls=sk_preprocessing.StandardScaler
+    )
+    result = instance.deferred_model_udaf_other
+    assert len(result) == 3
+
+
+def test_deferred_model_udaf_other_model_udaf_is_callable():
+    t = xo.memtable({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
+    instance = deferred_fit_transform_sklearn_struct(
+        t, features=("a", "b"), cls=sk_preprocessing.StandardScaler
+    )
+    _, model_udaf, _ = instance.deferred_model_udaf_other
+    assert callable(model_udaf)
+
+
+def test_deferred_model_udaf_other_deferred_other_is_cached():
+    # make_deferred_other is @functools.cache so same object returned each call
+    t = xo.memtable({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
+    instance = deferred_fit_transform_sklearn_struct(
+        t, features=("a", "b"), cls=sk_preprocessing.StandardScaler
+    )
+    _, _, deferred_other = instance.deferred_model_udaf_other
+    assert deferred_other is instance.deferred_other

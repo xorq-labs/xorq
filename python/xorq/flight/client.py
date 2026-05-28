@@ -95,7 +95,7 @@ class FlightClient:
                 pass
             logger.info(f"Flight server unavailable, sleeping {sleep_n} seconds")
             time.sleep(sleep_n)
-        raise RuntimeError(f"failed to connect after {attempt_i} attempts")
+        raise RuntimeError(f"failed to connect after {attempt_i + 1} attempts")
 
     # FIXME: rename to execute_table, add execute that return pd.DataFrame
     def execute(self, expr, **kwargs):

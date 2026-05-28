@@ -318,6 +318,46 @@ def test_build_column_tree_output_size_bounded(multi_join_expression):
     )
 
 
+# ── TextTree._lines tests ─────────────────────────────────────────────
+
+
+def test_text_tree_lines_leaf_root():
+    tree = TextTree("root")
+    assert tree._lines() == ("root",)
+
+
+def test_text_tree_lines_root_single_child():
+    tree = TextTree("root", children=(TextTree("child"),))
+    assert tree._lines() == ("root", "└── child")
+
+
+def test_text_tree_lines_root_two_children():
+    tree = TextTree("root", children=(TextTree("a"), TextTree("b")))
+    assert tree._lines() == ("root", "├── a", "└── b")
+
+
+def test_text_tree_lines_nested_last_child_uses_space_prefix():
+    # last child uses └──; its grandchildren get "    " (4 spaces) prefix
+    grandchild = TextTree("gc")
+    child = TextTree("c", children=(grandchild,))
+    tree = TextTree("root", children=(child,))
+    assert tree._lines() == ("root", "└── c", "    └── gc")
+
+
+def test_text_tree_lines_nested_non_last_child_uses_pipe_prefix():
+    # non-last child uses ├──; its grandchildren get "│   " prefix
+    grandchild = TextTree("gc")
+    child1 = TextTree("c1", children=(grandchild,))
+    child2 = TextTree("c2")
+    tree = TextTree("root", children=(child1, child2))
+    assert tree._lines() == ("root", "├── c1", "│   └── gc", "└── c2")
+
+
+def test_text_tree_str_joins_lines_with_newlines():
+    tree = TextTree("root", children=(TextTree("a"), TextTree("b")))
+    assert str(tree) == "root\n├── a\n└── b"
+
+
 # ── extract_lineage_dag tests ──────────────────────────────────────────
 
 

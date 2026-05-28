@@ -132,14 +132,11 @@ def _pygments_to_text(sql: str) -> Text:
     return text
 
 
-SQL_HIGHLIGHT_MAX_LINES = 500
-
-
 def _render_sql_text(raw: str) -> Text:
     # Line-length is intentionally unchecked: extremely wide lines render slowly
     # in Textual, but that's an acceptable tradeoff vs. adding another heuristic.
     max_lines = options.tui.sql_highlight_max_lines
-    if max_lines == 0 or raw.count("\n") > max_lines:
+    if max_lines == 0 or raw.count("\n") >= max_lines:
         note = (
             "-- syntax highlighting disabled\n"
             if max_lines == 0

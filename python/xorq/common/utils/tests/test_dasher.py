@@ -47,9 +47,11 @@ from xorq.common.utils.dasher import (
     tokenize,
 )
 from xorq.common.utils.dasher._gap_rules import (
+    normalize_ibis_schema,
     normalize_methodcaller,
     normalize_pandas_dataframe,
     normalize_pandas_series,
+    normalize_slice,
 )
 from xorq.common.utils.dasher._opaque import (
     _normalize_computed_kwargs_expr,
@@ -575,6 +577,49 @@ def test_normalize_pandas_series_different_data_different_hash():
     s1 = pd.Series([1, 2, 3], name="x")
     s2 = pd.Series([1, 2, 4], name="x")
     assert normalize_pandas_series(s1) != normalize_pandas_series(s2)
+
+
+def test_normalize_slice_full():
+    assert normalize_slice(slice(1, 10, 2)) == ("slice", 1, 10, 2)
+
+
+def test_normalize_slice_stop_only():
+    assert normalize_slice(slice(5)) == ("slice", None, 5, None)
+
+
+def test_normalize_slice_all_none():
+    assert normalize_slice(slice(None)) == ("slice", None, None, None)
+
+
+def test_normalize_slice_negative_indices():
+    assert normalize_slice(slice(-3, -1)) == ("slice", -3, -1, None)
+
+
+def test_normalize_ibis_schema_empty():
+    assert normalize_ibis_schema(xo.schema({})) == ("ibis.Schema", ())
+
+
+def test_normalize_ibis_schema_simple():
+    result = normalize_ibis_schema(xo.schema({"a": "int64", "b": "string"}))
+    assert result == ("ibis.Schema", (("a", "int64"), ("b", "string")))
+
+
+def test_normalize_ibis_schema_preserves_column_order():
+    result = normalize_ibis_schema(xo.schema({"z": "float64", "a": "int64"}))
+    assert [name for name, _ in result[1]] == ["z", "a"]
+
+
+def test_normalize_ibis_schema_complex_types_not_collapsed():
+    # pandas to_pandas() collapses both to dtype('O'), but str(dtype) preserves info
+    result_decimal = normalize_ibis_schema(xo.schema({"x": dt.Decimal(12, 3)}))
+    result_array = normalize_ibis_schema(xo.schema({"x": dt.Array(dt.int64)}))
+    assert result_decimal != result_array
+
+
+def test_normalize_ibis_schema_decimal_precision_distinguishes():
+    result_a = normalize_ibis_schema(xo.schema({"x": dt.Decimal(10, 2)}))
+    result_b = normalize_ibis_schema(xo.schema({"x": dt.Decimal(12, 3)}))
+    assert result_a != result_b
 
 
 def test_normalize_pandas_dataframe_returns_pa_table():

@@ -1137,3 +1137,121 @@ def test_remap_params_returns_pipeline(ct_pipeline):
 def test_remap_params_unknown_key_raises(ct_pipeline):
     with pytest.raises(ValueError, match="param_map keys not found"):
         ct_pipeline.remap_params({"classifier__typo": 99})
+
+
+# --- Step.__attrs_post_init__ -------------------------------------------
+
+
+def test_step_non_estimator_type_raises():
+    with pytest.raises(AssertionError):
+        Step(typ=list)
+
+
+def test_step_name_auto_generated_when_none():
+    step = Step(typ=StandardScaler)
+    assert step.name is not None
+    assert "standardscaler" in step.name.lower()
+
+
+def test_step_explicit_name_preserved():
+    step = Step(typ=StandardScaler, name="my_scaler")
+    assert step.name == "my_scaler"
+
+
+# --- Step.tag_kwargs ----------------------------------------------------
+
+
+def test_step_tag_kwargs_keys():
+    step = Step(typ=StandardScaler, name="sc")
+    assert set(step.tag_kwargs.keys()) == {"typ", "name", "params_tuple"}
+
+
+def test_step_tag_kwargs_values_match_fields():
+    step = Step(typ=StandardScaler, name="sc")
+    assert step.tag_kwargs["typ"] is StandardScaler
+    assert step.tag_kwargs["name"] == "sc"
+    assert step.tag_kwargs["params_tuple"] == step.params_tuple
+
+
+# --- Pipeline.from_instance ---------------------------------------------
+
+
+def test_pipeline_from_instance_step_count(sklearn_pipeline):
+    pipe = Pipeline.from_instance(sklearn_pipeline)
+    assert len(pipe.steps) == len(sklearn_pipeline.steps)
+
+
+def test_pipeline_from_instance_step_types(sklearn_pipeline):
+    pipe = Pipeline.from_instance(sklearn_pipeline)
+    for xorq_step, (_, sk_step) in zip(pipe.steps, sklearn_pipeline.steps):
+        assert xorq_step.typ is type(sk_step)
+
+
+def test_pipeline_from_instance_returns_pipeline(sklearn_pipeline):
+    assert isinstance(Pipeline.from_instance(sklearn_pipeline), Pipeline)
+
+
+# --- Pipeline.set_params ------------------------------------------------
+
+
+def test_pipeline_set_params_returns_pipeline(xorq_pipeline):
+    updated = xorq_pipeline.set_params(standardscaler__with_mean=False)
+    assert isinstance(updated, Pipeline)
+
+
+def test_pipeline_set_params_updates_param(xorq_pipeline):
+    updated = xorq_pipeline.set_params(standardscaler__with_mean=False)
+    assert updated.instance.get_params()["standardscaler__with_mean"] is False
+
+
+def test_pipeline_set_params_original_unchanged(xorq_pipeline):
+    xorq_pipeline.set_params(standardscaler__with_mean=False)
+    assert xorq_pipeline.instance.get_params()["standardscaler__with_mean"] is True
+
+
+# --- Pipeline.remap_columns ---------------------------------------------
+
+
+def test_pipeline_remap_columns_returns_pipeline(ct_pipeline):
+    remapped = ct_pipeline.remap_columns(
+        {"preprocessor/num": ["a", "b"], "preprocessor/cat": ["c"]}
+    )
+    assert isinstance(remapped, Pipeline)
+
+
+def test_pipeline_remap_columns_updates_columns(ct_pipeline):
+    remapped = ct_pipeline.remap_columns({"preprocessor/num": ["distance"]})
+    refs = ColumnRemapper.list_column_refs(remapped.instance)
+    num_cols = refs.get("preprocessor/num", [])
+    assert "distance" in num_cols
+
+
+def test_pipeline_remap_columns_original_unchanged(ct_pipeline):
+    orig_refs = ColumnRemapper.list_column_refs(ct_pipeline.instance)
+    ct_pipeline.remap_columns({"preprocessor/num": ["distance"]})
+    new_refs = ColumnRemapper.list_column_refs(ct_pipeline.instance)
+    assert orig_refs == new_refs
+
+
+# --- FittedStep.transformed and predict_raw -----------------------------
+
+
+def test_fitted_step_transformed_returns_expr(t):
+    step = Step(typ=StandardScaler, name="sc")
+    fitted = step.fit(t, features=(feature0, feature1))
+    result = fitted.transformed
+    assert isinstance(result, Expr)
+
+
+def test_fitted_step_predict_raw_default_name(t):
+    step = Step(typ=LinearRegression, name="lr")
+    fitted = step.fit(t, features=(feature0, feature1), target=TARGET)
+    col = fitted.predict_raw(t)
+    assert col.get_name() == "predict"
+
+
+def test_fitted_step_predict_raw_explicit_name(t):
+    step = Step(typ=LinearRegression, name="lr")
+    fitted = step.fit(t, features=(feature0, feature1), target=TARGET)
+    col = fitted.predict_raw(t, name="my_pred")
+    assert col.get_name() == "my_pred"

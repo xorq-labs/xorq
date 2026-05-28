@@ -1,9 +1,10 @@
 import pytest
 
 import xorq.api as xo
+import xorq.expr.relations as relations
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.expr.relations import CachedNode, FlightUDXF, HashingTag, Tag
+from xorq.expr.relations import CachedNode, FlightUDXF, HashingTag, Tag, flight_serve
 from xorq.ibis_yaml.enums import ExprKind
 from xorq.vendor.ibis.expr.types.core import ExprMetadata
 
@@ -179,3 +180,62 @@ def test_unwrapped_preserves_cached_node():
 def test_unwrapped_filtered_table():
     expr = xo.memtable({"a": [1, 2, 3]}).filter(xo._.a > 1)
     assert not isinstance(expr.ls.unwrapped, ops.InMemoryTable)
+
+
+# -- flight_serve -------------------------------------------------------------
+
+
+def test_flight_serve_calls_serve_unbound_with_unbound_expr(monkeypatch):
+    captured = {}
+
+    def fake_serve_unbound(unbound_expr, make_server=None, **kwargs):
+        captured["unbound_expr"] = unbound_expr
+        captured["make_server"] = make_server
+        captured["kwargs"] = kwargs
+        return ("server", "exchanger")
+
+    monkeypatch.setattr(relations, "flight_serve_unbound", fake_serve_unbound)
+
+    con = xo.connect()
+    con.create_table("_fs_test", {"a": [1, 2, 3]})
+    expr = con.table("_fs_test")
+
+    flight_serve(expr)
+
+    assert ExprMetadata.from_expr(captured["unbound_expr"]).kind == ExprKind.UnboundExpr
+
+
+def test_flight_serve_passes_make_server_through(monkeypatch):
+    captured = {}
+
+    def fake_serve_unbound(unbound_expr, make_server=None, **kwargs):
+        captured["make_server"] = make_server
+        return ("server", "exchanger")
+
+    monkeypatch.setattr(relations, "flight_serve_unbound", fake_serve_unbound)
+
+    sentinel = object()
+    flight_serve(xo.memtable({"a": [1]}), make_server=sentinel)
+    assert captured["make_server"] is sentinel
+
+
+def test_flight_serve_passes_kwargs_through(monkeypatch):
+    captured = {}
+
+    def fake_serve_unbound(unbound_expr, make_server=None, **kwargs):
+        captured["kwargs"] = kwargs
+        return ("server", "exchanger")
+
+    monkeypatch.setattr(relations, "flight_serve_unbound", fake_serve_unbound)
+
+    flight_serve(xo.memtable({"a": [1]}), port=9999, host="localhost")
+    assert captured["kwargs"] == {"port": 9999, "host": "localhost"}
+
+
+def test_flight_serve_returns_serve_unbound_result(monkeypatch):
+    expected = ("my_server", "my_exchanger")
+
+    monkeypatch.setattr(relations, "flight_serve_unbound", lambda *a, **kw: expected)
+
+    result = flight_serve(xo.memtable({"a": [1]}))
+    assert result is expected
