@@ -1,5 +1,6 @@
 import functools
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -140,6 +141,44 @@ def test_wheel_runner(template, tmpdir):
         packaged_builder.build_path, output_path=str(output_path)
     )
     assert packaged_runner.run_result.returncode == 0
+    assert output_path.exists()
+
+
+# Vendored fixture (a snapshot of xorq-labs/xorq-template-sklearn @ d94dd60f)
+# whose uv.lock pins xorq==0.3.25 + xorq-datafusion==0.2.7. Running its
+# packaged build hits a regression in frame.execute_stream():
+#   "Arrow error: C Data interface error: Invalid: Mismatching number of
+#    fields and child arrays"
+# raised at xorq/backends/xorq_datafusion/__init__.py during the cache write.
+# Once xorq-datafusion (or the xorq_datafusion backend wrapper from #1869)
+# is fixed, refresh fixtures/execute_stream_regression/uv.lock and this test
+# will pass.
+_REGRESSION_FIXTURE_DIR = (
+    Path(__file__).parent / "fixtures" / "execute_stream_regression"
+)
+
+
+@pytest.mark.slow(level=2)
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
+)
+def test_wheel_runner_xorq_datafusion_execute_stream_regression(tmpdir):
+    tmpdir = Path(tmpdir)
+    project_path = tmpdir / "project"
+    shutil.copytree(_REGRESSION_FIXTURE_DIR, project_path)
+    output_path = tmpdir / "output.parquet"
+    script_path = project_path / "expr.py"
+    packager = WheelPackager(project_path)
+    packaged_builder = PackagedBuilder(
+        script_path=script_path,
+        bundle=packager.build(),
+    )
+    packaged_runner = PackagedRunner(
+        packaged_builder.build_path, output_path=str(output_path)
+    )
+    assert packaged_runner.run_result.returncode == 0, (
+        packaged_runner.run_result.stderr
+    )
     assert output_path.exists()
 
 
