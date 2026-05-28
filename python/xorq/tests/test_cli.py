@@ -41,6 +41,7 @@ from xorq.cli_options import (
 from xorq.common.utils.io_utils import Peeker
 from xorq.common.utils.logging_utils import Run, Runs
 from xorq.common.utils.node_utils import (
+    expr_to_unbound,
     find_node,
 )
 from xorq.common.utils.process_utils import (
@@ -1152,6 +1153,57 @@ def test_serve_unbound_tag_get_exchange_udf(fixture_dir, tmp_path):
         actual = xo.connect().register(df).select("x").pipe(f).execute()
 
         assert not actual.empty
+
+
+@pytest.mark.slow(level=1)
+@pytest.mark.xdist_group(name="serve")
+def test_serve_unbound_expr(pipeline_https_build, tmp_path):
+    batting_url = "https://storage.googleapis.com/letsql-pins/batting/20240711T171118Z-431ef/batting.parquet"
+    serve_tag = "read-batting"
+
+    expr = load_expr(pipeline_https_build)
+    unbound_expr = expr_to_unbound(
+        expr,
+        hash=None,
+        tag=serve_tag,
+        typs=None,
+        strategy=SnapshotStrategy(),
+    ).to_expr()
+    builds_dir = tmp_path / "builds"
+    build_dir = build_expr(unbound_expr, builds_dir=builds_dir)
+
+    serve_args = (
+        "xorq",
+        "serve",
+        str(build_dir),
+    )
+    with serve_process(serve_args) as (proc, peeker):
+        port = peek_port(proc, peeker)
+
+        flight_backend = xo.flight.connect(port=port)
+        f = flight_backend.get_exchange("default")
+        actual = xo.deferred_read_parquet(batting_url).pipe(f).execute()
+
+        expected = expr.execute()
+        (actual, expected) = (
+            df.sort_values(list(df.columns), ignore_index=True)
+            for df in (actual, expected)
+        )
+        assert actual.equals(expected)
+
+
+@pytest.mark.slow(level=1)
+@pytest.mark.xdist_group(name="serve")
+def test_serve_rejects_bound_expr(pipeline_https_build):
+    serve_args = (
+        "xorq",
+        "serve",
+        str(pipeline_https_build),
+    )
+    proc = _subprocess.run(serve_args, capture_output=True, timeout=60)
+    assert proc.returncode != 0
+    stderr = proc.stderr.decode("ascii")
+    assert "not unbound" in stderr
 
 
 @pytest.mark.slow(level=3)
