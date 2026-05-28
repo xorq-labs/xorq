@@ -51,7 +51,7 @@ jobs:
           git config --global user.name "CI"
           git config --global user.email "ci@xorq.dev"
 
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@v4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -65,7 +65,7 @@ jobs:
           sudo apt-get update -qq -y
           sudo apt-get install -qq -y ${{ join(matrix.backend.sys-deps, ' ') }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
