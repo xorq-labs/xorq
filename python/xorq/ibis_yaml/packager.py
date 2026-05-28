@@ -657,7 +657,9 @@ class _BasePackagedRunner(ABC):
     )
     output_path = field(validator=optional(instance_of(str)), default=None)
     output_format = field(
-        converter=_convert_output_format, default=DEFAULT_OUTPUT_FORMAT
+        validator=instance_of(OutputFormats),
+        converter=_convert_output_format,
+        default=DEFAULT_OUTPUT_FORMAT,
     )
     limit = field(validator=optional(instance_of(int)), default=None)
     python_version = field(validator=_validate_python_version, default=None)
