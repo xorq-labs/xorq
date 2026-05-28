@@ -638,6 +638,16 @@ def validate_params_early(build_path, raw_params):
         raise ValueError("\n".join(errors))
 
 
+def _convert_output_format(value):
+    try:
+        return OutputFormats(value)
+    except ValueError as e:
+        valid = ", ".join(f.value for f in OutputFormats)
+        raise ValueError(
+            f"invalid output_format {value!r}; valid choices: {valid}"
+        ) from e
+
+
 @frozen
 class _BasePackagedRunner(ABC):
     build_path = field(validator=instance_of(Path), converter=Path)
@@ -647,7 +657,8 @@ class _BasePackagedRunner(ABC):
         default=None,
     )
     output_path = field(validator=optional(instance_of(str)), default=None)
-    output_format = field(converter=OutputFormats,
+    output_format = field(
+        converter=lambda v: _convert_output_format(v),
         validator=in_(OutputFormats),
         default=DEFAULT_OUTPUT_FORMAT,
     )
