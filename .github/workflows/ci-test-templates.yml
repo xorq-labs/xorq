@@ -45,7 +45,7 @@ jobs:
         run: uv sync --locked --extra duckdb
 
       - name: Init ${{ matrix.template }} template
-        run: uv run xorq init --path ${{ matrix.path }} --template ${{ matrix.template }}
+        run: uv run xorq init --path "${{ matrix.path }}" --template "${{ matrix.template }}"
 
       - name: Patch template to use checked-out xorq
         run: |
