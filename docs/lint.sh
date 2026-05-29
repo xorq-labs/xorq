@@ -151,16 +151,15 @@ section "pymarkdown — markdown structure"
 #   MD041  first-heading   — Quarto files open with --- YAML frontmatter
 #   MD046  code-block-style— Quarto uses ```{python} fenced syntax
 DISABLE="MD013,MD025,MD033,MD034,MD041,MD046"
-if pymarkdown \
-    --disable-rules "$DISABLE" \
-    scan --recurse \
-    api_reference \
-    concepts \
-    getting_started \
-    how_to \
-    tutorials \
-    concepts.qmd \
-    index.qmd 2>&1; then
+mapfile -t _pm_files < <(find . \( -name "*.qmd" -o -name "*.md" \) \
+    -not -path "./_site/*" \
+    -not -path "./.quarto/*" \
+    -not -path "./reference/*" \
+    -not -path "./adr/*" \
+    -not -path "./__pycache__/*" \
+    | sort)
+if [[ ${#_pm_files[@]} -gt 0 ]] && \
+   pymarkdown --disable-rules "$DISABLE" scan "${_pm_files[@]}" 2>&1; then
     pass "pymarkdown"
 else
     fail "pymarkdown: markdown structure issues found (see output above)"
@@ -183,7 +182,7 @@ PYEOF
 )
     if [[ "$has_title" == "no" ]]; then
         missing_titles+=("$f")
-        gha_error "$f" "1" "Missing 'title:' in YAML frontmatter"
+        gha_error "docs/${f#./}" "1" "Missing 'title:' in YAML frontmatter"
     fi
 done < <(find . -name "*.qmd" \
     -not -path "./_site/*" \
@@ -208,7 +207,7 @@ while IFS= read -r f; do
     rel="${f#./}"
     if ! grep -qF "$rel" _quarto.yml 2>/dev/null; then
         orphans+=("$rel")
-        gha_error "$rel" "1" "File not referenced in _quarto.yml (orphan)"
+        gha_error "docs/$rel" "1" "File not referenced in _quarto.yml (orphan)"
     fi
 done < <(find . -name "*.qmd" \
     -not -path "./_site/*" \

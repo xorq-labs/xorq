@@ -36,16 +36,26 @@ jobs:
 
       - name: Install vale
         run: |
-          curl -sSL \
+          curl -sSfL \
             "https://github.com/errata-ai/vale/releases/download/v3.14.2/vale_3.14.2_Linux_64-bit.tar.gz" \
-            | tar xz -C ~/.local/bin vale
+            -o /tmp/vale.tar.gz
+          curl -sSfL \
+            "https://github.com/errata-ai/vale/releases/download/v3.14.2/vale_3.14.2_checksums.txt" \
+            -o /tmp/vale_checksums.txt
+          cd /tmp && grep "vale_3.14.2_Linux_64-bit.tar.gz" vale_checksums.txt | sha256sum --check
+          tar xz -C ~/.local/bin vale -f /tmp/vale.tar.gz
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Install lychee
         run: |
-          curl -sSL \
+          curl -sSfL \
             "https://github.com/lycheeverse/lychee/releases/download/lychee-v0.18.1/lychee-x86_64-unknown-linux-gnu.tar.gz" \
-            | tar xz -C ~/.local/bin lychee
+            -o /tmp/lychee.tar.gz
+          curl -sSfL \
+            "https://github.com/lycheeverse/lychee/releases/download/lychee-v0.18.1/lychee-x86_64-unknown-linux-gnu.tar.gz.sha256sum" \
+            -o /tmp/lychee.tar.gz.sha256sum
+          cd /tmp && sha256sum --check lychee.tar.gz.sha256sum
+          tar xz -C ~/.local/bin lychee -f /tmp/lychee.tar.gz
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - uses: quarto-dev/quarto-actions/setup@v2
