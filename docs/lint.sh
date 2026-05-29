@@ -62,8 +62,8 @@ require_tool() {
 
 # ── Tool presence checks (fail hard) ─────────────────────────────────────────
 
-[[ "${SKIP_VALE:-}" == "1" ]] || require_tool vale "snap install vale --classic  (Linux)  |  brew install vale  (macOS)"
-require_tool lychee     "https://github.com/lycheeverse/lychee/releases"
+[[ "${SKIP_VALE:-}"   == "1" ]] || require_tool vale   "snap install vale --classic  (Linux)  |  brew install vale  (macOS)"
+[[ "${SKIP_LYCHEE:-}" == "1" ]] || require_tool lychee "https://github.com/lycheeverse/lychee/releases"
 require_tool quarto     "https://quarto.org/docs/get-started/"
 require_tool pymarkdown "pip install pymarkdownlnt"
 python3 -c "import frontmatter" 2>/dev/null || {
@@ -101,7 +101,9 @@ fi
 # ── 3. Lychee — internal links ────────────────────────────────────────────────
 
 section "Lychee — internal links"
-if [[ ! -d "_site" ]]; then
+if [[ "${SKIP_LYCHEE:-}" == "1" ]]; then
+    pass "lychee: skipped (handled by lycheeverse/lychee-action in CI)"
+elif [[ ! -d "_site" ]]; then
     fail "lychee: _site/ not found — run quarto render first (check 2 may have failed)"
 else
     if lychee --offline --include-fragments --no-progress '_site/**/*.html' 2>&1; then
@@ -111,11 +113,13 @@ else
     fi
 fi
 
-# ── 4. Lychee — external URLs (opt-in) ───────────────────────────────────────
+# ── 4. Lychee — external URLs (opt-in, local only) ───────────────────────────
 
 if [[ "$CHECK_EXTERNAL" == "true" ]]; then
     section "Lychee — external URLs"
-    if [[ ! -d "_site" ]]; then
+    if [[ "${SKIP_LYCHEE:-}" == "1" ]]; then
+        pass "lychee --external: skipped (handled by lycheeverse/lychee-action in CI)"
+    elif [[ ! -d "_site" ]]; then
         fail "lychee --external: _site/ not found"
     else
         if lychee \

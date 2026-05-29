@@ -40,19 +40,6 @@ jobs:
           version: "3.14.2"
           files: "docs/"
 
-      - name: Install lychee
-        run: |
-          curl -sSfL \
-            "https://github.com/lycheeverse/lychee/releases/download/lychee-v0.18.1/lychee-x86_64-unknown-linux-gnu.tar.gz" \
-            -o /tmp/lychee-x86_64-unknown-linux-gnu.tar.gz
-          curl -sSfL \
-            "https://github.com/lycheeverse/lychee/releases/download/lychee-v0.18.1/lychee-x86_64-unknown-linux-gnu.tar.gz.sha256sum" \
-            -o /tmp/lychee-x86_64-unknown-linux-gnu.tar.gz.sha256sum
-          cd /tmp && sha256sum --check lychee-x86_64-unknown-linux-gnu.tar.gz.sha256sum
-          mkdir -p ~/.local/bin
-          tar xz -C ~/.local/bin lychee -f /tmp/lychee-x86_64-unknown-linux-gnu.tar.gz
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
       - uses: quarto-dev/quarto-actions/setup@v2
         with:
           version: 1.8.24
@@ -62,3 +49,10 @@ jobs:
         env:
           CI: "true"
           SKIP_VALE: "1"
+          SKIP_LYCHEE: "1"
+
+      - name: Lychee (internal links)
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --offline --include-fragments --no-progress docs/_site
+          fail: true
