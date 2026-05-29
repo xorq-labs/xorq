@@ -1,5 +1,12 @@
 project:
   type: website
+  render:
+    - "*.qmd"
+    - "*.md"
+    - "**/*.qmd"
+    - "**/*.md"
+    - "!adr/**"
+    - "!LINTING.md"
 
 execute:
   mermaid: true
