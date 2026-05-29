@@ -35,7 +35,7 @@ jobs:
         run: uv sync --only-group docs
 
       - name: Vale (prose style)
-        uses: vale-cli/vale-action@v3
+        uses: vale-cli/vale-action@v2
         with:
           version: "3.14.2"
           files: "docs/"
