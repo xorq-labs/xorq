@@ -1,0 +1,58 @@
+name: ci-docs-lint
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - '.github/workflows/ci-docs-lint.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs-lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install Python doc dependencies
+        run: uv sync --only-group docs
+
+      - name: Install vale
+        run: |
+          curl -sSL \
+            "https://github.com/errata-ai/vale/releases/download/v3.14.2/vale_3.14.2_Linux_64-bit.tar.gz" \
+            | tar xz -C ~/.local/bin vale
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install lychee
+        run: |
+          curl -sSL \
+            "https://github.com/lycheeverse/lychee/releases/download/lychee-v0.18.1/lychee-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar xz -C ~/.local/bin lychee
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          version: 1.8.24
+
+      - name: Lint docs
+        run: uv run --no-sync bash docs/lint.sh
+        env:
+          CI: "true"

@@ -1,111 +1,88 @@
-# Documentation linting setup
+# Documentation linting
 
-We use Vale to enforce our documentation style (Xorq + Google developer style guide).
-
-> [!NOTE]
-> The `.vale.ini` file and `styles/` directory are already in this repo. You only need to:
-> * Install the Vale CLI.
-> * (Optionally) hook it into your editor (VS Code).
-
-## 1. Install the Vale CLI
-
-You need the `vale` CLI installed and available on your system `PATH`.
-
-### macOS (Homebrew)
+Run all checks at once:
 
 ```bash
+just docs-lint            # internal links only
+just docs-lint-external   # + external URL verification (~5 min)
+```
+
+---
+
+## Checks
+
+| Check | Tool | What it catches |
+|-------|------|-----------------|
+| Prose style | vale | Grammar, word choice, tone (Google + Xorq rules) |
+| Structure | quarto render | Broken includes, bad frontmatter, missing files |
+| Internal links | lychee | Broken relative links in rendered HTML |
+| External URLs | lychee `--external` | Dead external links (opt-in) |
+| Markdown structure | pymarkdown | Heading level skips, list formatting, bare URLs |
+| Frontmatter | python-frontmatter | Missing `title:` in non-reference `.qmd` files |
+| Orphan files | bash | `.qmd` files not referenced in `_quarto.yml` |
+
+---
+
+## Install required tools
+
+### vale
+
+```bash
+# Linux
+sudo snap install vale --classic
+
+# macOS
 brew install vale
 ```
 
-### Ubuntu / Linux (Snap)
+> **Note:** The `.vale.ini` and `styles/` directory are already committed. No `vale sync` needed.
+
+### lychee
+
+Download the binary for your platform from the [lychee releases page](https://github.com/lycheeverse/lychee/releases).
 
 ```bash
-# --classic is required so Vale can access files on your system
-sudo snap install vale --classic
+# Linux (example for v0.15 — check releases page for latest)
+curl -sSL https://github.com/lycheeverse/lychee/releases/latest/download/lychee-x86_64-unknown-linux-gnu.tar.gz \
+  | tar xz -C ~/.local/bin
+
+# macOS
+brew install lychee
 ```
 
-### Windows (Chocolatey or Winget)
+### quarto
+
+Download from [quarto.org/docs/get-started](https://quarto.org/docs/get-started/).
+
+### pymarkdown and python-frontmatter
+
+Both are in the `docs` dependency group:
 
 ```bash
-choco install vale
+uv sync --group docs
 ```
 
-### Verify the installation
-
-Close your terminal, open a new one, and run:
+Or individually:
 
 ```bash
-vale --version
+pip install pymarkdownlnt python-frontmatter
 ```
 
-If you see a version number, Vale is installed correctly.
+---
 
-> [!IMPORTANT]
-> You do not need to run `vale sync` – the `styles/` folder is already committed in this repo.
+## Editor integration
 
-## 2. VS Code integration (recommended)
+### Vale in VS Code
 
-If you want to see Vale suggestions while you edit the docs, you can use the VS Code extension.
-
-### Step A: Install the extension
-
-1. Open VS Code in this project (for example, run `code .` from the repo root).
-2. Go to Extensions (`Ctrl+Shift+X` / `Cmd+Shift+X`).
-3. Search for "Vale VSCode" (by Chris Chinchilla) and install it.
-
-### Step B: Make sure the CLI is on `PATH`
-
-Open a terminal inside VS Code and check that VS Code can see `vale`.
-
-#### macOS / Linux (integrated terminal in VS Code)
-
-```bash
-vale --version
-```
-
-#### Windows (PowerShell in VS Code)
-
-```bash
-vale --version
-```
-
-> [!WARNING]
-> If that prints a version, the extension can use it. If not, follow step C and restart VS Code
-
-### Step C: Configure Vale in VS Code
-
-To get live feedback as you edit the docs:
-
-1. In VS Code, open Settings (`Ctrl+,` / `Cmd+,`).
-2. In the search box, type "Vale CLI".
-3. Under User (or Workspace if you want it only for this project):
-   * In Vale CLI: Config, enter:
-
-```
-.vale.ini
-```
-
-   * Enable Vale CLI: Install Vale.
-   * Set Vale CLI: Min Alert Level to `suggestion` from the dropdown.
+1. Install the [Vale VSCode extension](https://marketplace.visualstudio.com/items?itemName=ChrisChinchilla.vale-vscode) (by Chris Chinchilla).
+2. Open Settings (`Ctrl+,`), search **Vale CLI: Config**, set to `.vale.ini`.
+3. Set **Vale CLI: Min Alert Level** to `suggestion`.
 4. Reload VS Code.
 
-After this, when you open any `.qmd` or `.md` file under `docs/`, Vale will show suggestions inline (squiggly underlines) and in the Problems panel as you write.
+Vale suggestions appear as squiggly underlines in any `.qmd` or `.md` file under `docs/`.
 
-## 3. Run Vale from the CLI
+---
 
-You can also run Vale manually from the repo root.
+## CI
 
-### Lint the entire docs tree
-
-```bash
-vale docs/
-```
-
-### Lint a specific file
-
-```bash
-vale docs/tutorials/getting_started/quickstart.qmd
-```
-
-> [!TIP]
-> Use this as a final check before opening a PR or pushing documentation changes.
+`docs/lint.sh` detects `CI=true` and emits [GitHub Actions annotations](https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#setting-an-error-message) (`::error file=...`) so errors appear inline on PR diffs.
