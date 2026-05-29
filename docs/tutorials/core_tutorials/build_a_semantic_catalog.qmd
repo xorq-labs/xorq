@@ -13,13 +13,13 @@ After completing this tutorial, you understand how to define dimensions and meas
 
 You need:
 
-- [`uv`](https://docs.astral.sh/uv/) installed (xorq's recommended runner)
+- [`uv`](https://docs.astral.sh/uv/) installed (Xorq's recommended runner)
 - Basic familiarity with Xorq expressions ([Your first expression](../../getting_started/your_first_expression.qmd) recommended)
 - Completed [Your first build](your_first_build.qmd) so the catalog vocabulary is familiar
 
 ## Set up a project directory
 
-`catalog.add(...)` needs a `pyproject.toml` in the working directory (or an ancestor) so it can pin the xorq version embedded in the entry. Create a fresh project and pull in xorq with the BSL extra:
+`catalog.add(...)` needs a `pyproject.toml` in the working directory (or an ancestor) so it can pin the Xorq version embedded in the entry. Create a fresh project and pull in Xorq with the BSL extra:
 
 ```bash
 mkdir flights-tutorial && cd flights-tutorial
@@ -32,12 +32,12 @@ The rest of the tutorial assumes commands are run from inside `flights-tutorial/
 
 ::: {.callout-note}
 ### Why `--bare`?
-Plain `uv init` drops a sample `main.py` next to your `pyproject.toml` and runs `git init`. Both bite you later: setuptools' auto-discovery sees `main.py` + `flights_catalog.py` and refuses to build a wheel for `catalog.add(...)` (multiple top-level modules), and the empty git repo (no `HEAD`) makes xorq's import-time git probe write `fatal: ambiguous argument 'HEAD'` to stderr on every run. `--bare` skips both — only `pyproject.toml` is created.
+Plain `uv init` drops a sample `main.py` next to your `pyproject.toml` and runs `git init`. Both bite you later: setuptools' auto-discovery sees `main.py` + `flights_catalog.py` and refuses to build a wheel for `catalog.add(...)` (multiple top-level modules), and the empty git repo (no `HEAD`) makes Xorq's import-time git probe write `fatal: ambiguous argument 'HEAD'` to stderr on every run. `--bare` skips both—only `pyproject.toml` is created.
 :::
 
 ::: {.callout-note}
 ### Why the `py-modules = []` line?
-`catalog.add(...)` builds a wheel of your project to embed in the catalog entry as a dep-pinning artifact. With no `[tool.setuptools]` config, setuptools auto-discovers top-level `.py` modules and refuses to build the wheel as soon as it finds more than one — and this tutorial gives you two (`flights_catalog.py` and `recover_flights.py`). `py-modules = []` tells setuptools "no modules in the wheel," so the wheel builds empty. That's fine here: xorq only needs the wheel for its dependency metadata, not to redistribute your scripts.
+`catalog.add(...)` builds a wheel of your project to embed in the catalog entry as a dep-pinning artifact. With no `[tool.setuptools]` config, setuptools auto-discovers top-level `.py` modules and refuses to build the wheel as soon as it finds more than one—and this tutorial gives you two (`flights_catalog.py` and `recover_flights.py`). `py-modules = []` tells setuptools "no modules in the wheel," so the wheel builds empty. That's fine here: Xorq only needs the wheel for its dependency metadata, not to redistribute your scripts.
 :::
 
 ::: {.callout-note}
@@ -53,7 +53,7 @@ The rest of the tutorial assumes the venv is active.
 
 ::: {.callout-note}
 ### Why a project directory?
-If you run the script from a directory without a `pyproject.toml`, `catalog.add(...)` raises `cannot locate a pyproject.toml ...`. `uv init` creates one for you; if you're not using uv, an empty `pyproject.toml` next to your script is enough — or pass `project_path=` to `catalog.add(...)` explicitly.
+If you run the script from a directory without a `pyproject.toml`, `catalog.add(...)` raises `cannot locate a pyproject.toml ...`. `uv init` creates one for you; if you're not using uv, an empty `pyproject.toml` next to your script is enough—or pass `project_path=` to `catalog.add(...)` explicitly.
 :::
 
 ::: {.callout-tip}
@@ -68,7 +68,7 @@ A reusable semantic model over flights data with:
 - Three dimensions: `origin`, `destination`, `carrier`
 - Three measures: `flight_count`, `avg_dep_delay`, `total_distance`
 
-You'll query it two different ways, then catalog the model so a colleague can pull it down and ask their own questions — without ever seeing your original Python file.
+You'll query it two different ways, then catalog the model so a colleague can pull it down and ask their own questions—without ever seeing your original Python file.
 
 ## Create the flights dataset
 
@@ -92,11 +92,11 @@ flights = xo.memtable(
     name="flights",
 )
 ```
-1. `xo.memtable` builds a deferred Xorq table from inline data. Nothing executes yet — `flights` is an expression you can pass to BSL.
+1. `xo.memtable` builds a deferred Xorq table from inline data. Nothing executes yet—`flights` is an expression you can pass to BSL.
 
 ::: {.callout-note}
 ### Why an in-memory table?
-For the tutorial we keep the data inline so you can run the whole thing offline. In production, swap `xo.memtable(...)` for a real source — `con.read_parquet(...)`, a Postgres table, or a pinned dataset. The semantic model on top doesn't change.
+For the tutorial we keep the data inline so you can run the whole thing offline. In production, swap `xo.memtable(...)` for a real source—`con.read_parquet(...)`, a Postgres table, or a pinned dataset. The semantic model on top doesn't change.
 :::
 
 ## Define the semantic model
@@ -126,7 +126,7 @@ flights_model = (
 print("Dimensions:", tuple(flights_model.dimensions))
 print("Measures:  ", tuple(flights_model.measures))
 ```
-1. Each dimension and measure is a lambda that takes the table and returns an expression. BSL stores the lambda — it doesn't run it until you query.
+1. Each dimension and measure is a lambda that takes the table and returns an expression. BSL stores the lambda—it doesn't run it until you query.
 
 ::: {.callout-tip}
 ### Dimensions vs. measures
@@ -135,12 +135,12 @@ A **dimension** is a column you can group by (or filter on). A **measure** is an
 
 ::: {.callout-tip}
 ### Run as you go
-`flights_catalog.py` grows section by section through the rest of the tutorial. After each addition, run `python flights_catalog.py` from your project directory — the output shown beneath each block (dimensions, measures, query results) is what you'll see when you do. The complete script is consolidated at the end in [Putting it all together](#putting-it-all-together).
+`flights_catalog.py` grows section by section through the rest of the tutorial. After each addition, run `python flights_catalog.py` from your project directory—the output shown beneath each block (dimensions, measures, query results) is what you'll see when you do. The complete script is consolidated at the end in [Putting it all together](#putting-it-all-together).
 :::
 
 ## Query the model
 
-A model is useless until you ask it questions. `flights_model.query(...)` returns a regular Xorq expression — the same kind you'd get from `table.group_by(...).agg(...)` — so `.execute()` runs it on your backend.
+A model is useless until you ask it questions. `flights_model.query(...)` returns a regular Xorq expression—the same kind you'd get from `table.group_by(...).agg(...)`—so `.execute()` runs it on your backend.
 
 Add a first query: average departure delay by origin airport.
 
@@ -178,10 +178,10 @@ You see one row per origin airport, with the count and average delay:
 
 ::: {.callout-note}
 ### Row order
-BSL doesn't sort the result — the row order you see depends on the backend's hash layout. The `.order_by("origin")` above is what makes this output reproducible; without it, the rows can come back in any order. Every `query(...)` block below this point is sorted for the same reason.
+BSL doesn't sort the result—the row order you see depends on the backend's hash layout. The `.order_by("origin")` above is what makes this output reproducible; without it, the rows can come back in any order. Every `query(...)` block below this point is sorted for the same reason.
 :::
 
-Now ask a different question — total distance flown by each carrier:
+Now ask a different question—total distance flown by each carrier:
 
 ```python
 by_carrier = flights_model.query(
@@ -198,7 +198,7 @@ print(by_carrier.execute())
 1      UA             4            7265
 ```
 
-Notice: same model, two completely different queries. The model is the contract — `query(...)` is the conversation.
+Notice: same model, two completely different queries. The model is the contract—`query(...)` is the conversation.
 
 ::: {.callout-tip}
 ### What if you ask for something that doesn't exist?
@@ -208,19 +208,19 @@ Try requesting a dimension or measure the model never registered:
 flights_model.query(dimensions=("airport",), measures=("flight_count",)).execute()
 ```
 
-You get an error immediately, not silently-wrong results:
+You get an error immediately, not silently wrong results:
 
 ```
 XorqTypeError: Column 'airport' is not found in table. Existing columns:
 'origin', 'destination', 'carrier', 'dep_delay', 'distance'.
 ```
 
-This is the second payoff of the semantic layer. Dimensions and measures are a closed vocabulary: `airport` doesn't exist, so the query fails before it touches the data. Without the model, a typo in `group_by("airport")` would give the same error — but a typo in a hand-written measure (say, `dep_delay.mean()` vs. `dep_delay.sum()`) wouldn't fail at all; it would just return a quietly-wrong number. By naming the aggregation `avg_dep_delay` once, on the model, every caller gets the right one or none at all.
+This is the second payoff of the semantic layer. Dimensions and measures are a closed vocabulary: `airport` doesn't exist, so the query fails before it touches the data. Without the model, a typo in `group_by("airport")` would give the same error—but a typo in a hand-written measure (say, `dep_delay.mean()` vs. `dep_delay.sum()`) wouldn't fail at all; it would just return a quietly wrong number. By naming the aggregation `avg_dep_delay` once, on the model, every caller gets the right one or none at all.
 :::
 
 ## Catalog the model
 
-To preserve the model itself — not just one query result — turn it into a Xorq expression that carries the BSL metadata via `to_tagged(flights_model)`, then add that expression to the catalog. The catalog is git-backed, so the directory you point it at becomes a versioned store of every entry you add.
+To preserve the model itself—not just one query result—turn it into a Xorq expression that carries the BSL metadata via `to_tagged(flights_model)`, then add that expression to the catalog. The catalog is git-backed, so the directory you point it at becomes a versioned store of every entry you add.
 
 ```python
 from pathlib import Path
@@ -242,12 +242,12 @@ print("Catalog at:", catalog_dir.absolute())
 print("Aliases:   ", catalog.list_aliases())
 ```
 1. `to_tagged(flights_model)` serializes the dimensions, measures, and underlying table into a Xorq expression with BSL metadata attached. We bind it to `flights_model_expr` to make the role explicit: it's the *expression form* of the model, ready for the catalog. You're cataloging the model itself, not the result of one of its queries.
-2. A stable path inside the project directory. Use anywhere you like — but a real folder (not a temp dir) is what lets the *next* script find the catalog by path. `Catalog.from_repo_path(..., init=True)` initializes a fresh git repo there.
+2. A stable path inside the project directory. Use anywhere you like—but a real folder (not a temp dir) is what lets the *next* script find the catalog by path. `Catalog.from_repo_path(..., init=True)` initializes a fresh git repo there.
 3. The alias `flights-model` is the human-readable handle. Internally each entry has a content-addressed hash; the alias just points at it.
 
 ::: {.callout-note}
 ### Why go through the catalog?
-The catalog speaks the language of expressions: schemas, lineage, content hashes, deferred reads. By tagging the model and storing it as a catalog entry, the model travels through the same pipes as everything else — `xorq build`, `xorq run`, lineage tools — and `from_tagged` lets you get the rich Python object back when you need it.
+The catalog speaks the language of expressions: schemas, lineage, content hashes, deferred reads. By tagging the model and storing it as a catalog entry, the model travels through the same pipes as everything else—`xorq build`, `xorq run`, lineage tools—and `from_tagged` lets you get the rich Python object back when you need it.
 :::
 
 ::: {.callout-tip}
@@ -257,7 +257,7 @@ For team use, replace the temp directory with a path to a checked-out git repo, 
 
 ## Recover the model from a separate script
 
-Here's the payoff. The catalog is now persisted at `./flights-catalog/` — a regular git directory you could commit, push, share, or back up. Switch hats: imagine you're a different person on the team. You have access to that directory, but you've never seen `flights_catalog.py` and don't know how the model was built. All you have is the alias.
+Here's the payoff. The catalog is now persisted at `./flights-catalog/`—a regular git directory you could commit, push, share, or back up. Switch hats: imagine you're a different person on the team. You have access to that directory, but you've never seen `flights_catalog.py` and don't know how the model was built. All you have is the alias.
 
 Create a *new* file alongside `flights_catalog.py`, called `recover_flights.py`:
 
@@ -288,7 +288,7 @@ by_destination = flights_model.query(
 print(by_destination.execute())
 ```
 1. `init=False` opens the existing catalog at the path. Note what's *not* imported: nothing from `flights_catalog.py`, no `to_semantic_table`, no inline `flights` data. The catalog directory is the only handoff.
-2. `flights_entry` is the catalog handle — content hash, alias, sidecar metadata, and the cataloged expression on `.expr`. `from_tagged(...)` reads the BSL metadata off that expression and reconstructs a live `SemanticModel`: same dimensions, same measures, same underlying table.
+2. `flights_entry` is the catalog handle—content hash, alias, sidecar metadata, and the cataloged expression on `.expr`. `from_tagged(...)` reads the BSL metadata off that expression and reconstructs a live `SemanticModel`: same dimensions, same measures, same underlying table.
 3. A brand-new query that the original Python file never even mentioned. The model's vocabulary is enough.
 
 Run it:
@@ -307,13 +307,13 @@ Recovered measures: ('flight_count', 'avg_dep_delay', 'total_distance')
 2         ORD             2            3045
 ```
 
-This is the property that makes the catalog interesting: you stored the model, and any consumer with access to the catalog directory can ask anything the model's dimensions and measures are designed to answer — without seeing or running your original code.
+This is the property that makes the catalog interesting: you stored the model, and any consumer with access to the catalog directory can ask anything the model's dimensions and measures are designed to answer—without seeing or running your original code.
 
 ## Putting it all together
 
 Two scripts, one shared catalog directory.
 
-`flights_catalog.py` — defines the model, queries it, publishes it:
+`flights_catalog.py`—defines the model, queries it, publishes it:
 
 ```python
 # flights_catalog.py
@@ -371,7 +371,7 @@ catalog = Catalog.from_repo_path(catalog_dir, init=True)
 catalog.add(flights_model_expr, aliases=("flights-model",), sync=False)
 ```
 
-`recover_flights.py` — reads the catalog from scratch, recovers the model, runs a new query:
+`recover_flights.py`—reads the catalog from scratch, recovers the model, runs a new query:
 
 ```python
 # recover_flights.py
@@ -402,13 +402,13 @@ python recover_flights.py
 
 - The Boring Semantic Layer turns a Xorq table into a `SemanticModel` with named dimensions and measures.
 - `flights_model.query(dimensions=..., measures=...)` produces an ordinary Xorq expression, so `.execute()` runs on any Xorq backend.
-- Asking for a dimension or measure the model didn't register raises an error before any data is touched — typos in measure definitions can't return quietly-wrong numbers.
+- Asking for a dimension or measure the model didn't register raises an error before any data is touched—typos in measure definitions can't return quietly wrong numbers.
 - `to_tagged(flights_model)` produces a catalog-ready expression, and `from_tagged(flights_entry.expr)` reconstructs the live `SemanticModel` on the other side.
 
 The point of the BSL + catalog combination is decoupling: the team that owns the data publishes the model once, and every downstream user gets a typed, queryable object instead of a frozen result set.
 
 ## Next steps
 
-- [Your first build](your_first_build.qmd) — package the cataloged model into a portable build artifact.
-- [Explore caching](explore_caching.qmd) — cache the underlying table so repeated BSL queries don't re-read the source.
-- [Understand deferred execution](understand_deferred_execution.qmd) — the foundation that makes `query(...)` cheap and composable.
+- [Your first build](your_first_build.qmd)—package the cataloged model into a portable build artifact.
+- [Explore caching](explore_caching.qmd)—cache the underlying table so repeated BSL queries don't re-read the source.
+- [Understand deferred execution](understand_deferred_execution.qmd)—the foundation that makes `query(...)` cheap and composable.

@@ -25,7 +25,7 @@ xorq run <build_path> --output-path <output_file> --format <output_format>
 Where:
 - `<build_path>` is the path to the built Xorq expression directory
 - `--output-path` specifies where to write the results (defaults to discarding output)
-- `--format` specifies the output format: "csv", "json", or "parquet" (defaults to "parquet")
+- `--format` specifies the output format: "csv," "json," or "parquet" (defaults to "parquet")
 
 ### Example: running the penguins analysis
 

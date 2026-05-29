@@ -2,7 +2,7 @@
 title: Environment variables
 ---
 
-This document provides a comprehensive reference for all environment variables used in the project's `.template` files. These template files serve as blueprints for configuring various services and connections in the XORQ ecosystem.
+This document provides a comprehensive reference for all environment variables used in the project's `.template` files. These template files serve as blueprints for configuring various services and connections in the Xorq ecosystem.
 
 ## Overview
 
@@ -82,7 +82,7 @@ Apache Iceberg table format configuration for PyIceberg.
 
 ### Xorq configuration (`.env.xorq.template`)
 
-Core XORQ application settings.
+Core Xorq application settings.
 
 | Variable | Description | Required | Default | Example |
 |----------|-------------|----------|---------|---------|

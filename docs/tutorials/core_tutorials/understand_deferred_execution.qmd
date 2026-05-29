@@ -52,7 +52,7 @@ print(f"Has this executed? Not yet!")
 ```
 1. Connect to the embedded backend.
 2. Load the iris dataset. This creates a table reference, not the actual data.
-3. Build a filter expression. Still no computation!
+3. Build a filter expression. Still no computation
 4. Print the expression type to confirm it's just an expression object.
 
 At this point, Xorq knows what you want to do (filter rows), but it hasn't read any data or applied any filters.

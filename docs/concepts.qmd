@@ -1,6 +1,6 @@
 ---
 title: 'Core Concepts'
-description: 'The core concepts to understand what is xorq'
+description: 'The core concepts to understand what is Xorq'
 ---
 
 ## Caching system
@@ -90,11 +90,11 @@ Cache invalidation uses different hashing strategies based on the cache type:
 
 ## Multi-engine system
 
-xorq's multi-engine system enables seamless data movement between different query engines, allowing you to leverage the strengths of each engine while maintaining a unified workflow.
+Xorq's multi-engine system enables seamless data movement between different query engines, allowing you to leverage the strengths of each engine while maintaining a unified workflow.
 
 ### The `into_backend` operator
 
-The core of xorq's multi-engine capability is the `into_backend` operator, which enables:
+The core of Xorq's multi-engine capability is the `into_backend` operator, which enables:
 
 - Transparent data movement between engines
 - Zero-copy data transfer using Apache Arrow
@@ -131,7 +131,7 @@ result = expr.execute()
 
 ### Supported engines
 
-xorq currently supports:
+Xorq currently supports:
 
 1. **In-Process Engines**
     - DuckDB
@@ -161,7 +161,7 @@ Data movement between engines is handled through:
 
 ## Custom UD(X)F system
 
-xorq provides a powerful system for extending query engines with custom User-Defined Functions (UDFs). Here are three key types supported:
+Xorq provides a powerful system for extending query engines with custom User-Defined Functions (UDFs). Here are three key types supported:
 
 ### 1. Scalar UDF with model integration
 
@@ -275,7 +275,7 @@ result = expr.execute()
 
 ## Ephemeral Flight service
 
-xorq's Ephemeral Flight Service provides a high-performance data transfer mechanism between engines using Apache Arrow Flight. Unlike traditional data transfer methods, this service provides:
+Xorq's Ephemeral Flight Service provides a high-performance data transfer mechanism between engines using Apache Arrow Flight. Unlike traditional data transfer methods, this service provides:
 
 1. **Automatic Lifecycle Management**
 2. **Zero-Copy Data Movement**

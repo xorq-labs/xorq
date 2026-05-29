@@ -149,7 +149,7 @@ print(predictions[["species", "predicted"]].head(10))
 ```
 1. Create a helper that packages data into a struct. This preserves original values.
 2. Build the prediction expression. Still deferred.
-3. Execute! Training and prediction happen now, in one optimized pass.
+3. Execute. Training and prediction happen now, in one optimized pass.
 
 You'll see:
 

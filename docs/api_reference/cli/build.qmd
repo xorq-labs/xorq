@@ -31,7 +31,7 @@ xorq build <script_path> -e <expression_name> --builds-dir <output_directory>
 
 Where:
 - `<script_path>` is the path to your Python script containing the expression
-- `<expression_name>` is the name of the variable holding the xorq expression
+- `<expression_name>` is the name of the variable holding the Xorq expression
 - `<builds-dir>` is where the artifacts will be generated (defaults to "builds")
 
 ### Example: penguins data processing
