@@ -32,7 +32,9 @@ jobs:
           enable-cache: true
 
       - name: Install Python doc dependencies
-        run: uv sync --only-group docs
+        # Include the project itself (not --only-group) so quartodoc can import
+        # `xorq` to build the API reference; --no-default-groups skips dev/test.
+        run: uv sync --no-default-groups --group docs
 
       - name: Vale (prose style)
         uses: vale-cli/vale-action@v2
