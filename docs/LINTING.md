@@ -35,7 +35,7 @@ sudo snap install vale --classic
 brew install vale
 ```
 
-> **Note:** The `.vale.ini` and `styles/` directory are already committed. No `vale sync` needed.
+> **Note:** `.vale.ini` lives at the repo root; `styles/` is at `docs/styles/`. Both are committed. No `vale sync` needed.
 
 ### lychee
 
@@ -75,7 +75,7 @@ pip install pymarkdownlnt python-frontmatter
 ### Vale in VS Code
 
 1. Install the [Vale VSCode extension](https://marketplace.visualstudio.com/items?itemName=ChrisChinchilla.vale-vscode) (by Chris Chinchilla).
-2. Open Settings (`Ctrl+,`), search **Vale CLI: Config**, set to `.vale.ini`.
+2. Open Settings (`Ctrl+,`), search **Vale CLI: Config**, set to the repo-root `.vale.ini` (absolute path or leave blank to auto-discover).
 3. Set **Vale CLI: Min Alert Level** to `suggestion`.
 4. Reload VS Code.
 

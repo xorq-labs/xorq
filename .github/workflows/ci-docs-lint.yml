@@ -39,7 +39,6 @@ jobs:
         with:
           version: "3.14.2"
           files: "docs/"
-          config: "docs/.vale.ini"
 
       - uses: quarto-dev/quarto-actions/setup@v2
         with:

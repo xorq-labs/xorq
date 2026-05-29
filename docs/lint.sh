@@ -79,7 +79,7 @@ section "Vale — prose style"
 if [[ "${SKIP_VALE:-}" == "1" ]]; then
     pass "vale: skipped (handled by vale-cli/vale-action in CI)"
 else
-    vale_out=$(vale . 2>&1) && vale_exit=0 || vale_exit=$?
+    vale_out=$( (cd "$REPO_ROOT" && vale docs/) 2>&1) && vale_exit=0 || vale_exit=$?
     printf '%s\n' "$vale_out"
     if [[ $vale_exit -eq 0 ]]; then
         pass "vale"
