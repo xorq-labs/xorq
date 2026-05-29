@@ -1,0 +1,99 @@
+name: ci-test-templates
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    uses: ./.github/workflows/detect-changes.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
+  template:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    name: ${{ matrix.template }} template end-to-end build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - template: sklearn
+            path: sklearn_template
+          - template: penguins
+            path: penguins_template
+          - template: cached-fetcher
+            path: cached_fetcher_template
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
+
+      - name: Install xorq
+        run: uv sync --locked --extra duckdb
+
+      - name: Init ${{ matrix.template }} template
+        run: uv run xorq init --path "${{ matrix.path }}" --template "${{ matrix.template }}"
+
+      - name: Patch template to use checked-out xorq
+        run: |
+          uv run python << 'EOF'
+          import tomlkit, os
+          from pathlib import Path
+
+          workspace = os.environ["GITHUB_WORKSPACE"]
+          path = os.environ["TEMPLATE_PATH"]
+          p = Path(f"{path}/pyproject.toml")
+          doc = tomlkit.parse(p.read_text())
+
+          tool = doc.setdefault("tool", tomlkit.table())
+          uv_section = tool.setdefault("uv", tomlkit.table())
+          sources = uv_section.setdefault("sources", tomlkit.table())
+
+          xorq_source = tomlkit.inline_table()
+          xorq_source.append("path", workspace)
+          sources["xorq"] = xorq_source
+
+          p.write_text(tomlkit.dumps(doc))
+          EOF
+        env:
+          TEMPLATE_PATH: ${{ matrix.path }}
+
+      - name: Re-lock and export template requirements
+        working-directory: ${{ matrix.path }}
+        run: |
+          uv lock
+          uv export \
+            --locked \
+            --no-dev \
+            --no-emit-project \
+            --no-header \
+            --no-annotate \
+            --all-extras \
+            --python ">=3.10,<3.14" \
+            > requirements.txt
+
+      - name: Build ${{ matrix.template }} template
+        id: uv-build
+        run: |
+          set -eo pipefail
+          uv run xorq uv build "${{ matrix.path }}/expr.py" --builds-dir dist/template-builds | tee /tmp/build_output.txt
+          build_path=$(tail -n1 /tmp/build_output.txt)
+          [[ -d "$build_path" ]] || { echo "Build artifact not found: ${build_path}"; echo "Full build output:"; cat /tmp/build_output.txt; exit 1; }
+          echo "build_path=${build_path}" >> "$GITHUB_OUTPUT"
+          echo "Build written to: ${build_path}"
+
+      - name: Run ${{ matrix.template }} template
+        run: uv run xorq uv run "${{ steps.uv-build.outputs.build_path }}"

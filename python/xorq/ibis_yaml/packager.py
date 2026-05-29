@@ -34,7 +34,6 @@ from attr import (
 )
 from attr.validators import (
     deep_iterable,
-    in_,
     instance_of,
     optional,
 )
@@ -638,6 +637,16 @@ def validate_params_early(build_path, raw_params):
         raise ValueError("\n".join(errors))
 
 
+def _convert_output_format(value):
+    try:
+        return OutputFormats(value)
+    except ValueError as e:
+        valid = ", ".join(f.value for f in OutputFormats)
+        raise ValueError(
+            f"invalid output_format {value!r}; valid choices: {valid}"
+        ) from e
+
+
 @frozen
 class _BasePackagedRunner(ABC):
     build_path = field(validator=instance_of(Path), converter=Path)
@@ -647,7 +656,11 @@ class _BasePackagedRunner(ABC):
         default=None,
     )
     output_path = field(validator=optional(instance_of(str)), default=None)
-    output_format = field(validator=in_(OutputFormats), default=DEFAULT_OUTPUT_FORMAT)
+    output_format = field(
+        validator=instance_of(OutputFormats),
+        converter=_convert_output_format,
+        default=DEFAULT_OUTPUT_FORMAT,
+    )
     limit = field(validator=optional(instance_of(int)), default=None)
     python_version = field(validator=_validate_python_version, default=None)
     _bundle: Bundle = field(init=False, repr=False, eq=False, default=None)
