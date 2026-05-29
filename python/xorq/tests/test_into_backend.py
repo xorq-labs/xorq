@@ -744,6 +744,56 @@ def test_multi_engine_cache(pg, ls_con, ls_batting, tmp_path, backend_name):
     assert expr.execute() is not None
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="DataFusion corrupts large_utf8 batches declared as utf8 via C Data Interface; "
+    "XPASS means upstream fixed the ABI mismatch — verify test_into_backend_pyiceberg_string_preserved still covers the cast",
+)
+def test_lying_reader_corrupts_datafusion_directly():
+    # Documents the threat model: DataFusion misreads 64-bit large_utf8 offsets
+    # as 32-bit utf8 when the declared schema says utf8 but physical batches are
+    # large_utf8. Expected to fail (corruption happens). If DataFusion fixes
+    # this, the xfail becomes XPASS and the companion functional test
+    # (test_into_backend_pyiceberg_string_preserved) validates the cast is
+    # still safe to keep.
+    con = xo.connect()
+    if not hasattr(con, "con") or not hasattr(con.con, "register_record_batch_reader"):
+        pytest.skip(
+            "backend internals changed: con.con.register_record_batch_reader unavailable"
+        )
+    utf8_schema = pa.schema([("x", pa.utf8())])
+    batch = pa.record_batch({"x": pa.array(["hello", "world"], type=pa.large_utf8())})
+    lying_reader = pa.RecordBatchReader.from_batches(utf8_schema, [batch])
+
+    # con.con is the raw DataFusion SessionContext; intentionally bypass the
+    # public read_record_batches API (which casts) to probe bare DataFusion behaviour.
+    con.con.register_record_batch_reader("lying_table", lying_reader)
+    result = con.table("lying_table").execute()["x"].tolist()
+
+    assert result == ["hello", "world"]
+
+
+def test_into_backend_pyiceberg_string_preserved(tmp_path):
+    pytest.importorskip("pyiceberg")
+    # PyIceberg returns large_string for string columns (physical Arrow type
+    # from Parquet). ibis schema declares string/utf8. Without the cast in
+    # register_and_transform_remote_tables the RecordBatchReader lies about its
+    # schema and DataFusion silently corrupts the values.
+    ice_con = xo.pyiceberg.connect(warehouse_path=str(tmp_path))
+    src = pa.table(
+        {"symbol": ["AAPL", "GOOGL", "MSFT"], "price": [150.0, 180.0, 420.0]}
+    )
+    ice_con.create_table("quotes", src)
+    t = ice_con.table("quotes")
+
+    cols = ["symbol", "price"]
+    con = xo.connect()
+    result = t.into_backend(con).execute().sort_values(cols).reset_index(drop=True)
+    expected = src.to_pandas().sort_values(cols).reset_index(drop=True)
+
+    assert_frame_equal(result, expected)
+
+
 def test_multi_backend(parquet_dir):
     batting = xo.deferred_read_parquet(
         parquet_dir.joinpath("batting.parquet"), con=xo.connect()
