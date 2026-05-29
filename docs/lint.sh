@@ -201,13 +201,15 @@ fi
 
 # ── 7. Orphan files — not referenced in _quarto.yml ──────────────────────────
 
-section "Orphan files — .qmd not in _quarto.yml"
+section "Orphan files — .qmd not in _quarto.yml or any .qmd"
 orphans=()
 while IFS= read -r f; do
     rel="${f#./}"
-    if ! grep -qF "$rel" _quarto.yml 2>/dev/null; then
+    # A file is orphaned only if absent from both _quarto.yml and all .qmd sources
+    if ! grep -qF "$rel" _quarto.yml 2>/dev/null && \
+       ! grep -rqF "$rel" --include="*.qmd" . 2>/dev/null; then
         orphans+=("$rel")
-        gha_error "docs/$rel" "1" "File not referenced in _quarto.yml (orphan)"
+        gha_error "docs/$rel" "1" "File not referenced in _quarto.yml or any .qmd (orphan)"
     fi
 done < <(find . -name "*.qmd" \
     -not -path "./_site/*" \
@@ -219,7 +221,7 @@ done < <(find . -name "*.qmd" \
 if [[ ${#orphans[@]} -eq 0 ]]; then
     pass "no orphaned .qmd files"
 else
-    fail "${#orphans[@]} .qmd file(s) not referenced in _quarto.yml"
+    fail "${#orphans[@]} .qmd file(s) not referenced in _quarto.yml or any .qmd"
     printf '    %s\n' "${orphans[@]}"
 fi
 
