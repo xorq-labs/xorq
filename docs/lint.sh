@@ -62,7 +62,7 @@ require_tool() {
 
 # ── Tool presence checks (fail hard) ─────────────────────────────────────────
 
-require_tool vale       "snap install vale --classic  (Linux)  |  brew install vale  (macOS)"
+[[ "${SKIP_VALE:-}" == "1" ]] || require_tool vale "snap install vale --classic  (Linux)  |  brew install vale  (macOS)"
 require_tool lychee     "https://github.com/lycheeverse/lychee/releases"
 require_tool quarto     "https://quarto.org/docs/get-started/"
 require_tool pymarkdown "pip install pymarkdownlnt"
@@ -76,22 +76,15 @@ cd "$DOCS_DIR"
 # ── 1. Vale — prose style ─────────────────────────────────────────────────────
 
 section "Vale — prose style"
-vale_out=$(vale --glob='!adr/**' . 2>&1) && vale_exit=0 || vale_exit=$?
-printf '%s\n' "$vale_out"
-if [[ $vale_exit -eq 0 ]]; then
-    pass "vale"
+if [[ "${SKIP_VALE:-}" == "1" ]]; then
+    pass "vale: skipped (handled by vale-cli/vale-action in CI)"
 else
-    fail "vale: style errors found (see output above)"
-    if in_ci; then
-        vale --output=JSON --glob='!adr/**' . 2>/dev/null \
-        | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-for path, alerts in data.items():
-    for a in alerts:
-        col = a['Span'][0] if a.get('Span') else 1
-        print(f'::error file={path},line={a[\"Line\"]},col={col}::{a[\"Message\"]} [{a[\"Check\"]}]')
-" 2>/dev/null || true
+    vale_out=$(vale . 2>&1) && vale_exit=0 || vale_exit=$?
+    printf '%s\n' "$vale_out"
+    if [[ $vale_exit -eq 0 ]]; then
+        pass "vale"
+    else
+        fail "vale: style errors found (see output above)"
     fi
 fi
 

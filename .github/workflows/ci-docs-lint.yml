@@ -34,18 +34,11 @@ jobs:
       - name: Install Python doc dependencies
         run: uv sync --only-group docs
 
-      - name: Install vale
-        run: |
-          curl -sSfL \
-            "https://github.com/errata-ai/vale/releases/download/v3.14.2/vale_3.14.2_Linux_64-bit.tar.gz" \
-            -o /tmp/vale_3.14.2_Linux_64-bit.tar.gz
-          curl -sSfL \
-            "https://github.com/errata-ai/vale/releases/download/v3.14.2/vale_3.14.2_checksums.txt" \
-            -o /tmp/vale_3.14.2_checksums.txt
-          cd /tmp && grep "vale_3.14.2_Linux_64-bit.tar.gz" vale_3.14.2_checksums.txt | sha256sum --check
-          mkdir -p ~/.local/bin
-          tar xz -C ~/.local/bin vale -f /tmp/vale_3.14.2_Linux_64-bit.tar.gz
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Vale (prose style)
+        uses: vale-cli/vale-action@v3
+        with:
+          version: "3.14.2"
+          files: "docs/"
 
       - name: Install lychee
         run: |
@@ -68,3 +61,4 @@ jobs:
         run: uv run --no-sync bash docs/lint.sh
         env:
           CI: "true"
+          SKIP_VALE: "1"
