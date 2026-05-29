@@ -87,7 +87,7 @@ class ArrayValue(Value):
         -------
         Value
             - If `index` is an [](`int`) or
-              [`IntegerValue`](./expression-numeric.qmd#ibis.expr.types.IntegerValue)
+              `IntegerValue`
               then the return type is the element type of `self`.
             - If `index` is a [](`slice`) then the return type is the same
               type as the input.
@@ -291,7 +291,7 @@ class ArrayValue(Value):
         ::: {.callout-note}
         ## Empty arrays and `NULL`s are dropped in the output.
         To preserve empty arrays as `NULL`s as well as existing `NULL` values,
-        use [`Table.unnest`](./expression-tables.qmd#ibis.expr.types.relations.Table.unnest).
+        use `Table.unnest`.
         :::
 
         Returns
@@ -301,7 +301,7 @@ class ArrayValue(Value):
 
         See Also
         --------
-        [`Table.unnest`](./expression-tables.qmd#ibis.expr.types.relations.Table.unnest)
+        `Table.unnest`
 
         Examples
         --------
@@ -379,7 +379,7 @@ class ArrayValue(Value):
 
         See Also
         --------
-        [`StringValue.join`](./expression-strings.qmd#ibis.expr.types.strings.StringValue.join)
+        `StringValue.join`
         """
         return ops.ArrayStringJoin(self, sep=sep).to_expr()
 
@@ -1066,7 +1066,7 @@ class ArrayValue(Value):
 
         See Also
         --------
-        [`BooleanColumn.any`](./expression-numeric.qmd#ibis.expr.types.logical.BooleanColumn.any)
+        `BooleanColumn.any`
 
         Returns
         -------
@@ -1116,7 +1116,7 @@ class ArrayValue(Value):
 
         See Also
         --------
-        [`BooleanColumn.all`](./expression-numeric.qmd#ibis.expr.types.logical.BooleanColumn.all)
+        `BooleanColumn.all`
 
         Returns
         -------
@@ -1167,7 +1167,7 @@ class ArrayValue(Value):
 
         See Also
         --------
-        [`Column.min`](./expression-generic.qmd#ibis.expr.types.generic.Column.min)
+        `Column.min`
 
         Returns
         -------
@@ -1201,7 +1201,7 @@ class ArrayValue(Value):
 
         See Also
         --------
-        [`Column.max`](./expression-generic.qmd#ibis.expr.types.generic.Column.max)
+        `Column.max`
 
         Returns
         -------
@@ -1235,7 +1235,7 @@ class ArrayValue(Value):
 
         See Also
         --------
-        [`NumericColumn.sum`](./expression-numeric.qmd#ibis.expr.types.numeric.NumericColumn.sum)
+        `NumericColumn.sum`
 
         Returns
         -------
@@ -1269,7 +1269,7 @@ class ArrayValue(Value):
 
         See Also
         --------
-        [`NumericColumn.mean`](./expression-numeric.qmd#ibis.expr.types.numeric.NumericColumn.mean)
+        `NumericColumn.mean`
 
         Returns
         -------
