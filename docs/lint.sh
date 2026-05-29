@@ -83,7 +83,7 @@ if [[ $vale_exit -eq 0 ]]; then
 else
     fail "vale: style errors found (see output above)"
     if in_ci; then
-        vale --output=JSON . 2>/dev/null \
+        vale --output=JSON --glob='!adr/**' . 2>/dev/null \
         | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
@@ -158,8 +158,9 @@ mapfile -t _pm_files < <(find . \( -name "*.qmd" -o -name "*.md" \) \
     -not -path "./adr/*" \
     -not -path "./__pycache__/*" \
     | sort)
-if [[ ${#_pm_files[@]} -gt 0 ]] && \
-   pymarkdown --disable-rules "$DISABLE" scan "${_pm_files[@]}" 2>&1; then
+if [[ ${#_pm_files[@]} -eq 0 ]]; then
+    pass "pymarkdown: no files to scan"
+elif pymarkdown --disable-rules "$DISABLE" scan "${_pm_files[@]}" 2>&1; then
     pass "pymarkdown"
 else
     fail "pymarkdown: markdown structure issues found (see output above)"
