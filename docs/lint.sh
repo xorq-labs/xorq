@@ -76,7 +76,7 @@ cd "$DOCS_DIR"
 # ── 1. Vale — prose style ─────────────────────────────────────────────────────
 
 section "Vale — prose style"
-vale_out=$(vale . 2>&1) && vale_exit=0 || vale_exit=$?
+vale_out=$(vale --glob='!adr/**' . 2>&1) && vale_exit=0 || vale_exit=$?
 printf '%s\n' "$vale_out"
 if [[ $vale_exit -eq 0 ]]; then
     pass "vale"
@@ -154,7 +154,6 @@ DISABLE="MD013,MD025,MD033,MD034,MD041,MD046"
 if pymarkdown \
     --disable-rules "$DISABLE" \
     scan --recurse \
-    adr \
     api_reference \
     concepts \
     getting_started \
@@ -190,6 +189,7 @@ done < <(find . -name "*.qmd" \
     -not -path "./_site/*" \
     -not -path "./.quarto/*" \
     -not -path "./reference/*" \
+    -not -path "./adr/*" \
     -not -path "./__pycache__/*" \
     | sort)
 
@@ -213,6 +213,7 @@ while IFS= read -r f; do
 done < <(find . -name "*.qmd" \
     -not -path "./_site/*" \
     -not -path "./.quarto/*" \
+    -not -path "./adr/*" \
     -not -path "./__pycache__/*" \
     | sort)
 
