@@ -79,7 +79,7 @@ The `.cache()` method tells Xorq to store results from this expression. On the f
 
 ## Observe cache miss (first run)
 
-You’ll execute the expression for the first time. This will be a cache miss, Xorq has to compute the results.
+You’ll execute the expression for the first time. This is a cache miss, Xorq has to compute the results.
 
 ```{python}
 import time

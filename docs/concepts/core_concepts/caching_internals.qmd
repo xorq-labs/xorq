@@ -97,7 +97,7 @@ Every cache in Xorq is the combination of a **strategy** and a **storage**. The 
 
 ## Strategies: how the key is computed
 
-A **cache key** is a hex string that uniquely identifies a cached result. It is computed by hashing the expression via [dask tokenization](https://docs.dask.org/en/stable/custom-collections.html#tokenize). The key is prefixed with `letsql_cache-` by default.
+A **cache key** is a hex string that uniquely identifies a cached result. It's computed by hashing the expression via [dask tokenization](https://docs.dask.org/en/stable/custom-collections.html#tokenize). The key is prefixed with `letsql_cache-` by default.
 
 The two strategies differ in what goes into that hash.
 
@@ -121,7 +121,7 @@ The result: if the source data changes, the cache key changes, is found to not e
 
 ### `SnapshotStrategy`
 
-The key is stable even if the underlying data changes. This is useful when you only need valid data and don't care about updates. Only high-level information like file path, table name, and schema matter.
+The key is stable even if the underlying data changes. This is useful when you only need valid data and don't care about updates. Only high-level information like path, table name, and schema matter.
 
 ```python
 from xorq.caching import ParquetSnapshotCache
@@ -169,7 +169,7 @@ Extends `ParquetStorage` with a time-to-live. The parquet file is treated as exp
 
 ### `GCStorage`
 
-Stores parquet files in a Google Cloud Storage bucket instead of local disk. Same pattern as `ParquetStorage`, but reads and writes go through `gcsfs`.
+Stores parquet files in a GCS bucket instead of local disk. Same pattern as `ParquetStorage`, but reads and writes go through `gcsfs`.
 
 ## Is the cache on the connection?
 
@@ -247,11 +247,11 @@ If you don't want invalidation—you want a frozen snapshot regardless of what h
 ## Glossary
 
 - **Cache key**: a hex string derived from the expression and its upstream data. Same expression + same data = same key (input-addressed).
-- **`CachedNode`**: the internal DAG node created by `.cache()`. It wraps the uncached expression and a reference to the `Cache` object. During execution, it is replaced with the cached result.
+- **`CachedNode`**: the internal DAG node created by `.cache()`. It wraps the uncached expression and a reference to the `Cache` object. During execution, it's replaced with the cached result.
 - **`deferred_read_parquet`**: a `Read` node that represents a lazy parquet read. It doesn't load data until the expression is executed.
 - **`into_backend()`**: moves data from one engine to another via Arrow. Creates a `RemoteTable` node in the DAG.
-- **`RemoteTable`**: the DAG node representing data that will be transferred between backends.
+- **`RemoteTable`**: the DAG node representing data transferred between backends.
 - **Record batch**: Arrow's columnar data chunk. A `RecordBatchReader` streams these one at a time.
-- **ADBC**: Arrow Database Connectivity. The protocol Postgres, Snowflake, and SQLite use to ingest Arrow data.
+- **ADBC**: Arrow Database Connectivity. The protocol Postgres, Snowflake, and SQLite use to load Arrow data.
 - **Input-addressed**: the cache key is derived from the input (expression + data state), not from a user-assigned name. Same input always maps to the same key.
 - **Tokenization**: the process of hashing an expression into a deterministic key. Xorq registers custom normalizers for every node type so that hashing is always deterministic.

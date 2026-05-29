@@ -35,7 +35,7 @@ Change the estimator, run the pipeline, compare scores. That's the pattern. Xorq
 
 This tutorial builds code incrementally. Each section provides a code block that you run sequentially.
 
-**Recommended approach**: Open a terminal, run `python` to start an interactive Python shell, then copy and paste each code block in order.
+**Recommended approach**—Open a terminal, run `python` to start an interactive Python shell, then copy and paste each code block in order.
 
 **Alternative approaches**:
 

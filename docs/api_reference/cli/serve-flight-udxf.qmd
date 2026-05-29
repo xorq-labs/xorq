@@ -16,13 +16,13 @@ When you run `xorq serve-flight-udxf`, the following happens internally:
 
 The `serve-flight-udxf` command is essentially a wrapper that makes UDXF-containing expressions available as network services.
 
-## Example: penguins health analysis
+## Example: Penguins health analysis
 
-Let's use the same penguins health analysis example from the build and run documentation to demonstrate how the `serve-flight-udxf` command works.
+This example uses the same penguins health analysis from the build and run documentation to demonstrate how the `serve-flight-udxf` command works.
 
 ### Step 1: The penguins_analysis.py script
 
-We'll use the same `penguins_analysis.py` script as in the previous examples:
+It uses the same `penguins_analysis.py` script as the previous examples:
 
 ```{python}
 #| eval: false
@@ -134,7 +134,7 @@ xorq serve-flight-udxf builds/f02d28198715 --host 0.0.0.0 --port 8080
 The `serve-flight-udxf` command is specifically designed for UDXF expressions because:
 
 1. **UDXF expressions contain user-defined functions** that can be efficiently served over Flight
-2. **FlightServer.from_udxf()** automatically extracts the UDXF command ("penguin_classifier" in our example)
+2. **FlightServer.from_udxf()** automatically extracts the UDXF command ("penguin_classifier" in this example)
 3. **The server hosts the function** and makes it available for remote execution
 4. **Clients can send data** and get processed results back via the Flight protocol
 
@@ -201,6 +201,6 @@ The `xorq serve-flight-udxf` command is a specialized tool for serving UDXF expr
 - **Only works with expressions containing UDXF nodes**
 - **Uses FlightServer.from_udxf() internally** for optimized serving
 - **Automatically extracts UDXF commands** from the expression
-- **Provides a simple CLI interface** for deploying user-defined functions as services
+- **Provides a simple command-line interface** for deploying user-defined functions as services
 
-This makes it easy to take any data processing function (like our penguin health analyzer) and deploy it as a high-performance network service that can be called from any Arrow Flight client.
+This makes it easy to take any data processing function (like the penguin health analyzer) and deploy it as a high-performance network service that can be called from any Arrow Flight client.

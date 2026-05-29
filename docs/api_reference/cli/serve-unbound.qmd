@@ -26,7 +26,7 @@ xorq serve-unbound <build_path> [options]
 
 ## Notes
 
-- If neither `--to_unbind_hash` nor `--to_unbind_tag` is provided, the command will attempt to infer the target based on graph analysis; providing one is recommended for determinism.
+- If neither `--to_unbind_hash` nor `--to_unbind_tag` is provided, the command attempts to infer the target based on graph analysis; providing one is recommended for determinism.
 
 ## Examples
 

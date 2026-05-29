@@ -35,7 +35,7 @@ Amazon Web Services authentication and configuration.
 | `AWS_ALLOW_HTTP` | Allow HTTP connections (not recommended for production) | No |  
 | `AWS_REGION` | AWS region for services | Yes | 
 
-**Security Note:** Never commit actual AWS credentials to version control. Use IAM roles or temporary credentials when possible.
+**Security Note**—Never commit actual AWS credentials to version control. Use IAM roles or temporary credentials when possible.
 
 ### Snowflake configuration (`.env.snowflake.template`)
 
@@ -49,7 +49,7 @@ Snowflake data warehouse connection parameters.
 | `SNOWFLAKE_ROLE` | Snowflake role to assume | Yes | 
 | `SNOWFLAKE_WAREHOUSE` | Snowflake warehouse to use | Yes | 
 
-**Note:** Snowflake accounts can be identified by their account locator or account URL format.
+**Note**—Snowflake accounts can be identified by their account locator or account URL format.
 
 ### Weather API configuration (`.env.weather.template`)
 
@@ -61,7 +61,7 @@ OpenWeatherMap API integration settings.
 | `WEATHER_FEATURES_PORT` | Port for weather features service | No | `8819` | 
 | `WEATHER_API_URL` | OpenWeatherMap API base URL | No | `https://api.openweathermap.org/data/2.5/weather` |
 
-**API Key:** Obtain from [OpenWeatherMap](https://openweathermap.org/api) after creating an account.
+**API Key**—Obtain from [OpenWeatherMap](https://openweathermap.org/api) after creating an account.
 
 ### PyIceberg configuration (`.env.pyiceberg.template`)
 
@@ -82,7 +82,7 @@ Apache Iceberg table format configuration for PyIceberg.
 
 ### Xorq configuration (`.env.xorq.template`)
 
-Core Xorq application settings.
+Core Xorq app settings.
 
 | Variable | Description | Required | Default | Example |
 |----------|-------------|----------|---------|---------|
@@ -91,8 +91,8 @@ Core Xorq application settings.
 | `XORQ_PROFILE_DIR` | Directory for storing profiles | No | `~/.config/xorq/profiles` | 
 | `XORQ_DEBUG` | Enable debug mode | No | `False` | 
 | `XORQ_CACHE_KEY_PREFIX` | Prefix for cache keys | No | `letsql_cache-` |
-| `XORQ_LOG_LEVEL` | Log level for file logging (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, or `OFF` to disable) | No | `INFO` |
+| `XORQ_LOG_LEVEL` | Log level for file logging (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, or `OFF` to turn off) | No | `INFO` |
 
-**Note:** These variables use `export` statements in the template, indicating they should be set as shell environment variables.
+**Note**—These variables use `export` statements in the template, indicating they should be set as shell environment variables.
 
 

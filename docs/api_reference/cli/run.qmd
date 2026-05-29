@@ -36,7 +36,7 @@ Assuming you've built the penguins analysis expression from the [run example](ru
 xorq run builds/f02d28198715 --output-path penguin_results.parquet
 ```
 
-The command will execute the UDXF Xorq expression and produce a dataset with the health analysis results.
+The command executes the UDXF Xorq expression and produces a dataset with the health analysis results.
 
 ### Output formats
 

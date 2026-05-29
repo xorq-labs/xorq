@@ -14,7 +14,7 @@ xorq init [OPTIONS]
 
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
-| `--path` | `-p` | `./xorq-template` | Directory path where template will be created |
+| `--path` | `-p` | `./xorq-template` | Directory path where the template is created |
 | `--template` | `-t` | `cached-fetcher` | Template type to initialize |
 
 ## Templates

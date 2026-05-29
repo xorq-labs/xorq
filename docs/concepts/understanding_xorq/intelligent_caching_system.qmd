@@ -45,7 +45,7 @@ Xorq uses different hashing strategies to determine when cached data is still va
 | **Disk-Based** | Query plan + Schema |
 | **Remote** | Table metadata  |
 
-Additionally, when data freshness is required, that is automatic cache invalidation on data changes it uses the last modified time of files both disk-based and remote
+Additionally, when data freshness is required, that's automatic cache invalidation on data changes it uses the last modified time of files both disk-based and remote
 
 ## Cache types
 

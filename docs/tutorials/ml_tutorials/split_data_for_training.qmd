@@ -34,7 +34,7 @@ Xorq's splits are deterministic. You get the same partitions every time with the
 
 This tutorial builds code incrementally. Each section provides a code block that you run sequentially.
 
-**Recommended approach**: Open a terminal, run `python` to start an interactive Python shell, then copy and paste each code block in order.
+**Recommended approach**—Open a terminal, run `python` to start an interactive Python shell, then copy and paste each code block in order.
 
 **Alternative approaches**:
 
@@ -130,13 +130,13 @@ The key insight here: the same row always goes to the same partition with the sa
 
 Here's what you need to know about each parameter:
 
-**unique_key:** The column Xorq hashes to assign rows to partitions. Choose a column with high cardinality (many unique values). In production, this might be a user ID, transaction ID, or timestamp.
+**unique_key**—The column Xorq hashes to assign rows to partitions. Choose a column with high cardinality (many unique values). In production, this might be a user ID, transaction ID, or timestamp.
 
-**test_sizes:** When you pass a single float (like 0.25), you get two partitions: train and test. The float is the test proportion.
+**test_sizes**—When you pass a single float (like 0.25), you get two partitions: train and test. The float is the test proportion.
 
-**num_buckets:** The number of hash buckets. Higher values give more precise splits. Use at least as many buckets as your dataset size.
+**num_buckets**—The number of hash buckets. Higher values give more precise splits. Use at least as many buckets as your dataset size.
 
-**random_seed:** Makes splits deterministic. Same seed = same split every time.
+**random_seed**—Makes splits deterministic. Same seed = same split every time.
 
 Why does this matter? In practice, you want your experiments to be reproducible. If your splits change between runs, then you can't compare model performance reliably.
 

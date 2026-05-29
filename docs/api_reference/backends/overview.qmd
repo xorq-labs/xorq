@@ -2,7 +2,7 @@
 title: 'Overview'
 ---
 
-## Backend Configuration
+## Backend configuration
 
 Xorq supports multiple execution engines (backends) for running your data and ML workloads. This section covers how to configure and use different backends.
 

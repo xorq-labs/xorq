@@ -1,6 +1,6 @@
 ---
 title: 'Core Concepts'
-description: 'The core concepts to understand what is Xorq'
+description: "The core concepts to understand what's Xorq"
 ---
 
 ## Caching system
@@ -16,7 +16,7 @@ Xorq provides a sophisticated caching system that enables efficient iterative de
 
 Xorq supports three main types of cache storage:
 
-#### 1. Source Cache
+#### 1. Source cache
 
 - Automatically invalidates cache when upstream data changes
 - Persistence depends on the source backend
@@ -46,13 +46,13 @@ cached = (
 result = xo.execute(cached)
 ```
 
-#### 2. Snapshot Cache
+#### 2. Snapshot cache
 
 - No automatic invalidation
 - Ideal for one-off analyses
 - Persistence depends on source backend
 
-#### 3. Parquet Cache
+#### 3. Parquet cache
 
 - Special case of Source Cache
 - Caches results as Parquet files on local disk
@@ -159,7 +159,7 @@ Data movement between engines is handled through:
 2. **Memory Management**: Automatic spilling to disk
 3. **Batching**: Efficient chunk-based processing
 
-## Custom UD(X)F system
+## Custom UDXF system
 
 Xorq provides a powerful system for extending query engines with custom User-Defined Functions (UDFs). Here are three key types supported:
 

@@ -19,13 +19,13 @@ You'll also see how to swap the connection profile at recovery time, so a downst
 
 You need:
 
-- Completed [Build a semantic catalog](build_a_semantic_catalog.qmd)—same model definition, same project layout. We'll recreate the catalog at a stable path here, since the foundation tutorial used a temp directory.
+- Completed [Build a semantic catalog](build_a_semantic_catalog.qmd)—same model definition, same project layout. This tutorial recreates the catalog at a stable path here, since the foundation tutorial used a temp directory.
 - User A's `flights-tutorial/` project directory from the foundation tutorial. This tutorial assumes it lives at `~/flights-tutorial/` so it sits as a sibling of User B's `~/flights-tutorial-userb/` (created later in the tutorial). If you put it somewhere else, either move it now (`mv path/to/flights-tutorial ~/flights-tutorial`) or substitute your actual path wherever you see `~/flights-tutorial` below. (User B gets their own project; you'll create it later in the tutorial.)
-- The `sqlite` extra installed in that project. The foundation tutorial installed `xorq[bsl,duckdb]`; we add `sqlite` here to demonstrate the profile-swap section against a different backend than the one User A built the entry with. From inside `~/flights-tutorial/`:
+- The `sqlite` extra installed in that project. The foundation tutorial installed `xorq[bsl,duckdb]`; add `sqlite` here to demonstrate the profile-swap section against a different backend than the one User A built the entry with. From inside `~/flights-tutorial/`:
   ```bash
   uv add "xorq[bsl,duckdb,sqlite]"
   ```
-- Git installed locally and authenticated with GitHub (the `gh` CLI is convenient but not required).
+- Git installed locally and authenticated with GitHub (the `gh` command-line tool is convenient but not required).
 
 ::: {.callout-note}
 ### A catalog is a git repo
@@ -101,7 +101,7 @@ git remote add origin https://github.com/<you>/flights-catalog.git
 git push -u origin main
 ```
 
-Or, equivalently, with the `gh` CLI from inside the catalog directory—`--source=.` means "create the repo from this working directory," so the `cd` matters:
+Or, equivalently, with the `gh` command-line tool from inside the catalog directory—`--source=.` means "create the repo from this working directory," so the `cd` matters:
 
 ```bash
 cd ~/work/flights-catalog-usera
@@ -201,7 +201,7 @@ print("Aliases:", catalog.list_aliases())
 # ['flights-model']
 ```
 
-The same thing is available from the command line—pick one or the other; running both will fail on the second clone because the directory already exists:
+The same thing is available from the command line—pick one or the other; running both fails on the second clone because the directory already exists:
 
 ```bash
 uv run xorq catalog clone https://github.com/<you>/flights-catalog.git --path ~/work/flights-catalog-userb
@@ -226,7 +226,7 @@ print("Aliases:", catalog.list_aliases())
 # ['flights-model']
 ```
 
-The same thing is available from the command line—pick one or the other; running both will fail on the second clone because the directory already exists:
+The same thing is available from the command line—pick one or the other; running both fails on the second clone because the directory already exists:
 
 ```bash
 uv run xorq catalog clone "file://$HOME/work/flights-catalog-remote.git" --path ~/work/flights-catalog-userb
@@ -355,7 +355,7 @@ There's no PR—User A reviews the change as a regular fetched branch (see the n
 ::: {.panel-tabset}
 
 ### GitHub
-User A reviews the diff, approves the PR, and clicks **Merge pull request** in the GitHub UI. (The `gh` CLI equivalent is `gh pr merge --squash <pr-number>` from a clone—but a tutorial reader doing this step manually is the most common path.)
+User A reviews the diff, approves the PR, and clicks **Merge pull request** in the GitHub UI. (The `gh` command-line tool equivalent is `gh pr merge --squash <pr-number>` from a clone—but a tutorial reader doing this step manually is the most common path.)
 
 ### Local bare repo
 There's no PR UI to merge through, so User A pulls the branch into their catalog and merges by hand:
@@ -400,7 +400,7 @@ The catalog stores expressions, not connections. When User A built the entry the
 
 A **profile** in Xorq is a named connection configuration: `con_name` plus connection kwargs, serialized to disk. Save one with `Profile.from_con(con).save(alias=...)`, load it with `Profile.load(...)`.
 
-We'll demonstrate by swapping to SQLite—a genuinely different backend than the default, no server to provision, and the `adbc-driver-sqlite` connector already came in via the `sqlite` extra in the prereqs. Save the snippet below as `profile_swap.py` in `~/flights-tutorial-userb/` and run it with `uv run python profile_swap.py`:
+This section demonstrates the swap by moving to SQLite—a genuinely different backend than the default, no server to provision, and the `adbc-driver-sqlite` connector already came in via the `sqlite` extra in the prereqs. Save the snippet below as `profile_swap.py` in `~/flights-tutorial-userb/` and run it with `uv run python profile_swap.py`:
 
 ```python
 # profile_swap.py
@@ -441,7 +441,7 @@ Executing against backend: sqlite
 2    ORD             2      37.500000
 ```
 
-The `Executing against backend: sqlite` line is the proof: User A cataloged the entry against `xorq_datafusion`, User B loaded it bound to a SQLite connection, and `.execute()` shipped the work to SQLite. `catalog.load(name, con=...)` returns the underlying Xorq expression—the flights table, in this case—bound to whichever connection you pass; you compose any group-by / aggregation you like on top, and `.execute()` runs it on the chosen backend. The entry on disk is unchanged; the swap is purely a runtime decision.
+The `Executing against backend: sqlite` line is the proof—User A cataloged the entry against `xorq_datafusion`, User B loaded it bound to a SQLite connection, and `.execute()` shipped the work to SQLite. `catalog.load(name, con=...)` returns the underlying Xorq expression—the flights table, in this case—bound to whichever connection you pass; you compose any group-by / aggregation you like on top, and `.execute()` runs it on the chosen backend. The entry on disk is unchanged; the swap is purely a runtime decision.
 
 ::: {.callout-note}
 ### `catalog.load` vs `from_tagged`
@@ -451,7 +451,7 @@ The `Executing against backend: sqlite` line is the proof: User A cataloged the 
 ## What you learned
 
 - A Xorq catalog is a git repository: every `catalog.add(...)` is one commit, and the diff is small enough to review on GitHub.
-- Sharing the catalog is `catalog.push()` (after a one-time `git remote add origin` + `git push -u origin main`); cloning it is `Catalog.clone_from(...)`.
+- Sharing the catalog is `catalog.push()` (after a one-time `git remote add origin` + `git push -u origin main`); cloning uses `Catalog.clone_from(...)`.
 - Collaboration uses the GitHub workflow you already know: branch, commit, push, open a PR. The reviewer sees alias and entry files in the diff; merging makes the new alias available everywhere the catalog is cloned.
 - `from_tagged(flights_entry.expr)` recovers the BSL model on the consumer side—the same call as in the foundation tutorial, regardless of where the entry came from.
 - `catalog.load(name, con=...)` rebinds a cataloged expression to a different connection at recovery time. Combined with named `Profile`s, downstream users can pick their own execution backend—SQLite, Postgres, anything Xorq supports—without modifying the entry.

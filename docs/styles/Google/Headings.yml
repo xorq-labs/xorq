@@ -7,23 +7,53 @@ match: $sentence
 indicators:
   - ":"
 exceptions:
+  - Arrow
+  - AWS
   - Azure
+  - BSL
   - CLI
+  - CMD
   - Cosmos
+  - CSV
+  - DataFusion
   - Docker
+  - DuckDB
   - Emmet
+  - Flight
+  - GCS
+  - GitHub
   - gRPC
   - I
   - Kubernetes
   - Linux
   - macOS
   - Marketplace
+  - ML
   - MongoDB
+  - nix
+  - NDJSON
+  - Pandas
+  - Parquet
+  - pip
+  - PostgreSQL
+  - PowerShell
+  - PR
+  - Python
   - REPL
+  - S3
+  - SourceCache
+  - SourceSnapshotCache
+  - SourceStorage
+  - SQL
+  - SQLite
   - Studio
   - TypeScript
+  - UD(X)F
+  - UDXF
   - URLs
+  - User
   - Visual
   - VS
   - Windows
+  - Xorq
   - JSON

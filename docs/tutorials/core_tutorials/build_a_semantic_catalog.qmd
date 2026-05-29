@@ -37,7 +37,7 @@ Plain `uv init` drops a sample `main.py` next to your `pyproject.toml` and runs 
 
 ::: {.callout-note}
 ### Why the `py-modules = []` line?
-`catalog.add(...)` builds a wheel of your project to embed in the catalog entry as a dep-pinning artifact. With no `[tool.setuptools]` config, setuptools auto-discovers top-level `.py` modules and refuses to build the wheel as soon as it finds more than one—and this tutorial gives you two (`flights_catalog.py` and `recover_flights.py`). `py-modules = []` tells setuptools "no modules in the wheel," so the wheel builds empty. That's fine here: Xorq only needs the wheel for its dependency metadata, not to redistribute your scripts.
+`catalog.add(...)` builds a wheel of your project to embed in the catalog entry as a dep-pinning artifact. With no `[tool.setuptools]` config, setuptools auto-discovers top-level `.py` modules and refuses to build the wheel as soon as it finds more than one—and this tutorial gives you two (`flights_catalog.py` and `recover_flights.py`). `py-modules = []` tells setuptools "no modules in the wheel," so the wheel builds empty. That's fine here—Xorq only needs the wheel for its dependency metadata, not to redistribute your scripts.
 :::
 
 ::: {.callout-note}
@@ -57,7 +57,7 @@ If you run the script from a directory without a `pyproject.toml`, `catalog.add(
 :::
 
 ::: {.callout-tip}
-### What is BSL?
+### What's BSL?
 The [Boring Semantic Layer](https://github.com/boringdata/boring-semantic-layer) is a small, declarative semantic layer that lets you attach **dimensions** (groupings) and **measures** (aggregations) to a table once, then issue many different queries without repeating the SQL or the Python. Xorq integrates with BSL so a `SemanticModel` can be stamped onto an expression and stored in the catalog.
 :::
 
@@ -96,7 +96,7 @@ flights = xo.memtable(
 
 ::: {.callout-note}
 ### Why an in-memory table?
-For the tutorial we keep the data inline so you can run the whole thing offline. In production, swap `xo.memtable(...)` for a real source—`con.read_parquet(...)`, a Postgres table, or a pinned dataset. The semantic model on top doesn't change.
+For the tutorial the data stays inline so you can run the whole thing offline. In production, swap `xo.memtable(...)` for a real source—`con.read_parquet(...)`, a Postgres table, or a pinned dataset. The semantic model on top doesn't change.
 :::
 
 ## Define the semantic model
@@ -178,7 +178,7 @@ You see one row per origin airport, with the count and average delay:
 
 ::: {.callout-note}
 ### Row order
-BSL doesn't sort the result—the row order you see depends on the backend's hash layout. The `.order_by("origin")` above is what makes this output reproducible; without it, the rows can come back in any order. Every `query(...)` block below this point is sorted for the same reason.
+BSL doesn't sort the result—the row order you see depends on the backend's hash layout. The preceding `.order_by("origin")` is what makes this output reproducible; without it, the rows can come back in any order. Every `query(...)` block below this point is sorted for the same reason.
 :::
 
 Now ask a different question—total distance flown by each carrier:
@@ -241,7 +241,7 @@ catalog.add(flights_model_expr, aliases=("flights-model",), sync=False)
 print("Catalog at:", catalog_dir.absolute())
 print("Aliases:   ", catalog.list_aliases())
 ```
-1. `to_tagged(flights_model)` serializes the dimensions, measures, and underlying table into a Xorq expression with BSL metadata attached. We bind it to `flights_model_expr` to make the role explicit: it's the *expression form* of the model, ready for the catalog. You're cataloging the model itself, not the result of one of its queries.
+1. `to_tagged(flights_model)` serializes the dimensions, measures, and underlying table into a Xorq expression with BSL metadata attached. Bind it to `flights_model_expr` to make the role explicit: it's the *expression form* of the model, ready for the catalog. You're cataloging the model itself, not the result of one of its queries.
 2. A stable path inside the project directory. Use anywhere you like—but a real folder (not a temp dir) is what lets the *next* script find the catalog by path. `Catalog.from_repo_path(..., init=True)` initializes a fresh git repo there.
 3. The alias `flights-model` is the human-readable handle. Internally each entry has a content-addressed hash; the alias just points at it.
 
