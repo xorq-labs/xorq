@@ -2,7 +2,7 @@
 title: Supported backends
 ---
 
-xorq currently supports:
+Xorq currently supports:
 
 1. **In-Process Engines**
     - DuckDB

@@ -152,7 +152,7 @@ class Table(Expr, _FixedTextJupyterMixin):
     Analogous to a SQL table or a pandas DataFrame. A table expression contains
     an [ordered set of named columns](./schemas.qmd#ibis.expr.schema.Schema),
     each with a single known type. Unless explicitly ordered with an
-    [`.order_by()`](./expression-tables.qmd#xorq.expr.types.relations.Table.order_by),
+    `.order_by()`,
     the order of rows is undefined.
 
     Table immutability means that the data underlying an Ibis `Table` cannot be modified: every
@@ -167,14 +167,14 @@ class Table(Expr, _FixedTextJupyterMixin):
     You will not create Table objects directly. Instead, you will create one
 
     - from a pandas DataFrame, pyarrow table, Polars table, or raw python dicts/lists
-      with [`xorq.memtable(df)`](./expression-tables.qmd#xorq.memtable)
+      with `xorq.memtable(df)`
     - from an existing table in a data platform with
-      [`connection.table("name")`](./expression-tables.qmd#xorq.backends.duckdb.Backend.table)
+      `connection.table("name")`
     - from a file or URL, into a specific backend with
-      [`connection.read_csv/parquet/json("path/to/file")`](../backends/duckdb.qmd#xorq.backends.duckdb.Backend.read_csv)
+      `connection.read_csv/parquet/json("path/to/file")`
       (only some backends, typically local ones, support this)
     - from a file or URL, into the default backend with
-       [`ibis.read_csv/read_json/read_parquet("path/to/file")`](./expression-tables.qmd#ibis.read_csv)
+       `ibis.read_csv/read_json/read_parquet("path/to/file")`
 
     """
 
@@ -919,9 +919,8 @@ class Table(Expr, _FixedTextJupyterMixin):
             Post-aggregation filters. The shape requirements are the same
             `metrics`, but the output type for `having` is `boolean`.
 
-            ::: {.callout-warning}
-            ## Expressions like `x is None` return `bool` and **will not** generate a SQL comparison to `NULL`
-            :::
+            **Warning:** Expressions like `x is None` return `bool` and
+            **will not** generate a SQL comparison to `NULL`.
         kwargs
             Named aggregate expressions
 
@@ -1606,7 +1605,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         See Also
         --------
-        [`ibis.union`](./expression-tables.qmd#ibis.union)
+        `ibis.union`
 
         Examples
         --------
@@ -1677,7 +1676,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         See Also
         --------
-        [`ibis.intersect`](./expression-tables.qmd#ibis.intersect)
+        `ibis.intersect`
 
         Examples
         --------
@@ -1730,7 +1729,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         See Also
         --------
-        [`ibis.difference`](./expression-tables.qmd#ibis.difference)
+        `ibis.difference`
 
         Returns
         -------
@@ -2650,7 +2649,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         See Also
         --------
-        [`StructValue.lift`](./expression-collections.qmd#ibis.expr.types.structs.StructValue.lift)
+        `StructValue.lift`
         """
         columns_to_unpack = frozenset(columns)
         result_columns = []
@@ -3314,7 +3313,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         Parameters
         ----------
         kwargs
-            Same as keyword arguments to [`execute`](./expression-generic.qmd#ibis.expr.types.core.Expr.execute)
+            Same as keyword arguments to `execute`
         """
         return self.execute(**kwargs)
 
@@ -4564,7 +4563,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         See Also
         --------
-        [`ArrayValue.unnest`](./expression-collections.qmd#ibis.expr.types.arrays.ArrayValue.unnest)
+        `ArrayValue.unnest`
 
         Examples
         --------

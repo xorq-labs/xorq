@@ -71,7 +71,7 @@ cd my-xorq-project
 uv add xorq
 ```
 
-### with nix
+### With nix
 ```bash
 nix run github:xorq-labs/xorq
 ```
@@ -264,7 +264,7 @@ duck_con = xo.duckdb.connect()
 
 **Persistent database:**
 
-For a persistent database, provide the file path:
+For a persistent database, provide the path:
 
 ```python
 import xorq.api as xo
@@ -330,7 +330,7 @@ sqlite_con = xo.sqlite.connect(database="my_data.db")
 
 ## Run your first query
 
-Let's verify your installation by running a simple query. This example loads the iris dataset and filters it.
+Verify your installation by running a simple query. This example loads the iris dataset and filters it.
 
 :::{.callout-note}
 This query uses the embedded backend, so you don't need any additional setup. It's a good way to confirm everything is working before connecting to external databases.

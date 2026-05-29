@@ -136,7 +136,7 @@ class Value(Expr):
 
         See Also
         --------
-        [`Value.try_cast()`](./expression-generic.qmd#ibis.expr.types.generic.Value.try_cast)
+        `Value.try_cast()`
         [`ibis.dtype()`](./datatypes.qmd#ibis.dtype)
 
         Examples
@@ -243,7 +243,7 @@ class Value(Expr):
 
         See Also
         --------
-        [`Value.cast()`](./expression-generic.qmd#ibis.expr.types.generic.Value.cast)
+        `Value.cast()`
         [`ibis.dtype()`](./datatypes.qmd#ibis.dtype)
 
         Examples
@@ -300,8 +300,8 @@ class Value(Expr):
 
         See Also
         --------
-        [`ibis.coalesce()`](./expression-generic.qmd#ibis.coalesce)
-        [`Value.fill_null()`](./expression-generic.qmd#ibis.expr.types.generic.Value.fill_null)
+        `ibis.coalesce()`
+        `Value.fill_null()`
 
         Examples
         --------
@@ -379,8 +379,8 @@ class Value(Expr):
 
         See Also
         --------
-        [`Value.coalesce()`](./expression-generic.qmd#ibis.expr.types.generic.Value.coalesce)
-        [`ibis.coalesce()`](./expression-generic.qmd#ibis.coalesce)
+        `Value.coalesce()`
+        `ibis.coalesce()`
 
         Examples
         --------
@@ -530,7 +530,7 @@ class Value(Expr):
 
         See Also
         --------
-        [`Value.notin()`](./expression-generic.qmd#ibis.expr.types.generic.Value.notin)
+        `Value.notin()`
 
         Examples
         --------
@@ -634,7 +634,7 @@ class Value(Expr):
     def notin(self, values: Value | Sequence[Value]) -> ir.BooleanValue:
         """Check whether this expression's values are not in `values`.
 
-        Opposite of [`Value.isin()`](./expression-generic.qmd#ibis.expr.types.generic.Value.isin).
+        Opposite of `Value.isin()`.
 
         Parameters
         ----------
@@ -899,9 +899,9 @@ class Value(Expr):
 
         See Also
         --------
-        [`Value.substitute()`](./expression-generic.qmd#ibis.expr.types.generic.Value.substitute)
-        [`ibis.cases()`](./expression-generic.qmd#ibis.expr.types.generic.Value.cases)
-        [`ibis.case()`](./expression-generic.qmd#ibis.case)
+        `Value.substitute()`
+        `ibis.cases()`
+        `ibis.case()`
 
         Examples
         --------
@@ -997,8 +997,8 @@ class Value(Expr):
 
         See Also
         --------
-        [`Value.substitute()`](./expression-generic.qmd#ibis.expr.types.generic.Value.substitute)
-        [`ibis.cases()`](./expression-generic.qmd#ibis.cases)
+        `Value.substitute()`
+        `ibis.cases()`
 
         Examples
         --------
@@ -1559,7 +1559,7 @@ class Column(Value, _FixedTextJupyterMixin):
         return self.as_table().as_scalar()
 
     def as_table(self) -> ir.Table:
-        """Promote the expression to a [Table](./expression-tables.qmd#ibis.expr.types.Table).
+        """Promote the expression to a Table.
 
         Returns
         -------
@@ -2560,9 +2560,9 @@ def literal(value: Any, type: dt.DataType | str | None = None) -> Scalar:
     Ibis supports literal construction of arrays using the following
     functions:
 
-    1. [`ibis.array`](./expression-collections.qmd#ibis.array)
-    1. [`ibis.struct`](./expression-collections.qmd#ibis.struct)
-    1. [`ibis.map`](./expression-collections.qmd#ibis.map)
+    1. `ibis.array`
+    1. `ibis.struct`
+    1. `ibis.map`
 
     Constructing these types using `literal` will be deprecated in a future
     release.

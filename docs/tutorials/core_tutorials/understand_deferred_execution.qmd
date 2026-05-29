@@ -9,7 +9,7 @@ This tutorial helps you understand when Xorq runs computation versus when it bui
 
 After completing this tutorial, you'll know exactly when your code triggers actual computation.
 
-## What is deferred execution?
+## What's deferred execution?
 
 Deferred execution means that Xorq waits to run computations until you explicitly ask for results. When you chain operations like `.filter()` and `.group_by()`, Xorq builds an expression graph but doesn't run anything yet.
 
@@ -52,7 +52,7 @@ print(f"Has this executed? Not yet!")
 ```
 1. Connect to the embedded backend.
 2. Load the iris dataset. This creates a table reference, not the actual data.
-3. Build a filter expression. Still no computation!
+3. Build a filter expression. Still no computation
 4. Print the expression type to confirm it's just an expression object.
 
 At this point, Xorq knows what you want to do (filter rows), but it hasn't read any data or applied any filters.
@@ -71,9 +71,9 @@ print(f"\nBackends involved: {filtered.ls.backends}")
 1. Print the expression to see the operation tree.
 2. Check which backends this expression would use.
 
-The output shows you the chain of operations Xorq will perform when you execute the expression. This is your expression graph.
+The output shows you the chain of operations Xorq performs when you execute the expression. This is your expression graph.
 
-Now that you've seen what Xorq plans to do, let's actually run the computation and see the results.
+Now that you've seen what Xorq plans to do, run the computation and see the results.
 
 ## Execute and observe computation
 
@@ -137,9 +137,9 @@ print(result)
 
 Xorq deferred all five operations (filter, mutate, group, two aggregations) until you called `.execute()`. This gives it room to optimize the entire workflow.
 
-But what happens if you don't defer? Let's compare the two approaches to see why deferred execution matters.
+But what happens if you don't defer? Compare the two approaches to see why deferred execution matters.
 
-## Compare: immediate vs deferred
+## Compare: Immediate vs deferred
 
 You'll see what happens if you force early execution versus deferring.
 ```{python}

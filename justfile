@@ -53,6 +53,14 @@ docs-apigen *args:
 docs-render:
     uv run --no-sync quarto render docs
 
+# lint documentation (vale, lychee, quarto, pymarkdown, frontmatter, orphans)
+docs-lint *args:
+    bash docs/lint.sh {{ args }}
+
+# lint documentation and check external URLs (slow, ~5 min)
+docs-lint-external:
+    bash docs/lint.sh --external
+
 # deploy docs to netlify
 docs-deploy:
     uv run --no-sync quarto publish --no-prompt --no-browser --no-render netlify docs

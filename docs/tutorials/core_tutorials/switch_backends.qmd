@@ -220,7 +220,7 @@ Here's when to use each backend:
 - Persistent storage needs.
 
 **Pandas:**
-- Small datasets (<1GB).
+- Small datasets (<1 GB).
 - Interactive prototyping.
 - Integration with existing Pandas code.
 - Quick exploration.

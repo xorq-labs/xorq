@@ -84,7 +84,7 @@ python
 ```
 
 ::: {.callout-note}
-If `python` does not work, then try `python3` instead.
+If `python` doesn't work, then try `python3` instead.
 :::
 
 Import Xorq and check the version:
@@ -352,7 +352,7 @@ print(result_df)
 ```
 1. Connect to the Flight server running on port 8001. This establishes a connection to communicate with your deployed server.
 2. Get the exchange named "default" from the connection. This exchange represents the UDXF transformation you deployed.
-3. Create an in-memory table with random integer values and pipe it through the exchange. This builds an expression that will apply your UDXF transformation to the input data.
+3. Create an in-memory table with random integer values and pipe it through the exchange. This builds an expression that applies your UDXF transformation to the input data.
 4. Execute the expression via Flight `do_exchange` and print the results. The server applies the transformation (doubling the values) and returns the result as a pandas DataFrame.
 
 ### Run the query script

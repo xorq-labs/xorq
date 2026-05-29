@@ -69,7 +69,7 @@ Deep dives into deferred execution, caching, and architecture
 ::: {.doc-card}
 <i class="bi bi-terminal"></i>
 
-[**CLI reference**](api_reference/cli/)
+[**Command-line tool reference**](api_reference/cli/)
 
 Every command you need to build, run, and serve pipelines
 :::
@@ -80,5 +80,6 @@ Every command you need to build, run, and serve pipelines
 [**Python API**](reference/)
 
 Full reference for Xorq's Python API
+:::
 :::
 :::

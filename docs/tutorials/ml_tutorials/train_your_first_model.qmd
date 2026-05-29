@@ -114,7 +114,7 @@ print("Training described (but hasn't run yet)!")
 ```
 1. Describe the training operation. Xorq builds a graph node, but doesn't execute.
 
-**The key insight:** You've told Xorq what to do, but it hasn't done it yet. Training only happens when you call `.execute()`.
+**The key insight**—You've told Xorq what to do, but it hasn't done it yet. Training only happens when you call `.execute()`.
 
 Understanding this timing helps you optimize workflows. You can describe complex pipelines, then execute once.
 
@@ -149,7 +149,7 @@ print(predictions[["species", "predicted"]].head(10))
 ```
 1. Create a helper that packages data into a struct. This preserves original values.
 2. Build the prediction expression. Still deferred.
-3. Execute! Training and prediction happen now, in one optimized pass.
+3. Execute. Training and prediction happen now, in one optimized pass.
 
 You'll see:
 
@@ -202,7 +202,7 @@ Accuracy: 96.7%
 Got 145 out of 150 correct
 ```
 
-**Why this pattern matters:** Evaluation is also deferred. You describe metrics, then execute once. Most teams find that this simplifies evaluation code.
+**Why this pattern matters**—Evaluation is also deferred. You describe metrics, then execute once. Most teams find that this simplifies evaluation code.
 
 ## Complete example
 
