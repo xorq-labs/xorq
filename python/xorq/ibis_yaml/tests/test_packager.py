@@ -1080,6 +1080,7 @@ def test_convert_output_format_accepts_enum_member(value):
 def test_convert_output_format_invalid_raises_with_choices():
     with pytest.raises(ValueError, match="invalid output_format") as exc_info:
         _convert_output_format("invalid_format")
+    assert exc_info.value.__cause__ is not None
     msg = str(exc_info.value)
     for fmt in OutputFormats:
         assert fmt.value in msg

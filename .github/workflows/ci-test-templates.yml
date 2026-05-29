@@ -89,8 +89,9 @@ jobs:
         id: uv-build
         run: |
           set -eo pipefail
-          build_path=$(uv run xorq uv build "${{ matrix.path }}/expr.py" --builds-dir dist/template-builds | tail -n1)
-          [[ -d "$build_path" ]] || { echo "Build artifact not found: ${build_path}"; exit 1; }
+          uv run xorq uv build "${{ matrix.path }}/expr.py" --builds-dir dist/template-builds | tee /tmp/build_output.txt
+          build_path=$(tail -n1 /tmp/build_output.txt)
+          [[ -d "$build_path" ]] || { echo "Build artifact not found: ${build_path}"; echo "Full build output:"; cat /tmp/build_output.txt; exit 1; }
           echo "build_path=${build_path}" >> "$GITHUB_OUTPUT"
           echo "Build written to: ${build_path}"
 
