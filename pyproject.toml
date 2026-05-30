@@ -168,8 +168,6 @@ dev = [
     "scikit-learn<2.0.0,>=1.4.0",
     "xgboost>=1.6.1",
     "matplotlib>=3.8.0",
-    # build backend for scipy's meson source build on darwin (provided to nix via resolveBuildSystem)
-    "pythran>=0.17.0 ; sys_platform == 'darwin'",
 ]
 test = [
     "pytest-benchmark>=5.1.0",
