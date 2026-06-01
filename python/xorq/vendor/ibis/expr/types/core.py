@@ -1120,6 +1120,13 @@ class LETSQLAccessor:
         bool
             `True` if the expression references more than one backend.
 
+        Raises
+        ------
+        ValueError
+            If the expression references no backends (for example a purely
+            unbound expression). The internal unpacking fails with "not
+            enough values to unpack" rather than returning `False`.
+
         Notes
         -----
         Expressions with no backend -- an in-memory `memtable` or a purely
