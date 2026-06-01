@@ -38,9 +38,11 @@ The configuration lives in `xo.options.pins`:
 | `path` | `"letsql-pins"` | GCS bucket name |
 | `storage_options` | `{"token": "anon"}` | Anonymous access |
 
-### `get_path(name, version=None)`
+### `get_path(name, board=None, **kwargs)`
 
-Downloads the named pin and returns a local path.
+Downloads the named pin and returns a local path. Extra keyword arguments
+(such as `version`) are forwarded to the underlying pins library via
+`board.pin_download`.
 
 ```{python}
 # Get the latest version
@@ -74,7 +76,7 @@ board.pin_meta("iris")  # get metadata for a pin
 | `"hn_tfidf_fitted_model"` | Binary | Pre-trained TF-IDF model |
 | `"hn_sentiment_reg"` | Binary | Pre-trained XGBoost sentiment model |
 | `"hackernews_lib"` | Python module | HackerNews pipeline code (versioned) |
-| `"diamonds-model"` | Binary | Quickgrove ML model |
+| `"diamonds-model"` | Binary | Pre-trained gradient-boosted model for the diamonds dataset |
 
 ## Common patterns
 

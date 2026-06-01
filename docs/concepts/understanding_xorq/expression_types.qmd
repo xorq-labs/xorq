@@ -221,66 +221,18 @@ Unbound expressions are the foundation of several Xorq features:
 - **Serialization**: The expression YAML format stores unbound expressions so they can be loaded and bound to a different backend later.
 - **Schema validation**: `ExprMetadata` exposes `schema_in` (the UnboundTable's schema) and `schema_out` (the result schema), enabling compile-time checks before execution.
 
+The `.ls.metadata` accessor returns the `ExprMetadata` for any expression:
+
 ```{python}
 import xorq.api as xo
-from xorq.vendor.ibis.expr.types.core import ExprMetadata
 
 template = xo.table(schema={"a": "int64"})
 transform = template.filter(template.a > 0)
 
-metadata = ExprMetadata.from_expr(transform)
+metadata = transform.ls.metadata
 print(metadata.kind)       # ExprKind.UnboundExpr
 print(metadata.schema_in)  # Schema with column "a" (int64)
 print(metadata.schema_out) # Schema with column "a" (int64)
-```
-
-## Special node types
-
-Beyond the three kinds, Xorq introduces several specialized operation nodes that extend the expression graph for multi-engine and distributed workflows.
-
-### `Tag` and `HashingTag`
-
-Metadata wrappers that annotate an expression without changing its data. `Tag` is stripped before content hashing --- it's invisible to the cache. `HashingTag` contributes to the hash, so expressions with different `HashingTag` metadata produce different cache keys.
-
-```{python}
-import xorq.api as xo
-import xorq.vendor.ibis as ibis
-from xorq.expr.relations import Tag, HashingTag
-
-inner = xo.memtable({"a": [1, 2, 3]}).op()
-schema = ibis.schema({"a": "int64"})
-
-tagged = Tag(schema=schema, parent=inner)
-hashing_tagged = HashingTag(schema=schema, parent=inner)
-
-# Both are still Sources — tags are transparent to kind detection
-print(tagged.to_expr().ls.kind)          # ExprKind.Source
-print(hashing_tagged.to_expr().ls.kind)  # ExprKind.Source
-
-# .ls.unwrapped strips tags to reveal the underlying op
-print(type(tagged.to_expr().ls.unwrapped).__name__)  # InMemoryTable
-```
-
-### FlightUDXF
-
-Wraps a user-defined exchange function (UDXF) that runs in a separate process via Arrow Flight. Data flows in as record batches, gets transformed by arbitrary Python code, and flows back out.
-
-```{python}
-import xorq.api as xo
-from xorq.expr.relations import flight_udxf
-
-def add_label(df):
-    df["label"] = df["score"].apply(lambda s: "high" if s > 90 else "low")
-    return df
-
-labeled = xo.memtable({"name": ["alice", "bob"], "score": [95, 87]}).pipe(
-    flight_udxf(
-        process_df=add_label,
-        maybe_schema_in=xo.schema({"name": "string", "score": "int64"}),
-        maybe_schema_out=xo.schema({"name": "string", "score": "int64", "label": "string"}),
-    )
-)
-result = labeled.execute()
 ```
 
 ## Inspecting expressions with `.ls`
@@ -291,7 +243,7 @@ Every expression has an `.ls` accessor (the LETSQL accessor) that exposes intros
 |----------|------|-------------|
 | `.ls.kind` | `ExprKind` | Source, Expr, or UnboundExpr |
 | `.ls.metadata` | `ExprMetadata` | Full metadata (kind, schema_in, schema_out) |
-| `.ls.unwrapped` | `ops.Node` | Underlying op with Tag/HashingTag layers stripped |
+| `.ls.unwrapped` | `ops.Node` | Underlying op with any wrapper layers stripped |
 | `.ls.backends` | `tuple` | All backend connections used in the expression graph |
 | `.ls.is_multiengine` | `bool` | Whether the expression spans multiple backends |
 | `.ls.is_cached` | `bool` | Whether the root op is a CachedNode |
@@ -300,7 +252,7 @@ Every expression has an `.ls` accessor (the LETSQL accessor) that exposes intros
 | `.ls.cache` | `Cache` | The cache object if `is_cached`, else None |
 | `.ls.uncached` | `Expr` | Expression with all cache nodes removed |
 | `.ls.tokenized` | `str` | Content hash of the expression |
-| `.ls.tags` | `tuple` | All Tag nodes in the graph |
+| `.ls.cache_exists()` | `bool \| None` | Whether the cache is materialized (`None` if not cached) |
 
 ```{python}
 import xorq.api as xo
@@ -321,7 +273,7 @@ print(expr.ls.kind)            # ExprKind.Source (cache is a source)
 print(expr.ls.is_cached)       # True
 print(expr.ls.is_multiengine)  # True (DuckDB + DataFusion)
 print(len(expr.ls.backends))   # 2
-print(expr.ls.exists())        # False (not yet executed)
+print(expr.ls.cache_exists())  # False (not yet executed)
 ```
 
 ## How kind affects the system
