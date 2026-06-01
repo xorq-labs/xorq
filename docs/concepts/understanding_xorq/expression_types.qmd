@@ -28,6 +28,7 @@ attach to the outermost node:
 You can inspect the kind of any expression using the `.ls` accessor:
 
 ```{python}
+#| eval: false
 import xorq.api as xo
 
 # Source — just data, no transforms
@@ -52,6 +53,7 @@ A **Source** is a leaf node in the expression graph --- it represents data witho
 The simplest source. Data lives in the current process and is wrapped in an `InMemoryTable` operation.
 
 ```{python}
+#| eval: false
 import xorq.api as xo
 
 t = xo.memtable({"name": ["alice", "bob"], "score": [95, 87]})
@@ -63,6 +65,7 @@ print(t.ls.kind)  # ExprKind.Source
 A table registered in a backend (DuckDB, DataFusion, Postgres, etc.). Backed by a `DatabaseTable` operation that holds a reference to the backend connection.
 
 ```{python}
+#| eval: false
 import xorq.api as xo
 
 con = xo.duckdb.connect()
@@ -75,6 +78,7 @@ print(batting.ls.kind)  # ExprKind.Source
 A lazy pointer to a file (Parquet, CSV). The file isn't read until execution. Backed by a `Read` operation.
 
 ```{python}
+#| eval: false
 import xorq.api as xo
 
 # A local Parquet file, fetched once via pins
@@ -100,6 +104,7 @@ print(expr.ls.kind)  # ExprKind.Source
 When you call `.cache()` on an expression, Xorq wraps it in a `CachedNode`. The cache itself is a source --- it acts as a materialization boundary that breaks the expression graph into independent segments.
 
 ```{python}
+#| eval: false
 import xorq.api as xo
 from xorq.caching import ParquetCache
 
@@ -124,6 +129,7 @@ This is an important property: caching resets the expression kind back to Source
 Created by `.into_backend()`, a `RemoteTable` transfers data between backends via Arrow record batches. Like a cache, it acts as a source boundary.
 
 ```{python}
+#| eval: false
 import xorq.api as xo
 
 ddb = xo.duckdb.connect()
@@ -143,6 +149,7 @@ print(t.ls.kind)  # ExprKind.Source
 An **Expr** is any expression that applies one or more transformations to bound data. It has at least one source upstream and at least one operation (filter, project, aggregate, join, etc.) on top.
 
 ```{python}
+#| eval: false
 import xorq.api as xo
 
 t = xo.memtable({"a": [1, 2, 3], "b": [10, 20, 30]})
@@ -162,6 +169,7 @@ for expr in [filtered, projected, aggregated, sorted_t, limited]:
 Transforms compose naturally by chaining. Each method returns a new immutable expression:
 
 ```{python}
+#| eval: false
 import xorq.api as xo
 
 ddb = xo.duckdb.connect()
@@ -205,6 +213,7 @@ An **UnboundExpr** is an expression built on an `UnboundTable` instead of a conc
 Use `xo.table()` with a schema to create a template:
 
 ```{python}
+#| eval: false
 import xorq.api as xo
 
 # Define a template: takes int64 column "a", filters, adds a computed column
@@ -219,6 +228,7 @@ print(transform.ls.kind)  # ExprKind.UnboundExpr
 You can convert any bound expression into an unbound one with `.unbind()`. This strips the backend connection and replaces `DatabaseTable` nodes with `UnboundTable` nodes:
 
 ```{python}
+#| eval: false
 import xorq.api as xo
 
 ddb = xo.duckdb.connect()
@@ -282,7 +292,13 @@ key. A `HashingTag` is folded into the hash, so different tag metadata produces
 distinct hashes (and distinct cache entries):
 
 ```{python}
+#| eval: false
 import xorq.api as xo
+import xorq.vendor.ibis as ibis
+from xorq.expr.relations import Tag, HashingTag
+
+inner = xo.memtable({"a": [1, 2, 3]}).op()
+schema = ibis.schema({"a": "int64"})
 
 t = xo.memtable({"a": [1, 2, 3]})
 
@@ -311,6 +327,7 @@ The most common source is the ML pipeline API. Fitting a pipeline and calling
 features, and target:
 
 ```{python}
+#| eval: false
 import xorq.api as xo
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
@@ -374,6 +391,7 @@ Every expression has an `.ls` accessor (the LETSQL accessor) that exposes intros
 | `.ls.cache_exists()` | `bool \| None` | Whether the cache is materialized (`None` if not cached) |
 
 ```{python}
+#| eval: false
 import xorq.api as xo
 from xorq.caching import ParquetCache
 
