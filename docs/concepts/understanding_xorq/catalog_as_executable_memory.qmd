@@ -1,0 +1,131 @@
+---
+title: "The catalog as executable memory"
+---
+
+Most "memory" an agent accumulates is prose: markdown notes, a `MEMORY.md`
+index, chat history. Prose memory has to be re-read and re-interpreted by
+whatever model picks it up next, and it has no way to *run*. A xorq catalog is
+the other kind of memory — **executable**. Each entry is a content-addressed
+pipeline plus the environment to run it, so a future agent or human doesn't
+re-derive the computation from a description; it executes the artifact and gets
+the same answer.
+
+This page explains what that means and why the catalog is built the way it is.
+For the hands-on version, see
+[Working with the catalog](/tutorials/core_tutorials/working_with_the_catalog.qmd);
+for the commands, the [`catalog` CLI reference](/api_reference/cli/catalog/init.qmd).
+
+## What a memory item is
+
+In a prose memory system the unit is a snippet of text. In xorq the unit is an
+**entry**: a built [expression](/concepts/understanding_xorq/expression_types.qmd)
+together with its pinned Python environment. An entry is enough to reproduce a
+result on a machine that has never seen the code that produced it — the wheel
+and `requirements.txt` travel with it (see
+[Environments and uv](/concepts/understanding_xorq/environments_and_uv.qmd)).
+
+You reason about an entry the way you reason about a matrix — by its invariants,
+not its entries:
+
+- **Schema** — what columns it produces, and of what type.
+- **Lineage** — which sources and transforms it depends on.
+- **Content hash** — a deterministic fingerprint of the computation. Same
+  pipeline, same hash; change a filter and the hash changes.
+- **Deterministic execution** — the pinned environment makes "run it again"
+  return the same bytes.
+
+These are knowable *before* execution. An agent can decide whether an entry is
+the one it needs by reading metadata, without running anything.
+
+## Why a git repo, not a service
+
+A xorq catalog is a git repository of build artifacts on the filesystem —
+nothing more. There is no server to call and no API to learn. That choice is
+deliberate:
+
+- **Discovery is file operations.** Metadata lives in `metadata/*.yaml` sidecars
+  next to the zipped entries. Listing, filtering, and lookup-by-alias or by-hash
+  are `ls`, `grep`, and `git` — tools every agent already has. An agent that
+  clones the repo can find everything without learning anything new.
+- **History is the audit log.** Every catalog operation is a commit. `git log`
+  and `git reflog` tell you exactly when an entry was added, aliased, or
+  removed, and by whom — provenance you get for free from git rather than
+  building separately.
+- **Sharing is `git push` / `git clone`.** Collaboration is the pull-request
+  workflow teams already run. A teammate clones the catalog, adds an entry on a
+  branch, opens a PR; merging it is an ordinary merge. A catalog supports at most
+  one git remote ([ADR-0011](/adr/0011-catalog-single-git-remote.md)), which
+  keeps "where is the source of truth" unambiguous. Large files are handled by
+  git-annex rather than bloating the repo.
+
+The catalog is portable for the same reason any git repo is: it is just files.
+
+## What is on disk
+
+After `catalog init` the repo holds a single manifest:
+
+```yaml
+# catalog.yaml
+entries: []
+aliases: []
+```
+
+`catalog add` packages a build directory — the manifest (`expr.yaml` plus
+`*_metadata.json`) and the uv-pinned environment — into an entry and records it.
+A populated catalog looks like:
+
+```
+git-catalogs/penguins
+├── aliases
+│   └── penguins-agg.zip -> ../entries/fa2122f6a9e9.zip
+├── entries
+│   └── fa2122f6a9e9.zip
+├── metadata
+│   └── fa2122f6a9e9.zip.metadata.yaml
+└── catalog.yaml
+```
+
+Entries are zipped builds named by their content hash. Aliases are symlinks
+pointing at an entry — a human-readable name (`penguins-agg`) for a hash
+(`fa2122f6a9e9`). Metadata sidecars are plain YAML, which is what makes
+discovery a `grep`:
+
+```bash
+# Entries that emit an 'avg_bill_length' column
+grep -l 'avg_bill_length' git-catalogs/penguins/metadata/*.yaml
+
+# Entries running on DataFusion
+grep -l 'xorq_datafusion' git-catalogs/penguins/metadata/*.yaml
+```
+
+## Why content-addressing matters
+
+Entries are named by a hash of the computation, not by a timestamp or a
+user-chosen filename. Two consequences fall out of that:
+
+1. **Reuse is automatic.** Building the same pipeline twice produces the same
+   hash, so the second build is a no-op — the entry already exists. There is no
+   "did someone already compute this?" question to answer by hand.
+2. **Identity is honest.** If two entries have the same hash they *are* the same
+   computation; if the hashes differ, something in the graph or its inputs
+   changed. The name can't lie about what the artifact does, the way a filename
+   like `final_v2_fixed.py` can.
+
+Aliases sit on top of this: they give a stable name to "whatever the current
+best version is" while the underlying hash moves as the pipeline evolves. The
+hash is identity; the alias is intent.
+
+## The shape of the idea
+
+A prose note says *what someone once did*. A catalog entry *is the thing*, ready
+to run, with its schema, lineage, and environment attached. That is the
+difference between memory you have to trust and memory you can execute — and
+it's why the catalog, not a pile of scripts, is where xorq keeps what an agent
+learns.
+
+## See also
+
+- [Working with the catalog](/tutorials/core_tutorials/working_with_the_catalog.qmd) — the publish / clone / pull loop, hands-on
+- [`catalog` CLI reference](/api_reference/cli/catalog/init.qmd) — every catalog subcommand
+- [Expression types](/concepts/understanding_xorq/expression_types.qmd) — what gets stored in an entry
+- [Environments and uv](/concepts/understanding_xorq/environments_and_uv.qmd) — how the pinned runtime travels with an entry
