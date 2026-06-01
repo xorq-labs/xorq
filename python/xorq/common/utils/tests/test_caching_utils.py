@@ -1,10 +1,17 @@
+import asyncio
 from pathlib import Path
 
 import pytest
 
+import xorq.api as xo
 from xorq.caching.strategy import SnapshotStrategy, snapshot_normalize_read
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
-from xorq.common.utils.dasher._relations import _normalize_read_xorq
+from xorq.common.utils.dasher import with_caches
+from xorq.common.utils.dasher._opaque import (
+    _expr_normalize_memo,
+    _parent_token_memo,
+)
+from xorq.common.utils.dasher._relations import _dt_normalize_memo, _normalize_read_xorq
 from xorq.common.utils.tests._test_helpers import FakeRead
 
 
@@ -89,3 +96,86 @@ def test_normalize_read_xorq_single_path(tmp_path):
 
     result = _normalize_read_xorq(read)
     assert result[0] == "xorq.Read"
+
+
+# --- normalization_context installs per-call dasher memos -------------------
+
+
+def test_normalization_context_installs_per_call_memos():
+    """normalization_context must install the three per-call dasher memos
+    (_parent_token_memo, _expr_normalize_memo, _dt_normalize_memo) so
+    callers that bypass @with_caches still get memoized tokenization."""
+    assert _parent_token_memo.get() is None
+    assert _expr_normalize_memo.get() is None
+    assert _dt_normalize_memo.get() is None
+
+    t = xo.memtable({"a": [1, 2, 3]})
+    strategy = SnapshotStrategy()
+
+    with strategy.normalization_context(t) as local:
+        assert _parent_token_memo.get() is not None
+        assert _expr_normalize_memo.get() is not None
+        assert _dt_normalize_memo.get() is not None
+
+        local.tokenize(t)
+
+        assert len(_parent_token_memo.get()) > 0 or len(_expr_normalize_memo.get()) > 0
+
+    assert _parent_token_memo.get() is None
+    assert _expr_normalize_memo.get() is None
+    assert _dt_normalize_memo.get() is None
+
+
+# --- with_caches generator / coroutine support ------------------------------
+
+
+def test_with_caches_sync_generator():
+    """with_caches must keep memos alive across yield in sync generators."""
+
+    @with_caches
+    def _gen():
+        yield 42
+
+    assert _parent_token_memo.get() is None
+    items = []
+    for item in _gen():
+        assert _parent_token_memo.get() is not None
+        items.append(item)
+    assert items == [42]
+    assert _parent_token_memo.get() is None
+
+
+def test_with_caches_async_generator():
+    """with_caches must keep memos alive across yield in async generators."""
+
+    @with_caches
+    async def _async_gen():
+        yield 42
+
+    async def _run():
+        assert _parent_token_memo.get() is None
+        items = []
+        async for item in _async_gen():
+            assert _parent_token_memo.get() is not None
+            items.append(item)
+        assert items == [42]
+        assert _parent_token_memo.get() is None
+
+    asyncio.run(_run())
+
+
+def test_with_caches_coroutine():
+    """with_caches must install memos for plain async def coroutines."""
+
+    @with_caches
+    async def _coro():
+        assert _parent_token_memo.get() is not None
+        return 42
+
+    async def _run():
+        assert _parent_token_memo.get() is None
+        result = await _coro()
+        assert result == 42
+        assert _parent_token_memo.get() is None
+
+    asyncio.run(_run())

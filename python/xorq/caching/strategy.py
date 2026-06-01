@@ -92,7 +92,6 @@ class ModificationTimeStrategy(CacheStrategy):
 
 @frozen
 class SnapshotStrategy(CacheStrategy):
-    @with_caches
     def calc_key(self, expr: ir.Expr):
         with self.normalization_context(expr) as local:
             replaced = self._replace_remote_table(expr, local)
@@ -100,6 +99,7 @@ class SnapshotStrategy(CacheStrategy):
             return self.key_prefix + "-".join(("snapshot", tokenized))
 
     @contextlib.contextmanager
+    @with_caches  # must be inner so memos span the full with-block
     def normalization_context(self, expr):
         """Yield a snapshot-flavored Hasher; callers tokenize through it.
 
@@ -109,8 +109,8 @@ class SnapshotStrategy(CacheStrategy):
         installed in ``_current_hasher`` so transitive tokenize calls inside
         the opaque-placeholder replacer (``_parent_token``) propagate the
         snapshot-flavored rules instead of falling back to the data-sensitive
-        global HASHER.  A per-call DT memo is installed alongside so repeated
-        visits of the same DT under deeply nested into_backend chains
+        global HASHER.  Per-call memos are installed alongside so repeated
+        visits of the same nodes under deeply nested into_backend chains
         normalize once.
         """
         from xorq.common.utils.dasher import _current_hasher  # noqa: PLC0415

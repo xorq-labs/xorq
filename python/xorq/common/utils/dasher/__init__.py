@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import contextvars
 import functools
+import inspect
 import operator
 from typing import TYPE_CHECKING
 
@@ -177,16 +178,50 @@ def _reset_per_call_memos(tokens):
 def with_caches(fn):
     """Wrap a callable so a single invocation installs+tears down the dasher
     per-call memos.  Use at user-facing entry points (``tokenize``,
-    ``SnapshotStrategy.calc_key``) so all rule invocations within the call
-    share the same memos."""
+    ``SnapshotStrategy.calc_key``, ``normalization_context``) so all rule
+    invocations within the call share the same memos.
 
-    @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        tokens = _install_per_call_memos()
-        try:
-            return fn(*args, **kwargs)
-        finally:
-            _reset_per_call_memos(tokens)
+    Works on regular functions, coroutines, generator functions, and async
+    generator functions: for generators the memos stay alive across ``yield``,
+    so ``@contextlib.contextmanager`` / ``@contextlib.asynccontextmanager``
+    can be stacked on top and the caller's ``with`` block sees the memos."""
+    if inspect.isasyncgenfunction(fn):
+
+        @functools.wraps(fn)
+        async def wrapper(*args, **kwargs):
+            tokens = _install_per_call_memos()
+            try:
+                async for item in fn(*args, **kwargs):
+                    yield item
+            finally:
+                _reset_per_call_memos(tokens)
+    elif inspect.iscoroutinefunction(fn):
+
+        @functools.wraps(fn)
+        async def wrapper(*args, **kwargs):
+            tokens = _install_per_call_memos()
+            try:
+                return await fn(*args, **kwargs)
+            finally:
+                _reset_per_call_memos(tokens)
+    elif inspect.isgeneratorfunction(fn):
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            tokens = _install_per_call_memos()
+            try:
+                yield from fn(*args, **kwargs)
+            finally:
+                _reset_per_call_memos(tokens)
+    else:
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            tokens = _install_per_call_memos()
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                _reset_per_call_memos(tokens)
 
     return wrapper
 
