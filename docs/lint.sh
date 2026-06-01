@@ -201,7 +201,8 @@ try:
     import frontmatter
     post = frontmatter.load(sys.argv[1])
     print("yes" if "title" in post.metadata else "no")
-except Exception:
+except Exception as e:
+    print(f"frontmatter parse error in {sys.argv[1]}: {e}", file=sys.stderr)
     print("no")
 PYEOF
 )
@@ -234,21 +235,31 @@ while IFS= read -r f; do
     rel="${f#./}"
     base="$(basename "$rel")"
     dir="$(dirname "$rel")"
+    # Escape regex metachars ('.') so the path is matched literally below.
+    rel_esc="${rel//./\\.}"
+    base_esc="${base//./\\.}"
 
     # Reachable if the full path appears in any config/sidebar (.yml) or .qmd.
     # Catches _quarto.yml nav, generated reference/_sidebar.yml, and links that
     # spell out the directory (e.g. ../how_to/page.qmd).
-    if grep -rqF "$rel" --include="*.yml" --include="*.qmd" . 2>/dev/null; then
+    #
+    # Match $rel only at a path boundary — a non-path char (or line start),
+    # optionally followed by ./ or ../ prefixes. This stops a short root-level
+    # name like 'index.qmd' from being counted as referenced just because some
+    # nested path (e.g. 'reference/index.qmd') contains it as a substring.
+    if grep -rqE "(^|[^[:alnum:]_.-])(\.\.?/)*${rel_esc}" --include="*.yml" --include="*.qmd" . 2>/dev/null; then
         continue
     fi
 
     # Reachable via a relative link from a sibling .qmd in the same directory
     # (e.g. index.qmd linking [Overview](overview.qmd) — only the basename appears).
+    # Anchor the basename to a markdown/HTML link opener (" or () with an
+    # optional ./ so prose mentions or longer names (my_overview.qmd) don't match.
     sibling_link=""
     while IFS= read -r sib; do
         [[ "$sib" == "./$rel" || "$sib" == "$rel" ]] && continue
         sibling_link=1; break
-    done < <(grep -rlF "$base" "$dir" --include="*.qmd" 2>/dev/null)
+    done < <(grep -rlE "[\"(](\./)?${base_esc}" "$dir" --include="*.qmd" 2>/dev/null)
     [[ -n "$sibling_link" ]] && continue
 
     orphans+=("$rel")
