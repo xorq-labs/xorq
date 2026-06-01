@@ -85,16 +85,19 @@ website:
           contents:
             - concepts/understanding_xorq/why_deferred_execution.qmd
             - concepts/understanding_xorq/expression_format.qmd
+            - concepts/understanding_xorq/expression_types.qmd
         - id: execution-backends-section
           section: "Execution and backends"
           contents:
             - concepts/understanding_xorq/multi_engine_execution.qmd
             - concepts/understanding_xorq/intelligent_caching_system.qmd
             - concepts/core_concepts/caching_internals.qmd
+            - concepts/understanding_xorq/environments_and_uv.qmd
         - id: advanced-capabilities-section
           section: "Advanced capabilities"
           contents:
             - concepts/core_concepts/user_defined_exchange_functions.qmd
+            - concepts/core_concepts/pins.qmd
 
     - id: reference
       title: "Overview"
