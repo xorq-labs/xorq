@@ -1,0 +1,49 @@
+---
+title: 'catalog serve-unbound'
+---
+
+Resolve a catalog entry, unbind a node, and serve the result as an Arrow Flight
+service. Clients stream record batches to the server to drive the computation.
+
+This is the catalog-aware counterpart to the top-level
+[`serve-unbound`](../serve-unbound.qmd): instead of pointing at a build
+directory, you reference an entry by name or alias and xorq resolves it from the
+active catalog.
+
+## Usage
+
+```bash
+xorq catalog serve-unbound ENTRY [OPTIONS]
+```
+
+| Argument / Option | Description |
+|-------------------|-------------|
+| `ENTRY` | Catalog entry name or alias to serve (required). |
+| `--to-unbind-hash TEXT` | Hash of the node to unbind. |
+| `--to-unbind-tag TEXT` | Tag of the node to unbind. |
+| `--typ TEXT` | Type of the node to unbind. |
+| `--host TEXT` | Host to bind the Flight Server (default: `localhost`). |
+| `--port INTEGER` | Port to bind the Flight Server (default: random). |
+| `--prometheus-port INTEGER` | Port to expose Prometheus metrics (default: disabled). |
+| `-c, --code TEXT` | Inline Ibis code expression applied to `source`. |
+| `--fuse / --no-fuse` | Enable/disable catalog source fusion (default: enabled). |
+| `--rename-params TEXT` | Rename a parameter: `entry,old_name,new_name` (repeatable). |
+| `-p, --params TEXT` | Parameter as `key=value` (repeatable, e.g. `--params threshold=0.5`). |
+| `--cache-dir TEXT` | Directory for generated parquet cache files. |
+
+## Example
+
+```bash
+# Serve an aliased entry, unbinding by tag
+xorq catalog serve-unbound flights-model --to-unbind-tag source_input \
+  --host 0.0.0.0 --port 8001
+
+# Bind a runtime parameter
+xorq catalog serve-unbound scorer --params threshold=0.5
+```
+
+## See also
+
+- [`serve-unbound`](../serve-unbound.qmd) — serve an unbound expression from a build directory
+- [`serve-flight-udxf`](../serve-flight-udxf.qmd) — serve a build as a Flight UDXF
+- [`catalog run`](run.qmd) — compose and execute catalog entries locally

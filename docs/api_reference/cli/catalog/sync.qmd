@@ -1,0 +1,20 @@
+---
+title: 'catalog sync'
+---
+
+Pull then push. Equivalent to running [`catalog pull`](pull.qmd) followed by
+[`catalog push`](push.qmd).
+
+## Usage
+
+```bash
+xorq catalog sync
+```
+
+This command takes no command-specific options.
+
+## Example
+
+```bash
+xorq catalog sync
+```

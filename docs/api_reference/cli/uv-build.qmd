@@ -2,30 +2,44 @@
 title: 'uv build'
 ---
 
-The `xorq uv build` command builds an expression in an isolated, reproducible environment using uv tooling. It mirrors `xorq build` but executes via the packaged sdist to ensure dependency fidelity.
+The `xorq uv build` command builds an expression in an isolated, reproducible
+environment using [uv](https://docs.astral.sh/uv/) tooling. It mirrors
+`xorq build` but executes inside a uv-managed environment seeded from the script's
+`pyproject.toml`, ensuring dependency fidelity.
 
 ## Usage
 
 ```bash
-xorq uv build <script_path> [options]
+xorq uv build <script_path> [OPTIONS]
 ```
 
 ## Arguments
 
-- **script_path**: Path to the Python script that defines the expression variable.
+- **`script_path`** — Path to the Python script that defines the expression variable.
 
 ## Options
 
-- **-e, --expr-name**: Name of the expression variable in the Python script (default: `expr`).
-- **--builds-dir**: Directory where generated artifacts are written (default: `builds`).
-- **--cache-dir**: Directory for parquet cache files.
+| Option | Default | Description |
+|---|---|---|
+| `-e`, `--expr-name` | `expr` | Name of the expression variable in the Python script. |
+| `--builds-dir` | `builds` | Directory for all generated artifacts. |
+| `--cache-dir` | `$XORQ_CACHE_DIR` or `~/.cache/xorq` | Directory for parquet cache files. |
+| `--project-path` | auto-discover | Explicit project root. Default searches upward from the script for `pyproject.toml`. |
+| `--extra` | none | Optional dependency group to include in requirements. Repeatable. |
+| `--all-extras` / `--no-all-extras` | `--all-extras` | Include all optional dependency groups. |
 
-## Example
+## Examples
 
 ```bash
+# Build with auto-discovered project root and all extras
 xorq uv build examples/penguins_example/expr.py -e expr --builds-dir builds
+
+# Build pinning a specific project root
+xorq uv build pipeline.py --project-path ./pipeline-project
+
+# Include only specific extras (disables --all-extras)
+xorq uv build pipeline.py --no-all-extras --extra ml --extra postgres
 ```
 
-This writes the build artifacts to the specified `builds` directory and prints the build path to stdout.
-
-
+The build artifacts are written to the `--builds-dir` directory and the build path
+is printed to stdout.

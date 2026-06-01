@@ -17,6 +17,25 @@ Before starting, make sure you have Xorq installed:
 pip install xorq
 ```
 
+## Usage
+
+```bash
+xorq build <script_path> [OPTIONS]
+```
+
+## Arguments
+
+- **`script_path`** — Path to the Python script that defines the expression variable.
+
+## Options
+
+| Option | Default | Description |
+|---|---|---|
+| `-e`, `--expr-name` | `expr` | Name of the expression variable in the Python script. |
+| `--builds-dir` | `builds` | Directory for all generated artifacts. |
+| `--cache-dir` | `$XORQ_CACHE_DIR` or `~/.cache/xorq` | Directory for parquet cache files. |
+| `--debug` | off | Output SQL files and other debug artifacts alongside the build. |
+
 ## Building expressions
 
 The `build` command compiles a Xorq expression into a reusable artifact that can be executed later.

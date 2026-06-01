@@ -1,0 +1,51 @@
+---
+title: 'catalog init'
+---
+
+Create a new catalog repository. The destination is selected via the
+[catalog group](../index.qmd) options (`-n/--name` or `-p/--path`), which must
+be supplied **before** the `init` subcommand.
+
+## Usage
+
+```bash
+xorq catalog [-n <name> | -p <path>] init [OPTIONS]
+```
+
+## Options
+
+| Option | Default | Description |
+|---|---|---|
+| `--env-file` | none | Path to an env file describing an annex remote (e.g. `.env.catalog.s3`). Mutually exclusive with `--env-prefix`. |
+| `--env-prefix` | none | Env-var prefix describing an annex remote (e.g. `XORQ_CATALOG_S3_`). Mutually exclusive with `--env-file`. |
+| `--gcs` | off | Apply GCS defaults to S3 remote config. |
+| `--remote-url` | none | Git remote URL for the new catalog (sets `origin`). |
+
+## Examples
+
+Create a catalog at the default location:
+```bash
+xorq catalog --name analytics init
+```
+
+Create at an explicit path with a git remote:
+```bash
+xorq catalog --path ./catalogs/analytics init \
+    --remote-url git@github.com:acme/analytics-catalog.git
+```
+
+Create with an S3-backed annex remote sourced from an env file:
+```bash
+xorq catalog --name analytics init --env-file .env.catalog.s3
+```
+
+## Notes
+
+- `init` will refuse to overwrite an existing catalog at the target path.
+- Most other catalog subcommands accept the same `-n/-p` selectors at the group
+  level to point at a specific catalog.
+
+## See also
+
+- [`catalog clone`](clone.qmd) — clone an existing catalog from a URL
+- [`catalog default`](default.qmd) — manage the default catalog name

@@ -1,0 +1,47 @@
+---
+title: 'catalog replay'
+---
+
+Replay the active catalog's operation log into a target catalog. Useful for
+mirroring a catalog with a different remote backend, or for migrating between
+storage providers.
+
+## Usage
+
+```bash
+xorq catalog replay <target_path> [OPTIONS]
+```
+
+## Arguments
+
+- **`target_path`** — Filesystem path where the target catalog will be initialized.
+
+## Options
+
+| Option | Default | Description |
+|---|---|---|
+| `--env-file` | none | Env file describing the target's annex remote. Mutually exclusive with `--env-prefix`. |
+| `--env-prefix` | none | Env-var prefix describing the target's annex remote. Mutually exclusive with `--env-file`. |
+| `--gcs` | off | Apply GCS defaults to the S3 remote config. |
+| `--remote-url` | none | Git remote URL to set on the target catalog (pushes after replay). |
+| `--preserve-commits` / `--no-preserve-commits` | `--preserve-commits` | Preserve original commit authors and timestamps. |
+| `--force` | off | Force-push to the target's remote. |
+| `--dry-run` | off | Print the replay plan without executing it. |
+
+## Examples
+
+Preview the operations that would be replayed:
+```bash
+xorq catalog replay ./mirrored-catalog --dry-run
+```
+
+Replay into a new catalog and push to a fresh remote:
+```bash
+xorq catalog replay ./mirrored-catalog \
+    --env-file .env.target.s3 \
+    --remote-url git@github.com:acme/mirror-catalog.git
+```
+
+## See also
+
+- [`catalog log`](log.qmd) — view the operation history that will be replayed

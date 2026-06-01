@@ -10,13 +10,31 @@ Before running Xorq expressions, you need:
 - Built Xorq expression artifacts (created with `xorq build`)
 - Xorq installed with necessary dependencies
 
+## Usage
+
+```bash
+xorq run <build_path> [OPTIONS]
+```
+
+## Arguments
+
+- **`build_path`** — Path to the build directory produced by `xorq build` (or `xorq uv build`).
+
+## Options
+
+| Option | Default | Description |
+|---|---|---|
+| `-o`, `--output-path` | `/dev/null` (discard) | Path to write output. Use `-` for stdout. |
+| `-f`, `--format` | `parquet` | Output format. One of `csv`, `json`, `parquet`, `arrow`. |
+| `--cache-dir` | `$XORQ_CACHE_DIR` or `~/.cache/xorq` | Directory for parquet cache files. |
+| `--limit` | unlimited | Maximum number of rows to output. |
+| `-p`, `--params` | none | Override expression parameters. Format: `key=value`. Repeatable, e.g. `-p threshold=0.5 -p region=us`. |
+
 ## Running expressions
 
 Once you've built a Xorq expression using `xorq build`, you can execute it with the `run` command.
 
 ### Basic usage
-
-The basic syntax for the `run` command is:
 
 ```bash
 xorq run <build_path> --output-path <output_file> --format <output_format>
@@ -29,7 +47,7 @@ Where:
 
 ### Example: running the penguins analysis
 
-Assuming you've built the penguins analysis expression from the [run example](run.qmd):
+Assuming you've built the penguins analysis expression with [`xorq build`](build.qmd):
 
 ```bash
 # Run the expression and save results as Parquet (default format)
@@ -107,6 +125,29 @@ When you don't need to save results (useful for validation):
 # Run without saving output (goes to /dev/null)
 xorq run builds/f02d28198715
 ```
+
+#### Limiting rows
+
+Use `--limit` to cap output cardinality (useful for sampling and smoke tests):
+
+```bash
+xorq run builds/f02d28198715 --limit 100 -o sample.parquet
+```
+
+#### Overriding expression parameters
+
+If the expression was built with named parameters (e.g. via `xo.param`), override
+their values at run time with `-p`/`--params`:
+
+```bash
+xorq run builds/f02d28198715 \
+    -p threshold=0.5 \
+    -p region=us \
+    -o results.parquet
+```
+
+The flag is repeatable. Values are parsed according to each parameter's declared
+type — e.g. `threshold=0.5` becomes a float, `region=us` a string.
 
 ## Understanding execution
 

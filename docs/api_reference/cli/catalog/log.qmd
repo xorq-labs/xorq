@@ -1,0 +1,29 @@
+---
+title: 'catalog log'
+---
+
+Show the catalog's history as a sequence of structured operations (the same
+operations [`catalog replay`](replay.qmd) consumes when copying a catalog).
+
+## Usage
+
+```bash
+xorq catalog log [OPTIONS]
+```
+
+## Options
+
+| Option | Default | Description |
+|---|---|---|
+| `--json` | off | Output the operation list as JSON instead of the printed plan. |
+
+## Example
+
+```bash
+xorq catalog log
+xorq catalog log --json | jq '.[] | select(.type == "Add")'
+```
+
+## See also
+
+- [`catalog replay`](replay.qmd) — replay this history into a different catalog

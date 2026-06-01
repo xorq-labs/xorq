@@ -1,0 +1,51 @@
+---
+title: 'catalog add'
+---
+
+Add one or more entries to the catalog from build directories or archive files.
+
+## Usage
+
+```bash
+xorq catalog add <paths...> [OPTIONS]
+```
+
+## Arguments
+
+- **`paths`** — One or more paths. Each path is either a build directory
+  (typically produced by `xorq build`) or an archive file (`.zip`).
+
+## Options
+
+| Option | Default | Description |
+|---|---|---|
+| `-a`, `--alias` | none | Alias to assign to the added entry. Repeatable. Applied to **each** entry being added. |
+| `--sync` / `--no-sync` | `--sync` | Push the catalog to its remote(s) after adding (when remotes are configured). |
+
+## Examples
+
+Add a single build directory:
+```bash
+xorq catalog add builds/f02d28198715
+```
+
+Add multiple builds in one invocation:
+```bash
+xorq catalog add builds/f02d28198715 builds/c5a981ab43cd
+```
+
+Assign aliases at add time:
+```bash
+xorq catalog add builds/f02d28198715 -a penguins-prod -a current
+```
+
+Add without syncing (defer the push to a later `xorq catalog push`):
+```bash
+xorq catalog add builds/f02d28198715 --no-sync
+```
+
+## See also
+
+- [`catalog list`](list.qmd) — list catalog entries
+- [`catalog add-alias`](add-alias.qmd) — attach an alias to an existing entry
+- [`catalog remove`](remove.qmd) — remove an entry from the catalog

@@ -1,0 +1,63 @@
+---
+title: 'run-cached'
+---
+
+Run a build with a `ParquetCache` wrapping the expression. Identical to
+[`xorq run`](run.qmd) in semantics, but the resulting expression is wrapped in a
+parquet cache so subsequent invocations can short-circuit when inputs haven't
+changed.
+
+## Usage
+
+```bash
+xorq run-cached <build_path> [OPTIONS]
+```
+
+## Arguments
+
+- **`build_path`** — Path to the build directory produced by `xorq build`.
+
+## Options
+
+| Option | Default | Description |
+|---|---|---|
+| `-o`, `--output-path` | `/dev/null` (discard) | Path to write output. Use `-` for stdout. |
+| `-f`, `--format` | `parquet` | Output format. One of `csv`, `json`, `parquet`, `arrow`. |
+| `--cache-dir` | `$XORQ_CACHE_DIR` or `~/.cache/xorq` | Directory for parquet cache files. |
+| `--limit` | unlimited | Maximum number of rows to output. |
+| `--cache-type` | `modification-time` | Cache strategy. One of `modification-time` (`ParquetCache`) or `snapshot` (`ParquetSnapshotCache`). |
+| `--ttl` | none | TTL in seconds for snapshot cache. When set, uses `ParquetTTLSnapshotCache` instead. |
+| `-p`, `--params` | none | Override expression parameters. Format: `key=value`. Repeatable. |
+
+## Cache strategies
+
+- **`modification-time`** (default) — `ParquetCache`. Inputs are tracked by file
+  modification time; the cache is invalidated when an input file's mtime changes.
+- **`snapshot`** — `ParquetSnapshotCache`. The cache is keyed by a content
+  snapshot of the inputs and never invalidates implicitly.
+- **`snapshot` + `--ttl`** — `ParquetTTLSnapshotCache`. As above, but the cache
+  entry expires after the supplied TTL (in seconds).
+
+## Examples
+
+Default behavior (modification-time cache):
+```bash
+xorq run-cached builds/f02d28198715 --cache-dir ./cache -o results.parquet
+```
+
+Snapshot cache with a 1-hour TTL:
+```bash
+xorq run-cached builds/f02d28198715 \
+    --cache-type snapshot \
+    --ttl 3600 \
+    --cache-dir ./cache \
+    -o results.parquet
+```
+
+With parameter overrides:
+```bash
+xorq run-cached builds/f02d28198715 \
+    -p threshold=0.5 \
+    --cache-dir ./cache \
+    -o results.parquet
+```
