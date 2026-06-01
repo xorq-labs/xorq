@@ -56,5 +56,10 @@ jobs:
       - name: Lychee (internal links)
         uses: lycheeverse/lychee-action@v2
         with:
-          args: --offline --include-fragments --no-progress docs/_site
+          # Exclude the quartodoc-generated reference tree: its pages carry
+          # unresolved interlinks (raw .qmd targets, .html#member anchors for
+          # upstream ibis objects), a quartodoc-config concern, not link rot.
+          # Mirrors the --exclude-path in docs/lint.sh (docs/ prefix here since
+          # the action runs from the repo root, lint.sh runs from docs/).
+          args: --offline --include-fragments --no-progress --exclude-path docs/_site/reference docs/_site
           fail: true

@@ -195,22 +195,9 @@ fi
 
 section "Frontmatter — title: present in non-reference .qmd files"
 missing_titles=()
+qmd_files=()
 while IFS= read -r f; do
-    has_title=$(python3 - "$f" <<'PYEOF'
-import sys
-try:
-    import frontmatter
-    post = frontmatter.load(sys.argv[1])
-    print("yes" if "title" in post.metadata else "no")
-except Exception as e:
-    print(f"frontmatter parse error in {sys.argv[1]}: {e}", file=sys.stderr)
-    print("no")
-PYEOF
-)
-    if [[ "$has_title" == "no" ]]; then
-        missing_titles+=("$f")
-        gha_error "docs/${f#./}" "1" "Missing 'title:' in YAML frontmatter"
-    fi
+    qmd_files+=("$f")
 done < <(find . -name "*.qmd" \
     -not -path "./_site/*" \
     -not -path "./.quarto/*" \
@@ -220,6 +207,32 @@ done < <(find . -name "*.qmd" \
     -not -path "./index.qmd" \
     -not -path "./__pycache__/*" \
     | sort)
+
+# Check every file in one python3 process (one spawn, not one-per-file). The
+# script prints the path of each file missing a title:; a parse error counts as
+# missing, matching the prior per-file behavior.
+if [[ ${#qmd_files[@]} -gt 0 ]]; then
+    while IFS= read -r f; do
+        missing_titles+=("$f")
+        gha_error "docs/${f#./}" "1" "Missing 'title:' in YAML frontmatter"
+    done < <(python3 - "${qmd_files[@]}" <<'PYEOF'
+import sys
+try:
+    import frontmatter
+except Exception as e:
+    print(f"frontmatter import error: {e}", file=sys.stderr)
+    sys.exit(1)
+for path in sys.argv[1:]:
+    try:
+        post = frontmatter.load(path)
+        if "title" not in post.metadata:
+            print(path)
+    except Exception as e:
+        print(f"frontmatter parse error in {path}: {e}", file=sys.stderr)
+        print(path)
+PYEOF
+)
+fi
 
 if [[ ${#missing_titles[@]} -eq 0 ]]; then
     pass "all non-reference .qmd files have title frontmatter"
