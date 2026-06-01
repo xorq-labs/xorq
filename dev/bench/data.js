@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780042672650,
+  "lastUpdate": 1780272366141,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -15615,6 +15615,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.008066410333238273",
             "extra": "mean: 33.141493559998025 msec\nrounds: 25"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "775713bf9735b6380fdb4c4bfba45c7c7df068a2",
+          "message": "fix: install per-call dasher memos in normalization_context (#2014)\n\n## Summary\n\n- `SnapshotStrategy.normalization_context()` sets up `_current_hasher`\nand `_snapshot_dt_normalize_memo` but did not install the three per-call\ndasher memos (`_parent_token_memo`, `_expr_normalize_memo`,\n`_dt_normalize_memo`)\n- Without these memos, every `_parent_token` call inside the\nopaque-placeholder replacer recomputed full tokenization from scratch —\nO(N^D) instead of O(N) for N opaque nodes at depth D\n- This made **catalog load+execute 25-30x slower** than direct\nbuild+execute (~33s vs ~1s for a penguins ML pipeline)\n- Fix: install the memos inside `normalization_context` via\n`@with_caches` so every caller — `get_expr_hash`, `compute_expr_hash`,\n`calc_key`, and any future entry points — gets them automatically\n- Extended `with_caches` to support generator functions (`yield from`),\ncoroutines (`async def`), and async generator functions (`async\nfor`/`yield`), so it can be stacked under `@contextlib.contextmanager`\nor `@contextlib.asynccontextmanager` and the memos stay alive for the\ncaller's entire `with` block\n- Removed the now-redundant `@with_caches` decorator from `calc_key`\nsince `normalization_context` installs the same memos\n- Added regression test\n`test_normalization_context_installs_per_call_memos` that asserts all\nthree memos are installed inside `normalization_context`, verifies memos\nare populated after tokenization, and cleaned up on exit\n- Added `test_with_caches_sync_generator` that verifies memos stay alive\nacross `yield` in sync generators and are cleaned up after iteration\n- Added `test_with_caches_async_generator` that verifies memos stay\nalive across `yield` in async generators and are cleaned up after\niteration\n- Added `test_with_caches_coroutine` that verifies memos are installed\nduring plain `async def` coroutine execution and cleaned up after\n`await`\n\n### Before\n| Step | Time |\n|------|------|\n| Direct build+execute (cold) | 2.0s |\n| Catalog load+execute (first) | 32.8s |\n| Catalog load+execute (second) | 25.8s |\n\n### After\n| Step | Time |\n|------|------|\n| Direct build+execute (cold) | 1.0s |\n| Catalog load+execute (first) | 1.3s |\n| Catalog load+execute (second) | 0.4s |\n\n## Test plan\n\n- [x] All 12 `test_caching_utils` tests pass (including memo regression\n+ sync generator + async generator + coroutine tests)\n- [x] All 9 `test_provenance_utils` tests pass\n- [x] All 32 `test_node_utils` + `test_hashing_tag` tests pass\n- [x] All 3 `test_benchmark_dasher` benchmarks pass (no regression)\n- [x] Repro script confirms 25x speedup on catalog load+execute path\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-05-31T20:02:15-04:00",
+          "tree_id": "8f51e4058e51d96028b488c458d030bb8b73b287",
+          "url": "https://github.com/xorq-labs/xorq/commit/775713bf9735b6380fdb4c4bfba45c7c7df068a2"
+        },
+        "date": 1780272363147,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.228324456963891,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02079187113989233",
+            "extra": "mean: 138.34464763636652 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.508631250616419,
+            "unit": "iter/sec",
+            "range": "stddev: 0.019479164198077024",
+            "extra": "mean: 398.6237514000038 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.5394784330148613,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11231016870742548",
+            "extra": "mean: 1.8536422196000046 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.3818992017644374,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06802517648464225",
+            "extra": "mean: 419.83304719999524 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.134853253208213,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09559950142266248",
+            "extra": "mean: 468.4162709999953 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.0105842001826617,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0970473270700741",
+            "extra": "mean: 497.36787940000227 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 180.3153357021786,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006605947945411754",
+            "extra": "mean: 5.545839992509955 msec\nrounds: 267"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.584619546197999,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06797314243565594",
+            "extra": "mean: 218.12060737499905 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 28.93506356911779,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008079950447669446",
+            "extra": "mean: 34.56014525806308 msec\nrounds: 31"
           }
         ]
       }
