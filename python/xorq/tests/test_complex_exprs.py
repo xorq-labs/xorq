@@ -63,7 +63,7 @@ def test_complex_cache(cls, cross_source_caching, tmp_path):
     assert not cache.exists(expr)
     out = cached.count().execute()
     assert out == 44260
-    assert cached.ls.exists()
+    assert cached.ls.cache_exists()
     assert cache.exists(cached)
     # ParquetCache has an issue with this, regardless of cross_source_caching
     assert cache.exists(expr)
