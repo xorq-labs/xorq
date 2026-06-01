@@ -175,7 +175,8 @@ section "pymarkdown — markdown structure"
 #   MD041  first-heading   — Quarto files open with --- YAML frontmatter
 #   MD046  code-block-style— Quarto uses ```{python} fenced syntax
 DISABLE="MD013,MD025,MD033,MD034,MD041,MD046"
-mapfile -t _pm_files < <(find . \( -name "*.qmd" -o -name "*.md" \) \
+_pm_files=()
+while IFS= read -r f; do _pm_files+=("$f"); done < <(find . \( -name "*.qmd" -o -name "*.md" \) \
     -not -path "./_site/*" \
     -not -path "./.quarto/*" \
     -not -path "./reference/*" \
