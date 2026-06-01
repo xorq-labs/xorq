@@ -150,17 +150,26 @@ SITE
       # On darwin, nixpkgs reports a low SDK version (11.3), which makes uv2nix's
       # wheel selector (pypa.selectWheels reads stdenv.targetPlatform.darwinSdkVersion)
       # reject scipy/pyarrow/etc. prebuilt wheels tagged macosx_12+, forcing slow
-      # source builds. Report a higher SDK *for wheel selection only* via a metadata
-      # `//` override (mkDerivation/toolchain are untouched). selectWheels still picks
-      # the most-portable compatible wheel (e.g. macosx_12_0), so this does not assume
-      # a newer macOS at runtime.
+      # source builds. We bump darwinSdkVersion via a shallow `//` override of the
+      # already-elaborated targetPlatform so selectWheels accepts those wheels; it
+      # still picks the most-portable compatible wheel (e.g. macosx_12_0).
+      #
+      # This stdenv is the whole pythonSet-base scope, so source builds in it also see
+      # darwinSdkVersion=14.0. That is safe: the deployment target comes from
+      # darwinMinVersion (cc-wrapper -version-min), NOT darwinSdkVersion, and the
+      # `darwinMinVersion = darwinSdkVersion` link in lib/systems only fires during
+      # elaboration. A shallow `//` on the elaborated platform leaves darwinMinVersion
+      # at 11.3, so binaries keep an 11.3 floor; only the recorded sdk_version in the
+      # linker's -platform_version flag (macos 11.3 14.0) changes (cosmetic).
+      # WARNING: do NOT replace this with lib.systems.elaborate / overrideSDK — that
+      # would re-derive darwinMinVersion from the bumped SDK and raise the runtime floor.
+      # Only targetPlatform is read here (by selectWheels and the linker); host/build
+      # platforms are deliberately left untouched.
       wheelStdenv =
         if pkgs.stdenv.isDarwin then
           pkgs.stdenv
           // {
-            hostPlatform = pkgs.stdenv.hostPlatform // { darwinSdkVersion = "14.0"; };
             targetPlatform = pkgs.stdenv.targetPlatform // { darwinSdkVersion = "14.0"; };
-            buildPlatform = pkgs.stdenv.buildPlatform // { darwinSdkVersion = "14.0"; };
           }
         else
           pkgs.stdenv;
