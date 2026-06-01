@@ -857,8 +857,9 @@ def test_catalog_compose_reinvokes_via_uv(
         captured["merge_build_path"] = build_path
         captured["merge_bundle"] = bundle
 
-    def spy_add(self, build_path, aliases=(), exist_ok=False):
+    def spy_add(self, build_path, sync=True, aliases=(), exist_ok=False):
         captured["add_build_path"] = build_path
+        captured["add_sync"] = sync
         captured["add_aliases"] = aliases
         return MagicMock(name="catalog_entry")
 

@@ -1154,6 +1154,7 @@ def _compose_via_reinvoke(ctx, catalog, entries):
 
 @cli.command("compose")
 @click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
+@sync_option
 @code_option
 @click.option(
     "-a",
@@ -1194,6 +1195,7 @@ def _compose_via_reinvoke(ctx, catalog, entries):
 def compose(
     ctx,
     entries,
+    sync,
     code,
     alias,
     cache_dir,
@@ -1257,7 +1259,7 @@ def compose(
             aliases = (alias,) if alias else ()
             alias_existed = alias and catalog.catalog_yaml.contains_alias(alias)
             entry_existed = catalog.contains(entry_name)
-            catalog.add(build_path, aliases=aliases, exist_ok=True)
+            catalog.add(build_path, sync=sync, aliases=aliases, exist_ok=True)
             label = alias or entry_name
             if entry_existed:
                 if alias and not alias_existed:
