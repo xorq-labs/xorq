@@ -1,5 +1,7 @@
 ---
 title: Expression types
+execute:
+  eval: true
 ---
 
 Every operation in Xorq produces an expression --- a lazy, immutable description of a computation. Before anything executes, Xorq classifies each expression into one of three kinds --- **Source**, **Expr**, or **UnboundExpr**. This classification drives how expressions are hashed, cached, serialized, and executed across backends.
@@ -17,7 +19,6 @@ Xorq defines an `ExprKind` enum with three values:
 You can inspect the kind of any expression using the `.ls` accessor:
 
 ```{python}
-#| eval: false
 import xorq.api as xo
 
 # Source — just data, no transforms
@@ -42,7 +43,6 @@ A **Source** is a leaf node in the expression graph --- it represents data witho
 The simplest source. Data lives in the current process and is wrapped in an `InMemoryTable` operation.
 
 ```{python}
-#| eval: false
 import xorq.api as xo
 
 t = xo.memtable({"name": ["alice", "bob"], "score": [95, 87]})
@@ -51,14 +51,13 @@ print(t.ls.kind)  # ExprKind.Source
 
 ### Database tables
 
-A table registered in a backend (Postgres, DuckDB, DataFusion, etc.). Backed by a `DatabaseTable` operation that holds a reference to the backend connection.
+A table registered in a backend (DuckDB, DataFusion, Postgres, etc.). Backed by a `DatabaseTable` operation that holds a reference to the backend connection.
 
 ```{python}
-#| eval: false
 import xorq.api as xo
 
-pg = xo.postgres.connect_env()
-batting = pg.table("batting")
+con = xo.duckdb.connect()
+batting = xo.examples.batting.fetch(backend=con)
 print(batting.ls.kind)  # ExprKind.Source
 ```
 
@@ -67,7 +66,6 @@ print(batting.ls.kind)  # ExprKind.Source
 A lazy pointer to a file (Parquet, CSV). The file isn't read until execution. Backed by a `Read` operation.
 
 ```{python}
-#| eval: false
 import xorq.api as xo
 
 # Schema is required — the file isn't touched until execute()
@@ -83,17 +81,16 @@ print(expr.ls.kind)  # ExprKind.Source
 When you call `.cache()` on an expression, Xorq wraps it in a `CachedNode`. The cache itself is a source --- it acts as a materialization boundary that breaks the expression graph into independent segments.
 
 ```{python}
-#| eval: false
 import xorq.api as xo
 from xorq.caching import ParquetCache
 
 con = xo.connect()
-pg = xo.postgres.connect_env()
+ddb = xo.duckdb.connect()
 cache = ParquetCache.from_kwargs(source=con)
 
 # The cached expression is a Source, even though it wraps transforms
 cached = (
-    pg.table("batting")
+    xo.examples.batting.fetch(backend=ddb)
     .filter(xo._.yearID > 2010)
     .cache(cache=cache)
 )
@@ -108,14 +105,17 @@ This is an important property: caching resets the expression kind back to Source
 Created by `.into_backend()`, a `RemoteTable` transfers data between backends via Arrow record batches. Like a cache, it acts as a source boundary.
 
 ```{python}
-#| eval: false
 import xorq.api as xo
 
-pg = xo.postgres.connect_env()
+ddb = xo.duckdb.connect()
 con = xo.connect()  # DataFusion
 
-# Move filtered Postgres data into DataFusion
-t = pg.table("batting").filter(xo._.yearID == 2015).into_backend(con, "local_batting")
+# Move filtered DuckDB data into DataFusion
+t = (
+    xo.examples.batting.fetch(backend=ddb)
+    .filter(xo._.yearID == 2015)
+    .into_backend(con, "local_batting")
+)
 print(t.ls.kind)  # ExprKind.Source
 ```
 
@@ -124,7 +124,6 @@ print(t.ls.kind)  # ExprKind.Source
 An **Expr** is any expression that applies one or more transformations to bound data. It has at least one source upstream and at least one operation (filter, project, aggregate, join, etc.) on top.
 
 ```{python}
-#| eval: false
 import xorq.api as xo
 
 t = xo.memtable({"a": [1, 2, 3], "b": [10, 20, 30]})
@@ -144,14 +143,12 @@ for expr in [filtered, projected, aggregated, sorted_t, limited]:
 Transforms compose naturally by chaining. Each method returns a new immutable expression:
 
 ```{python}
-#| eval: false
 import xorq.api as xo
 
-pg = xo.postgres.connect_env()
-con = xo.connect()
+ddb = xo.duckdb.connect()
 
 result = (
-    pg.table("batting")
+    xo.examples.batting.fetch(backend=ddb)
     .filter(xo._.yearID > 2010)
     .select("playerID", "yearID", "teamID", "H", "AB")
     .mutate(avg=xo._.H / xo._.AB)
@@ -189,7 +186,6 @@ An **UnboundExpr** is an expression built on an `UnboundTable` instead of a conc
 Use `xo.table()` with a schema to create a template:
 
 ```{python}
-#| eval: false
 import xorq.api as xo
 
 # Define a template: takes int64 column "a", filters, adds a computed column
@@ -204,11 +200,10 @@ print(transform.ls.kind)  # ExprKind.UnboundExpr
 You can convert any bound expression into an unbound one with `.unbind()`. This strips the backend connection and replaces `DatabaseTable` nodes with `UnboundTable` nodes:
 
 ```{python}
-#| eval: false
 import xorq.api as xo
 
-pg = xo.postgres.connect_env()
-bound = pg.table("batting").filter(xo._.yearID > 2010)
+ddb = xo.duckdb.connect()
+bound = xo.examples.batting.fetch(backend=ddb).filter(xo._.yearID > 2010)
 
 unbound = bound.unbind()
 print(bound.ls.kind)    # ExprKind.Expr
@@ -227,13 +222,13 @@ Unbound expressions are the foundation of several Xorq features:
 - **Schema validation**: `ExprMetadata` exposes `schema_in` (the UnboundTable's schema) and `schema_out` (the result schema), enabling compile-time checks before execution.
 
 ```{python}
-#| eval: false
+import xorq.api as xo
 from xorq.vendor.ibis.expr.types.core import ExprMetadata
 
 template = xo.table(schema={"a": "int64"})
 transform = template.filter(template.a > 0)
 
-metadata = ExprMetadata(transform)
+metadata = ExprMetadata.from_expr(transform)
 print(metadata.kind)       # ExprKind.UnboundExpr
 print(metadata.schema_in)  # Schema with column "a" (int64)
 print(metadata.schema_out) # Schema with column "a" (int64)
@@ -248,7 +243,6 @@ Beyond the three kinds, Xorq introduces several specialized operation nodes that
 Metadata wrappers that annotate an expression without changing its data. `Tag` is stripped before content hashing --- it's invisible to the cache. `HashingTag` contributes to the hash, so expressions with different `HashingTag` metadata produce different cache keys.
 
 ```{python}
-#| eval: false
 import xorq.api as xo
 import xorq.vendor.ibis as ibis
 from xorq.expr.relations import Tag, HashingTag
@@ -272,7 +266,6 @@ print(type(tagged.to_expr().ls.unwrapped).__name__)  # InMemoryTable
 Wraps a user-defined exchange function (UDXF) that runs in a separate process via Arrow Flight. Data flows in as record batches, gets transformed by arbitrary Python code, and flows back out.
 
 ```{python}
-#| eval: false
 import xorq.api as xo
 from xorq.expr.relations import flight_udxf
 
@@ -310,16 +303,15 @@ Every expression has an `.ls` accessor (the LETSQL accessor) that exposes intros
 | `.ls.tags` | `tuple` | All Tag nodes in the graph |
 
 ```{python}
-#| eval: false
 import xorq.api as xo
 from xorq.caching import ParquetCache
 
-pg = xo.postgres.connect_env()
+ddb = xo.duckdb.connect()
 con = xo.connect()
 cache = ParquetCache.from_kwargs(source=con)
 
 expr = (
-    pg.table("batting")
+    xo.examples.batting.fetch(backend=ddb)
     .filter(xo._.yearID > 2010)
     .into_backend(con, "batting_local")
     .cache(cache=cache)
@@ -327,9 +319,9 @@ expr = (
 
 print(expr.ls.kind)            # ExprKind.Source (cache is a source)
 print(expr.ls.is_cached)       # True
-print(expr.ls.is_multiengine)  # True (Postgres + DataFusion)
+print(expr.ls.is_multiengine)  # True (DuckDB + DataFusion)
 print(len(expr.ls.backends))   # 2
-print(expr.ls.exists())        # None (not yet executed)
+print(expr.ls.exists())        # False (not yet executed)
 ```
 
 ## How kind affects the system

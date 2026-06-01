@@ -1,5 +1,7 @@
 ---
 title: 'Pins: versioned data artifacts'
+execute:
+  eval: true
 ---
 
 Xorq uses [pins](https://rstudio.github.io/pins-python/) to provide named, versioned access to shared datasets, trained models, and code modules. Instead of shipping large files in the repository or requiring manual downloads, artifacts are stored in a public cloud bucket and accessed by name.
@@ -15,7 +17,7 @@ The pins system in Xorq allows you to:
 
 ## Quick start
 
-```python
+```{python}
 import xorq.api as xo
 
 # Fetch an example dataset as a table expression
@@ -26,7 +28,7 @@ t = xo.examples.iris.fetch()
 
 ## How it works
 
-Xorq wraps the [pins Python library](https://rstudio.github.io/pins-python/) with a preconfigured connection to a public Google Cloud Storage bucket (`letsql-pins`). No authentication is required.
+Xorq wraps the [pins Python library](https://rstudio.github.io/pins-python/) with a preconfigured connection to a public GCS bucket (`letsql-pins`). No authentication is required.
 
 The configuration lives in `xo.options.pins`:
 
@@ -38,9 +40,9 @@ The configuration lives in `xo.options.pins`:
 
 ### `get_path(name, version=None)`
 
-Downloads the named pin and returns a local file path.
+Downloads the named pin and returns a local path.
 
-```python
+```{python}
 # Get the latest version
 path = xo.options.pins.get_path("diamonds")
 
@@ -52,7 +54,7 @@ path = xo.options.pins.get_path("hackernews_lib", version="20250820T111457Z-1d66
 
 Returns the underlying `pins.board` object for advanced operations like listing available pins or reading metadata.
 
-```python
+```{python}
 board = xo.options.pins.get_board()
 board.pin_list()        # list all available pins
 board.pin_meta("iris")  # get metadata for a pin
@@ -80,7 +82,7 @@ board.pin_meta("iris")  # get metadata for a pin
 
 The preferred way to load example datasets is `xo.examples.<name>.fetch()`:
 
-```python
+```{python}
 import xorq.api as xo
 
 # Fetch with default backend
@@ -97,7 +99,7 @@ This calls `xo.options.pins.get_path("diamonds")` under the hood, reads the file
 
 Pre-trained models are pinned as binary artifacts and loaded by path:
 
-```python
+```{python}
 import pathlib
 
 TFIDF_MODEL_PATH = pathlib.Path(
@@ -112,7 +114,7 @@ XGB_MODEL_PATH = pathlib.Path(
 
 Python modules can be pinned and loaded with a specific version, ensuring pipeline reproducibility:
 
-```python
+```{python}
 from xorq.common.utils.import_utils import import_python
 
 m = import_python(
