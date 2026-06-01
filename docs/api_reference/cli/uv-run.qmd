@@ -17,7 +17,7 @@ xorq uv run <build_path> [options]
 ## Options
 
 - **--cache-dir**: Directory for parquet cache files (default: system cache dir).
-- **-o, --output-path**: Output file path. Use `-` to write to stdout.
+- **-o, --output-path**: Output path. Use `-` to write to stdout.
 - **-f, --format**: Output format. One of `csv`, `json`, `parquet` (default: `parquet`).
 
 ## Examples

@@ -22,11 +22,10 @@ if TYPE_CHECKING:
 
 
 class Schema(Concrete, Coercible, MapSet):
-    """An ordered mapping of str -> [datatype](./datatypes.qmd), used to hold a [Table](./expression-tables.qmd#ibis.expr.tables.Table)'s schema."""
+    """An ordered mapping of str -> `DataType`, used to hold a Table's schema."""
 
     fields: FrozenOrderedDict[str, dt.DataType]
-    """A mapping of [](`str`) to
-    [`DataType`](./datatypes.qmd#ibis.expr.datatypes.DataType)
+    """A mapping of `str` to `DataType`
     objects representing the type of each column."""
 
     def __repr__(self) -> str:

@@ -333,7 +333,7 @@ class StructValue(Value):
 
         See Also
         --------
-        [`Table.unpack`](./expression-tables.qmd#ibis.expr.types.relations.Table.unpack)
+        `Table.unpack`
         """
         try:
             (table,) = self.op().relations

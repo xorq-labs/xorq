@@ -25,7 +25,7 @@ xorq run <build_path> --output-path <output_file> --format <output_format>
 Where:
 - `<build_path>` is the path to the built Xorq expression directory
 - `--output-path` specifies where to write the results (defaults to discarding output)
-- `--format` specifies the output format: "csv", "json", or "parquet" (defaults to "parquet")
+- `--format` specifies the output format: "csv," "json," or "parquet" (defaults to "parquet")
 
 ### Example: running the penguins analysis
 
@@ -36,7 +36,7 @@ Assuming you've built the penguins analysis expression from the [run example](ru
 xorq run builds/f02d28198715 --output-path penguin_results.parquet
 ```
 
-The command will execute the UDXF Xorq expression and produce a dataset with the health analysis results.
+The command executes the UDXF Xorq expression and produces a dataset with the health analysis results.
 
 ### Output formats
 

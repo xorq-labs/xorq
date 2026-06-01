@@ -20,7 +20,7 @@ jobs:
           private-key: ${{ secrets.DOCS_BOT_APP_PRIVATE_KEY }}
 
       - name: reset label
-        run: gh issue edit ${{ github.event.pull_request.number }} --remove-label "docs-preview"
+        run: gh issue edit ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --remove-label "docs-preview"
         env:
           GH_TOKEN: ${{ steps.generate_token.outputs.token }}
 

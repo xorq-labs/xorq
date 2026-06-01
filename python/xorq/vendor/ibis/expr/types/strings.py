@@ -856,7 +856,7 @@ class StringValue(Value):
 
         See Also
         --------
-        [`ArrayValue.join`](./expression-collections.qmd#ibis.expr.types.arrays.ArrayValue.join)
+        `ArrayValue.join`
         """
         import xorq.vendor.ibis.expr.types as ir
 

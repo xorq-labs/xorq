@@ -12,7 +12,7 @@ A `Profile` is an immutable representation of database connection settings that 
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `con_name` | `str` | Backend name (e.g., 'postgres', 'snowflake') |
+| `con_name` | `str` | Backend name (for example, 'postgres', 'snowflake') |
 | `kwargs_tuple` | `tuple` | Connection parameters as key-value pairs |
 | `kwargs_dict` | `dict` | Connection parameters as a dictionary |
 | `hash_name` | `str` | Unique hash identifier for the profile |

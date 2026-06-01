@@ -260,7 +260,7 @@ class scalar(_UDF):
             will be derived from the type annotations of the wrapped function.
 
             For **builtin** UDFs, only the **return type** annotation is required.
-            See [the user guide](/how-to/extending/builtin.qmd#input-types) for
+            See the user guide for
             more information.
         kwargs
             Additional backend-specific configuration arguments for the UDF.
@@ -325,9 +325,9 @@ class scalar(_UDF):
         Python function call per row
 
         This calling pattern tends to be **much** slower than
-        [`pandas`](/reference/scalar-udfs.qmd#ibis.expr.operations.udf.scalar.pandas)
+        `pandas`
         or
-        [`pyarrow`](/reference/scalar-udfs.qmd#ibis.expr.operations.udf.scalar.pyarrow)-based
+        `pyarrow`-based
         vectorized UDFs.
         :::
 
@@ -393,8 +393,8 @@ class scalar(_UDF):
 
         See Also
         --------
-        - [`pandas`](/reference/scalar-udfs.qmd#ibis.expr.operations.udf.scalar.pandas)
-        - [`pyarrow`](/reference/scalar-udfs.qmd#ibis.expr.operations.udf.scalar.pyarrow)
+        - `pandas`
+        - `pyarrow`
 
         """
         return _wrap(
@@ -490,8 +490,8 @@ class scalar(_UDF):
 
         See Also
         --------
-        - [`python`](/reference/scalar-udfs.qmd#ibis.expr.operations.udf.scalar.python)
-        - [`pyarrow`](/reference/scalar-udfs.qmd#ibis.expr.operations.udf.scalar.pyarrow)
+        - `python`
+        - `pyarrow`
 
         """
         return _wrap(
@@ -576,8 +576,8 @@ class scalar(_UDF):
 
         See Also
         --------
-        - [`python`](/reference/scalar-udfs.qmd#ibis.expr.operations.udf.scalar.python)
-        - [`pandas`](/reference/scalar-udfs.qmd#ibis.expr.operations.udf.scalar.pandas)
+        - `python`
+        - `pandas`
 
         """
         return _wrap(

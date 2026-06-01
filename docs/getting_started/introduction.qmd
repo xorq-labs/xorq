@@ -7,9 +7,9 @@ headline: "Learn what Xorq is and why it exists"
 
 Xorq is an open source compute catalog for AI. It helps teams catalog, compose, reuse, and observe transformations, features, models, and pipelines across multiple engines.
 
-Think of it this way: Apache Iceberg standardized data. Xorq standardizes compute.
+Think of it this way—Apache Iceberg standardized data. Xorq standardizes compute.
 
-## What is Xorq?
+## What's Xorq?
 
 Xorq is an open source compute catalog for reusing, shipping, and observing ML pipelines across multiple engines.
 
@@ -23,7 +23,7 @@ Data infrastructure has standards. Iceberg and Delta solved how teams store and 
 
 ML pipelines suffer from four problems:
 
-- **Leakage prone**: Feature generation on historical data causes silent temporal leakage. Models train on information they should not have access to at prediction time.
+- **Leakage prone**: Feature generation on historical data causes silent temporal leakage. Models train on information they shouldn't have access to at prediction time.
 - **Disjointed**: Pipelines communicate through runtime artifacts. Monitoring gets bolted on as an afterthought rather than built in from the start.
 - **Research-only**: Features trapped in notebooks require complete rewrites for batch and online serving. What works in Jupyter fails in production.
 - **Undecipherable**: ML pipelines become black boxes with no lineage or computation visibility. When something breaks, there is no way to trace back to the root cause.
@@ -57,7 +57,7 @@ Xorq's architecture provides six core capabilities that work together with:
 
 ## Where Xorq fits
 
-Xorq sits between your data sources and your ML applications. It's not a replacement for your data warehouse or your model serving infrastructure, it is the layer that connects them.
+Xorq sits between your data sources and your ML applications. It's not a replacement for your data warehouse or your model serving infrastructure, it's the layer that connects them.
 
 The architecture image here illustrates this positioning. Expressions and UDFs flow through the manifest layer into stateless, Arrow-native execution across any supported engine.
 

@@ -588,7 +588,7 @@ def desc(expr: ir.Column | str, nulls_first: bool = False) -> ir.Value:
 
     See Also
     --------
-    [`Value.desc()`](./expression-generic.qmd#ibis.expr.types.generic.Value.desc)
+    `Value.desc()`
 
     Examples
     --------
@@ -629,7 +629,7 @@ def asc(expr: ir.Column | str, nulls_first: bool = False) -> ir.Value:
 
     See Also
     --------
-    [`Value.asc()`](./expression-generic.qmd#ibis.expr.types.generic.Value.asc)
+    `Value.asc()`
 
     Examples
     --------
@@ -1126,7 +1126,7 @@ def case() -> bl.SearchedCaseBuilder:
 
     See Also
     --------
-    [`Value.case()`](./expression-generic.qmd#ibis.expr.types.generic.Value.case)
+    `Value.case()`
 
     Examples
     --------
@@ -1191,8 +1191,8 @@ def cases(
 
     See Also
     --------
-    [`Value.cases()`](./expression-generic.qmd#ibis.expr.types.generic.Value.cases)
-    [`Value.substitute()`](./expression-generic.qmd#ibis.expr.types.generic.Value.substitute)
+    `Value.cases()`
+    `Value.substitute()`
 
     Examples
     --------
@@ -2130,7 +2130,7 @@ def ifelse(condition: Any, true_expr: Any, false_expr: Any) -> ir.Value:
 
     See Also
     --------
-    [`BooleanValue.ifelse()`](./expression-numeric.qmd#ibis.expr.types.logical.BooleanValue.ifelse)
+    `BooleanValue.ifelse()`
 
     Examples
     --------
