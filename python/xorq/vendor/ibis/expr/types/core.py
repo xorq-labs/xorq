@@ -1123,14 +1123,16 @@ class LETSQLAccessor:
         bool
             `True` if the expression references more than one backend.
 
-        Raises
-        ------
-        ValueError
-            If the expression references no backends (for example a purely
-            unbound expression). The internal unpacking fails with "not
-            enough values to unpack" rather than returning `False`.
+        Notes
+        -----
+        Expressions with no backend -- an in-memory `memtable` or a purely
+        unbound expression -- return `False`: zero backends is not more than
+        one.
         """
-        (_, *rest) = set(self.backends)
+        backends = set(self.backends)
+        if not backends:
+            return False
+        (_, *rest) = backends
         return bool(rest)
 
     @property

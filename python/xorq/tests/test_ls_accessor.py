@@ -77,6 +77,12 @@ def test_is_multiengine(duck_batting_raw, cached_two, cached_two_joined):
     assert cached_two_joined.ls.is_multiengine
 
 
+def test_is_multiengine_no_backend():
+    # zero-backend expressions (memtable / unbound) are not multi-engine
+    assert not xo.memtable({"a": [1, 2, 3]}).ls.is_multiengine
+    assert not xo.table(schema={"a": "int64"}).ls.is_multiengine
+
+
 @pytest.mark.postgres
 def test_dts(cached_two, cached_two_joined):
     dts = cached_two.ls.dts

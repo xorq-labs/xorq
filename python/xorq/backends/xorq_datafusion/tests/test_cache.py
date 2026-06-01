@@ -475,7 +475,7 @@ def test_cache_exists_doesnt_materialize(cached_two):
     assert cache.exists(cached_two)
 
 
-def test_ls_exists_doesnt_materialize(cached_two):
+def test_ls_cache_exists_doesnt_materialize(cached_two):
     cache = cached_two.ls.cache
     assert not cached_two.ls.cache_exists()
     assert not cached_two.ls.cache_exists()
