@@ -36,7 +36,7 @@ The configuration lives in `xo.options.pins`:
 |---|---|---|
 | `protocol` | `"gcs"` | Storage protocol |
 | `path` | `"letsql-pins"` | GCS bucket name |
-| `storage_options` | `{"token": "anon"}` | Anonymous access |
+| `storage_options` | `{"cache_timeout": 0, "token": "anon"}` | Anonymous access; always check remote freshness |
 
 ### `get_path(name, board=None, **kwargs)`
 

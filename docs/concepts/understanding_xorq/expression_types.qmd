@@ -68,10 +68,20 @@ A lazy pointer to a file (Parquet, CSV). The file isn't read until execution. Ba
 ```{python}
 import xorq.api as xo
 
-# Schema is required — the file isn't touched until execute()
+# A local Parquet file, fetched once via pins
+path = xo.options.pins.get_path("batting")
+
+# With an explicit schema the file isn't read until execute()
 expr = xo.deferred_read_parquet(
-    "s3://my-bucket/events.parquet",
-    schema={"event_id": "int64", "ts": "timestamp", "payload": "string"},
+    path,
+    schema={
+        "playerID": "string",
+        "yearID": "int64",
+        "teamID": "string",
+        "G": "int64",
+        "AB": "float64",
+        "H": "float64",
+    },
 )
 print(expr.ls.kind)  # ExprKind.Source
 ```
@@ -245,7 +255,7 @@ Every expression has an `.ls` accessor (the LETSQL accessor) that exposes intros
 | `.ls.metadata` | `ExprMetadata` | Full metadata (kind, schema_in, schema_out) |
 | `.ls.unwrapped` | `ops.Node` | Underlying op with any wrapper layers stripped |
 | `.ls.backends` | `tuple` | All backend connections used in the expression graph |
-| `.ls.is_multiengine` | `bool` | Whether the expression spans multiple backends |
+| `.ls.is_multiengine` | `bool` | Whether the expression spans multiple backends (`False` for memtable / unbound---no backend) |
 | `.ls.is_cached` | `bool` | Whether the root op is a CachedNode |
 | `.ls.has_cached` | `bool` | Whether any CachedNode exists in the graph |
 | `.ls.cached_nodes` | `tuple` | All CachedNode operations in the graph |
