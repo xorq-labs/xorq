@@ -1,34 +1,19 @@
 name: ci-docs-preview
 
 on:
-  pull_request_target:
-    types:
-      - labeled
+  workflow_dispatch:
 
 jobs:
   docs_preview:
     runs-on: ubuntu-latest
     concurrency:
-      group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}-${{ github.event.label.name }}
+      group: ${{ github.repository }}-${{ github.ref }}-${{ github.workflow }}
       cancel-in-progress: true
-    if: github.event.label.name == 'docs-preview'
     steps:
-      - uses: actions/create-github-app-token@v3.2.0
-        id: generate_token
-        with:
-          app-id: ${{ secrets.DOCS_BOT_APP_ID }}
-          private-key: ${{ secrets.DOCS_BOT_APP_PRIVATE_KEY }}
-
-      - name: reset label
-        run: gh issue edit ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --remove-label "docs-preview"
-        env:
-          GH_TOKEN: ${{ steps.generate_token.outputs.token }}
-
       - name: checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
 
       - uses: extractions/setup-just@v4
         env:
@@ -87,7 +72,7 @@ jobs:
       - name: generate url alias
         id: get_alias
         run: |
-          echo "id=pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          echo "id=sha-${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
       - name: build and push quarto docs to preview url
         # Pin the CLI inline via npx: unpinned floats to latest, which on the
@@ -102,11 +87,7 @@ jobs:
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
 
-      - name: create preview link comment
+      - name: preview url
         if: success()
-        uses: peter-evans/create-or-update-comment@v5
-        with:
-          token: ${{ steps.generate_token.outputs.token }}
-          issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            Docs preview: https://${{ steps.get_alias.outputs.id }}--letsql-docs.netlify.app
+        run: |
+          echo "Docs preview: https://${{ steps.get_alias.outputs.id }}--letsql-docs.netlify.app" >> "$GITHUB_STEP_SUMMARY"
