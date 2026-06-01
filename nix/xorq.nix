@@ -14,28 +14,18 @@ let
       inherit (pkgs.lib.path) append;
       compose = pkgs.lib.trivial.flip pkgs.lib.trivial.pipe;
       darwinPyprojectOverrides = final: prev: {
-        scipy = prev.scipy.overrideAttrs (compose [
-          (addResolved final [
-            "meson-python"
-            "ninja"
-            "cython"
-            "numpy"
-            "pybind11"
-            "pythran"
-          ])
-          (addNativeBuildInputs [
-            pkgs.gfortran
-            pkgs.cmake
-            pkgs.xsimd
-            pkgs.pkg-config
-            pkgs.openblas
-            pkgs.meson
-          ])
-        ]);
-        xgboost = prev.xgboost.overrideAttrs (compose [
-          (addNativeBuildInputs [ pkgs.cmake ])
-          (addResolved final [ "hatchling" ])
-        ]);
+        # scipy, pyarrow, etc. now resolve to prebuilt macosx wheels (see wheelStdenv),
+        # so their darwin source-build overrides are no longer needed.
+        # xgboost's prebuilt macosx wheel ships libxgboost.dylib linked against
+        # @rpath/libomp.dylib (Homebrew's OpenMP); add an rpath to nixpkgs' libomp so
+        # it resolves inside the nix store.
+        xgboost = prev.xgboost.overrideAttrs (old: {
+          buildInputs = (old.buildInputs or [ ]) ++ [ pkgs.llvmPackages.openmp ];
+          postInstall = (old.postInstall or "") + ''
+            install_name_tool -add_rpath ${pkgs.llvmPackages.openmp}/lib \
+              "$out/${python.sitePackages}/xgboost/lib/libxgboost.dylib"
+          '';
+        });
         scikit-learn = prev.scikit-learn.overrideAttrs (
           addResolved final [
             "meson-python"
@@ -50,59 +40,6 @@ let
           prev.setuptools-scm
           prev.pybind11
         ]);
-        pyarrow = let
-          arrow-testing = pkgs.fetchFromGitHub {
-            name = "arrow-testing";
-            owner = "apache";
-            repo = "arrow-testing";
-            rev = "d2a13712303498963395318a4eb42872e66aead7";
-            hash = "sha256-IkiCbuy0bWyClPZ4ZEdkEP7jFYLhM7RCuNLd6Lazd4o=";
-          };
-          parquet-testing = pkgs.fetchFromGitHub {
-            name = "parquet-testing";
-            owner = "apache";
-            repo = "parquet-testing";
-            rev = "18d17540097fca7c40be3d42c167e6bfad90763c";
-            hash= "sha256-gKEQc2RKpVp39RmuZbIeIXAwiAXDHGnLXF6VQuJtnRA=";
-          };
-          version = "21.0.0";
-          arrow-cpp = pkgs.arrow-cpp.overrideAttrs (old: {
-            inherit version;
-            src = pkgs.fetchFromGitHub {
-              owner = "apache";
-              repo = "arrow";
-              rev = "apache-arrow-${version}";
-              hash = "sha256-6RFa4GTNgjsHSX5LYp4t6p8ynmmr7Nuotj9C7mTmvlM=";
-            };
-            PARQUET_TEST_DATA = pkgs.lib.optionalString old.doInstallCheck "${parquet-testing}/data";
-            ARROW_TEST_DATA = pkgs.lib.optionalString old.doInstallCheck "${arrow-testing}/data";
-            # Disable mimalloc allocator to avoid missing header on Darwin (why?)
-            cmakeFlags = (old.cmakeFlags or []) ++ [ "-DARROW_MIMALLOC=OFF" ];
-          });
-        in (prev.pyarrow.overrideAttrs (compose [
-          (addBuildInputs [
-            pkgs.pkg-config
-            arrow-cpp
-          ])
-          (addNativeBuildInputs [
-            python
-            pkgs.cmake
-            pkgs.pkg-config
-            arrow-cpp
-            prev.pyprojectBuildHook
-            prev.pyprojectWheelHook
-          ])
-          (addResolved final [
-            "setuptools"
-            "cython"
-            "numpy"
-          ])
-        ])).overrideAttrs (_: {
-            preBuild = ''
-              cd ..
-            '';
-        })
-        ;
         google-crc32c = prev.google-crc32c.overrideAttrs (addNativeBuildInputs [ prev.setuptools ]);
         psycopg2-binary = prev.psycopg2-binary.overrideAttrs (addNativeBuildInputs [
           prev.setuptools
@@ -141,11 +78,6 @@ let
         (old: {
           nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ drvs;
         });
-      addBuildInputs =
-        drvs:
-        old: {
-          buildInputs = (old.buildInputs or []) ++ drvs;
-        };
       addResolved =
         final: names:
         (old: {
@@ -215,10 +147,37 @@ SITE
             };
         });
       };
+      # On darwin, nixpkgs reports a low SDK version (11.3), which makes uv2nix's
+      # wheel selector (pypa.selectWheels reads stdenv.targetPlatform.darwinSdkVersion)
+      # reject scipy/pyarrow/etc. prebuilt wheels tagged macosx_12+, forcing slow
+      # source builds. We bump darwinSdkVersion via a shallow `//` override of the
+      # already-elaborated targetPlatform so selectWheels accepts those wheels; it
+      # still picks the most-portable compatible wheel (e.g. macosx_12_0).
+      #
+      # This stdenv is the whole pythonSet-base scope, so source builds in it also see
+      # darwinSdkVersion=14.0. That is safe: the deployment target comes from
+      # darwinMinVersion (cc-wrapper -version-min), NOT darwinSdkVersion, and the
+      # `darwinMinVersion = darwinSdkVersion` link in lib/systems only fires during
+      # elaboration. A shallow `//` on the elaborated platform leaves darwinMinVersion
+      # at 11.3, so binaries keep an 11.3 floor; only the recorded sdk_version in the
+      # linker's -platform_version flag (macos 11.3 14.0) changes (cosmetic).
+      # WARNING: do NOT replace this with lib.systems.elaborate / overrideSDK — that
+      # would re-derive darwinMinVersion from the bumped SDK and raise the runtime floor.
+      # Only targetPlatform is read here (by selectWheels and the linker); host/build
+      # platforms are deliberately left untouched.
+      wheelStdenv =
+        if pkgs.stdenv.isDarwin then
+          pkgs.stdenv
+          // {
+            targetPlatform = pkgs.stdenv.targetPlatform // { darwinSdkVersion = "14.0"; };
+          }
+        else
+          pkgs.stdenv;
       pythonSet-base =
         # Use base package set from pyproject.nix builders
         (pkgs.callPackage pyproject-nix.build.packages {
           inherit python;
+          stdenv = wheelStdenv;
         }).overrideScope
           (
             pkgs.lib.composeManyExtensions (
