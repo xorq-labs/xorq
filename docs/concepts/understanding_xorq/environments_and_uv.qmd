@@ -1,8 +1,10 @@
 ---
 title: "Environments and uv"
+execute:
+  eval: true
 ---
 
-Xorq leans on [uv](https://docs.astral.sh/uv/) for everything Python-environment-shaped: installing the CLI, locking the project, and rebuilding a frozen runtime out of a build directory. Once you've used Xorq for half an hour you've already crossed three different Python environments without ever typing `pip` --- they look identical from the prompt but they answer the question "*which* Xorq is running your code?" three different ways.
+Xorq leans on [uv](https://docs.astral.sh/uv/) for everything Python-environment-shaped: installing the command-line tool, locking the project, and rebuilding a frozen runtime out of a build directory. Once you've used Xorq for half an hour you've already crossed three different Python environments without ever typing `pip` --- they look identical from the prompt but they answer the question "*which* Xorq is running your code?" three different ways.
 
 This page names them, says when each one is active, and explains why `xorq run` and `xorq uv run` aren't synonyms.
 
@@ -21,9 +23,9 @@ If you've seen `pipx`, `pip-tools`, `virtualenv`, and `pyenv`, uv is roughly all
 
 After `xorq init my-project && cd my-project` you have a single working directory, but three environments are involved when you build and run.
 
-### 1. The CLI environment --- where the `xorq` command lives
+### 1. The command-line tool environment --- where the `xorq` command lives
 
-When you ran `uv tool install xorq`, uv created an isolated venv outside your project and dropped the `xorq` executable onto your `PATH`. That venv is what runs every `xorq …` invocation. It's stable across projects: you can `cd` between five different Xorq projects and the same CLI runs in all of them.
+When you ran `uv tool install xorq`, uv created an isolated venv outside your project and dropped the `xorq` executable onto your `PATH`. That venv is what runs every `xorq …` invocation. It's stable across projects: you can `cd` between five different Xorq projects and the same command-line tool runs in all of them.
 
 It's also pinned. Whatever Xorq version you installed at `uv tool install` time is what handles your `xorq init`, `xorq build`, and `xorq run` calls until you `uv tool upgrade xorq`.
 
@@ -50,14 +52,14 @@ Both commands take a build directory and execute the expression inside it. The d
 
 | Command | Python env | Xorq version |
 |---|---|---|
-| `xorq run <build>` | CLI environment (env 1) | whatever you installed via `uv tool install` |
+| `xorq run <build>` | command-line tool environment (env 1) | whatever you installed via `uv tool install` |
 | `xorq uv run <build>` | freshly synthesized from the build's pinned `requirements.txt` (env 3) | the Xorq version pinned by the build's lockfile |
 
-`xorq run` is faster --- no env synthesis --- and fine for iterating against the build you just produced on the same machine with the same CLI. `xorq uv run` is what you reach for when reproducibility matters: handing a build to a teammate, running it from CI, running an older build with a newer CLI installed, or chasing a bug that smells environmental.
+`xorq run` is faster --- no env synthesis --- and fine for iterating against the build you just produced on the same machine with the same command-line tool. `xorq uv run` is what you reach for when reproducibility matters: handing a build to a teammate, running it from CI, running an older build with a newer command-line tool installed, or chasing a bug that smells environmental.
 
 ::: {.callout-tip}
 ### The reproducibility test
-If `xorq run <build>` and `xorq uv run <build>` produce different output for the same build, you've found a version skew between your CLI environment and the build's pinned environment. The build directory is the authoritative description of the runtime; the skew is in env 1.
+If `xorq run <build>` and `xorq uv run <build>` produce different output for the same build, you've found a version skew between your command-line tool environment and the build's pinned environment. The build directory is the authoritative description of the runtime; the skew is in env 1.
 :::
 
 This split is also how an old bug in a pinned Xorq can survive into a session where your *installed* Xorq has the fix. The OTel `None`-attribute warning tracked in [#1940](https://github.com/xorq-labs/xorq/issues/1940)/[#1944](https://github.com/xorq-labs/xorq/pull/1944) showed up under `xorq uv run` against builds whose `requirements.txt` pinned a pre-fix Xorq, even though `xorq run` from a newer install was clean --- because `xorq uv run` runs the version named in the build, not the version on your `PATH`.
@@ -98,7 +100,7 @@ uv add --dev pytest             # dev-only dep -> env 2; not exported to env 3
 
 `--dev` dependencies stay in env 2 only; `xorq uv build` passes `--no-dev` when exporting, so test-only packages don't get shipped with the build.
 
-The CLI environment (env 1) is separate and rarely needs new packages, but if you want a plugin loaded alongside the `xorq` CLI itself, attach it at install time:
+The command-line tool environment (env 1) is separate and rarely needs new packages, but if you want a plugin loaded alongside the `xorq` command-line tool itself, attach it at install time:
 
 ```bash
 uv tool install xorq --with <plugin>     # or: uv tool upgrade xorq --with <plugin>
@@ -126,4 +128,4 @@ The `xorq` command at every step is the env-1 binary. What changes is where the 
 - [`uv` documentation](https://docs.astral.sh/uv/) --- especially the tools and projects sections
 - [`xorq build` reference](/api_reference/cli/build.qmd) and [`xorq uv build` reference](/api_reference/cli/uv-build.qmd)
 - [`xorq run` reference](/api_reference/cli/run.qmd) and [`xorq uv run` reference](/api_reference/cli/uv-run.qmd)
-- [Getting started with `xorq init`](/tutorials/core_tutorials/get-started-with-xorq-init.qmd) --- the tutorial that walks through this end-to-end
+- [Getting started with `xorq init`](/tutorials/core_tutorials/your_first_build.qmd) --- the tutorial that walks through this end-to-end
