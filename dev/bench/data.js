@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780272366141,
+  "lastUpdate": 1780311115235,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -15702,6 +15702,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.008079950447669446",
             "extra": "mean: 34.56014525806308 msec\nrounds: 31"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8222b17dabcb7ed277f91bcb71cdc8d2f4beecae",
+          "message": "docs(lint): add documentation linter script (#2011)\n\n## What\n\nAdd docs linter (`docs/lint.sh`) + CI workflow. Wire Vale, lychee,\nQuarto render, pymarkdown into one gate. Fix every warning they surface.\nPrune orphan pages.\n\n## Why\n\nNo doc lint before. Broken links, style drift, dead pages shipped\nunchecked.\n\n## Changes\n\n**Tooling**\n- `docs/lint.sh` — local linter: Vale, lychee, Quarto, pymarkdown,\nfrontmatter-title + orphan checks\n- `.github/workflows/ci-docs-lint.yml` — CI gate; installs xorq so\nquartodoc imports\n- `.vale.ini` at repo root (vale-action discovery) + Google/Headings\nstyle\n- `justfile` + `pyproject.toml` + `uv.lock` — lint deps\n- `docs/LINTING.md` — how to run locally\n\n**Fixes**\n- Vale Google-style warnings across `.qmd` + vendor docstrings\n- `_quarto.yml` — drop redundant `*.qmd`/`*.md` globs (`**/*` covers\nroot); portable `mapfile` -> while-read in `lint.sh` (bash 3.2 / macOS)\n- vendor docstrings: `.qmd` links -> plain backticks\n- `ci-docs-preview.yml` — pass `--repo` to `gh issue edit`; reset-label\nstep runs before checkout (no `.git`), so gh can't infer the repo and\nfails with \"fatal: not a git repository\"\n\n**Review follow-ups**\n- `lint.sh` frontmatter check: batch all `.qmd` into one `python3` call\ninstead of one subprocess per file (O(n) spawns); parse error still\ncounts as missing title\n- `ci-docs-lint.yml` lychee-action: add `--exclude-path\ndocs/_site/reference` to match `lint.sh` — the quartodoc-generated\nreference tree carries unresolved interlinks by design and was\ntriggering spurious fragment-link failures in CI\n- Reviewer also flagged `setup-python@v6` as nonexistent — it is the\nrepo standard (13/14 workflows, bumped in #2001), left as-is\n\n**Pruned orphans**\n- `docs/concepts.qmd`,\n`docs/getting_started/cache_expression_results.qmd`,\n`docs/how_to/into_backend_caching.qmd` — unreferenced\n\n## Test\n\n`bash docs/lint.sh` clean. Root render verified: `**/*.qmd` matches\n`index.qmd` (Quarto 1.8.24). Batched frontmatter check verified against\n35 authored `.qmd` files.\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-06-01T12:48:12+02:00",
+          "tree_id": "62651e83eb340a364c21f9e1beee1e25ec3e65d9",
+          "url": "https://github.com/xorq-labs/xorq/commit/8222b17dabcb7ed277f91bcb71cdc8d2f4beecae"
+        },
+        "date": 1780311111562,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.045194085488077,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014018570211169356",
+            "extra": "mean: 124.2978092727185 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.5581195043319944,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0731504119190666",
+            "extra": "mean: 390.912151800012 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6187649336240553,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17183527414893637",
+            "extra": "mean: 1.616122610800005 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.6023662751307013,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06280310844265516",
+            "extra": "mean: 384.2656621999822 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.5352021578743598,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07187217377439477",
+            "extra": "mean: 394.44586180001124 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.6088464017543727,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0723464458514365",
+            "extra": "mean: 383.3111828000028 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 152.11190836588943,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008329498320458909",
+            "extra": "mean: 6.574107252632737 msec\nrounds: 285"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 7.268983931032432,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0053059190513642775",
+            "extra": "mean: 137.57080899998186 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 30.40652100334207,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008177660740837785",
+            "extra": "mean: 32.88768221428841 msec\nrounds: 28"
           }
         ]
       }
