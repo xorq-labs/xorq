@@ -29,4 +29,4 @@ xorq catalog remove-alias penguins-prod
 xorq catalog remove-alias penguins-prod current
 ```
 
-Unknown aliases produce an error and abort the operation before any change is committed.
+Unknown aliases produce an error and cancel the operation before any change is committed.

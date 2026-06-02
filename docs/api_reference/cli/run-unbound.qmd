@@ -3,7 +3,7 @@ title: 'run-unbound'
 ---
 
 Execute a built expression after replacing one of its nodes with input streamed
-in over Arrow IPC. This is the CLI counterpart to streaming data into a served
+in over Arrow IPC. This is the command-line counterpart to streaming data into a served
 unbound expression—useful for piping data between expressions without standing
 up a Flight server.
 

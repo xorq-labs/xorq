@@ -41,7 +41,7 @@ xorq catalog --name analytics init --env-file .env.catalog.s3
 
 ## Notes
 
-- `init` will refuse to overwrite an existing catalog at the target path.
+- `init` refuses to overwrite an existing catalog at the target path.
 - Most other catalog subcommands accept the same `-n/-p` selectors at the group
   level to point at a specific catalog.
 

@@ -14,7 +14,7 @@ xorq catalog replay <target_path> [OPTIONS]
 
 ## Arguments
 
-- **`target_path`**—Filesystem path where the target catalog will be initialized.
+- **`target_path`**—Filesystem path where the target catalog is initialized.
 
 ## Options
 
@@ -44,4 +44,4 @@ xorq catalog replay ./mirrored-catalog \
 
 ## See also
 
-- [`catalog log`](log.qmd)—view the operation history that will be replayed
+- [`catalog log`](log.qmd)—view the operation history to replay

@@ -35,8 +35,8 @@ xorq run-cached <build_path> [OPTIONS]
   modification time; the cache is invalidated when an input file's mtime changes.
 - **`snapshot`**: `ParquetSnapshotCache`. The cache is keyed by a content
   snapshot of the inputs and never invalidates implicitly.
-- **`snapshot` + `--ttl`**: `ParquetTTLSnapshotCache`. As above, but the cache
-  entry expires after the supplied TTL (in seconds).
+- **`snapshot` + `--ttl`**: `ParquetTTLSnapshotCache`. Like the preceding
+  strategy, but the cache entry expires after the supplied TTL (in seconds).
 
 ## Examples
 
