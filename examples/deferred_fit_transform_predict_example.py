@@ -111,11 +111,11 @@ if __name__ == "__pytest_main__":
     fitted_transform, fitted_predict = fitted_pipeline.fitted_steps
     print(
         fitted_transform.deferred_model.ls.get_key(),
-        fitted_transform.deferred_model.ls.exists(),
+        fitted_transform.deferred_model.ls.cache_exists(),
     )
     print(
         fitted_predict.deferred_model.ls.get_key(),
-        fitted_predict.deferred_model.ls.exists(),
+        fitted_predict.deferred_model.ls.cache_exists(),
     )
 
     # EXECUTION
