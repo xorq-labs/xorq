@@ -64,10 +64,12 @@ con = xo.connect()
 batting = xo.deferred_read_csv(con=con, path="Batting.csv", table_name="Batting")
 people  = xo.deferred_read_csv(con=con, path="People.csv",  table_name="People")
 
-# attach player bio columns to each player-season row
+# attach player bio columns to each player-season row;
+# inner (the default) drops batting rows with no matching player in People
 batting = batting.join(
     people["playerID", "nameFirst", "nameLast", "bats", "throws", "birthYear"],
     "playerID",
+    how="inner",
 )
 
 # HBP and SF are null in older seasons, coalesce so arithmetic doesn't null-poison
@@ -76,17 +78,18 @@ batting = batting.mutate(
     SF=batting.SF.fill_null(0),
 )
 
-# on-base percentage: (H + BB + HBP) / (AB + BB + HBP + SF)
-batting = batting.mutate(
-    OBP=(batting.H + batting.BB + batting.HBP)
-        / (batting.AB.cast("float64") + batting.BB + batting.HBP + batting.SF)
-)
-
 # modern era, AL/NL only, real hitters (>=100 AB so batting avg is meaningful)
 batting = batting.filter(
     batting.lgID.isin(["AL", "NL"]),
     batting.yearID > 1965,
     batting.AB >= 100,
+)
+
+# on-base percentage: (H + BB + HBP) / (AB + BB + HBP + SF) --- computed after
+# the AB >= 100 filter so the denominator is never zero
+batting = batting.mutate(
+    OBP=(batting.H + batting.BB + batting.HBP)
+        / (batting.AB.cast("float64") + batting.BB + batting.HBP + batting.SF)
 )
 
 # batting average per player-season
