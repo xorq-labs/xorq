@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780407175593,
+  "lastUpdate": 1780407940174,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -16137,6 +16137,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.005855044554482662",
             "extra": "mean: 28.466678499999805 msec\nrounds: 34"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8f9de3ce91d47e118080b34c311e6e645df6709d",
+          "message": "ci(codecov): fix fragmented coverage reporting and scope flags to paths (#1968)\n\n**Coverage flags and CI reporting**\n\nEach CI workflow uploads under a named Codecov flag (`core`, `library`,\n`examples`, `slow`, `databricks`, `snowflake`, `gcs`, `s3`). Flags make\nCodecov treat each upload as a separate named group rather than merging\neverything into one anonymous blob, so PR comments and the dashboard\nshow per-backend coverage deltas instead of a single repo-wide number.\n\nWithout explicit flag definitions, every flag is scored against the full\nrepo tree. This makes `examples` look artificially low (it never\nexercises `python/xorq/` internals) and hides which backend actually\ncaused a coverage drop on a given PR.\n\n**Changes**\n\n- `ci-test.yml`: add `flags: core` and `fail_ci_if_error: false` to the\nCodecov upload step (both were missing)\n- `codecov.yml`: add per-flag `paths` filters so each flag's coverage\npercentage is scoped to the relevant source tree; add `carryforward:\ntrue` so skipped workflows (e.g. snowflake not running on a PR) carry\nthe last known value instead of dropping to 0%; add coverage status\nthresholds and PR comment config\n- `catalog-*` flags use dynamic names and are covered by `default_rules`\n\n**`[tool.coverage.run]` — data collection**\n\n| Setting | Effect |\n| --------------------------------------------- |\n-----------------------------------------------------------------------------------------------------------------\n|\n| `source = [\"python/xorq\"]` | Measure only this package; ignore\nthird-party and stdlib |\n| `omit` | Exclude test files and vendored code from stats |\n| `parallel = true` | Each process writes its own `.coverage.N` file;\nrequired with xdist and multiprocessing |\n| `concurrency = [\"multiprocessing\", \"thread\"]` | Tells the tracer which\nconcurrency primitives are in use so it follows execution across\nprocess/thread boundaries |\n| `sigterm = true` | Flush data on SIGTERM; prevents loss when xdist\nkills workers mid-run |\n\n**`[tool.coverage.report]` — display**\n\n- `show_missing = true`: print line numbers of uncovered lines\n- `skip_covered = false`: show 100%-covered files too, not just files\nwith gaps\n\n**Why `parallel` and `concurrency` must be set together**\n\n`parallel = true` splits writes correctly across processes.\n`concurrency` is what makes the tracer actually follow execution into\nthreads and subprocesses. Without it, anything running in a worker is\nsilently missed, producing falsely low numbers.\n\n**Coverage reach graph**\n\nThe reach graph shows what percentage of the codebase is reachable by\nany test at all — distinct from line coverage, which measures how many\nreachable lines were actually executed. A repo with high line coverage\nbut low reach has large swaths of code that no test suite even loads.\nCodecov plots reach over time so you can see whether new code is being\nexercised at all, not just whether existing tests still pass.\n\nhttps://docs.codecov.com/v4.6/docs/graphs#section-coverage-reach\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-06-02T09:41:48-04:00",
+          "tree_id": "4f70a339f1f714aed33523ee004ecf38f20c27e4",
+          "url": "https://github.com/xorq-labs/xorq/commit/8f9de3ce91d47e118080b34c311e6e645df6709d"
+        },
+        "date": 1780407937002,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.599184750198429,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006616129930431463",
+            "extra": "mean: 104.17551344444418 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.3121628186545413,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06552045010973138",
+            "extra": "mean: 432.4954938000019 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6218038548134021,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14127540948265277",
+            "extra": "mean: 1.6082241888000055 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.9676565575746605,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00671130315929094",
+            "extra": "mean: 336.96621580000397 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.9972674859467006,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008691426533893643",
+            "extra": "mean: 333.6372228000016 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.8321988660562556,
+            "unit": "iter/sec",
+            "range": "stddev: 0.037693342089543266",
+            "extra": "mean: 353.0825507999964 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 209.19481445575363,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00543718820754143",
+            "extra": "mean: 4.780233212766887 msec\nrounds: 282"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.887010211227439,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08216831389876172",
+            "extra": "mean: 169.86551137500072 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 32.69762124439649,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006265393008623495",
+            "extra": "mean: 30.58326452941508 msec\nrounds: 34"
           }
         ]
       }
