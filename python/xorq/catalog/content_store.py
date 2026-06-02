@@ -1,9 +1,9 @@
 import abc
-import functools
 import hashlib
 import os
 import re
 import shutil
+from functools import cached_property
 from pathlib import Path
 
 import yaml12
@@ -15,9 +15,7 @@ from xorq.common.utils.env_utils import EnvConfigable, env_templates_dir
 
 POINTER_VERSION = "xorq-pointer v1"
 
-# catalog_id and sha256 are interpolated into filesystem keys (cache and store
-# paths) and may originate from an untrusted cloned repo, so they are validated
-# to prevent path traversal (e.g. a catalog_id of "../..").
+# validated to prevent path traversal from untrusted cloned repos
 _SAFE_CATALOG_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -136,7 +134,7 @@ class S3ContentStore(ContentStore):
             return f"{self.prefix.rstrip('/')}/{key}"
         return key
 
-    @functools.cached_property
+    @cached_property
     def _client(self):
         import boto3  # noqa: PLC0415
 
@@ -203,14 +201,14 @@ class ContentCache:
         dest = self._path(key)
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(local_path, dest)
-        os.utime(dest)  # copy2 preserves source atime; mark as freshly used for LRU
+        os.utime(dest)
         self._maybe_evict(protect=key)
 
     def fetch_from(self, store, key):
         dest = self._path(key)
         dest.parent.mkdir(parents=True, exist_ok=True)
         store.get(key, dest)
-        os.utime(dest)  # store.get may preserve source atime; mark as freshly used
+        os.utime(dest)
         self._maybe_evict(protect=key)
         return dest
 

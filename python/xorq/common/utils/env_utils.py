@@ -185,7 +185,3 @@ def maybe_substitute_env_vars(dct: dict, ctx=os.environ) -> dict:
         maybe_substitute_env_var(ctx=ctx),
         dct,
     )
-
-
-def getenv(key: str, default: str | None = None) -> str | None:
-    return os.environ.get(key, default)

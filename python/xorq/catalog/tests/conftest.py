@@ -178,15 +178,19 @@ def _make_catalog_from_repo(repo, backend_type, store_dir=None):
     return Catalog(backend=backend)
 
 
+def _directory_store_config(directory, catalog_id=""):
+    return ContentStoreConfig(
+        type="directory",
+        catalog_id=catalog_id,
+        config={"directory": str(directory)},
+    )
+
+
 def _init_catalog_repo(repo_path, backend_type, store_dir=None):
     if backend_type == "pointer":
         store_dir = store_dir or Path(repo_path).parent / "content-store"
         store_dir.mkdir(parents=True, exist_ok=True)
-        config = ContentStoreConfig(
-            type="directory",
-            catalog_id="",
-            config={"directory": str(store_dir)},
-        )
+        config = _directory_store_config(store_dir)
         return Catalog.init_repo_path(repo_path, content_store=config)
     annex = LOCAL_ANNEX if backend_type == "annex" else None
     return Catalog.init_repo_path(repo_path, annex=annex)

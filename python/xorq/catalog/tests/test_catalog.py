@@ -57,6 +57,7 @@ from xorq.catalog.expr_utils import (
 )
 from xorq.catalog.tests.conftest import (
     TEST_WHEEL_NAME,
+    _directory_store_config,
     compare_repo_and_catalog,
 )
 from xorq.catalog.tui import get_cache_key_path
@@ -765,14 +766,6 @@ def test_fetch_content_no_partial_file_on_copy_failure(tmpdir, monkeypatch):
     assert target.read_bytes() == b"real content"
 
 
-def _directory_store_config(directory, catalog_id=""):
-    return ContentStoreConfig(
-        type="directory",
-        catalog_id=catalog_id,
-        config={"directory": str(directory)},
-    )
-
-
 def test_from_repo_path_conflicting_content_store_raises(tmpdir):
     """Opening an existing pointer repo with a conflicting content_store raises."""
     repo_path = Path(tmpdir).joinpath("pointer-repo")
@@ -804,7 +797,9 @@ def test_from_repo_path_matching_content_store_ok(tmpdir):
 def test_from_repo_path_content_store_without_yaml_raises(tmpdir):
     """init=False with a content_store but no committed yaml fails loudly."""
     repo_path = Path(tmpdir).joinpath("plain-repo")
-    Catalog.from_repo_path(repo_path, init=True)  # plain-git repo, no content_store.yaml
+    Catalog.from_repo_path(
+        repo_path, init=True
+    )  # plain-git repo, no content_store.yaml
 
     with pytest.raises(ValueError, match="is absent"):
         Catalog.from_repo_path(

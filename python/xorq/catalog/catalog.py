@@ -781,8 +781,8 @@ class Catalog:
         # not catalog entries; exclude them only for the pointer backend so the
         # check stays strict for git/annex catalogs.
         if isinstance(self.backend, GitPointerBackend):
-            gitignore_relpath = str(Path(".gitignore"))
-            content_store_relpath = str(Path(CONTENT_STORE_YAML))
+            gitignore_relpath = ".gitignore"
+            content_store_relpath = CONTENT_STORE_YAML
             actual = sorted(
                 el
                 for el in actual
@@ -821,32 +821,9 @@ class Catalog:
         git_config=None,
         **remote_kwargs,
     ):
-        """Clone a catalog repo and optionally init git-annex.
+        """Clone a catalog repo and detect the backend automatically.
 
-        *annex* controls the backend:
-
-        - ``None`` (default) — auto-detect.  If the cloned repo has a
-          ``git-annex`` branch, git-annex is initialised and the remote
-          is enabled when credentials are available (embedded, env vars,
-          or *remote_kwargs*).  Otherwise falls back to plain git.
-        - ``False`` — force plain git, even if the repo has a
-          ``git-annex`` branch.
-        - Any ``AnnexConfig`` instance — git-annex is initialised and
-          the remote is enabled if remote.log has a special remote configured.
-
-        If the repo contains ``content_store.yaml`` it is always opened as a
-        pointer catalog (``GitPointerBackend``); pointer detection takes
-        precedence over *annex*, so ``annex=False`` does not force plain git
-        on a pointer catalog.
-
-        Content is **not** fetched eagerly; it is retrieved on demand
-        when ``entry.expr`` is accessed (via ``fetch_content``).
-        For S3 remotes without embedded credentials, the caller
-        can supply credentials via *remote_kwargs* or environment
-        variables (``XORQ_CATALOG_S3_*``).
-
-        Use *git_config* to set repo-local git config before annex init
-        (e.g. ``{"annex.security.allowed-ip-addresses": "all"}``).
+        Pointer detection (``content_store.yaml``) takes precedence over *annex*.
         """
         if repo_path is None:
             name = Path(urlparse(url).path).stem
@@ -927,14 +904,7 @@ class Catalog:
         content_store=None,
         **remote_kwargs,
     ):
-        """Open (or initialise, with ``init=True``) a catalog at *repo_path*.
-
-        A repo containing ``content_store.yaml`` — or any non-``None``
-        *content_store* — is opened as a pointer catalog
-        (``GitPointerBackend``). Pointer detection takes precedence over
-        *annex*, so ``annex=False`` does not force plain git on a pointer
-        catalog.
-        """
+        """Open or initialise a catalog; pointer detection takes precedence over *annex*."""
         remote_config = annex if isinstance(annex, RemoteConfig) else None
         init = not Path(repo_path).exists() if init is None else init
         if init:
