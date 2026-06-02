@@ -1,4 +1,5 @@
 import shutil
+import uuid
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,12 @@ from xorq.catalog.catalog import (
     Catalog,
     CatalogAlias,
 )
-from xorq.catalog.constants import MAIN_BRANCH, POINTER_SUFFIX, CatalogInfix
+from xorq.catalog.constants import (
+    CONTENT_STORE_YAML,
+    MAIN_BRANCH,
+    POINTER_SUFFIX,
+    CatalogInfix,
+)
 from xorq.catalog.content_store import (
     ContentCache,
     ContentStoreConfig,
@@ -144,11 +150,7 @@ def backend_type(request):
 
 
 def _make_pointer_backend(repo, store_dir):
-    import uuid  # noqa: PLC0415
-
     repo_path = Path(repo.working_dir)
-    from xorq.catalog.constants import CONTENT_STORE_YAML  # noqa: PLC0415
-
     config_path = repo_path / CONTENT_STORE_YAML
     if config_path.exists():
         config = ContentStoreConfig.from_yaml(config_path)

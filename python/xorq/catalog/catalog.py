@@ -3,6 +3,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+import uuid
 from configparser import NoOptionError, NoSectionError
 from contextlib import (
     contextmanager,
@@ -1166,8 +1167,6 @@ class Catalog:
         )
         repo = Repo.init(repo_path, mkdir=True, bare=bare, initial_branch=MAIN_BRANCH)
         if content_store is not None:
-            import uuid  # noqa: PLC0415
-
             config = content_store
             if isinstance(content_store, ContentStore):
                 raise TypeError(

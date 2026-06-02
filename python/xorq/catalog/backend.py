@@ -20,6 +20,7 @@ from xorq.catalog.content_store import (
     parse_pointer,
     write_pointer,
 )
+from xorq.common.exceptions import XorqError
 
 
 class CatalogBackend(abc.ABC):
@@ -137,7 +138,7 @@ class GitAnnexBackend(CatalogBackend):
         self.annex.get(*relpaths)
 
 
-class ContentIntegrityError(Exception):
+class ContentIntegrityError(XorqError):
     pass
 
 

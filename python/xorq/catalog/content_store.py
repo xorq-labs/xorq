@@ -10,6 +10,8 @@ import yaml12
 from attr import field, frozen
 from attr.validators import instance_of, optional
 
+from xorq.common.utils.env_utils import getenv
+
 
 POINTER_VERSION = "xorq-pointer v1"
 
@@ -179,7 +181,7 @@ class ContentCache:
     @classmethod
     def default(cls):
         max_bytes = int(
-            os.environ.get("XORQ_CONTENT_CACHE_MAX_BYTES", DEFAULT_CACHE_MAX_BYTES)
+            getenv("XORQ_CONTENT_CACHE_MAX_BYTES", str(DEFAULT_CACHE_MAX_BYTES))
         )
         return cls(cache_dir=DEFAULT_CACHE_DIR, max_bytes=max_bytes)
 
@@ -287,7 +289,7 @@ class ContentStoreConfig:
         kwargs = dict(self.config)
         if self.type == "s3":
             for f in _S3_ENV_FIELDS:
-                env_val = os.environ.get(f"{_ENV_PREFIX}{f.upper()}")
+                env_val = getenv(f"{_ENV_PREFIX}{f.upper()}")
                 if env_val and f not in kwargs:
                     kwargs[f] = env_val
         return store_cls(**kwargs)
