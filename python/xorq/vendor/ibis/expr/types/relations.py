@@ -5,7 +5,7 @@ import operator
 import re
 import warnings
 from collections import deque
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Hashable, Iterable, Iterator, Mapping, Sequence
 from keyword import iskeyword
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -3433,12 +3433,90 @@ class Table(Expr, _FixedTextJupyterMixin):
         )
         return op.to_expr()
 
-    def tag(self, tag, **kwargs):
+    def tag(self, tag: Hashable, **kwargs: Hashable) -> Table:
+        """Wrap this table in a `Tag` node carrying arbitrary metadata.
+
+        Attaches a name (plus keyword values) without changing the rows
+        produced. The node is stripped before the content hash is computed, so
+        a tagged expression hashes and caches identically to its untagged form.
+        Use [`hashing_tag`](#hashing_tag) when the metadata should change the
+        hash.
+
+        Parameters
+        ----------
+        tag
+            The tag name, stored under the `"tag"` metadata key. Must be
+            hashable (see Raises).
+        kwargs
+            Additional metadata. Every value must be hashable (see Raises).
+
+        Returns
+        -------
+        Table
+            A new table wrapped in a `Tag`; schema unchanged.
+
+        Raises
+        ------
+        TypeError
+            If `tag` or any `kwargs` value is unhashable. The metadata is
+            folded into the immutable node at construction, so the failure
+            surfaces here, not at execution. (Implicit — from `_make_tag`.)
+
+        See Also
+        --------
+        Table.hashing_tag : Attach metadata that *does* contribute to the hash.
+
+        Examples
+        --------
+        >>> import xorq.api as xo
+        >>> t = xo.memtable({"a": [1, 2, 3]})
+        >>> t.ls.tokenized == t.tag("x").ls.tokenized
+        True
+        """
         from xorq.expr.relations import Tag
 
         return self._make_tag(Tag, tag, **kwargs)
 
-    def hashing_tag(self, tag, **kwargs):
+    def hashing_tag(self, tag: Hashable, **kwargs: Hashable) -> Table:
+        """Wrap this table in a `HashingTag` node carrying arbitrary metadata.
+
+        Like [`tag`](#tag), this attaches a name (plus keyword values) without
+        changing the rows produced. Unlike `tag`, the node is preserved when the
+        content hash is computed, so expressions differing only by hashing-tag
+        metadata hash — and cache — distinctly. Use `tag` when the metadata is
+        not part of the expression's identity.
+
+        Parameters
+        ----------
+        tag
+            The tag name, stored under the `"tag"` metadata key. Must be
+            hashable (see Raises).
+        kwargs
+            Additional metadata. Every value must be hashable (see Raises).
+
+        Returns
+        -------
+        Table
+            A new table wrapped in a `HashingTag`; schema unchanged.
+
+        Raises
+        ------
+        TypeError
+            If `tag` or any `kwargs` value is unhashable. The metadata is
+            folded into the immutable node at construction, so the failure
+            surfaces here, not at execution. (Implicit — from `_make_tag`.)
+
+        See Also
+        --------
+        Table.tag : Attach metadata that does *not* contribute to the hash.
+
+        Examples
+        --------
+        >>> import xorq.api as xo
+        >>> t = xo.memtable({"a": [1, 2, 3]})
+        >>> t.ls.tokenized == t.hashing_tag("x").ls.tokenized
+        False
+        """
         from xorq.expr.relations import HashingTag
 
         return self._make_tag(HashingTag, tag, **kwargs)
