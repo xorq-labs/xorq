@@ -139,11 +139,13 @@ class GitAnnexBackend(CatalogBackend):
 
 
 class ContentIntegrityError(XorqError):
-    pass
+    """Raised when fetched content does not match the expected checksum."""
 
 
 @frozen
 class GitPointerBackend(CatalogBackend):
+    """Pointer-file backend — archives are stored in an external content store."""
+
     repo = field(validator=instance_of(Repo))
     content_store = field(validator=instance_of(ContentStore))
     cache = field(validator=instance_of(ContentCache))

@@ -65,6 +65,8 @@ def parse_pointer(path):
 
 
 class ContentStore(abc.ABC):
+    """ABC for external content storage backends."""
+
     @abc.abstractmethod
     def put(self, key, local_path): ...
 
@@ -80,6 +82,8 @@ class ContentStore(abc.ABC):
 
 @frozen
 class DirectoryContentStore(ContentStore):
+    """Content store backed by a local directory."""
+
     directory = field(validator=instance_of((str, Path)))
 
     @property
@@ -112,6 +116,8 @@ class DirectoryContentStore(ContentStore):
 
 @frozen
 class S3ContentStore(ContentStore):
+    """Content store backed by an S3-compatible bucket."""
+
     bucket = field(validator=instance_of(str))
     prefix = field(validator=instance_of(str), default="")
     region = field(validator=optional(instance_of(str)), default=None)
@@ -175,6 +181,8 @@ class S3ContentStore(ContentStore):
 
 @frozen
 class ContentCache:
+    """LRU disk cache for content store objects."""
+
     cache_dir = field(validator=instance_of(Path))
     max_bytes = field(validator=instance_of(int))
 
@@ -258,6 +266,8 @@ def _no_reserved_config_keys(instance, attribute, value):
 
 @frozen
 class ContentStoreConfig:
+    """Serializable configuration for constructing a ``ContentStore``."""
+
     type = field(validator=instance_of(str))
     catalog_id = field(validator=instance_of(str))
     config = field(
