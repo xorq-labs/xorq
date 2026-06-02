@@ -154,4 +154,5 @@ xorq uv run "$BUILD" --format csv -o /dev/stdout 2>/dev/null | head -6
 
 - [Why deferred execution?](/concepts/understanding_xorq/why_deferred_execution.qmd)
 - [Working with the catalog](/tutorials/core_tutorials/working_with_the_catalog.qmd)
-- [`xorq build` reference](/api_reference/cli/build.qmd)
+- [`xorq uv build` reference](/api_reference/cli/uv-build.qmd)
+- [`xorq uv run` reference](/api_reference/cli/uv-run.qmd)
