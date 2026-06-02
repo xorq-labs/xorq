@@ -4,17 +4,26 @@ execute:
   eval: true
 ---
 
-Every operation in Xorq produces an expression --- a lazy, immutable description of a computation. Before anything executes, Xorq classifies each expression into one of three kinds --- **Source**, **Expr**, or **UnboundExpr**. This classification drives how expressions are hashed, cached, serialized, and executed across backends.
+Every operation in Xorq produces an expression --- a lazy, immutable description of a computation. Before anything executes, Xorq classifies each expression into an `ExprKind`. This classification drives how expressions are hashed, cached, serialized, and executed across backends.
 
-## The three expression kinds
+## The expression kinds
 
-Xorq defines an `ExprKind` enum with three values:
+Three of the kinds are **structural** --- they fall out of the shape of the expression graph itself:
 
 | Kind | Meaning | Has input schema? |
 |------|---------|-------------------|
 | **Source** | A leaf node --- raw data with no transformations | No |
 | **Expr** | Bound data with transformations applied | No |
 | **UnboundExpr** | A template expression not tied to any backend | Yes |
+
+Two more are **tag-driven** --- they are recognized by domain-specific tags
+that higher-level tools (the ML pipeline API, the catalog, semantic layers)
+attach to the outermost node:
+
+| Kind | Meaning | Produced by |
+|------|---------|-------------|
+| **ExprBuilder** | Carries builder metadata that can recover a domain object (e.g. a fitted ML pipeline) | `xo.Pipeline` fit/predict, semantic-layer queries |
+| **Composed** | Carries a catalog tag, marking a reference to another catalog entry | `catalog add` / composition |
 
 You can inspect the kind of any expression using the `.ls` accessor:
 
@@ -245,6 +254,106 @@ print(metadata.schema_in)  # Schema with column "a" (int64)
 print(metadata.schema_out) # Schema with column "a" (int64)
 ```
 
+## Tags: the mechanism behind tag-driven kinds
+
+Both tag-driven kinds come from the same primitive --- a **tag** node wrapped
+around an expression. A tag is metadata (a name plus arbitrary keyword values)
+that rides on top of the expression without changing the rows it produces.
+
+Any table exposes two methods to attach one:
+
+| Method | Node | Affects content hash? |
+|--------|------|-----------------------|
+| `.tag(name, **kwargs)` | `Tag` | No --- stripped before hashing |
+| `.hashing_tag(name, **kwargs)` | `HashingTag` | Yes --- preserved during hashing |
+
+```{python}
+import xorq.api as xo
+
+t = xo.memtable({"a": [1, 2, 3]})
+
+tagged = t.tag("my_marker", note="anything")
+print(tagged.ls.metadata.root_tag)  # "my_marker"
+```
+
+The difference is what happens at hash time. A plain `Tag` is invisible to the
+content hash --- two expressions that differ only by a `Tag` cache to the same
+key. A `HashingTag` is folded into the hash, so different tag metadata produces
+distinct hashes (and distinct cache entries):
+
+```{python}
+import xorq.api as xo
+
+t = xo.memtable({"a": [1, 2, 3]})
+
+# Plain Tag: hash unchanged
+print(t.ls.tokenized == t.tag("x").ls.tokenized)          # True
+
+# HashingTag: hash changes with the metadata
+print(t.ls.tokenized == t.hashing_tag("x").ls.tokenized)  # False
+```
+
+When Xorq classifies an expression, it walks the outermost chain of `Tag` /
+`HashingTag` nodes and looks the tag name up in two registries: catalog tags
+yield **Composed**, builder tags (registered by the ML pipeline API, semantic
+layers, or third-party plugins) yield **ExprBuilder**. An unrecognized tag is
+transparent --- the expression falls through to its structural kind.
+
+## `ExprBuilder` --- expressions that carry a domain object
+
+An **ExprBuilder** is an expression whose outermost node carries a builder tag
+--- domain-specific metadata that lets Xorq recover the higher-level object the
+expression came from. The expression still executes like any other; the tag is
+extra information riding alongside it.
+
+The most common source is the ML pipeline API. Fitting a pipeline and calling
+`.predict()` produces an expression tagged with the fitted pipeline's steps,
+features, and target:
+
+```{python}
+import xorq.api as xo
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LinearRegression
+
+train = xo.memtable(
+    {
+        "feature_0": [1.0, 2.0, 3.0, 4.0],
+        "feature_1": [4.0, 5.0, 6.0, 7.0],
+        "target": [0.0, 1.0, 0.0, 1.0],
+    },
+    name="train",
+)
+
+sk_pipe = make_pipeline(StandardScaler(), LinearRegression())
+fitted = xo.Pipeline.from_instance(sk_pipe).fit(
+    train, features=("feature_0", "feature_1"), target="target"
+)
+predict = fitted.predict(train)
+
+print(predict.ls.kind)  # ExprKind.ExprBuilder
+```
+
+The recovered metadata lives on `.ls.metadata.builders`:
+
+```{python}
+for builder in predict.ls.metadata.builders:
+    print(builder["type"], builder["steps"], "->", builder["target"])
+```
+
+This is what lets the catalog persist a fitted pipeline as an artifact and
+rebuild it later: the tag describes how to reconstruct the domain object, not
+just the rows it produces. Semantic-layer queries (boring-semantic-layer)
+produce `ExprBuilder` expressions the same way.
+
+## `Composed` --- references to catalog entries
+
+A **Composed** expression carries a *catalog tag*. When you add an expression to
+a catalog and then reference it from another expression, the reference is tagged
+so the catalog can resolve it back to the stored entry instead of inlining the
+whole subgraph. Composition is a catalog-level concern --- see the catalog
+documentation for the full workflow.
+
 ## Inspecting expressions with `.ls`
 
 Every expression has an `.ls` accessor (the LETSQL accessor) that exposes introspection properties:
@@ -297,3 +406,8 @@ The expression kind isn't just a label --- it drives behavior across Xorq:
 | **Caching** | Can be the *result* of a cache | Can be cached (wrapping in CachedNode) | Can't be cached (no data to materialize) |
 | **Execution** | Read data from backend | Execute operation graph | Must bind to data first |
 | **Build system** | Leaf node in the build graph | Intermediate node | Template --- not directly buildable |
+
+The tag-driven kinds (**ExprBuilder**, **Composed**) execute, hash, and
+serialize like the structural expression underneath them; the tag adds the
+metadata the ML pipeline API and catalog use to recover or resolve the
+higher-level object.

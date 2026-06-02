@@ -52,6 +52,14 @@ path = xo.options.pins.get_path("diamonds")
 path = xo.options.pins.get_path("hackernews_lib", version="20250820T111457Z-1d66a")
 ```
 
+Once you have a local path, hand it to any backend reader and execute:
+
+```{python}
+con = xo.connect()
+t = con.read_parquet(xo.options.pins.get_path("batting"))
+t.execute()
+```
+
 ### `get_board()`
 
 Returns the underlying `pins.board` object for advanced operations like listing available pins or reading metadata.
@@ -76,7 +84,7 @@ board.pin_meta("iris")  # get metadata for a pin
 | `"hn_tfidf_fitted_model"` | Binary | Pre-trained TF-IDF model |
 | `"hn_sentiment_reg"` | Binary | Pre-trained XGBoost sentiment model |
 | `"hackernews_lib"` | Python module | HackerNews pipeline code (versioned) |
-| `"diamonds-model"` | Binary | Pre-trained gradient-boosted model for the diamonds dataset |
+| `"diamonds-model"` | JSON | XGBoost model for predicting diamond price |
 
 ## Common patterns
 
@@ -123,6 +131,9 @@ m = import_python(
     xo.options.pins.get_path("hackernews_lib", version="20250820T111457Z-1d66a")
 )
 # m is now a module with functions defined in the pinned file
+
+# Everything the pinned module brought into the namespace:
+print([name for name in dir(m) if not name.startswith("_")])
 ```
 
 ### Using a custom board
