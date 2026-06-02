@@ -178,13 +178,6 @@ class ContentCache:
     cache_dir = field(validator=instance_of(Path))
     max_bytes = field(validator=instance_of(int))
 
-    @classmethod
-    def default(cls):
-        max_bytes = int(
-            getenv("XORQ_CONTENT_CACHE_MAX_BYTES", str(DEFAULT_CACHE_MAX_BYTES))
-        )
-        return cls(cache_dir=DEFAULT_CACHE_DIR, max_bytes=max_bytes)
-
     def _path(self, key):
         return self.cache_dir / key
 
@@ -235,6 +228,13 @@ class ContentCache:
             path.unlink(missing_ok=True)
             total -= size
 
+    @classmethod
+    def default(cls):
+        max_bytes = int(
+            getenv("XORQ_CONTENT_CACHE_MAX_BYTES", str(DEFAULT_CACHE_MAX_BYTES))
+        )
+        return cls(cache_dir=DEFAULT_CACHE_DIR, max_bytes=max_bytes)
+
 
 _CONTENT_STORE_CLASSES = {
     "directory": DirectoryContentStore,
@@ -269,18 +269,6 @@ class ContentStoreConfig:
     def to_dict(self):
         return {"type": self.type, "catalog_id": self.catalog_id, **self.config}
 
-    @classmethod
-    def from_dict(cls, dct):
-        dct = dict(dct)
-        type_ = dct.pop("type")
-        catalog_id = dct.pop("catalog_id")
-        return cls(type=type_, catalog_id=catalog_id, config=dct)
-
-    @classmethod
-    def from_yaml(cls, path):
-        data = yaml12.read_yaml(path)
-        return cls.from_dict(data)
-
     def write_yaml(self, path):
         Path(path).write_text(yaml12.format_yaml(self.to_dict()))
 
@@ -293,3 +281,15 @@ class ContentStoreConfig:
                 if env_val and f not in kwargs:
                     kwargs[f] = env_val
         return store_cls(**kwargs)
+
+    @classmethod
+    def from_dict(cls, dct):
+        dct = dict(dct)
+        type_ = dct.pop("type")
+        catalog_id = dct.pop("catalog_id")
+        return cls(type=type_, catalog_id=catalog_id, config=dct)
+
+    @classmethod
+    def from_yaml(cls, path):
+        data = yaml12.read_yaml(path)
+        return cls.from_dict(data)

@@ -149,19 +149,6 @@ class GitPointerBackend(CatalogBackend):
     cache = field(validator=instance_of(ContentCache))
     catalog_id = field(validator=instance_of(str))
 
-    @classmethod
-    def from_config(cls, repo, config, cache=None):
-        from xorq.catalog.content_store import ContentStoreConfig  # noqa: PLC0415
-
-        if not isinstance(config, ContentStoreConfig):
-            raise TypeError(f"config must be a ContentStoreConfig; got {type(config)}")
-        return cls(
-            repo=repo,
-            content_store=config.make_store(),
-            cache=cache or ContentCache.default(),
-            catalog_id=config.catalog_id,
-        )
-
     @property
     def repo_path(self):
         return Path(self.repo.working_dir)
@@ -252,3 +239,16 @@ class GitPointerBackend(CatalogBackend):
 
     def entry_tracked_path(self, catalog_path):
         return self._pointer_path(catalog_path)
+
+    @classmethod
+    def from_config(cls, repo, config, cache=None):
+        from xorq.catalog.content_store import ContentStoreConfig  # noqa: PLC0415
+
+        if not isinstance(config, ContentStoreConfig):
+            raise TypeError(f"config must be a ContentStoreConfig; got {type(config)}")
+        return cls(
+            repo=repo,
+            content_store=config.make_store(),
+            cache=cache or ContentCache.default(),
+            catalog_id=config.catalog_id,
+        )
