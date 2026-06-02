@@ -10,10 +10,15 @@ pipeline plus the environment to run it, so a future agent or human doesn't
 re-derive the computation from a description; it executes the artifact and gets
 the same answer.
 
+The same instinct drives teams to keep agent memory as markdown in a git repo
+rather than in a vector database: the files stay the source of truth, and the
+data never gets trapped behind a proprietary schema or query language. A Xorq
+catalog takes that instinct one step further. Where a markdown note still has to
+be read and acted on, a catalog entry can be executed directly.
+
 This page explains what that means and why the catalog is built that way.
 For the hands-on version, see
-[Working with the catalog](/tutorials/core_tutorials/working_with_the_catalog.qmd);
-for the API, the [`Catalog` reference](/reference/Catalog.qmd).
+[Working with the catalog](/tutorials/core_tutorials/working_with_the_catalog.qmd).
 
 ## What a memory entry is
 
@@ -56,7 +61,23 @@ deliberate:
   one git remote, which keeps "where's the source of truth" unambiguous. Large
   files are handled by git-annex rather than bloating the repo.
 
+- **No vendor lock-in.** A vector-database memory store keeps your data inside a
+  proprietary schema; getting it out means an export job and a migration plan.
+  A catalog is files, so migrating is `git clone` or an `rsync` of the
+  directory. Nothing is trapped behind an API.
+
 The catalog is portable for the same reason any git repo is: it's just files.
+
+## Indexes are derived, not the source of truth
+
+A vector store inverts the usual relationship: the index *is* the memory, and the
+original text is something you hope was preserved alongside the embeddings. A
+catalog keeps the source of truth on disk—the entries and their YAML
+metadata—and treats any richer lookup as a layer built on top. The plain-text
+sidecars already make keyword search a `grep`; nothing stops you from building a
+BM25 or vector index over the same metadata when you want fuzzy recall. Because
+those indexes are derived, you can rebuild or throw them away without losing
+anything, and a stale index can never disagree with the artifact it points to.
 
 ## What's on disk
 
@@ -85,8 +106,9 @@ git-catalogs/penguins
 
 Entries are zipped builds named by their content hash. Aliases are symlinks
 pointing at an entry—a human-readable name (`penguins-agg`) for a hash
-(`fa2122f6a9e9`). Metadata sidecars are plain YAML, which is what makes
-discovery a `grep`:
+(`fa2122f6a9e9`), so a catalog expects a POSIX filesystem that preserves
+symlinks. Metadata sidecars are plain YAML, which is what makes discovery a
+`grep`:
 
 ```bash
 # Entries that emit an 'avg_bill_length' column
@@ -103,7 +125,11 @@ user-chosen filename. Two consequences fall out of that:
 
 1. **Reuse is automatic.** Building the same pipeline twice produces the same
    hash, so the second build is a no-op—the entry already exists. There is no
-   "did someone already compute this?" question to answer by hand.
+   "did someone already compute this?" question to answer by hand. Prose and
+   vector memory have to dedupe explicitly—comparing embeddings, running
+   similarity heuristics—because two notes describing the same fact look
+   different on disk. Content-addressing makes that question disappear: identical
+   computations collapse to one entry by construction.
 2. **Identity is honest.** If two entries have the same hash they *are* the same
    computation; if the hashes differ, something in the graph or its inputs
    changed. The name can't lie about what the artifact does, the way a filename
@@ -124,5 +150,4 @@ learns.
 ## See also
 
 - [Working with the catalog](/tutorials/core_tutorials/working_with_the_catalog.qmd)—the publish / clone / pull loop, hands-on
-- [`Catalog` reference](/reference/Catalog.qmd)—the catalog API
 - [Expression types](/concepts/understanding_xorq/expression_types.qmd)—what gets stored in an entry
