@@ -74,20 +74,13 @@ jobs:
         run: |
           echo "id=sha-${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
-      - name: install netlify-cli
+      - name: build and push quarto docs to preview url
         # Pin to an exact version: unpinned floats to latest, which on the
         # node24 runner pulled in a v23.x with breaking changes and broke
         # `netlify deploy` (Unauthorized: could not retrieve project). A bare
         # major (@23) still floats across 23.x patches; pin exact so a patch
-        # regression can't sneak in. 23.15.1 supports node24. Install once
-        # locally so the deploy below reuses it instead of re-downloading.
-        run: |
-          node --version
-          npm install netlify-cli@23.15.1
-          ./node_modules/.bin/netlify --version
-
-      - name: build and push quarto docs to preview url
-        run: ./node_modules/.bin/netlify deploy --dir=docs/_site --alias="${{ steps.get_alias.outputs.id }}"
+        # regression can't sneak in. 23.15.1 supports node24.
+        run: npx netlify-cli@23.15.1 deploy --dir=docs/_site --alias="${{ steps.get_alias.outputs.id }}"
         env:
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
