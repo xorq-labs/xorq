@@ -315,7 +315,7 @@ Added build 050dac72b4d8 as entry ce9fe1e5-0004-4087-b668-f67dfbdea6ba revision 
 Now you can reference this build by name instead of hash. List catalog entries:
 
 ```bash
-xorq catalog ls
+xorq catalog list
 ```
 
 **Output:**

@@ -188,6 +188,7 @@ docs = [
     "ibis-framework>=10.5.0",
     "pymarkdownlnt>=0.9.37",
     "python-frontmatter>=1.1.0",
+    "sybil>=6",
 ]
 
 [project.entry-points."xorq.backends"]
