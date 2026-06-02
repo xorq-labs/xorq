@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780406803730,
+  "lastUpdate": 1780407175593,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -16050,6 +16050,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.008299508496471306",
             "extra": "mean: 34.867285290323295 msec\nrounds: 31"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ece15cacede4dc4ee037faa3d8a86e9dc17c7963",
+          "message": "docs(concepts): add expression-types and pins pages (#2020)\n\nAdds two Concepts pages — **expression_types** and **pins** — adapted\nfrom PRs #1736 and #1568 (paddymul), taken from PR heads, plus the\nsupporting API cleanups needed to make their snippets public-API-only\nand executable.\n\n## Pages\n- **expression_types** — `Source` / `Expr` / `UnboundExpr` kinds;\nhashing, caching, multi-engine; the `.ls` accessor.\n- **pins** — the pins system, available pins, and cache behavior.\n\nBoth wired into the Concepts sidebar in `_quarto.yml`. Code cells\nexecute (`execute: eval: true`) and use the public API only (`xorq.api`,\n`xorq.caching`).\n\n## API changes\n- **Rename `LETSQLAccessor.exists()` → `cache_exists()`**, with a\ndeprecated `exists()` alias that warns and delegates (no breakage).\nUpdated in-repo callers and tests.\n- Added numpy-style contract docstrings + type hints to the `.ls`\naccessor members, `into_backend`, and `Pins.get_path` / `get_board`.\n\n## Doc corrections\n- expression_types: dropped the `Tag`/`HashingTag` and `FlightUDXF`\nsections (no public constructor) and the vendored `ExprMetadata` import\n— now uses the public `.ls.metadata`. Accessor table + example use\n`cache_exists()`.\n- pins: corrected `get_path` signature to `(name, board=None, **kwargs)`\n(`version` forwarded via `**kwargs`); dropped the stale \"Quickgrove\"\nreference for `diamonds-model` (quickgrove removed in #1935).\n\n## Verification\n- `docs/lint.sh`: all checks pass (vale, quartodoc, quarto render,\nlychee, pymarkdown, frontmatter, orphans).\n- Doc code cells execute against xorq 0.3.27.\n- Accessor + cache tests pass (`test_ls_accessor`, `test_complex_exprs`,\ndatafusion `test_cache`).\n\n## Deferred\n- `environments_and_uv` page pulled from scope (too involved; revisit\nseparately). Text survives in PR #1950.\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-02T09:28:58-04:00",
+          "tree_id": "6c99d47711610bde083ae48cf3d7659df32dac7c",
+          "url": "https://github.com/xorq-labs/xorq/commit/ece15cacede4dc4ee037faa3d8a86e9dc17c7963"
+        },
+        "date": 1780407171771,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.14803761557138,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008639928438945944",
+            "extra": "mean: 109.31306166667316 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.154978147157487,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0913815776196474",
+            "extra": "mean: 464.0418285999999 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6069441459835374,
+            "unit": "iter/sec",
+            "range": "stddev: 0.20724388971893898",
+            "extra": "mean: 1.6475980642000025 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.8845930750616704,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04734152557799833",
+            "extra": "mean: 346.6693477999911 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.892906968365008,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04492046901258901",
+            "extra": "mean: 345.6730586000049 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.995282702314636,
+            "unit": "iter/sec",
+            "range": "stddev: 0.026544622571591906",
+            "extra": "mean: 333.85830299999384 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 158.66393455159613,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015481848254802005",
+            "extra": "mean: 6.302629534721444 msec\nrounds: 288"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 6.616939994996536,
+            "unit": "iter/sec",
+            "range": "stddev: 0.058373461171284634",
+            "extra": "mean: 151.1272583333323 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 35.128791017891565,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005855044554482662",
+            "extra": "mean: 28.466678499999805 msec\nrounds: 34"
           }
         ]
       }
