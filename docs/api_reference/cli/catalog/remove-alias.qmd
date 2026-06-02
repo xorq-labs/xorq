@@ -2,7 +2,7 @@
 title: 'catalog remove-alias'
 ---
 
-Remove one or more aliases. The underlying entries are left untouched —
+Remove one or more aliases. The underlying entries are left untouched—
 use [`catalog remove`](remove.qmd) to remove an entry itself.
 
 ## Usage
@@ -13,14 +13,14 @@ xorq catalog remove-alias <aliases...> [OPTIONS]
 
 ## Arguments
 
-- **`aliases`** — One or more alias names. Use [`catalog list-aliases`](list-aliases.qmd)
+- **`aliases`**—One or more alias names. Use [`catalog list-aliases`](list-aliases.qmd)
   to see registered aliases.
 
 ## Options
 
 | Option | Default | Description |
 |---|---|---|
-| `--sync` / `--no-sync` | `--sync` | Push the catalog to its remote(s) after removing aliases. |
+| `--sync` / `--no-sync` | `--sync` | Push the catalog to its remotes after removing aliases. |
 
 ## Examples
 

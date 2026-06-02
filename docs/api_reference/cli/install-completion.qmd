@@ -14,7 +14,7 @@ xorq install-completion [SHELL]
 
 ## Arguments
 
-- **`SHELL`** — One of `bash`, `zsh`, `fish`. If omitted, the shell is detected
+- **`SHELL`**—One of `bash`, `zsh`, `fish`. If omitted, the shell is detected
   from the `$SHELL` environment variable.
 
 ## Install paths
@@ -40,5 +40,5 @@ needed to activate completion in the current session.
 
 ## See also
 
-- [`completion`](completion.qmd) — print the completion script to stdout
+- [`completion`](completion.qmd)—print the completion script to stdout
   instead of installing it.

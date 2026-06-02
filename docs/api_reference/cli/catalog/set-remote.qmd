@@ -6,7 +6,7 @@ Configure the active catalog's git remote.
 
 A catalog supports at most one git remote.
 If none is configured, `set-remote` sets one. If a remote already exists, the
-command refuses unless `--force` is passed — guarding against a typo silently
+command refuses unless `--force` is passed—guarding against a typo silently
 replacing the configured remote.
 
 ## Usage
@@ -33,6 +33,6 @@ xorq catalog set-remote git@github.com:me/flights-catalog.git --force
 
 ## See also
 
-- [`catalog push`](push.qmd) — push commits and annex content to the remote
-- [`catalog pull`](pull.qmd) — pull from the remote
-- [`catalog clone`](clone.qmd) — clone a catalog from a remote URL
+- [`catalog push`](push.qmd)—push commits and annex content to the remote
+- [`catalog pull`](pull.qmd)—pull from the remote
+- [`catalog clone`](clone.qmd)—clone a catalog from a remote URL

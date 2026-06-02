@@ -25,7 +25,7 @@ xorq build <script_path> [OPTIONS]
 
 ## Arguments
 
-- **`script_path`** — Path to the Python script that defines the expression variable.
+- **`script_path`**—Path to the Python script that defines the expression variable.
 
 ## Options
 
@@ -171,10 +171,10 @@ After building, you'll find several artifacts in the build directory:
 
 ```bash
 builds/penguins_analysis/
-├── expr.yaml          # YAML expression definition
-├── metadata.json      # Build metadata and checksums
-├── deferred_reads.yaml # Data source configurations
-└── profiles.yaml      # Backend connection profiles
+—�—expr.yaml          # YAML expression definition
+—�—metadata.json      # Build metadata and checksums
+—�—deferred_reads.yaml # Data source configurations
+—profiles.yaml      # Backend connection profiles
 ```
 
 **expr.yaml** contains the complete expression definition:

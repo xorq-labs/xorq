@@ -28,7 +28,7 @@ xorq catalog serve-unbound ENTRY [OPTIONS]
 | `-c, --code TEXT` | Inline Ibis code expression applied to `source`. |
 | `--fuse / --no-fuse` | Enable/disable catalog source fusion (default: enabled). |
 | `--rename-params TEXT` | Rename a parameter: `entry,old_name,new_name` (repeatable). |
-| `-p, --params TEXT` | Parameter as `key=value` (repeatable, e.g. `--params threshold=0.5`). |
+| `-p, --params TEXT` | Parameter as `key=value` (repeatable, for example, `--params threshold=0.5`). |
 | `--cache-dir TEXT` | Directory for generated parquet cache files. |
 
 ## Example
@@ -44,6 +44,6 @@ xorq catalog serve-unbound scorer --params threshold=0.5
 
 ## See also
 
-- [`serve-unbound`](../serve-unbound.qmd) — serve an unbound expression from a build directory
-- [`serve-flight-udxf`](../serve-flight-udxf.qmd) — serve a build as a Flight UDXF
-- [`catalog run`](run.qmd) — compose and execute catalog entries locally
+- [`serve-unbound`](../serve-unbound.qmd)—serve an unbound expression from a build directory
+- [`serve-flight-udxf`](../serve-flight-udxf.qmd)—serve a build as a Flight UDXF
+- [`catalog run`](run.qmd)—compose and execute catalog entries locally

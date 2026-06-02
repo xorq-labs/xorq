@@ -18,7 +18,7 @@ xorq run <build_path> [OPTIONS]
 
 ## Arguments
 
-- **`build_path`** — Path to the build directory produced by `xorq build` (or `xorq uv build`).
+- **`build_path`**—Path to the build directory produced by `xorq build` (or `xorq uv build`).
 
 ## Options
 
@@ -28,7 +28,7 @@ xorq run <build_path> [OPTIONS]
 | `-f`, `--format` | `parquet` | Output format. One of `csv`, `json`, `parquet`, `arrow`. |
 | `--cache-dir` | `$XORQ_CACHE_DIR` or `~/.cache/xorq` | Directory for parquet cache files. |
 | `--limit` | unlimited | Maximum number of rows to output. |
-| `-p`, `--params` | none | Override expression parameters. Format: `key=value`. Repeatable, e.g. `-p threshold=0.5 -p region=us`. |
+| `-p`, `--params` | none | Override expression parameters. Format: `key=value`. Repeatable, for example, `-p threshold=0.5 -p region=us`. |
 
 ## Running expressions
 
@@ -136,7 +136,7 @@ xorq run builds/f02d28198715 --limit 100 -o sample.parquet
 
 #### Overriding expression parameters
 
-If the expression was built with named parameters (e.g. via `xo.param`), override
+If the expression was built with named parameters (for example, via `xo.param`), override
 their values at run time with `-p`/`--params`:
 
 ```bash
@@ -147,7 +147,7 @@ xorq run builds/f02d28198715 \
 ```
 
 The flag is repeatable. Values are parsed according to each parameter's declared
-type — e.g. `threshold=0.5` becomes a float, `region=us` a string.
+type—for example, `threshold=0.5` becomes a float, `region=us` a string.
 
 ## Understanding execution
 

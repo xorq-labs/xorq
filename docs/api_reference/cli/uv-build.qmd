@@ -15,7 +15,7 @@ xorq uv build <script_path> [OPTIONS]
 
 ## Arguments
 
-- **`script_path`** — Path to the Python script that defines the expression variable.
+- **`script_path`**—Path to the Python script that defines the expression variable.
 
 ## Options
 

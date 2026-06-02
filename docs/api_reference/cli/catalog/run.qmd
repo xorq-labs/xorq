@@ -18,7 +18,7 @@ xorq catalog run <entries...> [OPTIONS]
 
 ## Arguments
 
-- **`entries`** — One or more entry names or aliases. Multiple entries compose
+- **`entries`**—One or more entry names or aliases. Multiple entries compose
   as `source + transforms...`.
 
 ## Options
@@ -66,5 +66,5 @@ xorq catalog run pipeline -p threshold=0.5 -o results.parquet
 
 ## See also
 
-- [`catalog compose`](compose.qmd) — persist a composed expression instead of executing it
-- [`catalog run-cached`](run-cached.qmd) — same semantics, but wraps the result in a parquet cache
+- [`catalog compose`](compose.qmd)—persist a composed expression instead of executing it
+- [`catalog run-cached`](run-cached.qmd)—same semantics, but wraps the result in a parquet cache

@@ -38,7 +38,7 @@ your data and ML pipelines.
 
 ## Catalog
 
-The `xorq catalog` group manages build-artifact catalogs — a versioned store of
+The `xorq catalog` group manages build-artifact catalogs—a versioned store of
 named, sharable, executable expressions. Catalogs are git repositories with an
 optional object-store backed annex for content.
 
@@ -79,8 +79,8 @@ optional object-store backed annex for content.
 
 | Command | Description |
 |---|---|
-| [`catalog push`](catalog/push.qmd) | Push to remote(s). |
-| [`catalog pull`](catalog/pull.qmd) | Pull from remote(s). |
+| [`catalog push`](catalog/push.qmd) | Push to remotes. |
+| [`catalog pull`](catalog/pull.qmd) | Pull from remotes. |
 | [`catalog sync`](catalog/sync.qmd) | Pull then push. |
 | [`catalog embed-readonly`](catalog/embed-readonly.qmd) | Embed read-only credentials for shared consumers. |
 | [`catalog check`](catalog/check.qmd) | Validate catalog consistency. |

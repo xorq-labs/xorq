@@ -14,7 +14,7 @@ xorq catalog run-cached <entries...> [OPTIONS]
 
 ## Arguments
 
-- **`entries`** — One or more entry names or aliases.
+- **`entries`**—One or more entry names or aliases.
 
 ## Options
 

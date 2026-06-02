@@ -25,5 +25,5 @@ If the catalog has no aliases, prints `No aliases.`.
 
 ## See also
 
-- [`catalog list`](list.qmd) — list catalog entries
-- [`catalog add-alias`](add-alias.qmd) — add an alias to an entry
+- [`catalog list`](list.qmd)—list catalog entries
+- [`catalog add-alias`](add-alias.qmd)—add an alias to an entry

@@ -15,7 +15,7 @@ xorq completion [SHELL]
 
 ## Arguments
 
-- **`SHELL`** — One of `bash`, `zsh`, `fish`. If omitted, the shell is detected
+- **`SHELL`**—One of `bash`, `zsh`, `fish`. If omitted, the shell is detected
   from the `$SHELL` environment variable.
 
 ## Examples
@@ -35,5 +35,5 @@ xorq completion fish | source
 
 ## See also
 
-- [`install-completion`](install-completion.qmd) — install the completion script
+- [`install-completion`](install-completion.qmd)—install the completion script
   to a standard location instead of evaluating it inline.

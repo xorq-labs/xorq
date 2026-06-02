@@ -16,7 +16,7 @@ xorq catalog list [OPTIONS]
 
 | Option | Default | Description |
 |---|---|---|
-| `--kind` / `--no-kind` | `--no-kind` | Print a second column showing each entry's kind (e.g. `Source`, `UnboundExpr`, `Composed`). |
+| `--kind` / `--no-kind` | `--no-kind` | Print a second column showing each entry's kind (for example, `Source`, `UnboundExpr`, `Composed`). |
 
 ## Examples
 
@@ -30,6 +30,6 @@ xorq catalog list --kind
 
 ## See also
 
-- [`catalog list-aliases`](list-aliases.qmd) — list registered aliases
-- [`catalog show`](show.qmd) — show full metadata for an entry
-- [`catalog schema`](schema.qmd) — show schema for an entry
+- [`catalog list-aliases`](list-aliases.qmd)—list registered aliases
+- [`catalog show`](show.qmd)—show full metadata for an entry
+- [`catalog schema`](schema.qmd)—show schema for an entry

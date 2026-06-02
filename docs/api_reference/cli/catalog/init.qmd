@@ -16,8 +16,8 @@ xorq catalog [-n <name> | -p <path>] init [OPTIONS]
 
 | Option | Default | Description |
 |---|---|---|
-| `--env-file` | none | Path to an env file describing an annex remote (e.g. `.env.catalog.s3`). Mutually exclusive with `--env-prefix`. |
-| `--env-prefix` | none | Env-var prefix describing an annex remote (e.g. `XORQ_CATALOG_S3_`). Mutually exclusive with `--env-file`. |
+| `--env-file` | none | Path to an env file describing an annex remote (for example, `.env.catalog.s3`). Mutually exclusive with `--env-prefix`. |
+| `--env-prefix` | none | Env-var prefix describing an annex remote (for example, `XORQ_CATALOG_S3_`). Mutually exclusive with `--env-file`. |
 | `--gcs` | off | Apply GCS defaults to S3 remote config. |
 | `--remote-url` | none | Git remote URL for the new catalog (sets `origin`). |
 
@@ -47,5 +47,5 @@ xorq catalog --name analytics init --env-file .env.catalog.s3
 
 ## See also
 
-- [`catalog clone`](clone.qmd) — clone an existing catalog from a URL
-- [`catalog default`](default.qmd) — manage the default catalog name
+- [`catalog clone`](clone.qmd)—clone an existing catalog from a URL
+- [`catalog default`](default.qmd)—manage the default catalog name

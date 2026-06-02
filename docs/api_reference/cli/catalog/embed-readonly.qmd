@@ -41,5 +41,5 @@ xorq catalog embed-readonly --env-prefix XORQ_CATALOG_RO_
 - The write probe requires the credentials to be evaluated against the
   configured bucket; misconfigured paths will surface as setup errors before
   any embed occurs.
-- The probe initiates (and aborts) a multipart upload — credentials that grant
+- The probe initiates (and aborts) a multipart upload—credentials that grant
   write access on the bucket will be detected even if no object is left behind.

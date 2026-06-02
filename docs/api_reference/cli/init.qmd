@@ -20,9 +20,9 @@ xorq init [OPTIONS]
 
 ## Templates
 
-- **`cached-fetcher`** — Default template for cached data-fetching workflows.
-- **`sklearn`** — Template for ML workflows with scikit-learn.
-- **`penguins`** — Penguins dataset example pipeline.
+- **`cached-fetcher`**—Default template for cached data-fetching workflows.
+- **`sklearn`**—Template for ML workflows with scikit-learn.
+- **`penguins`**—Penguins dataset example pipeline.
 
 Each template has a default branch (a pinned commit) that gets checked out
 unless `--branch` is supplied.

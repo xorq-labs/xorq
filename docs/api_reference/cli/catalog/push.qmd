@@ -2,7 +2,7 @@
 title: 'catalog push'
 ---
 
-Push the active catalog's commits and annex content to its configured remote(s).
+Push the active catalog's commits and annex content to its configured remotes.
 
 ## Usage
 
@@ -24,5 +24,5 @@ xorq catalog push
 
 ## See also
 
-- [`catalog pull`](pull.qmd) — pull from remote(s)
-- [`catalog sync`](sync.qmd) — pull then push
+- [`catalog pull`](pull.qmd)—pull from remotes
+- [`catalog sync`](sync.qmd)—pull then push

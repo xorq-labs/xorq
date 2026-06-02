@@ -2,7 +2,7 @@
 title: 'catalog default'
 ---
 
-Show or change the persisted **default catalog name** — used when subsequent
+Show or change the persisted **default catalog name**—used when subsequent
 `xorq catalog` invocations don't supply `-n/--name` or `-p/--path`.
 
 ## Usage

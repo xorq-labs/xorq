@@ -2,7 +2,7 @@
 title: 'catalog schema'
 ---
 
-Show the schema(s) for a catalog entry. Bound entries print a single output
+Show the schemas for a catalog entry. Bound entries print a single output
 schema; unbound (partial) entries print both an input and an output schema.
 
 ## Usage
@@ -13,7 +13,7 @@ xorq catalog schema <name> [OPTIONS]
 
 ## Arguments
 
-- **`name`** — Entry name **or** alias.
+- **`name`**—Entry name **or** alias.
 
 ## Options
 
@@ -42,5 +42,5 @@ xorq catalog schema penguins-prod --json
 
 ## See also
 
-- [`catalog show`](show.qmd) — full metadata for an entry
-- [`catalog list`](list.qmd) — list available entries
+- [`catalog show`](show.qmd)—full metadata for an entry
+- [`catalog list`](list.qmd)—list available entries

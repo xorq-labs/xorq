@@ -14,14 +14,14 @@ xorq catalog remove <names...> [OPTIONS]
 
 ## Arguments
 
-- **`names`** — One or more entry names to remove. Use [`catalog list`](list.qmd)
+- **`names`**—One or more entry names to remove. Use [`catalog list`](list.qmd)
   to see available names.
 
 ## Options
 
 | Option | Default | Description |
 |---|---|---|
-| `--sync` / `--no-sync` | `--sync` | Push the catalog to its remote(s) after removing. |
+| `--sync` / `--no-sync` | `--sync` | Push the catalog to its remotes after removing. |
 
 ## Examples
 
@@ -42,5 +42,5 @@ xorq catalog remove f02d28198715 --no-sync
 
 ## See also
 
-- [`catalog remove-alias`](remove-alias.qmd) — remove an alias without removing the underlying entry
-- [`catalog list`](list.qmd) — list catalog entries
+- [`catalog remove-alias`](remove-alias.qmd)—remove an alias without removing the underlying entry
+- [`catalog list`](list.qmd)—list catalog entries

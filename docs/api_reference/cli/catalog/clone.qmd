@@ -12,7 +12,7 @@ xorq catalog clone <url> [OPTIONS]
 
 ## Arguments
 
-- **`url`** — The git URL of the source catalog repository.
+- **`url`**—The git URL of the source catalog repository.
 
 ## Options
 
@@ -39,4 +39,4 @@ xorq catalog clone git@github.com:acme/analytics-catalog.git --path ./catalogs/a
 
 ## See also
 
-- [`catalog init`](init.qmd) — create a fresh catalog instead of cloning
+- [`catalog init`](init.qmd)—create a fresh catalog instead of cloning

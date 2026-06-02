@@ -15,7 +15,7 @@ xorq run-cached <build_path> [OPTIONS]
 
 ## Arguments
 
-- **`build_path`** — Path to the build directory produced by `xorq build`.
+- **`build_path`**—Path to the build directory produced by `xorq build`.
 
 ## Options
 
@@ -31,11 +31,11 @@ xorq run-cached <build_path> [OPTIONS]
 
 ## Cache strategies
 
-- **`modification-time`** (default) — `ParquetCache`. Inputs are tracked by file
+- **`modification-time`** (default): `ParquetCache`. Inputs are tracked by file
   modification time; the cache is invalidated when an input file's mtime changes.
-- **`snapshot`** — `ParquetSnapshotCache`. The cache is keyed by a content
+- **`snapshot`**: `ParquetSnapshotCache`. The cache is keyed by a content
   snapshot of the inputs and never invalidates implicitly.
-- **`snapshot` + `--ttl`** — `ParquetTTLSnapshotCache`. As above, but the cache
+- **`snapshot` + `--ttl`**: `ParquetTTLSnapshotCache`. As above, but the cache
   entry expires after the supplied TTL (in seconds).
 
 ## Examples

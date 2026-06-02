@@ -14,7 +14,7 @@ xorq catalog get <name> [OPTIONS]
 
 ## Arguments
 
-- **`name`** — Entry name to export. Use [`catalog list`](list.qmd) to see options.
+- **`name`**—Entry name to export. Use [`catalog list`](list.qmd) to see options.
 
 ## Options
 
@@ -29,7 +29,7 @@ a `.zip` suffix). Existing files at that path are overwritten.
 
 ```bash
 xorq catalog get f02d28198715 -o ./shipped-builds
-# → Exported to shipped-builds/f02d28198715.zip
+#—�� Exported to shipped-builds/f02d28198715.zip
 ```
 
 The exported archive can be re-added to another catalog with

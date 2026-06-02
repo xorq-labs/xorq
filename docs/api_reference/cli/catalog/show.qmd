@@ -13,7 +13,7 @@ xorq catalog show <name> [OPTIONS]
 
 ## Arguments
 
-- **`name`** — Entry name **or** alias.
+- **`name`**—Entry name **or** alias.
 
 ## Options
 
@@ -47,5 +47,5 @@ Schema Out:
 
 ## See also
 
-- [`catalog schema`](schema.qmd) — schema-only view
-- [`catalog list`](list.qmd) — list entries
+- [`catalog schema`](schema.qmd)—schema-only view
+- [`catalog list`](list.qmd)—list entries

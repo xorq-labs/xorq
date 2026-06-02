@@ -13,7 +13,7 @@ xorq serve-flight-udxf <build_path> [OPTIONS]
 
 ## Arguments
 
-- **`build_path`** — Path to the build directory produced by `xorq build` (or `xorq uv build`).
+- **`build_path`**—Path to the build directory produced by `xorq build` (or `xorq uv build`).
 
 ## Options
 

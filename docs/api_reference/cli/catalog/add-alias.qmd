@@ -13,14 +13,14 @@ xorq catalog add-alias <name> <alias> [OPTIONS]
 
 ## Arguments
 
-- **`name`** — The existing entry's name (use [`catalog list`](list.qmd) to see options).
-- **`alias`** — The alias to register.
+- **`name`**—The existing entry's name (use [`catalog list`](list.qmd) to see options).
+- **`alias`**—The alias to register.
 
 ## Options
 
 | Option | Default | Description |
 |---|---|---|
-| `--sync` / `--no-sync` | `--sync` | Push the catalog to its remote(s) after adding the alias. |
+| `--sync` / `--no-sync` | `--sync` | Push the catalog to its remotes after adding the alias. |
 
 ## Examples
 
@@ -32,5 +32,5 @@ To add an alias at the same time you add an entry, use `xorq catalog add -a`.
 
 ## See also
 
-- [`catalog list-aliases`](list-aliases.qmd) — list registered aliases
-- [`catalog remove-alias`](remove-alias.qmd) — remove an alias
+- [`catalog list-aliases`](list-aliases.qmd)—list registered aliases
+- [`catalog remove-alias`](remove-alias.qmd)—remove an alias

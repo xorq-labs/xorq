@@ -17,7 +17,7 @@ xorq catalog compose <entries...> [OPTIONS]
 
 ## Arguments
 
-- **`entries`** — One or more catalog entries (names or aliases). The first
+- **`entries`**—One or more catalog entries (names or aliases). The first
   entry is the source; subsequent entries are applied as transforms.
 
 ## Options
@@ -57,4 +57,4 @@ xorq catalog compose src trn \
 
 ## See also
 
-- [`catalog run`](run.qmd) — execute a composed expression for data output
+- [`catalog run`](run.qmd)—execute a composed expression for data output

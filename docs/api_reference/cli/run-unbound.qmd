@@ -4,7 +4,7 @@ title: 'run-unbound'
 
 Execute a built expression after replacing one of its nodes with input streamed
 in over Arrow IPC. This is the CLI counterpart to streaming data into a served
-unbound expression — useful for piping data between expressions without standing
+unbound expression—useful for piping data between expressions without standing
 up a Flight server.
 
 ## Usage
@@ -15,7 +15,7 @@ xorq run-unbound <build_path> [OPTIONS] < input.arrow
 
 ## Arguments
 
-- **`build_path`** — Path to the build directory produced by `xorq build`.
+- **`build_path`**—Path to the build directory produced by `xorq build`.
 
 ## Options
 
@@ -51,4 +51,4 @@ xorq run builds/source -o - -f arrow \
 
 ## See also
 
-- [`serve-unbound`](serve-unbound.qmd) — serve the same unbound expression as a Flight endpoint
+- [`serve-unbound`](serve-unbound.qmd)—serve the same unbound expression as a Flight endpoint

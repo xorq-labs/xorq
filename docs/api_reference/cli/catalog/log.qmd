@@ -26,4 +26,4 @@ xorq catalog log --json | jq '.[] | select(.type == "Add")'
 
 ## See also
 
-- [`catalog replay`](replay.qmd) — replay this history into a different catalog
+- [`catalog replay`](replay.qmd)—replay this history into a different catalog
