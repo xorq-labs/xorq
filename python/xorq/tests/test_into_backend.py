@@ -319,6 +319,7 @@ def test_multiple_into_backend_duckdb_xorq(trino_table):
     assert len(created) == 2
 
 
+@pytest.mark.trino
 @pytest.mark.benchmark
 def test_into_backend_duckdb_trino_cached(trino_table, tmp_path):
     db_con = xo.duckdb.connect()

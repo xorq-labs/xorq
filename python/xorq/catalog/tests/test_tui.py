@@ -47,6 +47,7 @@ from xorq.catalog.tui import (
     _format_cached,
     _pygments_to_text,
     _pygments_tokens,
+    _render_sql_dag,
     _render_sql_text,
     _styled_branch_label,
     get_cache_key_path,
@@ -510,15 +511,15 @@ def test_view_switching_1_2(catalog):
             await run_script(
                 pilot,
                 # Default: SQL visible, data hidden
-                Assert(lambda p: sql_panel.display is not False),
+                Assert(lambda p: sql_panel.display is True),
                 Assert(lambda p: data_panel.display is False),
                 # Switch to data
                 Press(("2",)),
                 Assert(lambda p: sql_panel.display is False),
-                Assert(lambda p: data_panel.display is not False),
+                Assert(lambda p: data_panel.display is True),
                 # Switch back to SQL
                 Press(("1",)),
-                Assert(lambda p: sql_panel.display is not False),
+                Assert(lambda p: sql_panel.display is True),
                 Assert(lambda p: data_panel.display is False),
             )
 
@@ -536,7 +537,7 @@ def test_v_toggles_revisions(catalog):
                 pilot,
                 Assert(lambda p: panel.display is False),
                 Press(("v",)),
-                Assert(lambda p: panel.display is not False),
+                Assert(lambda p: panel.display is True),
                 Press(("v",)),
                 Assert(lambda p: panel.display is False),
             )
@@ -627,7 +628,7 @@ def test_g_toggles_git_log_visibility(catalog):
                 pilot,
                 Assert(lambda p: panel.display is False),
                 Press(("g",)),
-                Assert(lambda p: panel.display is not False),
+                Assert(lambda p: panel.display is True),
                 Press(("g",)),
                 Assert(lambda p: panel.display is False),
             )
@@ -768,8 +769,18 @@ def _mock_catalog_run(monkeypatch):
     monkeypatch.setattr(
         DataViewScreen,
         "_run_catalog_subprocess",
-        lambda self: self._entry.expr.limit(50_000).execute(),
+        lambda self, code=None: self._entry.expr.limit(50_000).execute(),
     )
+
+
+def _raise_load_error(self, code=None):
+    raise RuntimeError("mock load error")
+
+
+@pytest.fixture
+def _mock_catalog_run_error(monkeypatch):
+    """Make every subprocess call fail with RuntimeError."""
+    monkeypatch.setattr(DataViewScreen, "_run_catalog_subprocess", _raise_load_error)
 
 
 def test_data_view_screen_construction(entry_a):
@@ -1094,7 +1105,7 @@ def test_data_view_colon_opens_freeform_input(catalog, entry_a):
             await settle(pilot)
 
             cmd = data_screen.query_one("#command-input", Input)
-            assert cmd.display is not False
+            assert cmd.display is True
             assert ":" in str(cmd.border_title)
 
     _run(_test())
@@ -1121,7 +1132,7 @@ def test_data_view_escape_closes_command_input(catalog, entry_a):
             await settle(pilot)
 
             cmd = data_screen.query_one("#command-input", Input)
-            assert cmd.display is not False
+            assert cmd.display is True
 
             # Escape closes it
             await pilot.press("escape")
@@ -1157,7 +1168,7 @@ def test_data_view_stack_browser_toggle(catalog, entry_a):
             await run_script(
                 pilot,
                 Press(("s",)),
-                Assert(lambda p: panel.display is not False),
+                Assert(lambda p: panel.display is True),
                 Press(("s",)),
                 Assert(lambda p: panel.display is False),
             )
@@ -1290,3 +1301,407 @@ def test_render_sql_text_highlights_small_query():
     text = _render_sql_text("SELECT 1")
     assert text.no_wrap is False
     assert not text.plain.startswith("-- syntax highlighting disabled")
+
+
+def test_render_sql_text_disabled_at_exact_boundary():
+    # raw.count("\n") == max_lines triggers >= guard → highlighting disabled
+    with options.tui({"sql_highlight_max_lines": 3}):
+        at_boundary = "SELECT 1\nFROM t\nWHERE x = 1\n"
+        assert at_boundary.count("\n") == 3
+        text = _render_sql_text(at_boundary)
+        assert text.plain.startswith("-- syntax highlighting disabled")
+
+
+# ---------------------------------------------------------------------------
+# 15. _render_sql_dag: pure unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_render_sql_dag_empty():
+    assert _render_sql_dag(()) == ""
+
+
+def test_render_sql_dag_single():
+    result = _render_sql_dag((("main", "duckdb", "SELECT 1"),))
+    assert "-- [main] (duckdb)" in result
+    assert "SELECT 1" in result
+    assert "↓" not in result
+
+
+def test_render_sql_dag_single_non_main_name():
+    name = "abcdef1234567890abcdef12"
+    result = _render_sql_dag(((name, "duckdb", "SELECT 1"),))
+    assert f"-- [{name[:12]}]" in result
+    assert "-- [main]" not in result
+
+
+def test_render_sql_dag_multiple_no_deps():
+    sqls = (
+        ("main", "duckdb", "SELECT * FROM t"),
+        ("abcdef1234567890abcdef12", "duckdb", "SELECT 1"),
+    )
+    result = _render_sql_dag(sqls)
+    assert "↓" in result
+    assert "-- [main]" in result
+    assert "-- [abcdef123456]" in result
+
+
+def test_render_sql_dag_dep_ordered_before_main():
+    dep_hash = "ab" * 10  # 20 hex chars — matches FROM "..." regex
+    main_sql = f'SELECT x FROM "{dep_hash}"'
+    sqls = (
+        ("main", "duckdb", main_sql),
+        (dep_hash, "duckdb", "SELECT 1 AS x"),
+    )
+    result = _render_sql_dag(sqls)
+    dep_pos = result.index(dep_hash[:12])
+    main_pos = result.index("-- [main]")
+    assert dep_pos < main_pos
+
+
+# ---------------------------------------------------------------------------
+# 16. _pygments_tokens: italic branch (SQL comments)
+# ---------------------------------------------------------------------------
+
+
+def test_pygments_tokens_italic_for_sql_comment():
+    tokens = _pygments_tokens("-- this is a sql comment")
+    all_styles = [s for _, s in tokens]
+    assert any("italic" in s for s in all_styles)
+
+
+# ---------------------------------------------------------------------------
+# 17. CatalogScreen navigation: DataTable focus, cycle_focus, cached status
+# ---------------------------------------------------------------------------
+
+
+def test_tab_cycle_focus_no_crash(catalog):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            await pilot.press("tab")
+            await settle(pilot)
+            await pilot.press("shift+tab")
+            await settle(pilot)
+            assert isinstance(app.screen, CatalogScreen)
+
+    _run(_test())
+
+
+def test_h_l_with_datatable_focused(catalog):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            schema_table = app.screen.query_one("#schema-preview-table")
+            schema_table.focus()
+            await settle(pilot)
+            await pilot.press("h")
+            await settle(pilot)
+            await pilot.press("l")
+            await settle(pilot)
+            assert isinstance(app.screen, CatalogScreen)
+
+    _run(_test())
+
+
+def test_j_k_with_datatable_focused(catalog):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            schema_table = app.screen.query_one("#schema-preview-table")
+            schema_table.focus()
+            await settle(pilot)
+            await pilot.press("j")
+            await settle(pilot)
+            await pilot.press("k")
+            await settle(pilot)
+            assert isinstance(app.screen, CatalogScreen)
+
+    _run(_test())
+
+
+def test_render_status_includes_cached_count(catalog, entry_cached):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            screen = app.screen
+            entry_cached.expr.execute()
+            row = CatalogRowData(entry=entry_cached)
+            screen._row_cache = {row.row_key: row}
+            screen._render_status("09:00:00", catalog.repo.working_dir)
+            await settle(pilot)
+            status_text = str(screen.query_one("#status-bar", Static).content)
+            assert "cached" in status_text
+
+    _run(_test())
+
+
+def test_tree_expand_collapses_then_enters_first_child(catalog, entry_a, entry_b):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a, entry_b)
+            tree = screen.query_one("#catalog-tree")
+
+            await run_script(
+                pilot,
+                # cursor on branch (source), press l to expand (already expanded) → enter first child
+                Assert(lambda p: tree.cursor_node.data == "source"),
+                Press(("l",)),
+                Assert(lambda p: tree.cursor_node.data == entry_a.name),
+                # press h on leaf → select parent branch, collapse it
+                Press(("h",)),
+                Assert(lambda p: tree.cursor_node.data == "source"),
+            )
+
+    _run(_test())
+
+
+# ---------------------------------------------------------------------------
+# 18. DataViewScreen: actions (sort, drop, undo, redo, navigate, persist)
+# ---------------------------------------------------------------------------
+
+
+def test_data_view_sort_asc_pushes_step(catalog, entry_a, _mock_catalog_run):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+            await run_script(pilot, Press(("j",)), Press(("e",)))
+            await settle(pilot)
+            data_screen = app.screen
+            assert isinstance(data_screen, DataViewScreen)
+            data_table = data_screen.query_one("#data-view-table", DataTable)
+            await wait_until(pilot, lambda: data_table.row_count > 0)
+
+            await pilot.press("]")
+            await settle(pilot)
+            assert data_screen._stack.cursor == 1
+            assert data_screen._stack.steps[0].verb == "order_by"
+            assert "desc" not in data_screen._stack.steps[0].code
+
+    _run(_test())
+
+
+def test_data_view_sort_desc_pushes_step(catalog, entry_a, _mock_catalog_run):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+            await run_script(pilot, Press(("j",)), Press(("e",)))
+            await settle(pilot)
+            data_screen = app.screen
+            assert isinstance(data_screen, DataViewScreen)
+            data_table = data_screen.query_one("#data-view-table", DataTable)
+            await wait_until(pilot, lambda: data_table.row_count > 0)
+
+            await pilot.press("[")
+            await settle(pilot)
+            assert data_screen._stack.cursor == 1
+            assert data_screen._stack.steps[0].verb == "order_by"
+            assert "desc" in data_screen._stack.steps[0].code
+
+    _run(_test())
+
+
+def test_data_view_drop_column_pushes_step(catalog, entry_a, _mock_catalog_run):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+            await run_script(pilot, Press(("j",)), Press(("e",)))
+            await settle(pilot)
+            data_screen = app.screen
+            assert isinstance(data_screen, DataViewScreen)
+            data_table = data_screen.query_one("#data-view-table", DataTable)
+            await wait_until(pilot, lambda: data_table.row_count > 0)
+
+            await pilot.press("d")
+            await settle(pilot)
+            assert data_screen._stack.cursor == 1
+            assert data_screen._stack.steps[0].verb == "drop"
+
+    _run(_test())
+
+
+def test_data_view_undo_after_step(catalog, entry_a, _mock_catalog_run):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+            await run_script(pilot, Press(("j",)), Press(("e",)))
+            await settle(pilot)
+            data_screen = app.screen
+            data_table = data_screen.query_one("#data-view-table", DataTable)
+            await wait_until(pilot, lambda: data_table.row_count > 0)
+
+            await pilot.press("]")
+            await settle(pilot)
+            assert data_screen._stack.cursor == 1
+
+            await pilot.press("u")
+            await settle(pilot)
+            assert data_screen._stack.cursor == 0
+            assert data_screen._stack.can_redo
+
+    _run(_test())
+
+
+def test_data_view_redo_after_undo(catalog, entry_a, _mock_catalog_run):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+            await run_script(pilot, Press(("j",)), Press(("e",)))
+            await settle(pilot)
+            data_screen = app.screen
+            data_table = data_screen.query_one("#data-view-table", DataTable)
+            await wait_until(pilot, lambda: data_table.row_count > 0)
+
+            await pilot.press("]")
+            await settle(pilot)
+            await pilot.press("u")
+            await settle(pilot)
+            assert data_screen._stack.cursor == 0
+
+            await pilot.press("ctrl+r")
+            await settle(pilot)
+            assert data_screen._stack.cursor == 1
+
+    _run(_test())
+
+
+def test_data_view_navigation_keys_no_crash(catalog, entry_a, _mock_catalog_run):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+            await run_script(pilot, Press(("j",)), Press(("e",)))
+            await settle(pilot)
+            data_screen = app.screen
+            data_table = data_screen.query_one("#data-view-table", DataTable)
+            await wait_until(pilot, lambda: data_table.row_count > 0)
+
+            for key in ("j", "k", "h", "l"):
+                await pilot.press(key)
+                await settle(pilot)
+            assert isinstance(app.screen, DataViewScreen)
+
+    _run(_test())
+
+
+def test_data_view_scroll_top_and_bottom(catalog, entry_a, _mock_catalog_run):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+            await run_script(pilot, Press(("j",)), Press(("e",)))
+            await settle(pilot)
+            data_screen = app.screen
+            data_table = data_screen.query_one("#data-view-table", DataTable)
+            await wait_until(pilot, lambda: data_table.row_count > 0)
+
+            await pilot.press("g")
+            await settle(pilot)
+            assert data_table.cursor_row == 0
+
+            await pilot.press("shift+g")
+            await settle(pilot)
+            assert data_table.cursor_row == data_table.row_count - 1
+
+    _run(_test())
+
+
+def test_data_view_stack_browser_shows_step_content(
+    catalog, entry_a, _mock_catalog_run
+):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+            await run_script(pilot, Press(("j",)), Press(("e",)))
+            await settle(pilot)
+            data_screen = app.screen
+            data_table = data_screen.query_one("#data-view-table", DataTable)
+            await wait_until(pilot, lambda: data_table.row_count > 0)
+
+            await pilot.press("]")
+            await settle(pilot)
+
+            await pilot.press("s")
+            await settle(pilot)
+            panel = data_screen.query_one("#stack-browser-panel")
+            assert panel.display is True
+            content_widget = data_screen.query_one("#stack-browser-content", Static)
+            assert "order_by" in str(content_widget.content)
+
+    _run(_test())
+
+
+def test_data_view_freeform_submit_pushes_step(catalog, entry_a, _mock_catalog_run):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+            await run_script(pilot, Press(("j",)), Press(("e",)))
+            await settle(pilot)
+            data_screen = app.screen
+            data_table = data_screen.query_one("#data-view-table", DataTable)
+            await wait_until(pilot, lambda: data_table.row_count > 0)
+
+            await pilot.press(":")
+            await settle(pilot)
+            cmd = data_screen.query_one("#command-input")
+            cmd.value = 'source.select("id")'
+            await pilot.press("enter")
+            await settle(pilot)
+
+            assert data_screen._stack.cursor == 1
+            assert data_screen._stack.steps[0].verb == "freeform"
+
+    _run(_test())
+
+
+def test_data_view_persist_prompt_shows_after_step(catalog, entry_a, _mock_catalog_run):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+            await run_script(pilot, Press(("j",)), Press(("e",)))
+            await settle(pilot)
+            data_screen = app.screen
+            data_table = data_screen.query_one("#data-view-table", DataTable)
+            await wait_until(pilot, lambda: data_table.row_count > 0)
+
+            await pilot.press("]")
+            await settle(pilot)
+            assert data_screen._stack.cursor == 1
+
+            await pilot.press("w")
+            await settle(pilot)
+            cmd = data_screen.query_one("#command-input")
+            assert cmd.display is True
+            assert "save" in str(cmd.border_title).lower()
+
+    _run(_test())
+
+
+def test_data_view_load_error_shows_in_status(
+    catalog, entry_a, _mock_catalog_run_error
+):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+            await run_script(pilot, Press(("j",)), Press(("e",)))
+            await settle(pilot)
+            data_screen = app.screen
+            assert isinstance(data_screen, DataViewScreen)
+            status = data_screen.query_one("#data-view-status", Static)
+            await wait_until(pilot, lambda: "Error" in str(status.content))
+
+    _run(_test())

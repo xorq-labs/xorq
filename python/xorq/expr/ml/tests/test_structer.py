@@ -48,6 +48,7 @@ from xorq.expr.ml.structer import (  # noqa: E402
     KVEncoder,
     KVField,
     Structer,
+    _structer_from_maybe_kv_inputs,
     get_schema_out,
     get_structer_out,
 )
@@ -2911,3 +2912,34 @@ def test_kv_encoded_transformers_parity_kv_encoded_transformer_matches_sklearn(
 
     # Verify column names match sklearn's get_feature_names_out()
     assert sorted(xorq_df.columns) == sorted(sklearn_df.columns)
+
+
+# --- _structer_from_maybe_kv_inputs ----------------------------------------
+
+
+def test_structer_from_maybe_kv_inputs_no_kv_cols_returns_float_struct():
+    t = xo.table({"a": dt.float64, "b": dt.float64}, name="t")
+    structer = _structer_from_maybe_kv_inputs(t, features=("a", "b"))
+    assert not structer.is_kv_encoded
+    assert isinstance(structer.return_type, dt.Struct)
+    assert set(structer.return_type.names) == {"a", "b"}
+
+
+def test_structer_from_maybe_kv_inputs_kv_col_returns_kv_encoded():
+    t = xo.table({"enc": KV_ENCODED_TYPE, "a": dt.float64}, name="t")
+    structer = _structer_from_maybe_kv_inputs(t, features=("enc", "a"))
+    assert structer.is_kv_encoded
+
+
+def test_structer_from_maybe_kv_inputs_none_features_uses_all_columns():
+    t = xo.table({"x": dt.float64, "y": dt.float64}, name="t")
+    structer = _structer_from_maybe_kv_inputs(t, features=None)
+    assert set(structer.return_type.names) == {"x", "y"}
+
+
+def test_structer_from_maybe_kv_inputs_subset_features_ignores_other_kv_cols():
+    # enc is KV but not in features — should see no kv_cols → float struct
+    t = xo.table({"a": dt.float64, "enc": KV_ENCODED_TYPE}, name="t")
+    structer = _structer_from_maybe_kv_inputs(t, features=("a",))
+    assert not structer.is_kv_encoded
+    assert set(structer.return_type.names) == {"a"}
