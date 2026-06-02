@@ -981,7 +981,13 @@ class Catalog:
 
     @classmethod
     def from_name(
-        cls, name, init=None, check_consistency=True, annex=None, **remote_kwargs
+        cls,
+        name,
+        init=None,
+        check_consistency=True,
+        annex=None,
+        content_store=None,
+        **remote_kwargs,
     ):
         repo_path = cls.name_to_repo_path(name)
         return cls.from_repo_path(
@@ -989,6 +995,7 @@ class Catalog:
             init=init,
             check_consistency=check_consistency,
             annex=annex,
+            content_store=content_store,
             **remote_kwargs,
         )
 
