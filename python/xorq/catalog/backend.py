@@ -47,6 +47,9 @@ class CatalogBackend(abc.ABC):
     def entry_tracked_path(self, catalog_path):
         return Path(catalog_path)
 
+    def repo_config_paths(self):
+        return ()
+
 
 @frozen
 class GitBackend(CatalogBackend):
@@ -241,6 +244,11 @@ class GitPointerBackend(CatalogBackend):
 
     def entry_tracked_path(self, catalog_path):
         return self._pointer_path(catalog_path)
+
+    def repo_config_paths(self):
+        from xorq.catalog.constants import CONTENT_STORE_YAML  # noqa: PLC0415
+
+        return (".gitignore", CONTENT_STORE_YAML)
 
     @classmethod
     def from_config(cls, repo, config, cache=None):

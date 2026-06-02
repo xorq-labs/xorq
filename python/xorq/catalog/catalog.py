@@ -777,17 +777,9 @@ class Catalog:
 
         # everything else in repo is either catalog_path or metadata_path from an entry the catalog_yaml knows about, or an alias symlink
         actual = sorted(el for el in path_strings if el != catalog_yaml_relpath_string)
-        # pointer catalogs commit .gitignore and content_store.yaml, which are
-        # not catalog entries; exclude them only for the pointer backend so the
-        # check stays strict for git/annex catalogs.
-        if isinstance(self.backend, GitPointerBackend):
-            gitignore_relpath = ".gitignore"
-            content_store_relpath = CONTENT_STORE_YAML
-            actual = sorted(
-                el
-                for el in actual
-                if el not in (gitignore_relpath, content_store_relpath)
-            )
+        config_paths = set(self.backend.repo_config_paths())
+        if config_paths:
+            actual = sorted(el for el in actual if el not in config_paths)
         expected = sorted(
             (
                 *(
