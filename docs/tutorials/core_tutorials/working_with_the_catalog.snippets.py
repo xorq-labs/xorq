@@ -1,11 +1,12 @@
 """Code samples adapted from docs/tutorials/core_tutorials/working_with_the_catalog.qmd.
 
 The tutorial drives the publish / clone / pull loop from the ``xorq`` CLI
-(`xorq uv build`, `xorq uv run`, `xorq catalog ...`) rather than the Python
-API. This smoke test mirrors that flow: each shell snippet in the tutorial
-becomes a ``subprocess.run([...])`` call here. Python only re-appears where
-the tutorial uses it — recovering the BSL ``SemanticModel`` via
-``from_tagged`` and rebinding the entry to a SQLite profile.
+(`xorq uv build`, `xorq catalog ...`) rather than the Python API. This smoke
+test mirrors that flow: each CLI step in the tutorial becomes a
+``subprocess.run([...])`` call here. Python only re-appears where the tutorial
+uses it — recovering the BSL ``SemanticModel`` via ``from_tagged`` and
+rebinding the entry to a SQLite profile. The GitHub-only steps (the PR UI,
+``gh``) have no runnable equivalent and are left to the prose.
 
 Without a real GitHub remote we stand in a local *bare* git repository to
 play the role of the GitHub-hosted origin: User A pushes to the bare repo,
@@ -148,7 +149,7 @@ def _latest_build(builds_dir):
 try:
     # %% --- Define and build the model (User A)
     (_USER_A_PROJ / "flights_model.py").write_text(_FLIGHTS_MODEL_PY)
-    _run(
+    _stdout_a = _run(
         [
             _XORQ,
             "uv",
@@ -162,6 +163,13 @@ try:
         cwd=_USER_A_PROJ,
     )
     _build_a = _latest_build(_USER_A_PROJ / "builds")
+    # The tutorial recovers the build dir via `... | tail -1`, so the last
+    # stdout line must be that path. Assert it here, not just the mtime sort,
+    # so the documented contract breaks the test if stdout gets polluted.
+    _last_a = _stdout_a.strip().splitlines()[-1]
+    assert (_USER_A_PROJ / _last_a).resolve() == _build_a.resolve(), (
+        f"last stdout line {_last_a!r} != build dir {_build_a}"
+    )
 
     # %% --- Initialize catalog and add the entry (User A)
     _run([_XORQ, "catalog", "--path", str(_CATALOG_A), "init"])
@@ -189,6 +197,9 @@ try:
         [_XORQ, "catalog", "--path", str(_CATALOG_A), "set-remote", str(_BARE)],
     )
     _run(["git", "push", "-u", "origin", "main"], cwd=_CATALOG_A)
+    # `git push -u` already transferred everything, so this exercises command +
+    # remote resolution + exit status, not a delta. Transfer-with-a-delta is
+    # covered by User B's `git push` of the feature branch and User A's `pull`.
     _run([_XORQ, "catalog", "--path", str(_CATALOG_A), "push"])
 
     # %% --- Clone the catalog (User B)
@@ -228,7 +239,7 @@ try:
     # %% --- Propose a change (User B): branch, build, add with --no-sync
     _run(["git", "checkout", "-b", "add-aa-only-model"], cwd=_CATALOG_B)
     (_USER_B_PROJ / "aa_flights_model.py").write_text(_AA_FLIGHTS_MODEL_PY)
-    _run(
+    _stdout_b = _run(
         [
             _XORQ,
             "uv",
@@ -242,6 +253,10 @@ try:
         cwd=_USER_B_PROJ,
     )
     _build_b = _latest_build(_USER_B_PROJ / "builds")
+    _last_b = _stdout_b.strip().splitlines()[-1]
+    assert (_USER_B_PROJ / _last_b).resolve() == _build_b.resolve(), (
+        f"last stdout line {_last_b!r} != build dir {_build_b}"
+    )
     _run(
         [
             _XORQ,

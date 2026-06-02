@@ -301,7 +301,7 @@ That commits a new entry on the `add-aa-only-model` branch in your clone—`--no
 
 ::: {.callout-note}
 ### `--no-sync`
-Passing `--no-sync` skips the git-annex sync after the add—it commits to the working branch but doesn't reach out to the remote. You'll push the branch yourself in the next step, after reviewing the diff.
+By default `xorq catalog add` pulls then pushes the catalog's git remote after committing; `--no-sync` skips that, leaving the new commit purely local. The default is harmless when no remote is configured yet (User A's first `add` earlier had nothing to pull or push), but User B's clone *does* have an `origin`—so `--no-sync` is what keeps the entry on the local feature branch until you push it yourself in the next step, after reviewing the diff.
 :::
 
 Push the feature branch and open the PR:
@@ -310,8 +310,9 @@ Push the feature branch and open the PR:
 
 ### GitHub
 ```bash
-git -C ~/work/flights-catalog-userb log --oneline -3      # confirm: "add: <hash> (aliases flights-aa-only)"
-git -C ~/work/flights-catalog-userb push -u origin add-aa-only-model
+cd ~/work/flights-catalog-userb
+git log --oneline -3      # confirm: "add: <hash> (aliases flights-aa-only)"
+git push -u origin add-aa-only-model
 gh pr create --title "Add AA-only flights model" --body "Adds an AA-filtered view of the flights model under alias flights-aa-only."
 ```
 
