@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pathlib
 import sys
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from xorq.common.utils.env_utils import (
     EnvConfigable,
@@ -13,6 +13,10 @@ from xorq.vendor import ibis
 from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.config import Config
 from xorq.vendor.ibis.config import Options as IbisOptions
+
+
+if TYPE_CHECKING:
+    from pins.boards import BaseBoard
 
 
 env_config = EnvConfigable.subclass_from_env_file(
@@ -133,7 +137,20 @@ class Pins(Config):
         "token": "anon",
     }
 
-    def get_board(self, **kwargs):
+    def get_board(self, **kwargs: Any) -> BaseBoard:
+        """Construct a pins board from the configured protocol, path, and storage options.
+
+        Parameters
+        ----------
+        **kwargs
+            Overrides merged on top of the configured ``protocol``, ``path``,
+            and ``storage_options`` before being passed to ``pins.board``.
+
+        Returns
+        -------
+        BaseBoard
+            A pins board rooted at the configured location.
+        """
         import pins  # noqa: PLC0415
 
         _kwargs = {
@@ -146,7 +163,43 @@ class Pins(Config):
         }
         return pins.board(**_kwargs)
 
-    def get_path(self, name, board=None, **kwargs):
+    def get_path(self, name: str, board: BaseBoard | None = None, **kwargs: Any) -> str:
+        """Download a single-file pin and return its local cache path.
+
+        Acquires a cross-process file lock keyed by ``name`` (under the system
+        temp dir) so concurrent downloads -- for example under pytest-xdist --
+        don't corrupt the shared pins cache.
+
+        Parameters
+        ----------
+        name
+            Name of the pin to download.
+        board
+            Pin board to download from. When `None`, the default board from
+            `get_board` (the configured ``protocol``/``path``) is used.
+        **kwargs
+            Forwarded to ``board.pin_download`` -- notably ``version`` and
+            ``hash`` to pin a specific revision.
+
+        Returns
+        -------
+        str
+            Local filesystem path to the downloaded file.
+
+        Raises
+        ------
+        ValueError
+            If the pin does not resolve to exactly one file. The single-element
+            unpacking ``(path,) = board.pin_download(...)`` fails when
+            ``pin_download`` returns zero or multiple paths.
+        filelock.Timeout
+            If the per-pin lock cannot be acquired within 120 seconds because
+            another process is downloading the same pin.
+        Exception
+            Errors from ``board.pin_download`` propagate unchanged: a missing
+            pin or version, and network or filesystem failures while fetching
+            from remote storage. None are caught here.
+        """
         import tempfile  # noqa: PLC0415
 
         from filelock import FileLock  # noqa: PLC0415

@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from rich.console import Console, RenderableType
 
     import xorq.vendor.ibis.expr.types as ir
+    from xorq.caching import Cache
     from xorq.common.utils.caching_utils import CacheKey
     from xorq.common.utils.lineage_utils import LineageDAG
     from xorq.vendor.ibis import Schema
@@ -404,7 +405,7 @@ class Expr(Immutable, Coercible):
             case _:
                 raise XorqError("Multiple backends found for this expression")
 
-    def into_backend(self, con, name=None):
+    def into_backend(self, con: BaseBackend, name: str | None = None) -> ir.Table:
         """
         Converts the Expr to a table in the given backend `con` with an optional table name `name`.
 
@@ -417,6 +418,12 @@ class Expr(Immutable, Coercible):
             The backend where the table should be created
         name
             The name of the table
+
+        Returns
+        -------
+        ir.Table
+            A table expression in `con` backed by a teed PyArrow
+            RecordBatchReader over this expression's data.
 
         Examples
         -------
@@ -679,7 +686,14 @@ class Expr(Immutable, Coercible):
         )
 
     @property
-    def ls(self):
+    def ls(self) -> LETSQLAccessor:
+        """xorq (LETSQL) accessor for inspecting kind, backends, and cache state.
+
+        Returns
+        -------
+        LETSQLAccessor
+            Accessor bound to this expression's underlying op.
+        """
         return LETSQLAccessor(self.op())
 
 
@@ -997,7 +1011,16 @@ class LETSQLAccessor:
         return self.op.to_expr()
 
     @cached_property
-    def metadata(self):
+    def metadata(self) -> ExprMetadata:
+        """Metadata describing this expression's kind and input/output schemas.
+
+        Returns
+        -------
+        ExprMetadata
+            The expression's `kind`, `schema_in`, and `schema_out`. Computed
+            by walking the operation graph and cached on first access, so it
+            reflects the expression as it stands when first read.
+        """
         return ExprMetadata.from_expr(self.expr)
 
     @cached_property
@@ -1012,6 +1035,13 @@ class LETSQLAccessor:
 
     @property
     def kind(self) -> ExprKind:
+        """Classification of the expression: `Source`, `Expr`, or `UnboundExpr`.
+
+        Returns
+        -------
+        ExprKind
+            The kind of this expression.
+        """
         return self.metadata.kind
 
     @property
@@ -1023,7 +1053,14 @@ class LETSQLAccessor:
         return self.metadata.composed_from
 
     @property
-    def cached_nodes(self):
+    def cached_nodes(self) -> tuple:
+        """All `CachedNode` operations in the expression graph.
+
+        Returns
+        -------
+        tuple
+            Every `CachedNode` in the graph, outermost first.
+        """
         from xorq.common.utils.graph_utils import walk_nodes
         from xorq.expr.relations import (
             CachedNode,
@@ -1044,7 +1081,15 @@ class LETSQLAccessor:
         )
 
     @property
-    def cache(self):
+    def cache(self) -> Cache | None:
+        """Cache object attached to the root op when it is a `CachedNode`.
+
+        Returns
+        -------
+        Cache or None
+            The cache attached to the root `CachedNode`, or `None` when the
+            expression is not cached.
+        """
         if self.is_cached:
             return self.op.cache
         else:
@@ -1055,7 +1100,14 @@ class LETSQLAccessor:
         return tuple(node.cache for node in self.cached_nodes)
 
     @property
-    def backends(self):
+    def backends(self) -> tuple:
+        """All distinct backend connections referenced in the graph.
+
+        Returns
+        -------
+        tuple
+            The distinct backends found in the expression graph.
+        """
         from xorq.common.utils.graph_utils import (
             find_all_sources,
         )
@@ -1063,8 +1115,24 @@ class LETSQLAccessor:
         return find_all_sources(self.expr)
 
     @property
-    def is_multiengine(self):
-        (_, *rest) = set(self.backends)
+    def is_multiengine(self) -> bool:
+        """Whether the expression spans more than one backend.
+
+        Returns
+        -------
+        bool
+            `True` if the expression references more than one backend.
+
+        Notes
+        -----
+        Expressions with no backend -- an in-memory `memtable` or a purely
+        unbound expression -- return `False`: zero backends is not more than
+        one.
+        """
+        backends = set(self.backends)
+        if not backends:
+            return False
+        (_, *rest) = backends
         return bool(rest)
 
     @property
@@ -1087,7 +1155,14 @@ class LETSQLAccessor:
         )
 
     @property
-    def is_cached(self):
+    def is_cached(self) -> bool:
+        """Whether the root op is a `CachedNode`.
+
+        Returns
+        -------
+        bool
+            `True` if this expression caches its result at the root.
+        """
         from xorq.expr.relations import (
             CachedNode,
         )
@@ -1095,12 +1170,25 @@ class LETSQLAccessor:
         return isinstance(self.op, CachedNode)
 
     @property
-    def has_cached(self):
+    def has_cached(self) -> bool:
+        """Whether any `CachedNode` exists anywhere in the graph.
+
+        Returns
+        -------
+        bool
+            `True` if the graph contains at least one `CachedNode`.
+        """
         return bool(self.cached_nodes)
 
     @cached_property
-    def unwrapped(self):
-        """Unwrap Tag and HashingTag layers to get the underlying op."""
+    def unwrapped(self) -> ops.Node:
+        """Underlying op with `Tag` and `HashingTag` layers stripped.
+
+        Returns
+        -------
+        ops.Node
+            The wrapped operation with any tag layers removed.
+        """
         from xorq.expr.relations import HashingTag, Tag
 
         root = self.op
@@ -1125,7 +1213,15 @@ class LETSQLAccessor:
         return fuse_catalog_source(self.expr)
 
     @property
-    def uncached(self):
+    def uncached(self) -> ir.Expr:
+        """Equivalent expression with every cache node removed.
+
+        Returns
+        -------
+        ir.Expr
+            The expression with all `CachedNode` layers stripped. Returned
+            unchanged when the graph has no cache nodes.
+        """
         from xorq.expr.relations import CachedNode, RemoteTable, replace_cache_table
 
         if self.has_cached:
@@ -1150,7 +1246,20 @@ class LETSQLAccessor:
             return self.expr
 
     @property
-    def tokenized(self):
+    def tokenized(self) -> str:
+        """Content hash of the expression.
+
+        Returns
+        -------
+        str
+            A stable token derived from the expression graph.
+
+        Notes
+        -----
+        Deliberately not cached: the hash can depend on external state (file
+        contents or source-table data), so caching it could mask changes that
+        happen within the same process run.
+        """
         from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
 
         # NOTE: this should almost certainly not be functools.cache'd: it can obscure filesystem / source table changes within the same process run
@@ -1179,7 +1288,7 @@ class LETSQLAccessor:
 
     @property
     def cached_dt(self):
-        if self.exists():
+        if self.cache_exists():
             return self.cache.get(self.uncached_one)
         else:
             return None
@@ -1191,18 +1300,40 @@ class LETSQLAccessor:
             return None
 
     def get_keys(self):
-        if self.has_cached and self.cached_nodes[0].to_expr().ls.exists():
+        if self.has_cached and self.cached_nodes[0].to_expr().ls.cache_exists():
             # FIXME: yield cache with key
             return tuple(op.to_expr().ls.get_key() for op in self.cached_nodes)
         else:
             return None
 
-    def exists(self):
+    def cache_exists(self) -> bool | None:
+        """Whether this expression's cache has already been materialized.
+
+        Returns
+        -------
+        bool or None
+            `True` or `False` when the expression is cached, reflecting
+            whether the cached result exists in storage. `None` when the
+            expression is not cached -- callers cannot distinguish "not
+            cached" from a cache miss without also checking `is_cached`.
+
+        Raises
+        ------
+        Exception
+            Propagates any error raised by the cache storage while probing
+            for the key (filesystem or database access inside
+            `cache.exists()`); none are caught here.
+        """
         if self.is_cached:
             cn = self.op
             return cn.cache.exists(cn.parent)
         else:
             return None
+
+    @deprecated(instead="use cache_exists instead")
+    def exists(self) -> bool | None:
+        """Deprecated - use `cache_exists` instead."""
+        return self.cache_exists()
 
     @property
     def pipelines(self):

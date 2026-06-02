@@ -85,6 +85,7 @@ website:
           contents:
             - concepts/understanding_xorq/why_deferred_execution.qmd
             - concepts/understanding_xorq/expression_format.qmd
+            - concepts/understanding_xorq/expression_types.qmd
         - id: execution-backends-section
           section: "Execution and backends"
           contents:
@@ -95,6 +96,7 @@ website:
           section: "Advanced capabilities"
           contents:
             - concepts/core_concepts/user_defined_exchange_functions.qmd
+            - concepts/core_concepts/pins.qmd
 
     - id: reference
       title: "Overview"

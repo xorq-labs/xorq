@@ -77,6 +77,12 @@ def test_is_multiengine(duck_batting_raw, cached_two, cached_two_joined):
     assert cached_two_joined.ls.is_multiengine
 
 
+def test_is_multiengine_no_backend():
+    # zero-backend expressions (memtable / unbound) are not multi-engine
+    assert not xo.memtable({"a": [1, 2, 3]}).ls.is_multiengine
+    assert not xo.table(schema={"a": "int64"}).ls.is_multiengine
+
+
 @pytest.mark.postgres
 def test_dts(cached_two, cached_two_joined):
     dts = cached_two.ls.dts
@@ -120,16 +126,16 @@ def test_uncached_one(cached_two):
 def test_exists(cached_two):
     cache = cached_two.ls.cache
 
-    assert not cached_two.ls.exists()
+    assert not cached_two.ls.cache_exists()
     assert not tuple(cache.storage.path.iterdir())
 
     xo.execute(cached_two)
-    assert cached_two.ls.exists()
+    assert cached_two.ls.cache_exists()
     assert len(tuple(cache.storage.path.iterdir())) == 1
 
     (path,) = cache.storage.path.iterdir()
     path.unlink()
-    assert not cached_two.ls.exists()
+    assert not cached_two.ls.cache_exists()
 
 
 def test_cache_properties(parquet_dir, tmp_path):
@@ -167,9 +173,9 @@ def test_cache_properties(parquet_dir, tmp_path):
         p.unlink()
     assert all(
         (
-            psn0.to_expr().ls.exists(),
-            not psn1.to_expr().ls.exists(),
-            not psn2.to_expr().ls.exists(),
+            psn0.to_expr().ls.cache_exists(),
+            not psn1.to_expr().ls.cache_exists(),
+            not psn2.to_expr().ls.cache_exists(),
         )
     )
 

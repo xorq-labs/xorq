@@ -25,15 +25,15 @@ def test_source_caching(name, pg, parquet_dir):
     con = xo.connect()
     example = xo.deferred_read_parquet(parquet_dir / f"{name}.parquet", con)
     expr = example.cache(cache=SourceCache.from_kwargs(source=pg))
-    assert not expr.ls.exists()
+    assert not expr.ls.cache_exists()
     actual = expr.execute()
     expected = example.execute()
     cached = pg.table(expr.ls.get_key()).execute()
     assert actual.equals(expected)
     assert actual.equals(cached)
-    assert expr.ls.exists()
+    assert expr.ls.cache_exists()
     pg.drop_table(expr.ls.get_key())
-    assert not expr.ls.exists()
+    assert not expr.ls.cache_exists()
 
 
 def test_postgres_cache_invalidation(pg, con):

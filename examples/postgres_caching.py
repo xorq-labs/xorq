@@ -29,8 +29,8 @@ expr = (
 
 
 if __name__ == "__pytest_main__":
-    print(f"{expr.ls.get_key()} exists?: {expr.ls.exists()}")
+    print(f"{expr.ls.get_key()} exists?: {expr.ls.cache_exists()}")
     res = xo.execute(expr)
     print(res)
-    print(f"{expr.ls.get_key()} exists?: {expr.ls.exists()}")
+    print(f"{expr.ls.get_key()} exists?: {expr.ls.cache_exists()}")
     pytest_examples_passed = True

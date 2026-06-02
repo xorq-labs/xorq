@@ -26,11 +26,11 @@ expr = xo.deferred_read_csv(
 
 
 if __name__ == "__pytest_main__":
-    assert not expr.ls.exists()
+    assert not expr.ls.cache_exists()
     df = expr.execute()
-    assert expr.ls.exists()
+    assert expr.ls.cache_exists()
     listing = cache.cache.cache.fs.ls(cache.get_path(expr), detail=True)
     print(listing)
     cache.cache.drop(expr)
-    assert not expr.ls.exists()
+    assert not expr.ls.cache_exists()
     pytest_examples_passed = True

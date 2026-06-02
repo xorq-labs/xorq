@@ -190,7 +190,7 @@ def test_cache_recreate(alltypes):
     exprs = tuple(make_expr(t) for t in ts)
 
     for con, expr in zip(cons, exprs):
-        # FIXME: execute one, simply check the other returns true for `expr.ls.exists()`
+        # FIXME: execute one, simply check the other returns true for `expr.ls.cache_exists()`
         expr.cache(cache=SourceCache.from_kwargs(source=con)).execute()
 
     (con_cached_tables0, con_cached_tables1) = (
@@ -451,14 +451,14 @@ def test_udaf_caching(ls_con, alltypes_df, snapshot):
         .cache()
     )
     on_expr = t.group_by(by).agg(**{name: agg_udf.on_expr(t)}).order_by(by).cache()
-    assert not expr.ls.exists()
-    assert not on_expr.ls.exists()
+    assert not expr.ls.cache_exists()
+    assert not on_expr.ls.cache_exists()
 
     from_ls = expr.execute().sort_values(by="bool_col")
     assert_frame_equal(from_ls, from_pandas.sort_values(by="bool_col"))
     assert_frame_equal(from_ls, on_expr.execute().sort_values(by="bool_col"))
-    assert expr.ls.exists()
-    assert on_expr.ls.exists()
+    assert expr.ls.cache_exists()
+    assert on_expr.ls.cache_exists()
 
     py_version = f"py{get_python_version_no_dot()}"
     snapshot.assert_match(expr.ls.get_key(), f"{py_version}_test_udaf_caching.txt")
@@ -469,19 +469,19 @@ def test_cache_exists_doesnt_materialize(cached_two):
     cache = cached_two.ls.cache
     assert not cache.exists(cached_two)
     assert not cache.exists(cached_two)
-    assert not cached_two.ls.exists()
+    assert not cached_two.ls.cache_exists()
     cached_two.count().execute()
-    assert cached_two.ls.exists()
+    assert cached_two.ls.cache_exists()
     assert cache.exists(cached_two)
 
 
-def test_ls_exists_doesnt_materialize(cached_two):
+def test_ls_cache_exists_doesnt_materialize(cached_two):
     cache = cached_two.ls.cache
-    assert not cached_two.ls.exists()
-    assert not cached_two.ls.exists()
+    assert not cached_two.ls.cache_exists()
+    assert not cached_two.ls.cache_exists()
     assert not cache.exists(cached_two)
     cached_two.count().execute()
-    assert cached_two.ls.exists()
+    assert cached_two.ls.cache_exists()
     assert cache.exists(cached_two)
 
 
@@ -517,13 +517,13 @@ def test_parquet_ttl_snapshot_cache(ls_con, batting, tmp_path):
         path=path,
         con=ls_con,
     ).cache(cache=cache)
-    assert not expr.ls.exists()
+    assert not expr.ls.cache_exists()
     m = expr.count().execute()
-    assert expr.ls.exists()
+    assert expr.ls.cache_exists()
     path.write_bytes(n_rows_path.read_bytes())
-    assert expr.ls.exists()
+    assert expr.ls.cache_exists()
     assert expr.count().execute() == m
     assert ls_con.read_parquet(path).count().execute() == n_rows
     time.sleep(seconds)
-    assert not expr.ls.exists()
+    assert not expr.ls.cache_exists()
     assert expr.count().execute() == n_rows
