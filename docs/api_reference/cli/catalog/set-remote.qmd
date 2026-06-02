@@ -4,7 +4,7 @@ title: 'catalog set-remote'
 
 Configure the active catalog's git remote.
 
-A catalog supports at most one git remote ([ADR-0011](/adr/0011-catalog-single-git-remote.md)).
+A catalog supports at most one git remote.
 If none is configured, `set-remote` sets one. If a remote already exists, the
 command refuses unless `--force` is passed — guarding against a typo silently
 replacing the configured remote.

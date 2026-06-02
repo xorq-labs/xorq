@@ -18,7 +18,7 @@ xorq uv run <build_path> [options]
 
 | Option | Default | Description |
 |---|---|---|
-| `-o`, `--output-path` | stdout (with `-`) | Output path. |
+| `-o`, `--output-path` | `/dev/null` (discard) | Output path. Use `-` for stdout. |
 | `-f`, `--format` | `parquet` | Output format. One of `csv`, `json`, `parquet`, `arrow`. |
 | `--cache-dir` | `$XORQ_CACHE_DIR` or `~/.cache/xorq` | Directory for parquet cache files. |
 

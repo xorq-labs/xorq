@@ -73,6 +73,7 @@ optional object-store backed annex for content.
 | [`catalog compose`](catalog/compose.qmd) | Compose entries into a new expression and persist it back to the catalog. |
 | [`catalog run`](catalog/run.qmd) | Execute one or more entries and write results. |
 | [`catalog run-cached`](catalog/run-cached.qmd) | `catalog run` with a parquet cache wrapper. |
+| [`catalog serve-unbound`](catalog/serve-unbound.qmd) | Resolve an entry, unbind a node, and serve it as an Arrow Flight endpoint. |
 
 ### Sync, audit, replay
 

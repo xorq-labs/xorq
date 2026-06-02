@@ -21,8 +21,8 @@ xorq run-unbound <build_path> [OPTIONS] < input.arrow
 
 | Option | Default | Description |
 |---|---|---|
-| `--to_unbind_hash` | inferred | Hash of the node to replace with the streamed input. |
-| `--to_unbind_tag` | inferred | Tag of the node to replace (alternative to `--to_unbind_hash`). |
+| `--to-unbind-hash` | inferred | Hash of the node to replace with the streamed input. |
+| `--to-unbind-tag` | inferred | Tag of the node to replace (alternative to `--to-unbind-hash`). |
 | `--typ` | none | Type of the node to unbind. |
 | `-i`, `--instream` | stdin | File to read Arrow IPC record batches from. |
 | `-o`, `--output-path` | stdout (arrow) / discard (other) | Path to write output. |
@@ -36,7 +36,7 @@ xorq run-unbound <build_path> [OPTIONS] < input.arrow
 Stream input from a file:
 ```bash
 xorq run-unbound builds/transform \
-    --to_unbind_tag source_input \
+    --to-unbind-tag source_input \
     -i ./input.arrow \
     -o results.parquet
 ```
@@ -45,7 +45,7 @@ Pipe Arrow output from one expression directly into another:
 ```bash
 xorq run builds/source -o - -f arrow \
   | xorq run-unbound builds/transform \
-        --to_unbind_tag source_input \
+        --to-unbind-tag source_input \
         -o results.parquet
 ```
 
