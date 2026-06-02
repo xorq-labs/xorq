@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.3.28] - 2026-06-02
+### Details
+#### Added
+- Add documentation linter script by @mesejo in [#2011](https://github.com/xorq-labs/xorq/pull/2011)
+
+#### Changed
+- Drop unneeded duckdb extra from tutorial by @paddymul in [#1980](https://github.com/xorq-labs/xorq/pull/1980)
+- Update GitHub Actions to node24 runtime by @mesejo in [#2001](https://github.com/xorq-labs/xorq/pull/2001)
+- Move geoarrow-types to geospatial extra, drop envyaml/pythran by @mesejo in [#1964](https://github.com/xorq-labs/xorq/pull/1964)
+- Bump xorq-style to ~=0.1.3 by @dlovell in [#2009](https://github.com/xorq-labs/xorq/pull/2009)
+- Updates xorq_templates_hash by @mesejo in [#1978](https://github.com/xorq-labs/xorq/pull/1978)
+
+#### Fixed
+- Hyphenate unbind options and improve test quality by @dlovell in [#1994](https://github.com/xorq-labs/xorq/pull/1994)
+- Probe inner xorq for hyphenated unbind flags by @dlovell in [#2006](https://github.com/xorq-labs/xorq/pull/2006)
+- Build emit path file by @hussainsultan in [#1999](https://github.com/xorq-labs/xorq/pull/1999)
+- Install per-call dasher memos in normalization_context by @dlovell in [#2014](https://github.com/xorq-labs/xorq/pull/2014)
+- Use wheel on darwin by @hussainsultan in [#2013](https://github.com/xorq-labs/xorq/pull/2013)
+
 ## [0.3.27] - 2026-05-26
 ### Details
 #### Added
