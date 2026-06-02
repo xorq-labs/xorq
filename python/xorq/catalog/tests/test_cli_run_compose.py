@@ -886,7 +886,50 @@ def test_catalog_compose_reinvokes_via_uv(
     assert captured["merge_bundle"] is not None
     assert len(captured["merge_bundle"].wheel_paths) > 0
     assert captured["add_build_path"] == pre_built
+    assert captured["add_sync"] is True
     assert captured["add_aliases"] == ("outer-alias",)
+
+
+def test_catalog_compose_no_sync(
+    catalog_with_source_and_transform, monkeypatch, tmp_path
+):
+    """--no-sync must propagate sync=False to catalog.add."""
+    pre_built = tmp_path / "fake-build"
+    pre_built.mkdir()
+    (pre_built / DumpFiles.expr).write_text("# placeholder\n")
+    (pre_built / DumpFiles.requirements).write_text("")
+
+    captured = {}
+
+    def _write_build_path(*args, **kwargs):
+        idx = args.index("--emit-build-path-to")
+        Path(args[idx + 1]).write_text(str(pre_built))
+
+    monkeypatch.setattr(
+        "xorq.ibis_yaml.packager.uv_tool_run",
+        _fake_uv_tool_run(captured, side_effect=_write_build_path),
+    )
+    monkeypatch.setattr(cli_mod, "_compose_expr", _must_not_call("_compose_expr"))
+
+    def spy_stage(bundle, build_path):
+        captured["merge_build_path"] = build_path
+        captured["merge_bundle"] = bundle
+
+    def spy_add(self, build_path, sync=True, aliases=(), exist_ok=False):
+        captured["add_sync"] = sync
+        return MagicMock(name="catalog_entry")
+
+    monkeypatch.setattr(cli_mod, "_stage_bundle_into_build", spy_stage)
+    monkeypatch.setattr(Catalog, "add", spy_add)
+
+    catalog_path, _, _ = catalog_with_source_and_transform
+    bare = CliRunner()
+    result = bare.invoke(
+        cli,
+        ["--path", catalog_path, "compose", "--no-sync", "src", "trn"],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["add_sync"] is False
 
 
 def test_catalog_compose_dry_run_relays_inner_stdout(
