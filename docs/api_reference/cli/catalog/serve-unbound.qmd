@@ -7,38 +7,45 @@ service. Clients stream record batches to the server to drive the computation.
 
 This is the catalog-aware counterpart to the top-level
 [`serve-unbound`](../serve-unbound.qmd): instead of pointing at a build
-directory, you reference an entry by name or alias and xorq resolves it from the
+directory, you reference an entry by name or alias and Xorq resolves it from the
 active catalog.
 
 ## Usage
 
 ```bash
-xorq catalog serve-unbound ENTRY [OPTIONS]
+xorq catalog serve-unbound <entry> [OPTIONS]
 ```
 
-| Argument / Option | Description |
-|-------------------|-------------|
-| `ENTRY` | Catalog entry name or alias to serve (required). |
-| `--to-unbind-hash TEXT` | Hash of the node to unbind. |
-| `--to-unbind-tag TEXT` | Tag of the node to unbind. |
-| `--typ TEXT` | Type of the node to unbind. |
-| `--host TEXT` | Host to bind the Flight Server (default: `localhost`). |
-| `--port INTEGER` | Port to bind the Flight Server (default: random). |
-| `--prometheus-port INTEGER` | Port to expose Prometheus metrics (default: disabled). |
-| `-c, --code TEXT` | Inline Ibis code expression applied to `source`. |
-| `--fuse / --no-fuse` | Enable/disable catalog source fusion (default: enabled). |
-| `--rename-params TEXT` | Rename a parameter: `entry,old_name,new_name` (repeatable). |
-| `-p, --params TEXT` | Parameter as `key=value` (repeatable, for example, `--params threshold=0.5`). |
-| `--cache-dir TEXT` | Directory for generated parquet cache files. |
+## Arguments
 
-## Example
+- **`entry`**—Catalog entry name or alias to serve.
 
+## Options
+
+| Option | Default | Description |
+|---|---|---|
+| `--to-unbind-hash` | inferred | Hash of the node to unbind. |
+| `--to-unbind-tag` | inferred | Tag of the node to unbind (alternative to `--to-unbind-hash`). |
+| `--typ` | none | Type of the node to unbind. |
+| `--host` | `localhost` | Host to bind the Flight server. |
+| `--port` | random | Port to bind the Flight server. |
+| `--prometheus-port` | off | Port to expose Prometheus metrics. |
+| `-c`, `--code` | none | Inline Ibis expression applied to `source`. |
+| `--fuse` / `--no-fuse` | `--fuse` | Enable catalog source fusion. |
+| `--rename-params` | none | Rename a parameter on a specific entry. Format: `entry,old_name,new_name`. Repeatable. |
+| `-p`, `--params` | none | Override expression parameters. Format: `key=value`. Repeatable. |
+| `--cache-dir` | `$XORQ_CACHE_DIR` or `~/.cache/xorq` | Directory for parquet cache files. |
+
+## Examples
+
+Serve an aliased entry, unbinding by tag:
 ```bash
-# Serve an aliased entry, unbinding by tag
 xorq catalog serve-unbound flights-model --to-unbind-tag source_input \
   --host 0.0.0.0 --port 8001
+```
 
-# Bind a runtime parameter
+Bind a runtime parameter:
+```bash
 xorq catalog serve-unbound scorer --params threshold=0.5
 ```
 

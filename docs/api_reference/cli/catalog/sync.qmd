@@ -18,3 +18,8 @@ This command takes no command-specific options.
 ```bash
 xorq catalog sync
 ```
+
+## See also
+
+- [`catalog pull`](pull.qmd)—pull from remotes
+- [`catalog push`](push.qmd)—push to remotes

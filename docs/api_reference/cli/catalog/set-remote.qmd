@@ -12,14 +12,19 @@ replacing the configured remote.
 ## Usage
 
 ```bash
-xorq catalog set-remote URL [OPTIONS]
+xorq catalog set-remote <url> [OPTIONS]
 ```
 
-| Argument / Option | Description |
-|-------------------|-------------|
-| `URL` | Git remote URL to configure (required). |
-| `--name TEXT` | Remote name (defaults to `origin`). |
-| `--force` | Replace the existing remote (otherwise the command refuses to overwrite). |
+## Arguments
+
+- **`url`**—Git remote URL to configure.
+
+## Options
+
+| Option | Default | Description |
+|---|---|---|
+| `--name` | `origin` | Remote name. |
+| `--force` | off | Replace the existing remote (otherwise the command refuses to overwrite). |
 
 ## Example
 
