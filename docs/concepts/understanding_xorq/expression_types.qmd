@@ -16,13 +16,13 @@ Three of the kinds are **structural** --- they fall out of the shape of the expr
 | **Expr** | Bound data with transformations applied | No |
 | **UnboundExpr** | A template expression not tied to any backend | Yes |
 
-Two more are **tag-driven** --- they are recognized by domain-specific tags
+Two more are **tag-driven** --- they're recognized by domain-specific tags
 that higher-level tools (the ML pipeline API, the catalog, semantic layers)
 attach to the outermost node:
 
 | Kind | Meaning | Produced by |
 |------|---------|-------------|
-| **ExprBuilder** | Carries builder metadata that can recover a domain object (e.g. a fitted ML pipeline) | `xo.Pipeline` fit/predict, semantic-layer queries |
+| **ExprBuilder** | Carries builder metadata that can recover a domain object (for example, a fitted ML pipeline) | `xo.Pipeline` fit/predict, semantic-layer queries |
 | **Composed** | Carries a catalog tag, marking a reference to another catalog entry | `catalog add` / composition |
 
 You can inspect the kind of any expression using the `.ls` accessor:
