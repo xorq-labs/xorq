@@ -10,7 +10,7 @@ import yaml12
 from attr import field, frozen
 from attr.validators import instance_of, optional
 
-from xorq.common.utils.env_utils import getenv
+from xorq.common.utils.env_utils import EnvConfigable, env_templates_dir
 
 
 POINTER_VERSION = "xorq-pointer v1"
@@ -21,8 +21,8 @@ POINTER_VERSION = "xorq-pointer v1"
 _SAFE_CATALOG_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
-DEFAULT_CACHE_DIR = Path("~/.cache/xorq/content").expanduser()
-DEFAULT_CACHE_MAX_BYTES = 1 * 1024 * 1024 * 1024  # 1 GB
+_DEFAULT_CACHE_DIR = Path("~/.cache/xorq/content")
+_DEFAULT_CACHE_MAX_BYTES = 1 * 1024 * 1024 * 1024  # 1 GB
 
 
 def compute_sha256(path):
@@ -228,25 +228,23 @@ class ContentCache:
             path.unlink(missing_ok=True)
             total -= size
 
+    EnvConfig = EnvConfigable.subclass_from_env_file(
+        env_templates_dir.joinpath(".env.catalog.content_cache.template"),
+        prefix="XORQ_CONTENT_CACHE_",
+    )
+
     @classmethod
     def default(cls):
-        max_bytes = int(
-            getenv("XORQ_CONTENT_CACHE_MAX_BYTES", str(DEFAULT_CACHE_MAX_BYTES))
-        )
-        return cls(cache_dir=DEFAULT_CACHE_DIR, max_bytes=max_bytes)
+        env_config = cls.EnvConfig.from_env()
+        cache_dir = Path(env_config.dir or _DEFAULT_CACHE_DIR).expanduser()
+        max_bytes = int(env_config.max_bytes or _DEFAULT_CACHE_MAX_BYTES)
+        return cls(cache_dir=cache_dir, max_bytes=max_bytes)
 
 
 _CONTENT_STORE_CLASSES = {
     "directory": DirectoryContentStore,
     "s3": S3ContentStore,
 }
-
-_ENV_PREFIX = "XORQ_CONTENT_STORE_"
-
-_S3_ENV_FIELDS = (
-    "aws_access_key_id",
-    "aws_secret_access_key",
-)
 
 
 _RESERVED_CONFIG_KEYS = ("type", "catalog_id")
@@ -266,6 +264,11 @@ class ContentStoreConfig:
         validator=[instance_of(dict), _no_reserved_config_keys], factory=dict
     )
 
+    _S3EnvConfig = EnvConfigable.subclass_from_env_file(
+        env_templates_dir.joinpath(".env.catalog.content_store.s3.template"),
+        prefix="XORQ_CONTENT_STORE_",
+    )
+
     def to_dict(self):
         return {"type": self.type, "catalog_id": self.catalog_id, **self.config}
 
@@ -276,10 +279,13 @@ class ContentStoreConfig:
         store_cls = _CONTENT_STORE_CLASSES[self.type]
         kwargs = dict(self.config)
         if self.type == "s3":
-            for f in _S3_ENV_FIELDS:
-                env_val = getenv(f"{_ENV_PREFIX}{f.upper()}")
-                if env_val and f not in kwargs:
-                    kwargs[f] = env_val
+            env_config = self._S3EnvConfig.from_env()
+            env = {
+                a.name: getattr(env_config, a.name)
+                for a in env_config.__attrs_attrs__
+                if a.name != "env_file" and getattr(env_config, a.name)
+            }
+            kwargs = {**env, **kwargs}
         return store_cls(**kwargs)
 
     @classmethod
