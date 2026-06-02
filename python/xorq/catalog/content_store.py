@@ -1,4 +1,5 @@
 import abc
+import functools
 import hashlib
 import os
 import re
@@ -63,20 +64,16 @@ def parse_pointer(path):
 
 class ContentStore(abc.ABC):
     @abc.abstractmethod
-    def put(self, key, local_path):
-        ...
+    def put(self, key, local_path): ...
 
     @abc.abstractmethod
-    def get(self, key, local_path):
-        ...
+    def get(self, key, local_path): ...
 
     @abc.abstractmethod
-    def exists(self, key):
-        ...
+    def exists(self, key): ...
 
     @abc.abstractmethod
-    def delete(self, key):
-        ...
+    def delete(self, key): ...
 
 
 @frozen
@@ -131,7 +128,8 @@ class S3ContentStore(ContentStore):
             return f"{self.prefix.rstrip('/')}/{key}"
         return key
 
-    def _make_client(self):
+    @functools.cached_property
+    def _client(self):
         import boto3  # noqa: PLC0415
 
         kwargs = {}
@@ -148,18 +146,18 @@ class S3ContentStore(ContentStore):
         return boto3.client("s3", **kwargs)
 
     def put(self, key, local_path):
-        client = self._make_client()
+        client = self._client
         client.upload_file(str(local_path), self.bucket, self._s3_key(key))
 
     def get(self, key, local_path):
-        client = self._make_client()
+        client = self._client
         Path(local_path).parent.mkdir(parents=True, exist_ok=True)
         client.download_file(self.bucket, self._s3_key(key), str(local_path))
 
     def exists(self, key):
         from botocore.exceptions import ClientError  # noqa: PLC0415
 
-        client = self._make_client()
+        client = self._client
         try:
             client.head_object(Bucket=self.bucket, Key=self._s3_key(key))
             return True
@@ -169,7 +167,7 @@ class S3ContentStore(ContentStore):
             raise
 
     def delete(self, key):
-        client = self._make_client()
+        client = self._client
         client.delete_object(Bucket=self.bucket, Key=self._s3_key(key))
 
 
@@ -255,9 +253,7 @@ _RESERVED_CONFIG_KEYS = ("type", "catalog_id")
 def _no_reserved_config_keys(instance, attribute, value):
     bad = [k for k in _RESERVED_CONFIG_KEYS if k in value]
     if bad:
-        raise ValueError(
-            f"content_store config must not contain reserved keys: {bad}"
-        )
+        raise ValueError(f"content_store config must not contain reserved keys: {bad}")
 
 
 @frozen
