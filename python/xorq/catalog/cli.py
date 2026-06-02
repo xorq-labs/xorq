@@ -479,8 +479,14 @@ def set_remote(ctx, url, name, force):
     type=click.Path(),
     help="Destination repo path.",
 )
+@click.option(
+    "--depth",
+    default=None,
+    type=int,
+    help="Create a shallow clone with history truncated to <depth> commits.",
+)
 @click.pass_context
-def clone(ctx, url, dest_name, dest_path):
+def clone(ctx, url, dest_name, dest_path, depth):
     """Clone a catalog from a remote URL."""
     from xorq.catalog.catalog import Catalog  # noqa: PLC0415
 
@@ -494,7 +500,7 @@ def clone(ctx, url, dest_name, dest_path):
                 repo_path = Catalog.name_to_repo_path(dest_name)
             case (_, _):
                 raise click.UsageError("--name and --path are mutually exclusive.")
-        catalog = Catalog.clone_from(url, repo_path)
+        catalog = Catalog.clone_from(url, repo_path, depth=depth)
         click.echo(f"Cloned to {catalog.repo_path}")
 
 
