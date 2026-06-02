@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780403999490,
+  "lastUpdate": 1780406803730,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -15963,6 +15963,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.005397005174010826",
             "extra": "mean: 23.98602731111244 msec\nrounds: 45"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "03c938f35a08cfb5b311fd64ecef40ad14cea396",
+          "message": "feat(catalog): add --no-sync option to compose for parity with add (#2022)\n\nPlumb the shared sync_option into `xorq catalog compose` and forward it\nto the final `catalog.add`, so composed entries can be cataloged without\ntriggering a git-annex sync, matching `xorq catalog add`.\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-06-02T09:22:42-04:00",
+          "tree_id": "5b2ff89d4ae4f78a418049ae6b16489e77cae247",
+          "url": "https://github.com/xorq-labs/xorq/commit/03c938f35a08cfb5b311fd64ecef40ad14cea396"
+        },
+        "date": 1780406800831,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.348155600019563,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007470121311152957",
+            "extra": "mean: 106.97297336363415 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.0872715546875837,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09025003884964798",
+            "extra": "mean: 479.0943458000015 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.5659263408087889,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14146987898977176",
+            "extra": "mean: 1.767014411400004 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.1680866001328183,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06176967682774445",
+            "extra": "mean: 461.23618860000306 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.150321867875349,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07655280622786732",
+            "extra": "mean: 465.0466587999972 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.1958754565633405,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07652144252937207",
+            "extra": "mean: 455.39923360000216 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 162.99970559606948,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012493663183036002",
+            "extra": "mean: 6.134980405903959 msec\nrounds: 271"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.959239139446996,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09452945896733665",
+            "extra": "mean: 201.64383524999963 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 28.680179476935923,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008299508496471306",
+            "extra": "mean: 34.867285290323295 msec\nrounds: 31"
           }
         ]
       }
