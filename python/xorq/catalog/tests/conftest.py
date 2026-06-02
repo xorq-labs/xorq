@@ -24,7 +24,6 @@ from xorq.catalog.constants import MAIN_BRANCH, POINTER_SUFFIX, CatalogInfix
 from xorq.catalog.content_store import (
     ContentCache,
     ContentStoreConfig,
-    DirectoryContentStore,
 )
 from xorq.catalog.expr_utils import build_expr_context_zip
 from xorq.catalog.replay import Replayer
@@ -153,15 +152,17 @@ def _make_pointer_backend(repo, store_dir):
     config_path = repo_path / CONTENT_STORE_YAML
     if config_path.exists():
         config = ContentStoreConfig.from_yaml(config_path)
-        catalog_id = config.catalog_id
     else:
-        catalog_id = str(uuid.uuid4())
-    store = DirectoryContentStore(directory=str(store_dir))
-    cache_dir = repo_path / ".xorq-cache"
-    cache = ContentCache(cache_dir=cache_dir, max_bytes=1024 * 1024 * 1024)
-    return GitPointerBackend(
-        repo=repo, content_store=store, cache=cache, catalog_id=catalog_id
+        config = ContentStoreConfig(
+            type="directory",
+            catalog_id=str(uuid.uuid4()),
+            config={"directory": str(store_dir)},
+        )
+    cache = ContentCache(
+        cache_dir=repo_path / ".xorq-cache",
+        max_bytes=1024 * 1024 * 1024,
     )
+    return GitPointerBackend.from_config(repo, config, cache=cache)
 
 
 def _make_catalog_from_repo(repo, backend_type, store_dir=None):

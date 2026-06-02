@@ -56,7 +56,6 @@ from xorq.catalog.constants import (
     CatalogInfix,
 )
 from xorq.catalog.content_store import (
-    ContentCache,
     ContentStore,
     ContentStoreConfig,
 )
@@ -857,14 +856,7 @@ class Catalog:
         content_store_path = Path(repo_path) / CONTENT_STORE_YAML
         if content_store_path.exists():
             config = ContentStoreConfig.from_yaml(content_store_path)
-            store = config.make_store()
-            cache = ContentCache.default()
-            backend = GitPointerBackend(
-                repo=repo,
-                content_store=store,
-                cache=cache,
-                catalog_id=config.catalog_id,
-            )
+            backend = GitPointerBackend.from_config(repo, config)
             catalog = cls(backend=backend)
             if check_consistency:
                 catalog.assert_consistency()
@@ -972,14 +964,7 @@ class Catalog:
                     f"at {repo_path}; create a pointer catalog with init=True (the "
                     "config is only persisted at init time)"
                 )
-            store = config.make_store()
-            cache = ContentCache.default()
-            backend = GitPointerBackend(
-                repo=repo,
-                content_store=store,
-                cache=cache,
-                catalog_id=config.catalog_id,
-            )
+            backend = GitPointerBackend.from_config(repo, config)
             catalog = cls(backend=backend)
             if check_consistency:
                 catalog.assert_consistency()
