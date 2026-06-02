@@ -131,6 +131,9 @@ m = import_python(
     xo.options.pins.get_path("hackernews_lib", version="20250820T111457Z-1d66a")
 )
 # m is now a module with functions defined in the pinned file
+
+# Everything the pinned module brought into the namespace:
+print([name for name in dir(m) if not name.startswith("_")])
 ```
 
 ### Using a custom board
