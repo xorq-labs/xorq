@@ -136,22 +136,6 @@ m = import_python(
 print([name for name in dir(m) if not name.startswith("_")])
 ```
 
-### Using a custom board
-
-You can override the default board to use your own storage:
-
-```python
-import pins
-
-# Use a local board for development
-board = pins.board_folder("/path/to/local/pins")
-path = xo.options.pins.get_path("my-dataset", board=board)
-
-# Or use S3
-board = pins.board(protocol="s3", path="my-bucket/pins")
-path = xo.options.pins.get_path("my-dataset", board=board)
-```
-
 ## Caching behavior
 
 The pins library caches downloads automatically in a platform-specific cache directory (typically `~/.cache/pins/` on Linux). The `cache_timeout: 0` setting in Xorq's default configuration means the library always checks if the remote version has changed, but serves from cache if it hasn't.
