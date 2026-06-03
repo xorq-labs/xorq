@@ -56,10 +56,7 @@ from xorq.catalog.constants import (
     PREFERRED_SUFFIX,
     CatalogInfix,
 )
-from xorq.catalog.content_store import (
-    ContentStore,
-    ContentStoreConfig,
-)
+from xorq.catalog.content_store import ContentStoreConfig
 from xorq.catalog.exceptions import CatalogConfigurationError, CatalogPushError
 from xorq.catalog.expr_utils import (
     build_expr_context,
@@ -1136,15 +1133,11 @@ class Catalog:
         )
         repo = Repo.init(repo_path, mkdir=True, bare=bare, initial_branch=MAIN_BRANCH)
         if content_store is not None:
+            if not isinstance(content_store, ContentStoreConfig):
+                raise TypeError(
+                    f"content_store must be a ContentStoreConfig; got {type(content_store)}"
+                )
             config = content_store
-            if isinstance(content_store, ContentStore):
-                raise TypeError(
-                    "Pass a ContentStoreConfig to init_repo_path, not a ContentStore"
-                )
-            if not isinstance(config, ContentStoreConfig):
-                raise TypeError(
-                    f"content_store must be a ContentStoreConfig; got {type(config)}"
-                )
             if not config.catalog_id:
                 config = ContentStoreConfig(
                     type=config.type,
