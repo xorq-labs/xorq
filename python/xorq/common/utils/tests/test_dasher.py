@@ -269,6 +269,29 @@ def test_bare_param_as_project_value_tokenizes():
     assert isinstance(tok, str) and len(tok) > 0
 
 
+def test_two_params_same_dtype_produce_distinct_tokens():
+    """Two NamedScalarParameters of the same dtype in one expression must not
+    collapse to the same placeholder — their tokens must differ."""
+    t = xo.memtable({"_": [0]})
+    p1 = xo.param("start", "int64")
+    p2 = xo.param("end", "int64")
+
+    tok_both = tokenize(t.select(a=p1, b=p2))
+    tok_same = tokenize(t.select(a=p1, b=p1))
+    assert tok_both != tok_same
+
+
+def test_two_params_same_dtype_in_filter_produce_distinct_tokens():
+    """Same-dtype params used in filter position must also be distinguishable."""
+    t = xo.memtable({"x": [1, 2, 3]})
+    p1 = xo.param("lo", "int64")
+    p2 = xo.param("hi", "int64")
+
+    tok_two = tokenize(t.filter(t.x > p1).filter(t.x < p2))
+    tok_one = tokenize(t.filter(t.x > p1).filter(t.x < p1))
+    assert tok_two != tok_one
+
+
 # --- _stat_or_canonical: catalog-extract path canonicalization ------------
 
 
