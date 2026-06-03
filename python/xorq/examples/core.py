@@ -1,5 +1,7 @@
 import functools
+import logging
 import pathlib
+import time
 
 from xorq.common.utils.defer_utils import (
     deferred_read_csv,
@@ -7,6 +9,8 @@ from xorq.common.utils.defer_utils import (
 )
 from xorq.config import options
 
+
+logger = logging.getLogger(__name__)
 
 whitelist = [
     "astronauts",
@@ -20,12 +24,38 @@ whitelist = [
     "hn-data-small.parquet",
 ]
 
+_PIN_META_RETRIES = 3
+_PIN_META_RETRY_DELAY = 1.0
+
+
+def _pin_meta_with_retry(board, name):
+    for attempt in range(_PIN_META_RETRIES):
+        try:
+            meta = board.pin_meta(name)
+            if meta is not None:
+                return meta
+        except Exception:
+            pass
+        if attempt < _PIN_META_RETRIES - 1:
+            delay = _PIN_META_RETRY_DELAY * (2**attempt)
+            logger.warning(
+                "pin_meta(%r) failed (attempt %d/%d), retrying in %.1fs",
+                name,
+                attempt + 1,
+                _PIN_META_RETRIES,
+                delay,
+            )
+            time.sleep(delay)
+    raise RuntimeError(
+        f"failed to fetch pin metadata for {name!r} after {_PIN_META_RETRIES} attempts"
+    )
+
 
 @functools.cache
 def get_name_to_suffix() -> dict[str, str]:
     board = options.pins.get_board()
     dct = {
-        name: pathlib.Path(board.pin_meta(name).file).suffix
+        name: pathlib.Path(_pin_meta_with_retry(board, name).file).suffix
         for name in board.pin_list()
         if name in whitelist
     }

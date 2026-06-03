@@ -133,7 +133,7 @@ class Pins(Config):
     protocol: str = "gcs"
     path: str = "letsql-pins"
     storage_options: dict[str, Any] = {
-        "cache_timeout": 0,
+        "cache_timeout": 300,
         "token": "anon",
     }
 
