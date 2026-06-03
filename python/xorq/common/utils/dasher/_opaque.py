@@ -228,14 +228,10 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
                 _parent_token(node.parent),
             )
         case xops.NamedScalarParameter():
-            # Replace with a literal of the same dtype so SQL compilation
-            # works without a translation rule for NamedScalarParameter, and
-            # use a content-stable name so two builds with the same param
-            # produce identical placeholders.
-            anchor = _stable_opaque_name(
-                "param", node.label, str(node.dtype), str(node.default)
-            )
-            return api.literal(value=None, type=node.dtype).name(anchor).op()
+            # Replace with a typed NULL so SQL compilation works without a
+            # translation rule for NamedScalarParameter.  A bare Literal
+            # (no .name()) is required — Project forbids Alias values.
+            return api.literal(value=None, type=node.dtype).op()
         case _:
             if _kwargs:
                 return node.__recreate__(_kwargs)
