@@ -1383,9 +1383,9 @@ class CatalogEntry:
         # For the pointer backend, the tracked path is a .pointer file.
         tracked = self.catalog.backend.entry_tracked_path(self.catalog_path)
         return {
-            "metadata_path": self.metadata_path.exists(),
-            "catalog_path": tracked.exists() or self.catalog_path.is_symlink(),
-            "catalog_yaml_contents": self.catalog.catalog_yaml.contains(self.name),
+            "has_metadata": self.metadata_path.exists(),
+            "has_catalog_entry": tracked.exists() or self.catalog_path.is_symlink(),
+            "in_catalog_yaml": self.catalog.catalog_yaml.contains(self.name),
         }
 
     def get(self, dir_path=None):
