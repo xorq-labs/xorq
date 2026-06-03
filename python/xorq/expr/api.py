@@ -569,7 +569,7 @@ def to_csv(
     path: str | Path,
     params: Mapping[ir.Scalar, Any] | None = None,
     **kwargs: Any,
-):
+) -> None:
     """Write the results of executing the given expression to a CSV file.
 
     This method is eager and will execute the associated expression
@@ -600,7 +600,8 @@ def to_json(
     expr: ir.Expr,
     path: str | Path | TextIOWrapper,
     params: Mapping[ir.Scalar, Any] | None = None,
-):
+    **kwargs: Any,
+) -> None:
     """Write the results of `expr` to a NDJSON file.
 
     This method is eager and will execute the associated expression
@@ -612,6 +613,9 @@ def to_json(
         The data source. A string or Path to the NDJSON file.
     params
         Mapping of scalar parameter expressions to value.
+    **kwargs
+        Additional, backend-specific keyword arguments forwarded to the
+        backend's execution.
 
     Notes
     -----
@@ -623,7 +627,7 @@ def to_json(
     from xorq.common.utils.io_utils import maybe_open  # noqa: PLC0415
 
     with maybe_open(path, "w") as f:
-        with to_pyarrow_batches(expr, params=params) as batch_reader:
+        with to_pyarrow_batches(expr, params=params, **kwargs) as batch_reader:
             for batch in batch_reader:
                 df = batch.to_pandas()
                 batch_json = df.to_json(orient="records", lines=True)

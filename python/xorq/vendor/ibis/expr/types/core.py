@@ -654,8 +654,11 @@ class Expr(Immutable, Coercible):
         ----------
         path
             The data source. A string or Path to the NDJSON file.
+        params
+            Mapping of scalar parameter expressions to value.
         **kwargs
-            Additional, backend-specific keyword arguments.
+            Additional, backend-specific keyword arguments forwarded to the
+            backend's execution.
 
         Notes
         -----
@@ -663,7 +666,7 @@ class Expr(Immutable, Coercible):
         """
         from xorq.expr.api import to_json
 
-        return to_json(self, path=path, params=params)
+        return to_json(self, path=path, params=params, **kwargs)
 
     def unbind(self) -> ir.Table:
         """Return an expression built on `UnboundTable` instead of backend-specific objects."""

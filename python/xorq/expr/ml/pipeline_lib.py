@@ -119,8 +119,7 @@ class Step:
     typ : type
         The scikit-learn estimator class (must inherit from BaseEstimator).
     name : str
-        The unique name for this step in the pipeline. If None, generates a
-        name from the class name and ID.
+        The unique name for this step in the pipeline.
     params_tuple : tuple
         Sorted tuple of (parameter_name, parameter_value) pairs for the
         estimator. Parameters are automatically sorted for consistency.
