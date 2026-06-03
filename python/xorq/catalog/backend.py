@@ -46,9 +46,11 @@ class CatalogBackend(abc.ABC):
     def fetch_content(self, *paths): ...
 
     def entry_tracked_path(self, catalog_path):
+        """The path tracked in git for a given catalog entry (e.g. .pointer file)."""
         return Path(catalog_path)
 
     def repo_config_paths(self):
+        """Repo-relative paths that assert_consistency should ignore."""
         return ()
 
 
