@@ -10,6 +10,7 @@ import yaml12
 from attr import field, frozen
 from attr.validators import instance_of, optional
 
+from xorq.common.exceptions import XorqError
 from xorq.common.utils.env_utils import EnvConfigable, env_templates_dir
 
 
@@ -62,6 +63,10 @@ def parse_pointer(path):
     except ValueError:
         raise ValueError(f"Invalid pointer file: {path}") from None
     return sha256, size
+
+
+class ContentIntegrityError(XorqError):
+    """Raised when content does not match the expected checksum."""
 
 
 class ContentStore(abc.ABC):

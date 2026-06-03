@@ -14,13 +14,13 @@ from xorq.catalog.annex import Annex, AnnexError
 from xorq.catalog.constants import CONTENT_STORE_YAML, POINTER_SUFFIX
 from xorq.catalog.content_store import (
     ContentCache,
+    ContentIntegrityError,
     ContentStore,
     compute_sha256,
     content_key,
     parse_pointer,
     write_pointer,
 )
-from xorq.common.exceptions import XorqError
 
 
 class CatalogBackend(abc.ABC):
@@ -141,10 +141,6 @@ class GitAnnexBackend(CatalogBackend):
             return
         relpaths = [self.get_relpath(p) for p in paths]
         self.annex.get(*relpaths)
-
-
-class ContentIntegrityError(XorqError):
-    """Raised when fetched content does not match the expected checksum."""
 
 
 @frozen
