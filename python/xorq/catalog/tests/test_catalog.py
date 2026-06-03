@@ -617,12 +617,18 @@ def test_from_repo_path_false_forces_plain_git(tmpdir):
     assert isinstance(reopened.backend, GitBackend)
 
 
-def test_content_cache_fetch_from_protects_fetched_file(tmp_path):
+# ---------------------------------------------------------------------------
+# Pointer backend / content store
+# ---------------------------------------------------------------------------
+
+
+def test_content_cache_fetch_from_protects_fetched_file(tmpdir):
     """A fetched file larger than max_bytes is not evicted by its own insertion."""
-    store = DirectoryContentStore(directory=str(tmp_path / "store"))
-    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10)
+    root = Path(tmpdir)
+    store = DirectoryContentStore(directory=root / "store")
+    cache = ContentCache(cache_dir=root / "cache", max_bytes=10)
     key = "cat/aa/bb/deadbeef.zip"
-    src = tmp_path / "big.bin"
+    src = root / "big.bin"
     src.write_bytes(b"x" * 100)  # 100 bytes > max_bytes
     store.put(key, src)
 
@@ -632,10 +638,11 @@ def test_content_cache_fetch_from_protects_fetched_file(tmp_path):
     assert cache.get_path(key) is not None
 
 
-def test_content_cache_put_protects_and_refreshes_atime(tmp_path):
+def test_content_cache_put_protects_and_refreshes_atime(tmpdir):
     """put() survives a full cache and resets the stale source atime for LRU."""
-    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10)
-    src = tmp_path / "big.bin"
+    root = Path(tmpdir)
+    cache = ContentCache(cache_dir=root / "cache", max_bytes=10)
+    src = root / "big.bin"
     src.write_bytes(b"x" * 100)  # 100 bytes > max_bytes
     os.utime(src, (1, 1))  # stale source atime that copy2 would otherwise preserve
 
@@ -646,22 +653,21 @@ def test_content_cache_put_protects_and_refreshes_atime(tmp_path):
     assert dest.stat().st_atime > 1  # atime refreshed, not the stale source value
 
 
-def test_content_cache_evicts_older_entries(tmp_path):
+def test_content_cache_evicts_older_entries(tmpdir):
     """Older entries are evicted once the cache exceeds max_bytes."""
-    store = DirectoryContentStore(directory=str(tmp_path / "store"))
-    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=150)
+    root = Path(tmpdir)
+    store = DirectoryContentStore(directory=root / "store")
+    cache = ContentCache(cache_dir=root / "cache", max_bytes=150)
     keys = []
     for i in range(3):
-        src = tmp_path / f"f{i}.bin"
+        src = root / f"f{i}.bin"
         src.write_bytes(bytes([i]) * 100)
         key = f"cat/{i:02d}/x/h{i}.zip"
         store.put(key, src)
         cache.fetch_from(store, key)
         keys.append(key)
 
-    total = sum(
-        p.stat().st_size for p in (tmp_path / "cache").rglob("*") if p.is_file()
-    )
+    total = sum(p.stat().st_size for p in (root / "cache").rglob("*") if p.is_file())
     assert total <= 150
     assert cache.get_path(keys[-1]) is not None  # most recent survives
     assert cache.get_path(keys[0]) is None  # oldest evicted
@@ -693,9 +699,9 @@ def test_content_key_rejects_unsafe_inputs():
             content_key("cat", bad_sha)
 
 
-def test_parse_pointer_rejects_malformed(tmp_path):
+def test_parse_pointer_rejects_malformed(tmpdir):
     """A pointer line missing its value raises ValueError, not IndexError."""
-    p = tmp_path / "bad.xorq-pointer"
+    p = Path(tmpdir) / "bad.xorq-pointer"
     p.write_text(f"{POINTER_VERSION}\nsha256\nsize 10\n")  # sha256 line has no value
     with pytest.raises(ValueError, match="Invalid pointer file"):
         parse_pointer(p)
@@ -704,7 +710,7 @@ def test_parse_pointer_rejects_malformed(tmp_path):
 def test_fetch_content_drops_corrupt_cache_entry(tmpdir):
     """A SHA mismatch removes the cached entry so the next fetch self-heals."""
     repo = GitRepo.init(Path(tmpdir).joinpath("repo"))
-    store = DirectoryContentStore(directory=str(Path(tmpdir).joinpath("store")))
+    store = DirectoryContentStore(directory=Path(tmpdir).joinpath("store"))
     cache = ContentCache(cache_dir=Path(tmpdir).joinpath("cache"), max_bytes=10**9)
     backend = GitPointerBackend(
         repo=repo, content_store=store, cache=cache, catalog_id="testcat"
@@ -736,7 +742,7 @@ def test_fetch_content_drops_corrupt_cache_entry(tmpdir):
 def test_fetch_content_no_partial_file_on_copy_failure(tmpdir, monkeypatch):
     """An interrupted archive copy leaves no file at the target; retry succeeds."""
     repo = GitRepo.init(Path(tmpdir).joinpath("repo"))
-    store = DirectoryContentStore(directory=str(Path(tmpdir).joinpath("store")))
+    store = DirectoryContentStore(directory=Path(tmpdir).joinpath("store"))
     cache = ContentCache(cache_dir=Path(tmpdir).joinpath("cache"), max_bytes=10**9)
     backend = GitPointerBackend(
         repo=repo, content_store=store, cache=cache, catalog_id="testcat"
@@ -809,9 +815,9 @@ def test_from_repo_path_content_store_without_yaml_raises(tmpdir):
         )
 
 
-def test_compute_sha256_manual_fallback(tmp_path, monkeypatch):
+def test_compute_sha256_manual_fallback(tmpdir, monkeypatch):
     """compute_sha256 works without hashlib.file_digest (the Python 3.10 path)."""
-    f = tmp_path / "data.bin"
+    f = Path(tmpdir) / "data.bin"
     payload = b"hello pointer content" * 1000
     f.write_bytes(payload)
     expected = hashlib.sha256(payload).hexdigest()
