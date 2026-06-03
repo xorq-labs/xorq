@@ -171,12 +171,16 @@ class GitPointerBackend(CatalogBackend):
         size = archive_path.stat().st_size
         key = content_key(self.catalog_id, sha256)
 
-        self.content_store.put(key, archive_path)
-        self.cache.put(key, archive_path)
+        if not self.content_store.exists(key):
+            self.content_store.put(key, archive_path, sha256=sha256)
 
         pointer_path = self._pointer_path(catalog_path)
-        write_pointer(pointer_path, sha256, size)
-        self.repo.index.add([str(pointer_path)])
+        try:
+            write_pointer(pointer_path, sha256, size)
+            self.repo.index.add([str(pointer_path)])
+        except BaseException:
+            pointer_path.unlink(missing_ok=True)
+            raise
 
     def stage_unlink(self, path):
         pointer_path = self._pointer_path(path)
