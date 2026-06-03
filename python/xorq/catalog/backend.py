@@ -11,10 +11,11 @@ from attr.validators import instance_of
 from git import Repo
 
 from xorq.catalog.annex import Annex, AnnexError
-from xorq.catalog.constants import POINTER_SUFFIX
+from xorq.catalog.constants import CONTENT_STORE_YAML, POINTER_SUFFIX
 from xorq.catalog.content_store import (
     ContentCache,
     ContentStore,
+    ContentStoreConfig,
     compute_sha256,
     content_key,
     parse_pointer,
@@ -246,14 +247,10 @@ class GitPointerBackend(CatalogBackend):
         return self._pointer_path(catalog_path)
 
     def repo_config_paths(self):
-        from xorq.catalog.constants import CONTENT_STORE_YAML  # noqa: PLC0415
-
         return (".gitignore", CONTENT_STORE_YAML)
 
     @classmethod
     def from_config(cls, repo, config, cache=None):
-        from xorq.catalog.content_store import ContentStoreConfig  # noqa: PLC0415
-
         if not isinstance(config, ContentStoreConfig):
             raise TypeError(f"config must be a ContentStoreConfig; got {type(config)}")
         return cls(
