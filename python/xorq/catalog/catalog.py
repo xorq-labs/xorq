@@ -1132,6 +1132,11 @@ class Catalog:
             f"Catalog repo already exists at {repo_path}"
         )
         repo = Repo.init(repo_path, mkdir=True, bare=bare, initial_branch=MAIN_BRANCH)
+        if content_store is not None and annex is not None:
+            raise ValueError(
+                "content_store and annex are mutually exclusive; "
+                "use one backend or the other"
+            )
         if content_store is not None:
             if not isinstance(content_store, ContentStoreConfig):
                 raise TypeError(
