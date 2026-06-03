@@ -55,6 +55,8 @@ def parse_pointer(path):
     ):
         raise ValueError(f"Invalid pointer file: {path}")
     sha256 = sha_parts[1]
+    if not _SHA256_RE.match(sha256):
+        raise ValueError(f"Invalid pointer file: {path}")
     try:
         size = int(size_parts[1])
     except ValueError:
