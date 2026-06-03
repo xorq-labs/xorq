@@ -35,8 +35,11 @@ not its cells:
 - **Lineage**—which sources and transforms it depends on.
 - **Content hash**—a deterministic fingerprint of the computation. Same
   pipeline, same hash; change a filter and the hash changes.
-- **Deterministic execution**—the pinned environment makes "run it again"
-  return the same bytes.
+- **Deterministic execution**—the hash fingerprints the pipeline
+  *specification*, and the pinned environment makes "run it again" reproduce the
+  same computation on the same code path. (It doesn't promise byte-identical
+  output: timestamps, aggregation order, or floating-point rounding can still
+  vary at runtime.)
 
 These are knowable *before* execution. An agent can decide whether an entry is
 the one it needs by reading metadata, without running anything.
@@ -59,7 +62,8 @@ deliberate:
   workflow teams already run. A teammate clones the catalog, adds an entry on a
   branch, opens a PR; the merge is ordinary. A catalog supports at most
   one git remote, which keeps "where's the source of truth" unambiguous. Large
-  files are handled by git-annex rather than bloating the repo.
+  files are handled by an opt-in [git-annex](https://git-annex.branchable.com/)
+  remote rather than bloating the repo.
 
 - **No vendor lock-in.** A vector-database memory store keeps your data inside a
   proprietary schema; getting it out means an export job and a migration plan.
@@ -106,7 +110,8 @@ git-catalogs/penguins
 
 Entries are zipped builds named by their content hash. Aliases are symlinks
 pointing at an entry—a human-readable name (`penguins-agg`) for a hash
-(`fa2122f6a9e9`), so a catalog expects a POSIX filesystem that preserves
+(`fa2122f6a9e9`). The symlink on disk carries the `.zip` suffix of its target
+(`penguins-agg.zip`), so a catalog expects a POSIX filesystem that preserves
 symlinks. Metadata sidecars are plain YAML, which is what makes discovery a
 `grep`:
 
