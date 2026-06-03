@@ -226,16 +226,13 @@ class GitPointerBackend(CatalogBackend):
 
             actual = compute_sha256(cached)
             if actual != sha256:
-                # the cache is content-addressed, so a mismatch means the entry
-                # is corrupt; drop it so the next fetch re-pulls from the store
+                # corrupt cache entry — drop so the next fetch re-pulls
                 cached.unlink(missing_ok=True)
                 raise ContentIntegrityError(
                     f"SHA256 mismatch for {path}: expected {sha256}, got {actual}"
                 )
 
-            # copy via a temp path + atomic rename so an interrupted copy can
-            # never leave a partial file at archive_path (which the exists()
-            # guard above would later accept as complete)
+            # atomic copy: partial file at archive_path would fool the exists() guard
             archive_path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path = archive_path.with_name(archive_path.name + ".tmp")
             try:
