@@ -2,18 +2,18 @@
 title: "The catalog as executable memory"
 ---
 
-Most "memory" an agent accumulates is prose: markdown notes, a `MEMORY.md`
-index, chat history. Prose memory has to be re-read and re-interpreted by
+Most "memory" an agent accumulates is prose: Markdown notes, a `MEMORY.md`
+index, chat history. Prose memory has to be reread and reinterpreted by
 whatever model picks it up next, and it has no way to *run*. A Xorq catalog is
 the other kind of memory—**executable**. Each entry is a content-addressed
 pipeline plus the environment to run it, so a future agent or human doesn't
 re-derive the computation from a description; it executes the artifact and gets
 the same answer.
 
-The same instinct drives teams to keep agent memory as markdown in a git repo
+The same instinct drives teams to keep agent memory as Markdown in a git repo
 rather than in a vector database: the files stay the source of truth, and the
 data never gets trapped behind a proprietary schema or query language. A Xorq
-catalog takes that instinct one step further. Where a markdown note still has to
+catalog takes that instinct one step further. Where a Markdown note still has to
 be read and acted on, a catalog entry can be executed directly.
 
 This page explains what that means and why the catalog is built that way.
