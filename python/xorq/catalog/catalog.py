@@ -1233,11 +1233,9 @@ class CatalogAddition:
         self.ensure_dirs()
         catalog_entry = self.catalog_entry
         catalog_entry.metadata_path.write_text(yaml12.format_yaml(self.metadata))
-        shutil.copy(self.build_zip.path, catalog_entry.catalog_path)
         backend = self.catalog.backend
-        #
         self.catalog.catalog_yaml.add(self.name)
-        backend.stage_content(catalog_entry.catalog_path)
+        backend.stage_content(self.build_zip.path, catalog_entry.catalog_path)
         backend.stage(catalog_entry.metadata_path)
         backend.stage(self.catalog.catalog_yaml.yaml_path)
         for catalog_alias in self.catalog_aliases:

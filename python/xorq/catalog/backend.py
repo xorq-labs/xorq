@@ -30,7 +30,7 @@ class CatalogBackend(abc.ABC):
     def stage(self, path): ...
 
     @abc.abstractmethod
-    def stage_content(self, path): ...
+    def stage_content(self, source_path, catalog_path): ...
 
     @abc.abstractmethod
     def stage_unlink(self, path): ...
@@ -66,8 +66,9 @@ class GitBackend(CatalogBackend):
     def stage(self, path):
         self.repo.index.add([str(path)])
 
-    def stage_content(self, path):
-        self.stage(path)
+    def stage_content(self, source_path, catalog_path):
+        shutil.copy(source_path, catalog_path)
+        self.stage(catalog_path)
 
     def stage_unlink(self, path):
         self.repo.index.remove([str(path)])
@@ -107,10 +108,11 @@ class GitAnnexBackend(CatalogBackend):
     def stage(self, path):
         self.repo.index.add([str(path)])
 
-    def stage_content(self, path):
-        relpath = self.get_relpath(path)
+    def stage_content(self, source_path, catalog_path):
+        shutil.copy(source_path, catalog_path)
+        relpath = self.get_relpath(catalog_path)
         self.annex.add(relpath)
-        self.repo.index.add([str(path)])
+        self.repo.index.add([str(catalog_path)])
 
     def stage_unlink(self, path):
         self.repo.index.remove([str(path)])
@@ -162,8 +164,9 @@ class GitPointerBackend(CatalogBackend):
     def stage(self, path):
         self.repo.index.add([str(path)])
 
-    def stage_content(self, path):
-        archive_path = Path(path)
+    def stage_content(self, source_path, catalog_path):
+        shutil.copy(source_path, catalog_path)
+        archive_path = Path(catalog_path)
         sha256 = compute_sha256(archive_path)
         size = archive_path.stat().st_size
         key = content_key(self.catalog_id, sha256)
@@ -171,7 +174,7 @@ class GitPointerBackend(CatalogBackend):
         self.content_store.put(key, archive_path)
         self.cache.put(key, archive_path)
 
-        pointer_path = self._pointer_path(path)
+        pointer_path = self._pointer_path(catalog_path)
         write_pointer(pointer_path, sha256, size)
         self.repo.index.add([str(pointer_path)])
 
