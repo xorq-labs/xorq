@@ -414,7 +414,10 @@ def _hash_expr_components(expr: Expr, op: Node) -> tuple[str, list[SlotDict]]:
     sql, reads, dts, udfs, mems, param_anchors = _decompose_expr(expr, op)
     hasher = _current_hasher.get() or HASHER
 
-    structural_hash = hasher.tokenize("ibis.Expr.structural", sql, udfs, param_anchors)
+    hash_args = ("ibis.Expr.structural", sql, udfs)
+    if param_anchors:
+        hash_args += (param_anchors,)
+    structural_hash = hasher.tokenize(*hash_args)
 
     def _read_name(r):
         read_kwargs = dict(r.read_kwargs)
