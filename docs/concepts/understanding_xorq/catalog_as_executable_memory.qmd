@@ -85,6 +85,13 @@ anything, and a stale index can never disagree with the artifact it points to.
 
 ## What's on disk
 
+::: {.callout-important}
+A catalog uses symlinks for aliases, so it expects a POSIX filesystem that
+preserves them. On Windows, run catalog operations under
+[WSL](https://learn.microsoft.com/windows/wsl/) — a native Windows filesystem
+without symlink support will produce a broken catalog.
+:::
+
 After `catalog init` the repo holds a single manifest:
 
 ```yaml
