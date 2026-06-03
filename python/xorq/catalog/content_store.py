@@ -73,7 +73,7 @@ class ContentStore(abc.ABC):
     """ABC for external content storage backends."""
 
     @abc.abstractmethod
-    def put(self, key, local_path): ...
+    def put(self, key, local_path, *, sha256=None): ...
 
     @abc.abstractmethod
     def get(self, key, local_path): ...
@@ -98,10 +98,17 @@ class DirectoryContentStore(ContentStore):
     def _key_path(self, key):
         return self.root / key
 
-    def put(self, key, local_path):
+    def put(self, key, local_path, *, sha256=None):
         dest = self._key_path(key)
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(local_path, dest)
+        if sha256 is not None:
+            actual = compute_sha256(dest)
+            if actual != sha256:
+                dest.unlink(missing_ok=True)
+                raise ContentIntegrityError(
+                    f"SHA256 mismatch after copy: expected {sha256}, got {actual}"
+                )
 
     def get(self, key, local_path):
         src = self._key_path(key)
@@ -158,9 +165,14 @@ class S3ContentStore(ContentStore):
             kwargs["endpoint_url"] = f"{protocol}://{self.host}{port_suffix}"
         return boto3.client("s3", **kwargs)
 
-    def put(self, key, local_path):
+    def put(self, key, local_path, *, sha256=None):
         client = self._client
-        client.upload_file(str(local_path), self.bucket, self._s3_key(key))
+        extra = {}
+        if sha256 is not None:
+            extra["ChecksumAlgorithm"] = "SHA256"
+        client.upload_file(
+            str(local_path), self.bucket, self._s3_key(key), ExtraArgs=extra or None
+        )
 
     def get(self, key, local_path):
         client = self._client
