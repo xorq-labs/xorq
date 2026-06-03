@@ -114,24 +114,16 @@ class Step:
     like KNeighborsClassifier, LinearSVC). Steps can be combined into Pipeline objects
     to create complex ML workflows.
 
-    Parameters
-    ----------
-    typ : type
-        The scikit-learn estimator class (must inherit from BaseEstimator).
-    name : str, optional
-        A unique name for this step. If None, generates a name from the class name and ID.
-    params_tuple : tuple, optional
-        Tuple of (parameter_name, parameter_value) pairs for the estimator.
-        Parameters are automatically sorted for consistency.
-
     Attributes
     ----------
     typ : type
-        The scikit-learn estimator class.
+        The scikit-learn estimator class (must inherit from BaseEstimator).
     name : str
-        The unique name for this step in the pipeline.
+        The unique name for this step in the pipeline. If None, generates a
+        name from the class name and ID.
     params_tuple : tuple
-        Sorted tuple of parameter key-value pairs.
+        Sorted tuple of (parameter_name, parameter_value) pairs for the
+        estimator. Parameters are automatically sorted for consistency.
 
     Examples
     --------
@@ -688,15 +680,10 @@ class Pipeline:
     enabling deferred execution and integration with xorq expressions. The pipeline
     can contain both transform steps (data preprocessing) and a final prediction step.
 
-    Parameters
-    ----------
-    steps : tuple of Step
-        Sequence of Step objects that make up the pipeline.
-
     Attributes
     ----------
     steps : tuple of Step
-        The sequence of processing steps.
+        The sequence of Step objects that make up the pipeline.
     instance : sklearn.pipeline.Pipeline
         The equivalent scikit-learn Pipeline instance.
     transform_steps : tuple of Step

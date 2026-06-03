@@ -631,8 +631,7 @@ class Expr(Immutable, Coercible):
             Mapping of scalar parameter expressions to value.
         **kwargs
             Additional keyword arguments passed to pyarrow.csv.CSVWriter
-
-        https://arrow.apache.org/docs/python/generated/pyarrow.csv.CSVWriter.html
+            (https://arrow.apache.org/docs/python/generated/pyarrow.csv.CSVWriter.html).
         """
         from xorq.expr.api import to_csv
 
@@ -654,11 +653,13 @@ class Expr(Immutable, Coercible):
         Parameters
         ----------
         path
-            The data source. A string or Path to the Delta Lake table.
+            The data source. A string or Path to the NDJSON file.
         **kwargs
             Additional, backend-specific keyword arguments.
 
-        https://github.com/ndjson/ndjson-spec
+        Notes
+        -----
+        See the NDJSON spec: https://github.com/ndjson/ndjson-spec
         """
         from xorq.expr.api import to_json
 

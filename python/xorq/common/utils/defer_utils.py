@@ -241,7 +241,7 @@ def deferred_read_parquet(
     **kwargs,
 ) -> ir.Table:
     """
-     Create a deferred read operation for Parquet files that will execute only when needed.
+    Create a deferred read operation for Parquet files that will execute only when needed.
 
     This function creates a representation of a read operation that doesn't immediately
     load data into memory. Instead, it registers the operation to be performed when
@@ -260,15 +260,15 @@ def deferred_read_parquet(
         a unique name will be generated automatically.
 
     normalize_method : Callable, optional
-     The method that returns the values to be used in the hashing of the Read operation.
+        The method that returns the values to be used in the hashing of the Read operation.
 
     **kwargs : dict
         Additional keyword arguments passed to the backend's read_parquet method.
 
-     Returns
-     -------
-     Expr
-         An expression representing the deferred read operation.
+    Returns
+    -------
+    Expr
+        An expression representing the deferred read operation.
     """
 
     method_name = "read_parquet"

@@ -583,8 +583,7 @@ def to_csv(
         Mapping of scalar parameter expressions to value.
     **kwargs
         Additional keyword arguments passed to pyarrow.csv.CSVWriter
-
-    https://arrow.apache.org/docs/python/generated/pyarrow.csv.CSVWriter.htmlditional keyword arguments passed to pyarrow.csv.CSVWriter
+        (https://arrow.apache.org/docs/python/generated/pyarrow.csv.CSVWriter.html).
     """
 
     import pyarrow  # noqa: F401, ICN001, PLC0415
@@ -610,11 +609,13 @@ def to_json(
     Parameters
     ----------
     path
-        The data source. A string or Path to the Delta Lake table.
-    **kwargs
-        Additional, backend-specific keyword arguments.
+        The data source. A string or Path to the NDJSON file.
+    params
+        Mapping of scalar parameter expressions to value.
 
-    https://github.com/ndjson/ndjson-spec
+    Notes
+    -----
+    See the NDJSON spec: https://github.com/ndjson/ndjson-spec
     """
     import pyarrow  # noqa: F401, ICN001, PLC0415
     import pyarrow_hotfix  # noqa: F401, PLC0415
