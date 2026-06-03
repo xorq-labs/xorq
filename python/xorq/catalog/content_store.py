@@ -82,11 +82,11 @@ class ContentStore(abc.ABC):
 class DirectoryContentStore(ContentStore):
     """Content store backed by a local directory."""
 
-    directory = field(validator=instance_of((str, Path)))
+    directory = field(validator=instance_of(Path), converter=Path)
 
     @property
     def root(self):
-        return Path(self.directory)
+        return self.directory
 
     def _key_path(self, key):
         return self.root / key
