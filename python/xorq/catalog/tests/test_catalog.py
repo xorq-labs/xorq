@@ -57,8 +57,8 @@ from xorq.catalog.expr_utils import (
 )
 from xorq.catalog.tests.conftest import (
     TEST_WHEEL_NAME,
-    _directory_store_config,
     compare_repo_and_catalog,
+    directory_store_config,
 )
 from xorq.catalog.tui import get_cache_key_path
 from xorq.catalog.zip_utils import (
@@ -772,10 +772,10 @@ def test_from_repo_path_conflicting_content_store_raises(tmpdir):
     Catalog.from_repo_path(
         repo_path,
         init=True,
-        content_store=_directory_store_config(Path(tmpdir) / "store-a"),
+        content_store=directory_store_config(Path(tmpdir) / "store-a"),
     )
 
-    conflicting = _directory_store_config(Path(tmpdir) / "store-b", catalog_id="other")
+    conflicting = directory_store_config(Path(tmpdir) / "store-b", catalog_id="other")
     with pytest.raises(ValueError, match="conflicts with committed"):
         Catalog.from_repo_path(repo_path, init=False, content_store=conflicting)
 
@@ -786,7 +786,7 @@ def test_from_repo_path_matching_content_store_ok(tmpdir):
     Catalog.from_repo_path(
         repo_path,
         init=True,
-        content_store=_directory_store_config(Path(tmpdir) / "store-a"),
+        content_store=directory_store_config(Path(tmpdir) / "store-a"),
     )
 
     committed = ContentStoreConfig.from_yaml(repo_path / CONTENT_STORE_YAML)
@@ -805,7 +805,7 @@ def test_from_repo_path_content_store_without_yaml_raises(tmpdir):
         Catalog.from_repo_path(
             repo_path,
             init=False,
-            content_store=_directory_store_config(Path(tmpdir) / "store"),
+            content_store=directory_store_config(Path(tmpdir) / "store"),
         )
 
 
