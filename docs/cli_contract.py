@@ -32,14 +32,33 @@ _INVOCATION = re.compile(r"(?:(?<=\s)|(?<=\()|^)xorq\s+([^|&;)\n]+)")
 _root = None
 
 
+def _logical_lines(block_text):
+    """Yield logical lines, joining shell ``\\`` continuations into one. Without
+    this, options on a continuation line (which doesn't start with ``xorq``) are
+    silently skipped — see ``serve-unbound.qmd``'s multi-line invocation.
+    """
+    buf = ""
+    for raw_line in block_text.splitlines():
+        stripped = raw_line.rstrip()
+        if stripped.endswith("\\"):
+            buf += stripped[:-1] + " "
+        else:
+            yield buf + raw_line
+            buf = ""
+    if buf:
+        yield buf
+
+
 def iter_xorq_invocations(block_text):
     """Yield the token list (after ``xorq``) for each ``xorq`` invocation in a
     bash code block. Strips a leading ``uv run`` and digs inside ``$(...)``;
     non-``xorq`` lines (git, gh, uv add, mkdir, ...) and comments are skipped.
+    Shell ``\\`` line continuations are joined first so options on the second
+    line are validated too.
     """
     invocations = []
-    for raw_line in block_text.splitlines():
-        line = raw_line.strip()
+    for logical_line in _logical_lines(block_text):
+        line = logical_line.strip()
         if not line or line.startswith("#"):
             continue
         for match in _INVOCATION.finditer(line):
@@ -58,9 +77,12 @@ def iter_xorq_invocations(block_text):
 def _get_root():
     global _root
     if _root is None:
-        from xorq.cli import _load_catalog_cli, cli  # noqa: PLC0415
+        from xorq.cli import cli  # noqa: PLC0415
 
-        _load_catalog_cli()  # registers the lazily-loaded `catalog` subgroup
+        # `cli` is a PdbGroup that lazily registers the `catalog` subgroup on
+        # first lookup. Going through the public get_command avoids depending on
+        # the private `_load_catalog_cli` helper.
+        cli.get_command(None, "catalog")
         _root = cli
     return _root
 
