@@ -15,7 +15,6 @@ from xorq.catalog.constants import CONTENT_STORE_YAML, POINTER_SUFFIX
 from xorq.catalog.content_store import (
     ContentCache,
     ContentStore,
-    ContentStoreConfig,
     compute_sha256,
     content_key,
     parse_pointer,
@@ -250,8 +249,6 @@ class GitPointerBackend(CatalogBackend):
 
     @classmethod
     def from_config(cls, repo, config, cache=None):
-        if not isinstance(config, ContentStoreConfig):
-            raise TypeError(f"config must be a ContentStoreConfig; got {type(config)}")
         return cls(
             repo=repo,
             content_store=config.make_store(),
