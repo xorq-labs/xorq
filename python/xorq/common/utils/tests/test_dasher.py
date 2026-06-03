@@ -259,6 +259,16 @@ def test_expr_with_named_param_tokenizes_without_raising():
     assert isinstance(tok, str) and len(tok) > 0
 
 
+def test_bare_param_as_project_value_tokenizes():
+    """Regression (#2037): a NamedScalarParameter as a direct Project column
+    value must not be wrapped in Alias — Project forbids Alias values."""
+    expr = xo.memtable({"_": [0]}).select(
+        year_months=xo.param("year_months", "string", default="2025_11,2025_12")
+    )
+    tok = tokenize(expr)
+    assert isinstance(tok, str) and len(tok) > 0
+
+
 # --- _stat_or_canonical: catalog-extract path canonicalization ------------
 
 
