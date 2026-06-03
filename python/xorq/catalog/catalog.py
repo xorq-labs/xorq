@@ -807,6 +807,7 @@ class Catalog:
         repo_path=None,
         check_consistency=True,
         annex=None,
+        content_store=None,
         git_config=None,
         **remote_kwargs,
     ):
@@ -823,6 +824,8 @@ class Catalog:
         content_store_path = Path(repo_path) / CONTENT_STORE_YAML
         if content_store_path.exists():
             config = ContentStoreConfig.from_yaml(content_store_path)
+            if content_store is not None:
+                config = content_store
             backend = GitPointerBackend.from_config(repo, config)
             catalog = cls(backend=backend)
             if check_consistency:
