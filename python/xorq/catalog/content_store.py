@@ -293,7 +293,7 @@ class ContentStoreConfig:
                 for a in env_config.__attrs_attrs__
                 if a.name != "env_file" and getattr(env_config, a.name)
             }
-            kwargs = {**env, **kwargs}
+            kwargs = {**kwargs, **env}
         return store_cls(**kwargs)
 
     @classmethod
