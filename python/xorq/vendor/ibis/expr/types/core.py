@@ -1247,18 +1247,33 @@ class LETSQLAccessor:
 
     @property
     def tokenized(self) -> str:
-        """Content hash of the expression.
+        """Return the deterministic hex token for ``self.expr``.
+
+        Computed fresh on every access (deliberately not cached — see NOTE)
+        so it reflects the current state of any source tables the expression
+        reads. Delegates to :func:`xorq.common.utils.dasher.tokenize`, which
+        normalizes the expression tree and stat's the source-table leaves.
 
         Returns
         -------
         str
-            A stable token derived from the expression graph.
+            Deterministic hex digest of the normalized expression.
+
+        Raises
+        ------
+        FileNotFoundError
+            If a local source path referenced by a ``Read`` /
+            ``DatabaseTable`` leaf of ``self.expr`` does not exist
+            (``dasher._paths._normalize_path_stat``, not caught).
+        OSError
+            If a remote source (HTTP HEAD / cloud metadata) backing a
+            source-table leaf is unreachable while it is stat'd for the
+            token (same site, not caught).
 
         Notes
         -----
-        Deliberately not cached: the hash can depend on external state (file
-        contents or source-table data), so caching it could mask changes that
-        happen within the same process run.
+        Precondition: every local source path referenced by a source-table
+        leaf must exist; otherwise normalization raises during stat'ing.
         """
         from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
 
