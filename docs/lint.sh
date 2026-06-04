@@ -2,6 +2,7 @@
 # docs/lint.sh — Documentation linter
 #
 # Checks (all run; failures collected; non-zero exit if any fail):
+#   0. cli reference — regenerate CLI pages from the Click commands
 #   1. vale          — prose style (Google + Xorq rules)
 #   2. quartodoc     — regenerate API reference from the package
 #   3. quarto render — structure validation, no code execution
@@ -78,6 +79,19 @@ python3 -c "import frontmatter" 2>/dev/null || {
 }
 
 cd "$DOCS_DIR"
+
+# ── 0. CLI reference generation ───────────────────────────────────────────────
+
+# api_reference/cli/*.qmd are generated from the Click commands (gitignored,
+# like reference/). Generate before the prose and structure checks so vale
+# lints the docstring-sourced pages and render/orphan checks see them.
+section "CLI reference — generate from Click commands"
+if python3 "$DOCS_DIR/generate_cli_reference.py" 2>&1; then
+    pass "generate_cli_reference.py"
+else
+    fail "generate_cli_reference.py: failed"
+    in_ci && printf '::error file=docs/generate_cli_reference.py,line=1::CLI reference generation failed\n'
+fi
 
 # ── 1. Vale — prose style ─────────────────────────────────────────────────────
 
@@ -284,7 +298,12 @@ done < <(find . -name "*.qmd" \
     -not -path "./adr/*" \
     -not -path "*/_*/*" \
     -not -path "./__pycache__/*" \
+    -not -path "./api_reference/cli/*" \
     | sort)
+# api_reference/cli/ is excluded above: those pages are generated (check 0)
+# and reach the nav via the `auto:` globs in _quarto.yml, which this textual
+# scan can't see; the generator itself errors on any command missing from
+# its curated nav config.
 
 if [[ ${#orphans[@]} -eq 0 ]]; then
     pass "no orphaned .qmd files"

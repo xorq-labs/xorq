@@ -36,6 +36,11 @@ jobs:
         # `xorq` to build the API reference; --no-default-groups skips dev/test.
         run: uv sync --no-default-groups --group docs
 
+      - name: Generate CLI reference
+        # The CLI pages are generated from Click docstrings and gitignored;
+        # generate before Vale so the docstring prose gets style-checked.
+        run: uv run --no-sync python docs/generate_cli_reference.py
+
       - name: Vale (prose style)
         uses: vale-cli/vale-action@v2
         with:
