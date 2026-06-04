@@ -438,13 +438,13 @@ def test_set_remote_cli_custom_name(runner, tmpdir):
 def test_help(runner):
     result = runner.invoke(cli, ["--help"])
     assert result.exit_code == 0
-    assert "Manage xorq build-artifact catalogs." in result.output
+    assert "Manage Xorq build-artifact catalogs." in result.output
 
 
 def test_no_subcommand_prints_help(runner):
     result = runner.invoke(cli, [])
     assert result.exit_code == 0
-    assert "Manage xorq build-artifact catalogs." in result.output
+    assert "Manage Xorq build-artifact catalogs." in result.output
 
 
 def test_subcommand_help(runner):
