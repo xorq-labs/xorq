@@ -13,6 +13,7 @@ site_libs
 diamonds.json
 *.ndjson
 reference/
+api_reference/cli/
 objects.json
 
 # generated notebooks and files

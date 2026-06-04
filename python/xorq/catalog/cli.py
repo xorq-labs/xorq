@@ -150,7 +150,7 @@ def _complete_entry_or_alias_names(ctx, param, incomplete):
     "-u",
     "--url",
     default=None,
-    help="Remote repo url to clone.",
+    help="Remote repo URL to clone.",
 )
 @click.option(
     "-r",
@@ -162,11 +162,19 @@ def _complete_entry_or_alias_names(ctx, param, incomplete):
 @click.option(
     "--init/--no-init",
     default=None,
-    help="Initialize the repo (default: auto).",
+    show_default="auto",
+    help="Initialize the repo.",
 )
 @click.pass_context
 def cli(ctx, name, path, url, root_repo, init):
-    """Manage xorq build-artifact catalogs."""
+    """Manage Xorq build-artifact catalogs.
+
+    A catalog is a versioned store of named, sharable, executable
+    expressions: a git repository with an optional object-store backed
+    annex for content. Group options select which catalog a subcommand
+    targets and precede the subcommand name (for example,
+    `xorq catalog -n analytics info`).
+    """
     from xorq.catalog.catalog import Catalog  # noqa: PLC0415
 
     ctx.obj = SimpleNamespace(
@@ -184,10 +192,27 @@ def cli(ctx, name, path, url, root_repo, init):
 
 
 @cli.command()
-@click.option("--refresh", default=10, type=float, help="Refresh interval in seconds.")
+@click.option(
+    "--refresh",
+    default=10,
+    type=float,
+    show_default=True,
+    help="Refresh interval in seconds.",
+)
 @click.pass_context
 def tui(ctx, refresh):
-    """Launch terminal UI."""
+    """Browse the catalog interactively in a terminal UI.
+
+    Shows entries, aliases, schemas, and metadata, refreshing on an
+    interval. The TUI exits on `q` or `Ctrl+C`.
+
+    \b
+    Examples:
+      # Browse the default catalog
+      xorq catalog tui
+      # Browse a named catalog with a faster refresh
+      xorq catalog --name analytics tui --refresh 2
+    """
     with click_context_catalog(ctx):
         ctx.obj.make_catalog(init=False)  # validate catalog exists
     from xorq.catalog.tui import CatalogTUI  # noqa: PLC0415
@@ -223,7 +248,21 @@ def _resolve_annex_option(env_file, env_prefix, gcs):
 )
 @click.pass_context
 def init(ctx, env_file, env_prefix, gcs, remote_url):
-    """Initialize a new catalog."""
+    """Create a new catalog repository.
+
+    The destination comes from the catalog group's selectors (`-n/--name`
+    or `-p/--path`), supplied before the `init` subcommand. The command
+    refuses to overwrite an existing catalog at the target path.
+
+    \b
+    Examples:
+      # Create a catalog at the default location for the name
+      xorq catalog --name analytics init
+      # Create at an explicit path with a git remote
+      xorq catalog --path ./catalogs/analytics init --remote-url git@github.com:acme/analytics-catalog.git
+      # Create with an S3-backed annex remote sourced from an env file
+      xorq catalog --name analytics init --env-file .env.catalog.s3
+    """
     with click_context_catalog(ctx):
         annex = _resolve_annex_option(env_file, env_prefix, gcs)
         try:
@@ -250,11 +289,28 @@ def init(ctx, env_file, env_prefix, gcs, remote_url):
     "--alias",
     "aliases",
     multiple=True,
-    help="Alias(es) to create for the added entry (repeatable).",
+    help="Alias to assign to each added entry (repeatable).",
 )
 @click.pass_context
 def add(ctx, paths, sync, aliases):
-    """Add entries from archive files or build directories."""
+    """Add entries from build directories or archive files.
+
+    \b
+    Arguments:
+      PATHS  One or more paths; each is a build directory (typically
+             produced by `xorq build`) or an archive file (.zip).
+
+    \b
+    Examples:
+      # Add a single build directory
+      xorq catalog add builds/f02d28198715
+      # Add multiple builds in one invocation
+      xorq catalog add builds/f02d28198715 builds/c5a981ab43cd
+      # Assign aliases at add time (applied to each added entry)
+      xorq catalog add builds/f02d28198715 -a penguins-prod -a current
+      # Defer the push to a later `xorq catalog push`
+      xorq catalog add builds/f02d28198715 --no-sync
+    """
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         with catalog.maybe_synchronizing(sync):
@@ -268,7 +324,22 @@ def add(ctx, paths, sync, aliases):
 @sync_option
 @click.pass_context
 def remove(ctx, names, sync):
-    """Remove entries by name."""
+    """Remove entries by name.
+
+    \b
+    Arguments:
+      NAMES  One or more entry names; use `xorq catalog list` to see
+             available names.
+
+    \b
+    Examples:
+      # Remove a single entry
+      xorq catalog remove f02d28198715
+      # Remove multiple entries in a single commit
+      xorq catalog remove f02d28198715 c5a981ab43cd
+      # Remove without syncing to the remote
+      xorq catalog remove f02d28198715 --no-sync
+    """
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         with catalog.maybe_synchronizing(sync):
@@ -283,7 +354,21 @@ def remove(ctx, names, sync):
 @sync_option
 @click.pass_context
 def add_alias(ctx, name, alias, sync):
-    """Add an alias for an entry."""
+    """Attach an alias to an existing entry.
+
+    Aliases are stable, human-readable names accepted anywhere an entry
+    name is. To assign an alias at the same time you add an entry, use
+    `xorq catalog add -a`.
+
+    \b
+    Arguments:
+      NAME   The existing entry's name.
+      ALIAS  The alias to register.
+
+    \b
+    Examples:
+      xorq catalog add-alias f02d28198715 penguins-prod
+    """
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog_alias = catalog.add_alias(name, alias, sync=sync)
@@ -297,7 +382,22 @@ def add_alias(ctx, name, alias, sync):
 @sync_option
 @click.pass_context
 def remove_alias(ctx, aliases, sync):
-    """Remove one or more aliases."""
+    """Remove one or more aliases.
+
+    The underlying entries are left untouched—use `xorq catalog remove`
+    to remove an entry itself. Unknown aliases produce an error and cancel
+    the operation before any change is committed.
+
+    \b
+    Arguments:
+      ALIASES  One or more alias names; use `xorq catalog list-aliases`
+               to see registered aliases.
+
+    \b
+    Examples:
+      xorq catalog remove-alias penguins-prod
+      xorq catalog remove-alias penguins-prod current
+    """
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         alias_map = {ca.alias: ca for ca in catalog.catalog_aliases}
@@ -310,10 +410,23 @@ def remove_alias(ctx, aliases, sync):
 
 
 @cli.command("list")
-@click.option("--kind/--no-kind", default=False, help="Show the kind column.")
+@click.option(
+    "--kind/--no-kind",
+    default=False,
+    show_default=True,
+    help="Print a second column showing each entry's kind.",
+)
 @click.pass_context
 def list_entries(ctx, kind):
-    """List all entries."""
+    """List all entries.
+
+    \b
+    Examples:
+      # Names only (one per line)
+      xorq catalog list
+      # Names with a kind column (tab-separated)
+      xorq catalog list --kind
+    """
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
 
@@ -328,7 +441,10 @@ def list_entries(ctx, kind):
 @cli.command("list-aliases")
 @click.pass_context
 def list_aliases(ctx):
-    """List all aliases."""
+    """List all aliases.
+
+    Prints one alias per line, or `No aliases.` when the catalog has none.
+    """
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         aliases = catalog.list_aliases() or ("No aliases.",)
@@ -339,7 +455,19 @@ def list_aliases(ctx):
 @cli.command()
 @click.pass_context
 def info(ctx):
-    """Show catalog metadata: path, remotes, entry/alias counts."""
+    """Show catalog summary metadata.
+
+    Prints the filesystem path, current commit, configured remotes, and
+    entry and alias counts. For per-entry metadata, use
+    `xorq catalog show` or `xorq catalog schema`.
+
+    \b
+    Examples:
+      # Inspect the default catalog
+      xorq catalog info
+      # Inspect a specific catalog via the group selectors
+      xorq catalog --name my-catalog info
+    """
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         click.echo(f"path:    {catalog.repo_path}")
@@ -354,7 +482,28 @@ def info(ctx):
 @click.option("--set", "set_name", default=None, help="Set the default catalog name.")
 @click.option("--unset", is_flag=True, help="Remove the persisted default.")
 def default_catalog(set_name, unset):
-    """Show or change the persisted default catalog name."""
+    """Show or change the persisted default catalog name.
+
+    The default catalog applies when `xorq catalog` invocations supply
+    neither `-n/--name` nor `-p/--path`. Without options, prints the
+    resolved name and the source that supplied it. `--set` and `--unset`
+    are mutually exclusive.
+
+    \b
+    Resolution order:
+    1. The `XORQ_DEFAULT_CATALOG` environment variable.
+    2. The persisted config file (written by `--set`).
+    3. The built-in default name (`default`).
+
+    \b
+    Examples:
+      # Show the current default and where it came from
+      xorq catalog default
+      # Persist a new default
+      xorq catalog default --set analytics
+      # Remove the persisted default
+      xorq catalog default --unset
+    """
     from xorq.catalog.catalog import Catalog  # noqa: PLC0415
     from xorq.catalog.constants import DEFAULT_CATALOG_CONFIG  # noqa: PLC0415
     from xorq.vendor.ibis.config import env_config  # noqa: PLC0415
@@ -390,11 +539,26 @@ def default_catalog(set_name, unset):
     "--output",
     default=None,
     type=click.Path(),
-    help="Output directory (default: current directory).",
+    show_default="current directory",
+    help="Destination directory for the archive.",
 )
 @click.pass_context
 def get(ctx, name, output):
-    """Export an entry's archive to a directory."""
+    """Export an entry's archive to a directory.
+
+    Writes the entry's zipped build directory to
+    `<output_dir>/<name>.zip`, overwriting any existing file at that
+    path—useful for shipping an entry to a system without catalog access.
+    Re-add an exported archive with `xorq catalog add`.
+
+    \b
+    Arguments:
+      NAME  Entry name to export.
+
+    \b
+    Examples:
+      xorq catalog get f02d28198715 -o ./shipped-builds
+    """
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         result = catalog.get_zip(name, dir_path=output)
@@ -404,7 +568,18 @@ def get(ctx, name, output):
 @cli.command()
 @click.pass_context
 def push(ctx):
-    """Push catalog to the configured git remote."""
+    """Push the catalog's commits and annex content to its remotes.
+
+    Pair with `--no-sync` on mutating commands (`add`, `remove`,
+    `add-alias`, `remove-alias`) when batching changes for a single
+    explicit push.
+
+    \b
+    Examples:
+      xorq catalog add builds/f02d28198715 --no-sync
+      xorq catalog add-alias f02d28198715 prod --no-sync
+      xorq catalog push
+    """
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog.push()
@@ -414,7 +589,7 @@ def push(ctx):
 @cli.command()
 @click.pass_context
 def pull(ctx):
-    """Pull catalog from the configured git remote."""
+    """Pull the catalog's commits and annex content from its remotes."""
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog.pull()
@@ -424,7 +599,11 @@ def pull(ctx):
 @cli.command()
 @click.pass_context
 def sync(ctx):
-    """Pull then push."""
+    """Pull then push.
+
+    Equivalent to running `xorq catalog pull` followed by
+    `xorq catalog push`.
+    """
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog.sync()
@@ -436,7 +615,8 @@ def sync(ctx):
 @click.option(
     "--name",
     default=None,
-    help="Remote name (defaults to 'origin').",
+    show_default="origin",
+    help="Remote name.",
 )
 @click.option(
     "--force",
@@ -450,9 +630,20 @@ def set_remote(ctx, url, name, force):
 
     The catalog supports at most one git remote (ADR-0011). If no git
     remote is configured, this command sets one. If a git remote is
-    already configured, this command refuses unless ``--force`` is passed
-    — guarding against typos that would silently delete the configured
+    already configured, this command refuses unless `--force` is passed—
+    guarding against typos that would silently delete the configured
     remote.
+
+    \b
+    Arguments:
+      URL  Git remote URL to configure.
+
+    \b
+    Examples:
+      # First-time setup
+      xorq catalog --path ~/flights-catalog set-remote git@github.com:me/flights-catalog.git
+      # Replace an existing remote
+      xorq catalog set-remote git@github.com:me/flights-catalog.git --force
     """
     from xorq.catalog.constants import DEFAULT_REMOTE  # noqa: PLC0415
     from xorq.catalog.exceptions import CatalogConfigurationError  # noqa: PLC0415
@@ -481,7 +672,24 @@ def set_remote(ctx, url, name, force):
 )
 @click.pass_context
 def clone(ctx, url, dest_name, dest_path):
-    """Clone a catalog from a remote URL."""
+    """Clone an existing catalog from a remote URL.
+
+    `--name` and `--path` are mutually exclusive; with neither, a default
+    location derives from the source URL.
+
+    \b
+    Arguments:
+      URL  The git URL of the source catalog repository.
+
+    \b
+    Examples:
+      # Clone to the default location
+      xorq catalog clone git@github.com:acme/analytics-catalog.git
+      # Clone under a specific name
+      xorq catalog clone git@github.com:acme/analytics-catalog.git --name analytics
+      # Clone to an explicit path
+      xorq catalog clone git@github.com:acme/analytics-catalog.git --path ./catalogs/analytics
+    """
     from xorq.catalog.catalog import Catalog  # noqa: PLC0415
 
     with click_context_default(ctx):
@@ -503,7 +711,22 @@ def clone(ctx, url, dest_name, dest_path):
 @json_option
 @click.pass_context
 def schema(ctx, name, as_json):
-    """Show schema of a catalog entry (name or alias)."""
+    """Show the schemas for a catalog entry.
+
+    Bound entries print a single output schema; unbound (partial) entries
+    print both an input and an output schema.
+
+    \b
+    Arguments:
+      NAME  Entry name or alias.
+
+    \b
+    Examples:
+      # Formatted schema view
+      xorq catalog schema penguins-prod
+      # Machine-readable metadata
+      xorq catalog schema penguins-prod --json
+    """
     from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
 
     with click_context_catalog(ctx):
@@ -545,7 +768,22 @@ def schema(ctx, name, as_json):
 )
 @click.pass_context
 def show(ctx, name, as_json, as_raw):
-    """Show full metadata for a catalog entry (name or alias)."""
+    """Show full metadata for a catalog entry.
+
+    Prints name, aliases, kind, backends, schemas, parameters, builders,
+    cache key, and more. `--json` and `--raw` are mutually exclusive.
+
+    \b
+    Arguments:
+      NAME  Entry name or alias.
+
+    \b
+    Examples:
+      # Human-readable metadata
+      xorq catalog show penguins-prod
+      # Structured sidecar metadata as JSON
+      xorq catalog show penguins-prod --json
+    """
     if as_json and as_raw:
         raise click.UsageError("--json and --raw are mutually exclusive.")
 
@@ -621,7 +859,13 @@ def show(ctx, name, as_json, as_raw):
 @cli.command()
 @click.pass_context
 def check(ctx):
-    """Validate catalog consistency."""
+    """Validate the catalog for consistency.
+
+    Verifies that entries declared in the catalog manifest are present on
+    disk, that aliases point to existing entries, and that recorded
+    metadata matches actual content. Prints `OK` on success; otherwise
+    exits non-zero with a description of the inconsistency.
+    """
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog.assert_consistency()
@@ -632,7 +876,16 @@ def check(ctx):
 @json_option
 @click.pass_context
 def log(ctx, as_json):
-    """Show catalog history as structured operations."""
+    """Show the catalog's history as structured operations.
+
+    These are the same operations `xorq catalog replay` consumes when
+    copying a catalog.
+
+    \b
+    Examples:
+      xorq catalog log
+      xorq catalog log --json | jq '.[] | select(.type == "Add")'
+    """
     import attr  # noqa: PLC0415
 
     from xorq.catalog.replay import Replayer  # noqa: PLC0415
@@ -666,7 +919,8 @@ def log(ctx, as_json):
 @click.option(
     "--preserve-commits/--no-preserve-commits",
     default=True,
-    help="Preserve original commit authors and timestamps (default: yes).",
+    show_default=True,
+    help="Preserve original commit authors and timestamps.",
 )
 @click.option("--force", is_flag=True, help="Force-push to the remote.")
 @click.option(
@@ -690,14 +944,28 @@ def replay(
     dry_run,
     rebuild,
 ):
-    """Replay catalog operations into a target catalog.
+    """Replay the catalog's operation log into a target catalog.
 
-    With ``--rebuild``, each entry is re-added under current code:
-    entries with no catalog references are re-added from their stored
-    expression; entries containing catalog references (Composed, or
-    ExprBuilder wrapping a composition) have the catalog subtree
-    recomposed against their already-rebuilt dependencies in the
-    target catalog. Outer builder wrappings pass through untouched.
+    Useful for mirroring a catalog with a different remote backend, or
+    for migrating between storage providers.
+
+    With `--rebuild`, each entry is re-added under current code: entries
+    with no catalog references are re-added from their stored expression;
+    entries containing catalog references (Composed, or ExprBuilder
+    wrapping a composition) have the catalog subtree recomposed against
+    their already-rebuilt dependencies in the target catalog. Outer
+    builder wrappings pass through untouched.
+
+    \b
+    Arguments:
+      TARGET_PATH  Filesystem path where the target catalog is initialized.
+
+    \b
+    Examples:
+      # Preview the operations that would be replayed
+      xorq catalog replay ./mirrored-catalog --dry-run
+      # Replay into a new catalog and push to a fresh remote
+      xorq catalog replay ./mirrored-catalog --env-file .env.target.s3 --remote-url git@github.com:acme/mirror-catalog.git
     """
     from xorq.catalog.catalog import Catalog  # noqa: PLC0415
     from xorq.catalog.replay import Replayer  # noqa: PLC0415
@@ -739,8 +1007,21 @@ def replay(
 def embed_readonly(ctx, env_file, env_prefix, gcs):
     """Embed read-only S3 credentials into the catalog's git-annex branch.
 
-    Verifies that the provided credentials cannot write to the bucket
-    before embedding them.
+    Lets consumers cloning the catalog fetch annexed content without
+    supplying credentials of their own. One of `--env-file` or
+    `--env-prefix` is required.
+
+    Before embedding, the command probes the bucket by initiating (and
+    canceling) a multipart upload with the supplied credentials. If that
+    write succeeds, the credentials aren't read-only and the command
+    raises an error instead of embedding them. Embedding sets
+    `embedcreds=yes` on the S3 remote config and writes the result to
+    `remote.log` on the git-annex branch.
+
+    \b
+    Examples:
+      xorq catalog embed-readonly --env-file .env.catalog.readonly
+      xorq catalog embed-readonly --env-prefix XORQ_CATALOG_RO_
     """
     with click_context_catalog(ctx):
         ro_config = _resolve_annex_option(env_file, env_prefix, gcs)
@@ -1204,9 +1485,28 @@ def compose(
     use_this_venv,
     emit_build_path_to,
 ):
-    """Assemble expressions from catalog entries, build, and persist to catalog.
+    """Compose entries into a new expression and persist it to the catalog.
 
-    Always catalogs the result. Use 'run' to execute an entry for data output.
+    Assembles one or more catalog entries (and optionally inline Ibis
+    code) into a new expression, builds it, and always catalogs the
+    result. To execute a composed expression for data output without
+    persisting, use `xorq catalog run` instead.
+
+    \b
+    Arguments:
+      ENTRIES  One or more entries (names or aliases); the first is the
+               source and subsequent entries apply as transforms.
+
+    \b
+    Examples:
+      # Compose source + transform and catalog the result
+      xorq catalog compose source-table transform-step --alias prod-pipeline
+      # Add inline transformation code
+      xorq catalog compose source-table -c "source.filter(source.amount > 100)" --alias high-value
+      # Preview without building
+      xorq catalog compose source-table transform-step --dry-run
+      # Rename a parameter on one entry of the composition
+      xorq catalog compose src trn --rename-params trn,threshold,cutoff
     """
     from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
 
@@ -1419,7 +1719,8 @@ def _resolve_and_execute(
     "--instream",
     type=click.File("rb"),
     default="-",
-    help="Stream to read Arrow IPC record batches from (default: stdin).",
+    show_default="stdin",
+    help="Stream to read Arrow IPC record batches from.",
 )
 @fuse_option
 @rename_params_option
@@ -1432,7 +1733,7 @@ def _resolve_and_execute(
         "Execute in the current Python environment instead of spawning "
         "`uv tool run` on the entry's pinned env. Faster (no subprocess + "
         "uv venv lookup) but only correct when the calling venv already has "
-        "every package the expression needs (xorq itself plus any UDFs "
+        "every package the expression needs (Xorq itself plus any UDFs "
         "from the entries' wheels). Default is the isolated `uv tool run` "
         "path."
     ),
@@ -1452,21 +1753,30 @@ def run(
     cache_dir,
     use_this_venv,
 ):
-    """Compose and execute catalog entries.
+    """Compose and execute catalog entries, writing data to disk or stdout.
 
-    One entry runs it directly; multiple entries compose source + transforms:
-
-    \b
-        xorq catalog run src -o - -f csv
-        xorq catalog run src trn -o - -f csv
-        xorq catalog run src trn -c "source.filter(source.amount > 100)" -o - -f csv
-
-    Piped Arrow input for a single unbound entry:
+    A single entry runs directly; multiple entries compose as
+    source + transforms. Unbound entries can have their input streamed in
+    over Arrow IPC. To persist a composed expression back to the catalog
+    instead of executing it, use `xorq catalog compose`.
 
     \b
-        xorq catalog run src -o - -f arrow | xorq catalog run trn -o - -f csv
+    Arguments:
+      ENTRIES  One or more entry names or aliases; multiple entries
+               compose as source + transforms.
 
-    To persist composed results, use 'compose'.
+    \b
+    Examples:
+      # Run a single entry directly
+      xorq catalog run src -o - -f csv
+      # Compose source + transform and execute
+      xorq catalog run src trn -o - -f csv
+      # Add inline transformation code
+      xorq catalog run src trn -c "source.filter(source.amount > 100)" -o - -f csv
+      # Pipe Arrow data into an unbound entry
+      xorq catalog run src -o - -f arrow | xorq catalog run trn -o - -f csv
+      # Override an expression parameter
+      xorq catalog run pipeline -p threshold=0.5 -o results.parquet
     """
     from xorq.cli import _get_cache_dir  # noqa: PLC0415
     from xorq.common.utils.logging_utils import RunLogger  # noqa: PLC0415
@@ -1561,7 +1871,8 @@ def run(
     "--instream",
     type=click.File("rb"),
     default="-",
-    help="Stream to read Arrow IPC record batches from (default: stdin).",
+    show_default="stdin",
+    help="Stream to read Arrow IPC record batches from.",
 )
 @fuse_option
 @rename_params_option
@@ -1575,7 +1886,7 @@ def run(
         "Execute in the current Python environment instead of spawning "
         "`uv tool run` on the entry's pinned env. Faster (no subprocess + "
         "uv venv lookup) but only correct when the calling venv already has "
-        "every package the expression needs (xorq itself plus any UDFs "
+        "every package the expression needs (Xorq itself plus any UDFs "
         "from the entries' wheels). Default is the isolated `uv tool run` "
         "path."
     ),
@@ -1597,10 +1908,24 @@ def run_cached(
     ttl,
     use_this_venv,
 ):
-    """Compose and execute catalog entries with a ParquetCache wrapping the expression.
+    """Compose and execute catalog entries with a parquet cache wrapper.
 
-    Same semantics as `run`, but wraps the resulting expression with a cache
-    (ParquetCache by default; snapshot/TTL variants via --cache-type / --ttl).
+    Same semantics as `xorq catalog run`, but wraps the resulting
+    expression with a cache so subsequent invocations short-circuit when
+    inputs haven't changed (ParquetCache by default; snapshot and TTL
+    variants via `--cache-type` and `--ttl`—see `xorq run-cached` for the
+    strategies).
+
+    \b
+    Arguments:
+      ENTRIES  One or more entry names or aliases.
+
+    \b
+    Examples:
+      # Default modification-time cache
+      xorq catalog run-cached src trn --cache-dir ./cache -o results.parquet
+      # Snapshot cache with a 1-hour TTL
+      xorq catalog run-cached pipeline --cache-type snapshot --ttl 3600 -o results.parquet
     """
     from xorq.caching import (  # noqa: PLC0415
         ParquetCache,
@@ -1702,7 +2027,24 @@ def serve_unbound(
     raw_params,
     cache_dir,
 ):
-    """Resolve a catalog entry, unbind a node, and serve via Flight."""
+    """Resolve a catalog entry, unbind a node, and serve it via Flight.
+
+    The catalog-aware counterpart to the top-level `xorq serve-unbound`:
+    instead of pointing at a build directory, you reference an entry by
+    name or alias and Xorq resolves it from the active catalog. Clients
+    stream record batches to the endpoint to drive the computation.
+
+    \b
+    Arguments:
+      ENTRY  Catalog entry name or alias to serve.
+
+    \b
+    Examples:
+      # Serve an aliased entry, unbinding by tag
+      xorq catalog serve-unbound flights-model --to-unbind-tag source_input --host 0.0.0.0 --port 8001
+      # Bind a runtime parameter
+      xorq catalog serve-unbound scorer --params threshold=0.5
+    """
     from functools import partial  # noqa: PLC0415
 
     import xorq.expr.relations  # noqa: PLC0415

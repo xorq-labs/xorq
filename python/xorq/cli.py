@@ -802,17 +802,22 @@ def uv_group(ctx):
     "-e",
     "--expr-name",
     default="expr",
+    show_default=True,
     help="Name of the expression variable in the Python script.",
 )
 @click.option(
-    "--builds-dir", default="builds", help="Directory for all generated artifacts."
+    "--builds-dir",
+    default="builds",
+    show_default=True,
+    help="Directory for all generated artifacts.",
 )
 @cache_dir_option
 @click.option(
     "--project-path",
     default=None,
     type=click.Path(exists=True, file_okay=False),
-    help="Explicit project root (default: search upward from script for pyproject.toml).",
+    show_default="search upward from the script for pyproject.toml",
+    help="Explicit project root.",
 )
 @click.option(
     "--pep723",
@@ -829,7 +834,8 @@ def uv_group(ctx):
 @click.option(
     "--all-extras/--no-all-extras",
     default=True,
-    help="Include all optional dependency groups (default: enabled).",
+    show_default=True,
+    help="Include all optional dependency groups.",
 )
 @click.option(
     "--debug",
@@ -842,7 +848,7 @@ def uv_group(ctx):
     default=None,
     help=(
         "Write the resulting build directory path to this file. Use when "
-        "stdout may be polluted (e.g. by OTel console fallback) and a "
+        "stdout may be polluted (for example by OTel console fallback) and a "
         "subprocess consumer needs the path unambiguously."
     ),
 )
@@ -858,7 +864,25 @@ def uv_build(
     debug,
     emit_build_path_to,
 ):
-    """Build an expression with a custom Python environment."""
+    """Build an expression inside a uv-managed isolated environment.
+
+    Mirrors `xorq build`, but runs inside a uv-managed environment seeded
+    from the script's `pyproject.toml` (or PEP 723 inline metadata), so
+    the build records dependency-faithful requirements.
+
+    \b
+    Arguments:
+      SCRIPT_PATH  Path to the Python script that defines the expression.
+
+    \b
+    Examples:
+      # Build with an auto-discovered project root and all extras
+      xorq uv build pipeline.py -e expr --builds-dir builds
+      # Build pinning a specific project root
+      xorq uv build pipeline.py --project-path ./pipeline-project
+      # Include only specific extras (disables --all-extras)
+      xorq uv build pipeline.py --no-all-extras --extra ml --extra postgres
+    """
     uv_build_command(
         script_path,
         expr_name,
@@ -880,7 +904,22 @@ def uv_build(
 @limit_option
 @params_option
 def uv_run(build_path, cache_dir, output_path, output_format, limit, raw_params):
-    """Run an expression with a custom Python environment."""
+    """Execute a build inside a uv-managed isolated environment.
+
+    Mirrors `xorq run`, but executes with the build's packaged sdist so
+    the runtime matches the dependencies recorded at build time.
+
+    \b
+    Arguments:
+      BUILD_PATH  Path to the build directory produced by `xorq uv build`.
+
+    \b
+    Examples:
+      # Save results to parquet
+      xorq uv run builds/7061dd65ff3c -o results.parquet
+      # Stream JSON to stdout
+      xorq uv run builds/7061dd65ff3c -f json -o -
+    """
     uv_run_command(
         build_path,
         cache_dir,
@@ -908,7 +947,21 @@ def uv_run_cached(
     ttl,
     raw_params,
 ):
-    """Run a cached expression with a custom Python environment."""
+    """Run a build with a parquet cache inside a uv-managed environment.
+
+    Mirrors `xorq run-cached` (including its cache strategies), but
+    executes with the build's packaged sdist so the runtime matches the
+    dependencies recorded at build time.
+
+    \b
+    Arguments:
+      BUILD_PATH  Path to the build directory produced by `xorq uv build`.
+
+    \b
+    Examples:
+      # Default modification-time cache
+      xorq uv run-cached builds/7061dd65ff3c --cache-dir ./cache -o results.parquet
+    """
     from xorq.ibis_yaml.packager import (  # noqa: PLC0415
         PackagedCachedRunner,
         validate_params_early,
@@ -931,21 +984,24 @@ def uv_run_cached(
     runner.run()
 
 
-_UNBOUND_OUTPUT_PATH_HELP = (
-    f"Path to write output (default: stdout for arrow, {os.devnull} otherwise)."
-)
+_UNBOUND_OUTPUT_PATH_HELP = "Path to write output. Use '-' for stdout."
+_UNBOUND_OUTPUT_PATH_SHOW_DEFAULT = "stdout (arrow) / discard (other)"
 
 
 @uv_group.command("run-unbound")
 @click.argument("build_path")
 @unbind_options
-@output_options(output_path_help=_UNBOUND_OUTPUT_PATH_HELP)
+@output_options(
+    output_path_help=_UNBOUND_OUTPUT_PATH_HELP,
+    output_path_show_default=_UNBOUND_OUTPUT_PATH_SHOW_DEFAULT,
+)
 @limit_option
 @click.option(
     "--batch-size",
     type=int,
     default=None,
-    help="Batch size for Arrow streaming output (default: use table default).",
+    show_default="table default",
+    help="Batch size for Arrow streaming output.",
 )
 @cache_dir_option
 @click.option(
@@ -953,7 +1009,8 @@ _UNBOUND_OUTPUT_PATH_HELP = (
     "--instream",
     type=click.Path(exists=True),
     default=None,
-    help="Path to file with Arrow IPC data (default: read from stdin).",
+    show_default="stdin",
+    help="Path to a file with Arrow IPC data.",
 )
 def uv_run_unbound(
     build_path,
@@ -967,7 +1024,20 @@ def uv_run_unbound(
     cache_dir,
     instream,
 ):
-    """Run an unbound expr with a custom Python environment."""
+    """Run an unbound expression over Arrow IPC inside a uv-managed environment.
+
+    Mirrors `xorq run-unbound`, but executes with the build's packaged
+    sdist so the runtime matches the dependencies recorded at build time.
+
+    \b
+    Arguments:
+      BUILD_PATH  Path to the build directory produced by `xorq uv build`.
+
+    \b
+    Examples:
+      # Stream input from a file
+      xorq uv run-unbound builds/transform --to-unbind-tag source_input -i input.arrow -o results.parquet
+    """
     from xorq.ibis_yaml.packager import PackagedUnboundRunner  # noqa: PLC0415
 
     runner = PackagedUnboundRunner(
@@ -991,10 +1061,14 @@ def uv_run_unbound(
     "-e",
     "--expr-name",
     default="expr",
+    show_default=True,
     help="Name of the expression variable in the Python script.",
 )
 @click.option(
-    "--builds-dir", default="builds", help="Directory for all generated artifacts."
+    "--builds-dir",
+    default="builds",
+    show_default=True,
+    help="Directory for all generated artifacts.",
 )
 @cache_dir_option
 @click.option(
@@ -1008,12 +1082,29 @@ def uv_run_unbound(
     default=None,
     help=(
         "Write the resulting build directory path to this file. Use when "
-        "stdout may be polluted (e.g. by OTel console fallback) and a "
+        "stdout may be polluted (for example by OTel console fallback) and a "
         "subprocess consumer needs the path unambiguously."
     ),
 )
 def build(script_path, expr_name, builds_dir, cache_dir, debug, emit_build_path_to):
-    """Generate artifacts from an expression."""
+    """Compile a Xorq expression into a reusable build artifact.
+
+    Loads the script, finds the expression variable, and writes serialized
+    artifacts (expression YAML, backend profiles, deferred reads, and
+    metadata) to the builds directory. Execute the artifact later with
+    `xorq run`, or add it to a catalog with `xorq catalog add`.
+
+    \b
+    Arguments:
+      SCRIPT_PATH  Path to the Python script that defines the expression.
+
+    \b
+    Examples:
+      # Build the expression named `expr` (the default)
+      xorq build pipeline.py
+      # Build a specific expression into a custom directory
+      xorq build pipeline.py -e daily_metrics --builds-dir artifacts
+    """
     build_command(
         script_path,
         expr_name,
@@ -1031,7 +1122,25 @@ def build(script_path, expr_name, builds_dir, cache_dir, debug, emit_build_path_
 @limit_option
 @params_option
 def run(build_path, cache_dir, output_path, output_format, limit, raw_params):
-    """Run a build from a builds directory."""
+    """Execute a build artifact and write results in your chosen format.
+
+    Loads the build, resolves its data sources, executes the expression on
+    the recorded backend, and writes the result as csv, json (NDJSON),
+    parquet, or arrow.
+
+    \b
+    Arguments:
+      BUILD_PATH  Path to the build directory produced by `xorq build`.
+
+    \b
+    Examples:
+      # Write results as parquet (the default format)
+      xorq run builds/f02d28198715 -o results.parquet
+      # Stream CSV to stdout and pipe onward
+      xorq run builds/f02d28198715 -o - -f csv | head -10
+      # Sample 100 rows with a parameter override
+      xorq run builds/f02d28198715 --limit 100 -p threshold=0.5 -o sample.parquet
+    """
     run_command(build_path, output_path, output_format, cache_dir, limit, raw_params)
 
 
@@ -1052,7 +1161,33 @@ def run_cached(
     ttl,
     raw_params,
 ):
-    """Run a build with a ParquetCache wrapping the expression."""
+    """Run a build with a parquet cache wrapping the expression.
+
+    Identical to `xorq run` in semantics, but wraps the expression in a
+    parquet cache so subsequent invocations short-circuit when inputs
+    haven't changed.
+
+    \b
+    Cache strategies:
+    - `modification-time` (default): ParquetCache. Inputs are tracked by
+      file modification time; the cache invalidates when an input file's
+      mtime changes.
+    - `snapshot`: ParquetSnapshotCache. The cache is keyed by a content
+      snapshot of the inputs and never invalidates implicitly.
+    - `snapshot` with `--ttl`: ParquetTTLSnapshotCache. The cache entry
+      also expires after the supplied TTL (in seconds).
+
+    \b
+    Arguments:
+      BUILD_PATH  Path to the build directory produced by `xorq build`.
+
+    \b
+    Examples:
+      # Default modification-time cache
+      xorq run-cached builds/f02d28198715 --cache-dir ./cache -o results.parquet
+      # Snapshot cache with a 1-hour TTL
+      xorq run-cached builds/f02d28198715 --cache-type snapshot --ttl 3600 -o results.parquet
+    """
     run_cached_command(
         build_path,
         output_path,
@@ -1068,13 +1203,17 @@ def run_cached(
 @cli.command("run-unbound")
 @click.argument("build_path")
 @unbind_options
-@output_options(output_path_help=_UNBOUND_OUTPUT_PATH_HELP)
+@output_options(
+    output_path_help=_UNBOUND_OUTPUT_PATH_HELP,
+    output_path_show_default=_UNBOUND_OUTPUT_PATH_SHOW_DEFAULT,
+)
 @limit_option
 @click.option(
     "--batch-size",
     type=int,
     default=None,
-    help="Batch size for Arrow streaming output (default: use table default).",
+    show_default="table default",
+    help="Batch size for Arrow streaming output.",
 )
 @cache_dir_option
 @click.option(
@@ -1082,7 +1221,8 @@ def run_cached(
     "--instream",
     type=click.File("rb"),
     default="-",
-    help="Stream to read record batches from.",
+    show_default="stdin",
+    help="Stream to read Arrow IPC record batches from.",
 )
 def run_unbound(
     build_path,
@@ -1096,7 +1236,25 @@ def run_unbound(
     cache_dir,
     instream,
 ):
-    """Run an unbound expr by reading Arrow IPC from stdin."""
+    """Run an unbound expression by streaming Arrow IPC input.
+
+    Executes a built expression after replacing one of its nodes with
+    record batches streamed in over Arrow IPC—useful for piping data
+    between expressions without standing up a Flight server. If neither
+    `--to-unbind-hash` nor `--to-unbind-tag` is supplied, the node is
+    inferred from graph analysis; supply one for determinism.
+
+    \b
+    Arguments:
+      BUILD_PATH  Path to the build directory produced by `xorq build`.
+
+    \b
+    Examples:
+      # Stream input from a file
+      xorq run-unbound builds/transform --to-unbind-tag source_input -i input.arrow -o results.parquet
+      # Pipe arrow output from one expression into another
+      xorq run builds/source -o - -f arrow | xorq run-unbound builds/transform --to-unbind-tag source_input -o results.parquet
+    """
     run_unbound_command(
         build_path,
         to_unbind_hash=to_unbind_hash,
@@ -1126,7 +1284,25 @@ def serve_unbound(
     typ,
     prometheus_port,
 ):
-    """Serve an unbound expr via Flight Server."""
+    """Serve an unbound expression as an Arrow Flight endpoint.
+
+    Replaces a selected node of the built expression with an unbound table
+    and serves the result; clients stream record batches to the endpoint
+    to drive the computation. If neither `--to-unbind-hash` nor
+    `--to-unbind-tag` is supplied, the node is inferred from graph
+    analysis; supply one for determinism.
+
+    \b
+    Arguments:
+      BUILD_PATH  Path to the build directory produced by `xorq build`.
+
+    \b
+    Examples:
+      # Serve with an explicit node hash
+      xorq serve-unbound builds/7061dd65ff3c --host 0.0.0.0 --port 8001 --to-unbind-hash b2370a29c19df8e1e639c63252dacd0e
+      # Select the node to unbind by tag
+      xorq serve-unbound builds/7061dd65ff3c --to-unbind-tag source_input
+    """
     unbind_and_serve_command(
         build_path,
         to_unbind_hash,
@@ -1145,11 +1321,27 @@ def serve_unbound(
 @click.option(
     "--duckdb-path",
     default=None,
-    help="Path to duckdb DB (default: <build_path>/xorq_serve.db).",
+    show_default="`<build_path>/xorq_serve.db`",
+    help="Path to the DuckDB database file used by the server.",
 )
 @cache_dir_option
 def serve_flight_udxf(build_path, host, port, duckdb_path, prometheus_port, cache_dir):
-    """Serve a build via Flight Server."""
+    """Serve an expression's UDXF nodes as an Arrow Flight endpoint.
+
+    Loads the built expression, detects its UDXF (user-defined exchange
+    function) nodes, and hosts them with `FlightServer.from_udxf`. Clients
+    connect with `xo.flight.connect`, fetch the exchange by its command
+    name with `con.get_exchange`, and stream data through it.
+
+    \b
+    Arguments:
+      BUILD_PATH  Path to the build directory produced by `xorq build`.
+
+    \b
+    Examples:
+      # Serve a built UDXF expression
+      xorq serve-flight-udxf builds/f02d28198715 --host 0.0.0.0 --port 8080
+    """
     serve_command(build_path, host, port, duckdb_path, prometheus_port, cache_dir)
 
 
@@ -1158,6 +1350,7 @@ def serve_flight_udxf(build_path, host, port, duckdb_path, prometheus_port, cach
     "-p",
     "--path",
     default="./xorq-template",
+    show_default=True,
     help="Path to initialize the template.",
 )
 @click.option(
@@ -1165,6 +1358,7 @@ def serve_flight_udxf(build_path, host, port, duckdb_path, prometheus_port, cach
     "--template",
     type=click.Choice([str(t) for t in InitTemplates]),
     default=str(InitTemplates.default),
+    show_default=True,
     help="Template to use.",
 )
 @click.option(
@@ -1174,7 +1368,24 @@ def serve_flight_udxf(build_path, host, port, duckdb_path, prometheus_port, cach
     help="Branch to use for the template.",
 )
 def init(path, template, branch):
-    """Initialize a xorq project."""
+    """Scaffold a new Xorq project from a template.
+
+    Each template has a pinned default branch; pass `--branch` to check
+    out a different branch or commit of the template repo.
+
+    \b
+    Templates:
+    - `cached-fetcher`—cached data-fetching workflows (the default)
+    - `sklearn`—ML workflows with scikit-learn
+    - `penguins`—penguins dataset example pipeline
+
+    \b
+    Examples:
+      # Scaffold the default template
+      xorq init
+      # Scaffold the sklearn template in a custom directory
+      xorq init --template sklearn --path ./ml-project
+    """
     init_command(path, template, branch)
 
 
@@ -1206,17 +1417,31 @@ def _detect_shell():
 
 
 @cli.command()
-@click.argument("shell", type=click.Choice(["bash", "zsh", "fish"]), required=False)
+@click.argument(
+    "shell",
+    type=click.Choice(["bash", "zsh", "fish"]),
+    required=False,
+    metavar="[SHELL]",
+)
 def completion(shell):
-    """Output shell completion script.
+    """Print a shell-completion script to stdout.
 
-    SHELL defaults to the value of $SHELL if not provided.
+    Pipe or `eval` the output to enable tab completion in your current
+    shell. For a one-shot install to the standard location, use
+    `xorq install-completion` instead.
 
     \b
-    Add to your shell config:
-      bash:  eval "$(xorq completion bash)"
-      zsh:   eval "$(xorq completion zsh)"
-      fish:  xorq completion fish | source
+    Arguments:
+      SHELL  One of bash, zsh, fish. Defaults to detecting `$SHELL`.
+
+    \b
+    Examples:
+      # bash (add to ~/.bashrc)
+      eval "$(xorq completion bash)"
+      # zsh (add to ~/.zshrc)
+      eval "$(xorq completion zsh)"
+      # fish
+      xorq completion fish | source
     """
     if shell is None:
         shell = _detect_shell()
@@ -1224,17 +1449,35 @@ def completion(shell):
 
 
 @cli.command("install-completion")
-@click.argument("shell", type=click.Choice(["bash", "zsh", "fish"]), required=False)
+@click.argument(
+    "shell",
+    type=click.Choice(["bash", "zsh", "fish"]),
+    required=False,
+    metavar="[SHELL]",
+)
 def install_completion(shell):
-    """Install shell completion script to the standard location.
+    """Install the shell-completion script to the standard location.
 
-    SHELL defaults to the value of $SHELL if not provided.
+    After installation, restart your shell or source the generated file to
+    activate completion. The command prints the path it wrote and the
+    source command that activates completion in the current session.
 
     \b
     Install paths:
-      bash:  ~/.local/share/bash-completion/completions/xorq
-      zsh:   ~/.zfunc/_xorq  (requires ~/.zfunc in fpath)
-      fish:  ~/.config/fish/completions/xorq.fish
+    - bash: `~/.local/share/bash-completion/completions/xorq`
+    - zsh: `~/.zfunc/_xorq` (requires `~/.zfunc` in `fpath`)
+    - fish: `~/.config/fish/completions/xorq.fish`
+
+    \b
+    Arguments:
+      SHELL  One of bash, zsh, fish. Defaults to detecting `$SHELL`.
+
+    \b
+    Examples:
+      # Detect the shell from $SHELL and install
+      xorq install-completion
+      # Pin a specific shell
+      xorq install-completion zsh
     """
     if shell is None:
         shell = _detect_shell()

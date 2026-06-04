@@ -17,6 +17,13 @@ jobs:
         id: filter
         if: github.event_name == 'pull_request'
         with:
+          # Require a changed file to match EVERY pattern in a filter. Without
+          # this, dorny defaults to "some" (OR): the catch-all '**' matches
+          # every file, so the '!docs/**' negations never exclude anything and
+          # `code` is always true — triggering the full test suite on docs-only
+          # PRs. With "every", a docs/*.qmd file matches '**' but fails the
+          # negations, so it is correctly excluded.
+          predicate-quantifier: 'every'
           filters: |
             code:
               - '**'

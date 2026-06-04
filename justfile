@@ -48,6 +48,7 @@ up-ci *backends:
 docs-apigen *args:
     cd docs && uv run --no-sync quartodoc interlinks
     uv run --no-sync quartodoc build {{ args }} --config docs/_quarto.yml
+    uv run --no-sync python docs/generate_cli_reference.py
 
 # build documentation
 docs-render:
@@ -55,11 +56,11 @@ docs-render:
 
 # lint documentation (vale, lychee, quarto, pymarkdown, frontmatter, orphans)
 docs-lint *args:
-    bash docs/lint.sh {{ args }}
+    uv run --no-sync bash docs/lint.sh {{ args }}
 
 # lint documentation and check external URLs (slow, ~5 min)
 docs-lint-external:
-    bash docs/lint.sh --external
+    uv run --no-sync bash docs/lint.sh --external
 
 # deploy docs to netlify
 docs-deploy:
