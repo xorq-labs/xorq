@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780579725019,
+  "lastUpdate": 1780589266536,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -16311,6 +16311,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.007725039754652474",
             "extra": "mean: 28.4924685555571 msec\nrounds: 45"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e1ed5fcd8578cacc25dba4630fbdf17cf1ae9d8f",
+          "message": "docs(tutorials): add get-started-with-xorq-init tutorial (#2032)\n\nAdds a no-cloud getting-started tutorial: scaffold a project with `xorq\ninit`, load Moneyball CSVs with `deferred_read_csv`, and build a\ntop-batters leaderboard with `xorq uv build` / `xorq uv run`. In-process\ndatafusion backend, no server, no `ibis` import.\n\n## Changes\n- New tutorial:\n`docs/tutorials/core_tutorials/get-started-with-xorq-init.qmd`\n- Registered first in the **Core tutorials** sidebar\n(`docs/_quarto.yml`)\n\n## Verified end-to-end (against xorq 0.3.28)\n- `uvx xorq@latest init --path moneyball` scaffolds the project\n(`expr.py` at repo root)\n- `uv sync` resolves a xorq with the `xorq uv build` / `xorq uv run`\nsubcommands\n- CSV source URLs return 200; every referenced column (`HBP`, `SF`, `H`,\n`BB`, `AB`, `lgID`, `yearID`, `playerID`, `nameFirst/Last`, `bats`,\n`throws`, `birthYear`) exists\n- `xorq uv build` → `builds/<hash>/`; rebuild with no change = same\nhash, edit = new dir, nothing overwritten\n- `xorq uv run` produces **1120 rows, 0 NaN/Inf**, sensible OBP/AVG\n(e.g. Frank Thomas 1997, .456 OBP)\n\n## Review fixes folded in\n- **Python requirement corrected** — supports 3.10–3.13 (was \"requires\n3.13\")\n- **Next links** point to the `uv build` / `uv run` reference pages,\nmatching the commands the tutorial uses (was plain `build`)\n- **OBP computed after the `AB >= 100` filter** so the denominator is\nnever zero; ~18k zero-AB rows previously produced NaN/Inf intermediates\n(build hash unchanged — output identical)\n- **Explicit `how=\"inner\"`** on the People join, with a note that\nunmatched batting rows drop\n- **Vale clean** — root `.vale.ini` maps `qmd`→`md` so fenced/inline\ncode isn't linted as prose\n\n## Notes\n- The `pyproject.toml` / `uv.lock` / `CHANGELOG.md` diffs are the\n**0.3.28 release commit** that sits in this branch's base but isn't in\n`main` yet; they drop out of the diff once `main` includes the release.\n\nPart of the Diataxis docs effort — #2023 (Phase 0a: #2024).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-04T12:03:15-04:00",
+          "tree_id": "8e58a6bacc124b0f5e1d01e376caadd4a5d70c79",
+          "url": "https://github.com/xorq-labs/xorq/commit/e1ed5fcd8578cacc25dba4630fbdf17cf1ae9d8f"
+        },
+        "date": 1780589262512,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 6.90027833734218,
+            "unit": "iter/sec",
+            "range": "stddev: 0.024997493560342234",
+            "extra": "mean: 144.9216902727399 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.713496329595501,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014176166411242322",
+            "extra": "mean: 368.5282301999905 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.5973953096142921,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2159129721994343",
+            "extra": "mean: 1.6739334639999925 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.396425951547809,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08362568273739114",
+            "extra": "mean: 417.2880866000128 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.418695116209999,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07943221928837797",
+            "extra": "mean: 413.44607400000086 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.4739142099136675,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08450797391963744",
+            "extra": "mean: 404.21773560001384 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 205.71267342199033,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006525590285121527",
+            "extra": "mean: 4.861149210523563 msec\nrounds: 285"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.844373823644951,
+            "unit": "iter/sec",
+            "range": "stddev: 0.055196399481506724",
+            "extra": "mean: 171.1047291249983 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 29.008285924071735,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007959650594572725",
+            "extra": "mean: 34.472908968750104 msec\nrounds: 32"
           }
         ]
       }
