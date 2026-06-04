@@ -802,17 +802,22 @@ def uv_group(ctx):
     "-e",
     "--expr-name",
     default="expr",
+    show_default=True,
     help="Name of the expression variable in the Python script.",
 )
 @click.option(
-    "--builds-dir", default="builds", help="Directory for all generated artifacts."
+    "--builds-dir",
+    default="builds",
+    show_default=True,
+    help="Directory for all generated artifacts.",
 )
 @cache_dir_option
 @click.option(
     "--project-path",
     default=None,
     type=click.Path(exists=True, file_okay=False),
-    help="Explicit project root (default: search upward from script for pyproject.toml).",
+    show_default="search upward from the script for pyproject.toml",
+    help="Explicit project root.",
 )
 @click.option(
     "--pep723",
@@ -829,7 +834,8 @@ def uv_group(ctx):
 @click.option(
     "--all-extras/--no-all-extras",
     default=True,
-    help="Include all optional dependency groups (default: enabled).",
+    show_default=True,
+    help="Include all optional dependency groups.",
 )
 @click.option(
     "--debug",
@@ -1055,10 +1061,14 @@ def uv_run_unbound(
     "-e",
     "--expr-name",
     default="expr",
+    show_default=True,
     help="Name of the expression variable in the Python script.",
 )
 @click.option(
-    "--builds-dir", default="builds", help="Directory for all generated artifacts."
+    "--builds-dir",
+    default="builds",
+    show_default=True,
+    help="Directory for all generated artifacts.",
 )
 @cache_dir_option
 @click.option(
@@ -1311,7 +1321,8 @@ def serve_unbound(
 @click.option(
     "--duckdb-path",
     default=None,
-    help="Path to duckdb DB (default: <build_path>/xorq_serve.db).",
+    show_default="`<build_path>/xorq_serve.db`",
+    help="Path to the DuckDB database file used by the server.",
 )
 @cache_dir_option
 def serve_flight_udxf(build_path, host, port, duckdb_path, prometheus_port, cache_dir):
@@ -1339,6 +1350,7 @@ def serve_flight_udxf(build_path, host, port, duckdb_path, prometheus_port, cach
     "-p",
     "--path",
     default="./xorq-template",
+    show_default=True,
     help="Path to initialize the template.",
 )
 @click.option(
@@ -1346,6 +1358,7 @@ def serve_flight_udxf(build_path, host, port, duckdb_path, prometheus_port, cach
     "--template",
     type=click.Choice([str(t) for t in InitTemplates]),
     default=str(InitTemplates.default),
+    show_default=True,
     help="Template to use.",
 )
 @click.option(

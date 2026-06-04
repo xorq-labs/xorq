@@ -126,6 +126,7 @@ def serve_options(fn):
     fn = click.option(
         "--host",
         default="localhost",
+        show_default=True,
         help="Host to bind the Flight server.",
     )(fn)
     return fn

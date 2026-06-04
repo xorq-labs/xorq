@@ -192,7 +192,13 @@ def cli(ctx, name, path, url, root_repo, init):
 
 
 @cli.command()
-@click.option("--refresh", default=10, type=float, help="Refresh interval in seconds.")
+@click.option(
+    "--refresh",
+    default=10,
+    type=float,
+    show_default=True,
+    help="Refresh interval in seconds.",
+)
 @click.pass_context
 def tui(ctx, refresh):
     """Browse the catalog interactively in a terminal UI.
@@ -407,6 +413,7 @@ def remove_alias(ctx, aliases, sync):
 @click.option(
     "--kind/--no-kind",
     default=False,
+    show_default=True,
     help="Print a second column showing each entry's kind.",
 )
 @click.pass_context
