@@ -912,6 +912,7 @@ def log(ctx, as_json):
 @click.option(
     "--preserve-commits/--no-preserve-commits",
     default=True,
+    show_default=True,
     help="Preserve original commit authors and timestamps.",
 )
 @click.option("--force", is_flag=True, help="Force-push to the remote.")

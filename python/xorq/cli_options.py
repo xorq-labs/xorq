@@ -21,6 +21,7 @@ def output_options(fn=None, *, output_path_help=None, output_path_show_default=N
             "output_format",
             type=click.Choice(tuple(f.value for f in OutputFormats)),
             default=DEFAULT_OUTPUT_FORMAT,
+            show_default=True,
             help="Output format.",
         )(fn)
         fn = click.option(
@@ -77,6 +78,7 @@ def cache_strategy_options(fn):
         "--cache-type",
         type=click.Choice(["modification-time", "snapshot"]),
         default=DEFAULT_CACHE_TYPE,
+        show_default=True,
         help=(
             "Cache strategy: 'modification-time' (ParquetCache)"
             " or 'snapshot' (ParquetSnapshotCache)."
@@ -132,6 +134,7 @@ def serve_options(fn):
 fuse_option = click.option(
     "--fuse/--no-fuse",
     default=True,
+    show_default=True,
     help="Enable catalog source fusion.",
 )
 
@@ -155,6 +158,7 @@ code_option = click.option(
 sync_option = click.option(
     "--sync/--no-sync",
     default=True,
+    show_default=True,
     help="Push the catalog to its remotes after the operation.",
 )
 

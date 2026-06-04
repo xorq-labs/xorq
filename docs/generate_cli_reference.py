@@ -283,13 +283,24 @@ your data and ML pipelines."""
 # =============================================================================
 
 
-def iter_visible_commands(group):
-    """Yield (name, command) for the group's visible terminal commands."""
+def iter_visible_commands(group, known_groups=()):
+    """Yield (name, command) for the group's visible terminal commands.
+
+    Nested groups the generator doesn't know how to flatten are a hard
+    error — pass their names via *known_groups* once handled.
+    """
     for name, cmd in group.commands.items():
         if cmd.hidden:
             continue
-        if not isinstance(cmd, click.Group):
-            yield (name, cmd)
+        if isinstance(cmd, click.Group):
+            if name not in known_groups:
+                raise SystemExit(
+                    f"nested command group not handled by the generator: {name!r}"
+                    " — teach load_*_commands() to flatten it"
+                    " (see how the 'uv' group is handled)"
+                )
+            continue
+        yield (name, cmd)
 
 
 def load_main_commands():
@@ -297,7 +308,7 @@ def load_main_commands():
     from xorq.cli import cli as main_cli  # noqa: PLC0415
 
     commands = {}
-    for name, cmd in iter_visible_commands(main_cli):
+    for name, cmd in iter_visible_commands(main_cli, known_groups=("uv",)):
         commands[name] = (cmd, f"xorq {name}")
     uv_group = main_cli.commands.get("uv")
     if uv_group is not None:
@@ -458,7 +469,9 @@ def render_options_table(cmd):
 
 
 def render_frontmatter(title, order, aliases=()):
-    lines = ["---", f"title: '{title}'", f"order: {order}"]
+    # YAML single-quoted scalar: escape embedded quotes by doubling them.
+    quoted = title.replace("'", "''")
+    lines = ["---", f"title: '{quoted}'", f"order: {order}"]
     if aliases:
         lines.append("aliases:")
         lines.extend(f"  - {alias}" for alias in aliases)
