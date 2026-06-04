@@ -33,6 +33,7 @@ Usage:
     uv run --no-sync python docs/generate_cli_reference.py
 """
 
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -387,6 +388,24 @@ def parse_block_items(lines):
     return tuple(items)
 
 
+def render_prose_paragraph(lines):
+    """Render a docstring paragraph as markdown prose.
+
+    Strips per-line indentation (defensive: an un-dedented ``cmd.help``
+    would otherwise render as an indented code block) and inserts the
+    blank line markdown needs between a trailing-colon header line and
+    the list items that follow it (e.g. the ``Templates:`` block).
+    """
+    stripped = tuple(line.strip() for line in lines)
+    if (
+        len(stripped) > 1
+        and stripped[0].endswith(":")
+        and re.match(r"(-|\d+\.)\s", stripped[1])
+    ):
+        return "\n".join((stripped[0], "", *stripped[1:]))
+    return "\n".join(stripped)
+
+
 def parse_docstring(help_text):
     """Split a command's help into (prose, argument items, example lines)."""
     prose = []
@@ -399,7 +418,7 @@ def parse_docstring(help_text):
         elif is_literal and header == "examples:":
             examples.extend(line.strip() for line in lines[1:])
         else:
-            prose.append("\n".join(lines))
+            prose.append(render_prose_paragraph(lines))
     return (tuple(prose), tuple(arguments), tuple(examples))
 
 
