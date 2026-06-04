@@ -233,10 +233,18 @@ extend-select = [
     "C4",     # flake8-comprehensions: unnecessary list/dict/set comprehensions
     "FURB",   # refurb: modernize Python code
     "PLC0415",  # import-outside-toplevel: imports must be at module level
+    "DTZ",      # flake8-datetimez: enforce timezone-aware datetime usage
+    "PLW1514",  # unspecified-encoding: require explicit encoding= in open() (needs preview)
 ]
 ignore = [
     "B018",  # useless-expression: side-effect property access is intentional
     "B905",  # zip-without-explicit-strict: not enforced project-wide
+    # TODO: fix existing DTZ violations and remove these ignores
+    "DTZ001",   # call-datetime-without-tzinfo (22 existing violations)
+    "DTZ002",   # call-datetime-today (1 existing violation)
+    "DTZ005",   # call-datetime-now-without-tzinfo (10 existing violations)
+    "DTZ006",   # call-datetime-fromtimestamp (3 existing violations)
+    "DTZ011",   # call-date-today (4 existing violations)
 ]
 
 [tool.ruff.lint.per-file-ignores]
