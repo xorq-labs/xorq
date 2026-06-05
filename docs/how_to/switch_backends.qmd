@@ -1,0 +1,90 @@
+---
+title: 'Route a step to a specific backend'
+description: "Use into_backend() to run each pipeline step on the engine that suits it"
+---
+
+This guide shows you how to move a pipeline step onto a specific backend with [`into_backend()`](../reference/Table.qmd#xorq.vendor.ibis.expr.types.relations.Table.into_backend). You have a working pipeline; one step would run better elsewhere, like a heavy filter near the data in PostgreSQL or a UDF that needs the embedded engine. One method call reroutes it.
+
+Data moves between engines as Arrow record batches, streamed rather than materialized, so the transfer doesn't require temp files or a full copy in memory.
+
+## Prerequisites
+
+- Xorq installed with the DuckDB extra ([Install Xorq](install_xorq.qmd))
+- Connections to at least two backends ([Connect to a backend](connect_to_backends.qmd))
+
+## Steps
+
+### 1. Decide where the step should run
+
+The win comes from putting each step where it's strongest. Typical reasons to move:
+
+| Move to | When |
+|---|---|
+| PostgreSQL (or your warehouse) | The data already lives there and the step reduces it: filter and aggregate before pulling anything out |
+| DuckDB | The step needs analytical strength: AsOf joins, window-heavy queries, scanning Parquet files |
+| Embedded (DataFusion) | The step uses Xorq features tied to the embedded engine: Python UDFs, ML steps, Flight serving |
+| Nowhere (stay put) | The current backend handles the step fine; every hop has a cost, so don't pay it without a reason |
+
+A useful default: reduce data on the backend that stores it, then move the small result to the engine doing the specialized work.
+
+### 2. Move the expression with `into_backend()`
+
+Start with a filter in DuckDB, then hand the result to the embedded backend:
+
+```{python}
+import xorq.api as xo
+
+ddb = xo.duckdb.connect()
+con = xo.connect()
+
+penguins = xo.examples.penguins.fetch(backend=ddb)
+
+filtered = penguins.filter(
+    xo._.body_mass_g.notnull(),
+    xo._.sex == "female",
+)
+
+moved = filtered.into_backend(con, "female_penguins")
+```
+
+`into_backend()` takes the target connection and an optional table name. The result is a new expression rooted in the target backend; the original is untouched.
+
+### 3. Continue the pipeline on the new backend
+
+Everything after the move runs on the target engine:
+
+```{python}
+result = (
+    moved.group_by("species")
+    .agg(
+        n=xo._.count(),
+        avg_mass=xo._.body_mass_g.mean(),
+    )
+    .execute()
+)
+print(result)
+```
+
+The filter executed in DuckDB; the aggregation executed on the embedded backend. The expression stays deferred until `.execute()`, so the transfer also waits until then.
+
+### 4. Check which engines the pipeline touches
+
+The `.ls` accessor shows the backends an expression spans:
+
+```{python}
+expr = moved.group_by("species").agg(n=xo._.count())
+print(expr.ls.backends)
+print(expr.ls.is_multiengine)
+```
+
+If `is_multiengine` is `True` when you expected a single engine (or the other way around), a step landed somewhere you didn't intend.
+
+:::{.callout-tip}
+Cache the moved expression if downstream steps execute repeatedly: `.into_backend(con, "name").cache(...)` skips both the source read and the transfer on later runs. See [Cache results by backend](cache_by_backend.qmd).
+:::
+
+## See also
+
+- [Multi-engine execution](../concepts/understanding_xorq/multi_engine_execution.qmd): how cross-engine transfers work
+- [Cache results by backend](cache_by_backend.qmd)
+- [Switch between backends](../getting_started/switch_backends.qmd): a tutorial introduction to the same machinery

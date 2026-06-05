@@ -1,0 +1,128 @@
+---
+title: 'Cache results by backend'
+description: "Pick the right cache class for your source and target backends"
+---
+
+This guide shows you how to pick a cache class and attach it to an expression. Xorq ships four cache classes, and the right one depends on two questions: should the cache invalidate when source data changes, and where should the cached result live?
+
+Caching is lazy. Attaching `.cache(...)` to an expression does nothing until you call `.execute()`, at which point Xorq either writes the result to storage (miss) or reads it back (hit).
+
+## Prerequisites
+
+- Xorq installed ([Install Xorq](install_xorq.qmd))
+- A backend connection ([Connect to a backend](connect_to_backends.qmd))
+
+## Steps
+
+### 1. Pick the cache class
+
+Answer two questions and read the class off the table:
+
+| Goal | Store in a backend | Store as Parquet on disk |
+|---|---|---|
+| Recompute when source data changes | [`SourceCache`](../reference/SourceCache.qmd) | [`ParquetCache`](../reference/ParquetCache.qmd) |
+| Keep the first result, even if data changes | [`SourceSnapshotCache`](../reference/SourceSnapshotCache.qmd) | [`ParquetSnapshotCache`](../reference/ParquetSnapshotCache.qmd) |
+
+Rules of thumb:
+
+- Store in a backend when downstream steps run on that backend anyway, or when the cache should live in a shared database.
+- Store as Parquet when the source backend is in-memory and you want the cache to outlive it, or when no database is involved.
+- Pick a Snapshot variant when you'd rather serve stale data than pay for recomputation.
+
+### 2. Cache into a backend with `SourceCache`
+
+`SourceCache` stores the result as a table in whatever backend you pass as `source`. The cache key includes source-data metadata, so changes upstream produce a new key and force recomputation.
+
+```{python}
+import xorq.api as xo
+from xorq.caching import SourceCache
+
+ddb = xo.duckdb.connect()
+penguins = xo.examples.penguins.fetch(backend=ddb)
+
+expr = (
+    penguins.group_by("species")
+    .agg(avg_mass=xo._.body_mass_g.mean())
+    .cache(SourceCache.from_kwargs(source=ddb))
+)
+print(expr.execute())
+```
+
+Calling `.cache()` with no arguments does the same thing, using the expression's own backend as the source.
+
+### 3. Cache to disk with `ParquetCache`
+
+`ParquetCache` writes the result as a Parquet file, by default under `~/.cache/xorq/`.
+
+```{python}
+from xorq.caching import ParquetCache
+
+con = xo.connect()
+
+expr = (
+    penguins.filter(xo._.sex.notnull())
+    .cache(ParquetCache.from_kwargs(source=con))
+)
+print(expr.count().execute())
+```
+
+To put the files somewhere else, pass `base_path=Path("/some/dir")` to `from_kwargs`, or set the `XORQ_CACHE_DIR` environment variable.
+
+The `source` backend here only writes the file on a miss and reads it back on a hit; the cache itself lives on disk.
+
+### 4. Freeze results with the Snapshot variants
+
+[`SourceSnapshotCache`](../reference/SourceSnapshotCache.qmd) and [`ParquetSnapshotCache`](../reference/ParquetSnapshotCache.qmd) compute the cache key from the expression structure only: table name, path, schema. The key stays stable when the underlying data changes, so the first cached result is served until you delete it.
+
+```{python}
+from xorq.caching import SourceSnapshotCache
+
+frozen = (
+    penguins.group_by("island")
+    .agg(n=xo._.count())
+    .cache(SourceSnapshotCache.from_kwargs(source=ddb))
+)
+print(frozen.execute())
+```
+
+Use this when reproducibility beats freshness, like model training inputs or an expensive backfill you don't want to rerun.
+
+### 5. Combine with `into_backend()`: DuckDB source, DataFusion target
+
+A common pattern: read and filter in DuckDB, move the result to the embedded DataFusion backend for further work, and cache the transferred result as Parquet so the transfer doesn't repeat.
+
+```{python}
+from xorq.caching import ParquetCache
+
+con = xo.connect()
+
+pipeline = (
+    penguins.filter(xo._.species == "Adelie")
+    .into_backend(con, "adelie")
+    .cache(ParquetCache.from_kwargs(source=con))
+    .group_by("island")
+    .agg(avg_bill=xo._.bill_length_mm.mean())
+)
+print(pipeline.execute())
+```
+
+On the second `.execute()`, the DuckDB read and the cross-backend transfer are skipped entirely; the pipeline starts from the Parquet file.
+
+### 6. Check the backend caveats
+
+Automatic invalidation relies on backend-specific change signals, and they're not all equally sharp:
+
+| Backend | Change signal | Caveat |
+|---|---|---|
+| PostgreSQL | `reltuples` estimate | Updates after `ANALYZE`/autovacuum; an insert may not invalidate immediately. Run `ANALYZE <table>` to force it. |
+| Snowflake | `LAST_ALTERED` timestamp | Reliable; updates on any DDL or DML. |
+| DuckDB | File metadata or data bytes | In-memory tables hash the actual data, which is precise but costly for large tables. |
+| SQLite (on disk) | `COUNT(*)` and `MAX(id)` | Needs an `id` column; misses updates that change neither count nor max id. |
+| PyIceberg | Snapshot IDs | Tied to Iceberg's snapshot model. |
+
+If your backend's signal is too coarse for your use case, a Snapshot variant plus explicit cache deletion gives you manual control.
+
+## See also
+
+- [Cache strategies, storage, and backend invalidation](../concepts/core_concepts/caching_internals.qmd): how keys are computed, plus the `GCSCache` and TTL variants not covered here
+- [Explore caching](../getting_started/explore_caching.qmd): a hands-on walkthrough of hits, misses, and invalidation

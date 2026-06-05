@@ -1,0 +1,98 @@
+---
+title: 'Compose catalog entries'
+description: "Load an existing catalog entry, build a new pipeline on top, and register the result back"
+---
+
+This guide shows you how to build on work that's already in a catalog: load an entry someone published, chain a new expression onto it, and register the result as a new entry. The catalog is a git repository, so each `add` becomes one reviewable commit.
+
+The snippets below create a throwaway catalog in a temporary directory so the whole flow runs end to end. With a real catalog, skip the setup and point [`Catalog`](../reference/Catalog.qmd) at your repository instead.
+
+## Prerequisites
+
+- Xorq installed ([Install Xorq](install_xorq.qmd))
+- An initialized catalog: either `xorq catalog init` on the command line or `Catalog.from_repo_path(path, init=True)` in Python
+- A `pyproject.toml` in your project: `catalog.add()` packages your project as a wheel so each entry records the dependencies it was built with
+
+## Steps
+
+### 1. Open the catalog
+
+```{python}
+#| output: false
+import tempfile
+from pathlib import Path
+
+import xorq.api as xo
+from xorq.catalog.catalog import Catalog
+
+catalog_dir = Path(tempfile.mkdtemp()) / "catalog"
+catalog = Catalog.from_repo_path(catalog_dir, init=True)
+
+# Seed the catalog with a base entry, standing in for one a teammate published
+orders = xo.memtable(
+    {
+        "order_id": [1, 2, 3, 4],
+        "region": ["EU", "US", "EU", "APAC"],
+        "amount": [100.0, 250.0, 175.0, 90.0],
+    },
+    name="orders",
+)
+catalog.add(orders, aliases=("orders",), sync=False)
+```
+
+For an existing catalog, the openers are:
+
+```python
+catalog = Catalog.from_repo_path(Path("~/work/my-catalog").expanduser(), init=False)
+# or, for a catalog created with `xorq catalog init`:
+catalog = Catalog.from_name("my-catalog")
+```
+
+### 2. Load the entry you want to build on
+
+Fetch the entry by alias and materialize its expression:
+
+```{python}
+entry = catalog.get_catalog_entry("orders", maybe_alias=True)
+base = entry.expr
+print(base.schema())
+```
+
+`entry.expr` rebuilds the full deferred expression, including any serialized data it carries. Nothing executes yet.
+
+### 3. Chain a new expression onto it
+
+The loaded entry is an ordinary Xorq expression. Compose on top of it like any other table:
+
+```{python}
+summary = base.group_by("region").agg(
+    total=xo._.amount.sum(),
+    n_orders=xo._.count(),
+)
+print(summary.execute())
+```
+
+### 4. Register the result back
+
+Add the composed expression as a new entry, with an alias so others can find it:
+
+```{python}
+#| output: false
+catalog.add(summary, aliases=("orders-by-region",), sync=False)
+```
+
+`sync=False` commits locally without pushing, so you can review the diff first. Each `add` builds a wheel from your project's `pyproject.toml`; expect `Building wheel...` output, it's not an error.
+
+### 5. Confirm the new entry exists
+
+```{python}
+print(catalog.list_aliases())
+```
+
+Both the original entry and your composition are now in the catalog. Push with `catalog.push()` (or plain `git push` from the catalog directory) when you're ready to share.
+
+## See also
+
+- [Catalog reference](../reference/Catalog.qmd)
+- [Working with the catalog](../tutorials/core_tutorials/working_with_the_catalog.qmd): the full publish/clone/branch/merge collaboration loop
+- [`xorq catalog` command-line reference](../api_reference/cli/catalog/init.qmd)

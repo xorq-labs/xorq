@@ -35,6 +35,8 @@ website:
     left:
       - href: getting_started/introduction.qmd
         text: "Get started"
+      - href: how_to/install_xorq.qmd
+        text: "How-to"
       - href: tutorials/ml_tutorials/split_data_for_training.qmd
         text: "Tutorials"
       - href: concepts/understanding_xorq/why_deferred_execution.qmd
@@ -50,13 +52,22 @@ website:
       contents:
         - href: getting_started/introduction.qmd
         - href: getting_started/quickstart.qmd
-        - href: getting_started/installation.qmd
-          text: "Install Xorq"
         - href: getting_started/understand_deferred_execution.qmd
         - href: getting_started/explore_caching.qmd
         - href: getting_started/switch_backends.qmd
         - href: getting_started/your_first_expression.qmd
           text: "Your first expression"
+
+    - id: how-to
+      title: "How-to guides"
+      collapse-level: 1
+      pinned: true
+      contents:
+        - href: how_to/install_xorq.qmd
+        - href: how_to/connect_to_backends.qmd
+        - href: how_to/cache_by_backend.qmd
+        - href: how_to/switch_backends.qmd
+        - href: how_to/compose_catalog_entries.qmd
 
     - id: tutorials
       title: "Tutorials"
