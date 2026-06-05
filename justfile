@@ -49,6 +49,7 @@ docs-apigen *args:
     cd docs && uv run --no-sync quartodoc interlinks
     uv run --no-sync quartodoc build {{ args }} --config docs/_quarto.yml
     uv run --no-sync python docs/generate_cli_reference.py
+    uv run --no-sync python docs/generate_llms_txt.py
 
 # build documentation
 docs-render:
