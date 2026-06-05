@@ -132,13 +132,14 @@ class ParquetCache(Cache):
     The snapshot strategy ensures cached data is only invalidated when the
     expression's definition changes, making it suitable for stable datasets.
 
-    Parameters
-    ----------
-    source : ibis.backends.BaseBackend
-        The backend to use for execution. Defaults to xorq's default backend.
-    path : Path
-        The directory where Parquet files will be stored. Defaults to
-        xorq.config.options.cache.default_path.
+    Notes
+    -----
+    Construct via :meth:`from_kwargs`, which accepts:
+
+    - ``source`` (``ibis.backends.BaseBackend``): the backend to use for
+      execution. Defaults to xorq's default backend.
+    - ``path`` (``Path``): the directory where Parquet files will be stored.
+      Defaults to ``xorq.config.options.cache.default_path``.
     """
 
     strategy_typ = ModificationTimeStrategy
@@ -155,13 +156,14 @@ class ParquetSnapshotCache(Cache):
     which normalizes cache keys based on expression structure only — source
     data changes do not invalidate cached results.
 
-    Parameters
-    ----------
-    source : ibis.backends.BaseBackend
-        The backend to use for execution. Defaults to xorq's default backend.
-    path : Path
-        The directory where Parquet files will be stored. Defaults to
-        xorq.config.options.cache.default_path.
+    Notes
+    -----
+    Construct via :meth:`from_kwargs`, which accepts:
+
+    - ``source`` (``ibis.backends.BaseBackend``): the backend to use for
+      execution. Defaults to xorq's default backend.
+    - ``path`` (``Path``): the directory where Parquet files will be stored.
+      Defaults to ``xorq.config.options.cache.default_path``.
     """
 
     strategy_typ = SnapshotStrategy
