@@ -50,7 +50,6 @@ sys.path.insert(0, str(DOCS_DIR))
 import generate_cli_reference as cli_ref  # noqa: E402
 
 
-SITE_URL = "https://docs.xorq.dev/"
 SEP_LINE = "-" * 70
 
 # Resolved package prefixes treated as vendored upstream code: summarized
@@ -64,8 +63,13 @@ VENDORED_PREFIXES = ("xorq.vendor", "ibis")
 
 
 def read_quarto_config():
-    with open(DOCS_DIR / "_quarto.yml") as f:
+    with open(DOCS_DIR / "_quarto.yml", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def get_site_url(config):
+    """Site root with a trailing slash, from ``website.site-url``."""
+    return config["website"]["site-url"].rstrip("/") + "/"
 
 
 def read_package_metadata():
@@ -125,8 +129,10 @@ def iter_sidebar_pages(config):
 
     The sidebar is the curated source of truth for guide pages: orphan qmd
     files not linked there are deliberately excluded. ``auto:`` globs (the
-    CLI pages) and the quartodoc-generated ``reference/`` pages are skipped —
-    both surfaces get their own dedicated sections.
+    generated CLI pages) and the quartodoc-generated ``reference/`` pages are
+    skipped — both surfaces get their own dedicated sections. The hand-written
+    ``api_reference/backends/`` prose pages are covered by neither, so they
+    stay in.
     """
 
     def walk(contents, group_title, section_title):
@@ -139,6 +145,7 @@ def iter_sidebar_pages(config):
                 )
             elif "href" in entry:
                 yield (group_title, section_title, entry["href"], entry.get("text"))
+            # entries with neither key (the ``auto:`` CLI globs) are skipped
 
     for group in config["website"]["sidebar"]:
         for page in walk(group.get("contents", ()), group.get("title", ""), None):
@@ -184,11 +191,16 @@ def first_paragraph(doc):
 
 
 def format_signature(name, obj):
-    """Render ``name(params)``, or just ``name`` when no signature exists."""
+    """Render ``name(params)``, or just ``name`` when no signature exists.
+
+    Memory addresses in default-value reprs (``<function f at 0x...>``) are
+    scrubbed so the output is reproducible across runs.
+    """
     try:
-        return f"{name}{inspect.signature(obj)}"
+        signature = f"{name}{inspect.signature(obj)}"
     except (ValueError, TypeError):
         return name
+    return re.sub(r" at 0x[0-9a-f]+", "", signature)
 
 
 def iter_public_members(cls, include_inherited):
@@ -215,6 +227,7 @@ def iter_public_members(cls, include_inherited):
 
 
 def render_api_index(config):
+    site_url = get_site_url(config)
     lines = ["### API Reference", ""]
     for title, desc, entries in iter_api_sections(config):
         lines.append(f"#### {title}")
@@ -224,12 +237,12 @@ def render_api_index(config):
         for entry in entries:
             if entry[0] == "page":
                 (_, path, summary_name, summary_desc, _) = entry
-                url = f"{SITE_URL}reference/{path}.html"
+                url = f"{site_url}reference/{path}.html"
                 lines.append(f"- [{summary_name}]({url}): {summary_desc}")
             else:
                 (_, name, package, _) = entry
                 summary = docstring_summary(resolve_item(package, name))
-                url = f"{SITE_URL}reference/{name}.html"
+                url = f"{site_url}reference/{name}.html"
                 suffix = f": {summary}" if summary else ""
                 lines.append(f"- [{name}]({url}){suffix}")
         lines.append("")
@@ -250,17 +263,18 @@ def iter_cli_commands():
             yield (f"catalog/{name}", cmd, invocation)
 
 
-def cli_page_url(key):
+def cli_page_url(key, site_url):
     page = cli_ref.filename_for(key.rpartition("/")[2]).removesuffix(".qmd")
     prefix = "catalog/" if key.startswith("catalog/") else ""
-    return f"{SITE_URL}api_reference/cli/{prefix}{page}.html"
+    return f"{site_url}api_reference/cli/{prefix}{page}.html"
 
 
-def render_cli_index():
+def render_cli_index(config):
+    site_url = get_site_url(config)
     lines = ["### CLI Reference", ""]
     for key, cmd, invocation in iter_cli_commands():
         short_help = cmd.get_short_help_str(limit=120)
-        lines.append(f"- [{invocation}]({cli_page_url(key)}): {short_help}")
+        lines.append(f"- [{invocation}]({cli_page_url(key, site_url)}): {short_help}")
     lines.append("")
     return lines
 
@@ -292,13 +306,14 @@ def page_description(frontmatter, body):
 
 def load_guide_page(href):
     """Return (title, description, body) for a sidebar guide page."""
-    text = (DOCS_DIR / href).read_text()
+    text = (DOCS_DIR / href).read_text(encoding="utf-8")
     (frontmatter, body) = split_frontmatter(text)
     title = frontmatter.get("title", Path(href).stem.replace("_", " "))
     return (title, page_description(frontmatter, body), body)
 
 
 def render_guides_index(config):
+    site_url = get_site_url(config)
     lines = ["### Guides", ""]
     current_group = None
     for group_title, _, href, link_text in iter_sidebar_pages(config):
@@ -309,7 +324,7 @@ def render_guides_index(config):
             lines.append("")
             current_group = group_title
         (title, description, _) = load_guide_page(href)
-        url = SITE_URL + href.removesuffix(".qmd") + ".html"
+        url = site_url + href.removesuffix(".qmd") + ".html"
         suffix = f": {description}" if description else ""
         lines.append(f"- [{link_text or title}]({url}){suffix}")
     lines.append("")
@@ -322,7 +337,7 @@ def render_llms_txt(config, package_name, package_description):
         lines.extend((f"> {package_description}", ""))
     lines.extend(("## Docs", ""))
     lines.extend(render_api_index(config))
-    lines.extend(render_cli_index())
+    lines.extend(render_cli_index(config))
     lines.extend(render_guides_index(config))
     return "\n".join(lines).rstrip() + "\n"
 
@@ -475,14 +490,17 @@ def main():
     (package_name, package_description) = read_package_metadata()
 
     llms_txt = DOCS_DIR / "llms.txt"
-    llms_txt.write_text(render_llms_txt(config, package_name, package_description))
+    llms_txt.write_text(
+        render_llms_txt(config, package_name, package_description), encoding="utf-8"
+    )
     print(
         f"generated {llms_txt.relative_to(DOCS_DIR)} ({llms_txt.stat().st_size:,} bytes)"
     )
 
     llms_full = DOCS_DIR / "llms-full.txt"
     llms_full.write_text(
-        render_llms_full_txt(config, package_name, package_description)
+        render_llms_full_txt(config, package_name, package_description),
+        encoding="utf-8",
     )
     print(
         f"generated {llms_full.relative_to(DOCS_DIR)} ({llms_full.stat().st_size:,} bytes)"
