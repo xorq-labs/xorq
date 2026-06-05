@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780601124084,
+  "lastUpdate": 1780668095587,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -16485,6 +16485,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.006514456111484379",
             "extra": "mean: 32.61784590322606 msec\nrounds: 31"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8456a8a5cbfc067f39de15f8d0c45f9121ca49ad",
+          "message": "docs(llms): generate llms.txt and llms-full.txt from docs config (#2042)\n\n## Summary\n\nAdds `docs/generate_llms_txt.py`, which generates the two files\ndescribed by the [llms.txt convention](https://llmstxt.org/) and\npublishes them at the site root (`docs.xorq.dev/llms.txt`,\n`docs.xorq.dev/llms-full.txt`). Pattern follows\n[posit-dev/great-docs](https://github.com/posit-dev/great-docs): no\ndedicated configuration — the existing docs config is the source of\ntruth.\n\n- **`llms.txt`** (~17 KB): compact index — every API item from the\n`quartodoc` sections with its one-line docstring summary, every CLI\ncommand with its Click short help, and every guide page linked from the\nsidebar with a one-line description.\n- **`llms-full.txt`** (~355 KB): comprehensive version — full signatures\nand docstrings for the API surface, complete `--help` text for every CLI\ncommand, and the full prose of every guide page with frontmatter\nstripped.\n\n## Design decisions\n\n- `quartodoc.sections` in `_quarto.yml` drives the API surface;\n`website.sidebar` drives the guide pages — both files stay in sync with\nthe rendered site automatically. Orphan qmd files not linked from the\nsidebar are deliberately excluded.\n- Objects vendored from ibis (`xorq.vendor.*`, `ibis`) are summarized as\nsignature + first docstring paragraph: their full docstrings carry\ninteractive ibis-flavored examples that bloat the output and sometimes\nshow non-xorq idioms. Objects authored in xorq keep their full\ndocstrings.\n- Stale quartodoc entries (renamed/removed items) are a hard error,\nmirroring the group-config validation in `generate_cli_reference.py`,\nwhose Click tree walk this script reuses.\n- Outputs are gitignored and copied into `_site/` via\n`project.resources`.\n\n## Wiring\n\n- `justfile`: generation added to `docs-apigen`\n- `ci-docs-lint.yml`: smoke step — fails the build when a quartodoc\nentry no longer imports (`ibis-framework` is already in the docs\ndependency group, so the `dtype` item resolves)\n- `_quarto.yml`: adds `site-url: https://docs.xorq.dev` (needed for\nabsolute links; also enables sitemap)\n\n## Test plan\n\n- [x] `uv run --no-sync python docs/generate_llms_txt.py` runs clean, no\nskipped items\n- [x] `quarto render` copies both files into `_site/`\n- [x] ruff check + format clean; pre-commit hooks pass\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-05T15:57:46+02:00",
+          "tree_id": "07074fd52157724e565ef4edde5166e40436349c",
+          "url": "https://github.com/xorq-labs/xorq/commit/8456a8a5cbfc067f39de15f8d0c45f9121ca49ad"
+        },
+        "date": 1780668091688,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.271366909349491,
+            "unit": "iter/sec",
+            "range": "stddev: 0.026433514478366775",
+            "extra": "mean: 137.52572418181848 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.858447643755115,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012277868510813342",
+            "extra": "mean: 349.84023659999934 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.5901427950391995,
+            "unit": "iter/sec",
+            "range": "stddev: 0.262671925426892",
+            "extra": "mean: 1.6945051407999927 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.381150644626134,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06231114686240413",
+            "extra": "mean: 419.96502919999443 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.3485972949108023,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06808237807361854",
+            "extra": "mean: 425.7860648000019 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.346085826466493,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0567879266602774",
+            "extra": "mean: 426.24186579999446 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 206.93075063018142,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006649367323084195",
+            "extra": "mean: 4.8325345409255345 msec\nrounds: 281"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.98167069925326,
+            "unit": "iter/sec",
+            "range": "stddev: 0.055951340114787154",
+            "extra": "mean: 200.735869625003 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 30.50927826305749,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007248674353228235",
+            "extra": "mean: 32.776914333331234 msec\nrounds: 33"
           }
         ]
       }
