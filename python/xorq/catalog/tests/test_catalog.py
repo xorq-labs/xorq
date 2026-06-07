@@ -24,7 +24,6 @@ from xorq.catalog.annex import (
     _do_inside,
 )
 from xorq.catalog.backend import (
-    ContentIntegrityError,
     GitAnnexBackend,
     GitBackend,
     GitPointerBackend,
@@ -40,8 +39,12 @@ from xorq.catalog.constants import CONTENT_STORE_YAML, MAIN_BRANCH
 from xorq.catalog.content_store import (
     POINTER_VERSION,
     ContentCache,
+    ContentIntegrityError,
     ContentStoreConfig,
     DirectoryContentStore,
+    DirectoryContentStoreConfig,
+    S3ContentStoreConfig,
+    _coerce_port,
     compute_sha256,
     content_key,
     parse_pointer,
@@ -59,6 +62,7 @@ from xorq.catalog.expr_utils import (
 from xorq.catalog.tests.conftest import (
     TEST_WHEEL_NAME,
     compare_repo_and_catalog,
+    directory_store_config,
 )
 from xorq.catalog.tui import get_cache_key_path
 from xorq.catalog.zip_utils import (
@@ -156,7 +160,7 @@ def test_catalog_rm(catalog, data_dict):
 
     # test exists condition
     name = next(iter(data_dict.keys()))
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         catalog.remove(name)
 
 
@@ -617,12 +621,18 @@ def test_from_repo_path_false_forces_plain_git(tmpdir):
     assert isinstance(reopened.backend, GitBackend)
 
 
-def test_content_cache_fetch_from_protects_fetched_file(tmp_path):
+# ---------------------------------------------------------------------------
+# Pointer backend / content store
+# ---------------------------------------------------------------------------
+
+
+def test_content_cache_fetch_from_protects_fetched_file(tmp_path: Path) -> None:
     """A fetched file larger than max_bytes is not evicted by its own insertion."""
-    store = DirectoryContentStore(directory=str(tmp_path / "store"))
-    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10)
+    root = tmp_path
+    store = DirectoryContentStore(directory=root / "store")
+    cache = ContentCache(cache_dir=root / "cache", max_bytes=10)
     key = "cat/aa/bb/deadbeef.zip"
-    src = tmp_path / "big.bin"
+    src = root / "big.bin"
     src.write_bytes(b"x" * 100)  # 100 bytes > max_bytes
     store.put(key, src)
 
@@ -632,10 +642,11 @@ def test_content_cache_fetch_from_protects_fetched_file(tmp_path):
     assert cache.get_path(key) is not None
 
 
-def test_content_cache_put_protects_and_refreshes_atime(tmp_path):
+def test_content_cache_put_protects_and_refreshes_atime(tmp_path: Path) -> None:
     """put() survives a full cache and resets the stale source atime for LRU."""
-    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10)
-    src = tmp_path / "big.bin"
+    root = tmp_path
+    cache = ContentCache(cache_dir=root / "cache", max_bytes=10)
+    src = root / "big.bin"
     src.write_bytes(b"x" * 100)  # 100 bytes > max_bytes
     os.utime(src, (1, 1))  # stale source atime that copy2 would otherwise preserve
 
@@ -646,42 +657,165 @@ def test_content_cache_put_protects_and_refreshes_atime(tmp_path):
     assert dest.stat().st_atime > 1  # atime refreshed, not the stale source value
 
 
-def test_content_cache_evicts_older_entries(tmp_path):
+def test_content_cache_evicts_older_entries(tmp_path: Path) -> None:
     """Older entries are evicted once the cache exceeds max_bytes."""
-    store = DirectoryContentStore(directory=str(tmp_path / "store"))
-    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=150)
+    root = tmp_path
+    store = DirectoryContentStore(directory=root / "store")
+    cache = ContentCache(cache_dir=root / "cache", max_bytes=150)
     keys = []
     for i in range(3):
-        src = tmp_path / f"f{i}.bin"
+        src = root / f"f{i}.bin"
         src.write_bytes(bytes([i]) * 100)
         key = f"cat/{i:02d}/x/h{i}.zip"
         store.put(key, src)
         cache.fetch_from(store, key)
         keys.append(key)
 
-    total = sum(
-        p.stat().st_size for p in (tmp_path / "cache").rglob("*") if p.is_file()
-    )
+    total = sum(p.stat().st_size for p in (root / "cache").rglob("*") if p.is_file())
     assert total <= 150
     assert cache.get_path(keys[-1]) is not None  # most recent survives
     assert cache.get_path(keys[0]) is None  # oldest evicted
 
 
-def test_content_store_config_rejects_reserved_keys():
-    """config must not shadow the reserved type/catalog_id keys."""
-    for reserved in ("type", "catalog_id"):
-        with pytest.raises(ValueError, match="reserved keys"):
-            ContentStoreConfig(
-                type="directory", catalog_id="cat", config={reserved: "x"}
-            )
-    # a clean config round-trips through to_dict/from_dict unchanged
-    cfg = ContentStoreConfig(
-        type="directory", catalog_id="cat", config={"directory": "/tmp/store"}
-    )
+def test_content_cache_rejects_unwritable_dir(tmp_path: Path) -> None:
+    """Construction fails early when the cache directory is not writable."""
+    unwritable = tmp_path / "sealed"
+    unwritable.mkdir()
+    os.chmod(unwritable, 0o444)
+    with pytest.raises(OSError, match="not writable"):
+        ContentCache(cache_dir=unwritable / "cache", max_bytes=1024)
+    os.chmod(unwritable, 0o755)  # restore so tmp_path cleanup works
+
+
+def test_content_cache_disabled_skips_put(tmp_path: Path) -> None:
+    """max_bytes=0 disables caching: put() is a no-op."""
+    root = tmp_path
+    cache = ContentCache(cache_dir=root / "cache", max_bytes=0)
+    src = root / "data.bin"
+    src.write_bytes(b"hello")
+    cache.put("cat/aa/bb/data.zip", src)
+    assert not cache._path("cat/aa/bb/data.zip").exists()
+    assert not cache.contains("cat/aa/bb/data.zip")
+    assert cache.get_path("cat/aa/bb/data.zip") is None
+
+
+def test_fetch_content_disabled_cache_bypasses_cache(tmp_path: Path) -> None:
+    """max_bytes=0: fetch_content downloads directly to the archive path,
+    bypassing the cache entirely — no files left in cache_dir."""
+    repo = GitRepo.init(tmp_path / "repo")
+    store_dir = tmp_path / "store"
+    config = DirectoryContentStoreConfig(catalog_id="testcat", directory=str(store_dir))
+    config.write_yaml(Path(repo.working_dir) / CONTENT_STORE_YAML)
+    store = DirectoryContentStore(directory=store_dir)
+    cache_dir = tmp_path / "cache"
+    cache = ContentCache(cache_dir=cache_dir, max_bytes=0)
+    backend = GitPointerBackend.from_repo(repo, cache=cache)
+
+    archive = tmp_path / "data.zip"
+    archive.write_bytes(b"real content")
+    sha = compute_sha256(archive)
+    key = content_key("testcat", sha)
+    store.put(key, archive)
+
+    target = tmp_path / "entry.zip"
+    write_pointer(backend._pointer_path(target), sha, archive.stat().st_size)
+
+    backend.fetch_content(target)
+    assert target.exists()
+    assert target.read_bytes() == b"real content"
+
+    cached_files = [p for p in cache_dir.rglob("*") if p.is_file()]
+    assert cached_files == [], "disabled cache should leave no files behind"
+
+
+def test_content_cache_unlimited_never_evicts(tmp_path: Path) -> None:
+    """max_bytes=-1: unlimited cache, nothing is ever evicted."""
+    root = tmp_path
+    store = DirectoryContentStore(directory=root / "store")
+    cache = ContentCache(cache_dir=root / "cache", max_bytes=-1)
+    keys = []
+    for i in range(5):
+        src = root / f"f{i}.bin"
+        src.write_bytes(bytes([i]) * 1000)
+        key = f"cat/{i:02d}/x/h{i}.zip"
+        store.put(key, src)
+        cache.fetch_from(store, key)
+        keys.append(key)
+
+    for key in keys:
+        assert cache.get_path(key) is not None
+
+
+def test_content_cache_default_respects_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ContentCache.default() reads XORQ_CONTENT_CACHE_DIR and _MAX_BYTES."""
+    custom_dir = tmp_path / "custom-cache"
+    monkeypatch.setenv("XORQ_CONTENT_CACHE_DIR", str(custom_dir))
+    monkeypatch.setenv("XORQ_CONTENT_CACHE_MAX_BYTES", "42")
+
+    cache = ContentCache.default()
+    assert cache.cache_dir == custom_dir
+    assert cache.max_bytes == 42
+
+
+def test_directory_content_store_put_is_atomic(tmp_path: Path) -> None:
+    """Interrupted put must not leave a partial file at the destination."""
+    store = DirectoryContentStore(directory=tmp_path / "store")
+    src = tmp_path / "data.bin"
+    src.write_bytes(b"good data")
+
+    store.put("cat/aa/bb/test.zip", src, sha256=compute_sha256(src))
+    dest = store._key_path("cat/aa/bb/test.zip")
+    assert dest.read_bytes() == b"good data"
+
+    bad_sha = "0" * 64
+    with pytest.raises(ContentIntegrityError, match="SHA256 mismatch"):
+        store.put("cat/aa/bb/other.zip", src, sha256=bad_sha)
+    assert not store._key_path("cat/aa/bb/other.zip").exists()
+    tmp_leftover = store._key_path("cat/aa/bb/other.zip.tmp")
+    assert not tmp_leftover.exists()
+
+
+def test_directory_content_store_config_resolves_paths() -> None:
+    """DirectoryContentStoreConfig resolves paths so equality is stable."""
+    a = DirectoryContentStoreConfig(catalog_id="cat", directory="/tmp/./store")
+    b = DirectoryContentStoreConfig(catalog_id="cat", directory="/tmp/store")
+    assert a == b
+    assert a.directory == b.directory
+
+
+def test_content_store_config_round_trips() -> None:
+    """Typed configs round-trip through to_dict/from_dict unchanged."""
+    cfg = DirectoryContentStoreConfig(catalog_id="cat", directory="/tmp/store")
     assert ContentStoreConfig.from_dict(cfg.to_dict()) == cfg
 
 
-def test_content_key_rejects_unsafe_inputs():
+def test_content_store_config_yaml_round_trips_relative(tmp_path: Path) -> None:
+    """write_yaml stores relative directory paths; from_yaml resolves them back."""
+    store_dir = tmp_path / "content-store"
+    store_dir.mkdir()
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    yaml_path = repo_dir / "content_store.yaml"
+
+    cfg = DirectoryContentStoreConfig(catalog_id="cat", directory=str(store_dir))
+    cfg.write_yaml(yaml_path)
+
+    raw = yaml_path.read_text()
+    assert str(store_dir) not in raw, "absolute path should not appear in YAML"
+    assert "../content-store" in raw
+
+    loaded = ContentStoreConfig.from_yaml(yaml_path)
+    assert loaded == cfg
+
+
+def test_content_store_config_rejects_unknown_type() -> None:
+    with pytest.raises(ValueError, match="unknown content store type"):
+        ContentStoreConfig.from_dict({"type": "nope", "catalog_id": "cat"})
+
+
+def test_content_key_rejects_unsafe_inputs() -> None:
     """content_key validates catalog_id and sha256 to block path traversal."""
     good_sha = "a" * 64
     assert content_key("cat-1", good_sha).startswith("cat-1/")
@@ -693,7 +827,7 @@ def test_content_key_rejects_unsafe_inputs():
             content_key("cat", bad_sha)
 
 
-def test_parse_pointer_rejects_malformed(tmp_path):
+def test_parse_pointer_rejects_malformed(tmp_path: Path) -> None:
     """A pointer line missing its value raises ValueError, not IndexError."""
     p = tmp_path / "bad.xorq-pointer"
     p.write_text(f"{POINTER_VERSION}\nsha256\nsize 10\n")  # sha256 line has no value
@@ -701,22 +835,23 @@ def test_parse_pointer_rejects_malformed(tmp_path):
         parse_pointer(p)
 
 
-def test_fetch_content_drops_corrupt_cache_entry(tmpdir):
+def test_fetch_content_drops_corrupt_cache_entry(tmp_path: Path) -> None:
     """A SHA mismatch removes the cached entry so the next fetch self-heals."""
-    repo = GitRepo.init(Path(tmpdir).joinpath("repo"))
-    store = DirectoryContentStore(directory=str(Path(tmpdir).joinpath("store")))
-    cache = ContentCache(cache_dir=Path(tmpdir).joinpath("cache"), max_bytes=10**9)
-    backend = GitPointerBackend(
-        repo=repo, content_store=store, cache=cache, catalog_id="testcat"
-    )
+    repo = GitRepo.init(tmp_path / "repo")
+    store_dir = tmp_path / "store"
+    config = DirectoryContentStoreConfig(catalog_id="testcat", directory=str(store_dir))
+    config.write_yaml(Path(repo.working_dir) / CONTENT_STORE_YAML)
+    store = DirectoryContentStore(directory=store_dir)
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+    backend = GitPointerBackend.from_repo(repo, cache=cache)
 
-    archive = Path(tmpdir).joinpath("data.zip")
+    archive = tmp_path / "data.zip"
     archive.write_bytes(b"real content")
     sha = compute_sha256(archive)
     key = content_key("testcat", sha)
     store.put(key, archive)
 
-    target = Path(tmpdir).joinpath("entry.zip")
+    target = tmp_path / "entry.zip"
     write_pointer(backend._pointer_path(target), sha, archive.stat().st_size)
 
     # prime the cache, then corrupt the cached copy
@@ -733,23 +868,60 @@ def test_fetch_content_drops_corrupt_cache_entry(tmpdir):
     assert target.read_bytes() == b"real content"
 
 
-def test_fetch_content_no_partial_file_on_copy_failure(tmpdir, monkeypatch):
-    """An interrupted archive copy leaves no file at the target; retry succeeds."""
-    repo = GitRepo.init(Path(tmpdir).joinpath("repo"))
-    store = DirectoryContentStore(directory=str(Path(tmpdir).joinpath("store")))
-    cache = ContentCache(cache_dir=Path(tmpdir).joinpath("cache"), max_bytes=10**9)
-    backend = GitPointerBackend(
-        repo=repo, content_store=store, cache=cache, catalog_id="testcat"
-    )
+def test_fetch_content_drops_cache_entry_on_size_mismatch(tmp_path: Path) -> None:
+    """A size mismatch removes the cached entry so the next fetch self-heals."""
+    repo = GitRepo.init(tmp_path / "repo")
+    store_dir = tmp_path / "store"
+    config = DirectoryContentStoreConfig(catalog_id="testcat", directory=str(store_dir))
+    config.write_yaml(Path(repo.working_dir) / CONTENT_STORE_YAML)
+    store = DirectoryContentStore(directory=store_dir)
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+    backend = GitPointerBackend.from_repo(repo, cache=cache)
 
-    archive = Path(tmpdir).joinpath("data.zip")
+    archive = tmp_path / "data.zip"
+    archive.write_bytes(b"real content")
+    sha = compute_sha256(archive)
+    key = content_key("testcat", sha)
+    store.put(key, archive)
+
+    target = tmp_path / "entry.zip"
+    # write a pointer with the correct sha but wrong size
+    write_pointer(backend._pointer_path(target), sha, archive.stat().st_size + 999)
+
+    cache.fetch_from(store, key)
+    cached_path = cache._path(key)
+    assert cached_path.exists()
+
+    with pytest.raises(ContentIntegrityError, match="Size mismatch"):
+        backend.fetch_content(target)
+    assert not cached_path.exists()  # corrupt entry dropped
+
+    # fix the pointer and verify self-healing
+    write_pointer(backend._pointer_path(target), sha, archive.stat().st_size)
+    backend.fetch_content(target)
+    assert target.read_bytes() == b"real content"
+
+
+def test_fetch_content_no_partial_file_on_copy_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An interrupted archive copy leaves no file at the target; retry succeeds."""
+    repo = GitRepo.init(tmp_path / "repo")
+    store_dir = tmp_path / "store"
+    config = DirectoryContentStoreConfig(catalog_id="testcat", directory=str(store_dir))
+    config.write_yaml(Path(repo.working_dir) / CONTENT_STORE_YAML)
+    store = DirectoryContentStore(directory=store_dir)
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+    backend = GitPointerBackend.from_repo(repo, cache=cache)
+
+    archive = tmp_path / "data.zip"
     archive.write_bytes(b"real content")
     sha = compute_sha256(archive)
     key = content_key("testcat", sha)
     store.put(key, archive)
     cache.fetch_from(store, key)  # prime cache so the failure hits the archive copy
 
-    target = Path(tmpdir).joinpath("entry.zip")
+    target = tmp_path / "entry.zip"
     write_pointer(backend._pointer_path(target), sha, archive.stat().st_size)
 
     def boom(src, dst):
@@ -766,56 +938,54 @@ def test_fetch_content_no_partial_file_on_copy_failure(tmpdir, monkeypatch):
     assert target.read_bytes() == b"real content"
 
 
-def _directory_store_config(directory, catalog_id=""):
-    return ContentStoreConfig(
-        type="directory",
-        catalog_id=catalog_id,
-        config={"directory": str(directory)},
-    )
-
-
-def test_from_repo_path_conflicting_content_store_raises(tmpdir):
-    """Opening an existing pointer repo with a conflicting content_store raises."""
-    repo_path = Path(tmpdir).joinpath("pointer-repo")
+def test_from_repo_path_conflicting_content_store_raises(tmp_path: Path) -> None:
+    """Opening an existing pointer repo with a conflicting content_store_config raises."""
+    repo_path = tmp_path / "pointer-repo"
     Catalog.from_repo_path(
         repo_path,
         init=True,
-        content_store=_directory_store_config(Path(tmpdir) / "store-a"),
+        content_store_config=directory_store_config(tmp_path / "store-a"),
     )
 
-    conflicting = _directory_store_config(Path(tmpdir) / "store-b", catalog_id="other")
+    conflicting = directory_store_config(tmp_path / "store-b", catalog_id="other")
     with pytest.raises(ValueError, match="conflicts with committed"):
-        Catalog.from_repo_path(repo_path, init=False, content_store=conflicting)
+        Catalog.from_repo_path(repo_path, init=False, content_store_config=conflicting)
 
 
-def test_from_repo_path_matching_content_store_ok(tmpdir):
-    """Reopening with a content_store equal to the committed config is accepted."""
-    repo_path = Path(tmpdir).joinpath("pointer-repo")
+def test_from_repo_path_matching_content_store_ok(tmp_path: Path) -> None:
+    """Reopening with a content_store_config equal to the committed config is accepted."""
+    repo_path = tmp_path / "pointer-repo"
     Catalog.from_repo_path(
         repo_path,
         init=True,
-        content_store=_directory_store_config(Path(tmpdir) / "store-a"),
+        content_store_config=directory_store_config(tmp_path / "store-a"),
     )
 
     committed = ContentStoreConfig.from_yaml(repo_path / CONTENT_STORE_YAML)
-    reopened = Catalog.from_repo_path(repo_path, init=False, content_store=committed)
+    reopened = Catalog.from_repo_path(
+        repo_path, init=False, content_store_config=committed
+    )
     assert isinstance(reopened.backend, GitPointerBackend)
 
 
-def test_from_repo_path_content_store_without_yaml_raises(tmpdir):
-    """init=False with a content_store but no committed yaml fails loudly."""
-    repo_path = Path(tmpdir).joinpath("plain-repo")
-    Catalog.from_repo_path(repo_path, init=True)  # plain-git repo, no content_store.yaml
+def test_from_repo_path_content_store_without_yaml_raises(tmp_path: Path) -> None:
+    """init=False with a content_store_config but no committed yaml fails loudly."""
+    repo_path = tmp_path / "plain-repo"
+    Catalog.from_repo_path(
+        repo_path, init=True
+    )  # plain-git repo, no content_store.yaml
 
     with pytest.raises(ValueError, match="is absent"):
         Catalog.from_repo_path(
             repo_path,
             init=False,
-            content_store=_directory_store_config(Path(tmpdir) / "store"),
+            content_store_config=directory_store_config(tmp_path / "store"),
         )
 
 
-def test_compute_sha256_manual_fallback(tmp_path, monkeypatch):
+def test_compute_sha256_manual_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """compute_sha256 works without hashlib.file_digest (the Python 3.10 path)."""
     f = tmp_path / "data.bin"
     payload = b"hello pointer content" * 1000
@@ -828,9 +998,9 @@ def test_compute_sha256_manual_fallback(tmp_path, monkeypatch):
     assert compute_sha256(f) == expected
 
 
-def test_assert_consistency_strict_for_plain_git(tmpdir):
+def test_assert_consistency_strict_for_plain_git(tmp_path: Path) -> None:
     """A stray .gitignore is not silently whitelisted for non-pointer catalogs."""
-    repo_path = Path(tmpdir).joinpath("plain-repo")
+    repo_path = tmp_path / "plain-repo"
     catalog = Catalog.from_repo_path(repo_path, init=True)
     catalog.assert_consistency()  # consistent to start
 
@@ -840,6 +1010,441 @@ def test_assert_consistency_strict_for_plain_git(tmpdir):
 
     with pytest.raises(AssertionError):
         catalog.assert_consistency()
+
+
+def test_pointer_shared_content_ref_counting(tmp_path: Path) -> None:
+    """Removing one entry does not delete content still referenced by another."""
+
+    repo_path = tmp_path / "repo"
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    config = directory_store_config(store_dir)
+    git_repo = Catalog.init_repo_path(repo_path, content_store_config=config)
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+    backend = GitPointerBackend.from_repo(git_repo, cache=cache)
+
+    archive = tmp_path / "data.zip"
+    archive.write_bytes(b"shared content blob")
+    sha = compute_sha256(archive)
+    key = content_key(backend.catalog_id, sha)
+
+    entries_dir = repo_path / CatalogInfix.ENTRY
+    entries_dir.mkdir(exist_ok=True)
+
+    path_a = entries_dir / "entry_a.zip"
+    path_b = entries_dir / "entry_b.zip"
+
+    backend.stage_content(archive, path_a)
+    backend.stage_content(archive, path_b)
+    git_repo.index.commit("add two entries sharing content")
+
+    assert backend.content_store.exists(key)
+
+    backend.stage_unlink(path_a)
+    git_repo.index.commit("remove entry_a")
+    assert backend.content_store.exists(key), (
+        "content should survive: entry_b still references it"
+    )
+
+    backend.stage_unlink(path_b)
+    git_repo.index.commit("remove entry_b")
+    assert not backend.content_store.exists(key), (
+        "content should be deleted: no remaining references"
+    )
+
+
+def test_clone_from_conflicting_content_store_raises(tmp_path: Path) -> None:
+    """clone_from with a content_store_config that conflicts with the cloned repo raises."""
+    repo_path = tmp_path / "origin"
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    config = directory_store_config(store_dir, catalog_id="original")
+    Catalog.init_repo_path(repo_path, content_store_config=config)
+
+    conflicting = directory_store_config(tmp_path / "other", catalog_id="other")
+    clone_path = tmp_path / "cloned"
+    with pytest.raises(ValueError, match="conflicts with committed"):
+        Catalog.clone_from(
+            url=str(repo_path),
+            repo_path=clone_path,
+            content_store_config=conflicting,
+        )
+    assert not clone_path.exists(), "failed clone_from should clean up repo_path"
+
+
+def test_annex_false_on_pointer_repo_raises(tmp_path: Path) -> None:
+    """annex=False on a repo with content_store.yaml raises ValueError."""
+    repo_path = tmp_path / "origin"
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    config = directory_store_config(store_dir)
+    Catalog.init_repo_path(repo_path, content_store_config=config)
+
+    clone_path = tmp_path / "cloned"
+    with pytest.raises(ValueError, match="pointer backend"):
+        Catalog.clone_from(
+            url=str(repo_path),
+            repo_path=clone_path,
+            annex=False,
+        )
+    assert not clone_path.exists(), "failed clone_from should clean up repo_path"
+
+    with pytest.raises(ValueError, match="pointer backend"):
+        Catalog.from_repo_path(repo_path, init=False, annex=False)
+
+
+def test_pointer_entry_expr_roundtrip(tmp_path: Path) -> None:
+    """entry.expr on the pointer backend round-trips through fetch_content."""
+    repo_path = tmp_path / "repo"
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    config = directory_store_config(store_dir)
+    repo = Catalog.init_repo_path(repo_path, content_store_config=config)
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+    backend = GitPointerBackend.from_repo(repo, cache=cache)
+    catalog = Catalog(backend=backend)
+
+    df = pd.DataFrame({"a": [1, 2, 3]})
+    entry = catalog.add(xo.memtable(df))
+
+    archive = entry.catalog_path
+    if archive.exists():
+        archive.unlink()
+
+    assert not archive.exists()
+    result = entry.expr.execute()
+    assert archive.exists()
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_parse_pointer_rejects_negative_size(tmp_path: Path) -> None:
+    """A pointer file with a negative size is rejected."""
+    p = tmp_path / "neg.xorq-pointer"
+    p.write_text(f"{POINTER_VERSION}\nsha256 {'a' * 64}\nsize -1\n")
+    with pytest.raises(ValueError, match="Invalid pointer file"):
+        parse_pointer(p)
+
+
+def test_from_kwargs_forwards_content_store_config(tmp_path: Path) -> None:
+    """from_kwargs passes content_store_config through to from_repo_path."""
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    config = directory_store_config(store_dir)
+    repo_path = tmp_path / "repo"
+    catalog = Catalog.from_kwargs(
+        path=repo_path, init=True, content_store_config=config
+    )
+    assert isinstance(catalog.backend, GitPointerBackend)
+
+
+def test_init_repo_path_existing_raises(tmp_path: Path) -> None:
+    """init_repo_path raises FileExistsError (not AssertionError) for existing paths."""
+    repo_path = tmp_path / "repo"
+    Catalog.init_repo_path(repo_path)
+    with pytest.raises(FileExistsError, match="already exists"):
+        Catalog.init_repo_path(repo_path)
+
+
+def test_directory_content_store_config_from_env_missing_required(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("XORQ_CONTENT_STORE_DIRECTORY_CATALOG_ID", raising=False)
+    monkeypatch.delenv("XORQ_CONTENT_STORE_DIRECTORY_DIRECTORY", raising=False)
+
+    with pytest.raises(ValueError, match="requires 'directory'"):
+        DirectoryContentStoreConfig.from_env()
+
+
+def test_stage_content_cleans_store_on_pointer_write_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the pointer write fails after upload, the content store blob is cleaned up."""
+    repo_path = tmp_path / "repo"
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    config = directory_store_config(store_dir)
+    git_repo = Catalog.init_repo_path(repo_path, content_store_config=config)
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+    backend = GitPointerBackend.from_repo(git_repo, cache=cache)
+
+    archive = tmp_path / "data.zip"
+    archive.write_bytes(b"content to upload")
+    sha = compute_sha256(archive)
+    key = content_key(backend.catalog_id, sha)
+
+    entries_dir = repo_path / CatalogInfix.ENTRY
+    entries_dir.mkdir(exist_ok=True)
+    target = entries_dir / "entry.zip"
+
+    monkeypatch.setattr(
+        "xorq.catalog.content_store.write_pointer",
+        lambda *a, **kw: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    with pytest.raises(OSError, match="disk full"):
+        backend.stage_content(archive, target)
+
+    assert not backend.content_store.exists(key), (
+        "content store blob should be cleaned up after pointer write failure"
+    )
+
+
+def test_directory_content_store_list_keys(tmp_path: Path) -> None:
+    """list_keys returns all keys under a prefix."""
+    store = DirectoryContentStore(directory=tmp_path / "store")
+    src = tmp_path / "data.bin"
+    src.write_bytes(b"content")
+
+    store.put("cat/aa/bb/file1.zip", src)
+    store.put("cat/aa/cc/file2.zip", src)
+    store.put("other/aa/bb/file3.zip", src)
+
+    all_keys = sorted(store.list_keys())
+    assert len(all_keys) == 3
+
+    cat_keys = sorted(store.list_keys(prefix="cat"))
+    assert cat_keys == ["cat/aa/bb/file1.zip", "cat/aa/cc/file2.zip"]
+
+    other_keys = sorted(store.list_keys(prefix="other"))
+    assert other_keys == ["other/aa/bb/file3.zip"]
+
+    empty_keys = list(store.list_keys(prefix="nonexistent"))
+    assert empty_keys == []
+
+
+def test_gc_content_store_finds_orphans(tmp_path: Path) -> None:
+    """gc_content_store identifies and removes unreferenced content store keys."""
+    repo_path = tmp_path / "repo"
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    config = directory_store_config(store_dir)
+    git_repo = Catalog.init_repo_path(repo_path, content_store_config=config)
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+    backend = GitPointerBackend.from_repo(git_repo, cache=cache)
+
+    archive = tmp_path / "data.zip"
+    archive.write_bytes(b"real content")
+    sha = compute_sha256(archive)
+    key = content_key(backend.catalog_id, sha)
+
+    entries_dir = repo_path / CatalogInfix.ENTRY
+    entries_dir.mkdir(exist_ok=True)
+    target = entries_dir / "entry.zip"
+    backend.stage_content(archive, target)
+    git_repo.index.commit("add entry")
+
+    # no orphans yet
+    assert backend.gc_content_store(dry_run=True) == []
+
+    # plant an orphan directly in the store
+    orphan_data = tmp_path / "orphan.zip"
+    orphan_data.write_bytes(b"orphaned blob")
+    orphan_key = content_key(backend.catalog_id, compute_sha256(orphan_data))
+    backend.content_store.put(orphan_key, orphan_data)
+
+    # dry run finds it but doesn't delete
+    orphans = backend.gc_content_store(dry_run=True)
+    assert orphan_key in orphans
+    assert key not in orphans
+    assert backend.content_store.exists(orphan_key)
+
+    # actual run deletes it
+    orphans = backend.gc_content_store(dry_run=False)
+    assert orphan_key in orphans
+    assert not backend.content_store.exists(orphan_key)
+    assert backend.content_store.exists(key)
+
+
+def test_gc_content_store_empty_catalog(tmp_path: Path) -> None:
+    """gc on an empty pointer catalog with no entries finds nothing."""
+    repo_path = tmp_path / "repo"
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    config = directory_store_config(store_dir)
+    git_repo = Catalog.init_repo_path(repo_path, content_store_config=config)
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+    backend = GitPointerBackend.from_repo(git_repo, cache=cache)
+
+    assert backend.gc_content_store(dry_run=True) == []
+
+
+# ---------------------------------------------------------------------------
+# Tier 1: content_store.py error paths
+# ---------------------------------------------------------------------------
+
+
+def test_directory_content_store_get_missing_raises(tmp_path: Path) -> None:
+    """get() on a nonexistent key raises FileNotFoundError."""
+    store = DirectoryContentStore(directory=tmp_path / "store")
+    with pytest.raises(FileNotFoundError, match="Content not found"):
+        store.get("cat/aa/bb/missing.zip", tmp_path / "out.zip")
+
+
+def test_content_cache_get_path_miss(tmp_path: Path) -> None:
+    """get_path() returns None for a key that was never cached."""
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=1024)
+    assert cache.get_path("cat/aa/bb/missing.zip") is None
+
+
+def test_content_cache_contains_disabled(tmp_path: Path) -> None:
+    """contains() always returns False when cache is disabled."""
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=0)
+    assert cache.disabled
+    assert not cache.contains("any/key")
+
+
+def test_coerce_port_valid() -> None:
+    assert _coerce_port(8080) == 8080
+    assert _coerce_port("443") == 443
+    assert _coerce_port(None) is None
+
+
+def test_coerce_port_out_of_range() -> None:
+    with pytest.raises(ValueError, match="port must be 1-65535"):
+        _coerce_port(0)
+    with pytest.raises(ValueError, match="port must be 1-65535"):
+        _coerce_port(70000)
+
+
+def test_non_empty_str_validator() -> None:
+    with pytest.raises(ValueError, match="must not be empty"):
+        S3ContentStoreConfig(bucket="", catalog_id="cat")
+
+
+def test_s3_content_store_config_resolve_secrets_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_resolve_secrets returns empty dict when no secrets are set."""
+    monkeypatch.delenv("XORQ_CONTENT_STORE_S3_AWS_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("XORQ_CONTENT_STORE_S3_AWS_SECRET_ACCESS_KEY", raising=False)
+    config = S3ContentStoreConfig(catalog_id="cat", bucket="b")
+    assert config._resolve_secrets() == {}
+
+
+def test_content_store_config_from_dict_missing_type() -> None:
+    with pytest.raises(ValueError, match="missing required 'type' field"):
+        ContentStoreConfig.from_dict({"catalog_id": "cat"})
+
+
+def test_content_store_config_from_dict_unknown_fields() -> None:
+    with pytest.raises(ValueError, match="unknown fields"):
+        ContentStoreConfig.from_dict(
+            {"type": "directory", "directory": "/tmp", "bogus": "x"}
+        )
+
+
+def test_content_store_config_from_dict_ignore_unknown() -> None:
+    cfg = ContentStoreConfig.from_dict(
+        {"type": "directory", "directory": "/tmp", "bogus": "x"},
+        ignore_unknown=True,
+    )
+    assert isinstance(cfg, DirectoryContentStoreConfig)
+
+
+# ---------------------------------------------------------------------------
+# Tier 2: backend error paths
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_content_missing_pointer_raises(tmp_path: Path) -> None:
+    """fetch_content raises FileNotFoundError when pointer file is missing."""
+    repo = GitRepo.init(tmp_path / "repo")
+    store_dir = tmp_path / "store"
+    config = DirectoryContentStoreConfig(catalog_id="testcat", directory=str(store_dir))
+    config.write_yaml(Path(repo.working_dir) / CONTENT_STORE_YAML)
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+    backend = GitPointerBackend.from_repo(repo, cache=cache)
+
+    target = tmp_path / "entry.zip"
+    with pytest.raises(FileNotFoundError, match="Pointer file missing"):
+        backend.fetch_content(target)
+
+
+def test_stage_content_cleans_up_on_store_put_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If store.put() fails, the local archive copy is cleaned up."""
+    repo_path = tmp_path / "repo"
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    config = DirectoryContentStoreConfig(catalog_id="testcat", directory=str(store_dir))
+    git_repo = Catalog.init_repo_path(repo_path, content_store_config=config)
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+    backend = GitPointerBackend.from_repo(git_repo, cache=cache)
+
+    archive = tmp_path / "data.zip"
+    archive.write_bytes(b"content")
+
+    entries_dir = repo_path / CatalogInfix.ENTRY
+    entries_dir.mkdir(exist_ok=True)
+    target = entries_dir / "entry.zip"
+
+    monkeypatch.setattr(
+        DirectoryContentStore,
+        "put",
+        lambda *a, **kw: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    with pytest.raises(OSError, match="disk full"):
+        backend.stage_content(archive, target)
+
+    assert not target.exists(), "archive copy should be cleaned up after store failure"
+
+
+def test_has_references_no_entries_dir(tmp_path: Path) -> None:
+    """_has_references returns False when entries dir doesn't exist."""
+    repo = GitRepo.init(tmp_path / "repo")
+    store_dir = tmp_path / "store"
+    config = DirectoryContentStoreConfig(catalog_id="testcat", directory=str(store_dir))
+    config.write_yaml(Path(repo.working_dir) / CONTENT_STORE_YAML)
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+    backend = GitPointerBackend.from_repo(repo, cache=cache)
+
+    assert not backend._has_references("a" * 64)
+
+
+# ---------------------------------------------------------------------------
+# Tier 2: catalog validation
+# ---------------------------------------------------------------------------
+
+
+def test_validate_content_store_config_annex_on_pointer_repo(tmp_path: Path) -> None:
+    """Passing an AnnexConfig to a pointer-backend repo raises ValueError."""
+    repo_path = tmp_path / "repo"
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    config = DirectoryContentStoreConfig(catalog_id="testcat", directory=str(store_dir))
+    Catalog.init_repo_path(repo_path, content_store_config=config)
+
+    with pytest.raises(ValueError, match="cannot use git-annex"):
+        Catalog._validate_content_store_config(
+            repo_path, content_store_config=None, annex=LOCAL_ANNEX
+        )
+
+
+def test_validate_content_store_config_annex_false_on_pointer_repo(
+    tmp_path: Path,
+) -> None:
+    """Passing annex=False to a pointer-backend repo raises ValueError."""
+    repo_path = tmp_path / "repo"
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    config = DirectoryContentStoreConfig(catalog_id="testcat", directory=str(store_dir))
+    Catalog.init_repo_path(repo_path, content_store_config=config)
+
+    with pytest.raises(ValueError, match="cannot force plain git"):
+        Catalog._validate_content_store_config(
+            repo_path, content_store_config=None, annex=False
+        )
+
+
+def test_validate_content_store_config_no_yaml_is_noop(tmp_path: Path) -> None:
+    """When content_store.yaml doesn't exist, validation is a no-op."""
+    repo_path = tmp_path / "repo"
+    Catalog.init_repo_path(repo_path)
+    Catalog._validate_content_store_config(
+        repo_path, content_store_config=None, annex=None
+    )
 
 
 _VALID_ARCHIVE_NAMES = (*REQUIRED_ARCHIVE_NAMES, TEST_WHEEL_NAME)
@@ -891,7 +1496,7 @@ def test_assert_consistency(catalog, tmpdir):
     with pytest.raises(AssertionError):
         catalog.assert_consistency()
     with pytest.raises(AssertionError):
-        CatalogEntry(catalog_addition.name, catalog, False)
+        CatalogEntry(catalog_addition.name, catalog)
 
 
 def test_add_alias(catalog_populated):

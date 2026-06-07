@@ -56,7 +56,7 @@ def test_catalog_ctor_from_repo_path_init(tmpdir):
         Catalog.from_repo_path(repo_path, init=False)
     Catalog.from_repo_path(repo_path, init=True)
     Catalog.from_repo_path(repo_path, init=False)
-    with pytest.raises(AssertionError):
+    with pytest.raises(FileExistsError):
         Catalog.from_repo_path(repo_path, init=True)
 
 

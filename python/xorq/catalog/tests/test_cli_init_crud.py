@@ -1,10 +1,19 @@
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
+from click.testing import CliRunner
 
+from xorq.catalog.backend import GitPointerBackend
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
+from xorq.catalog.content_store import (
+    ContentStoreConfig,
+    DirectoryContentStore,
+    compute_sha256,
+    content_key,
+)
 from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
     make_build_zip,
@@ -378,3 +387,191 @@ def test_remove_entry_cascades_aliases(runner, catalog_path, data_dict):
     catalog = Catalog.from_kwargs(path=catalog_path, init=False)
     assert catalog.list_aliases() == []
     catalog.assert_consistency()
+
+
+# --- init --content-store ---
+
+
+def test_init_content_store_directory(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store_dir = tmp_path.joinpath("store")
+    store_dir.mkdir()
+    monkeypatch.setenv("XORQ_CONTENT_STORE_DIRECTORY_DIRECTORY", str(store_dir))
+    repo_path = str(tmp_path.joinpath("pointer-catalog"))
+    result = runner.invoke(
+        cli, ["--path", repo_path, "init", "--content-store", "directory"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "Initialized catalog at" in result.output
+
+    catalog = Catalog.from_kwargs(path=repo_path, init=False)
+    assert isinstance(catalog.backend, GitPointerBackend)
+    catalog.assert_consistency()
+
+
+def test_init_content_store_s3(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_BUCKET", "test-bucket")
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_AWS_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_AWS_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.delenv("XORQ_CONTENT_STORE_S3_CATALOG_ID", raising=False)
+
+    mock_store = MagicMock()
+    with patch("xorq.catalog.content_store.make_boto3_client", return_value=mock_store):
+        repo_path = str(tmp_path.joinpath("s3-catalog"))
+        result = runner.invoke(
+            cli, ["--path", repo_path, "init", "--content-store", "s3"]
+        )
+        assert result.exit_code == 0, result.output
+        assert "Initialized catalog at" in result.output
+
+        catalog = Catalog.from_kwargs(path=repo_path, init=False)
+        assert isinstance(catalog.backend, GitPointerBackend)
+
+
+def test_init_content_store_s3_gcs(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_BUCKET", "gcs-bucket")
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_AWS_ACCESS_KEY_ID", "hmac-key")
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_AWS_SECRET_ACCESS_KEY", "hmac-secret")
+    monkeypatch.delenv("XORQ_CONTENT_STORE_S3_CATALOG_ID", raising=False)
+
+    mock_store = MagicMock()
+    with patch("xorq.catalog.content_store.make_boto3_client", return_value=mock_store):
+        repo_path = str(tmp_path.joinpath("gcs-catalog"))
+        result = runner.invoke(
+            cli, ["--path", repo_path, "init", "--content-store", "s3", "--gcs"]
+        )
+        assert result.exit_code == 0, result.output
+
+        config = ContentStoreConfig.from_yaml(Path(repo_path) / "content_store.yaml")
+        assert config.host == "storage.googleapis.com"
+        assert config.protocol == "https"
+
+
+def test_init_content_store_none_returns_none(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    repo_path = str(tmp_path.joinpath("plain-catalog"))
+    result = runner.invoke(cli, ["--path", repo_path, "init"])
+    assert result.exit_code == 0, result.output
+    catalog = Catalog.from_kwargs(path=repo_path, init=False)
+    assert not isinstance(catalog.backend, GitPointerBackend)
+
+
+def test_init_content_store_conflicts_with_env_prefix(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store_dir = tmp_path.joinpath("store")
+    store_dir.mkdir()
+    monkeypatch.setenv("XORQ_CONTENT_STORE_DIRECTORY_DIRECTORY", str(store_dir))
+    monkeypatch.setenv("XORQ_CATALOG_S3_BUCKET", "test-bucket")
+    monkeypatch.setenv("XORQ_CATALOG_S3_NAME", "myremote")
+    monkeypatch.setenv("XORQ_CATALOG_S3_AWS_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("XORQ_CATALOG_S3_AWS_SECRET_ACCESS_KEY", "secret")
+    repo_path = str(tmp_path.joinpath("catalog"))
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            repo_path,
+            "init",
+            "--content-store",
+            "directory",
+            "--env-prefix",
+            "XORQ_CATALOG_S3_",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
+def test_init_content_store_conflicts_with_env_file(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store_dir = tmp_path.joinpath("store")
+    store_dir.mkdir()
+    monkeypatch.setenv("XORQ_CONTENT_STORE_DIRECTORY_DIRECTORY", str(store_dir))
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "XORQ_CATALOG_S3_BUCKET=test\n"
+        "XORQ_CATALOG_S3_NAME=myremote\n"
+        "XORQ_CATALOG_S3_AWS_ACCESS_KEY_ID=key\n"
+        "XORQ_CATALOG_S3_AWS_SECRET_ACCESS_KEY=secret\n"
+    )
+    repo_path = str(tmp_path.joinpath("catalog"))
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            repo_path,
+            "init",
+            "--content-store",
+            "directory",
+            "--env-file",
+            str(env_file),
+        ],
+    )
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
+# --- gc command ---
+
+
+def test_gc_on_plain_git_catalog_fails(runner: CliRunner, tmp_path: Path) -> None:
+    repo_path = str(tmp_path.joinpath("plain-catalog"))
+    runner.invoke(cli, ["--path", repo_path, "init"])
+    result = runner.invoke(cli, ["--path", repo_path, "gc"])
+    assert result.exit_code != 0
+    assert "pointer-backend" in result.output
+
+
+def test_gc_dry_run_on_pointer_catalog(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store_dir = tmp_path.joinpath("store")
+    store_dir.mkdir()
+    monkeypatch.setenv("XORQ_CONTENT_STORE_DIRECTORY_DIRECTORY", str(store_dir))
+    repo_path = str(tmp_path.joinpath("pointer-catalog"))
+    runner.invoke(cli, ["--path", repo_path, "init", "--content-store", "directory"])
+
+    result = runner.invoke(cli, ["--path", repo_path, "gc"])
+    assert result.exit_code == 0, result.output
+    assert "No orphaned" in result.output
+
+
+def test_gc_deletes_orphan(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store_dir = tmp_path.joinpath("store")
+    store_dir.mkdir()
+    monkeypatch.setenv("XORQ_CONTENT_STORE_DIRECTORY_DIRECTORY", str(store_dir))
+    repo_path = str(tmp_path.joinpath("pointer-catalog"))
+    runner.invoke(cli, ["--path", repo_path, "init", "--content-store", "directory"])
+
+    catalog = Catalog.from_kwargs(path=repo_path, init=False)
+    catalog_id = catalog.backend.catalog_id
+
+    store = DirectoryContentStore(directory=store_dir)
+    orphan = tmp_path / "orphan.bin"
+    orphan.write_bytes(b"orphaned blob")
+    orphan_key = content_key(catalog_id, compute_sha256(orphan))
+    store.put(orphan_key, orphan)
+
+    # dry run finds it
+    result = runner.invoke(cli, ["--path", repo_path, "gc"])
+    assert result.exit_code == 0, result.output
+    assert "Would delete" in result.output
+    assert "1 orphan(s) found" in result.output
+    assert store.exists(orphan_key)
+
+    # real run deletes it
+    result = runner.invoke(cli, ["--path", repo_path, "gc", "--no-dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "Deleted" in result.output
+    assert "1 orphan(s) deleted" in result.output
+    assert not store.exists(orphan_key)

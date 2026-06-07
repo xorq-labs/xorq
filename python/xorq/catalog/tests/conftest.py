@@ -1,4 +1,5 @@
 import shutil
+import uuid
 from pathlib import Path
 
 import pytest
@@ -20,11 +21,10 @@ from xorq.catalog.catalog import (
     Catalog,
     CatalogAlias,
 )
-from xorq.catalog.constants import MAIN_BRANCH, POINTER_SUFFIX
+from xorq.catalog.constants import CONTENT_STORE_YAML, MAIN_BRANCH, POINTER_SUFFIX
 from xorq.catalog.content_store import (
     ContentCache,
-    ContentStoreConfig,
-    DirectoryContentStore,
+    DirectoryContentStoreConfig,
 )
 from xorq.catalog.enums import CatalogInfix
 from xorq.catalog.expr_utils import build_expr_context_zip
@@ -113,6 +113,12 @@ def compare_repo_and_catalog(repo, catalog):
             )
         )
         assert tuple(sorted(toplevel_names)) == expected_top_names
+        expected_top_suffixes = tuple(
+            sorted(
+                ("", Path(CATALOG_YAML_NAME).suffix, Path(CONTENT_STORE_YAML).suffix)
+            )
+        )
+        assert tuple(sorted(toplevel_suffixes)) == expected_top_suffixes
     else:
         assert toplevel_names == (Path(CATALOG_YAML_NAME).stem,)
         assert toplevel_suffixes == (Path(CATALOG_YAML_NAME).suffix,)
@@ -145,27 +151,27 @@ def backend_type(request):
     return request.param
 
 
-def _make_pointer_backend(repo, store_dir):
-    import uuid  # noqa: PLC0415
-
+def _make_pointer_backend(repo: Repo, store_dir: str | Path) -> GitPointerBackend:
     repo_path = Path(repo.working_dir)
-    from xorq.catalog.constants import CONTENT_STORE_YAML  # noqa: PLC0415
-
     config_path = repo_path / CONTENT_STORE_YAML
-    if config_path.exists():
-        config = ContentStoreConfig.from_yaml(config_path)
-        catalog_id = config.catalog_id
-    else:
-        catalog_id = str(uuid.uuid4())
-    store = DirectoryContentStore(directory=str(store_dir))
-    cache_dir = repo_path / ".xorq-cache"
-    cache = ContentCache(cache_dir=cache_dir, max_bytes=1024 * 1024 * 1024)
-    return GitPointerBackend(
-        repo=repo, content_store=store, cache=cache, catalog_id=catalog_id
+    if not config_path.exists():
+        config = DirectoryContentStoreConfig(
+            catalog_id=str(uuid.uuid4()),
+            directory=store_dir,
+        )
+        config.write_yaml(config_path)
+        repo.index.add([CONTENT_STORE_YAML])
+        repo.index.commit("add content store config")
+    cache = ContentCache(
+        cache_dir=repo_path / ".xorq-cache",
+        max_bytes=1024 * 1024 * 1024,
     )
+    return GitPointerBackend.from_repo(repo, cache=cache)
 
 
-def _make_catalog_from_repo(repo, backend_type, store_dir=None):
+def _make_catalog_from_repo(
+    repo: Repo, backend_type: str, store_dir: str | Path | None = None
+) -> Catalog:
     repo_path = Path(repo.working_dir)
     if backend_type == "annex":
         backend = GitAnnexBackend(repo=repo, annex=Annex(repo_path=repo_path))
@@ -176,16 +182,23 @@ def _make_catalog_from_repo(repo, backend_type, store_dir=None):
     return Catalog(backend=backend)
 
 
-def _init_catalog_repo(repo_path, backend_type, store_dir=None):
+def directory_store_config(
+    directory: str | Path, catalog_id: str | None = None
+) -> DirectoryContentStoreConfig:
+    kwargs = {"directory": str(directory)}
+    if catalog_id is not None:
+        kwargs["catalog_id"] = catalog_id
+    return DirectoryContentStoreConfig(**kwargs)
+
+
+def _init_catalog_repo(
+    repo_path: str | Path, backend_type: str, store_dir: Path | None = None
+) -> Repo:
     if backend_type == "pointer":
         store_dir = store_dir or Path(repo_path).parent / "content-store"
         store_dir.mkdir(parents=True, exist_ok=True)
-        config = ContentStoreConfig(
-            type="directory",
-            catalog_id="",
-            config={"directory": str(store_dir)},
-        )
-        return Catalog.init_repo_path(repo_path, content_store=config)
+        config = directory_store_config(store_dir)
+        return Catalog.init_repo_path(repo_path, content_store_config=config)
     annex = LOCAL_ANNEX if backend_type == "annex" else None
     return Catalog.init_repo_path(repo_path, annex=annex)
 
