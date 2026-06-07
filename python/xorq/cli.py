@@ -24,7 +24,7 @@ from xorq.init_templates import InitTemplates
 
 @contextlib.contextmanager
 def maybe_unzip(path):
-    if str(path).endswith(".zip"):
+    if str(path).lower().endswith(".zip"):
         from xorq.catalog.zip_utils import extract_build_zip_context  # noqa: PLC0415
 
         with extract_build_zip_context(path) as build_dir:
