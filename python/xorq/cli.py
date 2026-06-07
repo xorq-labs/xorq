@@ -1,3 +1,4 @@
+import collections.abc
 import contextlib
 import datetime
 import os
@@ -23,7 +24,7 @@ from xorq.init_templates import InitTemplates
 
 
 @contextlib.contextmanager
-def maybe_unzip(path):
+def maybe_unzip(path: str) -> collections.abc.Generator[str, None, None]:
     if str(path).lower().endswith(".zip"):
         from xorq.catalog.zip_utils import extract_build_zip_context  # noqa: PLC0415
 

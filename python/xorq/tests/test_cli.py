@@ -1665,14 +1665,14 @@ def test_serve_options_decorator():
     assert "port=8080" in result.output
 
 
-def test_maybe_unzip_non_zip_passthrough(tmp_path):
+def test_maybe_unzip_non_zip_passthrough(tmp_path: Path) -> None:
     build_dir = tmp_path / "my_build"
     build_dir.mkdir()
     with maybe_unzip(str(build_dir)) as p:
         assert p == str(build_dir)
 
 
-def test_maybe_unzip_valid_zip(tmp_path):
+def test_maybe_unzip_valid_zip(tmp_path: Path) -> None:
     build_dir = tmp_path / "my_build"
     build_dir.mkdir()
     (build_dir / "file.txt").write_text("hello")
@@ -1685,7 +1685,7 @@ def test_maybe_unzip_valid_zip(tmp_path):
         assert (Path(p) / "file.txt").read_text() == "hello"
 
 
-def test_maybe_unzip_case_insensitive_extension(tmp_path):
+def test_maybe_unzip_case_insensitive_extension(tmp_path: Path) -> None:
     build_dir = tmp_path / "my_build"
     build_dir.mkdir()
     (build_dir / "file.txt").write_text("hello")
@@ -1697,14 +1697,14 @@ def test_maybe_unzip_case_insensitive_extension(tmp_path):
         assert (Path(p) / "file.txt").read_text() == "hello"
 
 
-def test_maybe_unzip_nonexistent_zip_raises(tmp_path):
+def test_maybe_unzip_nonexistent_zip_raises(tmp_path: Path) -> None:
     zip_path = tmp_path / "does_not_exist.zip"
     with pytest.raises(FileNotFoundError):
         with maybe_unzip(str(zip_path)) as _:
             pass
 
 
-def test_maybe_unzip_invalid_zip_raises(tmp_path):
+def test_maybe_unzip_invalid_zip_raises(tmp_path: Path) -> None:
     zip_path = tmp_path / "bad.zip"
     zip_path.write_text("this is not a zip")
     with pytest.raises(zipfile.BadZipFile):
