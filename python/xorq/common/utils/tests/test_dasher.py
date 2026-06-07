@@ -281,6 +281,18 @@ def test_two_params_same_dtype_produce_distinct_tokens():
     assert tok_both != tok_same
 
 
+def test_two_params_same_dtype_swapped_positions_produce_distinct_tokens():
+    """Swapping two same-dtype params across select positions must produce
+    a different token, even though the SQL after NULL substitution is identical."""
+    t = xo.memtable({"_": [0]})
+    p1 = xo.param("start", "int64")
+    p2 = xo.param("end", "int64")
+
+    tok_ab = tokenize(t.select(a=p1, b=p2))
+    tok_ba = tokenize(t.select(a=p2, b=p1))
+    assert tok_ab != tok_ba
+
+
 def test_two_params_same_dtype_in_filter_produce_distinct_tokens():
     """Same-dtype params used in filter position must also be distinguishable."""
     t = xo.memtable({"x": [1, 2, 3]})
