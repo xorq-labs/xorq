@@ -234,7 +234,7 @@ extend-select = [
     "FURB",   # refurb: modernize Python code
     "PLC0415",  # import-outside-toplevel: imports must be at module level
     "DTZ",      # flake8-datetimez: enforce timezone-aware datetime usage
-    "PLW1514",  # unspecified-encoding: require explicit encoding= in open() (needs preview)
+    # TODO: add PLW1514 (unspecified-encoding) when it graduates from ruff preview
 ]
 ignore = [
     "B018",  # useless-expression: side-effect property access is intentional
