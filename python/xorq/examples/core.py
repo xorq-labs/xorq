@@ -29,26 +29,35 @@ _PIN_META_RETRY_DELAY = 1.0
 
 
 def _pin_meta_with_retry(board, name):
+    last_exc = None
     for attempt in range(_PIN_META_RETRIES):
         try:
             meta = board.pin_meta(name)
+        except Exception as exc:
+            last_exc = exc
+            logger.warning(
+                "pin_meta(%r) raised %s (attempt %d/%d)",
+                name,
+                exc,
+                attempt + 1,
+                _PIN_META_RETRIES,
+                exc_info=True,
+            )
+        else:
             if meta is not None:
                 return meta
-        except Exception:
-            pass
-        if attempt < _PIN_META_RETRIES - 1:
-            delay = _PIN_META_RETRY_DELAY * (2**attempt)
             logger.warning(
-                "pin_meta(%r) failed (attempt %d/%d), retrying in %.1fs",
+                "pin_meta(%r) returned None (attempt %d/%d)",
                 name,
                 attempt + 1,
                 _PIN_META_RETRIES,
-                delay,
             )
+        if attempt < _PIN_META_RETRIES - 1:
+            delay = _PIN_META_RETRY_DELAY * (2**attempt)
             time.sleep(delay)
     raise RuntimeError(
         f"failed to fetch pin metadata for {name!r} after {_PIN_META_RETRIES} attempts"
-    )
+    ) from last_exc
 
 
 @functools.cache
