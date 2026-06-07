@@ -1,4 +1,6 @@
 coverage:
+  notify:
+    wait_for_ci: true
   status:
     project:
       default:
