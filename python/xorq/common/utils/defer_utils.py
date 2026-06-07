@@ -66,7 +66,9 @@ def _manual_file_digest(path, digest=hashlib.md5, size=2**20):
         return obj.hexdigest()
 
 
-def _file_digest(path, digest=hashlib.md5, size=2**20):
+def file_digest(
+    path: str | Path, digest: Callable = hashlib.md5, size: int = 2**20
+) -> str:
     from zipfile import ZipExtFile  # noqa: PLC0415
 
     if hasattr(hashlib, "file_digest"):
@@ -80,7 +82,7 @@ def _file_digest(path, digest=hashlib.md5, size=2**20):
 
 
 def normalize_read_path_md5sum(path):
-    return (("content-md5sum", _file_digest(path)),)
+    return (("content-md5sum", file_digest(path)),)
 
 
 def normalize_read_path_stat(path):

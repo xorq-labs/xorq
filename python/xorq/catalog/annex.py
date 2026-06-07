@@ -21,6 +21,13 @@ from attr.validators import (
 from git import Repo
 
 from xorq.catalog.constants import ANNEX_BRANCH
+from xorq.catalog.s3_utils import (
+    S3_SECRET_FIELDS,
+    S3ClientMixin,
+    make_boto3_client,
+    make_endpoint_url,
+    serialize_fields,
+)
 from xorq.common.utils.env_utils import EnvConfigable, env_templates_dir, parse_env_file
 
 
@@ -46,7 +53,9 @@ def require_git_annex():
         )
 
 
-def _do_inside(repo_path, *args, env=None):
+def _do_inside(
+    repo_path: str | Path, *args: str, env: dict | None = None
+) -> tuple[int, str, str]:
     cmd = [GIT_ANNEX_COMMAND, *args]
     run_env = None
     if env:
@@ -559,11 +568,12 @@ _REQUIRED_S3_FIELDS = frozenset(
 
 
 @frozen
-class S3RemoteConfig(RemoteConfig):
+class S3RemoteConfig(S3ClientMixin, RemoteConfig):
     name = field(validator=instance_of(str))
     bucket = field(validator=instance_of(str))
     aws_access_key_id = field(validator=instance_of(str))
     aws_secret_access_key = field(validator=instance_of(str), repr=False)
+    aws_session_token = field(validator=optional(instance_of(str)), default=None)
     encryption = field(validator=instance_of(str), default="none")
     datacenter = field(validator=optional(instance_of(str)), default=None)
     region = field(validator=optional(instance_of(str)), default=None)
@@ -587,7 +597,7 @@ class S3RemoteConfig(RemoteConfig):
         prefix="XORQ_CATALOG_S3_",
     )
 
-    _SECRET_FIELDS = ("aws_access_key_id", "aws_secret_access_key")
+    _SECRET_FIELDS = S3_SECRET_FIELDS
 
     @property
     def _optional_params(self):
@@ -610,94 +620,29 @@ class S3RemoteConfig(RemoteConfig):
             ("AWS_CREDENTIAL_EXPIRATION", ""),
         )
 
-    _DEFAULT_PORTS = {"http": "80", "https": "443"}
-
     @property
     def endpoint_url(self):
-        if self.host is None:
-            return None
-        protocol = self.protocol or "https"
-        default_port = self._DEFAULT_PORTS.get(protocol)
-        port_suffix = f":{self.port}" if self.port and self.port != default_port else ""
-        return f"{protocol}://{self.host}{port_suffix}"
+        return make_endpoint_url(self.host, self.port, self.protocol)
 
     @property
-    def boto3_endpoint_url(self):
+    def _boto3_endpoint_url(self) -> str | None:
         """Endpoint URL suitable for boto3 (always HTTPS for public hosts)."""
         if self.host is None:
             return None
         return f"https://{self.host}"
 
-    def _make_boto3_client(self):
-        import boto3  # noqa: PLC0415
+    @property
+    def _probe_prefix(self) -> str:
+        return self.fileprefix or ""
 
-        # boto3 SigV4 needs a real region in the credential scope;
-        # "auto" works for git-annex but not for boto3 PUT signing.
-        region = "us-east-1" if self.region in (None, "auto") else self.region
-        return boto3.client(
-            "s3",
+    def _make_boto3_client(self) -> object:
+        return make_boto3_client(
             aws_access_key_id=self.aws_access_key_id,
             aws_secret_access_key=self.aws_secret_access_key,
-            endpoint_url=self.boto3_endpoint_url,
-            region_name=region,
+            aws_session_token=self.aws_session_token,
+            region=self.region,
+            endpoint_url=self._boto3_endpoint_url,
         )
-
-    def check_bucket(self, check_write=False):
-        """Verify that credentials can reach the bucket.
-
-        Returns a dict with connection details on success, raises on failure.
-        When *check_write* is True, probes write access by uploading and
-        deleting a zero-byte sentinel object under the configured fileprefix.
-        Requires boto3.
-        """
-        client = self._make_boto3_client()
-        # head_bucket verifies both auth and bucket existence
-        client.head_bucket(Bucket=self.bucket)
-        # list a single key to confirm read access
-        listing = client.list_objects_v2(Bucket=self.bucket, MaxKeys=1)
-        result = {
-            "bucket": self.bucket,
-            "endpoint_url": self.boto3_endpoint_url or "(AWS default)",
-            "key_count": listing.get("KeyCount", 0),
-        }
-        if check_write:
-            result["writable"] = self._probe_write(client)
-        return result
-
-    def _probe_write(self, client=None):
-        """Upload and delete a zero-byte sentinel to test write access.
-
-        Returns True if the write succeeds, False on AccessDenied.
-        """
-        from botocore.exceptions import ClientError  # noqa: PLC0415
-
-        if client is None:
-            client = self._make_boto3_client()
-        probe_key = f"{self.fileprefix or ''}.xorq-write-probe-{uuid.uuid4().hex[:12]}"
-        try:
-            resp = client.create_multipart_upload(
-                Bucket=self.bucket,
-                Key=probe_key,
-            )
-            client.abort_multipart_upload(
-                Bucket=self.bucket,
-                Key=probe_key,
-                UploadId=resp["UploadId"],
-            )
-            return True
-        except ClientError as e:
-            if e.response["Error"]["Code"] in ("AccessDenied", "403"):
-                return False
-            raise
-
-    def assert_readonly(self):
-        """Raise ``ValueError`` if these credentials can write to the bucket."""
-        result = self.check_bucket(check_write=True)
-        if result["writable"]:
-            raise ValueError(
-                f"Credentials for bucket {self.bucket!r} have write access; "
-                f"expected read-only credentials."
-            )
 
     @property
     def initremote_params(self):
@@ -810,14 +755,9 @@ class S3RemoteConfig(RemoteConfig):
         return self.embedcreds == "yes"
 
     def to_dict(self):
-        d = {"type": "S3"} | {
-            a.name: getattr(self, a.name)
-            for a in attr.fields(type(self))
-            if not a.name.startswith("_")
-            and (self.has_embedded_creds or a.name not in self._SECRET_FIELDS)
-            and getattr(self, a.name) is not None
-        }
-        return d
+        return {"type": "S3"} | serialize_fields(
+            self, include_secrets=self.has_embedded_creds
+        )
 
     @classmethod
     def make_s3_remote(

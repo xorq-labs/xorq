@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+from __future__ import annotations
+
 import json
 import shutil
 import subprocess
@@ -11,6 +13,7 @@ from contextlib import (
 from functools import cached_property, partial
 from pathlib import Path
 from subprocess import Popen
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlparse
 
 import attr
@@ -44,7 +47,6 @@ from xorq.catalog.backend import (
     CatalogBackend,
     GitAnnexBackend,
     GitBackend,
-    GitPointerBackend,
 )
 from xorq.catalog.constants import (
     ANNEX_BRANCH,
@@ -54,13 +56,12 @@ from xorq.catalog.constants import (
     METADATA_APPEND,
     PREFERRED_SUFFIX,
 )
-from xorq.catalog.content_store import (
-    ContentCache,
-    ContentStore,
-    ContentStoreConfig,
-)
 from xorq.catalog.enums import CatalogInfix
 from xorq.catalog.exceptions import CatalogConfigurationError, CatalogPushError
+
+
+if TYPE_CHECKING:
+    from xorq.catalog.content_store import ContentStoreConfig
 from xorq.catalog.expr_utils import (
     build_expr_context,
     build_expr_context_zip,
@@ -78,6 +79,17 @@ from xorq.ibis_yaml.enums import DumpFiles, ExprKind
 logger = get_logger(__name__)
 
 
+def _check_backend_exclusive(
+    content_store_config: ContentStoreConfig | None,
+    annex: AnnexConfig | None | Literal[False],
+) -> None:
+    if content_store_config is not None and annex is not None:
+        raise ValueError(
+            "content_store_config and annex are mutually exclusive; "
+            "use one backend or the other"
+        )
+
+
 abspath = toolz.compose(Path.absolute, Path)
 
 
@@ -89,7 +101,9 @@ _PUSH_FAILURE_FLAGS = (
 )
 
 
-def _format_push_failures(push_infos, remote_name):
+def _format_push_failures(
+    push_infos: list[PushInfo], remote_name: str
+) -> tuple[str, ...]:
     return tuple(
         f"{remote_name}/{info.local_ref or '?'}: {(info.summary or '').strip()}"
         for info in push_infos
@@ -777,17 +791,9 @@ class Catalog:
 
         # everything else in repo is either catalog_path or metadata_path from an entry the catalog_yaml knows about, or an alias symlink
         actual = sorted(el for el in path_strings if el != catalog_yaml_relpath_string)
-        # pointer catalogs commit .gitignore and content_store.yaml, which are
-        # not catalog entries; exclude them only for the pointer backend so the
-        # check stays strict for git/annex catalogs.
-        if isinstance(self.backend, GitPointerBackend):
-            gitignore_relpath = str(Path(".gitignore"))
-            content_store_relpath = str(Path(CONTENT_STORE_YAML))
-            actual = sorted(
-                el
-                for el in actual
-                if el not in (gitignore_relpath, content_store_relpath)
-            )
+        config_paths = set(self.backend.repo_config_paths())
+        if config_paths:
+            actual = sorted(el for el in actual if el not in config_paths)
         expected = sorted(
             (
                 *(
@@ -811,6 +817,36 @@ class Catalog:
         with commit_context(root_repo, message):
             add_as_submodule(root_repo, self.repo)
 
+    @staticmethod
+    def _validate_content_store_config(
+        repo_path: Path,
+        content_store_config: ContentStoreConfig | None,
+        annex: AnnexConfig | None | Literal[False],
+    ) -> None:
+        content_store_path = repo_path / CONTENT_STORE_YAML
+        if not content_store_path.exists():
+            return
+        if isinstance(annex, AnnexConfig):
+            raise ValueError(
+                f"repo at {repo_path} uses the pointer backend "
+                f"({CONTENT_STORE_YAML} present); cannot use git-annex"
+            )
+        if annex is False:
+            raise ValueError(
+                f"repo at {repo_path} uses the pointer backend "
+                f"({CONTENT_STORE_YAML} present); cannot force plain git"
+            )
+        if content_store_config is not None:
+            from xorq.catalog.content_store import ContentStoreConfig  # noqa: PLC0415
+
+            config = ContentStoreConfig.from_yaml(content_store_path)
+            if content_store_config != config:
+                raise ValueError(
+                    f"explicit content_store_config conflicts with committed "
+                    f"{CONTENT_STORE_YAML} at {repo_path}: "
+                    f"passed {content_store_config}, on disk {config}"
+                )
+
     @classmethod
     def clone_from(
         cls,
@@ -818,12 +854,15 @@ class Catalog:
         repo_path=None,
         check_consistency=True,
         annex=None,
+        content_store_config: ContentStoreConfig | None = None,
         git_config=None,
         **remote_kwargs,
     ):
-        """Clone a catalog repo and optionally init git-annex.
+        """Clone a catalog repo and detect the backend automatically.
 
-        *annex* controls the backend:
+        *content_store_config* and *annex* are mutually exclusive.
+        If the cloned repo contains a ``content_store.yaml``, the pointer
+        backend is used.  Otherwise *annex* controls the backend:
 
         - ``None`` (default) — auto-detect.  If the cloned repo has a
           ``git-annex`` branch, git-annex is initialised and the remote
@@ -832,22 +871,16 @@ class Catalog:
         - ``False`` — force plain git, even if the repo has a
           ``git-annex`` branch.
         - Any ``AnnexConfig`` instance — git-annex is initialised and
-          the remote is enabled if remote.log has a special remote configured.
-
-        If the repo contains ``content_store.yaml`` it is always opened as a
-        pointer catalog (``GitPointerBackend``); pointer detection takes
-        precedence over *annex*, so ``annex=False`` does not force plain git
-        on a pointer catalog.
+          the remote is enabled if remote.log has a special remote
+          configured.
 
         Content is **not** fetched eagerly; it is retrieved on demand
         when ``entry.expr`` is accessed (via ``fetch_content``).
-        For S3 remotes without embedded credentials, the caller
-        can supply credentials via *remote_kwargs* or environment
-        variables (``XORQ_CATALOG_S3_*``).
-
-        Use *git_config* to set repo-local git config before annex init
-        (e.g. ``{"annex.security.allowed-ip-addresses": "all"}``).
+        For S3 remotes without embedded credentials, the caller can
+        supply credentials via *remote_kwargs* or environment variables
+        (``XORQ_CATALOG_S3_*`` / ``XORQ_CONTENT_STORE_S3_*``).
         """
+        _check_backend_exclusive(content_store_config, annex)
         if repo_path is None:
             name = Path(urlparse(url).path).stem
             repo_path = cls.name_to_repo_path(name)
@@ -856,18 +889,19 @@ class Catalog:
         # pointer backend detection: content_store.yaml in cloned repo
         content_store_path = Path(repo_path) / CONTENT_STORE_YAML
         if content_store_path.exists():
-            config = ContentStoreConfig.from_yaml(content_store_path)
-            store = config.make_store()
-            cache = ContentCache.default()
-            backend = GitPointerBackend(
-                repo=repo,
-                content_store=store,
-                cache=cache,
-                catalog_id=config.catalog_id,
-            )
-            catalog = cls(backend=backend)
-            if check_consistency:
-                catalog.assert_consistency()
+            try:
+                cls._validate_content_store_config(
+                    Path(repo_path), content_store_config, annex
+                )
+                from xorq.catalog.backend import GitPointerBackend  # noqa: PLC0415
+
+                backend = GitPointerBackend.from_repo(repo)
+                catalog = cls(backend=backend)
+                if check_consistency:
+                    catalog.assert_consistency()
+            except BaseException:
+                shutil.rmtree(repo_path, ignore_errors=True)
+                raise
             return catalog
 
         # annex=False → force plain git
@@ -931,58 +965,50 @@ class Catalog:
         init=None,
         check_consistency=True,
         annex=None,
-        content_store=None,
+        content_store_config: ContentStoreConfig | None = None,
         **remote_kwargs,
     ):
-        """Open (or initialise, with ``init=True``) a catalog at *repo_path*.
-
-        A repo containing ``content_store.yaml`` — or any non-``None``
-        *content_store* — is opened as a pointer catalog
-        (``GitPointerBackend``). Pointer detection takes precedence over
-        *annex*, so ``annex=False`` does not force plain git on a pointer
-        catalog.
-        """
+        """Open or initialise a catalog; *content_store_config* and *annex* are mutually exclusive."""
+        _check_backend_exclusive(content_store_config, annex)
         remote_config = annex if isinstance(annex, RemoteConfig) else None
         init = not Path(repo_path).exists() if init is None else init
         if init:
             repo = cls.init_repo_path(
-                repo_path, annex=annex, content_store=content_store
+                repo_path, annex=annex, content_store_config=content_store_config
             )
         else:
             repo = Repo(repo_path)
 
-        # content_store detection: explicit param or content_store.yaml on disk
+        # content_store_config detection: explicit param or content_store.yaml on disk
         content_store_path = Path(repo_path) / CONTENT_STORE_YAML
-        if content_store is not None or content_store_path.exists():
+        if content_store_config is not None or content_store_path.exists():
             if content_store_path.exists():
-                config = ContentStoreConfig.from_yaml(content_store_path)
-                if not init and content_store is not None and content_store != config:
-                    raise ValueError(
-                        f"explicit content_store conflicts with committed "
-                        f"{CONTENT_STORE_YAML} at {repo_path}: "
-                        f"passed {content_store}, on disk {config}"
-                    )
+                cls._validate_content_store_config(
+                    Path(repo_path),
+                    None if init else content_store_config,
+                    annex,
+                )
             else:
-                # content_store provided but no committed content_store.yaml: this
-                # is only reachable with init=False, where the config would never be
-                # persisted (init_repo_path writes it). Building an ephemeral pointer
+                # content_store_config provided but no committed content_store.yaml:
+                # this is only reachable with init=False, where the config would never
+                # be persisted (init_repo_path writes it). Building an ephemeral pointer
                 # backend would silently produce a broken catalog on the next open.
                 raise ValueError(
-                    f"content_store was provided but {CONTENT_STORE_YAML} is absent "
-                    f"at {repo_path}; create a pointer catalog with init=True (the "
-                    "config is only persisted at init time)"
+                    f"content_store_config was provided but {CONTENT_STORE_YAML} is "
+                    f"absent at {repo_path}; create a pointer catalog with init=True "
+                    "(the config is only persisted at init time)"
                 )
-            store = config.make_store()
-            cache = ContentCache.default()
-            backend = GitPointerBackend(
-                repo=repo,
-                content_store=store,
-                cache=cache,
-                catalog_id=config.catalog_id,
-            )
-            catalog = cls(backend=backend)
-            if check_consistency:
-                catalog.assert_consistency()
+            try:
+                from xorq.catalog.backend import GitPointerBackend  # noqa: PLC0415
+
+                backend = GitPointerBackend.from_repo(repo)
+                catalog = cls(backend=backend)
+                if check_consistency:
+                    catalog.assert_consistency()
+            except BaseException:
+                if init:
+                    shutil.rmtree(repo_path, ignore_errors=True)
+                raise
             return catalog
 
         # annex=False → force plain git
@@ -1033,7 +1059,13 @@ class Catalog:
 
     @classmethod
     def from_name(
-        cls, name, init=None, check_consistency=True, annex=None, **remote_kwargs
+        cls,
+        name,
+        init=None,
+        check_consistency=True,
+        annex=None,
+        content_store_config: ContentStoreConfig | None = None,
+        **remote_kwargs,
     ):
         repo_path = cls.name_to_repo_path(name)
         return cls.from_repo_path(
@@ -1041,6 +1073,7 @@ class Catalog:
             init=init,
             check_consistency=check_consistency,
             annex=annex,
+            content_store_config=content_store_config,
             **remote_kwargs,
         )
 
@@ -1062,7 +1095,12 @@ class Catalog:
 
     @classmethod
     def from_default(
-        cls, init=None, check_consistency=True, annex=None, **remote_kwargs
+        cls,
+        init=None,
+        check_consistency=True,
+        annex=None,
+        content_store_config: ContentStoreConfig | None = None,
+        **remote_kwargs,
     ):
         name = cls._resolve_default_name()
         return cls.from_name(
@@ -1070,28 +1108,48 @@ class Catalog:
             init=init,
             check_consistency=check_consistency,
             annex=annex,
+            content_store_config=content_store_config,
             **remote_kwargs,
         )
 
     @classmethod
     def clone_from_as_submodule(
-        cls, root_repo, url, check_consistency=True, annex=None
+        cls,
+        root_repo,
+        url,
+        check_consistency=True,
+        annex=None,
+        content_store_config: ContentStoreConfig | None = None,
     ):
         name = Path(urlparse(url).path).stem
         repo_path = Path(root_repo.working_dir).joinpath(cls.submodule_rel_path, name)
         self = cls.clone_from(
-            url, repo_path, check_consistency=check_consistency, annex=annex
+            url,
+            repo_path,
+            check_consistency=check_consistency,
+            annex=annex,
+            content_store_config=content_store_config,
         )
         self.add_as_submodule(root_repo)
         return self
 
     @classmethod
     def from_name_as_submodule(
-        cls, root_repo, name, init=None, check_consistency=True, annex=None
+        cls,
+        root_repo,
+        name,
+        init=None,
+        check_consistency=True,
+        annex=None,
+        content_store_config: ContentStoreConfig | None = None,
     ):
         repo_path = Path(root_repo.working_dir).joinpath(cls.submodule_rel_path, name)
         self = cls.from_repo_path(
-            repo_path, init=init, check_consistency=check_consistency, annex=annex
+            repo_path,
+            init=init,
+            check_consistency=check_consistency,
+            annex=annex,
+            content_store_config=content_store_config,
         )
         self.add_as_submodule(root_repo)
         return self
@@ -1106,6 +1164,7 @@ class Catalog:
         init=None,
         check_consistency=True,
         annex=None,
+        content_store_config: ContentStoreConfig | None = None,
     ):
         if isinstance(root_repo, (str, Path)):
             root_repo = Repo(root_repo)
@@ -1117,6 +1176,7 @@ class Catalog:
                         url=url,
                         check_consistency=check_consistency,
                         annex=annex,
+                        content_store_config=content_store_config,
                     )
                 case (str(), None, None):
                     return cls.from_name_as_submodule(
@@ -1124,6 +1184,7 @@ class Catalog:
                         name=name,
                         check_consistency=check_consistency,
                         annex=annex,
+                        content_store_config=content_store_config,
                     )
                 case _:
                     raise ValueError(
@@ -1142,6 +1203,7 @@ class Catalog:
                     repo_path=path,
                     check_consistency=check_consistency,
                     annex=annex,
+                    content_store_config=content_store_config,
                 )
         else:
             match (name, path):
@@ -1150,6 +1212,7 @@ class Catalog:
                         init=init,
                         check_consistency=check_consistency,
                         annex=annex,
+                        content_store_config=content_store_config,
                     )
                 case (str(), None):
                     return cls.from_name(
@@ -1157,6 +1220,7 @@ class Catalog:
                         init=init,
                         check_consistency=check_consistency,
                         annex=annex,
+                        content_store_config=content_store_config,
                     )
                 case (None, str() | Path()):
                     catalog = Catalog.from_repo_path(
@@ -1164,6 +1228,7 @@ class Catalog:
                         init=init,
                         check_consistency=check_consistency,
                         annex=annex,
+                        content_store_config=content_store_config,
                     )
                 case _:
                     raise ValueError("`name` and `path` are mutually exclusive.")
@@ -1175,30 +1240,28 @@ class Catalog:
         return repo_path
 
     @staticmethod
-    def init_repo_path(repo_path, bare=False, annex=None, content_store=None):
-        assert not (repo_path := Path(repo_path)).exists(), (
-            f"Catalog repo already exists at {repo_path}"
-        )
+    def init_repo_path(
+        repo_path: str | Path,
+        bare: bool = False,
+        annex: AnnexConfig | None = None,
+        content_store_config: ContentStoreConfig | None = None,
+    ) -> Repo:
+        _check_backend_exclusive(content_store_config, annex)
+        if content_store_config is not None and bare:
+            raise ValueError("content_store_config is not supported with bare repos")
+        repo_path = Path(repo_path)
+        if repo_path.exists():
+            raise FileExistsError(f"Catalog repo already exists at {repo_path}")
         repo = Repo.init(repo_path, mkdir=True, bare=bare, initial_branch=MAIN_BRANCH)
-        if content_store is not None:
-            import uuid  # noqa: PLC0415
+        if content_store_config is not None:
+            from xorq.catalog.content_store import ContentStoreConfig  # noqa: PLC0415
 
-            config = content_store
-            if isinstance(content_store, ContentStore):
+            if not isinstance(content_store_config, ContentStoreConfig):
                 raise TypeError(
-                    "Pass a ContentStoreConfig to init_repo_path, not a ContentStore"
+                    f"content_store_config must be a ContentStoreConfig; "
+                    f"got {type(content_store_config)}"
                 )
-            if not isinstance(config, ContentStoreConfig):
-                raise TypeError(
-                    f"content_store must be a ContentStoreConfig; got {type(config)}"
-                )
-            if not config.catalog_id:
-                config = ContentStoreConfig(
-                    type=config.type,
-                    catalog_id=str(uuid.uuid4()),
-                    config=config.config,
-                )
-            config.write_yaml(repo_path / CONTENT_STORE_YAML)
+            content_store_config.write_yaml(repo_path / CONTENT_STORE_YAML)
             gitignore_path = repo_path / ".gitignore"
             gitignore_path.write_text("entries/*.zip\n")
             repo.index.add([CONTENT_STORE_YAML, ".gitignore"])
@@ -1279,11 +1342,9 @@ class CatalogAddition:
         self.ensure_dirs()
         catalog_entry = self.catalog_entry
         catalog_entry.metadata_path.write_text(yaml12.format_yaml(self.metadata))
-        shutil.copy(self.build_zip.path, catalog_entry.catalog_path)
         backend = self.catalog.backend
-        #
         self.catalog.catalog_yaml.add(self.name)
-        backend.stage_content(catalog_entry.catalog_path)
+        backend.stage_content(self.build_zip.path, catalog_entry.catalog_path)
         backend.stage(catalog_entry.metadata_path)
         backend.stage(self.catalog.catalog_yaml.yaml_path)
         for catalog_alias in self.catalog_aliases:
@@ -1318,11 +1379,12 @@ class CatalogEntry:
 
     name = field(validator=instance_of(str))
     catalog = field(validator=instance_of(Catalog))
+    # When False, skip assert_consistency and existence check (e.g. for removals).
     require_exists = field(validator=instance_of(bool), default=True)
 
     def __attrs_post_init__(self):
-        self.assert_consistency()
         if self.require_exists:
+            self.assert_consistency()
             assert self.exists(), f"Catalog entry '{self.name}' does not exist"
 
     @property
@@ -1425,13 +1487,17 @@ class CatalogEntry:
     @property
     def _exists_components(self):
         # catalog_path may be an annex symlink pointing to content not yet
-        # available locally; lexists / is_symlink handles that case.
+        # available locally; exists / is_symlink handles that case.
         # For the pointer backend, the tracked path is a .pointer file.
         tracked = self.catalog.backend.entry_tracked_path(self.catalog_path)
         return {
-            "metadata_path": self.metadata_path.exists(),
-            "catalog_path": tracked.exists() or self.catalog_path.is_symlink(),
-            "catalog_yaml_contents": self.catalog.catalog_yaml.contains(self.name),
+            "has_metadata": self.metadata_path.exists(),
+            "has_catalog_entry": (
+                tracked.exists()
+                or self.catalog_path.is_symlink()
+                or self.catalog_path.exists()
+            ),
+            "in_catalog_yaml": self.catalog.catalog_yaml.contains(self.name),
         }
 
     def get(self, dir_path=None):
@@ -1591,17 +1657,24 @@ class CatalogRemoval:
     def _remove(self):
         catalog_entry = self.catalog_entry
         catalog = catalog_entry.catalog
-        assert catalog_entry.exists(), (
-            f"Cannot remove entry '{catalog_entry.name}': not found in catalog"
-        )
+        # No public API exposes the component dict; _exists_components is
+        # intentionally internal to CatalogEntry, accessed here within the
+        # same module for removal logic.
+        components = catalog_entry._exists_components  # noqa: SLF001
+        if not any(components.values()):
+            raise ValueError(
+                f"Cannot remove entry '{catalog_entry.name}': not found in catalog"
+            )
         backend = catalog.backend
-        #
         for catalog_alias in self.catalog_entry.aliases:
             catalog_alias._remove()
-        catalog.catalog_yaml.remove(catalog_entry.name)
-        backend.stage(catalog.catalog_yaml.yaml_path)
-        for path in (catalog_entry.metadata_path, catalog_entry.catalog_path):
-            backend.stage_unlink(path)
+        if components["in_catalog_yaml"]:
+            catalog.catalog_yaml.remove(catalog_entry.name)
+            backend.stage(catalog.catalog_yaml.yaml_path)
+        if components["has_catalog_entry"]:
+            backend.stage_unlink(catalog_entry.catalog_path)
+        if components["has_metadata"]:
+            backend.stage_unlink(catalog_entry.metadata_path)
         return catalog_entry
 
     def remove(self):
@@ -1610,7 +1683,7 @@ class CatalogRemoval:
 
     @classmethod
     def from_name_catalog(cls, name, catalog):
-        return cls(CatalogEntry(name=name, catalog=catalog))
+        return cls(CatalogEntry(name=name, catalog=catalog, require_exists=False))
 
 
 @frozen
