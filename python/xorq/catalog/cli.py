@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
+from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import cache, partial, reduce
 from pathlib import Path
@@ -17,6 +18,7 @@ from xorq.cli_options import (
     cache_dir_option,
     cache_strategy_options,
     code_option,
+    content_store_option,
     env_options,
     fuse_option,
     gcs_option,
@@ -32,7 +34,7 @@ from xorq.cli_options import (
 from xorq.ibis_yaml.enums import DumpFiles, ExprKind
 
 
-def click_handler(e):
+def click_handler(e: Exception) -> None:
     raise click.ClickException(str(e)) from e
 
 
@@ -54,7 +56,7 @@ def _pdb_active(ctx):
 
 
 @contextmanager
-def click_context(ctx, *typs):
+def click_context(ctx: click.Context, *typs: type[Exception]) -> Iterator[None]:
     try:
         yield
     except click.ClickException:
@@ -66,7 +68,7 @@ def click_context(ctx, *typs):
 
 
 @contextmanager
-def click_context_catalog(ctx):
+def click_context_catalog(ctx: click.Context):
     from git import NoSuchPathError  # noqa: PLC0415
 
     try:
@@ -239,16 +241,56 @@ def _resolve_annex_option(env_file, env_prefix, gcs):
     return None
 
 
+def _resolve_content_store_option(content_store_type, gcs):
+    """Return a ContentStoreConfig from CLI options, or None."""
+    from xorq.catalog.content_store import (  # noqa: PLC0415
+        DirectoryContentStoreConfig,
+        S3ContentStoreConfig,
+    )
+
+    match content_store_type:
+        case None:
+            return None
+        case "s3":
+            if gcs:
+                return S3ContentStoreConfig.from_env_gcs()
+            return S3ContentStoreConfig.from_env()
+        case "directory":
+            return DirectoryContentStoreConfig.from_env()
+        case _:
+            raise click.UsageError(
+                f"unknown content store type: {content_store_type!r}"
+            )
+
+
+def _check_backend_exclusive_cli(
+    content_store_config: object | None, annex: object | None
+) -> None:
+    if content_store_config is not None and annex is not None:
+        raise click.UsageError(
+            "--content-store and annex options (--env-file/--env-prefix) "
+            "are mutually exclusive."
+        )
+
+
 @cli.command()
 @env_options
 @gcs_option
+@content_store_option
 @click.option(
     "--remote-url",
     default=None,
     help="Git remote URL (sets origin).",
 )
 @click.pass_context
-def init(ctx, env_file, env_prefix, gcs, remote_url):
+def init(
+    ctx: click.Context,
+    env_file: str | None,
+    env_prefix: str | None,
+    gcs: bool,
+    content_store_type: str | None,
+    remote_url: str | None,
+) -> None:
     """Create a new catalog repository.
 
     The destination comes from the catalog group's selectors (`-n/--name`
@@ -266,10 +308,13 @@ def init(ctx, env_file, env_prefix, gcs, remote_url):
     """
     with click_context_catalog(ctx):
         annex = _resolve_annex_option(env_file, env_prefix, gcs)
+        content_store_config = _resolve_content_store_option(content_store_type, gcs)
+        _check_backend_exclusive_cli(content_store_config, annex)
         try:
-            catalog = ctx.obj.make_catalog(init=True, annex=annex)
-        except AssertionError as err:
-            # init_repo_path asserts the path does not already exist
+            catalog = ctx.obj.make_catalog(
+                init=True, annex=annex, content_store_config=content_store_config
+            )
+        except FileExistsError as err:
             probe = ctx.obj.make_catalog(init=False)
             raise click.ClickException(
                 f"Catalog already exists at {probe.repo_path}"
@@ -418,7 +463,7 @@ def remove_alias(ctx, aliases, sync):
     help="Print a second column showing each entry's kind.",
 )
 @click.pass_context
-def list_entries(ctx, kind):
+def list_entries(ctx: click.Context, kind: bool) -> None:
     """List all entries.
 
     \b
@@ -870,9 +915,36 @@ def check(ctx):
 
 
 @cli.command()
+@click.option(
+    "--dry-run/--no-dry-run", default=True, help="List orphans without deleting."
+)
+@click.pass_context
+def gc(ctx: click.Context, dry_run: bool) -> None:
+    """Remove orphaned content store objects (pointer backend only)."""
+    from xorq.catalog.backend import GitPointerBackend  # noqa: PLC0415
+
+    with click_context_catalog(ctx):
+        catalog = ctx.obj.make_catalog(init=False)
+        if not isinstance(catalog.backend, GitPointerBackend):
+            raise click.ClickException(
+                "gc is only supported for pointer-backend catalogs"
+            )
+        orphans = catalog.backend.gc_content_store(dry_run=dry_run)
+        if not orphans:
+            click.echo("No orphaned content store objects found.")
+        else:
+            action = "Would delete" if dry_run else "Deleted"
+            for key in orphans:
+                click.echo(f"  {action}: {key}")
+            click.echo(
+                f"\n{len(orphans)} orphan(s) {'found' if dry_run else 'deleted'}."
+            )
+
+
+@cli.command()
 @json_option
 @click.pass_context
-def log(ctx, as_json):
+def log(ctx: click.Context, as_json: bool) -> None:
     """Show the catalog's history as structured operations.
 
     These are the same operations `xorq catalog replay` consumes when
@@ -908,6 +980,7 @@ def log(ctx, as_json):
 @click.argument("target_path", type=click.Path(file_okay=False))
 @env_options
 @gcs_option
+@content_store_option
 @click.option(
     "--remote-url",
     default=None,
@@ -935,6 +1008,7 @@ def replay(
     env_file,
     env_prefix,
     gcs,
+    content_store_type,
     remote_url,
     preserve_commits,
     force,
@@ -974,7 +1048,11 @@ def replay(
             replayer.print_plan()
             return
         annex = _resolve_annex_option(env_file, env_prefix, gcs)
-        target = Catalog.from_repo_path(target_path, annex=annex)
+        content_store_config = _resolve_content_store_option(content_store_type, gcs)
+        _check_backend_exclusive_cli(content_store_config, annex)
+        target = Catalog.from_repo_path(
+            target_path, annex=annex, content_store_config=content_store_config
+        )
         replayer.replay(target, preserve_commits=preserve_commits)
         click.echo(f"Replayed {len(replayer.ops)} operations into {target_path}")
         if remote_url:

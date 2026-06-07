@@ -112,6 +112,7 @@ CATALOG_GROUPS = (
             "set-remote",
             "embed-readonly",
             "check",
+            "gc",
             "log",
             "replay",
         ),
