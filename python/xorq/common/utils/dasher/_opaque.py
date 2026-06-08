@@ -228,14 +228,12 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
                 _parent_token(node.parent),
             )
         case xops.NamedScalarParameter():
-            # Replace with a literal of the same dtype so SQL compilation
-            # works without a translation rule for NamedScalarParameter, and
-            # use a content-stable name so two builds with the same param
-            # produce identical placeholders.
-            anchor = _stable_opaque_name(
-                "param", node.label, str(node.dtype), str(node.default)
-            )
-            return api.literal(value=None, type=node.dtype).name(anchor).op()
+            # Replace with a typed NULL so SQL compilation works without a
+            # translation rule for NamedScalarParameter.  A bare Literal
+            # (no .name()) is required — Project forbids Alias values.
+            # Parameter identity (label, dtype, default) is folded into the
+            # structural hash separately via _collect_param_anchors.
+            return api.literal(value=None, type=node.dtype).op()
         case _:
             if _kwargs:
                 return node.__recreate__(_kwargs)
@@ -340,6 +338,24 @@ def _normalize_expr_xorq(expr):
     return result
 
 
+def _collect_param_anchors(op: Node) -> tuple[str, ...]:
+    """Return a stable tuple of per-parameter identity strings.
+
+    Walks the op graph for NamedScalarParameter nodes and produces a
+    content-stable anchor for each occurrence (preserving graph order).
+    These anchors are folded into the structural hash so that two
+    same-dtype parameters produce distinct tokens even though their
+    placeholders (typed NULLs) are identical in SQL.
+    """
+    import xorq.expr.operations as xops  # noqa: PLC0415
+    from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+
+    return tuple(
+        _stable_opaque_name("param", p.label, str(p.dtype), str(p.default))
+        for p in walk_nodes(xops.NamedScalarParameter, op)
+    )
+
+
 def _decompose_expr(
     expr: Expr, op: Node
 ) -> tuple[
@@ -348,11 +364,14 @@ def _decompose_expr(
     tuple[DatabaseTable, ...],
     tuple[AggUDF | ScalarUDF, ...],
     tuple[InMemoryTable, ...],
+    tuple[str, ...],
 ]:
     """Split an expression into structural SQL, data leaves, and UDFs.
 
-    Returns ``(sql, reads, dts, udfs, mems)`` where *reads*/*dts*/*mems* are
-    the data-carrying leaf ops and *udfs* are structural code-identity ops.
+    Returns ``(sql, reads, dts, udfs, mems, param_anchors)`` where
+    *reads*/*dts*/*mems* are the data-carrying leaf ops, *udfs* are
+    structural code-identity ops, and *param_anchors* are stable identity
+    strings for each NamedScalarParameter in graph order.
     """
     from xorq.common.utils.graph_utils import replace_nodes, walk_nodes  # noqa: PLC0415
     from xorq.expr.api import get_compiler, to_sql  # noqa: PLC0415
@@ -364,6 +383,8 @@ def _decompose_expr(
     from xorq.vendor.ibis.expr.operations.udf import AggUDF, ScalarUDF  # noqa: PLC0415
 
     compiler = get_compiler(expr)
+    # Collect param anchors *before* replacement erases the identity.
+    param_anchors = _collect_param_anchors(op)
     # Use replace_nodes (not op.replace) so the opaque-placeholder rewrite
     # descends into Any-typed sub-expressions (RemoteTable.remote_expr,
     # CachedNode.parent, FlightExpr/UDXF.input_expr,
@@ -382,7 +403,7 @@ def _decompose_expr(
     )
     udfs = tuple(walk_nodes((AggUDF, ScalarUDF), op))
     mems = tuple(walk_nodes(InMemoryTable, op))
-    return sql, reads, dts, udfs, mems
+    return sql, reads, dts, udfs, mems, param_anchors
 
 
 def _hash_expr_components(expr: Expr, op: Node) -> tuple[str, list[SlotDict]]:
@@ -390,10 +411,13 @@ def _hash_expr_components(expr: Expr, op: Node) -> tuple[str, list[SlotDict]]:
 
     from xorq.common.utils.dasher import HASHER, _current_hasher  # noqa: PLC0415
 
-    sql, reads, dts, udfs, mems = _decompose_expr(expr, op)
+    sql, reads, dts, udfs, mems, param_anchors = _decompose_expr(expr, op)
     hasher = _current_hasher.get() or HASHER
 
-    structural_hash = hasher.tokenize("ibis.Expr.structural", sql, udfs)
+    hash_args = ("ibis.Expr.structural", sql, udfs)
+    if param_anchors:
+        hash_args += (param_anchors,)
+    structural_hash = hasher.tokenize(*hash_args)
 
     def _read_name(r):
         read_kwargs = dict(r.read_kwargs)
