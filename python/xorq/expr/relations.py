@@ -547,6 +547,50 @@ class Read(ops.DatabaseTable):
         )
 
 
+def count_remote_table_readers(expr):
+    """Count how many times each ``RemoteTable`` is physically scanned.
+
+    The scan count is not visible in the expression graph: a single graph
+    reference can compile to several physical table scans. The asof-join with
+    tolerance lowering, for one, scans an input twice (xorq #983). Each
+    ``RemoteTable`` is rewritten to a placeholder table under a freshly
+    generated, unique name, the placeholder expression is compiled to SQL, and
+    that name's occurrences are counted — giving the exact per-table scan count
+    whatever lowering the backend compiler applies. The fresh name (rather than
+    the possibly short or shared user-supplied one) keeps the substring count
+    unambiguous.
+
+    The counts become each ``StreamCache``'s ``max_readers``, bounding memory:
+    batches are evicted once all readers advance past them. Each count is
+    floored at 1 — a bare ``RemoteTable`` is still scanned once, and
+    ``max_readers=0`` would forbid the reader that is in fact created.
+
+    Returns an empty mapping when the SQL cannot be produced (e.g. a non-SQL
+    backend); the caller then builds an unbounded cache — safe, but without
+    eviction.
+    """
+    op = expr.op()
+    sentinels = {}
+
+    def replacer(node, kwargs):
+        if isinstance(node, RemoteTable):
+            name = gen_name()
+            sentinels[node] = name
+            return ops.DatabaseTable(name=name, schema=node.schema, source=node.source)
+        if kwargs:
+            node = node.__recreate__(kwargs)
+        return node
+
+    placeholder = op.replace(replacer).to_expr()
+    if not sentinels:
+        return {}
+    try:
+        sql = str(ibis.to_sql(placeholder))
+    except Exception:
+        return {}
+    return {node: max(1, sql.count(name)) for node, name in sentinels.items()}
+
+
 @tracer.start_as_current_span("register_and_transform_remote_tables")
 def register_and_transform_remote_tables(
     expr: Expr, **kwargs: Any
@@ -555,6 +599,7 @@ def register_and_transform_remote_tables(
     caches = []
 
     op = expr.op()
+    reader_counts = count_remote_table_readers(expr)
 
     def replacer(node, kwargs):
         if isinstance(node, RemoteTable):
@@ -563,7 +608,8 @@ def register_and_transform_remote_tables(
             cache = StreamCache(
                 pa.RecordBatchReader.from_batches(
                     schema, remote_expr.to_pyarrow_batches()
-                )
+                ),
+                max_readers=reader_counts.get(node),
             )
             caches.append(cache)
             table_name = gen_name()
