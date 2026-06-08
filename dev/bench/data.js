@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780924896151,
+  "lastUpdate": 1780924962290,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -16833,6 +16833,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.005727910162365927",
             "extra": "mean: 30.53840111763694 msec\nrounds: 34"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cfd828e0de34adc03857269cd84f4ea42e3c589c",
+          "message": "build: enable DTZ ruff rules for timezone safety (#2043)\n\n## Summary\n- Enable `DTZ` rules to catch naive datetime usage (`datetime.now()`\nwithout `tz=`, `datetime.utcnow()`, etc.)\n- Temporarily ignore 5 DTZ sub-rules with 40 existing violations so CI\nstays green; new datetime code with other DTZ patterns is caught\nimmediately\n- `PLW1514` (unspecified-encoding) deferred as a TODO — it requires ruff\npreview mode, which isn't practical to enable project-wide (~17k\nadditional violations)\n\n## Existing violations (suppressed via `ignore`)\n| Rule | Description | Count |\n|------|-------------|-------|\n| DTZ001 | `datetime()` without `tzinfo` | 22 |\n| DTZ005 | `datetime.now()` without `tz=` | 10 |\n| DTZ011 | `date.today()` | 4 |\n| DTZ006 | `datetime.fromtimestamp()` without `tz=` | 3 |\n| DTZ002 | `datetime.today()` | 1 |\n\n## Test plan\n- [ ] CI passes with new rules enabled\n- [ ] Follow-up PRs to fix existing DTZ violations and remove ignores\n- [ ] PLW1514 to be added when it graduates from ruff preview\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-06-08T15:18:59+02:00",
+          "tree_id": "fa865c86f512561305f81cd860f7db360615d2c8",
+          "url": "https://github.com/xorq-labs/xorq/commit/cfd828e0de34adc03857269cd84f4ea42e3c589c"
+        },
+        "date": 1780924959309,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.865603665557273,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005456155862650238",
+            "extra": "mean: 101.362271777772 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.2213528163224345,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07053109352612327",
+            "extra": "mean: 450.17612360001067 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.5735210826310434,
+            "unit": "iter/sec",
+            "range": "stddev: 0.27413394221092424",
+            "extra": "mean: 1.7436150653999902 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.437059675530471,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07121564738358283",
+            "extra": "mean: 410.33053480002764 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.258195416724206,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07330541108144487",
+            "extra": "mean: 442.8314718000024 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.2719756154127415,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07039634571591569",
+            "extra": "mean: 440.1455690000148 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 171.63219258112915,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006472342480624031",
+            "extra": "mean: 5.826412778169853 msec\nrounds: 284"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.150523822514286,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10009425309139999",
+            "extra": "mean: 240.93344424998975 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 23.542411728666654,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016701465030718593",
+            "extra": "mean: 42.47653178125077 msec\nrounds: 32"
           }
         ]
       }
