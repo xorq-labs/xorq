@@ -1,6 +1,8 @@
 ---
-title: 'Caching classes'
-description: "Strategy/storage matrix, constructor arguments, and backend invalidation signals for the Xorq cache classes"
+title: 'Cache API overview'
+description: "Strategy/storage matrix, how to build a cache, and backend invalidation signals for the Xorq cache classes"
+execute:
+  eval: true
 ---
 
 The classes exported from `xorq.caching` are named combinations of a **strategy**
@@ -24,34 +26,47 @@ For the conceptual treatment of those two axes, see
 - `SnapshotStrategy` keys on expression structure only (table name, path,
   schema), so the first cached result is served until you delete it.
 
-## Constructor arguments
+## Building a cache
 
-Build any cache with `from_kwargs(...)`. The keyword arguments are forwarded to
-the storage:
+Build any cache with `from_kwargs(...)` and attach it with `.cache(...)`. The
+keyword arguments are forwarded to the storage; the accepted arguments and their
+defaults are documented on each class's reference page (linked in the matrix
+above). The example below caches a small real dataset into the embedded
+(local DataFusion) backend with `SourceCache`, then to a local Parquet file with
+`ParquetCache`:
 
-| Cache class | `from_kwargs` arguments | Default |
-|---|---|---|
-| `SourceCache`, `SourceSnapshotCache` | `source` | Xorq default backend |
-| `ParquetCache`, `ParquetSnapshotCache` | `source` | Xorq default backend |
-| | `relative_path` | `cache.default_relative_path` (`parquet`) |
-| | `base_path` | `None` → `XORQ_CACHE_DIR` |
-| `ParquetTTLSnapshotCache` | `source`, `relative_path`, `base_path` | same as `ParquetCache` |
-| | `ttl` (`datetime.timedelta`) | 1 day |
-| `GCSCache` | `bucket_name`, `source` | required |
+```{python}
+import xorq.api as xo
+from xorq.caching import SourceCache, ParquetCache
+
+con = xo.connect()  # embedded DataFusion backend, runs locally
+penguins = xo.examples.penguins.fetch(backend=con)
+expr = penguins.group_by("species").agg(n=xo._.count())
+
+# Cache as a table in the source backend
+expr.cache(SourceCache.from_kwargs(source=con)).execute()
+```
+
+```{python}
+# Cache to a local Parquet file (default ~/.cache/xorq/parquet/)
+expr.cache(ParquetCache.from_kwargs(source=con)).execute()
+```
+
+`GCSCache` follows the same shape but writes to a Google Cloud Storage bucket,
+so it needs a bucket name and isn't runnable locally:
 
 ```python
-from xorq.caching import SourceCache, ParquetCache, GCSCache
+from xorq.caching import GCSCache
 
-SourceCache.from_kwargs(source=con)
-ParquetCache.from_kwargs(source=con, base_path=Path("/some/dir"))
-GCSCache.from_kwargs(bucket_name="my-bucket", source=con)
+# Requires a GCS bucket reachable via gcsfs
+expr.cache(GCSCache.from_kwargs(bucket_name="my-bucket", source=con))
 ```
 
 `SourceStorage` checks existence with `key in source.tables` and writes the
 result as a table named after the key. `ParquetStorage` checks whether the
 `.parquet` file exists, writing to a `.tmp` file first and atomically renaming
-on success. `ParquetTTLStorage` additionally treats a file older than `ttl` as
-expired.
+on success. `ParquetTTLStorage` additionally treats a file older than its `ttl`
+as expired.
 
 ## Backend invalidation signals
 

@@ -9,8 +9,8 @@ can live inside a database backend or on disk. This page explains the model
 behind those choices. For step-by-step usage see the
 [Explore caching](../../getting_started/explore_caching.qmd) tutorial and the
 [Cache results by backend](../../how_to/cache_by_backend.qmd) how-to; for the
-full class matrix and constructor arguments see
-[Caching classes](../../api_reference/caching_classes.qmd).
+full class matrix and how to build each cache see
+[Cache API overview](../../api_reference/cache_api_overview.qmd).
 
 ## Lazy caching
 
@@ -67,7 +67,7 @@ hashing the expression. The two strategies differ in what goes into that hash:
   an expensive backfill.
 
 The exact change signal per backend (and its caveats) is tabulated in
-[Caching classes](../../api_reference/caching_classes.qmd#backend-invalidation-signals).
+[Cache API overview](../../api_reference/cache_api_overview.qmd#backend-invalidation-signals).
 
 ### Storage: where the data lives
 
@@ -113,5 +113,5 @@ on-disk Parquet caches.
 ### Where to go next
 - [Explore caching](../../getting_started/explore_caching.qmd)—a hands-on walkthrough of hits, misses, and invalidation.
 - [Cache results by backend](../../how_to/cache_by_backend.qmd)—pick the right cache class for your source and target.
-- [Caching classes](../../api_reference/caching_classes.qmd)—the full class matrix, constructor arguments, and per-backend invalidation signals.
+- [Cache API overview](../../api_reference/cache_api_overview.qmd)—the full class matrix, how to build each cache, and per-backend invalidation signals.
 :::

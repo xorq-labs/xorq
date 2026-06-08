@@ -127,5 +127,5 @@ If your backend's signal is too coarse for your use case, a Snapshot variant plu
 ## See also
 
 - [Caching](../concepts/understanding_xorq/intelligent_caching_system.qmd): how cache keys are computed and when caches invalidate
-- [Caching classes](../api_reference/caching_classes.qmd): the full class matrix, constructor arguments, and the `GCSCache` and TTL variants not covered here
+- [Cache API overview](../api_reference/cache_api_overview.qmd): the full class matrix, how to build each cache, and the `GCSCache` and TTL variants not covered here
 - [Explore caching](../getting_started/explore_caching.qmd): a hands-on walkthrough of hits, misses, and invalidation

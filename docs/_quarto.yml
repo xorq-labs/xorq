@@ -205,7 +205,7 @@ website:
             - id: caching-section
               section: "Caching"
               contents:
-                - api_reference/caching_classes.qmd
+                - api_reference/cache_api_overview.qmd
                 - reference/ParquetCache.qmd
                 - reference/ParquetSnapshotCache.qmd
                 - reference/SourceCache.qmd
