@@ -57,6 +57,7 @@ Set these environment variables, then connect with [`connect_env`](../reference/
 - `POSTGRES_PASSWORD`
 
 ```{python}
+#| eval: false
 import xorq.api as xo
 
 pg_con = xo.postgres.connect_env()
@@ -136,16 +137,24 @@ table = pandas_con.create_table("my_table", df)
 
 ### 2. Verify the connection
 
+Whichever backend you connected to, give its variable a common name so the rest of this guide can refer to it. The examples below use the embedded backend, since it needs no setup; swap in `duck_con`, `pg_con`, or any other connection you created.
+
+```{python}
+import xorq.api as xo
+
+con = xo.connect()
+```
+
 List the tables the backend can see. An empty list is fine: the connection works, there just aren't any tables yet.
 
 ```{python}
-print(duck_con.list_tables())
+print(con.list_tables())
 ```
 
 For a deeper check, run a small expression end to end:
 
 ```{python}
-penguins = xo.examples.penguins.fetch(backend=duck_con)
+penguins = xo.examples.penguins.fetch(backend=con)
 print(penguins.count().execute())
 ```
 
