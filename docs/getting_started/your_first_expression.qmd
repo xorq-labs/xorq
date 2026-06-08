@@ -150,9 +150,9 @@ print(result)
 
 Now that you've written your first expression, explore these concepts:
 
-- [Understand deferred execution](../tutorials/core_tutorials/understand_deferred_execution.qmd) explains when computation happens versus when expressions are built
-- [Explore caching](../tutorials/core_tutorials/explore_caching.qmd) shows you how to speed up repeated queries
-- [Switch backends](../tutorials/core_tutorials/switch_backends.qmd) teaches you how to run the same expression on different engines
+- [Understand deferred execution](understand_deferred_execution.qmd) explains when computation happens versus when expressions are built
+- [Explore caching](explore_caching.qmd) shows you how to speed up repeated queries
+- [Switch backends](switch_backends.qmd) teaches you how to run the same expression on different engines
 
 
 

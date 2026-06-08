@@ -1,0 +1,74 @@
+---
+title: 'Caching classes'
+description: "Strategy/storage matrix, constructor arguments, and backend invalidation signals for the xorq.caching classes"
+---
+
+The classes exported from `xorq.caching` are named combinations of a **strategy**
+(how the cache key is computed) and a **storage** (where the cached data lives).
+For the conceptual treatment of those two axes, see
+[Caching](../concepts/understanding_xorq/intelligent_caching_system.qmd).
+
+## Class matrix
+
+| Cache class | Strategy | Storage |
+|---|---|---|
+| [`SourceCache`](../reference/SourceCache.qmd) | `ModificationTimeStrategy` | `SourceStorage` |
+| [`SourceSnapshotCache`](../reference/SourceSnapshotCache.qmd) | `SnapshotStrategy` | `SourceStorage` |
+| [`ParquetCache`](../reference/ParquetCache.qmd) | `ModificationTimeStrategy` | `ParquetStorage` |
+| [`ParquetSnapshotCache`](../reference/ParquetSnapshotCache.qmd) | `SnapshotStrategy` | `ParquetStorage` |
+| `ParquetTTLSnapshotCache` | `SnapshotStrategy` | `ParquetTTLStorage` |
+| `GCSCache` | `ModificationTimeStrategy` | `GCStorage` |
+
+- `ModificationTimeStrategy` folds backend-specific change metadata into the key,
+  so the cache invalidates when the source data changes.
+- `SnapshotStrategy` keys on expression structure only (table name, path,
+  schema), so the first cached result is served until you delete it.
+
+## Constructor arguments
+
+Build any cache with `from_kwargs(...)`. The keyword arguments are forwarded to
+the storage:
+
+| Cache class | `from_kwargs` arguments | Default |
+|---|---|---|
+| `SourceCache`, `SourceSnapshotCache` | `source` | xorq default backend |
+| `ParquetCache`, `ParquetSnapshotCache` | `source` | xorq default backend |
+| | `relative_path` | `cache.default_relative_path` (`parquet`) |
+| | `base_path` | `None` → `XORQ_CACHE_DIR` |
+| `ParquetTTLSnapshotCache` | `source`, `relative_path`, `base_path` | as above |
+| | `ttl` (`datetime.timedelta`) | 1 day |
+| `GCSCache` | `bucket_name`, `source` | required |
+
+```python
+from xorq.caching import SourceCache, ParquetCache, GCSCache
+
+SourceCache.from_kwargs(source=con)
+ParquetCache.from_kwargs(source=con, base_path=Path("/some/dir"))
+GCSCache.from_kwargs(bucket_name="my-bucket", source=con)
+```
+
+`SourceStorage` checks existence with `key in source.tables` and writes the
+result as a table named after the key. `ParquetStorage` checks whether the
+`.parquet` file exists, writing to a `.tmp` file first and atomically renaming
+on success. `ParquetTTLStorage` additionally treats a file older than `ttl` as
+expired.
+
+## Backend invalidation signals
+
+`ModificationTimeStrategy` reads a per-backend change signal into the key hash:
+
+| Backend | Invalidation signal | ADBC ingestion | Notes |
+|---|---|---|---|
+| Postgres | `reltuples` from `pg_class` | Yes (`PgADBC`) | Estimate; may lag writes until `ANALYZE` runs |
+| Snowflake | `LAST_ALTERED` timestamp | Yes (`SnowflakeADBC`) | Updates on any DDL/DML |
+| BigQuery | `last_modified_time` from `__TABLES__` | — | |
+| DuckDB | File metadata / data bytes | No (direct register) | In-memory hashes data |
+| DataFusion / Xorq | Data bytes (in-memory) | No (direct register) | |
+| SQLite | `COUNT(*)` and `MAX(id)` (on-disk) / data bytes (in-memory) | Yes (`SQLiteADBC`) | On-disk requires an `id` column |
+| PyIceberg | Snapshot IDs | No (uses `create_table`) | Tied to Iceberg's snapshot model |
+| Deferred file reads (parquet, CSV) | inode mtime, size, number | — | |
+| Deferred URL reads (S3/GCS) | `last_modified`, `size`, `e_tag` | — | |
+| Deferred URL reads (HTTP) | `Last-Modified`, `Content-Length` | — | |
+
+For a frozen result regardless of source changes, use a snapshot variant
+(`SourceSnapshotCache`, `ParquetSnapshotCache`).

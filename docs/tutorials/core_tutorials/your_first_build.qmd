@@ -435,4 +435,4 @@ The key insight? Builds turn expressions into versioned, portable artifacts. Sam
 Now you understand builds. Continue with domain-specific tutorials:
 
 - [Train your first model](../ml_tutorials/train_your_first_model.qmd) shows you how to build ML pipelines with Xorq
-- [Understand deferred execution](../core_tutorials/understand_deferred_execution.qmd) explains how Xorq builds computation graphs
+- [Understand deferred execution](../../getting_started/understand_deferred_execution.qmd) explains how Xorq builds computation graphs
