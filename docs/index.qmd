@@ -10,7 +10,7 @@ listing:
     contents:
       - "getting_started/introduction.qmd"
       - "getting_started/quickstart.qmd"
-      - "getting_started/installation.qmd"
+      - "how_to/install_xorq.qmd"
       - "getting_started/understand_deferred_execution.qmd"
       - "getting_started/explore_caching.qmd"
       - "getting_started/switch_backends.qmd"

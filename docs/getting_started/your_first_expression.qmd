@@ -19,7 +19,7 @@ The entire process takes about two minutes.
 
 ::: {.callout-note}
 ### Prerequisites
-Before starting, make sure you have Xorq installed. See [Installation](installation.qmd) if you need help.
+Before starting, make sure you have Xorq installed. See [Install Xorq](../how_to/install_xorq.qmd) if you need help.
 :::
 
 :::{.callout-tip}

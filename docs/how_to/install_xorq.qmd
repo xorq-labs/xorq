@@ -1,0 +1,124 @@
+---
+title: 'Install Xorq'
+description: "Install Xorq, verify the setup works, and add optional backend extras"
+execute:
+  eval: true
+---
+
+This guide shows you how to install Xorq and confirm the installation works. It also covers the optional extras that add support for specific backends.
+
+If you want to connect to a database after installing, see [Connect to a backend](connect_to_backends.qmd).
+
+## Prerequisites
+
+- Python 3.10 or higher. Check with `python --version`; if you're below 3.10, grab a newer release from the [Python downloads page](https://www.python.org/downloads/).
+- `pip` or [`uv`](https://docs.astral.sh/uv/).
+
+## Steps
+
+### 1. Install the package
+
+::: {.panel-tabset}
+
+#### pip
+
+The base package includes the core library, an embedded DataFusion backend, and Pandas support.
+
+```bash
+pip install xorq
+```
+
+#### uv
+
+For a standalone install:
+
+```bash
+uv pip install xorq
+```
+
+For a project with locked dependencies:
+
+```bash
+uv init my-xorq-project
+cd my-xorq-project
+uv add xorq
+```
+
+#### From source
+
+Install the latest development version from GitHub:
+
+```bash
+pip install git+https://github.com/xorq-labs/xorq.git
+```
+
+For local development, clone and install in editable mode:
+
+```bash
+git clone https://github.com/xorq-labs/xorq.git
+cd xorq
+pip install -e ".[examples]"
+```
+
+#### nix
+
+```bash
+nix run github:xorq-labs/xorq
+```
+
+:::
+
+### 2. Verify the installation
+
+Run a query against the embedded backend. It ships with the base package, so no extra setup is needed.
+
+```{python}
+import xorq.api as xo
+
+con = xo.connect()
+iris = xo.examples.iris.fetch(backend=con)
+
+result = (
+    iris.filter(xo._.sepal_length > 5)
+    .group_by("species")
+    .agg(total_width=xo._.sepal_width.sum())
+    .execute()
+)
+print(result)
+```
+
+If you see sepal widths aggregated by species, the installation works.
+
+### 3. Install optional extras
+
+Each extra adds support for one backend or feature set. Install only what you need.
+
+| Extra | Command | Adds |
+|---|---|---|
+| `examples` | `pip install "xorq[examples]"` | Example datasets plus scikit-learn, XGBoost, and the OpenAI SDK |
+| `duckdb` | `pip install "xorq[duckdb]"` | DuckDB backend |
+| `postgres` | `pip install "xorq[postgres]"` | PostgreSQL backend |
+| `snowflake` | `pip install "xorq[snowflake]"` | Snowflake backend |
+| `datafusion` | `pip install "xorq[datafusion]"` | Standalone DataFusion backend (an embedded one is already included) |
+| `sqlite` | `pip install "xorq[sqlite]"` | SQLite backend |
+| `pyiceberg` | `pip install "xorq[pyiceberg]"` | Apache Iceberg tables |
+| Trino | `pip install trino` | Trino client (separate package, not an extra) |
+
+To install everything at once:
+
+```bash
+pip install "xorq[examples,duckdb,snowflake,postgres,pyiceberg,datafusion,sqlite]"
+```
+
+## Troubleshooting
+
+**`ModuleNotFoundError: No module named 'xorq'`**: the install landed in a different environment than the one running your code. Compare `which python` against the environment you installed into, or run `pip show xorq` to see where it went.
+
+**`xo.duckdb.connect()` (or another backend) raises an import error**: the backend extra isn't installed. Install it from the extras table.
+
+**Build errors during `pip install`**: your Python is probably older than 3.10. Check `python --version` and upgrade if needed.
+
+## See also
+
+- [Connect to a backend](connect_to_backends.qmd)
+- [Quickstart](../getting_started/quickstart.qmd)

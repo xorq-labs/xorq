@@ -1,0 +1,182 @@
+---
+title: 'Connect to a backend'
+description: "Create a connection to the embedded backend, DuckDB, PostgreSQL, Snowflake, Trino, or SQLite"
+execute:
+  eval: true
+---
+
+This guide shows you how to create a connection for each backend Xorq supports. Every connection object exposes the same expression API, so the code you write after connecting doesn't change between engines.
+
+For picking which backend a pipeline step should run on, see [Route a step to a specific backend](switch_backends.qmd).
+
+## Prerequisites
+
+- Xorq installed ([Install Xorq](install_xorq.qmd))
+- The extra for your backend, for example `pip install "xorq[postgres]"`
+- Credentials, for remote backends like PostgreSQL or Snowflake
+
+## Steps
+
+### 1. Create the connection
+
+::: {.panel-tabset}
+
+#### Embedded
+
+The default backend. A modified DataFusion engine, included in the base package; it needs no setup.
+
+```{python}
+import xorq.api as xo
+
+con = xo.connect()
+print(f"Connected to: {con}")
+```
+
+#### DuckDB
+
+In-memory by default:
+
+```{python}
+import xorq.api as xo
+
+duck_con = xo.duckdb.connect()
+```
+
+For a database that survives between sessions, pass a path:
+
+```python
+duck_con = xo.duckdb.connect(database="my_database.duckdb")
+```
+
+#### PostgreSQL
+
+Set these environment variables, then connect with [`connect_env`](../reference/connect.qmd):
+
+- `POSTGRES_HOST`
+- `POSTGRES_PORT`
+- `POSTGRES_DATABASE`
+- `POSTGRES_USER`
+- `POSTGRES_PASSWORD`
+
+```{python}
+import xorq.api as xo
+
+pg_con = xo.postgres.connect_env()
+```
+
+You can also pass credentials directly:
+
+```python
+pg_con = xo.postgres.connect(
+    host="localhost",
+    port=5432,
+    database="your_database",
+    user="your_user",
+    password="your_password",
+)
+```
+
+:::{.callout-warning}
+Don't hardcode credentials in production code. Use environment variables or the [Profiles API](../api_reference/backends/profiles_api.qmd), which stores environment-variable references instead of values.
+:::
+
+#### Snowflake
+
+```python
+import xorq.api as xo
+
+snow_con = xo.snowflake.connect(
+    user="your_user",
+    password="your_password",
+    account="your_account",
+    role="your_role",
+    warehouse="your_warehouse",
+    database="your_database",
+    schema="your_schema",
+)
+```
+
+#### Trino
+
+```python
+import xorq.api as xo
+
+trino_con = xo.trino.connect(
+    host="localhost",
+    port=8080,
+    user="your_user",
+    database="your_catalog",
+    schema="your_schema",
+)
+```
+
+#### SQLite
+
+```{python}
+import tempfile
+from pathlib import Path
+
+import xorq.api as xo
+
+db_path = Path(tempfile.mkdtemp()) / "my_data.db"
+sqlite_con = xo.sqlite.connect(database=str(db_path))
+```
+
+`connect` creates the database file if it doesn't exist. Point `database` at any path you like; this example uses a temporary one.
+
+#### Pandas
+
+Useful for small local datasets and tests:
+
+```{python}
+import pandas as pd
+import xorq.api as xo
+
+pandas_con = xo.pandas.connect()
+
+df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+table = pandas_con.create_table("my_table", df)
+```
+
+:::
+
+### 2. Verify the connection
+
+Whichever backend you connected to, give its variable a common name so the rest of this guide can refer to it. The examples below use the embedded backend, since it needs no setup; swap in `duck_con`, `pg_con`, or any other connection you created.
+
+```{python}
+import xorq.api as xo
+
+con = xo.connect()
+```
+
+List the tables the backend can see. An empty list is fine: the connection works, there just aren't any tables yet.
+
+```{python}
+print(con.list_tables())
+```
+
+For a deeper check, run a small expression end to end:
+
+```{python}
+penguins = xo.examples.penguins.fetch(backend=con)
+print(penguins.count().execute())
+```
+
+### 3. Reuse the connection across your pipeline
+
+A connection is the entry point for everything that follows: reading tables, registering data, and receiving data from other backends. Create it once and pass it around.
+
+```{python}
+expr = penguins.filter(xo._.body_mass_g > 4000)
+print(expr.ls.backends)
+```
+
+The [`.ls` accessor](../reference/Table.qmd) tells you which backends an expression touches, which becomes useful once a pipeline spans more than one engine.
+
+## See also
+
+- [Supported backends](../api_reference/backends/supported_backends.qmd)
+- [Environment variables](../api_reference/backends/env_variables.qmd)
+- [Profiles API](../api_reference/backends/profiles_api.qmd)
+- [Route a step to a specific backend](switch_backends.qmd)
