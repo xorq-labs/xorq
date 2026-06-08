@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780668095587,
+  "lastUpdate": 1780912797207,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -16572,6 +16572,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.007248674353228235",
             "extra": "mean: 32.776914333331234 msec\nrounds: 33"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "defbd0309afc8d7a6f1a07765193a0fb74004aa6",
+          "message": "docs(how-to): add the 5 missing how-to guides (#2026) (#2044)\n\nAdd task-oriented guides for install, backend connections, cache class\nselection, backend routing with into_backend(), and catalog composition.\nMove installation out of getting_started (the connect section becomes\nits own guide), and add a How-to section to the navbar and sidebar.\n\nAPI corrections vs the issue text, verified against the code: print_tree\nwas removed in #1595, XorqCatalog does not exist (the class is Catalog),\nand catalogs are initialized with `xorq catalog init`.\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-08T11:56:08+02:00",
+          "tree_id": "f9f08ebc6245353bc680beade9acd2a8c5af9484",
+          "url": "https://github.com/xorq-labs/xorq/commit/defbd0309afc8d7a6f1a07765193a0fb74004aa6"
+        },
+        "date": 1780912794615,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.177699194164589,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017324172066898607",
+            "extra": "mean: 108.95977072726737 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.66545418070216,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03635657221386025",
+            "extra": "mean: 375.1705834000006 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.5904780858433626,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1363277656918667",
+            "extra": "mean: 1.6935429510000006 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.864405363799975,
+            "unit": "iter/sec",
+            "range": "stddev: 0.023910953033966446",
+            "extra": "mean: 349.1125986000043 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.749916691273813,
+            "unit": "iter/sec",
+            "range": "stddev: 0.044903988604720065",
+            "extra": "mean: 363.6473800000033 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.6030132416731244,
+            "unit": "iter/sec",
+            "range": "stddev: 0.052125069334590254",
+            "extra": "mean: 384.17015479999463 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 160.00091418756648,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006793732583490392",
+            "extra": "mean: 6.249964289752222 msec\nrounds: 283"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.76596481726035,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08515862851059108",
+            "extra": "mean: 173.431512625001 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 31.561416994631326,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008297554722890196",
+            "extra": "mean: 31.684255500001868 msec\nrounds: 32"
           }
         ]
       }
