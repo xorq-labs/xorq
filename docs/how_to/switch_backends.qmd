@@ -82,7 +82,7 @@ print(expr.ls.is_multiengine)
 If `is_multiengine` is `True` when you expected a single engine (or the other way around), a step landed somewhere you didn't intend.
 
 :::{.callout-tip}
-Cache the moved expression if downstream steps execute repeatedly: `.into_backend(con, "name").cache(...)` skips both the source read and the transfer on later runs. See [Cache results by backend](cache_by_backend.qmd).
+Every `.execute()` re-reads the source and moves the data across again. If you run the pipeline more than once, add `.cache()` right after `.into_backend(...)` so the move only happens on the first run and later runs read the cached copy. See [Cache results by backend](cache_by_backend.qmd).
 :::
 
 ## See also
