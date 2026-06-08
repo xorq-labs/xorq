@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780924962290,
+  "lastUpdate": 1780925062542,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -16920,6 +16920,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.016701465030718593",
             "extra": "mean: 42.47653178125077 msec\nrounds: 32"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a67273e032e0b7a3bdce116e7590d6ff04ee54ed",
+          "message": "feat(catalog): add __main__ guard to catalog CLI (#2047)\n\n## Summary\n- Add `if __name__ == \"__main__\":` block to `python/xorq/catalog/cli.py`\nso the catalog CLI can be invoked via `python -m xorq.catalog.cli`\n\n## Test plan\n- [x] Run `python -m xorq.catalog.cli --help` and verify it prints usage\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-06-08T15:20:14+02:00",
+          "tree_id": "cc3f90ee9032322438dee6a09bf67e84a5ee2bd5",
+          "url": "https://github.com/xorq-labs/xorq/commit/a67273e032e0b7a3bdce116e7590d6ff04ee54ed"
+        },
+        "date": 1780925059549,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.597095629902936,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005877157823146707",
+            "extra": "mean: 104.19819063635961 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.239077820931925,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08227004766022457",
+            "extra": "mean: 446.61243600000944 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.5610514421176426,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2734117250007611",
+            "extra": "mean: 1.7823677562000058 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.355453012719723,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0644479244310756",
+            "extra": "mean: 424.546783400001 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.202497913672785,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0814273366645405",
+            "extra": "mean: 454.02994200001103 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.1596319551076277,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04515952663032497",
+            "extra": "mean: 463.04186119998576 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 190.06179941058102,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0072807397560347405",
+            "extra": "mean: 5.26144655633692 msec\nrounds: 284"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.766855013151865,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09952234656666174",
+            "extra": "mean: 209.78192062501932 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 22.743992613270173,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03290754972796092",
+            "extra": "mean: 43.96765409678078 msec\nrounds: 31"
           }
         ]
       }
