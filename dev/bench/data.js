@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780925062542,
+  "lastUpdate": 1780951892903,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -17007,6 +17007,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.03290754972796092",
             "extra": "mean: 43.96765409678078 msec\nrounds: 31"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b92fd3c39d8b44f53e378f34241c5c4f9d2c7dc9",
+          "message": "fix(dasher): drop Alias wrapper on NamedScalarParameter placeholder (#2039)\n\n## Summary\n- `_xorq_opaque_to_placeholder` wrapped the `NamedScalarParameter`\nreplacement literal in `.name(anchor)`, producing an `Alias` node. When\nthe parameter was a bare `Project` column value, `Project.__recreate__`\nrejected it with `SignatureValidationError`.\n- Drop the `.name()` call — the column name comes from the `Project`\ndict key, not the `Alias` — and return a bare `Literal`.\n- Bare `Literal(None, dtype)` placeholders are identical for same-dtype\nparams, which caused token collisions (two distinct params producing the\nsame hash). Fix by collecting stable per-parameter identity anchors from\nthe original op graph before replacement and folding them into the\nstructural hash via `_collect_param_anchors`.\n\nCloses #2037\n\n## Test plan\n- [x] Existing `test_dasher.py` param/opaque tests pass (80/80)\n- [x] Repro from the issue (`tokenize()` on\n`memtable.select(year_months=param(...))`) now succeeds\n- [x] Two same-dtype params in `select` produce distinct tokens\n(`test_two_params_same_dtype_produce_distinct_tokens`)\n- [x] Two same-dtype params in `filter` produce distinct tokens\n(`test_two_params_same_dtype_in_filter_produce_distinct_tokens`)\n- [x] Token output is stable across repeated calls\n- [x] SQL output unchanged for previously-working cases (param in\nfilter, param in coalesce)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-06-08T16:47:45-04:00",
+          "tree_id": "25e9d749e7c00e73a3c6ae2e430b1e857cb3ef10",
+          "url": "https://github.com/xorq-labs/xorq/commit/b92fd3c39d8b44f53e378f34241c5c4f9d2c7dc9"
+        },
+        "date": 1780951889963,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.376476287561524,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01761478874048206",
+            "extra": "mean: 135.56608345453986 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.898344985828892,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010708908755632619",
+            "extra": "mean: 345.0244897999994 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.594743865493169,
+            "unit": "iter/sec",
+            "range": "stddev: 0.22968832030914763",
+            "extra": "mean: 1.6813960731999942 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.284473542443897,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06300990872545609",
+            "extra": "mean: 437.7376150000032 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.2873893741528235,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06298287261023168",
+            "extra": "mean: 437.1796123999957 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.3171580752466325,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06479742710635056",
+            "extra": "mean: 431.5631336000081 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 169.00625448047745,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017157166696252685",
+            "extra": "mean: 5.916940784670864 msec\nrounds: 274"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.408374958196209,
+            "unit": "iter/sec",
+            "range": "stddev: 0.071460307434605",
+            "extra": "mean: 226.84095828572026 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 26.881750157517867,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009184197967627808",
+            "extra": "mean: 37.19995886206596 msec\nrounds: 29"
           }
         ]
       }
