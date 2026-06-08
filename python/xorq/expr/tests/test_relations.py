@@ -1,10 +1,21 @@
+from datetime import datetime, timedelta
+
+import pandas as pd
+import pyarrow as pa
 import pytest
 
 import xorq.api as xo
 import xorq.expr.relations as relations
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.expr.relations import CachedNode, FlightUDXF, HashingTag, Tag, flight_serve
+from xorq.expr.relations import (
+    CachedNode,
+    FlightUDXF,
+    HashingTag,
+    Tag,
+    count_remote_table_readers,
+    flight_serve,
+)
 from xorq.ibis_yaml.enums import ExprKind
 from xorq.vendor.ibis.expr.types.core import ExprMetadata
 
@@ -239,3 +250,77 @@ def test_flight_serve_returns_serve_unbound_result(monkeypatch):
 
     result = flight_serve(xo.memtable({"a": [1]}))
     assert result is expected
+
+
+# -- count_remote_table_readers ----------------------------------------------
+
+
+@pytest.fixture
+def remote_table():
+    src = xo.connect()
+    t = src.register(pa.table({"a": [1, 2, 3], "k": [1, 1, 2]}), "tt")
+    return t.into_backend(xo.connect(), "rt")
+
+
+def _only_count(expr):
+    counts = count_remote_table_readers(expr)
+    assert len(counts) == 1
+    return next(iter(counts.values()))
+
+
+def test_count_bare_remote_table_floored_at_one(remote_table):
+    # one scan, but must never be 0 (max_readers=0 forbids the reader created)
+    assert _only_count(remote_table) == 1
+
+
+def test_count_single_scan(remote_table):
+    expr = remote_table.filter(remote_table.a > 1)
+    assert _only_count(expr) == 1
+
+
+def test_count_many_fields_one_scan(remote_table):
+    # many column refs over one table resolve within a single scan
+    expr = remote_table.select(s=remote_table.a + remote_table.k)
+    assert _only_count(expr) == 1
+
+
+def test_count_self_join_is_two(remote_table):
+    expr = remote_table.join(remote_table.view(), "k")
+    assert _only_count(expr) == 2
+
+
+def test_count_asof_tolerance_double_scan():
+    # the #983 case: tolerance lowering scans the left input twice, right once.
+    # graph-level counting sees one ref each; only the compiled SQL reveals it.
+    ddb = xo.duckdb.connect()
+    sdf = pd.DataFrame(
+        {"site": ["a", "b"], "ts": [datetime(2024, 1, 1), datetime(2024, 1, 2)]}
+    )
+    edf = pd.DataFrame(
+        {
+            "site": ["a", "b"],
+            "ev": ["x", "y"],
+            "ts": [datetime(2024, 1, 1), datetime(2024, 1, 2)],
+        }
+    )
+    left = xo.memtable(sdf).into_backend(ddb)
+    right = xo.memtable(edf).into_backend(ddb)
+    expr = left.asof_join(
+        right, on="ts", predicates="site", tolerance=timedelta(seconds=1)
+    ).drop("ts_right")
+
+    counts = count_remote_table_readers(expr)
+    assert sorted(counts.values()) == [1, 2]
+
+
+def test_count_unbindable_returns_empty(monkeypatch):
+    # SQL failure -> empty mapping -> caller builds unbounded cache (safe)
+    src = xo.connect()
+    t = src.register(pa.table({"a": [1, 2, 3]}), "tt")
+    expr = t.into_backend(xo.connect(), "rt")
+
+    def boom(*a, **k):
+        raise RuntimeError("no sql")
+
+    monkeypatch.setattr(relations.ibis, "to_sql", boom)
+    assert count_remote_table_readers(expr) == {}
