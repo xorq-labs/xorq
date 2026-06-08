@@ -1,6 +1,8 @@
 ---
 title: 'Connect to a backend'
 description: "Create a connection to the embedded backend, DuckDB, PostgreSQL, Snowflake, Trino, or SQLite"
+execute:
+  eval: true
 ---
 
 This guide shows you how to create a connection for each backend Xorq supports. Every connection object exposes the same expression API, so the code you write after connecting doesn't change between engines.
@@ -57,7 +59,6 @@ Set these environment variables, then connect with [`connect_env`](../reference/
 - `POSTGRES_PASSWORD`
 
 ```{python}
-#| eval: false
 import xorq.api as xo
 
 pg_con = xo.postgres.connect_env()
@@ -111,13 +112,17 @@ trino_con = xo.trino.connect(
 
 #### SQLite
 
-```python
+```{python}
+import tempfile
+from pathlib import Path
+
 import xorq.api as xo
 
-sqlite_con = xo.sqlite.connect(database="my_data.db")
+db_path = Path(tempfile.mkdtemp()) / "my_data.db"
+sqlite_con = xo.sqlite.connect(database=str(db_path))
 ```
 
-This creates the file if it doesn't exist.
+`connect` creates the database file if it doesn't exist. Point `database` at any path you like; this example uses a temporary one.
 
 #### Pandas
 

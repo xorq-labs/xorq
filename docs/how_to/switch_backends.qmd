@@ -1,6 +1,8 @@
 ---
 title: 'Route a step to a specific backend'
 description: "Use into_backend() to run each pipeline step on the engine that suits it"
+execute:
+  eval: true
 ---
 
 This guide shows you how to move a pipeline step onto a specific backend with [`into_backend()`](../reference/Table.qmd#xorq.vendor.ibis.expr.types.relations.Table.into_backend). You have a working pipeline; one step would run better elsewhere, like a heavy filter near the data in PostgreSQL or a UDF that needs the embedded engine. One method call reroutes it.

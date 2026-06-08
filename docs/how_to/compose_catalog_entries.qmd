@@ -1,6 +1,8 @@
 ---
 title: 'Compose catalog entries'
 description: "Load an existing catalog entry, build a new pipeline on top, and register the result back"
+execute:
+  eval: true
 ---
 
 This guide shows you how to build on work that's already in a catalog: load an entry someone published, chain a new expression onto it, and register the result as a new entry. The catalog is a git repository, so each `add` becomes one reviewable commit.
@@ -47,6 +49,10 @@ catalog = Catalog.from_repo_path(Path("~/work/my-catalog").expanduser(), init=Fa
 # or, for a catalog created with `xorq catalog init`:
 catalog = Catalog.from_name("my-catalog")
 ```
+
+:::{.callout-note}
+This demo seeds the entry with a `memtable` so the page is self-contained: the data is serialized into the entry and travels with it. Real entries are usually backed by a named table or a deferred file or SQL read, where the entry references the source rather than embedding the rows. The composition steps below work the same either way.
+:::
 
 ### 2. Load the entry you want to build on
 

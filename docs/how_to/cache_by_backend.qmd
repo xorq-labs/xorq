@@ -1,6 +1,8 @@
 ---
 title: 'Cache results by backend'
 description: "Pick the right cache class for your source and target backends"
+execute:
+  eval: true
 ---
 
 This guide shows you how to pick a cache class and attach it to an expression. Xorq ships four cache classes, and the right one depends on two questions: should the cache invalidate when source data changes, and where should the cached result live?
@@ -68,7 +70,7 @@ print(expr.count().execute())
 
 To put the files somewhere else, pass `base_path=Path("/some/dir")` to `from_kwargs`, or set the `XORQ_CACHE_DIR` environment variable.
 
-The `source` backend here only writes the file on a miss and reads it back on a hit; the cache itself lives on disk.
+Note that `penguins` lives in DuckDB while `source` here is the embedded backend. That's deliberate: for `ParquetCache` the `source` backend isn't where the data lives, it's only what writes the Parquet file on a miss and reads it back on a hit. The cache itself lives on disk, so the source can be any backend. (For `SourceCache`, by contrast, the cache *is* a table in the source backend, so the choice matters more.)
 
 ### 4. Freeze results with the Snapshot variants
 
