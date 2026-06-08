@@ -838,9 +838,20 @@ class Catalog:
             )
         if content_store_config is not None:
             from xorq.catalog.content_store import ContentStoreConfig  # noqa: PLC0415
+            from xorq.catalog.s3_utils import S3_SECRET_FIELDS  # noqa: PLC0415
 
             config = ContentStoreConfig.from_yaml(content_store_path)
-            if content_store_config != config:
+            passed = {
+                k: v
+                for k, v in attr.asdict(content_store_config, recurse=False).items()
+                if v is not None and k not in S3_SECRET_FIELDS
+            }
+            on_disk = {
+                k: v
+                for k, v in attr.asdict(config, recurse=False).items()
+                if v is not None and k not in S3_SECRET_FIELDS
+            }
+            if passed != on_disk:
                 raise ValueError(
                     f"explicit content_store_config conflicts with committed "
                     f"{CONTENT_STORE_YAML} at {repo_path}: "
@@ -1253,22 +1264,30 @@ class Catalog:
         if repo_path.exists():
             raise FileExistsError(f"Catalog repo already exists at {repo_path}")
         repo = Repo.init(repo_path, mkdir=True, bare=bare, initial_branch=MAIN_BRANCH)
-        if content_store_config is not None:
-            from xorq.catalog.content_store import ContentStoreConfig  # noqa: PLC0415
-
-            if not isinstance(content_store_config, ContentStoreConfig):
-                raise TypeError(
-                    f"content_store_config must be a ContentStoreConfig; "
-                    f"got {type(content_store_config)}"
+        try:
+            if content_store_config is not None:
+                from xorq.catalog.content_store import (  # noqa: PLC0415
+                    ContentStoreConfig,
+                    atomic_write,
                 )
-            content_store_config.write_yaml(repo_path / CONTENT_STORE_YAML)
-            gitignore_path = repo_path / ".gitignore"
-            gitignore_path.write_text("entries/*.zip\n")
-            repo.index.add([CONTENT_STORE_YAML, ".gitignore"])
-        repo.index.commit("initial commit")
-        if isinstance(annex, AnnexConfig):
-            remote_config = annex if isinstance(annex, RemoteConfig) else None
-            Annex.init_repo_path(repo_path, remote_config=remote_config)
+
+                if not isinstance(content_store_config, ContentStoreConfig):
+                    raise TypeError(
+                        f"content_store_config must be a ContentStoreConfig; "
+                        f"got {type(content_store_config)}"
+                    )
+                content_store_config.write_yaml(repo_path / CONTENT_STORE_YAML)
+                gitignore_path = repo_path / ".gitignore"
+                with atomic_write(gitignore_path) as tmp:
+                    tmp.write_text("entries/*.zip\n")
+                repo.index.add([CONTENT_STORE_YAML, ".gitignore"])
+            repo.index.commit("initial commit")
+            if isinstance(annex, AnnexConfig):
+                remote_config = annex if isinstance(annex, RemoteConfig) else None
+                Annex.init_repo_path(repo_path, remote_config=remote_config)
+        except BaseException:
+            shutil.rmtree(repo_path, ignore_errors=True)
+            raise
         return repo
 
 

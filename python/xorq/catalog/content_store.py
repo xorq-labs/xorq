@@ -199,7 +199,7 @@ class DirectoryContentStore(ContentStore):
             return
         for p in search_dir.rglob("*"):
             if p.is_file() and not p.name.endswith(".tmp"):
-                yield str(p.relative_to(self.directory))
+                yield p.relative_to(self.directory).as_posix()
 
 
 @frozen

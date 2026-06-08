@@ -610,15 +610,14 @@ class S3RemoteConfig(S3ClientMixin, RemoteConfig):
 
     @property
     def env(self):
-        return (
+        env = [
             ("AWS_ACCESS_KEY_ID", self.aws_access_key_id),
             ("AWS_SECRET_ACCESS_KEY", self.aws_secret_access_key),
-            # clear session/temporary credentials that may be in the
-            # environment so git-annex doesn't try to use STS tokens
-            ("AWS_SESSION_TOKEN", ""),
+            ("AWS_SESSION_TOKEN", self.aws_session_token or ""),
             ("AWS_SECURITY_TOKEN", ""),
             ("AWS_CREDENTIAL_EXPIRATION", ""),
-        )
+        ]
+        return tuple(env)
 
     @property
     def endpoint_url(self):

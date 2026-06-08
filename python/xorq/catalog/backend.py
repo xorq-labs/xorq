@@ -9,7 +9,6 @@ from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import toolz
 from attr import (
     field,
     frozen,
@@ -39,7 +38,10 @@ def _repo_has_annex_artifacts(repo: Repo) -> bool:
     repo_path = Path(repo.working_dir)
     if (repo_path / ".git" / "annex").is_dir():
         return True
-    return any(ref.name.endswith(ANNEX_BRANCH) for ref in repo.refs)
+    return any(
+        ref.name == ANNEX_BRANCH or ref.name.endswith("/" + ANNEX_BRANCH)
+        for ref in repo.refs
+    )
 
 
 def _repo_has_pointer_artifacts(repo: Repo) -> bool:
@@ -320,14 +322,18 @@ class GitPointerBackend(CatalogBackend):
         entries_dir = self.repo_path / CatalogInfix.ENTRY
         if not entries_dir.is_dir():
             return
-        safe_parse = toolz.excepts(
-            (ValueError, FileNotFoundError),
-            parse_pointer,
-        )
         for p in entries_dir.glob(f"*{POINTER_SUFFIX}"):
-            result = safe_parse(p)
-            if result is not None:
-                yield result[0]
+            try:
+                sha256, _ = parse_pointer(p)
+            except (ValueError, FileNotFoundError):
+                import structlog  # noqa: PLC0415
+
+                structlog.get_logger(__name__).warning(
+                    "corrupt pointer file %s; skipping for reference counting",
+                    p,
+                )
+                continue
+            yield sha256
 
     def _has_references(self, sha256: str) -> bool:
         return any(s == sha256 for s in self._iter_pointer_sha256s())
