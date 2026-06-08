@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import abc
 import hashlib
-import logging
 import os
 import re
 import shutil
@@ -30,9 +29,8 @@ from xorq.catalog.s3_utils import (
 )
 from xorq.common.exceptions import XorqError
 from xorq.common.utils.env_utils import EnvConfigable, env_templates_dir
+from xorq.common.utils.file_utils import file_digest
 
-
-logger = logging.getLogger(__name__)
 
 POINTER_VERSION = "xorq-pointer v1"
 
@@ -69,12 +67,10 @@ def _coerce_port(value: int | str | None) -> int | None:
 
 
 def compute_sha256(path: str | Path) -> str:
-    from xorq.common.utils.defer_utils import file_digest  # noqa: PLC0415
-
     return file_digest(path, hashlib.sha256)
 
 
-def content_key(catalog_id: str, sha256: str) -> str:
+def compute_content_key(catalog_id: str, sha256: str) -> str:
     if not _SAFE_CATALOG_ID_RE.match(catalog_id):
         raise ValueError(f"Unsafe catalog_id: {catalog_id!r}")
     if not _SHA256_RE.match(sha256):
@@ -261,7 +257,9 @@ class S3ContentStore(ContentStore):
             try:
                 self._client.delete_object(Bucket=self.bucket, Key=s3_key)
             except Exception:
-                logger.warning(
+                import structlog  # noqa: PLC0415
+
+                structlog.get_logger(__name__).warning(
                     "Failed to delete corrupt S3 object %s/%s during cleanup",
                     self.bucket,
                     s3_key,
@@ -524,7 +522,7 @@ class DirectoryContentStoreConfig(ContentStoreConfig):
         path = Path(path)
         dct = self.to_dict()
         base = path.parent.resolve()
-        rel = Path(os.path.relpath(self.directory, base))
+        rel = Path(os.path.relpath(self.directory, base))  # xorq-style: disable=os-path
         dct["directory"] = str(rel)
         with atomic_write(path) as tmp:
             tmp.write_text(yaml12.format_yaml(dct))

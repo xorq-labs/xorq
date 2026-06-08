@@ -13,7 +13,7 @@ from contextlib import (
 from functools import cached_property, partial
 from pathlib import Path
 from subprocess import Popen
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 from urllib.parse import urlparse
 
 import attr
@@ -47,6 +47,7 @@ from xorq.catalog.backend import (
     CatalogBackend,
     GitAnnexBackend,
     GitBackend,
+    GitPointerBackend,
 )
 from xorq.catalog.constants import (
     ANNEX_BRANCH,
@@ -56,12 +57,9 @@ from xorq.catalog.constants import (
     METADATA_APPEND,
     PREFERRED_SUFFIX,
 )
+from xorq.catalog.content_store import ContentStoreConfig, atomic_write
 from xorq.catalog.enums import CatalogInfix
 from xorq.catalog.exceptions import CatalogConfigurationError, CatalogPushError
-
-
-if TYPE_CHECKING:
-    from xorq.catalog.content_store import ContentStoreConfig
 from xorq.catalog.expr_utils import (
     build_expr_context,
     build_expr_context_zip,
@@ -71,6 +69,7 @@ from xorq.catalog.git_utils import (
     add_as_submodule,
     commit_context,
 )
+from xorq.catalog.s3_utils import S3_SECRET_FIELDS
 from xorq.catalog.zip_utils import BuildZip, make_zip_context, with_pure_suffix
 from xorq.common.utils.logging_utils import get_logger
 from xorq.ibis_yaml.enums import DumpFiles, ExprKind
@@ -837,9 +836,6 @@ class Catalog:
                 f"({CONTENT_STORE_YAML} present); cannot force plain git"
             )
         if content_store_config is not None:
-            from xorq.catalog.content_store import ContentStoreConfig  # noqa: PLC0415
-            from xorq.catalog.s3_utils import S3_SECRET_FIELDS  # noqa: PLC0415
-
             config = ContentStoreConfig.from_yaml(content_store_path)
             passed = {
                 k: v
@@ -904,8 +900,6 @@ class Catalog:
                 cls._validate_content_store_config(
                     Path(repo_path), content_store_config, annex
                 )
-                from xorq.catalog.backend import GitPointerBackend  # noqa: PLC0415
-
                 backend = GitPointerBackend.from_repo(repo)
                 catalog = cls(backend=backend)
                 if check_consistency:
@@ -1010,8 +1004,6 @@ class Catalog:
                     "(the config is only persisted at init time)"
                 )
             try:
-                from xorq.catalog.backend import GitPointerBackend  # noqa: PLC0415
-
                 backend = GitPointerBackend.from_repo(repo)
                 catalog = cls(backend=backend)
                 if check_consistency:
@@ -1266,11 +1258,6 @@ class Catalog:
         repo = Repo.init(repo_path, mkdir=True, bare=bare, initial_branch=MAIN_BRANCH)
         try:
             if content_store_config is not None:
-                from xorq.catalog.content_store import (  # noqa: PLC0415
-                    ContentStoreConfig,
-                    atomic_write,
-                )
-
                 if not isinstance(content_store_config, ContentStoreConfig):
                     raise TypeError(
                         f"content_store_config must be a ContentStoreConfig; "
@@ -1679,7 +1666,7 @@ class CatalogRemoval:
         # No public API exposes the component dict; _exists_components is
         # intentionally internal to CatalogEntry, accessed here within the
         # same module for removal logic.
-        components = catalog_entry._exists_components  # noqa: SLF001
+        components = catalog_entry._exists_components  # noqa: SLF001  # xorq-style: disable=protected-access
         if not any(components.values()):
             raise ValueError(
                 f"Cannot remove entry '{catalog_entry.name}': not found in catalog"

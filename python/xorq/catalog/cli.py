@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime
 import itertools
 import json
@@ -11,8 +13,13 @@ from contextlib import contextmanager
 from functools import cache, partial, reduce
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import click
+
+
+if TYPE_CHECKING:
+    from xorq.catalog.content_store import ContentStoreConfig
 
 from xorq.cli_options import (
     cache_dir_option,
@@ -68,7 +75,7 @@ def click_context(ctx: click.Context, *typs: type[Exception]) -> Iterator[None]:
 
 
 @contextmanager
-def click_context_catalog(ctx: click.Context):
+def click_context_catalog(ctx: click.Context) -> Iterator[None]:
     from git import NoSuchPathError  # noqa: PLC0415
 
     try:
@@ -241,7 +248,9 @@ def _resolve_annex_option(env_file, env_prefix, gcs):
     return None
 
 
-def _resolve_content_store_option(content_store_type, gcs):
+def _resolve_content_store_option(
+    content_store_type: str | None, gcs: bool
+) -> ContentStoreConfig | None:
     """Return a ContentStoreConfig from CLI options, or None."""
     from xorq.catalog.content_store import (  # noqa: PLC0415
         DirectoryContentStoreConfig,

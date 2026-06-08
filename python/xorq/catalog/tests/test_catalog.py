@@ -45,8 +45,8 @@ from xorq.catalog.content_store import (
     DirectoryContentStoreConfig,
     S3ContentStoreConfig,
     _coerce_port,
+    compute_content_key,
     compute_sha256,
-    content_key,
     parse_pointer,
     write_pointer,
 )
@@ -714,7 +714,7 @@ def test_fetch_content_disabled_cache_bypasses_cache(tmp_path: Path) -> None:
     archive = tmp_path / "data.zip"
     archive.write_bytes(b"real content")
     sha = compute_sha256(archive)
-    key = content_key("testcat", sha)
+    key = compute_content_key("testcat", sha)
     store.put(key, archive)
 
     target = tmp_path / "entry.zip"
@@ -815,16 +815,16 @@ def test_content_store_config_rejects_unknown_type() -> None:
         ContentStoreConfig.from_dict({"type": "nope", "catalog_id": "cat"})
 
 
-def test_content_key_rejects_unsafe_inputs() -> None:
-    """content_key validates catalog_id and sha256 to block path traversal."""
+def test_compute_content_key_rejects_unsafe_inputs() -> None:
+    """compute_content_key validates catalog_id and sha256 to block path traversal."""
     good_sha = "a" * 64
-    assert content_key("cat-1", good_sha).startswith("cat-1/")
+    assert compute_content_key("cat-1", good_sha).startswith("cat-1/")
     for bad_id in ("../evil", "a/b", "..", ""):
         with pytest.raises(ValueError, match="Unsafe catalog_id"):
-            content_key(bad_id, good_sha)
+            compute_content_key(bad_id, good_sha)
     for bad_sha in ("../../etc/passwd", "XYZ", "a" * 63):
         with pytest.raises(ValueError, match="Invalid sha256"):
-            content_key("cat", bad_sha)
+            compute_content_key("cat", bad_sha)
 
 
 def test_parse_pointer_rejects_malformed(tmp_path: Path) -> None:
@@ -848,7 +848,7 @@ def test_fetch_content_drops_corrupt_cache_entry(tmp_path: Path) -> None:
     archive = tmp_path / "data.zip"
     archive.write_bytes(b"real content")
     sha = compute_sha256(archive)
-    key = content_key("testcat", sha)
+    key = compute_content_key("testcat", sha)
     store.put(key, archive)
 
     target = tmp_path / "entry.zip"
@@ -881,7 +881,7 @@ def test_fetch_content_drops_cache_entry_on_size_mismatch(tmp_path: Path) -> Non
     archive = tmp_path / "data.zip"
     archive.write_bytes(b"real content")
     sha = compute_sha256(archive)
-    key = content_key("testcat", sha)
+    key = compute_content_key("testcat", sha)
     store.put(key, archive)
 
     target = tmp_path / "entry.zip"
@@ -917,7 +917,7 @@ def test_fetch_content_no_partial_file_on_copy_failure(
     archive = tmp_path / "data.zip"
     archive.write_bytes(b"real content")
     sha = compute_sha256(archive)
-    key = content_key("testcat", sha)
+    key = compute_content_key("testcat", sha)
     store.put(key, archive)
     cache.fetch_from(store, key)  # prime cache so the failure hits the archive copy
 
@@ -1026,7 +1026,7 @@ def test_pointer_shared_content_ref_counting(tmp_path: Path) -> None:
     archive = tmp_path / "data.zip"
     archive.write_bytes(b"shared content blob")
     sha = compute_sha256(archive)
-    key = content_key(backend.catalog_id, sha)
+    key = compute_content_key(backend.catalog_id, sha)
 
     entries_dir = repo_path / CatalogInfix.ENTRY
     entries_dir.mkdir(exist_ok=True)
@@ -1170,14 +1170,14 @@ def test_stage_content_cleans_store_on_pointer_write_failure(
     archive = tmp_path / "data.zip"
     archive.write_bytes(b"content to upload")
     sha = compute_sha256(archive)
-    key = content_key(backend.catalog_id, sha)
+    key = compute_content_key(backend.catalog_id, sha)
 
     entries_dir = repo_path / CatalogInfix.ENTRY
     entries_dir.mkdir(exist_ok=True)
     target = entries_dir / "entry.zip"
 
     monkeypatch.setattr(
-        "xorq.catalog.content_store.write_pointer",
+        "xorq.catalog.backend.write_pointer",
         lambda *a, **kw: (_ for _ in ()).throw(OSError("disk full")),
     )
 
@@ -1225,7 +1225,7 @@ def test_gc_content_store_finds_orphans(tmp_path: Path) -> None:
     archive = tmp_path / "data.zip"
     archive.write_bytes(b"real content")
     sha = compute_sha256(archive)
-    key = content_key(backend.catalog_id, sha)
+    key = compute_content_key(backend.catalog_id, sha)
 
     entries_dir = repo_path / CatalogInfix.ENTRY
     entries_dir.mkdir(exist_ok=True)
@@ -1239,7 +1239,7 @@ def test_gc_content_store_finds_orphans(tmp_path: Path) -> None:
     # plant an orphan directly in the store
     orphan_data = tmp_path / "orphan.zip"
     orphan_data.write_bytes(b"orphaned blob")
-    orphan_key = content_key(backend.catalog_id, compute_sha256(orphan_data))
+    orphan_key = compute_content_key(backend.catalog_id, compute_sha256(orphan_data))
     backend.content_store.put(orphan_key, orphan_data)
 
     # dry run finds it but doesn't delete

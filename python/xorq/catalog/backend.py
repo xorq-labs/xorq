@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import abc
-import logging
 import shutil
 from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from attr import (
+    Attribute,
     field,
     frozen,
 )
@@ -24,14 +24,17 @@ from xorq.catalog.constants import (
     POINTER_SUFFIX,
     CatalogInfix,
 )
-from xorq.catalog.content_store import atomic_write
-
-
-if TYPE_CHECKING:
-    from xorq.catalog.content_store import ContentCache
-
-
-logger = logging.getLogger(__name__)
+from xorq.catalog.content_store import (
+    ContentCache,
+    ContentIntegrityError,
+    ContentStore,
+    ContentStoreConfig,
+    atomic_write,
+    compute_content_key,
+    compute_sha256,
+    parse_pointer,
+    write_pointer,
+)
 
 
 def _repo_has_annex_artifacts(repo: Repo) -> bool:
@@ -188,9 +191,7 @@ class GitAnnexBackend(CatalogBackend):
         return cls(repo=repo, annex=annex)
 
 
-def _validate_content_cache(instance, attribute, value):
-    from xorq.catalog.content_store import ContentCache  # noqa: PLC0415
-
+def _validate_content_cache(instance: Any, attribute: Attribute, value: Any) -> None:
     if not isinstance(value, ContentCache):
         raise TypeError(
             f"'{attribute.name}' must be a ContentCache "
@@ -218,15 +219,13 @@ class GitPointerBackend(CatalogBackend):
             )
 
     @cached_property
-    def _config(self):
-        from xorq.catalog.content_store import ContentStoreConfig  # noqa: PLC0415
-
+    def _config(self) -> ContentStoreConfig:
         return ContentStoreConfig.from_yaml(
             Path(self.repo.working_dir) / CONTENT_STORE_YAML
         )
 
     @cached_property
-    def content_store(self):
+    def content_store(self) -> ContentStore:
         return self._config.make_store()
 
     @cached_property
@@ -247,12 +246,6 @@ class GitPointerBackend(CatalogBackend):
                 raise
 
     def stage_content(self, source_path: str | Path, catalog_path: str | Path) -> None:
-        from xorq.catalog.content_store import (  # noqa: PLC0415
-            compute_sha256,
-            content_key,
-            write_pointer,
-        )
-
         # local copy is kept intentionally: it's read from at use time
         archive_path = Path(catalog_path)
         uploaded = False
@@ -260,7 +253,7 @@ class GitPointerBackend(CatalogBackend):
             shutil.copy(source_path, tmp)
             sha256 = compute_sha256(tmp)
             size = tmp.stat().st_size
-            key = content_key(self.catalog_id, sha256)
+            key = compute_content_key(self.catalog_id, sha256)
 
         try:
             if not self.content_store.exists(key):
@@ -284,17 +277,14 @@ class GitPointerBackend(CatalogBackend):
             raise
 
     def stage_unlink(self, path: str | Path) -> None:
-        from xorq.catalog.content_store import (  # noqa: PLC0415
-            content_key,
-            parse_pointer,
-        )
-
         pointer_path = self._pointer_path(path)
         if pointer_path.exists():
             try:
                 sha256, _ = parse_pointer(pointer_path)
             except (ValueError, OSError):
-                logger.warning(
+                import structlog  # noqa: PLC0415
+
+                structlog.get_logger(__name__).warning(
                     "corrupt pointer file %s; removing without content store cleanup",
                     pointer_path,
                 )
@@ -304,7 +294,7 @@ class GitPointerBackend(CatalogBackend):
             pointer_path.unlink()
 
             if sha256 is not None:
-                key = content_key(self.catalog_id, sha256)
+                key = compute_content_key(self.catalog_id, sha256)
                 if not self._has_references(sha256):
                     self.content_store.delete(key)
 
@@ -316,8 +306,6 @@ class GitPointerBackend(CatalogBackend):
             Path(path).unlink(missing_ok=True)
 
     def _iter_pointer_sha256s(self) -> Iterator[str]:
-        from xorq.catalog.content_store import parse_pointer  # noqa: PLC0415
-
         # flat scan — entries_dir is intentionally flat (no subdirectories)
         entries_dir = self.repo_path / CatalogInfix.ENTRY
         if not entries_dir.is_dir():
@@ -339,11 +327,6 @@ class GitPointerBackend(CatalogBackend):
         return any(s == sha256 for s in self._iter_pointer_sha256s())
 
     def is_content_local(self, path: str | Path) -> bool:
-        from xorq.catalog.content_store import (  # noqa: PLC0415
-            content_key,
-            parse_pointer,
-        )
-
         if Path(path).exists():
             return True
         pointer_path = self._pointer_path(path)
@@ -353,17 +336,12 @@ class GitPointerBackend(CatalogBackend):
             sha256, _ = parse_pointer(pointer_path)
         except (ValueError, OSError):
             return False
-        key = content_key(self.catalog_id, sha256)
+        key = compute_content_key(self.catalog_id, sha256)
         return self.cache.contains(key)
 
     def _verify_content(
         self, local: Path, path: str | Path, sha256: str, size: int
     ) -> None:
-        from xorq.catalog.content_store import (  # noqa: PLC0415
-            ContentIntegrityError,
-            compute_sha256,
-        )
-
         actual_size = local.stat().st_size
         if actual_size != size:
             local.unlink(missing_ok=True)
@@ -378,13 +356,6 @@ class GitPointerBackend(CatalogBackend):
             )
 
     def fetch_content(self, *paths: str | Path) -> None:
-        from xorq.catalog.content_store import (  # noqa: PLC0415
-            ContentIntegrityError,
-            atomic_write,
-            content_key,
-            parse_pointer,
-        )
-
         for path in paths:
             archive_path = Path(path)
             if archive_path.exists():
@@ -400,7 +371,7 @@ class GitPointerBackend(CatalogBackend):
                 raise ContentIntegrityError(
                     f"corrupt pointer file for {path}: {pointer_path}"
                 ) from exc
-            key = content_key(self.catalog_id, sha256)
+            key = compute_content_key(self.catalog_id, sha256)
 
             cached = self.cache.get_path(key)
             fetched = False
@@ -427,10 +398,9 @@ class GitPointerBackend(CatalogBackend):
 
     def gc_content_store(self, dry_run: bool = True) -> list[str]:
         """Find and optionally delete content store keys not referenced by any pointer file."""
-        from xorq.catalog.content_store import content_key  # noqa: PLC0415
-
         referenced = {
-            content_key(self.catalog_id, sha) for sha in self._iter_pointer_sha256s()
+            compute_content_key(self.catalog_id, sha)
+            for sha in self._iter_pointer_sha256s()
         }
         orphans = [
             key
@@ -454,8 +424,6 @@ class GitPointerBackend(CatalogBackend):
     def from_repo(
         cls, repo: Repo, cache: ContentCache | None = None
     ) -> GitPointerBackend:
-        from xorq.catalog.content_store import ContentCache  # noqa: PLC0415
-
         return cls(
             repo=repo,
             cache=cache or ContentCache.default(),

@@ -11,8 +11,8 @@ from xorq.catalog.cli import cli
 from xorq.catalog.content_store import (
     ContentStoreConfig,
     DirectoryContentStore,
+    compute_content_key,
     compute_sha256,
-    content_key,
 )
 from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
@@ -559,7 +559,7 @@ def test_gc_deletes_orphan(
     store = DirectoryContentStore(directory=store_dir)
     orphan = tmp_path / "orphan.bin"
     orphan.write_bytes(b"orphaned blob")
-    orphan_key = content_key(catalog_id, compute_sha256(orphan))
+    orphan_key = compute_content_key(catalog_id, compute_sha256(orphan))
     store.put(orphan_key, orphan)
 
     # dry run finds it
