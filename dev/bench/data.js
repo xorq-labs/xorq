@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780924882714,
+  "lastUpdate": 1780924896151,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -16746,6 +16746,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.007711236633822019",
             "extra": "mean: 33.33151450000287 msec\nrounds: 30"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "65160ef28c59ec7c6367307553c47f59486d503a",
+          "message": "fix(codecov): wait for all CI jobs before posting status checks (#2049)\n\n## Summary\n- Adds `notify.wait_for_ci: true` to `codecov.yml` so codecov delays its\nproject/patch status checks until GitHub reports all CI jobs as finished\n- Eliminates phantom coverage drops caused by incomplete uploads (e.g.\nthe -8.99% false alarm on #2007)\n\nCloses #2046\n\n## Test plan\n- [ ] Merge and observe that codecov status checks no longer appear\nuntil all CI jobs complete\n- [ ] Verify coverage deltas are stable and reflect actual changes\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-06-08T15:17:43+02:00",
+          "tree_id": "ebc2a1452bf500eb05973d5e0feb610250ae5afd",
+          "url": "https://github.com/xorq-labs/xorq/commit/65160ef28c59ec7c6367307553c47f59486d503a"
+        },
+        "date": 1780924892994,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 6.90564387107387,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009876761824741944",
+            "extra": "mean: 144.80908929995167 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.5951436374349486,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06665102914952657",
+            "extra": "mean: 385.3351257999748 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.5789714208257773,
+            "unit": "iter/sec",
+            "range": "stddev: 0.23233323769850756",
+            "extra": "mean: 1.7272009706000973 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.452925246845712,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08999496362508078",
+            "extra": "mean: 407.67650839989074 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.5101141951503982,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07666059852788698",
+            "extra": "mean: 398.3882493999772 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.6324602160748327,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05432553807056998",
+            "extra": "mean: 379.87278740001784 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 214.64550609693046,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005347184058577513",
+            "extra": "mean: 4.658844334474051 msec\nrounds: 293"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.060233262698989,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08241222229418346",
+            "extra": "mean: 197.6193483749853 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 32.745656727341455,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005727910162365927",
+            "extra": "mean: 30.53840111763694 msec\nrounds: 34"
           }
         ]
       }
