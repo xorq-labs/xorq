@@ -1,6 +1,6 @@
 ---
 title: 'Caching classes'
-description: "Strategy/storage matrix, constructor arguments, and backend invalidation signals for the xorq.caching classes"
+description: "Strategy/storage matrix, constructor arguments, and backend invalidation signals for the Xorq cache classes"
 ---
 
 The classes exported from `xorq.caching` are named combinations of a **strategy**
@@ -31,11 +31,11 @@ the storage:
 
 | Cache class | `from_kwargs` arguments | Default |
 |---|---|---|
-| `SourceCache`, `SourceSnapshotCache` | `source` | xorq default backend |
-| `ParquetCache`, `ParquetSnapshotCache` | `source` | xorq default backend |
+| `SourceCache`, `SourceSnapshotCache` | `source` | Xorq default backend |
+| `ParquetCache`, `ParquetSnapshotCache` | `source` | Xorq default backend |
 | | `relative_path` | `cache.default_relative_path` (`parquet`) |
 | | `base_path` | `None` → `XORQ_CACHE_DIR` |
-| `ParquetTTLSnapshotCache` | `source`, `relative_path`, `base_path` | as above |
+| `ParquetTTLSnapshotCache` | `source`, `relative_path`, `base_path` | same as `ParquetCache` |
 | | `ttl` (`datetime.timedelta`) | 1 day |
 | `GCSCache` | `bucket_name`, `source` | required |
 

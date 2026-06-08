@@ -459,5 +459,5 @@ The `Executing against backend: sqlite` line is the proof—User A cataloged the
 ## Next steps
 
 - [Your first build](your_first_build.qmd)—package the cataloged model into a portable build artifact.
-- [Switch backends](switch_backends.qmd)—see what kinds of profiles Xorq supports.
-- [Explore caching](explore_caching.qmd)—keep the recovered query path fast for downstream users.
+- [Switch backends](../../getting_started/switch_backends.qmd)—see what kinds of profiles Xorq supports.
+- [Explore caching](../../getting_started/explore_caching.qmd)—keep the recovered query path fast for downstream users.

@@ -410,5 +410,5 @@ The point of the BSL + catalog combination is decoupling: the team that owns the
 ## Next steps
 
 - [Your first build](your_first_build.qmd)—package the cataloged model into a portable build artifact.
-- [Explore caching](explore_caching.qmd)—cache the underlying table so repeated BSL queries don't re-read the source.
-- [Understand deferred execution](understand_deferred_execution.qmd)—the foundation that makes `query(...)` cheap and composable.
+- [Explore caching](../../getting_started/explore_caching.qmd)—cache the underlying table so repeated BSL queries don't re-read the source.
+- [Understand deferred execution](../../getting_started/understand_deferred_execution.qmd)—the foundation that makes `query(...)` cheap and composable.
