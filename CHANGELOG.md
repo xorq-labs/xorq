@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.29] - 2026-06-09
+### Details
+#### Added
+- Add --no-sync option to compose for parity with add by @hussainsultan in [#2022](https://github.com/xorq-labs/xorq/pull/2022)
+- Add expression-types and pins pages by @mesejo in [#2020](https://github.com/xorq-labs/xorq/pull/2020)
+- Add contract docstring + str type to tokenized by @mesejo in [#2036](https://github.com/xorq-labs/xorq/pull/2036)
+- Add get-started-with-xorq-init tutorial by @mesejo in [#2032](https://github.com/xorq-labs/xorq/pull/2032)
+- Add the 5 missing how-to guides by @mesejo in [#2044](https://github.com/xorq-labs/xorq/pull/2044)
+- Add __main__ guard to catalog CLI by @dlovell in [#2047](https://github.com/xorq-labs/xorq/pull/2047)
+
+#### Changed
+- Generate the CLI reference from Click commands by @mesejo in [#2033](https://github.com/xorq-labs/xorq/pull/2033)
+- Generate llms.txt and llms-full.txt from docs config by @mesejo in [#2042](https://github.com/xorq-labs/xorq/pull/2042)
+- Upgrade xorq-style to 0.2.0 by @dlovell in [#2048](https://github.com/xorq-labs/xorq/pull/2048)
+- Enable DTZ ruff rules for timezone safety by @dlovell in [#2043](https://github.com/xorq-labs/xorq/pull/2043)
+- Replace fqn() imports with string literals by @dlovell in [#2053](https://github.com/xorq-labs/xorq/pull/2053)
+
+#### Fixed
+- Fix fragmented coverage reporting and scope flags to paths by @mesejo in [#1968](https://github.com/xorq-labs/xorq/pull/1968)
+- Wait for all CI jobs before posting status checks by @dlovell in [#2049](https://github.com/xorq-labs/xorq/pull/2049)
+- Drop Alias wrapper on NamedScalarParameter placeholder by @dlovell in [#2039](https://github.com/xorq-labs/xorq/pull/2039)
+
 ## [Unreleased]
 ### Details
 
