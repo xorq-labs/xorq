@@ -619,11 +619,16 @@ def register_and_transform_remote_tables(expr, **kwargs):
     def replacer(node, kwargs):
         if isinstance(node, RemoteTable):
             remote_expr = node.remote_expr
-            schema = remote_expr.as_table().schema().to_pyarrow()
+            # Cache the reader's own (physical) schema, not the logical
+            # ``as_table().schema()``. The two can diverge -- e.g. a dropped
+            # ``row_number`` still rides along in the stream -- and StreamCache
+            # exports the declared schema over the Arrow C stream FFI, where a
+            # batch with extra children aborts the process
+            # (``fields.len() == num_children``). The reader already carries the
+            # true schema; column coercion is the consumer's job
+            # (``read_record_batches`` -> ``_select_and_cast``).
             cache = StreamCache(
-                pa.RecordBatchReader.from_batches(
-                    schema, remote_expr.to_pyarrow_batches()
-                ),
+                remote_expr.to_pyarrow_batches(),
                 max_readers=reader_counts.get(node),
             )
             caches.append(cache)
