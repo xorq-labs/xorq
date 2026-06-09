@@ -26,10 +26,14 @@ from __future__ import annotations
 import functools
 import operator
 import pickle
+import types
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pytest
+import toolz
+from xorq_dasher import fqn
 
 import xorq.api as xo
 import xorq.common.utils.dasher as dasher
@@ -38,6 +42,7 @@ import xorq.expr.relations as rel
 from xorq.caching import ParquetCache
 from xorq.common.utils import graph_utils
 from xorq.common.utils.dasher import (
+    _EXTRA_RULES,
     HASHER,
     _canonicalize_catalog_path,
     _extract_datafusion_plan_paths,
@@ -59,8 +64,12 @@ from xorq.common.utils.dasher._opaque import (
 )
 from xorq.common.utils.defer_utils import normalize_read_path_stat
 from xorq.common.utils.tests._test_helpers import BombHasher, MockOp, Probe
+from xorq.common.utils.toolz_utils import curry as xo_curry
 from xorq.expr.udf import agg, make_pandas_expr_udf
 from xorq.vendor.ibis.expr.operations.generic import Cast
+from xorq.vendor.ibis.expr.operations.relations import DatabaseTable, Schema
+from xorq.vendor.ibis.expr.operations.udf import ScalarUDF
+from xorq.vendor.ibis.expr.types import Expr
 
 
 # --- file-change invalidation ---------------------------------------------
@@ -948,3 +957,37 @@ def test_expr_metadata_zero_slot_scalar():
     assert meta["slots"] == []
     assert isinstance(meta["structural_hash"], str)
     assert compute_expr_token(meta["structural_hash"], ()) == token
+
+
+def test_extra_rules_fqn_strings():
+    """Guard against class relocations silently breaking hardcoded FQN strings."""
+    expected = {
+        "functools._lru_cache_wrapper": functools._lru_cache_wrapper,
+        "functools.partial": functools.partial,
+        "builtins.builtin_function_or_method": types.BuiltinFunctionType,
+        "builtins.slice": slice,
+        "builtins.property": property,
+        "toolz.functoolz.Compose": toolz.functoolz.Compose,
+        "toolz.functoolz.curry": toolz.curry,
+        "toolz.functoolz.excepts": toolz.functoolz.excepts,
+        "operator.methodcaller": operator.methodcaller,
+        "xorq.vendor.ibis.expr.operations.relations.DatabaseTable": DatabaseTable,
+        "xorq.expr.relations.Read": rel.Read,
+        "xorq.vendor.ibis.expr.types.core.Expr": Expr,
+        "xorq.vendor.ibis.expr.schema.Schema": Schema,
+        "xorq.vendor.ibis.expr.operations.udf.ScalarUDF": ScalarUDF,
+        "numpy.dtype": np.dtype,
+        "pandas.core.series.Series": pd.Series,
+        "pandas.core.frame.DataFrame": pd.DataFrame,
+        "xorq.common.utils.toolz_utils.curry": xo_curry,
+    }
+    for literal, cls in expected.items():
+        assert fqn(cls) == literal, (
+            f"FQN drift: {cls!r} moved from {literal!r} to {fqn(cls)!r}; "
+            f"update the string in _EXTRA_RULES"
+        )
+
+    production_fqns = {fqn_str for fqn_str, _ in _EXTRA_RULES}
+    assert production_fqns == set(expected), (
+        f"test/production mismatch: {production_fqns.symmetric_difference(set(expected))}"
+    )
