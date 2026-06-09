@@ -1,5 +1,6 @@
 import functools
 import operator
+from collections import Counter
 from typing import Any, Callable
 
 import pyarrow as pa
@@ -558,21 +559,24 @@ def count_remote_table_readers(expr):
     reference can compile to several physical table scans. The asof-join with
     tolerance lowering, for one, scans an input twice (xorq #983). Each
     ``RemoteTable`` is rewritten to a placeholder table under a freshly
-    generated, unique name, the placeholder expression is compiled to SQL, and
-    that name's occurrences are counted — giving the exact per-table scan count
-    whatever lowering the backend compiler applies. The fresh name (rather than
-    the possibly short or shared user-supplied one) keeps the substring count
-    unambiguous.
+    generated, unique name, the placeholder expression is compiled to a sqlglot
+    AST, and the ``Table`` nodes bearing that name are counted — giving the
+    exact per-table scan count whatever lowering the backend compiler applies.
+    Counting ``Table`` AST nodes (rather than substrings of the rendered SQL)
+    ignores column references, aliases, and string literals, so even a short or
+    shared user-supplied table name cannot inflate the count.
 
     The counts become each ``StreamCache``'s ``max_readers``, bounding memory:
     batches are evicted once all readers advance past them. Each count is
     floored at 1 — a bare ``RemoteTable`` is still scanned once, and
     ``max_readers=0`` would forbid the reader that is in fact created.
 
-    Returns an empty mapping when the SQL cannot be produced (e.g. a non-SQL
+    Returns an empty mapping when no SQL AST can be produced (e.g. a non-SQL
     backend); the caller then builds an unbounded cache — safe, but without
     eviction.
     """
+    import sqlglot as sg  # noqa: PLC0415
+
     op = expr.op()
     sentinels = {}
 
@@ -589,10 +593,19 @@ def count_remote_table_readers(expr):
     if not sentinels:
         return {}
     try:
-        sql = str(ibis.to_sql(placeholder))
+        provider = placeholder._find_backend(use_default=True)
+        compiler = getattr(provider, "compiler", None)
+        if compiler is None:
+            return {}
+        out = compiler.to_sqlglot(placeholder.unbind())
     except Exception:
         return {}
-    return {node: max(1, sql.count(name)) for node, name in sentinels.items()}
+
+    counts = Counter()
+    for query in out if isinstance(out, list) else [out]:
+        for table in query.find_all(sg.exp.Table):
+            counts[table.name] += 1
+    return {node: max(1, counts[name]) for node, name in sentinels.items()}
 
 
 @tracer.start_as_current_span("register_and_transform_remote_tables")

@@ -108,6 +108,14 @@ def test_into_backend_asof_tolerance_double_scan(df, target):
     assert not expr.execute().empty
 
 
+def test_into_backend_self_join_limit_early_termination(df, target):
+    # fan-out (2 readers) + limit: the scan stops before exhausting the cache
+    rt = xo.memtable(df).into_backend(target, "t")
+    expr = rt.join(rt.view(), "k").limit(2)
+    assert reader_counts(expr) == [2]
+    assert len(expr.execute()) == 2
+
+
 def test_into_backend_two_distinct_tables(df, target):
     left = xo.memtable(df).into_backend(target, "l")
     right = xo.memtable(df.assign(v=df.v * 2)).into_backend(target, "r")
