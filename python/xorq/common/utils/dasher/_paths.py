@@ -12,6 +12,10 @@ from __future__ import annotations
 import itertools
 import pathlib
 import re
+import urllib.error
+import urllib.request
+
+import yaml12
 
 
 # Catalog-extract tempdir prefix. ``xorq.catalog.expr_utils.load_expr_from_zip``
@@ -42,9 +46,6 @@ def _normalize_path_stat(path: str, **kwargs) -> tuple:
     """Stable metadata for a path: HTTP HEAD, cloud metadata, or local stat."""
 
     if isinstance(path, str) and path.startswith(("http://", "https://")):
-        import urllib.error  # noqa: PLC0415
-        import urllib.request  # noqa: PLC0415
-
         req = urllib.request.Request(
             path, method="HEAD", headers={"User-Agent": "xorq-cache"}
         )
@@ -148,8 +149,6 @@ def _extract_datafusion_plan_paths(ep_str: str) -> tuple[str, ...]:
     :func:`_canonicalize_catalog_path` so two ``load_expr_from_zip`` calls on
     the same zip produce equal tokens (ADR-0007).
     """
-
-    import yaml12  # noqa: PLC0415
 
     file_groups_match = re.search(r"file_groups=(\{[^}]*\})", ep_str)
     if not file_groups_match:

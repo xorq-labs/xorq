@@ -14,6 +14,7 @@ import logging
 from typing import TYPE_CHECKING
 
 import xxhash
+from xorq_dasher.rules.expr import normalize_inmemorytable
 
 
 if TYPE_CHECKING:
@@ -407,8 +408,6 @@ def _decompose_expr(
 
 
 def _hash_expr_components(expr: Expr, op: Node) -> tuple[str, list[SlotDict]]:
-    from xorq_dasher.rules.expr import normalize_inmemorytable  # noqa: PLC0415
-
     from xorq.common.utils.dasher import HASHER, _current_hasher  # noqa: PLC0415
 
     sql, reads, dts, udfs, mems, param_anchors = _decompose_expr(expr, op)

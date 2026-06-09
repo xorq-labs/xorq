@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING
 import toolz
 from xorq_dasher.rules.functions import normalize_function
 
+from xorq.common.utils.inspect_utils import get_partial_arguments
+
 
 if TYPE_CHECKING:
     import numpy as np
@@ -63,8 +65,6 @@ def normalize_toolz_compose(composed: toolz.functoolz.Compose) -> tuple:
 
 
 def normalize_toolz_curry(curried: toolz.curry) -> tuple:
-    from xorq.common.utils.inspect_utils import get_partial_arguments  # noqa: PLC0415
-
     partial_arguments = get_partial_arguments(
         curried.func, *curried.args, **curried.keywords
     )
