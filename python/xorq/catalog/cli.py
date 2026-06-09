@@ -11,6 +11,7 @@ from functools import cache, partial, reduce
 from pathlib import Path
 from types import SimpleNamespace
 
+import attr
 import click
 
 from xorq.catalog import constants as catalog_constants
@@ -887,8 +888,6 @@ def log(ctx, as_json):
       xorq catalog log
       xorq catalog log --json | jq '.[] | select(.type == "Add")'
     """
-    import attr  # noqa: PLC0415
-
     from xorq.catalog.replay import Replayer  # noqa: PLC0415
 
     with click_context_catalog(ctx):
