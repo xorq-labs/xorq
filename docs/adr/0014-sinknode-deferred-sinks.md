@@ -34,7 +34,7 @@ expression model.
 
 ### A SinkNode is transparent, like Tag
 
-A `SinkNode` is a **transparent passthrough relation**, modeled on `Tag`
+A `SinkNode` is a **transparent pass-through relation**, modeled on `Tag`
 (`relations.py:101`). Its schema equals its parent's schema, and it evaluates to its
 parent's rows unchanged. The only thing it adds is a **side effect**: as batches are
 pulled through it during execution, they are written to a named, durable target.
@@ -109,7 +109,7 @@ sink.
 
 This drops the RFC's incremental-strategy surface. The boundary rules, watermark
 semantics, and re-pull-and-dedup machinery were the main source of the data-loss and
-idempotency footguns. Idempotent re-runs come from caching instead: a re-run hits the
+idempotency footguns. Idempotent reruns come from caching instead: a rerun hits the
 cache, and the sink is left unwritten.
 
 ### Hashing
@@ -188,7 +188,7 @@ and a `merge` strategy alongside `append`.
 **Rejected** for Phase 1. The boundary rules (`>= max` versus `> max`), watermark advance,
 and re-pull-and-dedup caused the data-loss and idempotency footguns, and they duplicate
 logic the user can write upstream of the sink. Caching already handles idempotent
-re-runs. The mode surface stays at `create` and `append`.
+reruns. The mode surface stays at `create` and `append`.
 
 ### Read-all semantics for `.sink()`
 
@@ -228,8 +228,8 @@ decision.
 - Because the write only fires when data is pulled, a sink downstream of a cache that
   always hits will never advance accumulation. That is correct, but users must understand
   that a cache hit suppresses the write by design.
-- No write-time dedup means `append` mode can accumulate duplicate rows across re-runs
-  unless caching short-circuits the re-run. Idempotency is the cache's job here, not the
+- No write-time dedup means `append` mode can accumulate duplicate rows across reruns
+  unless caching short-circuits the rerun. Idempotency is the cache's job here, not the
   sink's.
 
 ## References
