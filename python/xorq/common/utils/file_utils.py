@@ -70,6 +70,9 @@ def file_digest(
     elif hasattr(hashlib, "file_digest"):
         if isinstance(path, ZipExtFile):
             return hashlib.file_digest(path, digest).hexdigest()
+        if isinstance(path, (str, Path)):
+            with Path(path).open("rb") as fh:
+                return hashlib.file_digest(fh, digest).hexdigest()
         raise ValueError(f"Don't know how to handle type {type(path)}")
     else:
         return _manual_file_digest(path, digest, size=size)
