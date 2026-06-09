@@ -43,7 +43,7 @@ dependencies = [
     "typing-extensions>=4.3.0",
     "py-yaml12",
     "cloudpickle>=3.1.1",
-    "xorq-datafusion==0.2.8",
+    "xorq-datafusion==0.2.9",
     "opentelemetry-sdk>=1.32.1",
     "opentelemetry-exporter-otlp>=1.32.1",
     "opentelemetry-exporter-otlp-proto-grpc>=1.32.1",
@@ -59,7 +59,7 @@ dependencies = [
     "textual>=1.0.0",
     "filelock>=3.13",
     "xorq-dasher>=0.1.1",
-    "batchcorder>=0.1.2",
+    "batchcorder==0.1.3",
 ]
 requires-python = ">=3.10,<3.14"
 authors = [
