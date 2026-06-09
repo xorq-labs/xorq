@@ -2121,7 +2121,9 @@ def test_cache_keys_paths_relocatable(catalog, tmp_path, monkeypatch):
     cache_dir_B = tmp_path / "cache_B"
     relative = "my_cache"
 
-    monkeypatch.setattr("xorq.caching.storage.get_xorq_cache_dir", lambda: cache_dir_A)
+    monkeypatch.setattr(
+        "xorq.common.utils.caching_utils.get_xorq_cache_dir", lambda: cache_dir_A
+    )
     cache = ParquetSnapshotCache.from_kwargs(relative_path=relative)
     expr = xo.memtable({"x": [1, 2, 3]}).cache(cache=cache)
     entry = catalog.add(expr)
@@ -2132,7 +2134,9 @@ def test_cache_keys_paths_relocatable(catalog, tmp_path, monkeypatch):
     path_at_A = get_cache_key_path(entry.projected_cache_key)
     assert path_at_A == str(cache_dir_A / relative / expected_name)
 
-    monkeypatch.setattr("xorq.caching.storage.get_xorq_cache_dir", lambda: cache_dir_B)
+    monkeypatch.setattr(
+        "xorq.common.utils.caching_utils.get_xorq_cache_dir", lambda: cache_dir_B
+    )
     path_at_B = get_cache_key_path(entry.projected_cache_key)
     assert path_at_B == str(cache_dir_B / relative / expected_name)
 
