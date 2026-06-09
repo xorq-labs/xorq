@@ -45,7 +45,9 @@ from typing import Optional
 from attr import field, frozen
 from attr.validators import deep_iterable, instance_of, is_callable, optional
 
+from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.ml.enums import FittedPipelineTagKey
+from xorq.expr.relations import HashingTag, Tag
 
 
 @frozen
@@ -222,9 +224,6 @@ def _resolve_builder_from_tag(expr):
 
     Raises ``ValueError`` if no handler with ``from_tag_node`` matches.
     """
-    from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
-    from xorq.expr.relations import HashingTag, Tag  # noqa: PLC0415
-
     registry = _get_from_tag_node_registry()
     tag_nodes = walk_nodes((Tag, HashingTag), expr)
 
