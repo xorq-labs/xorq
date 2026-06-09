@@ -38,10 +38,12 @@ A `SinkNode` is a **transparent pass-through relation**, modeled on `Tag`
 parent's rows unchanged. The only thing it adds is a **side effect**: as batches are
 pulled through it during execution, they are written to a named, durable target.
 
-Like `Tag`, a `SinkNode` is **stripped before hashing**. It does not contribute to the
-content hash of the expression it wraps (`normalize_tag` strips the node;
-`normalize_sink_node` does the same). `expr.sink(s)` and `expr` produce the **same**
-content hash.
+Like `Tag`, a `SinkNode` is **stripped before hashing**: a dedicated pass replaces the
+node with its parent before the content hash is computed, so `expr.sink(s)` and `expr`
+produce the **same** hash. `_remove_non_hashing_tag_nodes` (`api.py:347`) does this for
+`Tag`; `SinkNode` gets the parallel `_remove_sink_nodes` (see Node shape below). The
+`"normalize_sink_node"` string in `__dasher_tokenize__` is only a tokenize label, not a
+stripping function.
 
 This transparency is the whole design. It is what makes the sink compose with caching
 without special cases: because the node is invisible to the hash, a `CachedNode` above or
@@ -295,9 +297,9 @@ decision.
 - [XOR-262](https://linear.app/xorq-labs/issue/XOR-262): Phase 1, core primitives
 - [XOR-263](https://linear.app/xorq-labs/issue/XOR-263): Phase 2, SourceSinkStorage, IcebergSinkStorage
 - [XOR-264](https://linear.app/xorq-labs/issue/XOR-264): Phase 3, catalog serialization
-- ADR-0013: batchcorder StreamCache for RemoteTable fan-out (`docs/adr/0013-batchcorder-stream-cache-for-remote-table-fan-out.md`)
+- ADR-0013: batchcorder StreamCache for RemoteTable fan-out (forthcoming)
 - `Tag` / `HashingTag`: `python/xorq/expr/relations.py:101`
 - `CachedNode` / `RemoteTable`: `python/xorq/expr/relations.py`
+- Tag stripping pass: `_remove_non_hashing_tag_nodes`, `python/xorq/expr/api.py:347`
 - Cache resolution: `_register_and_transform_cache_tables`, `python/xorq/expr/api.py:212`
-- Cross-source caching: `maybe_prevent_cross_source_caching`, `python/xorq/caching/__init__.py:226`
 - dbt incremental materialization docs
