@@ -14,8 +14,7 @@ expressions hit a cached file, different expressions miss and compute.
 It does not solve **accumulation**: "append today's result to yesterday's." A daily
 pipeline run produces a different expression every day (a new `snapshot_date` parameter,
 new source data), so by construction each run is content-keyed to a different file. There
-is no mechanism to write to a named, durable target across runs and read back the
-accumulated history as a single expression. dbt provides this with
+is no mechanism to write to a named, durable target across runs. dbt provides this with
 `materialized='incremental'`.
 
 This ADR proposes `SinkNode`, a new DAG node that defers a **write** decision to
@@ -64,8 +63,7 @@ and only observes the pull.
 
 A `SinkNode` is a **tee, not a terminal sink**: data flows through it to downstream
 operations, and a copy of what flows is written to the target. `.sink()` resolves to its
-parent's rows for this run, passed downstream transparently. The full accumulated target
-is read separately via **`sink.read_all()`**.
+parent's rows for this run, passed downstream transparently. 
 
 The tee is **lazy**. It writes exactly the batches pulled through it during execution.
 There is no unconditional, transform-time write; the pull-based execution that the
@@ -81,16 +79,10 @@ A cache hit upstream still feeds the sink: the cached data is teed through as it
 pulled. A cache hit downstream leaves the sink's output undemanded, so the sink stays
 silent.
 
-`read_all()` (not `view()`) is the read-back name: it matches the
-`SinkStorage.read_all()` method and avoids collision with the existing ibis
-`Table.view()` (`relations.py:887`), which already means an aliased self-reference for
-self-joins, an unrelated concept.
-
 | dbt concept | xorq equivalent |
 | -- | -- |
 | `materialized='table'` (full refresh) | `Sink(mode="create")` |
 | `materialized='incremental'` (append) | `Sink(mode="append")` |
-| `{{ this }}` / `SELECT * FROM {{ this }}` | `sink.read_all()` |
 
 ### Two modes: `create` and `append`
 
@@ -119,6 +111,69 @@ name or path, storage type, mode) is real metadata: build artifacts and catalog
 serialization (Phase 3) record it so the write is reproducible. It lives **beside** the
 content hash, not inside it, the same way a `Tag`'s metadata is recorded without changing
 identity.
+
+### Node shape
+
+A sketch, not a contract; field names and helpers are settled in Phase 1. The node lives
+in `python/xorq/expr/relations.py` next to `Tag` and `CachedNode`, and mirrors `Tag`: a
+transparent relation carrying its parent, the parent's schema, and a side-effect config.
+
+```python
+# python/xorq/expr/relations.py
+
+class SinkNode(ops.Relation):
+    parent: ops.Relation
+    schema: Schema            # == parent.schema; the node is a passthrough
+    sink: Sink                # storage + target name + mode (config only)
+    values = FrozenDict()     # transparent, like Tag
+
+    @property
+    def mode(self):
+        return self.sink.mode
+
+    def __dasher_tokenize__(self):
+        # contributes nothing beyond the parent; stripped before hashing
+        # (see _remove_sink_nodes), so expr.sink(s) hashes like expr
+        return ("normalize_sink_node", self.parent)
+```
+
+```python
+# python/xorq/sinking/ (new)
+
+@frozen
+class Sink:
+    storage: SinkStorage      # ParquetSink | SourceSink | IcebergSink
+    name: str                 # durable target name / path
+    mode: str = "append"      # "create" | "append"
+
+    @mode.validator
+    def _check_mode(self, _, value):
+        if value not in ("create", "append"):
+            raise ValueError(f"mode must be 'create' or 'append', got {value!r}")
+
+    def write(self, value):
+        # value == the batches pulled through the node this run
+        # create -> replace target; append -> add to target
+        return self.storage.write(value, mode=self.mode)
+```
+
+```python
+# python/xorq/expr/api.py : the user-facing attach
+
+def sink(expr, storage, *, name, mode="append"):
+    op = expr.op()
+    cfg = Sink(storage=storage, name=name, mode=mode)
+    return SinkNode(parent=op, schema=op.schema, sink=cfg).to_expr()
+```
+
+Two resolution passes keep the transparency and the side effect separate, mirroring the
+cache machinery:
+
+- **Hashing**: `_remove_sink_nodes` strips every `SinkNode` to its parent before the hash
+  is computed, exactly as `_remove_non_hashing_tag_nodes` (`api.py:347`) does for `Tag`.
+- **Execution**: `_register_and_transform_sink_nodes` wires the lazy-tee write of the
+  pulled batches, mirroring `_register_and_transform_cache_tables` (`api.py:212`). The
+  write fires only for batches the downstream operations actually pull.
 
 ### Composition with caching: allowed everywhere
 
@@ -190,13 +245,14 @@ and re-pull-and-dedup caused the data-loss and idempotency footguns, and they du
 logic the user can write upstream of the sink. Caching already handles idempotent
 reruns. The mode surface stays at `create` and `append`.
 
-### Read-all semantics for `.sink()`
+### `.sink()` resolves to the full accumulated target
 
-`.sink()` resolves to the full accumulated target rather than passing the parent through.
+`.sink()` returns the whole target rather than passing the parent through.
 
 **Rejected** because it breaks the transparent-tee model and composition: a transparent
-node must evaluate to its parent. Read-all is preserved as the explicit `sink.read_all()`
-call, a separate, cacheable expression rooted on the target.
+node must evaluate to its parent. A separate API for reading the accumulated target back
+is **deferred**, out of scope for now; until it lands, the target is read with an ordinary
+`read_parquet` / table scan against its name.
 
 ### Mandate ADBC as the database write transport
 
@@ -222,9 +278,9 @@ decision.
 
 ### Negative
 
-- `.sink()` returning the parent's rows while `sink.read_all()` returns the whole
-  accumulated target is a genuine surprise. The "sink is a transparent tee, not terminal"
-  point must be made loudly in docs, or users will expect read-all from `.sink()`.
+- `.sink()` returns the parent's rows, not the accumulated target. The "sink is a
+  transparent tee, not terminal" point must be made loudly in docs, or users will expect
+  `.sink()` to hand back everything written so far. A dedicated read-back API is deferred.
 - Because the write only fires when data is pulled, a sink downstream of a cache that
   always hits will never advance accumulation. That is correct, but users must understand
   that a cache hit suppresses the write by design.
