@@ -298,4 +298,4 @@ Now that you've trained your first model, continue learning:
 
 - [Split data for training](split_data_for_training.qmd) shows how to create proper train/test splits
 - [Explore model evaluation](explore_model_evaluation.qmd) walks through comparing multiple candidate models
-- [Explore caching](../core_tutorials/explore_caching.qmd) shows how to skip recomputation across iterations
+- [Explore caching](../../getting_started/explore_caching.qmd) shows how to skip recomputation across iterations

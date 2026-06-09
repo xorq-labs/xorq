@@ -2,229 +2,116 @@
 title: 'Caching'
 ---
 
-Xorq provides a caching system that enables efficient iterative development of ML pipelines. The caching system is designed to optimize performance, reduce computational overhead, and provide automatic invalidation when upstream data changes.
+Xorq's caching system stores intermediate results so iterative ML pipelines
+don't recompute work they've already done. A cache can invalidate automatically
+when upstream data changes, or freeze a result so it never recomputes—and it
+can live inside a database backend or on disk. This page explains the model
+behind those choices. For step-by-step usage see the
+[Explore caching](../../getting_started/explore_caching.qmd) tutorial and the
+[Cache results by backend](../../how_to/cache_by_backend.qmd) how-to; for the
+full class matrix and how to build each cache see
+[Cache API overview](../../api_reference/cache_api_overview.qmd).
 
-## Overview
+## Lazy caching
 
-The caching system in Xorq allows you to:
-
-- **Cache results from upstream query engines** to store intermediate results to avoid recomputation
-- **Persist data locally or in remote storage**  so you can choose between in-memory, disk-based, or remote storage
-- **Automatically invalidate cache when source data changes** ensuring data freshness without manual intervention
-- **Chain caches across multiple engines** enabling the creation of complex pipelines with multiple caching layers
-
-## Core concepts
-
-### Lazy evaluation and caching
-
-Xorq operations are **lazy** by default - they don't execute until you call `.execute()`. This lazy evaluation works hand-in-hand with the caching system:
+Xorq operations are **lazy**—nothing runs until you call `.execute()`.
+Attaching `.cache(...)` to an expression adds a `CachedNode` to the expression
+graph but computes nothing on its own.
 
 ::: {.callout-note}
-The lazy nature of the `.cache` in Xorq is a deviation from Ibis [cache](https://ibis-project.org/reference/expression-tables.html#ibis.expr.types.relations.Table.cache), where calling this method eagerly executes the expression.
-
+The lazy `.cache` is a deviation from Ibis
+[cache](https://ibis-project.org/reference/expression-tables.html#ibis.expr.types.relations.Table.cache),
+where the method eagerly executes the expression.
 :::
 
-```python
-# Operations are lazy until execute() is called
-recent_batting = (
-    batting[batting.yearID > 2010]
-    .select(['playerID', 'yearID', 'teamID', 'G', 'AB', 'R', 'H'])
-)
+On `.execute()`, Xorq walks the graph bottom-up looking for `CachedNode`s. For
+each one it computes a cache key, checks storage for that key, and then either:
 
-# Execute to see results - this is when caching can be applied
-result = recent_batting.execute()
-```
+- **Cache miss**: materializes the result, writes it to storage, and proceeds as
+  if it were a hit.
+- **Cache hit**: returns a reference to the stored table (backend storage) or a
+  deferred read of the stored file (Parquet storage).
 
-### Cache keys and hashing
+The `CachedNode` is replaced with the storage result and execution continues on
+the transformed graph. Hits and misses emit
+[OpenTelemetry](https://opentelemetry.io/) trace events keyed by the cache key,
+so a pipeline run shows exactly what was reused.
 
-Xorq uses different hashing strategies to determine when cached data is still valid. Cache keys are generated using [cityhash](https://github.com/escherba/python-cityhash) based on different components depending on the cache type:
+## Why multiple cache classes? Strategy versus storage
 
-| Storage Type | Hash Components                       |
-|-------------|---------------------------------------|
-| **In-Memory** | Data bytes + Schema                   |
-| **Disk-Based** | Query plan + Schema |
-| **Remote** | Table metadata  |
+Every cache is the combination of two independent choices:
 
-Additionally, Xorq uses the last modified time of files (both disk-based and remote) to provide automatic cache invalidation when data freshness is required.
+- A **strategy** decides *how the cache key is computed*—which in turn decides
+  *when the cache invalidates*.
+- A **storage** decides *where the cached data lives*.
 
-## Cache types
+The classes you import from `xorq.caching` (`SourceCache`, `ParquetCache`,
+`SourceSnapshotCache`, …) are named combinations of these two axes. Picking a
+class is really picking one strategy and one storage.
 
-Xorq supports four types of cache, each optimized for different use cases:
+### Strategy: when the cache invalidates
 
-### SourceCache
+A **cache key** is a hex string that identifies a cached result, computed by
+hashing the expression. The two strategies differ in what goes into that hash:
 
-**SourceCache** provides automatic cache invalidation when upstream data changes:
+- **`ModificationTimeStrategy`** folds backend-specific change metadata (a row
+  count estimate, a last-altered timestamp, file mtime, a snapshot id) into the
+  key. When the source data changes, the metadata changes, the key changes, the
+  old key is no longer found, and the expression re-executes. This is what
+  "automatic invalidation" means in Xorq—not a timer or a watcher, but a key
+  that changes when its inputs change.
+- **`SnapshotStrategy`** keys on the expression's structure only—table name,
+  path, schema. The key is stable even when the underlying data changes, so the
+  first cached result is served until you delete it. Use it when you'd rather
+  serve a fixed result than pay for recomputation, like model-training inputs or
+  an expensive backfill.
 
-```{python}
-#| eval: false
-import xorq.api as xo
-from xorq.caching import SourceCache
+The exact change signal per backend (and its caveats) is tabulated in
+[Cache API overview](../../api_reference/cache_api_overview.qmd#backend-invalidation-signals).
 
-# Connect to source database
-pg = xo.postgres.connect_env()
-con = xo.connect()  
+### Storage: where the data lives
 
-# Create source storage
-storage = SourceCache.from_kwargs(source=con)
+- **`SourceStorage`** stores the result as a table inside whatever backend you
+  pass as `source`. If that backend is in-memory (DuckDB, DataFusion, Xorq) the
+  cache is an in-memory table; if it's a remote database (Postgres, Snowflake,
+  Trino) the cache is a table there.
+- **`ParquetStorage`** writes the result as a `.parquet` file on local disk
+  (default `~/.cache/xorq/parquet/`, configurable via `XORQ_CACHE_DIR`). For
+  Parquet storage the `source` backend isn't where the cache lives—it only
+  writes the file on a miss and reads it back on a hit—so the source can be
+  any backend.
+- **`ParquetTTLStorage`** extends Parquet storage with a time-to-live: a file
+  older than the TTL is treated as expired.
+- **`GCStorage`** stores the Parquet files in a GCS bucket instead of local
+  disk.
 
-# Register table from postgres and cache it
-batting = pg.table("batting")
+Calling `.cache()` with no arguments builds a `SourceCache` whose source is the
+expression's own backend.
 
-expr = batting.filter(batting.yearID == 2015)
+## Record batches and streaming
 
-# Cache the filtered data in the source backend
-cached = (
-    expr.cache(cache=storage)  # cache expression
-)
+Data moves through the cache as Arrow **record batches**—chunks of rows with a
+fixed schema, streamed one at a time by a `RecordBatchReader` rather than loaded
+whole into memory. Writing to Parquet storage streams batches from the source
+expression into the file; cross-engine transfer via `into_backend()` moves
+batches over [Arrow Flight](https://arrow.apache.org/docs/format/Flight.html);
+ingestion into a database streams batches in over
+[ADBC](https://arrow.apache.org/adbc/). The pattern is always the same: produce
+batches from one backend, consume them in another, without temp files or
+whole-table loads.
 
-# Execute the query - results will be cached
-result = xo.execute(cached)
-```
+## Chaining caches across engines
 
-**Key Features:**
+Because storage and source are decoupled, you can cache at each engine boundary
+in a multi-engine pipeline—read and filter in one backend, move the result to
+another with `into_backend()`, and cache the transferred result so the transfer
+doesn't repeat on the next run. Each `.cache()` is an independent
+strategy/storage choice, so a single pipeline can mix backend caches and
+on-disk Parquet caches.
 
-- Automatically invalidates cache when upstream data changes
-- Persistence depends on the source backend
-- Supports both remote (Snowflake, Postgres) and in-process (pandas, DuckDB) backends
-- Ideal for production pipelines where data freshness is critical
-
-### SourceSnapshotCache
-
-**SourceSnapshotCache** provides caching without automatic invalidation:
-
-```{python}
-#| eval: false
-import xorq.api as xo
-from xorq.caching import SourceSnapshotCache
-
-# Connect to source database
-pg = xo.postgres.connect_env()
-con = xo.connect()
-
-# Create snapshot storage
-storage = SourceSnapshotCache.from_kwargs(source=con)
-
-# Register table from postgres
-batting = pg.table("batting")
-expr = batting.filter(batting.yearID == 2015)
-
-# Cache data without automatic invalidation
-cached_snapshot = (
-    expr.cache(cache=storage)
-)
-```
-
-**Key Features:**
-
-- No automatic invalidation
-- Ideal for one-off analyses or when you want manual control over cache invalidation
-- Persistence depends on source backend
-- Useful for exploratory data analysis where you want to preserve intermediate results
-
-### ParquetCache
-
-**ParquetCache** is a special case of SourceCache that persists data as Parquet files:
-
-```{python}
-#| eval: false
-import xorq.api as xo
-from pathlib import Path
-from xorq.caching import ParquetCache
-
-# Connect to source database
-pg = xo.postgres.connect_env()
-con = xo.connect()
-
-# Create a storage for cached data
-cache_storage = ParquetCache.from_kwargs(source=con, base_path=Path.cwd())
-
-# Cache the results as Parquet files
-cached_awards = pg.table("awards_players").cache(cache=cache_storage)
-
-# The next execution will use the cached Parquet data
-result = cached_awards.execute()
-```
-
-**Key Features:**
-
-- Caches results as Parquet files on local disk
-- Uses source backend for writing and reading
-- Ensures durable persistence across sessions
-- Excellent for iterative development workflows
-- Supports compression and efficient columnar storage
-
-### ParquetSnapshotCache
-
-**ParquetSnapshotCache** combines Parquet file persistence with snapshot-style caching (no automatic invalidation):
-
-```{python}
-#| eval: false
-import xorq.api as xo
-from pathlib import Path
-from xorq.caching import ParquetSnapshotCache
-
-# Connect to source database
-pg = xo.postgres.connect_env()
-con = xo.connect()
-
-# Create a snapshot storage for Parquet files
-cache_storage = ParquetSnapshotCache.from_kwargs(source=con, base_path=Path.cwd())
-
-# Register table from postgres
-batting = pg.table("batting")
-expr = batting.filter(batting.yearID == 2015)
-
-# Cache the results as Parquet files without automatic invalidation
-cached_analysis = expr.cache(cache=cache_storage)
-
-# Subsequent runs will use the cached Parquet data
-result = cached_analysis.execute()
-```
-
-**Key Features:**
-
-- Caches results as Parquet files on local disk
-- **No automatic invalidation** - manual control over cache lifecycle
-- Ideal for reproducible research and analysis where you want fixed snapshots
-
-## Multi-engine caching
-
-Xorq excels at caching data across different backends using `into_backend()`:
-
-```{python}
-#| eval: false
-import xorq.api as xo
-from xorq.caching import ParquetCache
-
-# Connect to source database
-pg = xo.postgres.connect_env()
-con = xo.connect()
-
-# Register table from postgres
-batting = pg.table("batting")
-expr = batting.filter(batting.yearID == 2015)
-
-# Read from Postgres and cache in xorq backend
-awards = pg.table("awards_players").into_backend(con, "awards")
-
-# Perform operations and cache
-cached_join = (
-    expr.join(awards, ['playerID', 'yearID'])
-    .cache(cache=ParquetCache.from_kwargs(source=con))
-)
-
-# Move to DuckDB for specific operations
-ddb = xo.duckdb.connect()
-ddb_summary = cached_join.into_backend(ddb, "ddb_awards")
-```
-
-## Cache environment variables
-
-Xorq caching behavior can be configured through environment variables:
-
-```bash
-export XORQ_CACHE_DIR=~/.cache/xorq
-export XORQ_DEFAULT_RELATIVE_PATH=parquet
-export XORQ_CACHE_KEY_PREFIX=letsql_cache-
-```
-
+::: {.callout-tip}
+### Where to go next
+- [Explore caching](../../getting_started/explore_caching.qmd)—a hands-on walkthrough of hits, misses, and invalidation.
+- [Cache results by backend](../../how_to/cache_by_backend.qmd)—pick the right cache class for your source and target.
+- [Cache API overview](../../api_reference/cache_api_overview.qmd)—the full class matrix, how to build each cache, and per-backend invalidation signals.
+:::

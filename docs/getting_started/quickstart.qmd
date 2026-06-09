@@ -392,6 +392,6 @@ The entire workflow uses Xorq's deferred execution model. No computation runs un
 Continue learning:
 
 - [Your first expression](/getting_started/your_first_expression.qmd) shows you how to build expressions from scratch without templates.
-- [Understand deferred execution](/tutorials/core_tutorials/understand_deferred_execution.qmd) explains how Xorq builds computation graphs before executing them.
-- [Explore caching](/tutorials/core_tutorials/explore_caching.qmd) demonstrates how Xorq caches results to speed up your workflows.
+- [Understand deferred execution](/getting_started/understand_deferred_execution.qmd) explains how Xorq builds computation graphs before executing them.
+- [Explore caching](/getting_started/explore_caching.qmd) demonstrates how Xorq caches results to speed up your workflows.
 - [Join the community](https://discord.gg/8Kma9DhcJG) on Discord to get help and share your projects.

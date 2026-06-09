@@ -1,0 +1,89 @@
+---
+title: 'Cache API overview'
+description: "Strategy/storage matrix, how to build a cache, and backend invalidation signals for the Xorq cache classes"
+execute:
+  eval: true
+---
+
+The classes exported from `xorq.caching` are named combinations of a **strategy**
+(how the cache key is computed) and a **storage** (where the cached data lives).
+For the conceptual treatment of those two axes, see
+[Caching](../concepts/understanding_xorq/intelligent_caching_system.qmd).
+
+## Class matrix
+
+| Cache class | Strategy | Storage |
+|---|---|---|
+| [`SourceCache`](../reference/SourceCache.qmd) | `ModificationTimeStrategy` | `SourceStorage` |
+| [`SourceSnapshotCache`](../reference/SourceSnapshotCache.qmd) | `SnapshotStrategy` | `SourceStorage` |
+| [`ParquetCache`](../reference/ParquetCache.qmd) | `ModificationTimeStrategy` | `ParquetStorage` |
+| [`ParquetSnapshotCache`](../reference/ParquetSnapshotCache.qmd) | `SnapshotStrategy` | `ParquetStorage` |
+| `ParquetTTLSnapshotCache` | `SnapshotStrategy` | `ParquetTTLStorage` |
+| `GCSCache` | `ModificationTimeStrategy` | `GCStorage` |
+
+- `ModificationTimeStrategy` folds backend-specific change metadata into the key,
+  so the cache invalidates when the source data changes.
+- `SnapshotStrategy` keys on expression structure only (table name, path,
+  schema), so the first cached result is served until you delete it.
+
+## Building a cache
+
+Build any cache with `from_kwargs(...)` and attach it with `.cache(...)`. The
+keyword arguments are forwarded to the storage; the accepted arguments and their
+defaults are documented on each class's reference page (linked in the matrix
+above). The example below caches a small real dataset into the embedded
+(local DataFusion) backend with `SourceCache`, then to a local Parquet file with
+`ParquetCache`:
+
+```{python}
+import xorq.api as xo
+from xorq.caching import SourceCache, ParquetCache
+
+con = xo.connect()  # embedded DataFusion backend, runs locally
+penguins = xo.examples.penguins.fetch(backend=con)
+expr = penguins.group_by("species").agg(n=xo._.count())
+
+# Cache as a table in the source backend
+expr.cache(SourceCache.from_kwargs(source=con)).execute()
+```
+
+```{python}
+# Cache to a local Parquet file (default ~/.cache/xorq/parquet/)
+expr.cache(ParquetCache.from_kwargs(source=con)).execute()
+```
+
+`GCSCache` follows the same shape but writes to a Google Cloud Storage bucket,
+so it needs a bucket name and isn't runnable locally:
+
+```python
+from xorq.caching import GCSCache
+
+# Requires a GCS bucket reachable via gcsfs
+expr.cache(GCSCache.from_kwargs(bucket_name="my-bucket", source=con))
+```
+
+`SourceStorage` checks existence with `key in source.tables` and writes the
+result as a table named after the key. `ParquetStorage` checks whether the
+`.parquet` file exists, writing to a `.tmp` file first and atomically renaming
+on success. `ParquetTTLStorage` additionally treats a file older than its `ttl`
+as expired.
+
+## Backend invalidation signals
+
+`ModificationTimeStrategy` reads a per-backend change signal into the key hash:
+
+| Backend | Invalidation signal | ADBC ingestion | Notes |
+|---|---|---|---|
+| Postgres | `reltuples` from `pg_class` | Yes (`PgADBC`) | Estimate; may lag writes until `ANALYZE` runs |
+| Snowflake | `LAST_ALTERED` timestamp | Yes (`SnowflakeADBC`) | Updates on any DDL/DML |
+| BigQuery | `last_modified_time` from `__TABLES__` | — | |
+| DuckDB | File metadata / data bytes | No (direct register) | In-memory hashes data |
+| DataFusion / Xorq | Data bytes (in-memory) | No (direct register) | |
+| SQLite | `COUNT(*)` and `MAX(id)` (on-disk) / data bytes (in-memory) | Yes (`SQLiteADBC`) | On-disk requires an `id` column |
+| PyIceberg | Snapshot IDs | No (uses `create_table`) | Tied to Iceberg's snapshot model |
+| Deferred file reads (parquet, CSV) | inode mtime, size, number | — | |
+| Deferred URL reads (S3/GCS) | `last_modified`, `size`, `e_tag` | — | |
+| Deferred URL reads (HTTP) | `Last-Modified`, `Content-Length` | — | |
+
+For a frozen result regardless of source changes, use a snapshot variant
+(`SourceSnapshotCache`, `ParquetSnapshotCache`).

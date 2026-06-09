@@ -109,7 +109,6 @@ website:
           contents:
             - concepts/understanding_xorq/multi_engine_execution.qmd
             - concepts/understanding_xorq/intelligent_caching_system.qmd
-            - concepts/core_concepts/caching_internals.qmd
         - id: advanced-capabilities-section
           section: "Advanced capabilities"
           contents:
@@ -206,6 +205,7 @@ website:
             - id: caching-section
               section: "Caching"
               contents:
+                - api_reference/cache_api_overview.qmd
                 - reference/ParquetCache.qmd
                 - reference/ParquetSnapshotCache.qmd
                 - reference/SourceCache.qmd
