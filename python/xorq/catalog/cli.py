@@ -13,6 +13,12 @@ from types import SimpleNamespace
 
 import click
 
+from xorq.catalog import constants as catalog_constants
+from xorq.catalog.constants import (
+    ANNEX_BRANCH,
+    DEFAULT_REMOTE,
+    MAIN_BRANCH,
+)
 from xorq.cli_options import (
     cache_dir_option,
     cache_strategy_options,
@@ -276,8 +282,6 @@ def init(ctx, env_file, env_prefix, gcs, remote_url):
             ) from err
         click.echo(f"Initialized catalog at {catalog.repo_path}")
         if remote_url:
-            from xorq.catalog.constants import DEFAULT_REMOTE  # noqa: PLC0415
-
             remote = catalog.set_remote(DEFAULT_REMOTE, remote_url)
             click.echo(f"Set remote {remote.name} -> {remote_url}")
 
@@ -506,19 +510,20 @@ def default_catalog(set_name, unset):
       xorq catalog default --unset
     """
     from xorq.catalog.catalog import Catalog  # noqa: PLC0415
-    from xorq.catalog.constants import DEFAULT_CATALOG_CONFIG  # noqa: PLC0415
     from xorq.vendor.ibis.config import env_config  # noqa: PLC0415
 
     if set_name and unset:
         raise click.UsageError("--set and --unset are mutually exclusive.")
 
     if set_name:
-        DEFAULT_CATALOG_CONFIG.parent.mkdir(parents=True, exist_ok=True)
-        DEFAULT_CATALOG_CONFIG.write_text(set_name + "\n")
+        catalog_constants.DEFAULT_CATALOG_CONFIG.parent.mkdir(
+            parents=True, exist_ok=True
+        )
+        catalog_constants.DEFAULT_CATALOG_CONFIG.write_text(set_name + "\n")
         click.echo(f"Default catalog set to {set_name!r}")
     elif unset:
         try:
-            DEFAULT_CATALOG_CONFIG.unlink()
+            catalog_constants.DEFAULT_CATALOG_CONFIG.unlink()
             click.echo("Default catalog unset (reverted to 'default')")
         except FileNotFoundError:
             click.echo("No persisted default to unset.")
@@ -526,8 +531,8 @@ def default_catalog(set_name, unset):
         name = Catalog._resolve_default_name()
         if env_config.XORQ_DEFAULT_CATALOG:
             source = "env (XORQ_DEFAULT_CATALOG)"
-        elif DEFAULT_CATALOG_CONFIG.exists():
-            source = f"config ({DEFAULT_CATALOG_CONFIG})"
+        elif catalog_constants.DEFAULT_CATALOG_CONFIG.exists():
+            source = f"config ({catalog_constants.DEFAULT_CATALOG_CONFIG})"
         else:
             source = "built-in"
         click.echo(f"{name}  (source: {source})")
@@ -646,7 +651,6 @@ def set_remote(ctx, url, name, force):
       # Replace an existing remote
       xorq catalog set-remote git@github.com:me/flights-catalog.git --force
     """
-    from xorq.catalog.constants import DEFAULT_REMOTE  # noqa: PLC0415
     from xorq.catalog.exceptions import CatalogConfigurationError  # noqa: PLC0415
 
     with click_context_catalog(ctx):
@@ -978,12 +982,6 @@ def replay(
         replayer.replay(target, preserve_commits=preserve_commits)
         click.echo(f"Replayed {len(replayer.ops)} operations into {target_path}")
         if remote_url:
-            from xorq.catalog.constants import (  # noqa: PLC0415
-                ANNEX_BRANCH,
-                DEFAULT_REMOTE,
-                MAIN_BRANCH,
-            )
-
             origin = target.repo.create_remote(DEFAULT_REMOTE, remote_url)
             refspec_prefix = "+" if force else ""
             origin.push(f"{refspec_prefix}{MAIN_BRANCH}:{MAIN_BRANCH}")
@@ -2034,8 +2032,6 @@ def serve_unbound(
       # Bind a runtime parameter
       xorq catalog serve-unbound scorer --params threshold=0.5
     """
-    from functools import partial  # noqa: PLC0415
-
     import xorq.expr.relations  # noqa: PLC0415
     import xorq.flight  # noqa: PLC0415
     from xorq.caching.strategy import SnapshotStrategy  # noqa: PLC0415

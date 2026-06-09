@@ -5,6 +5,8 @@ import threading
 from collections import Counter
 from datetime import datetime
 from functools import cache, cached_property, lru_cache
+from itertools import groupby
+from operator import attrgetter
 from pathlib import Path
 from typing import Literal
 
@@ -427,9 +429,6 @@ def _get_catalog_aliases(catalog) -> tuple:
 def _build_alias_multimap(
     catalog_aliases,
 ) -> dict[str, tuple[str, ...]]:
-    from itertools import groupby  # noqa: PLC0415
-    from operator import attrgetter  # noqa: PLC0415
-
     key = attrgetter("catalog_entry.name")
     sorted_aliases = sorted(catalog_aliases, key=key)
     return {

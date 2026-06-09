@@ -33,6 +33,7 @@ from git import (
 )
 from git.exc import GitCommandError
 
+from xorq.catalog import constants as catalog_constants
 from xorq.catalog.annex import (
     LOCAL_ANNEX,
     Annex,
@@ -957,19 +958,15 @@ class Catalog:
 
     @classmethod
     def _resolve_default_name(cls) -> str:
-        from xorq.catalog.constants import (  # noqa: PLC0415
-            DEFAULT_CATALOG_CONFIG,
-            DEFAULT_CATALOG_NAME,
-        )
         from xorq.vendor.ibis.config import env_config  # noqa: PLC0415
 
         if name := env_config.XORQ_DEFAULT_CATALOG:
             return name
         try:
-            name = DEFAULT_CATALOG_CONFIG.read_text().strip()
+            name = catalog_constants.DEFAULT_CATALOG_CONFIG.read_text().strip()
         except FileNotFoundError:
-            return DEFAULT_CATALOG_NAME
-        return name or DEFAULT_CATALOG_NAME
+            return catalog_constants.DEFAULT_CATALOG_NAME
+        return name or catalog_constants.DEFAULT_CATALOG_NAME
 
     @classmethod
     def from_default(

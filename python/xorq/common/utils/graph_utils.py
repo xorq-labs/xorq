@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import defaultdict, deque
 from typing import Any, OrderedDict, Tuple
 
 import xorq.expr.relations as rel
@@ -6,6 +6,7 @@ import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.expr.operations import NamedScalarParameter
 from xorq.vendor.ibis import Expr
+from xorq.vendor.ibis.common.graph import Graph
 from xorq.vendor.ibis.expr.operations.core import Node
 
 
@@ -56,10 +57,6 @@ def gen_children_of(node: Node) -> Tuple[Node, ...]:
 
 
 def bfs(node):
-    from collections import deque  # noqa: PLC0415
-
-    from xorq.vendor.ibis.common.graph import Graph  # noqa: PLC0415
-
     queue = deque((to_node(node),))
     dct = {}
     while queue:
@@ -375,8 +372,6 @@ def get_ordered_unique_sources(nodes):
 
 
 def find_all_sources(expr):
-    import xorq.vendor.ibis.expr.operations as ops  # noqa: PLC0415
-
     node_types = (
         ops.DatabaseTable,
         ops.SQLQueryResult,

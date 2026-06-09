@@ -35,7 +35,10 @@ from xorq.expr.ml import (
 from xorq.expr.operations import _MISSING, NamedScalarParameter
 from xorq.expr.relations import (
     CachedNode,
+    FlightExpr,
+    FlightUDXF,
     HashingTag,
+    Read,
     Tag,
     register_and_transform_remote_tables,
 )
@@ -252,8 +255,6 @@ def _transform_deferred_reads(expr):
     span = trace.get_current_span()
 
     def replace_read(node, _kwargs):
-        from xorq.expr.relations import Read  # noqa: PLC0415
-
         if isinstance(node, Read):
             read_kwargs = dict(node.read_kwargs)
             span.add_event(
@@ -330,8 +331,6 @@ def execute(expr: ir.Expr, **kwargs: Any):
 
 @tracer.start_as_current_span("_remove_tag_nodes")
 def _remove_tag_nodes(expr):
-    from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
-
     def replacer(node, kwargs):
         if isinstance(node, Tag):
             while isinstance(node, Tag):
@@ -347,7 +346,6 @@ def _remove_tag_nodes(expr):
 @tracer.start_as_current_span("_remove_non_hashing_tag_nodes")
 def _remove_non_hashing_tag_nodes(expr):
     """Strip Tag nodes but preserve HashingTag nodes during hash computation."""
-    from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
 
     def replacer(node, kwargs):
         match node:
@@ -418,8 +416,6 @@ def _transform_expr(expr, params=None, **kwargs):
 
 
 def _pandas_execute(con, expr: ir.Expr, **kwargs):
-    from xorq.expr.relations import FlightExpr, FlightUDXF  # noqa: PLC0415
-
     span = trace.get_current_span()
 
     node = expr.op()
@@ -459,8 +455,6 @@ def to_pyarrow_batches(
     results
         RecordBatchReader
     """
-    from xorq.expr.relations import FlightExpr, FlightUDXF  # noqa: PLC0415
-
     span = trace.get_current_span()
 
     if isinstance(expr.op(), (FlightExpr, FlightUDXF)):
