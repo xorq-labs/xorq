@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780951892903,
+  "lastUpdate": 1781009682520,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -17094,6 +17094,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.009184197967627808",
             "extra": "mean: 37.19995886206596 msec\nrounds: 29"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2cc6a7f45b952dff5ff88c34a8b9567047a71639",
+          "message": "perf(dasher): replace fqn() imports with string literals (#2053)\n\n## Summary\n- Replace every `fqn(SomeClass)` call with its pre-computed string\nliteral in a module-level `_EXTRA_RULES` tuple, eliminating heavy\nimports of numpy, pandas, `xorq.expr.relations`, and the ibis\nexpression/operations hierarchy\n- `fqn()` just returns `f\"{typ.__module__}.{typ.__qualname__}\"` — the\nstrings are static and known ahead of time\n- Hoist cheap deferred imports (`xorq_dasher.rules.expr`,\n`xorq.common.utils.inspect_utils`, `urllib.request`, `urllib.error`,\n`yaml12`) to module level across `_gap_rules.py`, `_opaque.py`,\n`_paths.py`, and `_relations.py` — these add <1ms since they're already\nin `sys.modules` or trivially small\n- Remove now-unused top-level `import operator` and `import toolz`, and\ndeduplicate the `BuiltinFunctionType`/`BuiltinMethodType` entry (same\ntype in CPython)\n\n## Impact\n`import xorq.common.utils.dasher` goes from **~2,050ms to ~75ms** (27x\nfaster).\n\nThe previous `_build_extra_rules()` function imported\n`xorq.expr.relations.Read` at call time, which transitively pulled in\nthe entire DataFusion backend, all SQL compilers/dialects (sqlglot),\npandas, the full ibis expression hierarchy, and the OpenTelemetry SDK.\nThe rules are now a module-level `_EXTRA_RULES` tuple with\nstring-literal keys, so no heavy imports are needed.\n\n## Test plan\n- [x] `from xorq.common.utils.dasher import HASHER` succeeds\n- [x] 67/68 dasher tests pass (1 pre-existing failure unrelated to this\nchange)\n- [x] Pre-commit hooks pass (ruff check + ruff format)\n- [x] Import time verified with `python -X importtime`\n- [x] `test_extra_rules_fqn_strings` drift guard validates every\nhardcoded string against `fqn(cls)` and checks set-equality with\n`_EXTRA_RULES`\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-06-09T14:50:20+02:00",
+          "tree_id": "70004f2b5ec68e8ea61b3f728c4f784646ec6fc1",
+          "url": "https://github.com/xorq-labs/xorq/commit/2cc6a7f45b952dff5ff88c34a8b9567047a71639"
+        },
+        "date": 1781009678351,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 11.20986429854992,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004448820889497147",
+            "extra": "mean: 89.207145900005 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.761152344156841,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04812668977761872",
+            "extra": "mean: 362.1676298000011 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.8101379845583667,
+            "unit": "iter/sec",
+            "range": "stddev: 0.21195160403686403",
+            "extra": "mean: 1.2343576267999992 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.7356328401328778,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05124085233068255",
+            "extra": "mean: 365.5461308000042 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.951320333919014,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0578504559301514",
+            "extra": "mean: 338.8313998000058 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.415472953176989,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008346110750607046",
+            "extra": "mean: 292.7852200000075 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 176.29655578159336,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0114468172463804",
+            "extra": "mean: 5.672260558730707 msec\nrounds: 315"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 6.619843936781885,
+            "unit": "iter/sec",
+            "range": "stddev: 0.051402996440307804",
+            "extra": "mean: 151.0609630000026 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 33.721216475270424,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005917529460432307",
+            "extra": "mean: 29.654920685715883 msec\nrounds: 35"
           }
         ]
       }
