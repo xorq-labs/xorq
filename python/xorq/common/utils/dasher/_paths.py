@@ -17,6 +17,8 @@ import urllib.request
 
 import yaml12
 
+from xorq.common.utils.file_utils import normalize_read_path_stat
+
 from xorq.common.constants import REMOTE_SCHEMES
 
 
@@ -73,9 +75,7 @@ def _normalize_path_stat(path: str, **kwargs) -> tuple:
         )
     p = pathlib.Path(path)
     if p.exists():
-        from xorq.common.utils import defer_utils  # noqa: PLC0415
-
-        return defer_utils.normalize_read_path_stat(p)
+        return normalize_read_path_stat(p)
     raise FileNotFoundError(f"local path does not exist: {path!r}")
 
 

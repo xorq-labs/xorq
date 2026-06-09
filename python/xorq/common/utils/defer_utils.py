@@ -10,6 +10,7 @@ import toolz
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.xorq_datafusion import connect as xo_connect
 from xorq.common.utils.file_utils import file_digest
+from xorq.common.utils.file_utils import normalize_read_path_stat
 from xorq.common.utils.inspect_utils import (
     get_arguments,
 )

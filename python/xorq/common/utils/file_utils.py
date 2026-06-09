@@ -76,3 +76,19 @@ def file_digest(
         raise ValueError(f"Don't know how to handle type {type(path)}")
     else:
         return _manual_file_digest(path, digest, size=size)
+
+
+def normalize_read_path_md5sum(path):
+    return (("content-md5sum", file_digest(path)),)
+
+
+def normalize_read_path_stat(path):
+    stat = path.stat()
+    return tuple(
+        (attrname, getattr(stat, attrname))
+        for attrname in (
+            "st_mtime",
+            "st_size",
+            "st_ino",
+        )
+    )

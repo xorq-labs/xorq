@@ -62,7 +62,7 @@ from xorq.common.utils.dasher._opaque import (
     _normalize_computed_kwargs_expr,
     _parent_token,
 )
-from xorq.common.utils.defer_utils import normalize_read_path_stat
+from xorq.common.utils.file_utils import normalize_read_path_stat
 from xorq.common.utils.tests._test_helpers import BombHasher, MockOp, Probe
 from xorq.common.utils.toolz_utils import curry as xo_curry
 from xorq.expr.udf import agg, make_pandas_expr_udf
