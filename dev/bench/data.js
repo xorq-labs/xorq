@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781013275791,
+  "lastUpdate": 1781037006014,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -17268,6 +17268,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0067107297981676564",
             "extra": "mean: 33.6140431290291 msec\nrounds: 31"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1f46392ec975d117717f5842e27502a910de3948",
+          "message": "docs: dedup tutorials, split caching docs, clean stale artifacts (#2027) (#2050)\n\nPart of #2023. Closes #2027.\n\nThe docs had drifted from the issue's described layout, so a couple of\ntargets were remapped to today's structure (noted below).\n\n## 1. Dedup tutorials\n\n`tutorials/core_tutorials/{explore_caching,switch_backends,understand_deferred_execution}.qmd`\nwere near-identical orphans of the `getting_started/` versions (only\nrelative links differed) and weren't in the nav. Deleted; the four\ninbound links now point at `getting_started/`.\n\n## 2. Split the caching page (strategy vs reference)\n`concepts/core_concepts/caching_internals.qmd` was half Explanation,\nhalf Reference. Since a conceptual caching page already exists\n(`concepts/understanding_xorq/intelligent_caching_system.qmd`):\n- conceptual prose folded into `intelligent_caching_system.qmd`,\nreframed around **strategy vs storage**;\n- the class matrix, constructor arguments, and per-backend invalidation\nsignals moved to a new **`api_reference/caching_classes.qmd`** (the\n`reference/` tree is gitignored/auto-generated, so the hand-authored\npage lives under the tracked `api_reference/`);\n- `caching_internals.qmd` deleted, nav + links updated.\n\nConstructor args/signals were pulled from the live `xorq.caching`\nsource, not the docstrings (the `ParquetCache` docstring wrongly listed\n`path`; the real params are `relative_path`/`base_path`).\n\n## 3. Inline-code-as-tutorial\nThe issue's `docs/concepts.qmd` no longer exists; the symptom now lives\nin `intelligent_caching_system.qmd`. Stripped its inline\n`SourceCache`/`ParquetCache`/Snapshot demos (0 code cells now), kept the\nprose, added callouts to the tutorial, the `cache_by_backend` how-to,\nand the new reference page.\n\n## 4. Stale artifacts\nRemoved the `.parquet` files and `how_to/cache/` tree. No\n`.parquet`/`.csv` left under `how_to/`.\n\n## Verification\n- `quarto render` of the changed pages passes; cross-links resolve to\n`.html` including the `#backend-invalidation-signals` anchor.\n- grep confirms no broken links to any deleted file in source\n`.qmd`/`.yml`.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-09T16:26:31-04:00",
+          "tree_id": "306eb6fe903b37ccbd6fd81e74c4ea1cc8ac7aea",
+          "url": "https://github.com/xorq-labs/xorq/commit/1f46392ec975d117717f5842e27502a910de3948"
+        },
+        "date": 1781037002892,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.029520777235142,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027513714660284443",
+            "extra": "mean: 124.54043369999681 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.8826064036367054,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0069638869561398946",
+            "extra": "mean: 346.90826979999656 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7338134409722092,
+            "unit": "iter/sec",
+            "range": "stddev: 0.21343345772309166",
+            "extra": "mean: 1.3627441855999904 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.4531888934964834,
+            "unit": "iter/sec",
+            "range": "stddev: 0.057125591236479624",
+            "extra": "mean: 407.63269499998387 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.3006631820826873,
+            "unit": "iter/sec",
+            "range": "stddev: 0.057479571502385064",
+            "extra": "mean: 434.65727960002596 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.449700716535959,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05448721139844756",
+            "extra": "mean: 408.21313119998877 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 196.21734633653801,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005066352448784436",
+            "extra": "mean: 5.096389379789446 msec\nrounds: 287"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.59434246856569,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10176966700360719",
+            "extra": "mean: 217.65900275000405 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 21.411575018992725,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015192917163497847",
+            "extra": "mean: 46.70371045161177 msec\nrounds: 31"
           }
         ]
       }
