@@ -13,6 +13,13 @@ import contextvars
 import pathlib
 import re
 
+from xorq_dasher.rules.expr import (
+    normalize_cached_node,
+    normalize_databasetable,
+    normalize_memory_databasetable,
+    normalize_remote_table,
+)
+
 from xorq.common.utils.dasher._gap_rules import normalize_ibis_schema
 from xorq.common.utils.dasher._opaque import _MISSING, _rename_unbound_xorq
 from xorq.common.utils.dasher._paths import (
@@ -104,9 +111,6 @@ def _normalize_duckdb_databasetable_xorq(dt):
     """
 
     import sqlglot as sg  # noqa: PLC0415
-    from xorq_dasher.rules.expr import (  # noqa: PLC0415
-        normalize_memory_databasetable,
-    )
 
     name = sg.table(dt.name, quoted=dt.source.compiler.quoted).sql(
         dialect=dt.source.name
@@ -157,10 +161,6 @@ def _normalize_datafusion_databasetable_xorq(dt):
     ``test_parquet_cache_storage``). Mirror the legacy xorq behavior: extract
     file paths from the plan and stat them.
     """
-
-    from xorq_dasher.rules.expr import (  # noqa: PLC0415
-        normalize_memory_databasetable,
-    )
 
     table = dt.source.con.table(dt.name)
     ep_str = str(table.execution_plan())
@@ -216,12 +216,6 @@ def _databasetable_dispatcher(dt):
 
 
 def _dispatch_databasetable(dt):
-    from xorq_dasher.rules.expr import (  # noqa: PLC0415
-        normalize_cached_node,
-        normalize_databasetable,
-        normalize_remote_table,
-    )
-
     from xorq.expr.relations import (  # noqa: PLC0415
         CachedNode,
         FlightExpr,

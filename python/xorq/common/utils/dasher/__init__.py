@@ -25,10 +25,8 @@ from __future__ import annotations
 import contextvars
 import functools
 import inspect
-import operator
 from typing import TYPE_CHECKING
 
-import toolz
 from xorq_dasher import DEFAULT_HASHER, Hasher, fqn
 
 
@@ -100,50 +98,31 @@ from xorq.common.utils.dasher._relations import (  # noqa: E402, F401
 )
 
 
-def _build_extra_rules():
-    import types as _types  # noqa: PLC0415
+_EXTRA_RULES: tuple[tuple[str, object], ...] = (
+    ("functools._lru_cache_wrapper", normalize_lru_cache),
+    ("functools.partial", normalize_functools_partial),
+    ("builtins.builtin_function_or_method", normalize_builtin_callable),
+    ("builtins.slice", normalize_slice),
+    ("builtins.property", normalize_property),
+    ("toolz.functoolz.Compose", normalize_toolz_compose),
+    ("toolz.functoolz.curry", normalize_toolz_curry),
+    ("toolz.functoolz.excepts", normalize_toolz_excepts),
+    ("operator.methodcaller", normalize_methodcaller),
+    (
+        "xorq.vendor.ibis.expr.operations.relations.DatabaseTable",
+        _databasetable_dispatcher,
+    ),
+    ("xorq.expr.relations.Read", _normalize_read_xorq),
+    ("xorq.vendor.ibis.expr.types.core.Expr", _normalize_expr_xorq),
+    ("xorq.vendor.ibis.expr.schema.Schema", normalize_ibis_schema),
+    ("xorq.vendor.ibis.expr.operations.udf.ScalarUDF", _normalize_scalar_udf_xorq),
+    ("numpy.dtype", normalize_numpy_dtype),
+    ("pandas.core.series.Series", normalize_pandas_series),
+    ("pandas.core.frame.DataFrame", normalize_pandas_dataframe),
+    ("xorq.common.utils.toolz_utils.curry", normalize_toolz_curry),
+)
 
-    import numpy as np  # noqa: PLC0415
-    import pandas as pd  # noqa: PLC0415
-
-    from xorq.expr.relations import Read  # noqa: PLC0415
-    from xorq.vendor.ibis.expr.operations.relations import (  # noqa: PLC0415
-        DatabaseTable,
-        Schema,
-    )
-    from xorq.vendor.ibis.expr.operations.udf import ScalarUDF  # noqa: PLC0415
-    from xorq.vendor.ibis.expr.types import Expr  # noqa: PLC0415
-
-    rules = [
-        (fqn(functools._lru_cache_wrapper), normalize_lru_cache),
-        (fqn(functools.partial), normalize_functools_partial),
-        (fqn(_types.BuiltinFunctionType), normalize_builtin_callable),
-        (fqn(_types.BuiltinMethodType), normalize_builtin_callable),
-        (fqn(slice), normalize_slice),
-        (fqn(property), normalize_property),
-        (fqn(toolz.functoolz.Compose), normalize_toolz_compose),
-        (fqn(toolz.curry), normalize_toolz_curry),
-        (fqn(toolz.functoolz.excepts), normalize_toolz_excepts),
-        (fqn(operator.methodcaller), normalize_methodcaller),
-        (fqn(DatabaseTable), _databasetable_dispatcher),
-        (fqn(Read), _normalize_read_xorq),
-        (fqn(Expr), _normalize_expr_xorq),
-        (fqn(Schema), normalize_ibis_schema),
-        (fqn(ScalarUDF), _normalize_scalar_udf_xorq),
-        (fqn(np.dtype), normalize_numpy_dtype),
-        (fqn(pd.Series), normalize_pandas_series),
-        (fqn(pd.DataFrame), normalize_pandas_dataframe),
-    ]
-    try:
-        from xorq.common.utils.toolz_utils import curry as xo_curry  # noqa: PLC0415
-
-        rules.append((fqn(xo_curry), normalize_toolz_curry))
-    except ImportError:
-        pass
-    return tuple(rules)
-
-
-HASHER: Hasher = DEFAULT_HASHER.override(*_build_extra_rules())
+HASHER: Hasher = DEFAULT_HASHER.override(*_EXTRA_RULES)
 
 
 def _install_per_call_memos():
