@@ -10,6 +10,7 @@ import toolz
 
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.xorq_datafusion import connect as xo_connect
+from xorq.common.utils.file_utils import normalize_read_path_stat
 from xorq.common.utils.inspect_utils import (
     get_arguments,
 )
@@ -50,26 +51,6 @@ def make_read_kwargs(f, *args, **kwargs):
     }
     tpl = tuple(read_kwargs.items()) + tuple(kwargs.items())
     return tpl
-
-
-def normalize_read_path_md5sum(path):
-    from xorq.common.utils.file_utils import file_digest  # noqa: PLC0415
-
-    return (("content-md5sum", file_digest(path)),)
-
-
-def normalize_read_path_stat(path):
-    stat = path.stat()
-    tpls = tuple(
-        (attrname, getattr(stat, attrname))
-        for attrname in (
-            "st_mtime",
-            "st_size",
-            # mtime, size <?-?> md5sum
-            "st_ino",
-        )
-    )
-    return tpls
 
 
 @toolz.curry

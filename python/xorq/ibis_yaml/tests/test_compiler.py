@@ -25,10 +25,8 @@ from xorq.caching import (
 from xorq.catalog.backend import GitBackend
 from xorq.catalog.catalog import Catalog
 from xorq.common.utils.dasher import tokenize
-from xorq.common.utils.defer_utils import (
-    deferred_read_parquet,
-    normalize_read_path_md5sum,
-)
+from xorq.common.utils.defer_utils import deferred_read_parquet
+from xorq.common.utils.file_utils import normalize_read_path_md5sum
 from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.conftest import array_types_df
