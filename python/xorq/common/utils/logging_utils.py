@@ -11,18 +11,12 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from opentelemetry.trace import SpanContext, StatusCode
-
-
-try:
-    from enum import StrEnum
-except ImportError:
-    from strenum import StrEnum
-
 import structlog
 from attr import field, frozen
 from attr.validators import instance_of
+from opentelemetry.trace import SpanContext, StatusCode
 
+from xorq.common.enums import RunLogFile
 from xorq.common.utils.env_utils import EnvConfigable, env_templates_dir
 
 
@@ -162,11 +156,6 @@ if _log_level_str != "OFF":
 #           meta.json          # summary written on completion
 #
 # The run ID is a UUID4, unique across all runs.
-
-
-class RunLogFile(StrEnum):
-    LOG = "run.jsonl"
-    META = "meta.json"
 
 
 def get_xorq_runs_dir() -> Path:

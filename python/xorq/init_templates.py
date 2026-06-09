@@ -1,10 +1,5 @@
+from xorq.common.compat import StrEnum
 from xorq.common.utils import classproperty
-
-
-try:
-    from enum import StrEnum
-except ImportError:
-    from strenum import StrEnum
 
 
 default_branch = "main"

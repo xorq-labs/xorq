@@ -6,16 +6,18 @@ from click.testing import CliRunner
 
 import xorq.api as xo
 from xorq.catalog.backend import GitBackend
-from xorq.catalog.bind import CatalogTag, bind
+from xorq.catalog.bind import bind
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
 from xorq.catalog.composer import ExprComposer
+from xorq.catalog.enums import CatalogTag
 from xorq.catalog.replay import Replayer
+from xorq.catalog.tests.conftest import _replay_rebuild
 from xorq.common.utils.graph_utils import walk_nodes
-from xorq.expr.relations import HashingTag
+from xorq.expr.builders import TagHandler, register_tag_handler
+from xorq.expr.relations import HashingTag, Tag
+from xorq.ibis_yaml.enums import ExprKind
 from xorq.vendor.ibis.expr import operations as ops
-
-from .conftest import _replay_rebuild
 
 
 @pytest.fixture
@@ -49,7 +51,6 @@ def test_rebuild_produces_consistent_target(source_catalog, target_path):
     # Execution-equivalence: every aliased entry must execute to the same data
     # in source and target. Structural checks (schema/recipe/hash) can line up
     # while a broken rebuild silently returns wrong rows.
-    from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
 
     for alias in ("my-source", "my-transform", "bound1"):
         src_entry = catalog.get_catalog_entry(alias, maybe_alias=True)
@@ -270,11 +271,9 @@ def test_rebuild_source_transform_code_composition(source_catalog, target_path):
     assert recovered.code == "source.select('user_id')"
 
 
-def test_rebuild_preserves_outer_builder_wrapping(tmpdir, saved_registry):
-    from xorq.expr.builders import TagHandler, register_tag_handler  # noqa: PLC0415
-    from xorq.expr.relations import Tag  # noqa: PLC0415
-    from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
-
+def test_rebuild_preserves_outer_builder_wrapping(
+    tmp_path: Path, saved_registry: None
+) -> None:
     register_tag_handler(
         TagHandler(
             tag_names=("test_rebuild_builder",),
@@ -286,7 +285,7 @@ def test_rebuild_preserves_outer_builder_wrapping(tmpdir, saved_registry):
     # transparent to dask.tokenize, so composed.tag(...) and composed hash
     # to the same entry name; if bound were pre-added, the Tag-wrapped
     # expression would collide.
-    repo = Catalog.init_repo_path(Path(tmpdir).joinpath("src"))
+    repo = Catalog.init_repo_path(tmp_path / "src")
     catalog = Catalog(backend=GitBackend(repo=repo))
     source_expr = xo.memtable({"user_id": [1, 2, 3], "amount": [10.0, 20.0, 30.0]})
     source_entry = catalog.add(source_expr, aliases=("my-source",))
@@ -299,9 +298,7 @@ def test_rebuild_preserves_outer_builder_wrapping(tmpdir, saved_registry):
     builder_expr = composed.tag("test_rebuild_builder")
     catalog.add(builder_expr, aliases=("builder1",))
 
-    target = _replay_rebuild(
-        catalog, Path(tmpdir).joinpath("tgt"), on_unrebuilt_builder="warn"
-    )
+    target = _replay_rebuild(catalog, tmp_path / "tgt", on_unrebuilt_builder="warn")
     new_builder = target.get_catalog_entry("builder1", maybe_alias=True)
     new_source = target.get_catalog_entry("my-source", maybe_alias=True)
     new_transform = target.get_catalog_entry("my-transform", maybe_alias=True)

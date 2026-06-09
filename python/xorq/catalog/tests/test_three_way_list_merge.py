@@ -18,10 +18,10 @@ import io
 import pytest
 
 from xorq.catalog.catalog import _parse_catalog_yaml_blob, _three_way_list_merge
-from xorq.catalog.constants import CatalogInfix
+from xorq.catalog.enums import CatalogInfix
 
 
-def test_empty_inputs():
+def test_empty_inputs() -> None:
     assert _three_way_list_merge([], [], []) == []
 
 

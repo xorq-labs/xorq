@@ -1,8 +1,14 @@
+from __future__ import annotations
+
 import xorq.vendor.ibis as ibis
-from xorq.ibis_yaml.common import RefEnum, RegistryEnum
+import xorq.vendor.ibis.expr.types as ir
+from xorq.ibis_yaml.compiler import YamlExpressionTranslator
+from xorq.ibis_yaml.enums import RefEnum, RegistryEnum
 
 
-def test_window_function_roundtrip(compiler, t):
+def test_window_function_roundtrip(
+    compiler: YamlExpressionTranslator, t: ir.Table
+) -> None:
     expr = t.select(
         [
             t.c.mean()

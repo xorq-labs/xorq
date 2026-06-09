@@ -4,14 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
-try:
-    from enum import StrEnum
-except ImportError:
-    from strenum import StrEnum
-
 import xorq.api as xo
 import xorq.expr.datatypes as dt
+from xorq.common.compat import StrEnum
 
 
 sklearn = pytest.importorskip("sklearn")

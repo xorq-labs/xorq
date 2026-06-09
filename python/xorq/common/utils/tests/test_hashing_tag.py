@@ -7,8 +7,8 @@ from xorq.common.utils.node_utils import (
     find_by_expr_hash,
 )
 from xorq.expr.relations import HashingTag, Tag
-from xorq.ibis_yaml.common import RefEnum, RegistryEnum
 from xorq.ibis_yaml.compiler import YamlExpressionTranslator
+from xorq.ibis_yaml.enums import RefEnum, RegistryEnum
 from xorq.vendor import ibis
 
 

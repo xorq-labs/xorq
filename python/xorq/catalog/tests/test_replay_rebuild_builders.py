@@ -15,14 +15,21 @@ import pytest
 
 import xorq.api as xo
 from xorq.catalog.backend import GitBackend
-from xorq.catalog.bind import CatalogTag, bind
+from xorq.catalog.bind import bind
 from xorq.catalog.catalog import Catalog
+from xorq.catalog.enums import CatalogTag
 from xorq.catalog.replay import Replayer
+from xorq.catalog.tests.conftest import _replay_rebuild
 from xorq.common.utils.graph_utils import walk_nodes
+from xorq.expr.ml.enums import FittedPipelineTagKey
+from xorq.expr.ml.pipeline_lib import (
+    _FITTED_PIPELINE_REEMIT_TAGS,
+    FittedPipeline,
+    Pipeline,
+)
 from xorq.expr.relations import HashingTag
+from xorq.ibis_yaml.enums import ExprKind
 from xorq.vendor.ibis.expr import operations as ops
-
-from .conftest import _replay_rebuild
 
 
 # -- FittedPipeline dispatch-table coverage (no catalog integration needed) --
@@ -31,34 +38,29 @@ from .conftest import _replay_rebuild
 @pytest.mark.parametrize(
     "tag_key_name, method_name",
     [
-        ("TRANSFORM", "transform"),
-        ("PREDICT", "predict"),
-        ("PREDICT_PROBA", "predict_proba"),
-        ("DECISION_FUNCTION", "decision_function"),
-        ("FEATURE_IMPORTANCES", "feature_importances"),
+        pytest.param("TRANSFORM", "transform", id="transform"),
+        pytest.param("PREDICT", "predict", id="predict"),
+        pytest.param("PREDICT_PROBA", "predict_proba", id="predict_proba"),
+        pytest.param("DECISION_FUNCTION", "decision_function", id="decision_function"),
+        pytest.param(
+            "FEATURE_IMPORTANCES", "feature_importances", id="feature_importances"
+        ),
     ],
 )
-def test_fitted_pipeline_reemit_table_coverage(tag_key_name, method_name):
+def test_fitted_pipeline_reemit_table_coverage(
+    tag_key_name: str, method_name: str
+) -> None:
     """Every reemit entry point names a real FittedPipeline method."""
     pytest.importorskip("sklearn")
-    from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: PLC0415
-    from xorq.expr.ml.pipeline_lib import (  # noqa: PLC0415
-        _FITTED_PIPELINE_REEMIT_TAGS,
-        FittedPipeline,
-    )
 
     tag_key = FittedPipelineTagKey[tag_key_name]
     assert tag_key in _FITTED_PIPELINE_REEMIT_TAGS
     assert callable(getattr(FittedPipeline, method_name))
 
 
-def test_fitted_pipeline_training_reserved_from_reemit():
+def test_fitted_pipeline_training_reserved_from_reemit() -> None:
     """TRAINING and ALL_STEPS are interior tags, not reemit entry points."""
     pytest.importorskip("sklearn")
-    from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: PLC0415
-    from xorq.expr.ml.pipeline_lib import (  # noqa: PLC0415
-        _FITTED_PIPELINE_REEMIT_TAGS,
-    )
 
     assert FittedPipelineTagKey.TRAINING not in _FITTED_PIPELINE_REEMIT_TAGS
     assert FittedPipelineTagKey.ALL_STEPS not in _FITTED_PIPELINE_REEMIT_TAGS
@@ -329,9 +331,6 @@ def test_rebuild_fitted_pipeline_roundtrip_predictions_match(tmpdir):
     from sklearn.linear_model import LinearRegression  # noqa: PLC0415
     from sklearn.pipeline import make_pipeline  # noqa: PLC0415
     from sklearn.preprocessing import StandardScaler  # noqa: PLC0415
-
-    from xorq.expr.ml.pipeline_lib import Pipeline  # noqa: PLC0415
-    from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
 
     train = xo.memtable(
         {

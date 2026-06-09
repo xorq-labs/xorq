@@ -1,18 +1,17 @@
-from enum import StrEnum
+from __future__ import annotations
+
 from functools import reduce
 
-from xorq.common.utils.graph_utils import replace_unbound
-from xorq.expr.relations import RemoteTable, gen_name
+from xorq.catalog.enums import CatalogTag
+from xorq.common.utils.graph_utils import replace_nodes, replace_unbound, walk_nodes
+from xorq.expr.relations import HashingTag, RemoteTable, gen_name
 from xorq.ibis_yaml.enums import ExprKind
+from xorq.vendor.ibis.expr.schema import Schema
 
 
-class CatalogTag(StrEnum):
-    SOURCE = "catalog-source"
-    TRANSFORM = "catalog-transform"
-    CODE = "catalog-code"
-
-
-def _get_transform_schema_issues(source_schema, transform_schema):
+def _get_transform_schema_issues(
+    source_schema: Schema, transform_schema: Schema
+) -> tuple[dict, dict]:
     bads = {
         col: (source_typ, transform_typ)
         for col, transform_typ in transform_schema.items()
@@ -229,9 +228,7 @@ def fuse_catalog_source(expr):
     can execute as one query.  This applies to both database-backed sources
     (DatabaseTable / DatabaseTableView) and deferred reads (Read).
     """
-    from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
     from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
-    from xorq.expr.relations import HashingTag  # noqa: PLC0415
 
     with tracer.start_as_current_span("catalog.fuse") as span:
         source_tags = tuple(
@@ -251,8 +248,6 @@ def fuse_catalog_source(expr):
             span.set_attribute("fused", False)
             span.set_attribute("reason", "not_fusable")
             return expr
-
-        from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
 
         catalog_tags_set = frozenset(CatalogTag)
 

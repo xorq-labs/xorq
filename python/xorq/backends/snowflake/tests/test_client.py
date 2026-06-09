@@ -2,7 +2,7 @@ import pytest
 import toolz
 
 import xorq.api as xo
-from xorq.backends.snowflake import SnowflakeAuthenticator
+from xorq.backends.snowflake.enums import SnowflakeAuthenticator
 from xorq.backends.snowflake.tests.conftest import (
     inside_temp_schema,
 )

@@ -25,6 +25,7 @@ from xorq.caching import (
     ParquetTTLSnapshotCache,
     SourceCache,
 )
+from xorq.catalog.enums import CatalogTag
 from xorq.common.utils.attr_utils import (
     convert_sorted_kwargs_tuple,
     validate_kwargs_tuple,
@@ -50,7 +51,7 @@ from xorq.expr.ml.fit_lib import (
 from xorq.expr.ml.structer import (
     Structer,
 )
-from xorq.expr.relations import Tag
+from xorq.expr.relations import HashingTag, Tag
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.expr.types.core import Expr
 
@@ -1042,9 +1043,6 @@ class FittedPipeline:
         original predict/transform input is not recoverable from the
         tag subtree alone.
         """
-        from xorq.catalog.bind import CatalogTag  # noqa: PLC0415
-        from xorq.expr.relations import HashingTag  # noqa: PLC0415
-
         tag_key = FittedPipelineTagKey(tag_node.metadata["tag"])
         if tag_key not in _FITTED_PIPELINE_REEMIT_TAGS:
             raise RuntimeError(

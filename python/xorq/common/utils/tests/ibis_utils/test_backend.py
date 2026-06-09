@@ -7,7 +7,7 @@ import toolz
 from xorq.backends.datafusion import Backend as DatafusionBackend
 from xorq.backends.postgres import Backend as PostgresBackend
 from xorq.backends.snowflake import Backend as SnowflakeBackend
-from xorq.backends.snowflake import SnowflakeAuthenticator
+from xorq.backends.snowflake.enums import SnowflakeAuthenticator
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.common.utils.env_utils import maybe_substitute_env_var
 from xorq.common.utils.ibis_utils import (

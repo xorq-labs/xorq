@@ -31,26 +31,15 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+import warnings
 from contextlib import contextmanager, nullcontext
 from functools import cached_property, partial
-
-
-try:
-    from enum import StrEnum
-except ImportError:
-    from strenum import StrEnum
 
 from attr import field, frozen
 from attr.validators import deep_iterable, instance_of, optional
 
-from xorq.catalog.constants import CATALOG_YAML_NAME, CatalogInfix
-
-
-class OnUnrebuiltBuilder(StrEnum):
-    """Policy when a builder tag has no rebuild protocol registered."""
-
-    RAISE = "raise"
-    WARN = "warn"
+from xorq.catalog.constants import CATALOG_YAML_NAME
+from xorq.catalog.enums import CatalogInfix, CatalogTag, OnUnrebuiltBuilder
 
 
 @frozen
@@ -141,9 +130,6 @@ def _rebuild_subexpr(expr, *, from_catalog, to_catalog, ctx):
 
     Returns *expr* unchanged when no rebuildable tag is found.
     """
-    import warnings  # noqa: PLC0415
-
-    from xorq.catalog.bind import CatalogTag  # noqa: PLC0415
     from xorq.catalog.composer import ExprComposer  # noqa: PLC0415
     from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
     from xorq.expr.builders import (  # noqa: PLC0415

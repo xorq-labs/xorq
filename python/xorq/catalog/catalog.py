@@ -47,8 +47,8 @@ from xorq.catalog.constants import (
     MAIN_BRANCH,
     METADATA_APPEND,
     PREFERRED_SUFFIX,
-    CatalogInfix,
 )
+from xorq.catalog.enums import CatalogInfix
 from xorq.catalog.exceptions import CatalogConfigurationError, CatalogPushError
 from xorq.catalog.expr_utils import (
     build_expr_context,
@@ -956,7 +956,7 @@ class Catalog:
         )
 
     @classmethod
-    def _resolve_default_name(cls):
+    def _resolve_default_name(cls) -> str:
         from xorq.catalog.constants import (  # noqa: PLC0415
             DEFAULT_CATALOG_CONFIG,
             DEFAULT_CATALOG_NAME,

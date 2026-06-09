@@ -29,6 +29,7 @@ from xorq.cli_options import (
     sync_option,
     unbind_options,
 )
+from xorq.ibis_yaml.enums import DumpFiles, ExprKind
 
 
 def click_handler(e):
@@ -727,8 +728,6 @@ def schema(ctx, name, as_json):
       # Machine-readable metadata
       xorq catalog schema penguins-prod --json
     """
-    from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
-
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         entry = _get_catalog_entry(catalog, name)
@@ -798,8 +797,6 @@ def show(ctx, name, as_json, as_raw):
         if as_json:
             click.echo(json.dumps(entry.sidecar_metadata, indent=2, default=str))
             return
-
-        from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
 
         meta = entry.metadata
         type_label = {
@@ -1048,7 +1045,6 @@ def _get_catalog_entry(catalog, name):
 def _eval_entry(catalog_entry, code, instream=None, cache_dir=None):
     """Evaluate a single catalog entry to an expression."""
     from xorq.catalog.bind import _eval_code, _make_source_expr  # noqa: PLC0415
-    from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
 
     match catalog_entry.kind:
         case ExprKind.UnboundExpr:
@@ -1195,8 +1191,6 @@ def _assert_requirements_identical(entry_reqs):
 
 
 def _stage_bundle_into_build(bundle, build_path):
-    from xorq.ibis_yaml.enums import DumpFiles  # noqa: PLC0415
-
     for w in bundle.wheel_paths:
         dst = build_path / w.name
         if not dst.exists():
@@ -1222,7 +1216,6 @@ def _extract_wheel(zf, member, harvest_dir, seen_wheels, entry_name):
 
 
 def _harvest_entry_from_zip(zf, harvest_dir, entry_name=None, seen_wheels=None):
-    from xorq.ibis_yaml.enums import DumpFiles  # noqa: PLC0415
     from xorq.ibis_yaml.packager import (  # noqa: PLC0415
         _python_minor_from_metadata_text,
     )
@@ -1258,7 +1251,6 @@ def _harvest_entry_from_zip(zf, harvest_dir, entry_name=None, seen_wheels=None):
 @contextmanager
 def _entry_run_bundle(catalog, entries):
     from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
-    from xorq.ibis_yaml.enums import DumpFiles  # noqa: PLC0415
     from xorq.ibis_yaml.packager import JointBundle  # noqa: PLC0415
 
     if not entries:
@@ -1586,8 +1578,6 @@ def _resolve_single_entry(
     """Resolve a single catalog entry to an expression."""
     catalog_entry = _get_catalog_entry(catalog, entry)
 
-    from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
-
     span.set_attribute("kind", str(catalog_entry.kind))
     expr = _eval_entry(catalog_entry, code, instream, cache_dir=cache_dir)
 
@@ -1819,7 +1809,6 @@ def run(
                     from xorq.catalog.zip_utils import (  # noqa: PLC0415
                         extract_build_zip_context,
                     )
-                    from xorq.ibis_yaml.enums import ExprKind  # noqa: PLC0415
                     from xorq.ibis_yaml.packager import (  # noqa: PLC0415
                         PackagedRunner,
                     )

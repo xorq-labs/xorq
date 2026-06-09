@@ -1,8 +1,7 @@
+from __future__ import annotations
+
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.ibis_yaml.common import (
-    RefEnum,
-    RegistryEnum,
-)
+from xorq.ibis_yaml.enums import RefEnum, RegistryEnum
 from xorq.ibis_yaml.tests.conftest import get_dtype_yaml
 
 

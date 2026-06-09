@@ -5,7 +5,6 @@ import operator
 import pathlib
 import sys
 import warnings
-from enum import StrEnum
 from pathlib import Path
 from typing import Any, Dict
 
@@ -34,6 +33,7 @@ from xorq.caching import (
     ParquetTTLSnapshotCache,
     SnapshotStrategy,
 )
+from xorq.common.compat import StrEnum
 from xorq.common.exceptions import UnboundExpressionError
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.dasher import tokenize
@@ -62,15 +62,19 @@ from xorq.expr.relations import (
     Read,
 )
 from xorq.ibis_yaml.common import (
-    RefEnum,
     Registry,
-    RegistryEnum,
     TranslationContext,
     translate_from_yaml,
     translate_to_yaml,
 )
 from xorq.ibis_yaml.config import config
-from xorq.ibis_yaml.enums import DumpFiles, ExprKind, MemtableTypes
+from xorq.ibis_yaml.enums import (
+    DumpFiles,
+    ExprKind,
+    MemtableTypes,
+    RefEnum,
+    RegistryEnum,
+)
 from xorq.ibis_yaml.sql import generate_sql_plans
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.backends.profiles import Profile
