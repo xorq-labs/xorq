@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime
 import functools
 import hashlib
@@ -10,11 +12,16 @@ import tempfile
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import structlog
 from attr import field, frozen
+
+
+if TYPE_CHECKING:
+    from opentelemetry.trace import SpanContext
+
 from attr.validators import instance_of
-from opentelemetry.trace import SpanContext, StatusCode
 
 from xorq.common.enums import RunLogFile
 from xorq.common.utils.env_utils import EnvConfigable, env_templates_dir
@@ -319,12 +326,15 @@ class RunLogger:
         except Exception as exc:
             error_msg = str(exc)
             if span is not None:
-                span.set_status(StatusCode.ERROR, str(exc))
-                span.record_exception(exc)
+                from xorq.common.utils.otel_utils import set_span_error  # noqa: PLC0415
+
+                set_span_error(span, exc)
             raise
         else:
             if span is not None:
-                span.set_status(StatusCode.OK)
+                from xorq.common.utils.otel_utils import set_span_ok  # noqa: PLC0415
+
+                set_span_ok(span)
         finally:
             span_context = span.get_span_context() if span is not None else None
             rl.finalize(

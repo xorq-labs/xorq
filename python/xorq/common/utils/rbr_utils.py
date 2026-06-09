@@ -4,9 +4,10 @@ import traceback
 import pyarrow as pa
 import pyarrow.compute as pc
 import toolz
-from opentelemetry import trace
 
 from xorq.common.utils.otel_utils import (
+    create_link,
+    get_current_span,
     tracer,
 )
 
@@ -19,9 +20,9 @@ def excepts_print_exc(func, exc=Exception, handler=toolz.functoolz.return_none):
 
 @tracer.start_as_current_span("otel_instrument_reader")
 def otel_instrument_reader(reader):
-    span = trace.get_current_span()
+    span = get_current_span()
     ctx = span.get_span_context()
-    span_link = trace.Link(ctx)
+    span_link = create_link(ctx)
     event_ids = {"reader_id": id(reader), "trace_id": f"{ctx.trace_id:x}"}
     span.add_event(
         "span.metrics.rbr.make_reader",
