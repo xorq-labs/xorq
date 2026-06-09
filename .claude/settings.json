@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{ command -v xorq-check-style >/dev/null 2>&1 || exit 0; } && xorq-check-style --hook"
+            "command": "{ command -v xorq-check-style >/dev/null 2>&1 || exit 0; } && { xorq-check-style --hook || exit 2; }"
           }
         ]
       }
