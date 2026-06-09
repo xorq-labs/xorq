@@ -15,6 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
+import attr
 import click
 
 from xorq.catalog import constants as catalog_constants
@@ -963,8 +964,6 @@ def log(ctx: click.Context, as_json: bool) -> None:
       xorq catalog log
       xorq catalog log --json | jq '.[] | select(.type == "Add")'
     """
-    import attr  # noqa: PLC0415
-
     from xorq.catalog.replay import Replayer  # noqa: PLC0415
 
     with click_context_catalog(ctx):
