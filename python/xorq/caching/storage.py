@@ -1,34 +1,37 @@
 from __future__ import annotations
 
 import datetime
-import functools
-from abc import (
-    abstractmethod,
-)
-from pathlib import (
-    Path,
-)
+from abc import abstractmethod
+from pathlib import Path
 
-from attr import (
-    field,
-    frozen,
-)
-from attr.validators import (
-    instance_of,
-    optional,
-)
+from attr import field, frozen
+from attr.validators import instance_of, optional
 
-from xorq.common.utils.caching_utils import (
-    get_xorq_cache_dir,
-)
-from xorq.common.utils.defer_utils import (
-    deferred_read_parquet,
-)
-from xorq.common.utils.func_utils import (
-    if_not_none,
-)
-from xorq.config import default_backend, options
-from xorq.vendor import ibis
+
+def _lazy_backend_validator(instance, attribute, value):
+    from xorq.vendor.ibis.backends import BaseBackend  # noqa: PLC0415
+
+    if not isinstance(value, BaseBackend):
+        raise TypeError(
+            f"'{attribute.name}' must be a BaseBackend "
+            f"(got {value!r} that is a {type(value)!r})."
+        )
+
+
+def _lazy_default_backend():
+    from xorq.config import default_backend  # noqa: PLC0415
+
+    return default_backend()
+
+
+def _lazy_default_relative_path():
+    from xorq.config import options  # noqa: PLC0415
+
+    return options.get("cache.default_relative_path")
+
+
+def _convert_optional_path(value):
+    return None if value is None else Path(value)
 
 
 def resolve_parquet_cache_dir(
@@ -36,7 +39,11 @@ def resolve_parquet_cache_dir(
     base_path: Path | None = None,
 ) -> Path:
     """Return the directory that holds parquet cache files for the given storage params."""
-    return (base_path or get_xorq_cache_dir()) / relative_path
+    if base_path is None:
+        from xorq.common.utils.caching_utils import get_xorq_cache_dir  # noqa: PLC0415
+
+        base_path = get_xorq_cache_dir()
+    return base_path / relative_path
 
 
 def resolve_parquet_cache_path(
@@ -85,18 +92,18 @@ def _write_parquet(path, batch_reader, parquet_metadata=None):
 @frozen
 class ParquetStorage(CacheStorage):
     source = field(
-        validator=instance_of(ibis.backends.BaseBackend),
-        factory=default_backend,
+        validator=_lazy_backend_validator,
+        factory=_lazy_default_backend,
     )
     relative_path = field(
         validator=instance_of(Path),
-        factory=functools.partial(options.get, "cache.default_relative_path"),
+        factory=_lazy_default_relative_path,
         converter=Path,
     )
     base_path = field(
         validator=optional(instance_of(Path)),
         default=None,
-        converter=if_not_none(Path),
+        converter=_convert_optional_path,
     )
 
     def __dasher_tokenize__(self):
@@ -121,6 +128,8 @@ class ParquetStorage(CacheStorage):
         return self.get_path(key).exists()
 
     def get(self, key):
+        from xorq.common.utils.defer_utils import deferred_read_parquet  # noqa: PLC0415
+
         op = deferred_read_parquet(
             path=self.get_path(key),
             con=self.source,
@@ -177,8 +186,8 @@ class ParquetDummyStorage(ParquetStorage):
 @frozen
 class SourceStorage(CacheStorage):
     source = field(
-        validator=instance_of(ibis.backends.BaseBackend),
-        factory=default_backend,
+        validator=_lazy_backend_validator,
+        factory=_lazy_default_backend,
     )
 
     def __dasher_tokenize__(self):
