@@ -14,7 +14,7 @@ the `Read` op (`relations.py:564`) defer a read to execution time, invoking
 a side effect and keep going.
 
 This ADR adds that: a write performed as a side effect of execution. It is implemented as a
-transparent pass-through `TeeNode` that drives a generic RecordBatch consumer. A terminal
+hash-neutral pass-through `TeeNode` that drives a generic RecordBatch consumer. A terminal
 write node (the eventual `SinkNode`) is deferred to a later phase (see Alternatives).
 
 ## Decision drivers
@@ -23,7 +23,7 @@ write node (the eventual `SinkNode`) is deferred to a later phase (see Alternati
   so it composes with the rest of the graph and with caching.
 - The write must **respect the cache**: if downstream work is served from a cache and the
   data is never pulled, the write must not fire.
-- "Sink" is **terminal** by connotation (data goes in, nothing comes out). The common need
+- "Sink" is **terminal** by convention (data goes in, nothing comes out). The common need
   is the opposite, to write and keep going, so the node that ships first is a pass-through.
 
 ## Decision
@@ -41,7 +41,7 @@ this ADR ships.
 **consumer** in its `tee` field (see the consumer contract below) and is otherwise oblivious
 to what the consumer does with the batches it receives.
 
-### `TeeNode` is transparent, like `Tag`
+### `TeeNode` is hash-neutral, like `Tag`
 
 `TeeNode` is modeled on `Tag` (`relations.py:101`). Its schema equals its parent's schema,
 and it is **stripped before hashing** by a resolution pass that replaces it with its parent,
@@ -110,7 +110,7 @@ is achieved by **chaining N-1 `TeeNode`s**, not by a dedicated N-way node.
 
 ### Durability and relationship to `into_backend`
 
-A deferred write yields a **durable, user-named, user-owned** target. It is never temporary
+A deferred write yields a **persistent, user-named, user-owned** target. It is never temporary
 and never auto-dropped; teardown is explicit. This is the concrete difference from
 `RemoteTable`/`into_backend`, which produces an **anonymous, ephemeral** table dropped in
 `clean_up` (`api.py:482`). They share the underlying write transport but are separate
@@ -125,7 +125,7 @@ class TeeNode(ops.Relation):
     schema: Schema            # == parent.schema; pass-through
     parent: ops.Relation
     tee: Any = None           # a RecordBatch consumer (read / commit / abort)
-    values = FrozenDict()     # transparent, like Tag
+    values = FrozenDict()     # hash-neutral, like Tag
 
     def __dasher_tokenize__(self):
         return ("normalize_tee_node", self.schema, self.parent)
@@ -148,7 +148,7 @@ def sink(self, sink):
     return op.to_expr()
 ```
 
-Two resolution passes keep transparency and the side effect separate:
+Two resolution passes keep hash neutrality and the side effect separate:
 
 - **Hashing**: a strip pass replaces each `TeeNode` with its parent before the hash is
   computed, like `_remove_non_hashing_tag_nodes` (`api.py:347`) for `Tag`. `_remove_tee_nodes`
@@ -162,7 +162,7 @@ Two resolution passes keep transparency and the side effect separate:
 ### Naming
 
 The user-facing function is `.sink()` even though it builds a pass-through `TeeNode`. This
-bends the terminal connotation of "sink" on purpose, and the docs must say so up front:
+bends the terminal convention of "sink" on purpose, and the docs must say so up front:
 `.sink()` writes as a side effect and the pipeline keeps going.
 
 ## Alternatives considered
@@ -181,8 +181,8 @@ a terminal, non-pass-through write is wanted.
 
 One node that is simultaneously a terminal sink and a pass-through tee.
 
-**Rejected.** It conflates two behaviors with opposite shapes. A pass-through `TeeNode` and a
-(deferred) terminal `SinkNode` stay orthogonal and each keeps its name honest.
+**Rejected.** It conflates two behaviors with opposite modes. A pass-through `TeeNode` and a
+(deferred) terminal `SinkNode` stay orthogonal and each name matches its behavior.
 
 ### Write unconditionally at execution, regardless of pull
 
@@ -190,7 +190,7 @@ Fire the write whenever a write node is present in the executed subgraph.
 
 **Rejected.** It would fire on a pure cache hit, doing I/O for data nobody pulled. Tying the
 write to the inline generator, which only runs when the main consumer pulls, makes "cache hit
-means no write" fall out for free.
+means no write" follow automatically.
 
 ### Decouple the write with a buffered tee (batchcorder)
 
@@ -212,7 +212,7 @@ N-way node can come later if chaining proves insufficient.
 ### Positive
 
 - A deferred write becomes a first-class side effect that composes with the rest of the graph.
-- `TeeNode` transparency means the write composes with caching with no special cases, and a
+- `TeeNode` hash neutrality means the write composes with caching with no special cases, and a
   downstream cache hit suppresses the write automatically.
 - The generic `read`/`commit`/`abort` consumer keeps `TeeNode` oblivious to the writer, so new
   sinks (database, iceberg) drop in without touching the node.
@@ -221,7 +221,7 @@ N-way node can come later if chaining proves insufficient.
 ### Negative
 
 - `.sink()` building a pass-through rather than a terminal node bends the "sink" name; docs
-  must state this loudly or users will expect `.sink()` to end the stream.
+  must make this explicit or users will expect `.sink()` to end the stream.
 - The inline generator runs the write and the downstream consumer lock-step, so a slow write
   slows downstream. Decoupling them (batchcorder) is a future optimization.
 - A downstream early-stop (`LIMIT`/`head`) publishes nothing rather than the pulled prefix.
