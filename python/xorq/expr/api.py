@@ -345,13 +345,12 @@ def _remove_tag_nodes(expr):
 
 
 @tracer.start_as_current_span("_remove_tee_nodes")
-def _remove_tee_nodes(expr):
+def _remove_tee_nodes(expr: ir.Expr) -> ir.Expr:
     """Strip transparent `TeeNode`s to their parent (for SQL / hashing).
 
     Execution keeps the `TeeNode` until `register_and_transform_tee_nodes`
     fires the write, so this is only used off the execution path.
     """
-    from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
 
     def replacer(node, kwargs):
         if isinstance(node, TeeNode):

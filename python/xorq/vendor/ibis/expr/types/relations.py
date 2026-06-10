@@ -38,6 +38,8 @@ if TYPE_CHECKING:
 
     import xorq.vendor.ibis.expr.types as ir
     import xorq.vendor.ibis.selectors as s
+    from xorq.sinking import SinkNode
+    from xorq.vendor.ibis.backends import BaseBackend
     from xorq.vendor.ibis.expr.operations.relations import JoinKind, Set
     from xorq.vendor.ibis.expr.schema import SchemaLike
     from xorq.vendor.ibis.expr.types import Table
@@ -3418,7 +3420,13 @@ class Table(Expr, _FixedTextJupyterMixin):
         )
         return op.to_expr()
 
-    def tee(self, target, *, table_name=None, **kwargs) -> Table:
+    def tee(
+        self,
+        target: SinkNode | BaseBackend,
+        *,
+        table_name: str | None = None,
+        **kwargs: Any,
+    ) -> Table:
         """Pass rows through while writing them as a side effect.
 
         Like Unix ``tee``: the returned expression yields the same rows as

@@ -32,7 +32,7 @@ class SinkMode(StrEnum):
     APPEND = "append"
 
 
-def _coerce_sink_mode(value):
+def _coerce_sink_mode(value: str | SinkMode) -> SinkMode:
     if isinstance(value, SinkMode):
         return value
     try:
@@ -130,7 +130,7 @@ class BackendSink(SinkNode):
         sig = inspect.signature(self.con.read_record_batches)
         return "mode" in sig.parameters
 
-    def _ingest(self, reader, mode):
+    def _ingest(self, reader: pa.RecordBatchReader, mode: str) -> None:
         kw = dict(self.kwargs)
         if self._supports_mode:
             kw["mode"] = mode
@@ -142,7 +142,9 @@ class BackendSink(SinkNode):
         else:
             yield from self._execute_bulk(batches)
 
-    def _execute_per_batch(self, batches):
+    def _execute_per_batch(
+        self, batches: Iterable[pa.RecordBatch]
+    ) -> Iterator[pa.RecordBatch]:
         import pyarrow as pa  # noqa: PLC0415
 
         first = True
@@ -156,7 +158,9 @@ class BackendSink(SinkNode):
             self._ingest(reader, mode)
             yield batch
 
-    def _execute_bulk(self, batches):
+    def _execute_bulk(
+        self, batches: Iterable[pa.RecordBatch]
+    ) -> Iterator[pa.RecordBatch]:
         import pyarrow as pa  # noqa: PLC0415
 
         collected = []
