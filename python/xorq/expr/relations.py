@@ -134,6 +134,30 @@ class HashingTag(Tag):
         )
 
 
+class TeeNode(ops.Relation):
+    """A transparent pass-through that writes its stream as a side effect.
+
+    Modeled on `Tag`: schema and rows equal the parent's, and the node is
+    stripped before the content hash is computed, so `expr.sink(s)` hashes
+    identically to `expr`. The write fires only as the parent's batches are
+    pulled through it (see `register_and_transform_tee_nodes`).
+
+    `tee` is a generic RecordBatch consumer (duck-typed): an object exposing
+    ``read(batch)`` to receive each batch, plus ``commit()`` / ``abort()`` to
+    publish or discard. The consumer owns its own durability (e.g. `ParquetSink`
+    stages to a temp file and renames on commit). See ADR-0014.
+    """
+
+    schema: Schema
+    parent: ops.Relation
+    tee: Any = None  # a RecordBatch consumer (e.g. ParquetSink)
+    values = FrozenDict()
+
+    def __dasher_tokenize__(self):
+        # transparent: contributes nothing beyond the parent
+        return ("normalize_tee_node", self.schema, self.parent)
+
+
 class DatabaseTableView(ops.DatabaseTable):
     pass
 
@@ -653,6 +677,52 @@ def register_and_transform_remote_tables(expr, **kwargs):
 
     expr = op.replace(replacer).to_expr()
     return expr, created
+
+
+def _drive_tee(reader, consumer):
+    """Pull `reader`, push each batch to `consumer.read`, and yield it on.
+
+    The consumer (e.g. `ParquetSink`) is push-fed and never pulls. On full
+    exhaustion the write is committed; an early stop or error aborts it, so a
+    cache hit or a downstream `LIMIT` publishes nothing.
+    """
+    try:
+        for batch in reader:
+            consumer.read(batch)  # push-fed: receives an already-pulled batch
+            yield batch  # pass-through
+        consumer.commit()
+    except BaseException:
+        consumer.abort()
+        raise
+
+
+@tracer.start_as_current_span("register_and_transform_tee_nodes")
+def register_and_transform_tee_nodes(expr):
+    """Replace each surviving `TeeNode` with a backend table fed by the
+    inline pass-through generator (the sink's `tee`).
+
+    Runs after cache resolution, so a downstream cache hit prunes the
+    `TeeNode` before this pass sees it and the write never fires.
+    """
+    from xorq.common.utils.caching_utils import find_backend  # noqa: PLC0415
+
+    op = expr.op()
+
+    def replacer(node, kwargs):
+        if kwargs:
+            node = node.__recreate__(kwargs)
+        if isinstance(node, TeeNode):
+            parent_expr = node.parent.to_expr()
+            con, _ = find_backend(node.parent, use_default=True)
+            reader = parent_expr.to_pyarrow_batches()
+            teed = pa.RecordBatchReader.from_batches(
+                reader.schema, _drive_tee(reader, node.tee)
+            )
+            table = con.read_record_batches(teed, table_name=gen_name())
+            node = table.op()
+        return node
+
+    return op.replace(replacer).to_expr()
 
 
 def render_backend(con):
