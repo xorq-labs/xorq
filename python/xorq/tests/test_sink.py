@@ -1,3 +1,8 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -8,16 +13,20 @@ from xorq.common.utils.node_utils import compute_expr_hash
 from xorq.sinking import BackendSink, ParquetSink
 
 
+if TYPE_CHECKING:
+    from xorq.vendor.ibis.expr.types import Table
+
+
 TABLE = {"a": [1, 2, 3, 4], "b": ["w", "x", "y", "z"]}
 
 
 @pytest.fixture
-def t():
+def t() -> Table:
     con = xo.connect()
     return con.register(xo.memtable(TABLE), table_name="t0")
 
 
-def _connect(name):
+def _connect(name: str) -> Any:
     try:
         return {
             "datafusion": xo.connect,
@@ -33,29 +42,29 @@ def _connect(name):
 # the outer query. The Phase 1 streaming tee targets engines that allow
 # concurrent reader pulls (datafusion). See ADR-0014.
 @pytest.fixture(params=["datafusion", "pandas"])
-def backend_table(request):
+def backend_table(request: pytest.FixtureRequest) -> Table:
     con = _connect(request.param)
     return con.create_table("sink_src", pa.table(TABLE))
 
 
-def _files(path):
+def _files(path: Path) -> list[Path]:
     return sorted(path.glob("*.parquet"))
 
 
-def test_sink_is_passthrough(t, tmp_path):
+def test_sink_is_passthrough(t: Table, tmp_path: Path) -> None:
     expr = t.tee(ParquetSink(path=tmp_path / "tgt"))
     assert expr.schema() == t.schema()
     assert expr.execute().equals(t.execute())
 
 
-def test_sink_writes_what_flows(t, tmp_path):
+def test_sink_writes_what_flows(t: Table, tmp_path: Path) -> None:
     target = tmp_path / "tgt"
     t.tee(ParquetSink(path=target)).execute()
     written = xo.connect().read_parquet(str(target / "*.parquet")).execute()
     assert len(written) == len(t.execute())
 
 
-def test_sink_hash_is_transparent(t, tmp_path):
+def test_sink_hash_is_transparent(t: Table, tmp_path: Path) -> None:
     strategy = SnapshotStrategy()
     sinked = t.tee(ParquetSink(path=tmp_path / "tgt"))
     assert compute_expr_hash(sinked, strategy=strategy) == compute_expr_hash(
@@ -63,7 +72,7 @@ def test_sink_hash_is_transparent(t, tmp_path):
     )
 
 
-def test_cache_hit_does_not_write(t, tmp_path):
+def test_cache_hit_does_not_write(t: Table, tmp_path: Path) -> None:
     target = tmp_path / "tgt"
     cached = t.tee(ParquetSink(path=target)).cache()
     cached.execute()  # miss: writes
@@ -72,14 +81,14 @@ def test_cache_hit_does_not_write(t, tmp_path):
     assert len(_files(target)) == 1
 
 
-def test_append_adds_a_file_per_run(t, tmp_path):
+def test_append_adds_a_file_per_run(t: Table, tmp_path: Path) -> None:
     target = tmp_path / "tgt"
     t.tee(ParquetSink(path=target, mode="append")).execute()
     t.tee(ParquetSink(path=target, mode="append")).execute()
     assert len(_files(target)) == 2
 
 
-def test_create_fails_if_target_exists(t, tmp_path):
+def test_create_fails_if_target_exists(t: Table, tmp_path: Path) -> None:
     target = tmp_path / "tgt"
     t.tee(ParquetSink(path=target, mode="create")).execute()
     assert len(_files(target)) == 1
@@ -91,7 +100,7 @@ def test_create_fails_if_target_exists(t, tmp_path):
     assert list(target.glob("*.tmp")) == []
 
 
-def test_create_sink_execute_raises_fileexists(tmp_path):
+def test_create_sink_execute_raises_fileexists(tmp_path: Path) -> None:
     target = tmp_path / "tgt"
     sink = ParquetSink(path=target, mode="create")
     batches = [pa.record_batch({"a": [1]})]
@@ -101,12 +110,12 @@ def test_create_sink_execute_raises_fileexists(tmp_path):
         list(ParquetSink(path=target, mode="create").execute(batches))
 
 
-def test_invalid_mode_raises(tmp_path):
+def test_invalid_mode_raises(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         ParquetSink(path=tmp_path, mode="merge")
 
 
-def test_execute_publishes(tmp_path):
+def test_execute_publishes(tmp_path: Path) -> None:
     target = tmp_path / "tgt"
     sink = ParquetSink(path=target, mode="append")
     batches = [pa.record_batch({"a": [1, 2]})]
@@ -114,7 +123,7 @@ def test_execute_publishes(tmp_path):
     assert len(list(target.glob("*.parquet"))) == 1
 
 
-def test_execute_empty_publishes_nothing(tmp_path):
+def test_execute_empty_publishes_nothing(tmp_path: Path) -> None:
     target = tmp_path / "tgt"
     sink = ParquetSink(path=target, mode="append")
     list(sink.execute([]))
@@ -124,7 +133,7 @@ def test_execute_empty_publishes_nothing(tmp_path):
 # ---- cross-backend ----------------------------------------------------------
 
 
-def test_sink_across_backends(backend_table, tmp_path):
+def test_sink_across_backends(backend_table: Table, tmp_path: Path) -> None:
     target = tmp_path / "tgt"
     out = backend_table.tee(ParquetSink(path=target, mode="append")).execute()
     assert len(out) == 4
@@ -137,7 +146,7 @@ def test_sink_across_backends(backend_table, tmp_path):
 # ---- mixed ops --------------------------------------------------------------
 
 
-def test_sink_after_deferred_read(tmp_path):
+def test_sink_after_deferred_read(tmp_path: Path) -> None:
     src = tmp_path / "src.parquet"
     pq.write_table(pa.table({"a": [1, 2, 3, 4]}), str(src))
     target = tmp_path / "tgt"
@@ -148,7 +157,7 @@ def test_sink_after_deferred_read(tmp_path):
     assert len(_files(target)) == 1
 
 
-def test_sink_after_into_backend(tmp_path):
+def test_sink_after_into_backend(tmp_path: Path) -> None:
     con = xo.connect()
     other = xo.connect()  # second datafusion; duckdb would deadlock (see fixture)
     t = con.create_table("ib_src", pa.table({"a": [1, 2, 3, 4]}))
@@ -162,13 +171,13 @@ def test_sink_after_into_backend(tmp_path):
     "the parent reader while the same connection serves the outer query, which "
     "deadlocks. Phase 1 targets engines with concurrent reader pulls (datafusion)."
 )
-def test_sink_duckdb_streaming_deadlocks(tmp_path):
+def test_sink_duckdb_streaming_deadlocks(tmp_path: Path) -> None:
     con = xo.duckdb.connect()
     t = con.create_table("dd_src", pa.table({"a": [1, 2, 3, 4]}))
     t.tee(ParquetSink(path=tmp_path / "tgt")).execute()
 
 
-def test_sink_with_cache_upstream(tmp_path):
+def test_sink_with_cache_upstream(tmp_path: Path) -> None:
     con = xo.connect()
     t = con.create_table("c_src", pa.table({"a": [1, 2, 3, 4]}))
     target = tmp_path / "tgt"
@@ -176,7 +185,7 @@ def test_sink_with_cache_upstream(tmp_path):
     assert len(_files(target)) == 1
 
 
-def test_sink_in_middle_writes_full_parent(t, tmp_path):
+def test_sink_in_middle_writes_full_parent(t: Table, tmp_path: Path) -> None:
     target = tmp_path / "tgt"
     # a downstream filter reduces the result, but the tee wrote the full parent
     out = t.tee(ParquetSink(path=target)).filter(xo._.a > 2).execute()
@@ -184,7 +193,7 @@ def test_sink_in_middle_writes_full_parent(t, tmp_path):
     assert len(pq.read_table(str(next(target.glob("*.parquet"))))) == 4
 
 
-def test_chained_sinks_fan_out(t, tmp_path):
+def test_chained_sinks_fan_out(t: Table, tmp_path: Path) -> None:
     d1, d2 = tmp_path / "t1", tmp_path / "t2"
     t.tee(ParquetSink(path=d1)).tee(ParquetSink(path=d2)).execute()
     assert len(_files(d1)) == 1
@@ -194,14 +203,14 @@ def test_chained_sinks_fan_out(t, tmp_path):
 # ---- BackendSink ------------------------------------------------------------
 
 
-def test_backend_sink_creates_table(t):
+def test_backend_sink_creates_table(t: Table) -> None:
     target_con = xo.connect()
     t.tee(target_con, table_name="bs_tgt", mode="create").execute()
     result = target_con.table("bs_tgt").execute()
     assert len(result) == len(t.execute())
 
 
-def test_backend_sink_via_explicit_sink_node(t):
+def test_backend_sink_via_explicit_sink_node(t: Table) -> None:
     target_con = xo.connect()
     sink = BackendSink(target_con, table_name="bs_explicit", mode="create")
     t.tee(sink).execute()
@@ -209,7 +218,7 @@ def test_backend_sink_via_explicit_sink_node(t):
     assert len(result) == len(t.execute())
 
 
-def test_backend_sink_append_mode(t):
+def test_backend_sink_append_mode(t: Table) -> None:
     # DataFusion re-registers the table on each call (no true append), so the
     # second run overwrites rather than accumulating.  Backends with mode
     # support (Postgres via ADBC) would accumulate rows.
@@ -220,12 +229,12 @@ def test_backend_sink_append_mode(t):
     assert len(result) == len(t.execute())
 
 
-def test_tee_rejects_invalid_target(t):
+def test_tee_rejects_invalid_target(t: Table) -> None:
     with pytest.raises(TypeError, match="SinkNode or a backend"):
         t.tee("not_a_backend")
 
 
-def test_backend_sink_bulk_writes_nothing_on_error():
+def test_backend_sink_bulk_writes_nothing_on_error() -> None:
     # Bulk backends (no mode support, e.g. DataFusion) register the table after
     # full stream exhaustion.  A mid-stream error means nothing is written.
     target_con = xo.connect()
@@ -241,7 +250,7 @@ def test_backend_sink_bulk_writes_nothing_on_error():
         target_con.table("bs_err")
 
 
-def test_backend_sink_bulk_registers_all_batches():
+def test_backend_sink_bulk_registers_all_batches() -> None:
     # Bulk backends register all batches in a single call after exhaustion,
     # so the resulting table contains every batch — not just the last one.
     target_con = xo.connect()
@@ -255,7 +264,7 @@ def test_backend_sink_bulk_registers_all_batches():
 # ---- generator lifecycle / cleanup -------------------------------------------
 
 
-def test_parquet_execute_abandoned_cleans_up(tmp_path):
+def test_parquet_execute_abandoned_cleans_up(tmp_path: Path) -> None:
     target = tmp_path / "tgt"
     sink = ParquetSink(path=target, mode="append")
     batches = [pa.record_batch({"a": [1, 2]}), pa.record_batch({"a": [3, 4]})]
@@ -274,14 +283,16 @@ class _FakePerBatchBackend:
 
     name = "fake_per_batch"
 
-    def __init__(self):
-        self.calls = []
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
 
-    def read_record_batches(self, source, table_name=None, mode=None):
+    def read_record_batches(
+        self, source: Any, table_name: str | None = None, mode: str | None = None
+    ) -> None:
         self.calls.append((table_name, mode, list(source)))
 
 
-def test_per_batch_path_create_then_append():
+def test_per_batch_path_create_then_append() -> None:
     backend = _FakePerBatchBackend()
     sink = BackendSink(backend, table_name="t", mode="create")
     batches = [pa.record_batch({"a": [1]}), pa.record_batch({"a": [2]})]
@@ -291,7 +302,7 @@ def test_per_batch_path_create_then_append():
     assert all(c[1] == "append" for c in backend.calls[1:])
 
 
-def test_per_batch_path_append_mode():
+def test_per_batch_path_append_mode() -> None:
     backend = _FakePerBatchBackend()
     sink = BackendSink(backend, table_name="t", mode="append")
     batches = [pa.record_batch({"a": [1]}), pa.record_batch({"a": [2]})]
@@ -299,9 +310,11 @@ def test_per_batch_path_append_mode():
     assert all(c[1] == "append" for c in backend.calls)
 
 
-def test_per_batch_partial_write_on_error():
+def test_per_batch_partial_write_on_error() -> None:
     class _FailOnSecond(_FakePerBatchBackend):
-        def read_record_batches(self, source, table_name=None, mode=None):
+        def read_record_batches(
+            self, source: Any, table_name: str | None = None, mode: str | None = None
+        ) -> None:
             batches = list(source)
             if len(self.calls) == 1:
                 raise RuntimeError("simulated failure on second batch")
@@ -318,13 +331,13 @@ def test_per_batch_partial_write_on_error():
 # ---- tee() argument validation -----------------------------------------------
 
 
-def test_tee_rejects_extra_kwargs_with_sink_node(t, tmp_path):
+def test_tee_rejects_extra_kwargs_with_sink_node(t: Table, tmp_path: Path) -> None:
     sink = ParquetSink(path=tmp_path / "tgt")
     with pytest.raises(TypeError, match="does not accept"):
         t.tee(sink, table_name="oops")
 
 
-def test_tee_requires_table_name_for_backend(t):
+def test_tee_requires_table_name_for_backend(t: Table) -> None:
     target_con = xo.connect()
     with pytest.raises(TypeError, match="requires table_name"):
         t.tee(target_con)

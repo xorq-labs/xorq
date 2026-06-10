@@ -150,7 +150,7 @@ class TeeNode(ops.Relation):
     sink: SinkNode | None = None
     values = FrozenDict()
 
-    def __dasher_tokenize__(self):
+    def __dasher_tokenize__(self) -> tuple:
         # transparent: contributes nothing beyond the parent
         return ("normalize_tee_node", self.schema, self.parent)
 
@@ -677,7 +677,7 @@ def register_and_transform_remote_tables(expr, **kwargs):
 
 
 @tracer.start_as_current_span("register_and_transform_tee_nodes")
-def register_and_transform_tee_nodes(expr):
+def register_and_transform_tee_nodes(expr: Expr) -> Expr:
     """Replace each surviving `TeeNode` with a backend table fed by the
     sink's ``execute(batches)`` generator.
 
