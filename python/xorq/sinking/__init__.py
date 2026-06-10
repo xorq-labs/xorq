@@ -19,9 +19,12 @@ class ParquetSink:
     Contract (the tee consumer protocol):
 
     - ``read(batch)``  — receive a `pyarrow.RecordBatch` (staged to a temp file).
+      ``mode="create"`` raises `FileExistsError` here if the target already has
+      parquet files (it refuses to overwrite, like SQL ``CREATE TABLE``). Raised
+      mid-pull, an engine may surface it wrapped (e.g. as a ``ValueError`` across
+      the Arrow C-stream boundary).
     - ``commit()``     — publish atomically: rename the staged temp into the
-      target directory. ``mode="append"`` adds a new file per run;
-      ``mode="create"`` first clears the directory's parquet files.
+      target directory as a new file.
     - ``abort()``      — discard the staged temp; publish nothing.
 
     Nothing is published until ``commit``, so an early stop or error leaves any
@@ -39,6 +42,10 @@ class ParquetSink:
     def read(self, batch):
         if self._writer is None:
             self.path.mkdir(parents=True, exist_ok=True)
+            if self.mode == "create" and any(self.path.glob("*.parquet")):
+                raise FileExistsError(
+                    f"create sink target already has parquet files: {self.path}"
+                )
             self._tmp = self.path / f"{uuid.uuid4().hex}.parquet.tmp"
             self._writer = pq.ParquetWriter(str(self._tmp), batch.schema)
         self._writer.write_batch(batch)
@@ -48,9 +55,6 @@ class ParquetSink:
             return  # nothing was read: publish nothing
         self._writer.close()
         self._writer = None
-        if self.mode == "create":
-            for existing in self.path.glob("*.parquet"):
-                existing.unlink()
         # same filesystem as the target dir, so the rename is atomic
         self._tmp.rename(self.path / f"{uuid.uuid4().hex}.parquet")
         self._tmp = None
