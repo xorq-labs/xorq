@@ -8,9 +8,15 @@ staging to a temp file and renaming into place only on commit.
 """
 
 import uuid
+from enum import StrEnum
 from pathlib import Path
 
 import pyarrow.parquet as pq
+
+
+class SinkMode(StrEnum):
+    CREATE = "create"
+    APPEND = "append"
 
 
 class ParquetSink:
@@ -31,18 +37,21 @@ class ParquetSink:
     prior contents intact.
     """
 
-    def __init__(self, path, mode="append"):
-        if mode not in ("create", "append"):
-            raise ValueError(f"mode must be 'create' or 'append', got {mode!r}")
+    def __init__(self, path, mode=SinkMode.APPEND):
+        try:
+            self.mode = SinkMode(mode)
+        except ValueError:
+            raise ValueError(
+                f"mode must be one of {tuple(SinkMode)}, got {mode!r}"
+            ) from None
         self.path = Path(path)
-        self.mode = mode
         self._writer = None
         self._tmp = None
 
     def read(self, batch):
         if self._writer is None:
             self.path.mkdir(parents=True, exist_ok=True)
-            if self.mode == "create" and any(self.path.glob("*.parquet")):
+            if self.mode is SinkMode.CREATE and any(self.path.glob("*.parquet")):
                 raise FileExistsError(
                     f"create sink target already has parquet files: {self.path}"
                 )
