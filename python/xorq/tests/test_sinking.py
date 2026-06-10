@@ -48,67 +48,96 @@ def backend_table(request: pytest.FixtureRequest) -> Table:
     return con.create_table("sink_src", pa.table(TABLE))
 
 
-def _files(path: Path) -> list[Path]:
-    return sorted(path.glob("*.parquet"))
-
-
 def test_sink_is_passthrough(t: Table, tmp_path: Path) -> None:
-    expr = t.tee(ParquetSink(path=tmp_path / "tgt"))
+    expr = t.tee(ParquetSink(path=tmp_path / "out.parquet"))
     assert expr.schema() == t.schema()
     assert expr.execute().equals(t.execute())
 
 
 def test_sink_writes_what_flows(t: Table, tmp_path: Path) -> None:
-    target = tmp_path / "tgt"
+    target = tmp_path / "out.parquet"
     t.tee(ParquetSink(path=target)).execute()
-    written = xo.connect().read_parquet(str(target / "*.parquet")).execute()
+    written = pq.read_table(str(target))
     assert len(written) == len(t.execute())
 
 
 def test_sink_hash_is_transparent(t: Table, tmp_path: Path) -> None:
     strategy = SnapshotStrategy()
-    sinked = t.tee(ParquetSink(path=tmp_path / "tgt"))
+    sinked = t.tee(ParquetSink(path=tmp_path / "out.parquet"))
     assert compute_expr_hash(sinked, strategy=strategy) == compute_expr_hash(
         t, strategy=strategy
     )
 
 
 def test_cache_hit_does_not_write(t: Table, tmp_path: Path) -> None:
-    target = tmp_path / "tgt"
+    target = tmp_path / "out.parquet"
     cached = t.tee(ParquetSink(path=target)).cache()
     cached.execute()  # miss: writes
-    assert len(_files(target)) == 1
+    mtime = target.stat().st_mtime_ns
     cached.execute()  # hit: must not write again
-    assert len(_files(target)) == 1
+    assert target.stat().st_mtime_ns == mtime
 
 
-def test_append_adds_a_file_per_run(t: Table, tmp_path: Path) -> None:
-    target = tmp_path / "tgt"
+def test_append_accumulates_rows(t: Table, tmp_path: Path) -> None:
+    target = tmp_path / "out.parquet"
     t.tee(ParquetSink(path=target, mode="append")).execute()
+    assert len(pq.read_table(str(target))) == 4
     t.tee(ParquetSink(path=target, mode="append")).execute()
-    assert len(_files(target)) == 2
+    assert len(pq.read_table(str(target))) == 8
 
 
 def test_create_fails_if_target_exists(t: Table, tmp_path: Path) -> None:
-    target = tmp_path / "tgt"
+    target = tmp_path / "out.parquet"
     t.tee(ParquetSink(path=target, mode="create")).execute()
-    assert len(_files(target)) == 1
+    assert target.exists()
     # raised mid-pull, the engine wraps FileExistsError (Arrow C-stream boundary)
-    with pytest.raises(Exception, match="already has parquet files"):
+    with pytest.raises(Exception, match="already exists"):
         t.tee(ParquetSink(path=target, mode="create")).execute()
-    # the failed run published nothing: still exactly one file, no stray temp
-    assert len(_files(target)) == 1
-    assert list(target.glob("*.tmp")) == []
+    # the failed run published nothing: original file intact, no stray temp
+    assert len(pq.read_table(str(target))) == 4
+    assert not Path(str(target) + ".tmp").exists()
 
 
 def test_create_sink_execute_raises_fileexists(tmp_path: Path) -> None:
-    target = tmp_path / "tgt"
+    target = tmp_path / "out.parquet"
     sink = ParquetSink(path=target, mode="create")
     batches = [pa.record_batch({"a": [1]})]
     list(sink.execute(batches))
-    assert len(_files(target)) == 1
+    assert target.exists()
     with pytest.raises(FileExistsError):
         list(ParquetSink(path=target, mode="create").execute(batches))
+
+
+def test_concurrent_create_only_one_wins(tmp_path: Path) -> None:
+    import threading  # noqa: PLC0415
+
+    target = tmp_path / "out.parquet"
+    batches = [pa.record_batch({"a": [i]}) for i in range(4)]
+    barrier = threading.Barrier(2)
+    results: list[Exception | None] = [None, None]
+
+    def worker(idx: int) -> None:
+        sink = ParquetSink(path=target, mode="create")
+        try:
+            gen = sink.execute(iter(batches))
+            first = next(gen)
+            barrier.wait(timeout=5)
+            _ = [first, *gen]
+        except Exception as exc:
+            results[idx] = exc
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(2)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join(timeout=10)
+
+    winners = [r for r in results if r is None]
+    losers = [r for r in results if isinstance(r, (FileExistsError, Exception))]
+    assert len(winners) == 1, f"expected exactly one winner, got results={results}"
+    assert len(losers) == 1
+    assert target.exists()
+    assert not Path(str(target) + ".tmp").exists()
 
 
 def test_invalid_mode_raises(tmp_path: Path) -> None:
@@ -117,31 +146,31 @@ def test_invalid_mode_raises(tmp_path: Path) -> None:
 
 
 def test_execute_publishes(tmp_path: Path) -> None:
-    target = tmp_path / "tgt"
+    target = tmp_path / "out.parquet"
     sink = ParquetSink(path=target, mode="append")
     batches = [pa.record_batch({"a": [1, 2]})]
     list(sink.execute(batches))
-    assert len(list(target.glob("*.parquet"))) == 1
+    assert target.exists()
 
 
 def test_execute_empty_publishes_nothing(tmp_path: Path) -> None:
-    target = tmp_path / "tgt"
+    target = tmp_path / "out.parquet"
     sink = ParquetSink(path=target, mode="append")
     list(sink.execute([]))
-    assert not target.exists() or list(target.glob("*")) == []
+    assert not target.exists()
 
 
 # ---- cross-backend ----------------------------------------------------------
 
 
 def test_sink_across_backends(backend_table: Table, tmp_path: Path) -> None:
-    target = tmp_path / "tgt"
+    target = tmp_path / "out.parquet"
     out = backend_table.tee(ParquetSink(path=target, mode="append")).execute()
     assert len(out) == 4
-    assert len(_files(target)) == 1
-    # second append run adds a second file
+    assert len(pq.read_table(str(target))) == 4
+    # second append merges into the same file
     backend_table.tee(ParquetSink(path=target, mode="append")).execute()
-    assert len(_files(target)) == 2
+    assert len(pq.read_table(str(target))) == 8
 
 
 # ---- mixed ops --------------------------------------------------------------
@@ -150,21 +179,21 @@ def test_sink_across_backends(backend_table: Table, tmp_path: Path) -> None:
 def test_sink_after_deferred_read(tmp_path: Path) -> None:
     src = tmp_path / "src.parquet"
     pq.write_table(pa.table({"a": [1, 2, 3, 4]}), str(src))
-    target = tmp_path / "tgt"
+    target = tmp_path / "out.parquet"
     expr = xo.deferred_read_parquet(path=src, con=xo.connect(), table_name="dr").tee(
         ParquetSink(path=target)
     )
     assert len(expr.execute()) == 4
-    assert len(_files(target)) == 1
+    assert target.exists()
 
 
 def test_sink_after_into_backend(tmp_path: Path) -> None:
     con = xo.connect()
     other = xo.connect()  # second datafusion; duckdb would deadlock (see fixture)
     t = con.create_table("ib_src", pa.table({"a": [1, 2, 3, 4]}))
-    target = tmp_path / "tgt"
+    target = tmp_path / "out.parquet"
     t.into_backend(other, "ib").tee(ParquetSink(path=target)).execute()
-    assert len(_files(target)) == 1
+    assert target.exists()
 
 
 @pytest.mark.skip(
@@ -175,30 +204,30 @@ def test_sink_after_into_backend(tmp_path: Path) -> None:
 def test_sink_duckdb_streaming_deadlocks(tmp_path: Path) -> None:
     con = xo.duckdb.connect()
     t = con.create_table("dd_src", pa.table({"a": [1, 2, 3, 4]}))
-    t.tee(ParquetSink(path=tmp_path / "tgt")).execute()
+    t.tee(ParquetSink(path=tmp_path / "out.parquet")).execute()
 
 
 def test_sink_with_cache_upstream(tmp_path: Path) -> None:
     con = xo.connect()
     t = con.create_table("c_src", pa.table({"a": [1, 2, 3, 4]}))
-    target = tmp_path / "tgt"
+    target = tmp_path / "out.parquet"
     t.cache().tee(ParquetSink(path=target)).execute()
-    assert len(_files(target)) == 1
+    assert target.exists()
 
 
 def test_sink_in_middle_writes_full_parent(t: Table, tmp_path: Path) -> None:
-    target = tmp_path / "tgt"
+    target = tmp_path / "out.parquet"
     # a downstream filter reduces the result, but the tee wrote the full parent
     out = t.tee(ParquetSink(path=target)).filter(xo._.a > 2).execute()
     assert len(out) == 2
-    assert len(pq.read_table(str(next(target.glob("*.parquet"))))) == 4
+    assert len(pq.read_table(str(target))) == 4
 
 
 def test_chained_sinks_fan_out(t: Table, tmp_path: Path) -> None:
-    d1, d2 = tmp_path / "t1", tmp_path / "t2"
-    t.tee(ParquetSink(path=d1)).tee(ParquetSink(path=d2)).execute()
-    assert len(_files(d1)) == 1
-    assert len(_files(d2)) == 1
+    f1, f2 = tmp_path / "t1.parquet", tmp_path / "t2.parquet"
+    t.tee(ParquetSink(path=f1)).tee(ParquetSink(path=f2)).execute()
+    assert f1.exists()
+    assert f2.exists()
 
 
 # ---- BackendSink ------------------------------------------------------------
@@ -266,14 +295,14 @@ def test_backend_sink_bulk_registers_all_batches() -> None:
 
 
 def test_parquet_execute_abandoned_cleans_up(tmp_path: Path) -> None:
-    target = tmp_path / "tgt"
+    target = tmp_path / "out.parquet"
     sink = ParquetSink(path=target, mode="append")
     batches = [pa.record_batch({"a": [1, 2]}), pa.record_batch({"a": [3, 4]})]
     gen = sink.execute(iter(batches))
     next(gen)  # consume one batch, open the writer
     gen.close()  # abandon mid-stream
-    assert list(target.glob("*.parquet")) == []
-    assert list(target.glob("*.tmp")) == []
+    assert not target.exists()
+    assert not Path(str(target) + ".tmp").exists()
 
 
 # ---- per-batch ingest path (BackendSink with mode support) -------------------
@@ -333,7 +362,7 @@ def test_per_batch_partial_write_on_error() -> None:
 
 
 def test_tee_rejects_extra_kwargs_with_sink_node(t: Table, tmp_path: Path) -> None:
-    sink = ParquetSink(path=tmp_path / "tgt")
+    sink = ParquetSink(path=tmp_path / "out.parquet")
     with pytest.raises(TypeError, match="does not accept"):
         t.tee(sink, table_name="oops")
 
@@ -357,22 +386,22 @@ def test_tee_rejects_backend_without_read_record_batches(t: Table) -> None:
 
 def test_to_sql_strips_tee_node(t: Table, tmp_path: Path) -> None:
     bare_sql = xo.to_sql(t)
-    teed_sql = xo.to_sql(t.tee(ParquetSink(path=tmp_path / "tgt")))
+    teed_sql = xo.to_sql(t.tee(ParquetSink(path=tmp_path / "out.parquet")))
     assert bare_sql == teed_sql
 
 
 def test_to_sql_strips_nested_tee_nodes(t: Table, tmp_path: Path) -> None:
     bare_sql = xo.to_sql(t)
-    double_tee = t.tee(ParquetSink(path=tmp_path / "t1")).tee(
-        ParquetSink(path=tmp_path / "t2")
+    double_tee = t.tee(ParquetSink(path=tmp_path / "t1.parquet")).tee(
+        ParquetSink(path=tmp_path / "t2.parquet")
     )
     assert xo.to_sql(double_tee) == bare_sql
 
 
 def test_nested_tee_hash_is_transparent(t: Table, tmp_path: Path) -> None:
     strategy = SnapshotStrategy()
-    double_tee = t.tee(ParquetSink(path=tmp_path / "t1")).tee(
-        ParquetSink(path=tmp_path / "t2")
+    double_tee = t.tee(ParquetSink(path=tmp_path / "t1.parquet")).tee(
+        ParquetSink(path=tmp_path / "t2.parquet")
     )
     assert compute_expr_hash(double_tee, strategy=strategy) == compute_expr_hash(
         t, strategy=strategy
@@ -381,8 +410,8 @@ def test_nested_tee_hash_is_transparent(t: Table, tmp_path: Path) -> None:
 
 def test_tee_plus_tag_hash_is_transparent(t: Table, tmp_path: Path) -> None:
     strategy = SnapshotStrategy()
-    tee_then_tag = t.tee(ParquetSink(path=tmp_path / "tgt")).tag("v1")
-    tag_then_tee = t.tag("v1").tee(ParquetSink(path=tmp_path / "tgt2"))
+    tee_then_tag = t.tee(ParquetSink(path=tmp_path / "out.parquet")).tag("v1")
+    tag_then_tee = t.tag("v1").tee(ParquetSink(path=tmp_path / "out2.parquet"))
     base_hash = compute_expr_hash(t, strategy=strategy)
     assert compute_expr_hash(tee_then_tag, strategy=strategy) == base_hash
     assert compute_expr_hash(tag_then_tee, strategy=strategy) == base_hash
@@ -390,8 +419,14 @@ def test_tee_plus_tag_hash_is_transparent(t: Table, tmp_path: Path) -> None:
 
 def test_to_sql_with_tag_and_tee(t: Table, tmp_path: Path) -> None:
     bare_sql = xo.to_sql(t)
-    assert xo.to_sql(t.tee(ParquetSink(path=tmp_path / "tgt")).tag("v1")) == bare_sql
-    assert xo.to_sql(t.tag("v1").tee(ParquetSink(path=tmp_path / "tgt2"))) == bare_sql
+    assert (
+        xo.to_sql(t.tee(ParquetSink(path=tmp_path / "out.parquet")).tag("v1"))
+        == bare_sql
+    )
+    assert (
+        xo.to_sql(t.tag("v1").tee(ParquetSink(path=tmp_path / "out2.parquet")))
+        == bare_sql
+    )
 
 
 # ---- BackendSink kwargs passthrough ------------------------------------------
@@ -426,7 +461,7 @@ def test_backend_sink_extra_kwargs_reach_backend() -> None:
 
 
 def test_parquet_multi_batch_single_file(tmp_path: Path) -> None:
-    target = tmp_path / "tgt"
+    target = tmp_path / "out.parquet"
     sink = ParquetSink(path=target, mode="append")
     batches = [
         pa.record_batch({"a": [1, 2]}),
@@ -434,33 +469,50 @@ def test_parquet_multi_batch_single_file(tmp_path: Path) -> None:
         pa.record_batch({"a": [5, 6]}),
     ]
     list(sink.execute(batches))
-    files = _files(target)
-    assert len(files) == 1
-    assert len(pq.read_table(str(files[0]))) == 6
+    assert len(pq.read_table(str(target))) == 6
 
 
-# ---- ParquetSink rename failure cleanup --------------------------------------
+# ---- ParquetSink publish failure cleanup --------------------------------------
 
 
-def test_parquet_rename_failure_cleans_up(
+def test_parquet_create_link_failure_cleans_up(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    target = tmp_path / "tgt"
+    import os as _os  # noqa: PLC0415
+
+    target = tmp_path / "out.parquet"
+    sink = ParquetSink(path=target, mode="create")
+    batches = [pa.record_batch({"a": [1, 2]})]
+
+    def failing_link(src, dst):
+        raise OSError("simulated link failure")
+
+    monkeypatch.setattr(_os, "link", failing_link)
+    with pytest.raises(OSError, match="simulated link failure"):
+        list(sink.execute(batches))
+    assert not target.exists()
+    assert not Path(str(target) + ".tmp").exists()
+
+
+def test_parquet_append_rename_failure_cleans_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "out.parquet"
     sink = ParquetSink(path=target, mode="append")
     batches = [pa.record_batch({"a": [1, 2]})]
 
     original_rename = Path.rename
 
     def failing_rename(self, tgt):
-        if self.suffix == ".tmp":
+        if str(self).endswith(".tmp"):
             raise OSError("simulated rename failure")
         return original_rename(self, tgt)
 
     monkeypatch.setattr(Path, "rename", failing_rename)
     with pytest.raises(OSError, match="simulated rename failure"):
         list(sink.execute(batches))
-    assert list(target.glob("*.parquet")) == []
-    assert list(target.glob("*.tmp")) == []
+    assert not target.exists()
+    assert not Path(str(target) + ".tmp").exists()
 
 
 # ---- per-batch partial write retains committed data --------------------------

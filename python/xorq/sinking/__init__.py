@@ -3,7 +3,7 @@
 See ADR-0014. A `TeeNode` wraps an expression with a `SinkNode` whose
 ``execute(batches)`` generator pulls from the upstream, writes each batch as a
 side effect, and yields it downstream unchanged. `ParquetSink` writes to a
-directory of parquet files; `BackendSink` delegates to a backend's
+single parquet file; `BackendSink` delegates to a backend's
 ``read_record_batches`` for per-batch ingest (e.g. Postgres via ADBC).
 """
 
@@ -12,7 +12,7 @@ from __future__ import annotations
 import abc
 import fcntl
 import inspect
-import uuid
+import os
 from enum import StrEnum
 from functools import cached_property
 from pathlib import Path
@@ -60,14 +60,15 @@ class SinkNode(abc.ABC):
 
 @frozen
 class ParquetSink(SinkNode):
-    """A SinkNode that writes to a directory of parquet files.
+    """A SinkNode that writes to a single parquet file.
 
-    Each ``execute`` run stages batches to a temp file and atomically renames
-    it on clean exhaustion. An error mid-stream discards the temp file.
+    Each ``execute`` run stages batches to a temp file and atomically publishes
+    on clean exhaustion. An error mid-stream discards the temp file.
 
-    ``mode="create"`` raises `FileExistsError` if the target already has
-    parquet files (refuses to overwrite, like SQL ``CREATE TABLE``).
-    ``mode="append"`` adds a new file per run.
+    ``mode="create"`` raises `FileExistsError` if the target already exists
+    (like SQL ``CREATE TABLE``).
+    ``mode="append"`` merges new data with any existing file content under a
+    file lock, then atomically swaps the merged file into place.
     """
 
     path: Path = field(converter=Path)
@@ -77,17 +78,15 @@ class ParquetSink(SinkNode):
         import pyarrow.parquet as pq  # noqa: PLC0415
 
         writer = None
-        tmp = self.path / f"{uuid.uuid4().hex}.parquet.tmp"
+        tmp = Path(str(self.path) + ".tmp")
         exhausted = False
         try:
             for batch in batches:
                 if writer is None:
-                    self.path.mkdir(parents=True, exist_ok=True)
-                    if self.mode is SinkMode.CREATE and any(
-                        self.path.glob("*.parquet")
-                    ):
+                    self.path.parent.mkdir(parents=True, exist_ok=True)
+                    if self.mode is SinkMode.CREATE and self.path.exists():
                         raise FileExistsError(
-                            f"create sink target already has parquet files: {self.path}"
+                            f"create sink target already exists: {self.path}"
                         )
                     writer = pq.ParquetWriter(str(tmp), batch.schema)
                 writer.write_batch(batch)
@@ -102,20 +101,48 @@ class ParquetSink(SinkNode):
         if exhausted and writer is not None:
             try:
                 writer.close()
-                final = self.path / f"{uuid.uuid4().hex}.parquet"
-                if self.mode is SinkMode.CREATE:
-                    with open(self.path / ".sink.lock", "w") as lock_fd:
-                        fcntl.flock(lock_fd, fcntl.LOCK_EX)
-                        if any(self.path.glob("*.parquet")):
-                            raise FileExistsError(
-                                f"create sink target already has parquet files: {self.path}"
-                            )
-                        tmp.rename(final)
-                else:
-                    tmp.rename(final)
+                self._publish(tmp)
             except BaseException:
                 tmp.unlink(missing_ok=True)
                 raise
+
+    def _publish(self, tmp: Path) -> None:
+        import pyarrow.parquet as pq  # noqa: PLC0415
+
+        if self.mode is SinkMode.CREATE:
+            try:
+                os.link(str(tmp), str(self.path))
+            except FileExistsError:
+                raise FileExistsError(
+                    f"create sink target already exists: {self.path}"
+                ) from None
+            finally:
+                tmp.unlink(missing_ok=True)
+        else:
+            lock_path = Path(str(self.path) + ".lock")
+            with open(lock_path, "w") as lock_fd:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX)
+                if self.path.exists():
+                    merged = Path(str(self.path) + ".merge.tmp")
+                    try:
+                        existing = pq.ParquetFile(str(self.path))
+                        staged = pq.ParquetFile(str(tmp))
+                        with pq.ParquetWriter(
+                            str(merged), existing.schema_arrow
+                        ) as writer:
+                            for batch in existing.iter_batches():
+                                writer.write_batch(batch)
+                            for batch in staged.iter_batches():
+                                writer.write_batch(batch)
+                        merged.rename(self.path)
+                    except BaseException:
+                        merged.unlink(missing_ok=True)
+                        raise
+                    finally:
+                        tmp.unlink(missing_ok=True)
+                else:
+                    tmp.rename(self.path)
+            lock_path.unlink(missing_ok=True)
 
 
 @frozen

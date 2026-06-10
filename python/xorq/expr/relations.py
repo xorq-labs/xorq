@@ -687,8 +687,7 @@ def register_and_transform_tee_nodes(expr: Expr) -> Expr:
     the write never fires.
     """
     from xorq.common.utils.caching_utils import find_backend  # noqa: PLC0415
-
-    op = expr.op()
+    from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
 
     def replacer(node, kwargs):
         if kwargs:
@@ -705,7 +704,7 @@ def register_and_transform_tee_nodes(expr: Expr) -> Expr:
             node = table.op()
         return node
 
-    return op.replace(replacer).to_expr()
+    return replace_nodes(replacer, expr).to_expr()
 
 
 def render_backend(con):
