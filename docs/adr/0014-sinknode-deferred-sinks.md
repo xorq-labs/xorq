@@ -77,22 +77,25 @@ This gives the cache-respecting behavior for free:
   producer. There is no buffer, so nothing can overflow. The cost is that the write and the
   downstream consumer run at the same pace; they are not decoupled.
 
-### `ParquetSink`: directory-of-parquet consumer
+### `ParquetSink`: single-file parquet consumer
 
-`ParquetSink(path, mode)` stages batches to a temp file inside `execute`, and on clean
-exhaustion renames it into the target directory (the standard atomic-write idiom). The two
-modes are plain write behavior:
+`ParquetSink(path, mode)` writes to a single, user-named parquet file. `path` is the final
+file path, known at construction time. `execute` stages batches to a temp sibling
+(`path + ".tmp"`), then publishes atomically after clean exhaustion:
 
-- **`append`**: commit adds a new file to the directory; existing files are untouched. A
-  single rename, genuinely atomic.
-- **`create`**: refuses to overwrite. It **raises** if the target already has parquet files
-  (like SQL `CREATE TABLE`, not `CREATE OR REPLACE`); otherwise commit adds the file. The
-  check-then-rename is guarded by an `fcntl.flock` on a `.sink.lock` file to prevent
-  TOCTOU races under concurrent runs.
+- **`create`**: publishes via `os.link(tmp, path)` — atomic create-or-fail. If `path`
+  already exists the link raises `FileExistsError`; no glob, no lock needed. The temp is
+  always cleaned up.
+- **`append`**: acquires an `fcntl.flock` on `path + ".lock"`, then streams the existing
+  file's row groups followed by the staged batches through a `ParquetWriter` into a second
+  temp (`path + ".merge.tmp"`), and renames that over the target. Both reads use
+  `ParquetFile.iter_batches()`, so memory stays at O(batch_size) regardless of existing file
+  size. The lock serializes concurrent appenders; the rename is atomic. The lock file is
+  removed after the operation.
 
-An error or early stop mid-stream discards the temp file and publishes nothing. The temp
-lives on the same filesystem as the target so the rename is atomic. Object stores have no
-atomic rename and need a different publish; that is out of scope for Phase 1.
+An error or early stop mid-stream discards the temp file and publishes nothing. Object
+stores have no atomic link/rename and need a different publish; that is out of scope for
+Phase 1.
 
 ### `BackendSink`: per-backend ingest consumer
 
@@ -154,9 +157,9 @@ class TeeNode(ops.Relation):
 # python/xorq/sinking/__init__.py
 
 class ParquetSink(SinkNode):
-    path: Path
-    mode: SinkMode  # "append" | "create"
-    def execute(self, batches): ...  # stage to temp, rename on clean exhaustion
+    path: Path                # the final file path (not a directory)
+    mode: SinkMode            # "create" (link) | "append" (merge + rename)
+    def execute(self, batches): ...  # stage to path.tmp, publish on exhaustion
 
 class BackendSink(SinkNode):
     con: Any
@@ -253,8 +256,8 @@ N-way node can come later if chaining proves insufficient.
   downstream cache hit suppresses the write automatically.
 - The `SinkNode` ABC keeps `TeeNode` oblivious to the writer, so new sinks drop in by
   subclassing `SinkNode` without touching the node or the resolution passes.
-- `ParquetSink` provides atomic, all-or-nothing publish: a partial or aborted run never
-  corrupts the target.
+- `ParquetSink` provides atomic publish: create via `os.link` (create-or-fail), append via
+  merge-then-rename. A partial or aborted run never corrupts the target.
 - `.tee()` accepting both `SinkNode` and `BaseBackend` gives a concise shorthand
   (`t.tee(con, table_name="tgt")`) for the common case.
 
@@ -263,7 +266,10 @@ N-way node can come later if chaining proves insufficient.
 - The inline generator runs the write and the downstream consumer lock-step, so a slow write
   slows downstream. Decoupling them (batchcorder) is a future optimization.
 - A downstream early-stop (`LIMIT`/`head`) publishes nothing rather than the pulled prefix.
-- A stray `.tmp` may linger if a consumer abandons the reader without exhausting it (cleanup is
+- `ParquetSink` append mode rewrites the entire file on each append (streaming, not
+  in-memory, but still O(existing + new) in I/O). A future optimization could append row
+  groups without rewriting, but parquet's footer makes that non-trivial.
+- A stray `.tmp` or `.merge.tmp` may linger if a consumer abandons the reader without exhausting it (cleanup is
   best-effort; nothing is ever published).
 - The streaming tee requires a backend whose reader can be pulled concurrently with the outer
   query. Datafusion and the pandas path work; a single-connection engine like duckdb
