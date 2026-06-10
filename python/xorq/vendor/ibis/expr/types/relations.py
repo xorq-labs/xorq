@@ -3418,6 +3418,30 @@ class Table(Expr, _FixedTextJupyterMixin):
         )
         return op.to_expr()
 
+    def sink(self, sink) -> Table:
+        """Write this table's rows as a side effect, passing them through.
+
+        Wraps the table in a transparent `TeeNode`: the rows are written to
+        ``sink`` (e.g. a `ParquetSink`) as they are pulled, and the same rows
+        flow downstream unchanged. A downstream cache hit means the rows are
+        never pulled, so nothing is written. See ADR-0014.
+
+        Parameters
+        ----------
+        sink
+            A sink storage (e.g. `xorq.sinking.ParquetSink`) carrying the
+            target and write mode (`create` or `append`).
+
+        Returns
+        -------
+        Table
+            A pass-through table; schema unchanged.
+        """
+        from xorq.expr.relations import TeeNode
+
+        op = TeeNode(schema=self.schema(), parent=self.op(), tee=sink)
+        return op.to_expr()
+
     def _make_tag(self, cls, tag, **kwargs):
         from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
