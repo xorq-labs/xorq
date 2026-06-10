@@ -147,7 +147,7 @@ class TeeNode(ops.Relation):
 
     schema: Schema
     parent: ops.Relation
-    sink: SinkNode | None = None
+    sink: SinkNode
     values = FrozenDict()
 
     def __dasher_tokenize__(self) -> tuple:
