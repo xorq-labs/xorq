@@ -1,305 +1,246 @@
-# ADR-0014: SinkNode, a transparent and durable lazy write tee
+# ADR-0014: SinkNode and TeeNode, deferred write as a side effect
 
 - **Status:** Proposed
-- **Date:** 2026-06-09
+- **Date:** 2026-06-10
 - **Deciders:** Daniel
-- **Context area:** `python/xorq/sinking/` (new), `python/xorq/expr/relations.py`, `python/xorq/expr/api.py`, `python/xorq/vendor/ibis/expr/types/relations.py`
+- **Context area:** `python/xorq/sinking/` (new), `python/xorq/expr/relations.py`, `python/xorq/expr/api.py`
 
 ## Context
 
-Xorq's caching system solves **memoization**: "have I computed this exact expression
-before?" Each `execute()` of a given expression is keyed by a content hash; identical
-expressions hit a cached file, different expressions miss and compute.
+Xorq has first-class **deferred reads**: `deferred_read_parquet`, `deferred_read_csv`,
+and the `Read` op (`relations.py:564`) defer a read to execution time, invoking
+`getattr(source, method_name)(...)` only when the expression runs. There is no symmetric
+**deferred write**. An expression cannot, as part of running, write its rows to a durable
+target as a side effect and then carry on.
 
-It does not solve **accumulation**: "append today's result to yesterday's." A daily
-pipeline run produces a different expression every day (a new `snapshot_date` parameter,
-new source data), so by construction each run is content-keyed to a different file. There
-is no mechanism to write to a named, durable target across runs. dbt provides this with
-`materialized='incremental'`.
-
-This ADR proposes `SinkNode`, a new DAG node that defers a **write** decision to
-execution time. It enables durable accumulation within Xorq's functional, immutable
-expression model.
+This ADR adds that capability: a write that happens as a side effect of execution, the
+counterpart to `deferred_read_*`. The design is framed entirely around two things, the
+**deferred write** itself and the **backpressure** between the write and the rest of the
+pipeline.
 
 ## Decision drivers
 
-- A sink must **compose transparently** with the existing caching system: a cache
-  upstream or downstream of a sink must continue to behave exactly as it would without
-  the sink present.
-- The SinkNode's write must respect the cache. If a downstream cache hits and the sink's
-  data is never pulled, the sink must **not** write.
+- A write should be expressible as a **side effect** that does not change what an
+  expression evaluates to, so it composes with the rest of the graph and with caching.
+- The write must **respect the cache**: if downstream work is served from a cache and the
+  data is never pulled, the write must not fire.
+- "Sink" is **terminal** by connotation (data goes in, nothing comes out). The common need
+  is the opposite, to write and keep going, so the two behaviors need separate nodes.
 
 ## Decision
 
-### A SinkNode is transparent, like Tag
+### Two nodes: a terminal `SinkNode` and a passthrough `TeeNode`
 
-A `SinkNode` is a **transparent pass-through relation**, modeled on `Tag`
-(`relations.py:101`). Its schema equals its parent's schema, and it evaluates to its
-parent's rows unchanged. The only thing it adds is a **side effect**: as batches are
-pulled through it during execution, they are written to a named, durable target.
+The capability is split across two independent node types.
 
-Like `Tag`, a `SinkNode` is **stripped before hashing**: a dedicated pass replaces the
-node with its parent before the content hash is computed, so `expr.sink(s)` and `expr`
-produce the **same** hash. `_remove_non_hashing_tag_nodes` (`api.py:347`) does this for
-`Tag`; `SinkNode` gets the parallel `_remove_sink_nodes` (see Node shape below). The
-`"normalize_sink_node"` string in `__dasher_tokenize__` is only a tokenize label, not a
-stripping function.
+- **`SinkNode`** is a **terminal** deferred write. Data flows in; nothing flows past it.
+- **`TeeNode`** is a **passthrough**. It forks its parent's stream into two consumers: a
+  main consumer that continues downstream, and a side-effect consumer that performs a
+  write. It evaluates to its parent's rows.
 
-This transparency is the whole design. It is what makes the sink compose with caching
-without special cases: because the node is invisible to the hash, a `CachedNode` above or
-below a sink keys exactly as it would if the sink were not there. Nothing about the
-cache's behavior changes when a sink sits next to it.
+The two nodes are independent; users never wire them together by hand. The user-facing
+`.sink()` function composes them: it builds a `TeeNode` whose side-effect leg terminates
+in a `SinkNode`. A bare terminal `SinkNode` is an internal or edge construct, not the
+common path.
 
-`CachedNode` and `SinkNode` differ in kind. A cache is content-keyed: it participates in
-identity and can short-circuit a pull. A sink is transparent: it is invisible to identity
-and only observes the pull.
+### `SinkNode` is a deferred write, the counterpart to `deferred_read_*`
 
-| | hashing | evaluates to | side effect | lifetime |
-| -- | -- | -- | -- | -- |
-| `Tag` | stripped (transparent) | parent | none | n/a |
-| `CachedNode` / `SourceStorage` | content hash | the cached/recomputed table | read-or-write cache | durable until `drop` |
-| `RemoteTable` / `into_backend` | `gen_name()`, anonymous | relocated table | ephemeral table, dropped in `clean_up` | ephemeral |
-| `SinkNode` / sink storage | **stripped (transparent, like `Tag`)** | **parent** | **write pulled batches to a user-named target** | **durable, never auto-dropped** |
+`SinkNode` mirrors `Read` (`relations.py:564`). Where `Read` carries a `method_name` and
+read kwargs and resolves by calling `getattr(source, method_name)(...)`, a `SinkNode`
+carries a `sink_method` and write kwargs and resolves by calling
 
-### The SinkNode is a lazy tee: only pulled batches are written
+```python
+operator.methodcaller(sink_op.sink_method, **kwargs)(sink_op.parent)
+```
 
-A `SinkNode` is a **tee, not a terminal sink**: data flows through it to downstream
-operations, and a copy of what flows is written to the target. `.sink()` resolves to its
-parent's rows for this run, passed downstream transparently. 
+at execution time. It is terminal: it produces no downstream relation, so nothing can read
+"through" a sink. This is the connotation the name carries on purpose.
 
-The tee is **lazy**. It writes exactly the batches pulled through it during execution.
-There is no unconditional, transform-time write; the pull-based execution that the
-downstream operations request drives every write.
+### `TeeNode` writes as a side effect and passes the stream through
 
-The direct consequence, and a deliberate requirement, is:
-
-> **If a downstream operation hits a cache, the sink is not written.** A `CachedNode`
-> downstream of a sink, on a cache hit, returns the stored value without descending into
-> its parent. The sink's batches are therefore never pulled, so nothing is written.
-
-A cache hit upstream still feeds the sink: the cached data is teed through as it is
-pulled. A cache hit downstream leaves the sink's output undemanded, so the sink stays
-silent.
-
-| dbt concept | xorq equivalent |
-| -- | -- |
-| `materialized='table'` (full refresh) | `Sink(mode="create")` |
-| `materialized='incremental'` (append) | `Sink(mode="append")` |
-
-### Two modes: `create` and `append`
-
-A sink has exactly **two modes**, set at construction as `Sink(mode=...)`:
-
-- **`create`**: the target is (re)created from this run's pulled batches, replacing any
-  prior contents. Maps to a full refresh, `CREATE OR REPLACE TABLE`.
-- **`append`**: this run's pulled batches are added to the existing target. Maps to
-  `INSERT`. On the first run the target is created.
-
-`Sink.write(value)` writes `value` (the pulled batches) under the chosen mode. There is
-no incremental loading: no `incremental_column`, no watermark filtering, no `unique_key`
-anti-join, and no `merge` or dedup. The sink writes what it is given. Deduplication and
-incremental windowing, when wanted, belong in the caller's expression upstream of the
-sink.
-
-This drops the RFC's incremental-strategy surface. The boundary rules, watermark
-semantics, and re-pull-and-dedup machinery were the main source of the data-loss and
-idempotency footguns. Idempotent reruns come from caching instead: a rerun hits the
-cache, and the sink is left unwritten.
-
-### Hashing
-
-The `SinkNode` contributes nothing to the content hash. The sink's configuration (target
-name or path, storage type, mode) is real metadata: build artifacts and catalog
-serialization (Phase 3) record it so the write is reproducible. It lives **beside** the
-content hash, not inside it, the same way a `Tag`'s metadata is recorded without changing
+`TeeNode` is transparent, modeled on `Tag` (`relations.py:101`). Its schema equals its
+parent's schema, it evaluates to its parent's rows unchanged, and it is **stripped before
+hashing**: a resolution pass replaces it with its parent before the content hash is
+computed, exactly as `_remove_non_hashing_tag_nodes` (`api.py:347`) does for `Tag`. So
+`expr.sink(s)` and `expr` produce the **same** content hash, and the node is invisible to
 identity.
+
+The write is the side-effect leg. When the main consumer pulls batches through the tee,
+the same batches are driven down the side-effect leg into the `SinkNode`, so the write
+fires as a consequence of the pipeline being pulled, never on its own.
+
+### Backpressure: a true tee is the target, batchcorder is the Phase-1 mechanism
+
+Two backpressure shapes matter here:
+
+- A **tee** applies backpressure from its **slowest** consumer. Whichever consumer cannot
+  keep up is what stops the producer from producing more batches.
+- A **batchcorder** is the inverse: backpressure comes from the **fastest** consumer. The
+  producer runs as fast as the fastest consumer, and the delta between the fastest and the
+  slowest consumer is buffered.
+
+The **target** behavior of `TeeNode` is a true tee: if the write consumer falls behind, it
+blocks the producer rather than letting an unbounded buffer grow. In Phase 1 the
+side-effect leg is implemented with **batchcorder** (a buffering node of cardinality one
+whose evicted batches feed a `RecordBatchReader`, which in turn feeds the `SinkNode`). With
+batchcorder, the write consumer is allowed to lag and the delta is buffered. We expect
+side-effect consumers (writes) to **never** apply backpressure in practice; the goal is
+that when one does, the tee blocks instead of failing. ADR-0014 therefore has a **hard
+dependency on batchcorder (ADR-0013, forthcoming)** and is sequenced after it.
+
+Phase 1 supports a fan-out of two: one backpressure-capable main consumer plus one
+side-effect consumer. A fan-out of N is achieved by **chaining N-1 `TeeNode`s**, not by a
+dedicated N-way node.
+
+### Composition with caching
+
+Because `TeeNode` is hash-transparent, a `CachedNode` above or below it keys exactly as it
+would if the tee were absent; the tee never perturbs a cache key. The useful consequence:
+on a **downstream cache hit**, the cached value is returned without pulling through the
+tee, so the side-effect leg is never driven and the **write does not fire**. The write is
+tied to the pull, and the cache short-circuits the pull. This is intended behavior, not a
+gap.
+
+### Write semantics: `create` and `append`
+
+A sink writes in one of two ways, framed purely as write behavior:
+
+- **`create`**: the target is (re)created from the written batches, replacing any prior
+  contents.
+- **`append`**: the written batches are added to the existing target.
+
+This is the full surface: replace or add, nothing more.
+
+### Durability and relationship to `into_backend`
+
+A deferred write yields a **durable, user-named, user-owned** target. It is never
+temporary and never auto-dropped; teardown is explicit. This is the concrete difference
+from `RemoteTable`/`into_backend`, which produces an **anonymous, ephemeral** table dropped
+in `clean_up` (`api.py:482`). They share the underlying write transport but are separate
+constructs, and the API keeps them separate.
 
 ### Node shape
 
-A sketch, not a contract; field names and helpers are settled in Phase 1. The node lives
-in `python/xorq/expr/relations.py` next to `Tag` and `CachedNode`, and mirrors `Tag`: a
-transparent relation carrying its parent, the parent's schema, and a side-effect config.
+A sketch, not a contract; field names settle in Phase 1. Both nodes live in
+`python/xorq/expr/relations.py` next to `Read`, `Tag`, and `CachedNode`.
 
 ```python
 # python/xorq/expr/relations.py
 
 class SinkNode(ops.Relation):
     parent: ops.Relation
-    schema: Schema            # == parent.schema; the node is a passthrough
-    sink: Sink                # storage + target name + mode (config only)
-    values = FrozenDict()     # transparent, like Tag
+    sink_method: str          # method invoked on the parent at execution time
+    sink_kwargs: Any = ()     # mirrors Read.read_kwargs
+    # terminal: produces no downstream relation
 
-    @property
-    def mode(self):
-        return self.sink.mode
+    def write(self):
+        # fires the deferred write as a side effect; mirrors Read.make_dt
+        return operator.methodcaller(self.sink_method, **dict(self.sink_kwargs))(
+            self.parent.to_expr()
+        )
+
+
+class TeeNode(ops.Relation):
+    parent: ops.Relation
+    schema: Schema            # == parent.schema; passthrough
+    sink: SinkNode            # the side-effect leg's terminal write
+    values = FrozenDict()     # transparent, like Tag
 
     def __dasher_tokenize__(self):
         # contributes nothing beyond the parent; stripped before hashing
-        # (see _remove_sink_nodes), so expr.sink(s) hashes like expr
-        return ("normalize_sink_node", self.parent)
-```
-
-```python
-# python/xorq/sinking/ (new)
-
-@frozen
-class Sink:
-    storage: SinkStorage      # ParquetSink | SourceSink | IcebergSink
-    name: str                 # durable target name / path
-    mode: str = "append"      # "create" | "append"
-
-    @mode.validator
-    def _check_mode(self, _, value):
-        if value not in ("create", "append"):
-            raise ValueError(f"mode must be 'create' or 'append', got {value!r}")
-
-    def write(self, value):
-        # value == the batches pulled through the node this run
-        # create -> replace target; append -> add to target
-        return self.storage.write(value, mode=self.mode)
+        return ("normalize_tee_node", self.parent)
 ```
 
 ```python
 # python/xorq/expr/api.py : the user-facing attach
 
-def sink(expr, storage, *, name, mode="append"):
-    op = expr.op()
-    cfg = Sink(storage=storage, name=name, mode=mode)
-    return SinkNode(parent=op, schema=op.schema, sink=cfg).to_expr()
+def sink(expr, storage, *, mode="append", **kwargs):
+    parent = expr.op()
+    sink_node = SinkNode(parent=parent, sink_method=..., sink_kwargs=(("mode", mode), ...))
+    return TeeNode(parent=parent, schema=parent.schema, sink=sink_node).to_expr()
 ```
 
-Two resolution passes keep the transparency and the side effect separate, mirroring the
-cache machinery:
+Two resolution passes keep transparency and the side effect separate:
 
-- **Hashing**: `_remove_sink_nodes` strips every `SinkNode` to its parent before the hash
-  is computed, exactly as `_remove_non_hashing_tag_nodes` (`api.py:347`) does for `Tag`.
-- **Execution**: `_register_and_transform_sink_nodes` wires the lazy-tee write of the
-  pulled batches, mirroring `_register_and_transform_cache_tables` (`api.py:212`). The
-  write fires only for batches the downstream operations actually pull.
-
-### Composition with caching: allowed everywhere
-
-Caching composes with sinks in **both directions**, with **no construction-time
-restriction**:
-
-- **Cache upstream** (`expr.cache(c).sink(s)`): the expensive compute is memoized first,
-  and its result, whether freshly computed or served from cache, is pulled through the
-  sink and written. This is the canonical arrangement.
-- **Cache downstream** (`expr.sink(s).cache(c)`): allowed. On a cache miss the downstream
-  cache pulls through the sink, the batches are written, and the result is cached. On a
-  cache hit the cache returns the stored value without pulling, so the sink is not
-  written. Accumulation does not advance on a pure cache hit, which is intended: the run
-  that produced those rows already wrote them.
-
-Cache hits and misses depend only on the parent content, since the sink does not change
-the key. There is no stale-tee hazard, because the tee returns the parent's live rows
-rather than a memoized delta. There is no write-suppression bug either: suppressing the
-write on a cache hit is the correct outcome.
-
-### Durability and relationship to `into_backend`
-
-Sink targets are **durable by default, never temporary, never auto-dropped**; teardown is
-only the explicit `SinkStorage.drop_all()`. A `SinkNode` does **not** enter the
-`created`/`clean_up` drop path that `RemoteTable` uses (`api.py:482`). This durability is
-the one concrete difference from `into_backend`: `into_backend`/`RemoteTable` is an
-anonymous, ephemeral query-execution mechanic; a sink is a named, durable persistence
-mechanic. They share the underlying write transport, but they are separate constructs and
-the API keeps them separate.
+- **Hashing**: a strip pass replaces each `TeeNode` with its parent before the hash is
+  computed, like `_remove_non_hashing_tag_nodes` (`api.py:347`) for `Tag`.
+- **Execution**: a transform pass wires the side-effect leg, mirroring
+  `_register_and_transform_cache_tables` (`api.py:212`) and the RemoteTable fan-out
+  (`relations.py:587`). It tees the parent batches with batchcorder (cardinality one), one
+  replica downstream and the evicted replica through a `RecordBatchReader` into the
+  `SinkNode`'s write.
 
 ### Naming
 
-The node is `SinkNode`. The ADR records that "sink" carries a terminal connotation the
-node deliberately violates (it is a transparent tee). Documentation must state this up
-front. `AccumulateNode` was the runner-up; `SinkNode` was kept for its established RFC
-usage, standard "durable write destination" vocabulary, and clean storage-subtype names
-(`ParquetSink`, `SourceSink`, `IcebergSink`).
+The user-facing function stays `.sink()` even though it builds a passthrough `TeeNode`,
+not a terminal `SinkNode`. This bends the terminal connotation of "sink" on purpose, and
+the documentation must say so up front: `.sink()` writes as a side effect and the pipeline
+keeps going; it does not end the stream. The internal node names match their behavior:
+`SinkNode` is the terminal write, `TeeNode` is the passthrough.
 
 ## Alternatives considered
 
-### Content-hash the sink on its config
+### A single node that both writes and passes through
 
-Fold `(parent_token, sink_config)` into the `SinkNode` token so the sink participates in
-identity.
+The earlier framing used one node that was simultaneously a terminal "sink" and a
+passthrough tee.
 
-**Rejected** in favor of transparency. A config-hashed sink changes the cache keys of any
-cache above or below it. That is what forced a construction-time ban on downstream
-caching, to avoid the write-suppression and stale-tee hazards the key change created.
-Modeling the sink on `Tag`, stripped before hashing, leaves the keys untouched, so the
-hazards never arise and the ban is unnecessary. Transparency is both simpler and more
-composable.
+**Rejected.** It conflates two behaviors with opposite shapes. "Sink" connotes terminal
+(nothing flows past), while the common need is to write and continue. Splitting into a
+terminal `SinkNode` and a passthrough `TeeNode` keeps each name honest and lets `.sink()`
+compose them.
 
-### Unconditional write at transform time
+### Write unconditionally at execution, regardless of pull
 
-Fire the write whenever the `SinkNode` is present in the executed subgraph, regardless of
-whether downstream operations pull its data.
+Fire the write whenever a write node is present in the executed subgraph.
 
-**Rejected.** It re-fires the write on a pure cache hit, double-accumulating and wasting
-I/O on rows the populating run already wrote. The lazy tee, which writes only what is
-pulled, gives "cache hit means no write" for free.
+**Rejected.** It would fire on a pure cache hit, doing I/O for data nobody pulled. Tying
+the write to the side-effect leg of the tee, which only runs when the main consumer pulls,
+makes "cache hit means no write" fall out for free.
 
-### Incremental loading, `unique_key` dedup, and a `merge` strategy
+### Content-hash the tee on its write config
 
-Ship watermark filtering on an `incremental_column`, anti-join dedup on a `unique_key`,
-and a `merge` strategy alongside `append`.
+Fold the write configuration into the `TeeNode`'s token.
 
-**Rejected** for Phase 1. The boundary rules (`>= max` versus `> max`), watermark advance,
-and re-pull-and-dedup caused the data-loss and idempotency footguns, and they duplicate
-logic the user can write upstream of the sink. Caching already handles idempotent
-reruns. The mode surface stays at `create` and `append`.
+**Rejected.** It would change the cache keys of any cache above or below the tee, breaking
+the transparency that lets sinks compose with caching at all. The node stays stripped
+before hashing, like `Tag`.
 
-### `.sink()` resolves to the full accumulated target
+### A dedicated N-way fan-out node
 
-`.sink()` returns the whole target rather than passing the parent through.
+Provide one node that fans the stream out to N consumers directly.
 
-**Rejected** because it breaks the transparent-tee model and composition: a transparent
-node must evaluate to its parent. A separate API for reading the accumulated target back
-is **deferred**, out of scope for now; until it lands, the target is read with an ordinary
-`read_parquet` / table scan against its name.
-
-### Mandate ADBC as the database write transport
-
-**Deferred.** The write transport (ADBC versus `read_record_batches` versus native
-`create_table`) is a per-`SinkStorage` implementation choice evaluated in Phase 2, not a
-contract of the node semantics. The shared `write_to_source` primitive that would unify
-the three existing write paths is out of scope. batchcorder's role (buffering
-multi-consumer reads during a write) is an implementation detail, not a normative
-decision.
+**Deferred.** Phase 1 supports a fan-out of two (one main consumer, one side-effect
+consumer); N is reached by chaining N-1 `TeeNode`s. A native N-way node can come later if
+chaining proves insufficient.
 
 ## Consequences
 
 ### Positive
 
-- Accumulation across runs becomes a first-class, immutable-expression-native operation.
-- Transparency (stripped like `Tag`) makes sinks compose with caching in **both**
-  directions: cache keys are computed as if the sink were absent, so there are no special
-  cases and no forbidden combinations.
-- The lazy tee makes "cache hit means no write" automatic, which removes
-  double-accumulation along with the write-suppression and stale-tee hazards.
-- Two modes (`create`, `append`) and no incremental machinery keep Phase 1 small and free
-  of the watermark and dedup footguns.
+- A deferred write becomes the symmetric counterpart to `deferred_read_*`, with the same
+  `method_name` plus kwargs shape.
+- Splitting terminal `SinkNode` from passthrough `TeeNode` keeps the "sink is terminal"
+  connotation intact while still letting a pipeline write and continue.
+- TeeNode transparency means the write composes with caching with no special cases, and a
+  downstream cache hit suppresses the write automatically.
+- The two-node, fan-out-of-two design with chaining keeps Phase 1 small.
 
 ### Negative
 
-- `.sink()` returns the parent's rows, not the accumulated target. The "sink is a
-  transparent tee, not terminal" point must be made loudly in docs, or users will expect
-  `.sink()` to hand back everything written so far. A dedicated read-back API is deferred.
-- Because the write only fires when data is pulled, a sink downstream of a cache that
-  always hits will never advance accumulation. That is correct, but users must understand
-  that a cache hit suppresses the write by design.
-- No write-time dedup means `append` mode can accumulate duplicate rows across reruns
-  unless caching short-circuits the rerun. Idempotency is the cache's job here, not the
-  sink's.
+- `.sink()` building a passthrough rather than a terminal node bends the "sink" name; this
+  must be stated loudly in docs or users will expect `.sink()` to end the stream.
+- Phase 1 leans on batchcorder buffering rather than true-tee blocking, so a side-effect
+  consumer that does apply backpressure is not yet handled by blocking. Reaching the
+  target tee behavior is follow-up work.
+- A hard dependency on batchcorder (ADR-0013) sequences this work after it.
 
 ## References
 
-- RFC 0001: Deferred Sinks (Hussain, 2026-03-22)
-- [XOR-252](https://linear.app/xorq-labs/issue/XOR-252): Deferred Sinks (epic)
-- [XOR-262](https://linear.app/xorq-labs/issue/XOR-262): Phase 1, core primitives
-- [XOR-263](https://linear.app/xorq-labs/issue/XOR-263): Phase 2, SourceSinkStorage, IcebergSinkStorage
-- [XOR-264](https://linear.app/xorq-labs/issue/XOR-264): Phase 3, catalog serialization
-- ADR-0013: batchcorder StreamCache for RemoteTable fan-out (forthcoming)
+- ADR-0013: batchcorder StreamCache for RemoteTable fan-out (forthcoming), hard dependency
+- `Read` (deferred read precedent): `python/xorq/expr/relations.py:564`
+- `deferred_read_*`: `python/xorq/common/utils/defer_utils.py`
 - `Tag` / `HashingTag`: `python/xorq/expr/relations.py:101`
-- `CachedNode` / `RemoteTable`: `python/xorq/expr/relations.py`
 - Tag stripping pass: `_remove_non_hashing_tag_nodes`, `python/xorq/expr/api.py:347`
+- RemoteTable fan-out (tee + `read_record_batches`): `register_and_transform_remote_tables`, `python/xorq/expr/relations.py:587`
 - Cache resolution: `_register_and_transform_cache_tables`, `python/xorq/expr/api.py:212`
-- dbt incremental materialization docs
