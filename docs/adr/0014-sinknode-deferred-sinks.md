@@ -31,13 +31,15 @@ write node (the eventual `SinkNode`) is deferred to a later phase (see Alternati
 ### One node: a pass-through `TeeNode`
 
 `TeeNode` is a **pass-through**: it evaluates to its parent's rows unchanged and, as those
-rows are pulled through it, writes them as a side effect. The user-facing `.sink()` builds a
-`TeeNode`. A separate terminal write node is deferred (see Alternatives), so `TeeNode` is the
-only node this ADR ships.
+rows are pulled through it, **hands each batch to a consumer** as a side effect. The TeeNode
+does not write anything itself; it passes the batch to the consumer, and the consumer (here
+`ParquetSink`) writes it to the destination. The user-facing `.sink()` builds a `TeeNode`. A
+separate terminal write node is deferred (see Alternatives), so `TeeNode` is the only node
+this ADR ships.
 
 `TeeNode` does not reference any write node or any concrete writer type. It holds a generic
 **consumer** in its `tee` field (see the consumer contract below) and is otherwise oblivious
-to what the consumer does.
+to what the consumer does with the batches it receives.
 
 ### `TeeNode` is transparent, like `Tag`
 
@@ -95,7 +97,8 @@ behavior:
 
 - **`append`**: `commit` adds a new file to the directory; existing files are untouched. A
   single rename, genuinely atomic.
-- **`create`**: `commit` clears the directory's parquet files first, then adds the new file.
+- **`create`**: refuses to overwrite. It **raises** if the target already has parquet files
+  (like SQL `CREATE TABLE`, not `CREATE OR REPLACE`); otherwise `commit` adds the file.
 
 The temp lives on the same filesystem as the target so the rename is atomic. Object stores
 have no atomic rename and need a different publish; that is out of scope for Phase 1.

@@ -135,12 +135,13 @@ class HashingTag(Tag):
 
 
 class TeeNode(ops.Relation):
-    """A transparent pass-through that writes its stream as a side effect.
+    """A transparent pass-through that hands its stream to a consumer.
 
     Modeled on `Tag`: schema and rows equal the parent's, and the node is
     stripped before the content hash is computed, so `expr.sink(s)` hashes
-    identically to `expr`. The write fires only as the parent's batches are
-    pulled through it (see `register_and_transform_tee_nodes`).
+    identically to `expr`. The node does not write; as the parent's batches are
+    pulled through it, each is passed to the consumer (which writes), see
+    `register_and_transform_tee_nodes`.
 
     `tee` is a generic RecordBatch consumer (duck-typed): an object exposing
     ``read(batch)`` to receive each batch, plus ``commit()`` / ``abort()`` to

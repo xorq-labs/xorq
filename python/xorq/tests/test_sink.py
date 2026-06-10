@@ -79,11 +79,27 @@ def test_append_adds_a_file_per_run(t, tmp_path):
     assert len(_files(target)) == 2
 
 
-def test_create_replaces_contents(t, tmp_path):
+def test_create_fails_if_target_exists(t, tmp_path):
     target = tmp_path / "tgt"
     t.sink(ParquetSink(path=target, mode="create")).execute()
-    t.sink(ParquetSink(path=target, mode="create")).execute()
     assert len(_files(target)) == 1
+    # raised mid-pull, the engine wraps FileExistsError (Arrow C-stream boundary)
+    with pytest.raises(Exception, match="already has parquet files"):
+        t.sink(ParquetSink(path=target, mode="create")).execute()
+    # the failed run published nothing: still exactly one file, no stray temp
+    assert len(_files(target)) == 1
+    assert list(target.glob("*.tmp")) == []
+
+
+def test_create_consumer_raises_fileexists_directly(tmp_path):
+    # used directly (no engine), the plain FileExistsError type surfaces
+    target = tmp_path / "tgt"
+    s1 = ParquetSink(path=target, mode="create")
+    s1.read(pa.record_batch({"a": [1]}))
+    s1.commit()
+    assert len(_files(target)) == 1
+    with pytest.raises(FileExistsError):
+        ParquetSink(path=target, mode="create").read(pa.record_batch({"a": [1]}))
 
 
 def test_invalid_mode_raises(tmp_path):
