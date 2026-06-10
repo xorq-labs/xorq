@@ -3418,28 +3418,53 @@ class Table(Expr, _FixedTextJupyterMixin):
         )
         return op.to_expr()
 
-    def sink(self, sink) -> Table:
-        """Write this table's rows as a side effect, passing them through.
+    def tee(self, target, *, table_name=None, **kwargs) -> Table:
+        """Pass rows through while writing them as a side effect.
 
-        Wraps the table in a transparent `TeeNode`: the rows are written to
-        ``sink`` (e.g. a `ParquetSink`) as they are pulled, and the same rows
-        flow downstream unchanged. A downstream cache hit means the rows are
-        never pulled, so nothing is written. See ADR-0014.
+        Like Unix ``tee``: the returned expression yields the same rows as
+        the parent, and a copy is written to *target* as batches flow. A
+        downstream cache hit means the rows are never pulled, so nothing is
+        written. See ADR-0014.
 
         Parameters
         ----------
-        sink
-            A sink storage (e.g. `xorq.sinking.ParquetSink`) carrying the
-            target and write mode (`create` or `append`).
+        target
+            Either a `SinkNode` (e.g. `ParquetSink`, `BackendSink`) or a
+            backend connection. When a connection is passed, a `BackendSink`
+            is created from ``table_name`` and the remaining ``**kwargs``.
+        table_name
+            Required when *target* is a backend connection. The name of the
+            table to write into on that backend.
 
         Returns
         -------
         Table
             A pass-through table; schema unchanged.
         """
-        from xorq.expr.relations import TeeNode
+        from xorq.expr.relations import TeeNode  # noqa: PLC0415
+        from xorq.sinking import BackendSink, SinkNode  # noqa: PLC0415
+        from xorq.vendor.ibis.backends import BaseBackend  # noqa: PLC0415
 
-        op = TeeNode(schema=self.schema(), parent=self.op(), tee=sink)
+        if isinstance(target, SinkNode):
+            if table_name is not None or kwargs:
+                raise TypeError(
+                    "tee() does not accept table_name or extra keyword "
+                    "arguments when target is a SinkNode"
+                )
+            sink = target
+        elif isinstance(target, BaseBackend) and hasattr(target, "read_record_batches"):
+            if table_name is None:
+                raise TypeError(
+                    "tee() requires table_name when target is a backend connection"
+                )
+            sink = BackendSink(target, table_name=table_name, **kwargs)
+        else:
+            raise TypeError(
+                f"tee() target must be a SinkNode or a backend connection "
+                f"(with read_record_batches), got {type(target).__name__}"
+            )
+
+        op = TeeNode(schema=self.schema(), parent=self.op(), sink=sink)
         return op.to_expr()
 
     def _make_tag(self, cls, tag, **kwargs):
