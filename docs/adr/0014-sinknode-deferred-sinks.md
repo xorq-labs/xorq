@@ -3,19 +3,19 @@
 - **Status:** Proposed
 - **Date:** 2026-06-10
 - **Deciders:** Daniel
-- **Context area:** `python/xorq/sinking/` (new), `python/xorq/expr/relations.py`, `python/xorq/expr/api.py`
+- **Context area:** `python/xorq/sinking/` (new), `python/xorq/expr/relations.py`, `python/xorq/expr/api.py`, `python/xorq/vendor/ibis/expr/types/relations.py`
 
 ## Context
 
 Xorq has first-class **deferred reads**: `deferred_read_parquet`, `deferred_read_csv`, and
-the `Read` op (`relations.py:564`) defer a read to execution time, invoking
+the `Read` op (`relations.py:585`) defer a read to execution time, invoking
 `getattr(source, method_name)(...)` only when the expression runs. There is no symmetric
 **deferred write**. An expression cannot, as part of running, write its rows to a target as
 a side effect and keep going.
 
 This ADR adds that: a write performed as a side effect of execution. It is implemented as a
-hash-neutral pass-through `TeeNode` that drives a generic RecordBatch consumer. A terminal
-write node (the eventual `SinkNode`) is deferred to a later phase (see Alternatives).
+hash-neutral pass-through `TeeNode` that drives a `SinkNode` generator. A terminal write
+node (the eventual terminal `SinkNode`) is deferred to a later phase (see Alternatives).
 
 ## Decision drivers
 
@@ -31,77 +31,96 @@ write node (the eventual `SinkNode`) is deferred to a later phase (see Alternati
 ### One node: a pass-through `TeeNode`
 
 `TeeNode` is a **pass-through**: it evaluates to its parent's rows unchanged and, as those
-rows are pulled through it, **hands each batch to a consumer** as a side effect. The TeeNode
-does not write anything itself; it passes the batch to the consumer, and the consumer (here
-`ParquetSink`) writes it to the destination. The user-facing `.sink()` builds a `TeeNode`. A
+rows are pulled through it, **hands each batch to a sink** as a side effect. The TeeNode
+does not write anything itself; it delegates to a `SinkNode` whose `execute(batches)`
+generator wraps the parent's batch stream. The user-facing `.tee()` builds a `TeeNode`. A
 separate terminal write node is deferred (see Alternatives), so `TeeNode` is the only node
 this ADR ships.
 
-`TeeNode` does not reference any write node or any concrete writer type. It holds a generic
-**consumer** in its `tee` field (see the consumer contract below) and is otherwise oblivious
-to what the consumer does with the batches it receives.
+`TeeNode` does not reference any concrete writer type. It holds a `SinkNode` in its `sink`
+field (see the `SinkNode` contract below) and is otherwise oblivious to what the sink does
+with the batches it receives.
 
 ### `TeeNode` is hash-neutral, like `Tag`
 
-`TeeNode` is modeled on `Tag` (`relations.py:101`). Its schema equals its parent's schema,
+`TeeNode` is modeled on `Tag` (`relations.py:102`). Its schema equals its parent's schema,
 and it is **stripped before hashing** by a resolution pass that replaces it with its parent,
-exactly as `_remove_non_hashing_tag_nodes` (`api.py:347`) does for `Tag`. So `expr.sink(s)`
+exactly as `_remove_non_hashing_tag_nodes` (`api.py:368`) does for `Tag`. So `expr.tee(s)`
 and `expr` produce the **same** content hash, and a `CachedNode` above or below the tee keys
 as if the tee were not there.
 
-### The write is an inline pass-through generator
+### The `SinkNode` contract
 
-At execution the tee is driven by an inline generator over the parent's batches: for each
-batch it pushes to the consumer, then yields downstream.
+A `SinkNode` is an abstract base class with a single method:
 
 ```python
-def _drive_tee(reader, consumer):
-    try:
-        for batch in reader:
-            consumer.read(batch)   # push-fed: receives an already-pulled batch
-            yield batch            # pass-through
-        consumer.commit()
-    except BaseException:
-        consumer.abort()
-        raise
+class SinkNode(abc.ABC):
+    @abc.abstractmethod
+    def execute(self, batches: Iterable[pa.RecordBatch]) -> Iterator[pa.RecordBatch]:
+        """Pull from batches, write each as a side effect, yield onward."""
+        ...
 ```
+
+`execute(batches)` is a **generator**: it pulls from `batches`, writes each batch as a side
+effect, and yields it downstream unchanged. Each sink subclass owns its full lifecycle
+(open, commit/publish, abort/cleanup) inside its `execute` implementation. The downstream
+consumer drives iteration — the sink never independently pulls.
 
 This gives the cache-respecting behavior for free:
 
-- **Single puller.** The only consumer of the stream is downstream. The writer never pulls;
-  it receives batches the downstream pull already produced. If downstream does not pull (a
-  cache hit), the generator never runs and nothing is written.
-- **write-then-yield.** Every batch handed downstream was pushed to the consumer first, so
+- **Single puller.** The only consumer of the stream is downstream. The sink never pulls
+  independently; it receives batches the downstream pull already produced. If downstream
+  does not pull (a cache hit), the generator never runs and nothing is written.
+- **Write-then-yield.** Every batch handed downstream was written by the sink first, so
   the written set equals the delivered set with no off-by-one.
 - **True tee, lock-step.** The write sits in the pull path, so a slow write blocks the
   producer. There is no buffer, so nothing can overflow. The cost is that the write and the
   downstream consumer run at the same pace; they are not decoupled.
 
-### The consumer contract
+### `ParquetSink`: directory-of-parquet consumer
 
-`tee` is any object implementing a small RecordBatch-consumer protocol:
+`ParquetSink(path, mode)` stages batches to a temp file inside `execute`, and on clean
+exhaustion renames it into the target directory (the standard atomic-write idiom). The two
+modes are plain write behavior:
 
-- **`read(batch)`** receive one `pyarrow.RecordBatch`.
-- **`commit()`** publish; called once on full exhaustion.
-- **`abort()`** discard; called on early stop or error.
-
-The consumer owns its own durability. Nothing is published until `commit`, so a cache hit, a
-downstream `LIMIT`, or an error publishes nothing and leaves any prior target intact (every
-run is all-or-nothing).
-
-### `ParquetSink`: the Phase-1 consumer
-
-`ParquetSink(path, mode)` stages batches to a temp file on `read`, and on `commit` renames it
-into the target directory (the standard atomic-write idiom). The two modes are plain write
-behavior:
-
-- **`append`**: `commit` adds a new file to the directory; existing files are untouched. A
+- **`append`**: commit adds a new file to the directory; existing files are untouched. A
   single rename, genuinely atomic.
 - **`create`**: refuses to overwrite. It **raises** if the target already has parquet files
-  (like SQL `CREATE TABLE`, not `CREATE OR REPLACE`); otherwise `commit` adds the file.
+  (like SQL `CREATE TABLE`, not `CREATE OR REPLACE`); otherwise commit adds the file. The
+  check-then-rename is guarded by an `fcntl.flock` on a `.sink.lock` file to prevent
+  TOCTOU races under concurrent runs.
 
-The temp lives on the same filesystem as the target so the rename is atomic. Object stores
-have no atomic rename and need a different publish; that is out of scope for Phase 1.
+An error or early stop mid-stream discards the temp file and publishes nothing. The temp
+lives on the same filesystem as the target so the rename is atomic. Object stores have no
+atomic rename and need a different publish; that is out of scope for Phase 1.
+
+### `BackendSink`: per-backend ingest consumer
+
+`BackendSink(con, table_name, mode, kwargs)` delegates writes to any xorq backend's
+`read_record_batches` method. It has two execution paths, selected by whether the backend
+accepts a `mode` parameter:
+
+- **Per-batch** (backends with `mode`, e.g. Postgres via ADBC): the first batch is ingested
+  with mode `create` (or `append` if mode is `append`), and all subsequent batches use
+  `append`. Each batch commits immediately, so a mid-stream failure leaves earlier batches
+  written — this path is **not** all-or-nothing.
+- **Bulk** (DataFusion, DuckDB, Pandas — no `mode` parameter): all batches are buffered in
+  memory and registered as a single table after the stream is fully consumed. A mid-stream
+  error means nothing is written.
+
+Extra `kwargs` are forwarded to `read_record_batches`, allowing backend-specific options.
+
+### `.tee()`: the user-facing method
+
+`.tee()` is polymorphic — it accepts either a `SinkNode` directly or a backend connection:
+
+```python
+def tee(self, target: SinkNode | BaseBackend, *, table_name=None, **kwargs) -> Table
+```
+
+When `target` is a `BaseBackend` (with `read_record_batches`), `.tee()` auto-creates a
+`BackendSink` from `table_name` and the remaining `**kwargs`. When `target` is already a
+`SinkNode`, extra keyword arguments are rejected.
 
 ### Fan-out of two, chained for N
 
@@ -113,7 +132,7 @@ is achieved by **chaining N-1 `TeeNode`s**, not by a dedicated N-way node.
 A deferred write yields a **persistent, user-named, user-owned** target. It is never temporary
 and never auto-dropped; teardown is explicit. This is the concrete difference from
 `RemoteTable`/`into_backend`, which produces an **anonymous, ephemeral** table dropped in
-`clean_up` (`api.py:482`). They share the underlying write transport but are separate
+`clean_up` (`api.py:505`). They share the underlying write transport but are separate
 constructs, and the API keeps them separate.
 
 ### Node shape
@@ -124,7 +143,7 @@ constructs, and the API keeps them separate.
 class TeeNode(ops.Relation):
     schema: Schema            # == parent.schema; pass-through
     parent: ops.Relation
-    tee: Any = None           # a RecordBatch consumer (read / commit / abort)
+    sink: SinkNode            # a SinkNode whose execute() drives the write
     values = FrozenDict()     # hash-neutral, like Tag
 
     def __dasher_tokenize__(self):
@@ -134,36 +153,54 @@ class TeeNode(ops.Relation):
 ```python
 # python/xorq/sinking/__init__.py
 
-class ParquetSink:
-    def read(self, batch): ...    # stage to a temp file
-    def commit(self): ...         # rename temp into the target dir (append/create)
-    def abort(self): ...          # discard the temp
+class ParquetSink(SinkNode):
+    path: Path
+    mode: SinkMode  # "append" | "create"
+    def execute(self, batches): ...  # stage to temp, rename on clean exhaustion
+
+class BackendSink(SinkNode):
+    con: Any
+    table_name: str
+    mode: SinkMode
+    kwargs: dict
+    def execute(self, batches): ...  # per-batch or bulk, depending on backend
 ```
 
 ```python
-# Table.sink (vendored relations.py): the user-facing attach
+# Table.tee (vendored relations.py): the user-facing attach
 
-def sink(self, sink):
-    op = TeeNode(schema=self.schema(), parent=self.op(), tee=sink)
+def tee(self, target: SinkNode | BaseBackend, *, table_name=None, **kwargs) -> Table:
+    ...
+    op = TeeNode(schema=self.schema(), parent=self.op(), sink=sink)
     return op.to_expr()
 ```
 
 Two resolution passes keep hash neutrality and the side effect separate:
 
 - **Hashing**: a strip pass replaces each `TeeNode` with its parent before the hash is
-  computed, like `_remove_non_hashing_tag_nodes` (`api.py:347`) for `Tag`. `_remove_tee_nodes`
+  computed, like `_remove_non_hashing_tag_nodes` (`api.py:368`) for `Tag`. `_remove_tee_nodes`
   does the same off the SQL path.
 - **Execution**: `register_and_transform_tee_nodes` replaces each surviving `TeeNode` with a
-  backend table fed by `_drive_tee`, mirroring the RemoteTable pass
-  (`register_and_transform_remote_tables`, `relations.py:587`). It runs after cache
-  resolution, so a downstream cache hit prunes the tee before this pass and the write never
-  fires.
+  backend table fed by `sink.execute(reader)`:
+
+  ```python
+  reader = parent_expr.to_pyarrow_batches()
+  wrapped = pa.RecordBatchReader.from_batches(reader.schema, node.sink.execute(reader))
+  table = con.read_record_batches(wrapped, table_name=gen_name())
+  ```
+
+  This mirrors the RemoteTable pass (`register_and_transform_remote_tables`,
+  `relations.py:608`). It runs after cache resolution, so a downstream cache hit prunes the
+  tee before this pass sees it and the write never fires.
 
 ### Naming
 
-The user-facing function is `.sink()` even though it builds a pass-through `TeeNode`. This
-bends the terminal convention of "sink" on purpose, and the docs must say so up front:
-`.sink()` writes as a side effect and the pipeline keeps going.
+The user-facing method is `.tee()`, matching the Unix `tee` command: data flows through and
+a copy is written as a side effect. The consumer abstraction is named `SinkNode`, and the
+field on `TeeNode` is `sink`. This split is deliberate: "tee" names the pass-through
+behavior the caller sees, while "sink" names what the consumer does with the data it
+receives (writes it somewhere). A future terminal write node (see Alternatives) would use
+`SinkNode` directly without wrapping it in a `TeeNode`.
 
 ## Alternatives considered
 
@@ -189,8 +226,8 @@ One node that is simultaneously a terminal sink and a pass-through tee.
 Fire the write whenever a write node is present in the executed subgraph.
 
 **Rejected.** It would fire on a pure cache hit, doing I/O for data nobody pulled. Tying the
-write to the inline generator, which only runs when the main consumer pulls, makes "cache hit
-means no write" follow automatically.
+write to the `execute` generator, which only runs when the main consumer pulls, makes "cache
+hit means no write" follow automatically.
 
 ### Decouple the write with a buffered tee (batchcorder)
 
@@ -214,14 +251,15 @@ N-way node can come later if chaining proves insufficient.
 - A deferred write becomes a first-class side effect that composes with the rest of the graph.
 - `TeeNode` hash neutrality means the write composes with caching with no special cases, and a
   downstream cache hit suppresses the write automatically.
-- The generic `read`/`commit`/`abort` consumer keeps `TeeNode` oblivious to the writer, so new
-  sinks (database, iceberg) drop in without touching the node.
-- Atomic, all-or-nothing publish: a partial or aborted run never corrupts the target.
+- The `SinkNode` ABC keeps `TeeNode` oblivious to the writer, so new sinks drop in by
+  subclassing `SinkNode` without touching the node or the resolution passes.
+- `ParquetSink` provides atomic, all-or-nothing publish: a partial or aborted run never
+  corrupts the target.
+- `.tee()` accepting both `SinkNode` and `BaseBackend` gives a concise shorthand
+  (`t.tee(con, table_name="tgt")`) for the common case.
 
 ### Negative
 
-- `.sink()` building a pass-through rather than a terminal node bends the "sink" name; docs
-  must make this explicit or users will expect `.sink()` to end the stream.
 - The inline generator runs the write and the downstream consumer lock-step, so a slow write
   slows downstream. Decoupling them (batchcorder) is a future optimization.
 - A downstream early-stop (`LIMIT`/`head`) publishes nothing rather than the pulled prefix.
@@ -232,13 +270,17 @@ N-way node can come later if chaining proves insufficient.
   **deadlocks**, because the tee re-enters the same connection to pull the parent while that
   connection is serving the outer query. Supporting such engines needs the parent pulled on a
   separate connection or thread, which is deferred.
+- `BackendSink`'s per-batch path (for backends with `mode` support) commits each batch
+  individually, so a mid-stream failure leaves earlier batches written. This is not
+  all-or-nothing like `ParquetSink`; rollback requires the backend's own transactional support.
 
 ## References
 
-- `Read` (deferred read precedent): `python/xorq/expr/relations.py:564`
+- `Read` (deferred read precedent): `python/xorq/expr/relations.py:585`
 - `deferred_read_*`: `python/xorq/common/utils/defer_utils.py`
-- `Tag` / `HashingTag`: `python/xorq/expr/relations.py:101`
-- Tag stripping pass: `_remove_non_hashing_tag_nodes`, `python/xorq/expr/api.py:347`
-- RemoteTable fan-out (node rewrite at execution): `register_and_transform_remote_tables`, `python/xorq/expr/relations.py:587`
+- `Tag` / `HashingTag`: `python/xorq/expr/relations.py:102`
+- Tag stripping pass: `_remove_non_hashing_tag_nodes`, `python/xorq/expr/api.py:368`
+- Tee stripping pass: `_remove_tee_nodes`, `python/xorq/expr/api.py:349`
+- RemoteTable fan-out (node rewrite at execution): `register_and_transform_remote_tables`, `python/xorq/expr/relations.py:608`
 - Atomic write precedent (temp file + rename): `python/xorq/caching/storage.py:80`
 - ADR-0013: batchcorder StreamCache for RemoteTable fan-out (forthcoming), candidate for the future buffered-tee optimization
