@@ -10,6 +10,7 @@ directory of parquet files; `BackendSink` delegates to a backend's
 from __future__ import annotations
 
 import abc
+import fcntl
 import inspect
 import uuid
 from enum import StrEnum
@@ -101,7 +102,17 @@ class ParquetSink(SinkNode):
         if exhausted and writer is not None:
             try:
                 writer.close()
-                tmp.rename(self.path / f"{uuid.uuid4().hex}.parquet")
+                final = self.path / f"{uuid.uuid4().hex}.parquet"
+                if self.mode is SinkMode.CREATE:
+                    with open(self.path / ".sink.lock", "w") as lock_fd:
+                        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+                        if any(self.path.glob("*.parquet")):
+                            raise FileExistsError(
+                                f"create sink target already has parquet files: {self.path}"
+                            )
+                        tmp.rename(final)
+                else:
+                    tmp.rename(final)
             except BaseException:
                 tmp.unlink(missing_ok=True)
                 raise

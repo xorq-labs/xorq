@@ -353,12 +353,11 @@ def _remove_tee_nodes(expr: ir.Expr) -> ir.Expr:
     """
 
     def replacer(node, kwargs):
+        if kwargs:
+            node = node.__recreate__(kwargs)
         if isinstance(node, TeeNode):
             while isinstance(node, TeeNode):
                 node = node.parent
-            node = replace_nodes(replacer, node)
-        elif kwargs:
-            node = node.__recreate__(kwargs)
         return node
 
     return replace_nodes(replacer, expr).to_expr()
@@ -379,10 +378,11 @@ def _remove_non_hashing_tag_nodes(expr):
                     node = node.parent
                 return replace_nodes(replacer, node)
             case TeeNode():
-                # transparent: a sinked expr hashes identically to its parent
+                if kwargs:
+                    node = node.__recreate__(kwargs)
                 while isinstance(node, TeeNode):
                     node = node.parent
-                return replace_nodes(replacer, node)
+                return node
             case _:
                 if kwargs:
                     node = node.__recreate__(kwargs)
