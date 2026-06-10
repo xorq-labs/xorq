@@ -7,10 +7,13 @@ error). `ParquetSink` is one such consumer; it owns its own durability,
 staging to a temp file and renaming into place only on commit.
 """
 
+from __future__ import annotations
+
 import uuid
 from enum import StrEnum
 from pathlib import Path
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 
@@ -37,7 +40,30 @@ class ParquetSink:
     prior contents intact.
     """
 
-    def __init__(self, path, mode=SinkMode.APPEND):
+    path: Path
+    mode: SinkMode
+    _writer: pq.ParquetWriter | None
+    _tmp: Path | None
+
+    def __init__(
+        self, path: str | Path, mode: SinkMode | str = SinkMode.APPEND
+    ) -> None:
+        """Configure the sink target and write mode.
+
+        Parameters
+        ----------
+        path
+            Target directory for the parquet files.
+        mode
+            `SinkMode` or one of its values: ``"append"`` adds a file per run,
+            ``"create"`` refuses to overwrite an existing target.
+
+        Raises
+        ------
+        ValueError
+            If `mode` is not a `SinkMode` value (re-raised from
+            ``SinkMode(mode)``).
+        """
         try:
             self.mode = SinkMode(mode)
         except ValueError:
@@ -48,7 +74,30 @@ class ParquetSink:
         self._writer = None
         self._tmp = None
 
-    def read(self, batch):
+    def read(self, batch: pa.RecordBatch) -> None:
+        """Receive one batch, staging it to a temp parquet file.
+
+        The first call opens the writer (creating the target directory) and, in
+        ``create`` mode, refuses to overwrite an existing target.
+
+        Parameters
+        ----------
+        batch
+            The record batch to stage. The first batch's schema fixes the
+            writer's schema; a later batch with a different schema raises from
+            pyarrow.
+
+        Raises
+        ------
+        FileExistsError
+            In ``create`` mode, if the target already holds ``*.parquet`` files
+            (checked on the first call). Raised mid-pull through an engine it
+            may surface wrapped (e.g. as `ValueError` across the Arrow C-stream
+            boundary).
+        OSError
+            From creating the directory or opening/writing the temp file
+            (permission denied, disk full); not caught.
+        """
         if self._writer is None:
             self.path.mkdir(parents=True, exist_ok=True)
             if self.mode is SinkMode.CREATE and any(self.path.glob("*.parquet")):
@@ -59,7 +108,20 @@ class ParquetSink:
             self._writer = pq.ParquetWriter(str(self._tmp), batch.schema)
         self._writer.write_batch(batch)
 
-    def commit(self):
+    def commit(self) -> None:
+        """Publish the staged write atomically, or do nothing if nothing was read.
+
+        Closes the writer and renames the temp file into the target directory
+        as a new parquet file. Staging happens inside the target directory, so
+        the rename is on one filesystem and atomic. A no-op when no batch was
+        read (no writer open).
+
+        Raises
+        ------
+        OSError
+            From flushing/closing the writer (disk full) or renaming the temp
+            file; not caught.
+        """
         if self._writer is None:
             return  # nothing was read: publish nothing
         self._writer.close()
@@ -68,7 +130,18 @@ class ParquetSink:
         self._tmp.rename(self.path / f"{uuid.uuid4().hex}.parquet")
         self._tmp = None
 
-    def abort(self):
+    def abort(self) -> None:
+        """Discard the staged write; publish nothing. Idempotent.
+
+        Closes the writer if open and unlinks the temp file with
+        ``missing_ok=True``, so calling it more than once, or after `commit`,
+        is safe.
+
+        Raises
+        ------
+        OSError
+            From closing the writer, in rare cases; not caught.
+        """
         if self._writer is not None:
             self._writer.close()
             self._writer = None
