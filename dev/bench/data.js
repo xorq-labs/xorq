@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781037006014,
+  "lastUpdate": 1781124796075,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -17355,6 +17355,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.015192917163497847",
             "extra": "mean: 46.70371045161177 msec\nrounds: 31"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bca7b5fd86e99c7d51601b053c9173e73e4bfd12",
+          "message": "feat(cli): accept zip files in `xorq run` and `xorq uv run` (#2041)\n\n## Summary\n- `xorq run` and `xorq uv run` now accept a `.zip` build archive as the\nbuild path argument\n- Reuses the existing `extract_build_zip_context` from\n`xorq.catalog.zip_utils`, which validates the archive has exactly one\ntop-level directory and the required members\n- Extraction goes to a temp dir that is cleaned up automatically after\nthe run completes\n\n## Test plan\n- [x] `xorq run <build_dir>` still works as before (no regression)\n- [x] `xorq run <build.zip>` extracts and runs successfully\n- [x] `xorq uv run <build.zip>` extracts and runs successfully\n- [ ] Invalid zip (missing required members) raises a clear error\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-06-10T16:49:30-04:00",
+          "tree_id": "234c51baed1d219b108b1718bc2ce3b84e72ecd8",
+          "url": "https://github.com/xorq-labs/xorq/commit/bca7b5fd86e99c7d51601b053c9173e73e4bfd12"
+        },
+        "date": 1781124793303,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.389638290578574,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004834574720079039",
+            "extra": "mean: 106.5003751000063 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.474052389653589,
+            "unit": "iter/sec",
+            "range": "stddev: 0.056794953460028004",
+            "extra": "mean: 404.1951594000068 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6882656263902815,
+            "unit": "iter/sec",
+            "range": "stddev: 0.20524460712309678",
+            "extra": "mean: 1.4529274188000045 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.696858877742771,
+            "unit": "iter/sec",
+            "range": "stddev: 0.050007917670539845",
+            "extra": "mean: 370.80175319999853 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.6102611465364856,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07672079506020935",
+            "extra": "mean: 383.10343059999354 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.6462972893743024,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06077912260433263",
+            "extra": "mean: 377.88649219999115 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 143.95805783202,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015888987128053252",
+            "extra": "mean: 6.946467707746291 msec\nrounds: 284"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.686581418426163,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08787408810046769",
+            "extra": "mean: 175.8525775714231 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 29.071390409931638,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007788967980427871",
+            "extra": "mean: 34.39807955172212 msec\nrounds: 29"
           }
         ]
       }
