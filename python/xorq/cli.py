@@ -1,3 +1,5 @@
+import collections.abc
+import contextlib
 import datetime
 import os
 import pdb
@@ -19,6 +21,17 @@ from xorq.cli_options import (
     unbind_options,
 )
 from xorq.init_templates import InitTemplates
+
+
+@contextlib.contextmanager
+def maybe_unzip(path: str) -> collections.abc.Generator[str, None, None]:
+    if str(path).lower().endswith(".zip"):
+        from xorq.catalog.zip_utils import extract_build_zip_context  # noqa: PLC0415
+
+        with extract_build_zip_context(path) as build_dir:
+            yield str(build_dir)
+    else:
+        yield path
 
 
 def _lazy_span(name):
@@ -920,14 +933,15 @@ def uv_run(build_path, cache_dir, output_path, output_format, limit, raw_params)
       # Stream JSON to stdout
       xorq uv run builds/7061dd65ff3c -f json -o -
     """
-    uv_run_command(
-        build_path,
-        cache_dir,
-        output_path,
-        output_format,
-        limit=limit,
-        raw_params=raw_params,
-    )
+    with maybe_unzip(build_path) as p:
+        uv_run_command(
+            p,
+            cache_dir,
+            output_path,
+            output_format,
+            limit=limit,
+            raw_params=raw_params,
+        )
 
 
 @uv_group.command("run-cached")
@@ -1141,7 +1155,8 @@ def run(build_path, cache_dir, output_path, output_format, limit, raw_params):
       # Sample 100 rows with a parameter override
       xorq run builds/f02d28198715 --limit 100 -p threshold=0.5 -o sample.parquet
     """
-    run_command(build_path, output_path, output_format, cache_dir, limit, raw_params)
+    with maybe_unzip(build_path) as p:
+        run_command(p, output_path, output_format, cache_dir, limit, raw_params)
 
 
 @cli.command("run-cached")

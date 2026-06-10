@@ -6,6 +6,7 @@ import shutil
 import subprocess as _subprocess
 import sys
 import uuid
+import zipfile
 from itertools import chain
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -26,6 +27,7 @@ from xorq.cli import (
     arbitrate_output_format,
     build_command,
     cli,
+    maybe_unzip,
     run_command,
 )
 from xorq.cli_constants import OutputFormats
@@ -1661,3 +1663,50 @@ def test_serve_options_decorator():
     assert result.exit_code == 0
     assert "host=0.0.0.0" in result.output
     assert "port=8080" in result.output
+
+
+def test_maybe_unzip_non_zip_passthrough(tmp_path: Path) -> None:
+    build_dir = tmp_path / "my_build"
+    build_dir.mkdir()
+    with maybe_unzip(str(build_dir)) as p:
+        assert p == str(build_dir)
+
+
+def test_maybe_unzip_valid_zip(tmp_path: Path) -> None:
+    build_dir = tmp_path / "my_build"
+    build_dir.mkdir()
+    (build_dir / "file.txt").write_text("hello")
+    zip_path = tmp_path / "archive.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.write(build_dir / "file.txt", "my_build/file.txt")
+    with maybe_unzip(str(zip_path)) as p:
+        assert p != str(zip_path)
+        assert Path(p).is_dir()
+        assert (Path(p) / "file.txt").read_text() == "hello"
+
+
+def test_maybe_unzip_case_insensitive_extension(tmp_path: Path) -> None:
+    build_dir = tmp_path / "my_build"
+    build_dir.mkdir()
+    (build_dir / "file.txt").write_text("hello")
+    zip_path = tmp_path / "archive.ZIP"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.write(build_dir / "file.txt", "my_build/file.txt")
+    with maybe_unzip(str(zip_path)) as p:
+        assert Path(p).is_dir()
+        assert (Path(p) / "file.txt").read_text() == "hello"
+
+
+def test_maybe_unzip_nonexistent_zip_raises(tmp_path: Path) -> None:
+    zip_path = tmp_path / "does_not_exist.zip"
+    with pytest.raises(FileNotFoundError):
+        with maybe_unzip(str(zip_path)) as _:
+            pass
+
+
+def test_maybe_unzip_invalid_zip_raises(tmp_path: Path) -> None:
+    zip_path = tmp_path / "bad.zip"
+    zip_path.write_text("this is not a zip")
+    with pytest.raises(zipfile.BadZipFile):
+        with maybe_unzip(str(zip_path)) as _:
+            pass
