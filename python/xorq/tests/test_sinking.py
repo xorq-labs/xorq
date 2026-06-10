@@ -27,13 +27,14 @@ def t() -> Table:
 
 
 def _connect(name: str) -> Any:
+    factory = {
+        "datafusion": xo.connect,
+        "duckdb": xo.duckdb.connect,
+        "pandas": xo.pandas.connect,
+    }[name]
     try:
-        return {
-            "datafusion": xo.connect,
-            "duckdb": xo.duckdb.connect,
-            "pandas": xo.pandas.connect,
-        }[name]()
-    except Exception as exc:  # noqa: BLE001
+        return factory()
+    except (ImportError, ModuleNotFoundError) as exc:
         pytest.skip(f"backend {name} unavailable: {exc}")
 
 
@@ -341,3 +342,148 @@ def test_tee_requires_table_name_for_backend(t: Table) -> None:
     target_con = xo.connect()
     with pytest.raises(TypeError, match="requires table_name"):
         t.tee(target_con)
+
+
+def test_tee_rejects_backend_without_read_record_batches(t: Table) -> None:
+    class _NoRRB:
+        name = "fake"
+
+    with pytest.raises(TypeError, match="SinkNode or a backend"):
+        t.tee(_NoRRB(), table_name="tgt")
+
+
+# ---- expression-tree transformation layer ------------------------------------
+
+
+def test_to_sql_strips_tee_node(t: Table, tmp_path: Path) -> None:
+    bare_sql = xo.to_sql(t)
+    teed_sql = xo.to_sql(t.tee(ParquetSink(path=tmp_path / "tgt")))
+    assert bare_sql == teed_sql
+
+
+def test_to_sql_strips_nested_tee_nodes(t: Table, tmp_path: Path) -> None:
+    bare_sql = xo.to_sql(t)
+    double_tee = t.tee(ParquetSink(path=tmp_path / "t1")).tee(
+        ParquetSink(path=tmp_path / "t2")
+    )
+    assert xo.to_sql(double_tee) == bare_sql
+
+
+def test_nested_tee_hash_is_transparent(t: Table, tmp_path: Path) -> None:
+    strategy = SnapshotStrategy()
+    double_tee = t.tee(ParquetSink(path=tmp_path / "t1")).tee(
+        ParquetSink(path=tmp_path / "t2")
+    )
+    assert compute_expr_hash(double_tee, strategy=strategy) == compute_expr_hash(
+        t, strategy=strategy
+    )
+
+
+def test_tee_plus_tag_hash_is_transparent(t: Table, tmp_path: Path) -> None:
+    strategy = SnapshotStrategy()
+    tee_then_tag = t.tee(ParquetSink(path=tmp_path / "tgt")).tag("v1")
+    tag_then_tee = t.tag("v1").tee(ParquetSink(path=tmp_path / "tgt2"))
+    base_hash = compute_expr_hash(t, strategy=strategy)
+    assert compute_expr_hash(tee_then_tag, strategy=strategy) == base_hash
+    assert compute_expr_hash(tag_then_tee, strategy=strategy) == base_hash
+
+
+def test_to_sql_with_tag_and_tee(t: Table, tmp_path: Path) -> None:
+    bare_sql = xo.to_sql(t)
+    assert xo.to_sql(t.tee(ParquetSink(path=tmp_path / "tgt")).tag("v1")) == bare_sql
+    assert xo.to_sql(t.tag("v1").tee(ParquetSink(path=tmp_path / "tgt2"))) == bare_sql
+
+
+# ---- BackendSink kwargs passthrough ------------------------------------------
+
+
+class _FakeKwargsBackend:
+    """Fake backend that records all kwargs passed to read_record_batches."""
+
+    name = "fake_kwargs"
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def read_record_batches(self, source: Any, **kwargs: Any) -> None:
+        kwargs["_batches"] = list(source)
+        self.calls.append(kwargs)
+
+
+def test_backend_sink_extra_kwargs_reach_backend() -> None:
+    backend = _FakeKwargsBackend()
+    sink = BackendSink(
+        backend, table_name="t", mode="create", kwargs={"custom_opt": 42}
+    )
+    batches = [pa.record_batch({"a": [1]})]
+    list(sink.execute(batches))
+    assert len(backend.calls) == 1
+    assert backend.calls[0]["custom_opt"] == 42
+    assert backend.calls[0]["table_name"] == "t"
+
+
+# ---- ParquetSink multi-batch -------------------------------------------------
+
+
+def test_parquet_multi_batch_single_file(tmp_path: Path) -> None:
+    target = tmp_path / "tgt"
+    sink = ParquetSink(path=target, mode="append")
+    batches = [
+        pa.record_batch({"a": [1, 2]}),
+        pa.record_batch({"a": [3, 4]}),
+        pa.record_batch({"a": [5, 6]}),
+    ]
+    list(sink.execute(batches))
+    files = _files(target)
+    assert len(files) == 1
+    assert len(pq.read_table(str(files[0]))) == 6
+
+
+# ---- ParquetSink rename failure cleanup --------------------------------------
+
+
+def test_parquet_rename_failure_cleans_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "tgt"
+    sink = ParquetSink(path=target, mode="append")
+    batches = [pa.record_batch({"a": [1, 2]})]
+
+    original_rename = Path.rename
+
+    def failing_rename(self, tgt):
+        if self.suffix == ".tmp":
+            raise OSError("simulated rename failure")
+        return original_rename(self, tgt)
+
+    monkeypatch.setattr(Path, "rename", failing_rename)
+    with pytest.raises(OSError, match="simulated rename failure"):
+        list(sink.execute(batches))
+    assert list(target.glob("*.parquet")) == []
+    assert list(target.glob("*.tmp")) == []
+
+
+# ---- per-batch partial write retains committed data --------------------------
+
+
+def test_per_batch_error_retains_first_batch_data() -> None:
+    class _FailOnSecondBatch(_FakePerBatchBackend):
+        def read_record_batches(
+            self,
+            source: Any,
+            table_name: str | None = None,
+            mode: str | None = None,
+        ) -> None:
+            batches = list(source)
+            self.calls.append((table_name, mode, batches))
+            if len(self.calls) == 2:
+                raise RuntimeError("simulated failure on second batch")
+
+    backend = _FailOnSecondBatch()
+    sink = BackendSink(backend, table_name="t", mode="create")
+    batches = [pa.record_batch({"a": [1]}), pa.record_batch({"a": [2]})]
+    with pytest.raises(RuntimeError, match="simulated"):
+        list(sink.execute(batches))
+    assert len(backend.calls) == 2
+    assert backend.calls[0][1] == "create"
+    assert len(backend.calls[0][2]) == 1
