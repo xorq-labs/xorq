@@ -120,29 +120,31 @@ class ParquetSink(SinkNode):
                 tmp.unlink(missing_ok=True)
         else:
             lock_path = Path(str(self.path) + ".lock")
-            with open(lock_path, "w") as lock_fd:
-                fcntl.flock(lock_fd, fcntl.LOCK_EX)
-                if self.path.exists():
-                    merged = Path(str(self.path) + ".merge.tmp")
-                    try:
-                        existing = pq.ParquetFile(str(self.path))
-                        staged = pq.ParquetFile(str(tmp))
-                        with pq.ParquetWriter(
-                            str(merged), existing.schema_arrow
-                        ) as writer:
-                            for batch in existing.iter_batches():
-                                writer.write_batch(batch)
-                            for batch in staged.iter_batches():
-                                writer.write_batch(batch)
-                        merged.rename(self.path)
-                    except BaseException:
-                        merged.unlink(missing_ok=True)
-                        raise
-                    finally:
-                        tmp.unlink(missing_ok=True)
-                else:
-                    tmp.rename(self.path)
-            lock_path.unlink(missing_ok=True)
+            try:
+                with open(lock_path, "w") as lock_fd:
+                    fcntl.flock(lock_fd, fcntl.LOCK_EX)
+                    if self.path.exists():
+                        merged = Path(str(self.path) + ".merge.tmp")
+                        try:
+                            existing = pq.ParquetFile(str(self.path))
+                            staged = pq.ParquetFile(str(tmp))
+                            with pq.ParquetWriter(
+                                str(merged), existing.schema_arrow
+                            ) as writer:
+                                for batch in existing.iter_batches():
+                                    writer.write_batch(batch)
+                                for batch in staged.iter_batches():
+                                    writer.write_batch(batch)
+                            merged.rename(self.path)
+                        except BaseException:
+                            merged.unlink(missing_ok=True)
+                            raise
+                        finally:
+                            tmp.unlink(missing_ok=True)
+                    else:
+                        tmp.rename(self.path)
+            finally:
+                lock_path.unlink(missing_ok=True)
 
 
 @frozen
