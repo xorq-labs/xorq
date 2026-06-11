@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import zipfile
 
 import pytest
 
@@ -21,6 +22,10 @@ def test_file_digest_path_object(tmp_path):
     expected = hashlib.md5(b"hello").hexdigest()
     assert file_digest(p) == expected
 
+    def test_string_path(self, sample_file):
+        result = file_digest(str(sample_file))
+        expected = hashlib.md5(b"hello world").hexdigest()
+        assert result == expected
 
 def test_file_digest_cached_returns_same(tmp_path):
     p = tmp_path / "data.bin"
@@ -29,6 +34,15 @@ def test_file_digest_cached_returns_same(tmp_path):
     second = file_digest(p)
     assert first == second
 
+    def test_zip_ext_file(self, tmp_path):
+        zp = tmp_path / "test.zip"
+        with zipfile.ZipFile(zp, "w") as zf:
+            zf.writestr("inner.txt", "hello world")
+        with zipfile.ZipFile(zp, "r") as zf:
+            with zf.open("inner.txt") as entry:
+                result = file_digest(entry)
+        expected = hashlib.md5(b"hello world").hexdigest()
+        assert result == expected
 
 def test_file_digest_unsupported_type_raises():
     obj = io.BytesIO(b"hello")
