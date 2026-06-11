@@ -6,10 +6,9 @@ from typing import Any, Callable
 
 import pyarrow as pa
 import toolz
-from opentelemetry import trace
 
 from xorq.backends.xorq_datafusion import connect as xo_connect
-from xorq.common.utils.otel_utils import tracer
+from xorq.common.utils.otel_utils import get_current_span, tracer
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
     instrument_reader,
@@ -601,7 +600,7 @@ def register_and_transform_remote_tables(expr, **kwargs):
                     counts[arg] += 1
 
     if counts:
-        trace.get_current_span().add_event(
+        get_current_span().add_event(
             "remote_table.replace", {"counts.values": tuple(counts.values())}
         )
     batches_table = {}

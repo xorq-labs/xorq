@@ -239,16 +239,15 @@ def build_command(
     -------
 
     """
-    from opentelemetry import trace  # noqa: PLC0415
-
     import xorq.common.utils.pickle_utils  # noqa: F401, PLC0415
     from xorq.common.utils.import_utils import import_from_path  # noqa: PLC0415
+    from xorq.common.utils.otel_utils import get_current_span  # noqa: PLC0415
     from xorq.ibis_yaml.compiler import build_expr  # noqa: PLC0415
     from xorq.vendor.ibis import Expr  # noqa: PLC0415
 
     cache_dir = _get_cache_dir(cache_dir)
 
-    span = trace.get_current_span()
+    span = get_current_span()
     span.add_event(
         "build.params",
         {
@@ -314,11 +313,13 @@ def run_command(
     -------
 
     """
-    from opentelemetry import trace  # noqa: PLC0415
-    from opentelemetry.trace import StatusCode  # noqa: PLC0415
-
     from xorq.common.exceptions import UnboundExpressionError  # noqa: PLC0415
     from xorq.common.utils.logging_utils import RunLogger  # noqa: PLC0415
+    from xorq.common.utils.otel_utils import (  # noqa: PLC0415
+        get_current_span,
+        set_span_error,
+        set_span_ok,
+    )
     from xorq.common.utils.profile_utils import timed  # noqa: PLC0415
     from xorq.ibis_yaml.compiler import load_expr  # noqa: PLC0415
     from xorq.ibis_yaml.packager import validate_params_early  # noqa: PLC0415
@@ -330,7 +331,7 @@ def run_command(
 
     cache_dir = _get_cache_dir(cache_dir)
 
-    span = trace.get_current_span()
+    span = get_current_span()
 
     expr_hash = Path(expr_path).name
     run_params = (
@@ -385,12 +386,11 @@ def run_command(
                 span.add_event("run.output_written", file_metrics)
                 rl.log_event("run.output_written", file_metrics)
 
-            span.set_status(StatusCode.OK)
+            set_span_ok(span)
             rl.finalize(status="ok", span_context=span.get_span_context())
 
     except Exception as e:
-        span.set_status(StatusCode.ERROR, str(e))
-        span.record_exception(e)
+        set_span_error(span, e)
         rl.finalize(status="error", span_context=span.get_span_context())
         raise
 
@@ -428,20 +428,19 @@ def run_cached_command(
         TTL in seconds for snapshot cache type. When set, uses
         ParquetTTLSnapshotCache instead of ParquetSnapshotCache.
     """
-    from opentelemetry import trace  # noqa: PLC0415
-
     from xorq.caching import (  # noqa: PLC0415
         ParquetCache,
         ParquetSnapshotCache,
         ParquetTTLSnapshotCache,
     )
     from xorq.common.utils.logging_utils import RunLogger  # noqa: PLC0415
+    from xorq.common.utils.otel_utils import get_current_span  # noqa: PLC0415
     from xorq.common.utils.profile_utils import timed  # noqa: PLC0415
     from xorq.ibis_yaml.compiler import load_expr  # noqa: PLC0415
 
     cache_dir = _get_cache_dir(cache_dir)
 
-    span = trace.get_current_span()
+    span = get_current_span()
 
     expr_hash = Path(expr_path).name
     run_params = (
@@ -570,17 +569,16 @@ def run_unbound_command(
     -------
 
     """
-    from opentelemetry import trace  # noqa: PLC0415
-
     from xorq.common.utils.io_utils import maybe_open  # noqa: PLC0415
     from xorq.common.utils.node_utils import expr_to_unbound  # noqa: PLC0415
+    from xorq.common.utils.otel_utils import get_current_span  # noqa: PLC0415
     from xorq.expr.api import read_pyarrow_stream  # noqa: PLC0415
     from xorq.flight.exchanger import replace_one_unbound  # noqa: PLC0415
     from xorq.ibis_yaml.compiler import load_expr  # noqa: PLC0415
 
     cache_dir = _get_cache_dir(cache_dir)
 
-    span = trace.get_current_span()
+    span = get_current_span()
     span.add_event(
         "run_unbound.params",
         {
@@ -697,9 +695,8 @@ def serve_command(
     cache_dir : str or None
         Path to the dir to store the parquet cache files
     """
-    from opentelemetry import trace  # noqa: PLC0415
-
     from xorq.common.utils.logging_utils import get_print_logger  # noqa: PLC0415
+    from xorq.common.utils.otel_utils import get_current_span  # noqa: PLC0415
     from xorq.flight import FlightServer  # noqa: PLC0415
     from xorq.ibis_yaml.compiler import load_expr  # noqa: PLC0415
     from xorq.loader import load_backend  # noqa: PLC0415
@@ -709,7 +706,7 @@ def serve_command(
 
     # Resolve build path to an actual build directory
     expr_path = ensure_build_dir(expr_path)
-    span = trace.get_current_span()
+    span = get_current_span()
     params = {
         "build_path": expr_path,
         "host": host,
