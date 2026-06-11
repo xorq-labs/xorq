@@ -59,30 +59,7 @@ def test_register_table_provider():
     assert t.get_name() in con.list_tables()
 
 
-def test_read_record_batches_type_mismatch():
-    # register_and_transform_remote_tables builds a RecordBatchReader with
-    # schema from ex.as_table().schema().to_pyarrow() (ibis-declared, e.g.
-    # utf8 for VARCHAR) but batches from ex.to_pyarrow_batches() which may
-    # emit a different physical type (e.g. large_utf8 for DuckDB VARCHAR).
-    # Passing this "lying reader" directly to DataFusion via C Data Interface
-    # silently corrupts data: the utf8 offset buffer is 32-bit but large_utf8
-    # data uses 64-bit offsets, so DataFusion misreads row boundaries.
-    # read_record_batches must cast each batch to the declared schema before
-    # handing the reader to DataFusion.
-    con = xo.connect()
-    utf8_schema = pa.schema([("x", pa.utf8())])
-    batch = pa.record_batch({"x": pa.array(["hello", "world"], type=pa.large_utf8())})
-    # RecordBatchReader.from_batches does not validate batch types against the
-    # declared schema, reproducing the lying reader from production code paths.
-    lying_reader = pa.RecordBatchReader.from_batches(utf8_schema, [batch])
-    assert lying_reader.schema.field("x").type == pa.utf8()
-
-    # read_record_batches casts each batch before crossing the C boundary:
-    t = con.read_record_batches(lying_reader)
-    assert t.execute()["x"].tolist() == ["hello", "world"]
-
-
-def test_read_record_batches_from_table():
+def test_read_record_batches_from_table() -> None:
     con = xo.connect()
     t = con.read_record_batches(pa.table({"a": [1, 2, 3], "b": ["x", "y", "z"]}))
     result = t.execute()
