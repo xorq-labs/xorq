@@ -43,7 +43,7 @@ dependencies = [
     "typing-extensions>=4.3.0",
     "py-yaml12",
     "cloudpickle>=3.1.1",
-    "xorq-datafusion==0.2.7",
+    "xorq-datafusion==0.2.9",
     "opentelemetry-sdk>=1.32.1",
     "opentelemetry-exporter-otlp>=1.32.1",
     "opentelemetry-exporter-otlp-proto-grpc>=1.32.1",
