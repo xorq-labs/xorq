@@ -3,15 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 
-from xorq.common.compat import StrEnum
-
-
-class ContentStoreType(StrEnum):
-    DIRECTORY = "directory"
-    S3 = "s3"
-
-
-
 METADATA_APPEND = ".metadata.yaml"
 VALID_SUFFIXES = ((PREFERRED_SUFFIX := ".zip"),)
 POINTER_SUFFIX = ".pointer"

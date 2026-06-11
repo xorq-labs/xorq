@@ -1,3 +1,10 @@
+from xorq.common.exceptions import XorqError
+
+
+class ContentIntegrityError(XorqError):
+    """Raised when content does not match the expected checksum."""
+
+
 class CatalogPushError(RuntimeError):
     """Raised when ``catalog.push()`` cannot publish to a remote."""
 

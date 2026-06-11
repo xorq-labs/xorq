@@ -8,7 +8,9 @@ from typing import Callable
 from zipfile import ZipExtFile
 
 
-def _manual_file_digest(path, digest=hashlib.md5, size=2**20):
+def _manual_file_digest(
+    path: str | Path, digest: Callable = hashlib.md5, size: int = 2**20
+) -> str:
     fh = path if hasattr(path, "read") else Path(path).open("rb")
     with closing(fh):
         obj = digest()

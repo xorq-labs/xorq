@@ -19,7 +19,8 @@ import yaml12
 from attr import field, frozen
 from attr.validators import in_, instance_of, matches_re, optional
 
-from xorq.catalog.constants import ContentStoreType
+from xorq.catalog.enums import ContentStoreType
+from xorq.catalog.exceptions import ContentIntegrityError
 from xorq.catalog.s3_utils import (
     S3_SECRET_FIELDS,
     S3ClientMixin,
@@ -27,7 +28,6 @@ from xorq.catalog.s3_utils import (
     make_endpoint_url,
     serialize_fields,
 )
-from xorq.common.exceptions import XorqError
 from xorq.common.utils.env_utils import EnvConfigable, env_templates_dir
 from xorq.common.utils.file_utils import file_digest
 
@@ -123,10 +123,6 @@ def parse_pointer(path: str | Path) -> tuple[str, int]:
     if size < 0:
         raise ValueError(f"Invalid pointer file: {path}")
     return sha256, size
-
-
-class ContentIntegrityError(XorqError):
-    """Raised when content does not match the expected checksum."""
 
 
 class ContentStore(abc.ABC):

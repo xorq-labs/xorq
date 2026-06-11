@@ -22,7 +22,6 @@ from xorq.catalog.constants import (
     ANNEX_BRANCH,
     CONTENT_STORE_YAML,
     POINTER_SUFFIX,
-    CatalogInfix,
 )
 from xorq.catalog.content_store import (
     ContentCache,
@@ -35,6 +34,7 @@ from xorq.catalog.content_store import (
     parse_pointer,
     write_pointer,
 )
+from xorq.catalog.enums import CatalogInfix
 
 
 def _repo_has_annex_artifacts(repo: Repo) -> bool:
