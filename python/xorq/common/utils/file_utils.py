@@ -5,7 +5,7 @@ import hashlib
 import itertools
 from contextlib import closing
 from pathlib import Path
-from typing import Callable
+from typing import IO, Callable
 from zipfile import ZipExtFile
 
 
@@ -47,7 +47,7 @@ def _digest_to_algorithm(digest: Callable) -> str | None:
 
 
 def file_digest(
-    path: str | Path, digest: Callable = hashlib.md5, size: int = 2**20
+    path: str | Path | ZipExtFile, digest: Callable = hashlib.md5, size: int = 2**20
 ) -> str:
     if isinstance(path, (str, Path)):
         p = Path(path)
@@ -78,11 +78,11 @@ def file_digest(
         return _manual_file_digest(path, digest, size=size)
 
 
-def normalize_read_path_md5sum(path):
+def normalize_read_path_md5sum(path: str | Path) -> tuple[tuple[str, str], ...]:
     return (("content-md5sum", file_digest(path)),)
 
 
-def normalize_read_path_stat(path):
+def normalize_read_path_stat(path: Path) -> tuple[tuple[str, object], ...]:
     stat = path.stat()
     return tuple(
         (attrname, getattr(stat, attrname))
