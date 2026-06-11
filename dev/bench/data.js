@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781124796075,
+  "lastUpdate": 1781183498139,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -17442,6 +17442,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.007788967980427871",
             "extra": "mean: 34.39807955172212 msec\nrounds: 29"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1a9809e19103c7587ef77dcd59dc89deaac5696f",
+          "message": "refactor: centralize StrEnum compat shim and enum modules (#2054)\n\n## Summary\n- Introduce `xorq.common.compat.StrEnum` as the single compat shim,\nreplacing ~10 scattered `try/except` blocks across the codebase\n- Move inline enum classes to dedicated `enums.py` modules in each\npackage (`catalog`, `common`, `backends/snowflake`, `ibis_yaml`,\n`expr/ml`)\n- Update all consumers to import from the canonical defining module — no\nre-exports, every enum is imported from where it's defined\n- Lift all deferred enum imports to top-level — the new leaf modules\nonly depend on `xorq.common.compat`, so there is no circular-dependency\nreason to defer\n\n## Test plan\n- [x] Existing test suite passes (no import paths changed without\nupdating consumers)\n- [x] Grep for old import paths confirms zero remaining consumers of\nmoved enums\n- [x] Zero deferred imports of enum leaf modules remain in the codebase\n- [x] All pre-commit hooks (ruff check, ruff format, codespell) pass\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-06-11T15:07:40+02:00",
+          "tree_id": "20f258a0e652ec38663361829e36aacf5c31ac20",
+          "url": "https://github.com/xorq-labs/xorq/commit/1a9809e19103c7587ef77dcd59dc89deaac5696f"
+        },
+        "date": 1781183495097,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.39866100179773,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009947359491965752",
+            "extra": "mean: 106.39813477778641 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.176485599302855,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07616044207553226",
+            "extra": "mean: 459.45629059999646 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6897050104027175,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1797346412329583",
+            "extra": "mean: 1.4498952231999909 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.459699433426744,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06762224230777009",
+            "extra": "mean: 406.5537383999981 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.4492960004915396,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06056969966123253",
+            "extra": "mean: 408.2805834000112 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.4098200246976025,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06036046163982177",
+            "extra": "mean: 414.96874860000617 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 164.1879477788624,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00814007712236435",
+            "extra": "mean: 6.090581029411832 msec\nrounds: 272"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.314690939486442,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08835342863010243",
+            "extra": "mean: 188.15769560000604 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 26.395647281742306,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009026607360532662",
+            "extra": "mean: 37.88503420000211 msec\nrounds: 25"
           }
         ]
       }
