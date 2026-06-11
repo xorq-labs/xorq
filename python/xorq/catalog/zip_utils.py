@@ -12,6 +12,7 @@ from xorq.catalog.constants import (
     PREFERRED_SUFFIX,
     VALID_SUFFIXES,
 )
+from xorq.common.utils.file_utils import file_digest
 from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES
 
 
@@ -111,9 +112,7 @@ class BuildZip:
 
     @property
     def md5sum(self):
-        from xorq.common.utils.defer_utils import _file_digest  # noqa: PLC0415
-
-        return _file_digest(self.path, hashlib.md5)
+        return file_digest(self.path, hashlib.md5)
 
     def read_member(self, member_path, read_f):
         """Read and parse a single member from the zip archive."""

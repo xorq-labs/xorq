@@ -37,7 +37,7 @@ from xorq.common.compat import StrEnum
 from xorq.common.exceptions import UnboundExpressionError
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.dasher import tokenize
-from xorq.common.utils.defer_utils import (
+from xorq.common.utils.file_utils import (
     normalize_read_path_md5sum,
     normalize_read_path_stat,
 )

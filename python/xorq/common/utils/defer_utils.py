@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-import hashlib
 import itertools
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
+import pandas as pd
 import pyarrow as pa
 import toolz
 
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.xorq_datafusion import connect as xo_connect
+from xorq.common.utils.file_utils import normalize_read_path_stat
 from xorq.common.utils.inspect_utils import (
     get_arguments,
 )
@@ -53,53 +54,8 @@ def make_read_kwargs(f, *args, **kwargs):
     return tpl
 
 
-def _manual_file_digest(path, digest=hashlib.md5, size=2**20):
-    from contextlib import closing  # noqa: PLC0415
-
-    fh = path if hasattr(path, "read") else Path(path).open("rb")
-    with closing(fh):
-        obj = digest()
-        for chunk in itertools.takewhile(
-            bool, (fh.read(size) for fh in itertools.repeat(fh))
-        ):
-            obj.update(chunk)
-        return obj.hexdigest()
-
-
-def _file_digest(path, digest=hashlib.md5, size=2**20):
-    from zipfile import ZipExtFile  # noqa: PLC0415
-
-    if hasattr(hashlib, "file_digest"):
-        if isinstance(path, ZipExtFile):
-            return hashlib.file_digest(path, digest).hexdigest()
-        if isinstance(path, (str, Path)):
-            with Path(path).open("rb") as fh:
-                return hashlib.file_digest(fh, digest).hexdigest()
-        raise ValueError(f"Don't know how to handle type {type(path)}")
-    return _manual_file_digest(path, digest, size=size)
-
-
-def normalize_read_path_md5sum(path):
-    return (("content-md5sum", _file_digest(path)),)
-
-
-def normalize_read_path_stat(path):
-    stat = path.stat()
-    tpls = tuple(
-        (attrname, getattr(stat, attrname))
-        for attrname in (
-            "st_mtime",
-            "st_size",
-            # mtime, size <?-?> md5sum
-            "st_ino",
-        )
-    )
-    return tpls
-
-
 @toolz.curry
 def infer_csv_schema_pandas(path, chunksize=DEFAULT_CHUNKSIZE, **kwargs):
-    import pandas as pd  # noqa: PLC0415
 
     path = normalize_filenames(path)
     gen = pd.read_csv(path[0], chunksize=chunksize, **kwargs)
@@ -111,7 +67,6 @@ def infer_csv_schema_pandas(path, chunksize=DEFAULT_CHUNKSIZE, **kwargs):
 
 def read_csv_rbr(*args, schema=None, chunksize=DEFAULT_CHUNKSIZE, dtype=None, **kwargs):
     """Deferred and streaming csv reading via pandas"""
-    import pandas as pd  # noqa: PLC0415
 
     if dtype is not None:
         raise TypeError("pass `dtype` as pyarrow `schema`")
