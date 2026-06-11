@@ -412,9 +412,9 @@ def _transform_expr(expr, params=None, **kwargs):
     )
     expr = _remove_tag_nodes(expr)
     expr = _register_and_transform_cache_tables(expr)
-    expr, created = register_and_transform_remote_tables(expr, **kwargs)
+    expr, created, caches = register_and_transform_remote_tables(expr, **kwargs)
     expr, dt_to_read = _transform_deferred_reads(expr)
-    return (expr, created)
+    return (expr, created, caches)
 
 
 def _pandas_execute(con, expr: ir.Expr, **kwargs):
@@ -429,10 +429,14 @@ def _pandas_execute(con, expr: ir.Expr, **kwargs):
         df = node.to_rbr().read_pandas(timestamp_as_object=True)
         return expr.__pandas_result__(df)
     params = kwargs.pop("params", None)
-    expr, created = _transform_expr(expr, params=params)
+    expr, created, caches = _transform_expr(expr, params=params)
 
     span.set_attribute("engine", "pandas")
-    return con.execute(expr, **kwargs)
+    try:
+        return con.execute(expr, **kwargs)
+    finally:
+        for cache in caches:
+            cache.close()
 
 
 @tracer.start_as_current_span("to_pyarrow_batches")
@@ -468,7 +472,7 @@ def to_pyarrow_batches(
         span.set_attribute("engine", "flight")
         return expr.op().to_rbr()
     params = kwargs.pop("params", None)
-    expr, created = _transform_expr(expr, params=params)
+    expr, created, caches = _transform_expr(expr, params=params)
     con, _ = find_backend(expr.op(), use_default=True)
 
     span.set_attribute("engine", con.name)
@@ -480,6 +484,8 @@ def to_pyarrow_batches(
                 conn.drop_table(table_name, force=True)
             except Exception:
                 conn.drop_view(table_name)
+        for cache in caches:
+            cache.close()
 
     return otel_instrument_reader(rbr_wrapper(reader, clean_up))
 
@@ -630,10 +636,14 @@ def to_json(
 
 
 def get_plans(expr):
-    _expr, _ = _transform_expr(expr)
-    con, _ = find_backend(_expr.op())
-    sql = f"EXPLAIN {to_sql(_expr)}"
-    return con.con.sql(sql).to_pandas().set_index("plan_type")["plan"].to_dict()
+    _expr, _, _caches = _transform_expr(expr)
+    try:
+        con, _ = find_backend(_expr.op())
+        sql = f"EXPLAIN {to_sql(_expr)}"
+        return con.con.sql(sql).to_pandas().set_index("plan_type")["plan"].to_dict()
+    finally:
+        for cache in _caches:
+            cache.close()
 
 
 def get_object_metadata(path: str, **kwargs: Any) -> dict:

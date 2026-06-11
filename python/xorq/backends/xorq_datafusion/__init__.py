@@ -19,6 +19,7 @@ import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
 import sqlglot as sg
 import sqlglot.expressions as sge
+from batchcorder import StreamCache
 from sqlglot import exp, parse_one
 
 import xorq
@@ -71,7 +72,15 @@ def _select_and_cast(batch: pa.RecordBatch, schema: pa.Schema) -> pa.RecordBatch
     return batch.select(schema.names).cast(schema)
 
 
-def _compile_pyarrow_udwf(udwf_node) -> WindowUDF:
+def _casting_reader(
+    schema: pa.Schema, batches: Iterable[pa.RecordBatch]
+) -> pa.RecordBatchReader:
+    return pa.RecordBatchReader.from_batches(
+        schema, (_select_and_cast(batch, schema) for batch in batches)
+    )
+
+
+def _compile_pyarrow_udwf(udwf_node: Any) -> WindowUDF:
     def make_datafusion_udwf(
         input_types,
         return_type,
@@ -709,27 +718,36 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
     def read_record_batches(
         self,
-        source: pa.Table | pa.RecordBatchReader | Iterable[pa.RecordBatch],
+        source: pa.Table
+        | pa.RecordBatchReader
+        | StreamCache
+        | Iterable[pa.RecordBatch],
         table_name: str | None = None,
     ) -> ir.Table:
         """Register Arrow data as a table in the current database.
 
-        Each batch is cast to the declared schema before being handed to
-        DataFusion. This prevents silent data corruption when physical Arrow
-        types differ from the declared schema (e.g. ``large_utf8`` batches
-        with a ``utf8`` schema), which would otherwise cause DataFusion to
-        misread 64-bit offsets as 32-bit across the C Data Interface boundary.
+        Except for ``StreamCache``, each batch is cast to the declared schema
+        before being handed to DataFusion. This prevents silent data corruption
+        when physical Arrow types differ from the declared schema (e.g.
+        ``large_utf8`` batches with a ``utf8`` schema), which would otherwise
+        cause DataFusion to misread 64-bit offsets as 32-bit across the C Data
+        Interface boundary.
 
         Parameters
         ----------
         source
             The Arrow data to register. Accepts:
 
+            - ``StreamCache`` — replayable and self-describing; registered
+              directly to serve DataFusion's multi-scan plans.
             - ``pa.Table`` — converted to batches via ``to_batches()``.
             - ``pa.RecordBatchReader`` — consumed directly; schema taken from
               the reader.
             - Any ``Iterable[pa.RecordBatch]`` (list, tuple, generator) —
-              schema inferred from the first batch.
+              schema inferred from the first batch. Empty iterables raise
+              ``ValueError`` because no schema can be inferred. ``pa.Table``
+              and ``pa.RecordBatchReader`` may be empty (schema is already
+              known).
         table_name
             Name for the registered table. Defaults to a sequentially
             generated name.
@@ -767,33 +785,26 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         table_name = table_name or gen_name("read_record_batches")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
         self.con.deregister_table(table_ident)
-        if not isinstance(source, (pa.Table, pa.RecordBatchReader)) and (
-            isinstance(source, (str, bytes)) or not hasattr(source, "__iter__")
-        ):
-            raise TypeError(f"unsupported source type: {type(source).__name__}")
-        schema: pa.Schema
-        batches: Iterable[pa.RecordBatch]
         match source:
+            # StreamCache is replayable and self-describing -- register directly.
+            case StreamCache():
+                reader = source
             case pa.Table():
-                schema = source.schema
-                batches = source.to_batches()
+                reader = _casting_reader(source.schema, source.to_batches())
             case pa.RecordBatchReader():
-                schema = source.schema
-                batches = source
-            case _:
+                reader = _casting_reader(source.schema, source)
+            case str() | bytes():
+                raise TypeError(f"unsupported source type: {type(source).__name__}")
+            case _ if hasattr(source, "__iter__"):
                 it = iter(source)
                 try:
                     first = next(it)
                 except StopIteration:
                     raise ValueError("source has no rows") from None
-                schema = first.schema
-                batches = itertools.chain([first], it)
-        self.con.register_record_batch_reader(
-            table_ident,
-            pa.RecordBatchReader.from_batches(
-                schema, (_select_and_cast(batch, schema) for batch in batches)
-            ),
-        )
+                reader = _casting_reader(first.schema, itertools.chain([first], it))
+            case _:
+                raise TypeError(f"unsupported source type: {type(source).__name__}")
+        self.con.register_record_batch_reader(table_ident, reader)
         return self.table(table_name)
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
