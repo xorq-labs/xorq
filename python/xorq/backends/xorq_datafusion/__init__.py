@@ -777,19 +777,16 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
         self.con.deregister_table(table_ident)
         if isinstance(source, StreamCache):
-            schema = source.schema
-            reader = pa.RecordBatchReader.from_stream(source)
-
-            def make_cast_gen():
-                with contextlib.closing(reader):
-                    for batch in reader:
-                        yield _select_and_cast(batch, schema)
-
-            cast_reader = pa.RecordBatchReader.from_batches(schema, make_cast_gen())
-            inner_cache = StreamCache(cast_reader)
+            # ``cast`` returns a ``CastingStreamCache`` -- a replayable wrapper
+            # that applies the schema cast on every read. Being replayable, it
+            # serves DataFusion's multi-scan plans (self/asof joins) directly,
+            # subsuming both the per-batch cast and the ``inner_cache`` re-wrap
+            # the manual path needed. DataFusion owns it once registered;
+            # ``deregister_table`` drops the provider reference and releases it.
+            casting = source.cast(source.schema)
             self.con.register_record_batch_reader(
                 table_ident,
-                inner_cache,
+                casting,
             )
             try:
                 return self.table(table_name)
