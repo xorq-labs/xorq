@@ -313,7 +313,7 @@ class GitPointerBackend(CatalogBackend):
         for p in entries_dir.glob(f"*{POINTER_SUFFIX}"):
             try:
                 sha256, _ = parse_pointer(p)
-            except (ValueError, FileNotFoundError):
+            except (ValueError, OSError):
                 import structlog  # noqa: PLC0415
 
                 structlog.get_logger(__name__).warning(

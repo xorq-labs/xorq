@@ -44,6 +44,8 @@ def main() -> None:
     # Option A: load everything from XORQ_CONTENT_STORE_S3_* env vars
     config = S3ContentStoreConfig.from_env()
 
+    _tmpdirs: list[tempfile.TemporaryDirectory] = []
+
     # Option B: explicit construction (uncomment to use instead)
     # config = S3ContentStoreConfig(
     #     catalog_id="my-catalog",
@@ -67,7 +69,9 @@ def main() -> None:
     # 3. Initialize a catalog with the pointer backend
     # -------------------------------------------------------------------
 
-    catalog_dir = Path(tempfile.mkdtemp()) / "s3-catalog"
+    _td1 = tempfile.TemporaryDirectory()
+    _tmpdirs.append(_td1)
+    catalog_dir = Path(_td1.name) / "s3-catalog"
     catalog = Catalog.from_repo_path(
         catalog_dir,
         init=True,
@@ -135,7 +139,9 @@ def main() -> None:
     # 7. Simulate a second user: clone the catalog and fetch content from S3
     # -------------------------------------------------------------------
 
-    clone_dir = Path(tempfile.mkdtemp()) / "s3-catalog-clone"
+    _td2 = tempfile.TemporaryDirectory()
+    _tmpdirs.append(_td2)
+    clone_dir = Path(_td2.name) / "s3-catalog-clone"
     # clone_from auto-detects the pointer backend from the committed content_store.yaml
     clone = Catalog.clone_from(
         url=str(catalog_dir),
@@ -148,6 +154,9 @@ def main() -> None:
     clone_entry = clone.get_catalog_entry("delays-by-carrier", maybe_alias=True)
     click.echo("\nDelays by carrier (from clone):")
     click.echo(clone_entry.expr.execute())
+
+    for td in _tmpdirs:
+        td.cleanup()
 
 
 if __name__ in ("__main__", "__pytest_main__"):
