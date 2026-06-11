@@ -116,19 +116,25 @@ class Backend(IbisPostgresBackend):
 
             if adbc_con is not None:
                 cur = adbc_con.cursor()
+                # ``fall_through`` distinguishes the one recoverable failure
+                # (temp table invisible on a fresh ADBC connection) from every
+                # other error. The ``finally`` always closes both the cursor
+                # and connection, so a non-ADBCProgrammingError raised by
+                # ``execute`` (network, syntax, permission) propagates without
+                # leaking the ADBC resources.
+                fall_through = False
                 try:
-                    cur.execute(query)
-                except ADBCProgrammingError:
-                    # Temp table not visible on fresh ADBC connection — fall through.
-                    cur.close()
-                    adbc_con.close()
-                else:
                     try:
+                        cur.execute(query)
+                    except ADBCProgrammingError:
+                        fall_through = True
+                    if not fall_through:
                         for batch in cur.fetch_record_batch():
                             yield batch.cast(pyarrow_schema)
-                    finally:
-                        cur.close()
-                        adbc_con.close()
+                finally:
+                    cur.close()
+                    adbc_con.close()
+                if not fall_through:
                     return
 
             # Psycopg fallback: session-local temp tables or no ADBC URI.

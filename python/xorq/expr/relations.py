@@ -641,9 +641,13 @@ def count_remote_table_readers(expr):
 @tracer.start_as_current_span("register_and_transform_remote_tables")
 def register_and_transform_remote_tables(
     expr: Expr, **kwargs: Any
-) -> tuple[Expr, dict]:
+) -> tuple[Expr, dict, list]:
     created = {}
     caches = []
+    # ``replacer``'s ``kwargs`` parameter (node-recreate args) shadows the
+    # outer ``**kwargs``; capture the through-kwargs here so they reach
+    # ``read_record_batches`` (e.g. Snowflake's ``database=(catalog, db)``).
+    read_kwargs = kwargs
 
     op = expr.op()
     reader_counts = count_remote_table_readers(expr)
@@ -665,7 +669,9 @@ def register_and_transform_remote_tables(
             )
             caches.append(cache)
             table_name = gen_name()
-            result = node.source.read_record_batches(cache, table_name=table_name)
+            result = node.source.read_record_batches(
+                cache, table_name=table_name, **read_kwargs
+            )
             created[table_name] = node.source
             return result.op()
 
@@ -807,10 +813,19 @@ def _fmt_read(op, name, method_name, source, **kwargs):
     return name + render_schema(op.schema, 1)
 
 
-def prepare_create_table_from_expr(con, expr, **kwargs):
+def prepare_create_table_from_expr(con: Any, expr: Expr, **kwargs: Any) -> Expr:
+    """Transform ``expr`` into a table on ``con``, then close its stream caches.
+
+    Only safe for backends whose ``read_record_batches`` eagerly ingests the
+    stream synchronously (Snowflake, Postgres via ADBC): the caches are closed
+    in the ``finally`` before returning, so a lazy-scan backend (DuckDB,
+    DataFusion) that still holds a live dependency on a cache would read an
+    empty result. Do not call with a lazy-ingestion backend.
+    """
     from xorq.expr.api import _transform_expr  # noqa: PLC0415
 
-    if (expr_backend := expr._find_backend()) != con:
+    expr_backend = expr._find_backend()  # xorq-style: disable=protected-access
+    if expr_backend != con:
         raise ValueError(f"expr backend must be {con}, is {expr_backend}")
     (table, _created, _drains, _caches) = _transform_expr(expr, **kwargs)
     try:
