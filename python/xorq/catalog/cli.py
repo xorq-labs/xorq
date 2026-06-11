@@ -26,6 +26,8 @@ from xorq.cli_options import (
     cache_strategy_options,
     code_option,
     content_store_option,
+    cs_env_options,
+    cs_field_options,
     env_options,
     fuse_option,
     gcs_option,
@@ -248,24 +250,84 @@ def _resolve_annex_option(env_file, env_prefix, gcs):
     return None
 
 
+def _collect_cs_field_kwargs(
+    cs_bucket,
+    cs_catalog_id,
+    cs_region,
+    cs_prefix,
+    cs_host,
+    cs_port,
+    cs_protocol,
+    cs_directory,
+) -> dict:
+    """Build a kwargs dict from non-None CLI field options."""
+    mapping = {
+        "bucket": cs_bucket,
+        "catalog_id": cs_catalog_id,
+        "region": cs_region,
+        "prefix": cs_prefix,
+        "host": cs_host,
+        "port": cs_port,
+        "protocol": cs_protocol,
+        "directory": cs_directory,
+    }
+    return {k: v for k, v in mapping.items() if v is not None}
+
+
 def _resolve_content_store_option(
-    content_store_type: str | None, gcs: bool
+    content_store_type: str | None,
+    gcs: bool,
+    cs_env_file: str | None = None,
+    cs_env_prefix: str | None = None,
+    **field_kwargs,
 ) -> ContentStoreConfig | None:
     """Return a ContentStoreConfig from CLI options, or None."""
     from xorq.catalog.content_store import (  # noqa: PLC0415
         DirectoryContentStoreConfig,
         S3ContentStoreConfig,
+        content_store_config_from_env_file,
+        content_store_config_from_prefix,
     )
 
+    if cs_env_file and cs_env_prefix:
+        raise click.UsageError(
+            "--cs-env-file and --cs-env-prefix are mutually exclusive."
+        )
+
+    sources = sum(
+        x is not None for x in (content_store_type, cs_env_file, cs_env_prefix)
+    )
+    if sources > 1:
+        raise click.UsageError(
+            "--content-store, --cs-env-file, and --cs-env-prefix "
+            "are mutually exclusive."
+        )
+
+    if cs_env_file:
+        return content_store_config_from_env_file(cs_env_file, gcs=gcs, **field_kwargs)
+    if cs_env_prefix:
+        return content_store_config_from_prefix(cs_env_prefix, gcs=gcs, **field_kwargs)
+
     match content_store_type:
+        case None if field_kwargs:
+            if "bucket" in field_kwargs:
+                if gcs:
+                    return S3ContentStoreConfig.from_env_gcs(**field_kwargs)
+                return S3ContentStoreConfig.from_env(**field_kwargs)
+            if "directory" in field_kwargs:
+                return DirectoryContentStoreConfig.from_env(**field_kwargs)
+            raise click.UsageError(
+                "Content store field options (--cs-*) require --content-store, "
+                "--cs-env-file, --cs-env-prefix, or at least --cs-bucket / --cs-directory."
+            )
         case None:
             return None
         case "s3":
             if gcs:
-                return S3ContentStoreConfig.from_env_gcs()
-            return S3ContentStoreConfig.from_env()
+                return S3ContentStoreConfig.from_env_gcs(**field_kwargs)
+            return S3ContentStoreConfig.from_env(**field_kwargs)
         case "directory":
-            return DirectoryContentStoreConfig.from_env()
+            return DirectoryContentStoreConfig.from_env(**field_kwargs)
         case _:
             raise click.UsageError(
                 f"unknown content store type: {content_store_type!r}"
@@ -286,6 +348,8 @@ def _check_backend_exclusive_cli(
 @env_options
 @gcs_option
 @content_store_option
+@cs_env_options
+@cs_field_options
 @click.option(
     "--remote-url",
     default=None,
@@ -298,6 +362,16 @@ def init(
     env_prefix: str | None,
     gcs: bool,
     content_store_type: str | None,
+    cs_env_file: str | None,
+    cs_env_prefix: str | None,
+    cs_bucket: str | None,
+    cs_catalog_id: str | None,
+    cs_region: str | None,
+    cs_prefix: str | None,
+    cs_host: str | None,
+    cs_port: int | None,
+    cs_protocol: str | None,
+    cs_directory: str | None,
     remote_url: str | None,
 ) -> None:
     """Create a new catalog repository.
@@ -314,10 +388,38 @@ def init(
       xorq catalog --path ./catalogs/analytics init --remote-url git@github.com:acme/analytics-catalog.git
       # Create with an S3-backed annex remote sourced from an env file
       xorq catalog --name analytics init --env-file .env.catalog.s3
+      # Create with an S3 content store using CLI flags
+      xorq catalog --name analytics init --cs-bucket my-bucket --cs-region us-west-2
+      # Create with an S3 content store and explicit type
+      xorq catalog --name analytics init --content-store s3 --cs-bucket my-bucket
+      # Create with a content store env file
+      xorq catalog --name analytics init --cs-env-file .env.content_store.s3
+      # Create with a content store env prefix
+      xorq catalog --name analytics init --cs-env-prefix XORQ_CONTENT_STORE_S3_
+      # Create with a local directory content store
+      xorq catalog --name analytics init --cs-directory /mnt/shared/store
+      # Create with S3-compatible endpoint (MinIO)
+      xorq catalog --name analytics init --cs-bucket my-bucket --cs-host minio.local --cs-port 9000 --cs-protocol http
     """
     with click_context_catalog(ctx):
         annex = _resolve_annex_option(env_file, env_prefix, gcs)
-        content_store_config = _resolve_content_store_option(content_store_type, gcs)
+        field_kwargs = _collect_cs_field_kwargs(
+            cs_bucket,
+            cs_catalog_id,
+            cs_region,
+            cs_prefix,
+            cs_host,
+            cs_port,
+            cs_protocol,
+            cs_directory,
+        )
+        content_store_config = _resolve_content_store_option(
+            content_store_type,
+            gcs,
+            cs_env_file=cs_env_file,
+            cs_env_prefix=cs_env_prefix,
+            **field_kwargs,
+        )
         _check_backend_exclusive_cli(content_store_config, annex)
         try:
             catalog = ctx.obj.make_catalog(
@@ -990,6 +1092,8 @@ def log(ctx: click.Context, as_json: bool) -> None:
 @env_options
 @gcs_option
 @content_store_option
+@cs_env_options
+@cs_field_options
 @click.option(
     "--remote-url",
     default=None,
@@ -1018,6 +1122,16 @@ def replay(
     env_prefix,
     gcs,
     content_store_type,
+    cs_env_file,
+    cs_env_prefix,
+    cs_bucket,
+    cs_catalog_id,
+    cs_region,
+    cs_prefix,
+    cs_host,
+    cs_port,
+    cs_protocol,
+    cs_directory,
     remote_url,
     preserve_commits,
     force,
@@ -1046,6 +1160,14 @@ def replay(
       xorq catalog replay ./mirrored-catalog --dry-run
       # Replay into a new catalog and push to a fresh remote
       xorq catalog replay ./mirrored-catalog --env-file .env.target.s3 --remote-url git@github.com:acme/mirror-catalog.git
+      # Replay with S3 content store using CLI flags
+      xorq catalog replay ./mirrored-catalog --cs-bucket my-bucket --cs-region us-west-2
+      # Replay with a content store env file
+      xorq catalog replay ./mirrored-catalog --cs-env-file .env.content_store.s3
+      # Replay with a content store env prefix
+      xorq catalog replay ./mirrored-catalog --cs-env-prefix XORQ_CONTENT_STORE_S3_
+      # Replay into a local directory content store
+      xorq catalog replay ./mirrored-catalog --cs-directory /mnt/shared/store
     """
     from xorq.catalog.catalog import Catalog  # noqa: PLC0415
     from xorq.catalog.replay import Replayer  # noqa: PLC0415
@@ -1057,7 +1179,23 @@ def replay(
             replayer.print_plan()
             return
         annex = _resolve_annex_option(env_file, env_prefix, gcs)
-        content_store_config = _resolve_content_store_option(content_store_type, gcs)
+        field_kwargs = _collect_cs_field_kwargs(
+            cs_bucket,
+            cs_catalog_id,
+            cs_region,
+            cs_prefix,
+            cs_host,
+            cs_port,
+            cs_protocol,
+            cs_directory,
+        )
+        content_store_config = _resolve_content_store_option(
+            content_store_type,
+            gcs,
+            cs_env_file=cs_env_file,
+            cs_env_prefix=cs_env_prefix,
+            **field_kwargs,
+        )
         _check_backend_exclusive_cli(content_store_config, annex)
         target = Catalog.from_repo_path(
             target_path, annex=annex, content_store_config=content_store_config
