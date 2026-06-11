@@ -13,6 +13,11 @@ class CatalogTag(StrEnum):
     CODE = "catalog-code"
 
 
+class ContentStoreType(StrEnum):
+    DIRECTORY = "directory"
+    S3 = "s3"
+
+
 class OnUnrebuiltBuilder(StrEnum):
     """Policy when a builder tag has no rebuild protocol registered."""
 

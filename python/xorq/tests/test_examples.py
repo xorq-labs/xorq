@@ -14,6 +14,7 @@ LIBRARY_SCRIPTS = (
     "flight_dummy_exchanger",
 )
 GCS_SCRIPTS = ("gcstorage_example",)
+S3_SCRIPTS = ("s3_content_store_catalog",)
 NON_TESTABLE = (
     "mcp_flight_server.py",
     "duckdb_flight_example.py",
@@ -53,8 +54,12 @@ def maybe_gcs(name: str):
     return pytest.mark.gcs if name in GCS_SCRIPTS else ()
 
 
+def maybe_s3(name: str) -> pytest.MarkDecorator | tuple[()]:
+    return pytest.mark.s3 if name in S3_SCRIPTS else ()
+
+
 def maybe_marks(name: str):
-    fs = (maybe_library, maybe_gcs)
+    fs = (maybe_library, maybe_gcs, maybe_s3)
     return tuple(filter(None, (f(name) for f in fs)))
 
 

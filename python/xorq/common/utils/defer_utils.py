@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import itertools
 from functools import partial
 from pathlib import Path
@@ -11,6 +10,7 @@ import toolz
 
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.xorq_datafusion import connect as xo_connect
+from xorq.common.utils.file_utils import file_digest
 from xorq.common.utils.inspect_utils import (
     get_arguments,
 )
@@ -53,34 +53,8 @@ def make_read_kwargs(f, *args, **kwargs):
     return tpl
 
 
-def _manual_file_digest(path, digest=hashlib.md5, size=2**20):
-    from contextlib import closing  # noqa: PLC0415
-
-    fh = path if hasattr(path, "read") else Path(path).open("rb")
-    with closing(fh):
-        obj = digest()
-        for chunk in itertools.takewhile(
-            bool, (fh.read(size) for fh in itertools.repeat(fh))
-        ):
-            obj.update(chunk)
-        return obj.hexdigest()
-
-
-def _file_digest(path, digest=hashlib.md5, size=2**20):
-    from zipfile import ZipExtFile  # noqa: PLC0415
-
-    if hasattr(hashlib, "file_digest"):
-        if isinstance(path, ZipExtFile):
-            return hashlib.file_digest(path, digest).hexdigest()
-        if isinstance(path, (str, Path)):
-            with Path(path).open("rb") as fh:
-                return hashlib.file_digest(fh, digest).hexdigest()
-        raise ValueError(f"Don't know how to handle type {type(path)}")
-    return _manual_file_digest(path, digest, size=size)
-
-
 def normalize_read_path_md5sum(path):
-    return (("content-md5sum", _file_digest(path)),)
+    return (("content-md5sum", file_digest(path)),)
 
 
 def normalize_read_path_stat(path):

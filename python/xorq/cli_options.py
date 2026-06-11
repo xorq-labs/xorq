@@ -1,14 +1,25 @@
+from __future__ import annotations
+
 import os
+from collections.abc import Callable
+from typing import TypeVar
 
 import click
 
 from xorq.cli_constants import DEFAULT_CACHE_TYPE, DEFAULT_OUTPUT_FORMAT, OutputFormats
 
 
+_F = TypeVar("_F", bound=Callable)
+
 _DEFAULT_OUTPUT_PATH_SHOW_DEFAULT = f"`{os.devnull}` (discard)"
 
 
-def output_options(fn=None, *, output_path_help=None, output_path_show_default=None):
+def output_options(
+    fn: _F | None = None,
+    *,
+    output_path_help: str | None = None,
+    output_path_show_default: str | None = None,
+) -> _F | Callable[[_F], _F]:
     if output_path_help is None:
         output_path_help = "Path to write output. Use '-' for stdout."
     if output_path_show_default is None:
@@ -188,7 +199,16 @@ def env_options(fn):
 gcs_option = click.option(
     "--gcs",
     is_flag=True,
-    help="Apply GCS defaults to the S3 remote config.",
+    help="Apply GCS defaults to S3 config (annex remote or content store).",
+)
+
+
+content_store_option = click.option(
+    "--content-store",
+    "content_store_type",
+    type=click.Choice(["s3", "directory"]),
+    default=None,
+    help="Create a pointer-backend catalog with the given content store type.",
 )
 
 
