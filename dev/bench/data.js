@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781183498139,
+  "lastUpdate": 1781203679414,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -17529,6 +17529,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.009026607360532662",
             "extra": "mean: 37.88503420000211 msec\nrounds: 25"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "pierre@barre.sh",
+            "name": "Pierre Barre",
+            "username": "Barre"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee36d541868f4a7de048f9b9ba34a9bd80aca783",
+          "message": "Add GitPointerBackend with pointer files (#2007)\n\nAdds a third catalog backend that follows the crates.io-index model: git\nstores only lightweight pointer files + metadata, while actual entry\narchives live in a separate content store (S3 or local directory) and\nare fetched on demand.\n\nThis complements the existing `GitBackend` and `GitAnnexBackend`.\n\n---------\n\nCo-authored-by: dlovell <dlovell@gmail.com>\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-06-11T14:44:05-04:00",
+          "tree_id": "6c48a5cb8425e770ff20a0e9d54ff26edef121de",
+          "url": "https://github.com/xorq-labs/xorq/commit/ee36d541868f4a7de048f9b9ba34a9bd80aca783"
+        },
+        "date": 1781203676438,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.344388210560226,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006861689515797661",
+            "extra": "mean: 107.01610179999648 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 1.9655842017434346,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12225874844285142",
+            "extra": "mean: 508.7545977999923 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6217953752171524,
+            "unit": "iter/sec",
+            "range": "stddev: 0.20982833259278902",
+            "extra": "mean: 1.6082461205999892 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.0971813292368466,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05871101378988102",
+            "extra": "mean: 476.83048960000747 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.1765163766089275,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08183490179699653",
+            "extra": "mean: 459.4497936000039 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.237723715113767,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07950498079408277",
+            "extra": "mean: 446.88269299999774 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 154.36713964882958,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007786080860302092",
+            "extra": "mean: 6.478062638686601 msec\nrounds: 274"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.2746877458436074,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09046496109522237",
+            "extra": "mean: 189.584682200001 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 26.828640643056982,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014678602551387379",
+            "extra": "mean: 37.273599259259946 msec\nrounds: 27"
           }
         ]
       }
