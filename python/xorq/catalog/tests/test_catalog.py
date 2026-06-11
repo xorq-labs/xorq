@@ -29,7 +29,8 @@ from xorq.catalog.catalog import (
     CatalogEntry,
     _format_push_failures,
 )
-from xorq.catalog.constants import MAIN_BRANCH, CatalogInfix
+from xorq.catalog.constants import MAIN_BRANCH
+from xorq.catalog.enums import CatalogInfix
 from xorq.catalog.exceptions import (
     CatalogConfigurationError,
     CatalogPushError,

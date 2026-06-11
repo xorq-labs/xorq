@@ -30,8 +30,6 @@ from xorq.expr.relations import (
     into_backend,
 )
 from xorq.ibis_yaml.common import (
-    RefEnum,
-    RegistryEnum,
     TranslationContext,
     _translate_type,
     deserialize_callable,
@@ -39,6 +37,7 @@ from xorq.ibis_yaml.common import (
     serialize_callable,
     translate_to_yaml,
 )
+from xorq.ibis_yaml.enums import RefEnum, RegistryEnum
 from xorq.ibis_yaml.udf import _scalar_udf_from_yaml, _scalar_udf_to_yaml  # noqa: F401
 from xorq.ibis_yaml.utils import (
     freeze,

@@ -21,6 +21,7 @@ from attr.validators import (
 from public import public
 
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.catalog.enums import CatalogTag
 from xorq.common.exceptions import TranslationError, XorqError
 from xorq.common.utils.func_utils import return_constant
 from xorq.ibis_yaml.enums import ExprKind
@@ -715,7 +716,6 @@ def _extract_is_source(expr):
 
 
 def _extract_catalog_tag_nodes(expr):
-    from xorq.catalog.bind import CatalogTag  # noqa: PLC0415
     from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
     from xorq.expr.relations import HashingTag  # noqa: PLC0415
 
@@ -727,8 +727,6 @@ def _extract_catalog_tag_nodes(expr):
 
 
 def _extract_sources(catalog_tag_nodes):
-    from xorq.catalog.bind import CatalogTag  # noqa: PLC0415
-
     return tuple(
         {
             "entry_name": ht.metadata.get("entry_name"),
@@ -791,7 +789,6 @@ def _extract_kind(expr):
     UnboundTable is always a leaf, never the outermost node. All other kinds
     are determined by the outermost tag/node only.
     """
-    from xorq.catalog.bind import CatalogTag  # noqa: PLC0415
     from xorq.expr.builders import extract_builder_metadata  # noqa: PLC0415
     from xorq.expr.relations import CachedNode, HashingTag, Read, Tag  # noqa: PLC0415
 

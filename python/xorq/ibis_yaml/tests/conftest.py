@@ -5,11 +5,8 @@ import pytest
 import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis as ibis
-from xorq.ibis_yaml.common import (
-    RefEnum,
-    RegistryEnum,
-)
 from xorq.ibis_yaml.compiler import YamlExpressionTranslator
+from xorq.ibis_yaml.enums import RefEnum, RegistryEnum
 from xorq.vendor.ibis import _
 from xorq.vendor.ibis.expr.operations import ExistsSubquery
 

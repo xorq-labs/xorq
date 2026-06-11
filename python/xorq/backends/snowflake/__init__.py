@@ -13,6 +13,7 @@ import toolz
 import xorq.vendor.ibis.expr.api as api
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
+from xorq.backends.snowflake.enums import SnowflakeAuthenticator
 from xorq.common.utils.logging_utils import get_logger
 from xorq.expr.relations import (
     prepare_create_table_from_expr,
@@ -24,27 +25,11 @@ from xorq.vendor.ibis.expr.operations.relations import (
 )
 
 
-try:
-    from enum import StrEnum
-except ImportError:
-    from strenum import StrEnum
-
-
 logger = get_logger(__name__)
 
 
-class SnowflakeAuthenticator(StrEnum):
-    # https://docs.snowflake.com/en/developer-guide/node-js/nodejs-driver-options#label-nodejs-auth-options
-    password = "none"
-    mfa = "username_password_mfa"
-    keypair = "snowflake_jwt"
-    sso = "externalbrowser"
-    # oauth = "oauth"
-    # oauth2 = "oauth_authorization_code"
-
-
 @functools.wraps(IbisSnowflakeBackend.do_connect)
-def wrapped_do_connect(self, create_object_udfs: bool = None, **kwargs: Any):
+def wrapped_do_connect(self, create_object_udfs: bool = None, **kwargs: Any) -> None:
     from xorq.common.utils.snowflake_keypair_utils import (  # noqa: PLC0415
         maybe_decrypt_private_key,
     )

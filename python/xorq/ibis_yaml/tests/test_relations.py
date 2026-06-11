@@ -1,10 +1,11 @@
-from xorq.ibis_yaml.common import (
-    RefEnum,
-    RegistryEnum,
-)
+from __future__ import annotations
+
+import xorq.vendor.ibis.expr.types as ir
+from xorq.ibis_yaml.compiler import YamlExpressionTranslator
+from xorq.ibis_yaml.enums import RefEnum, RegistryEnum
 
 
-def test_filter(compiler, t):
+def test_filter(compiler: YamlExpressionTranslator, t: ir.Table) -> None:
     expr = t.filter(t.a > 0)
     yaml_dict = compiler.to_yaml(expr)
     node_ref = yaml_dict["expression"][RefEnum.node_ref]

@@ -45,6 +45,8 @@ from typing import Optional
 from attr import field, frozen
 from attr.validators import deep_iterable, instance_of, is_callable, optional
 
+from xorq.expr.ml.enums import FittedPipelineTagKey
+
 
 @frozen
 class TagHandler:
@@ -242,8 +244,6 @@ def _resolve_builder_from_tag(expr):
 
 
 def _ml_pipeline_extract_metadata(tag_node):
-    from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: PLC0415
-
     all_steps_raw = tag_node.metadata.get(str(FittedPipelineTagKey.ALL_STEPS), ())
     dicts = tuple(dict(step_items) for step_items in all_steps_raw)
     steps = tuple(d.get("name", "unknown") for d in dicts)
@@ -266,8 +266,6 @@ def _ml_from_tag_node(tag_node):
 
 def _builtin_handlers():
     """Declare built-in handlers for ML pipeline tags."""
-    from xorq.expr.ml.enums import FittedPipelineTagKey  # noqa: PLC0415
-
     return (
         TagHandler(
             tag_names=tuple(

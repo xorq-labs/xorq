@@ -19,27 +19,10 @@ from xorq.caching.strategy import SnapshotStrategy
 from xorq.common.utils.dasher import tokenize
 from xorq.expr.relations import HashingTag, Read, Tag
 from xorq.ibis_yaml.config import config
+from xorq.ibis_yaml.enums import RefEnum, RegistryEnum
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.schema import Schema
-
-
-try:
-    from enum import StrEnum
-except ImportError:
-    from strenum import StrEnum
-
-
-class RefEnum(StrEnum):
-    dtype_ref = "dtype_ref"
-    node_ref = "node_ref"
-    schema_ref = "schema_ref"
-
-
-class RegistryEnum(StrEnum):
-    dtypes = "dtypes"
-    nodes = "nodes"
-    schemas = "schemas"
 
 
 FROM_YAML_HANDLERS: dict[str, Any] = {}

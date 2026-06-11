@@ -4,10 +4,7 @@ import decimal
 import pytest
 
 import xorq.vendor.ibis as ibis
-from xorq.ibis_yaml.common import (
-    RefEnum,
-    RegistryEnum,
-)
+from xorq.ibis_yaml.enums import RefEnum, RegistryEnum
 from xorq.ibis_yaml.tests.conftest import get_dtype_yaml
 
 

@@ -13,7 +13,8 @@ from attr.validators import (
 )
 
 from xorq.backends.snowflake import Backend as SnowflakeBackend
-from xorq.backends.snowflake import SnowflakeAuthenticator, connect
+from xorq.backends.snowflake import connect
+from xorq.backends.snowflake.enums import SnowflakeAuthenticator
 from xorq.common.utils.env_utils import (
     EnvConfigable,
     env_templates_dir,

@@ -8,8 +8,8 @@ import pyarrow.parquet as pq
 import xorq.api as xo
 from xorq.caching.storage import ParquetStorage, ParquetTTLStorage
 from xorq.caching.strategy import ModificationTimeStrategy, SnapshotStrategy
+from xorq.common.enums import ProvenanceField
 from xorq.common.utils.provenance_utils import (
-    ProvenanceField,
     build_provenance_metadata,
     get_expr_hash,
     inject_metadata_into_schema,

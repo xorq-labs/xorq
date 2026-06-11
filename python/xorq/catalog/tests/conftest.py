@@ -20,7 +20,8 @@ from xorq.catalog.catalog import (
     Catalog,
     CatalogAlias,
 )
-from xorq.catalog.constants import MAIN_BRANCH, CatalogInfix
+from xorq.catalog.constants import MAIN_BRANCH
+from xorq.catalog.enums import CatalogInfix
 from xorq.catalog.expr_utils import build_expr_context_zip
 from xorq.catalog.replay import Replayer
 from xorq.catalog.zip_utils import with_pure_suffix

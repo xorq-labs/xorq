@@ -1,7 +1,4 @@
-try:
-    from enum import StrEnum
-except ImportError:
-    from strenum import StrEnum
+from xorq.common.compat import StrEnum
 
 
 class KVField(StrEnum):

@@ -1,21 +1,17 @@
 from __future__ import annotations
 
-import enum
+from typing import TYPE_CHECKING
 
 import pyarrow.parquet as pq
 
-
-XORQ_METADATA_PREFIX = "xorq:"
-
-
-class ProvenanceField(enum.StrEnum):
-    expr_hash = f"{XORQ_METADATA_PREFIX}expr_hash"
-    cache_strategy = f"{XORQ_METADATA_PREFIX}cache_strategy"
-    cache_storage = f"{XORQ_METADATA_PREFIX}cache_storage"
-    cache_ttl_seconds = f"{XORQ_METADATA_PREFIX}cache_ttl_seconds"
+from xorq.common.enums import XORQ_METADATA_PREFIX, ProvenanceField
 
 
-def get_expr_hash(expr):
+if TYPE_CHECKING:
+    from xorq.vendor.ibis.expr.types.core import Expr
+
+
+def get_expr_hash(expr: Expr) -> str:
     from xorq.caching.strategy import SnapshotStrategy  # noqa: PLC0415
     from xorq.ibis_yaml.compiler import canonicalize_expr  # noqa: PLC0415
     from xorq.ibis_yaml.config import config  # noqa: PLC0415
