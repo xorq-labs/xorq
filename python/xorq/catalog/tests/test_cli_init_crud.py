@@ -519,6 +519,256 @@ def test_init_content_store_conflicts_with_env_file(
     assert "mutually exclusive" in result.output
 
 
+# --- init --cs-* flags ---
+
+
+def test_init_cs_bucket_auto_detects_s3(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("XORQ_CONTENT_STORE_S3_BUCKET", raising=False)
+    monkeypatch.delenv("XORQ_CONTENT_STORE_S3_CATALOG_ID", raising=False)
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_AWS_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_AWS_SECRET_ACCESS_KEY", "secret")
+
+    mock_store = MagicMock()
+    with patch("xorq.catalog.content_store.make_boto3_client", return_value=mock_store):
+        repo_path = str(tmp_path / "auto-s3")
+        result = runner.invoke(
+            cli,
+            [
+                "--path",
+                repo_path,
+                "init",
+                "--cs-bucket",
+                "my-bucket",
+                "--cs-region",
+                "us-west-2",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        config = ContentStoreConfig.from_yaml(Path(repo_path) / "content_store.yaml")
+        assert config.bucket == "my-bucket"
+        assert config.region == "us-west-2"
+
+
+def test_init_cs_directory_auto_detects_directory(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("XORQ_CONTENT_STORE_DIRECTORY_DIRECTORY", raising=False)
+    monkeypatch.delenv("XORQ_CONTENT_STORE_DIRECTORY_CATALOG_ID", raising=False)
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    repo_path = str(tmp_path / "auto-dir")
+    result = runner.invoke(
+        cli,
+        ["--path", repo_path, "init", "--cs-directory", str(store_dir)],
+    )
+    assert result.exit_code == 0, result.output
+    catalog = Catalog.from_kwargs(path=repo_path, init=False)
+    assert isinstance(catalog.backend, GitPointerBackend)
+
+
+def test_init_cs_bucket_with_content_store_s3(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("XORQ_CONTENT_STORE_S3_BUCKET", raising=False)
+    monkeypatch.delenv("XORQ_CONTENT_STORE_S3_CATALOG_ID", raising=False)
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_AWS_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_AWS_SECRET_ACCESS_KEY", "secret")
+
+    mock_store = MagicMock()
+    with patch("xorq.catalog.content_store.make_boto3_client", return_value=mock_store):
+        repo_path = str(tmp_path / "explicit-s3")
+        result = runner.invoke(
+            cli,
+            [
+                "--path",
+                repo_path,
+                "init",
+                "--content-store",
+                "s3",
+                "--cs-bucket",
+                "explicit-bucket",
+                "--cs-prefix",
+                "data/",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        config = ContentStoreConfig.from_yaml(Path(repo_path) / "content_store.yaml")
+        assert config.bucket == "explicit-bucket"
+        assert config.prefix == "data"
+
+
+def test_init_cs_s3_endpoint_fields(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("XORQ_CONTENT_STORE_S3_BUCKET", raising=False)
+    monkeypatch.delenv("XORQ_CONTENT_STORE_S3_CATALOG_ID", raising=False)
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_AWS_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_AWS_SECRET_ACCESS_KEY", "secret")
+
+    mock_store = MagicMock()
+    with patch("xorq.catalog.content_store.make_boto3_client", return_value=mock_store):
+        repo_path = str(tmp_path / "minio-catalog")
+        result = runner.invoke(
+            cli,
+            [
+                "--path",
+                repo_path,
+                "init",
+                "--cs-bucket",
+                "minio-bucket",
+                "--cs-host",
+                "minio.local",
+                "--cs-port",
+                "9000",
+                "--cs-protocol",
+                "http",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        config = ContentStoreConfig.from_yaml(Path(repo_path) / "content_store.yaml")
+        assert config.host == "minio.local"
+        assert config.port == 9000
+        assert config.protocol == "http"
+
+
+def test_init_cs_env_file(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("XORQ_CONTENT_STORE_S3_BUCKET", raising=False)
+    monkeypatch.delenv("XORQ_CONTENT_STORE_S3_CATALOG_ID", raising=False)
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_AWS_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_AWS_SECRET_ACCESS_KEY", "secret")
+
+    env_file = tmp_path / ".env.cs.s3"
+    env_file.write_text(
+        "XORQ_CONTENT_STORE_S3_BUCKET=envfile-bucket\n"
+        "XORQ_CONTENT_STORE_S3_REGION=eu-west-1\n"
+    )
+    mock_store = MagicMock()
+    with patch("xorq.catalog.content_store.make_boto3_client", return_value=mock_store):
+        repo_path = str(tmp_path / "envfile-catalog")
+        result = runner.invoke(
+            cli,
+            ["--path", repo_path, "init", "--cs-env-file", str(env_file)],
+        )
+        assert result.exit_code == 0, result.output
+        config = ContentStoreConfig.from_yaml(Path(repo_path) / "content_store.yaml")
+        assert config.bucket == "envfile-bucket"
+        assert config.region == "eu-west-1"
+
+
+def test_init_cs_env_prefix(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_BUCKET", "prefix-bucket")
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_REGION", "us-east-1")
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_AWS_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_AWS_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.delenv("XORQ_CONTENT_STORE_S3_CATALOG_ID", raising=False)
+
+    mock_store = MagicMock()
+    with patch("xorq.catalog.content_store.make_boto3_client", return_value=mock_store):
+        repo_path = str(tmp_path / "prefix-catalog")
+        result = runner.invoke(
+            cli,
+            [
+                "--path",
+                repo_path,
+                "init",
+                "--cs-env-prefix",
+                "XORQ_CONTENT_STORE_S3_",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        config = ContentStoreConfig.from_yaml(Path(repo_path) / "content_store.yaml")
+        assert config.bucket == "prefix-bucket"
+
+
+def test_init_cs_env_file_and_prefix_mutually_exclusive(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    env_file = tmp_path / ".env.cs"
+    env_file.write_text("XORQ_CONTENT_STORE_S3_BUCKET=b\n")
+    repo_path = str(tmp_path / "bad-catalog")
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            repo_path,
+            "init",
+            "--cs-env-file",
+            str(env_file),
+            "--cs-env-prefix",
+            "XORQ_CONTENT_STORE_S3_",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
+def test_init_content_store_and_cs_env_file_mutually_exclusive(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_BUCKET", "b")
+    monkeypatch.delenv("XORQ_CONTENT_STORE_S3_CATALOG_ID", raising=False)
+    env_file = tmp_path / ".env.cs"
+    env_file.write_text("XORQ_CONTENT_STORE_S3_BUCKET=b\n")
+    repo_path = str(tmp_path / "bad-catalog")
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            repo_path,
+            "init",
+            "--content-store",
+            "s3",
+            "--cs-env-file",
+            str(env_file),
+        ],
+    )
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
+def test_init_cs_orphan_fields_without_type_or_bucket(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    repo_path = str(tmp_path / "orphan-catalog")
+    result = runner.invoke(
+        cli,
+        ["--path", repo_path, "init", "--cs-region", "us-west-2"],
+    )
+    assert result.exit_code != 0
+    assert "--cs-bucket" in result.output or "--cs-directory" in result.output
+
+
+def test_init_cs_catalog_id(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("XORQ_CONTENT_STORE_DIRECTORY_DIRECTORY", raising=False)
+    monkeypatch.delenv("XORQ_CONTENT_STORE_DIRECTORY_CATALOG_ID", raising=False)
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    repo_path = str(tmp_path / "catid-catalog")
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            repo_path,
+            "init",
+            "--cs-directory",
+            str(store_dir),
+            "--cs-catalog-id",
+            "my-custom-id",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    config = ContentStoreConfig.from_yaml(Path(repo_path) / "content_store.yaml")
+    assert config.catalog_id == "my-custom-id"
+
+
 # --- gc command ---
 
 
