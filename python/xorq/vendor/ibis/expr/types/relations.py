@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import itertools
 import operator
 import re
@@ -3300,13 +3299,14 @@ class Table(Expr, _FixedTextJupyterMixin):
             name = util.gen_name("sql_query")
             expr = self
 
-        from xorq.expr.api import _transform_expr
+        from xorq.expr.api import transformed
 
-        (expr, _, _caches) = _transform_expr(expr)
-
-        with contextlib.ExitStack() as stack:
-            for cache in _caches:
-                stack.enter_context(contextlib.closing(cache))
+        # full close (placeholder drops included) on exit: only the schema
+        # probe runs while the scope is open. The returned SQLStringView
+        # embeds the transformed child, but executing it over RemoteTables
+        # already fails at alias-name resolution before the released
+        # resources could matter; closing here at least stops the leak.
+        with transformed(expr) as expr:
             schema = backend._get_sql_string_view_schema(
                 name=name, table=expr, query=query
             )
