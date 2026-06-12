@@ -6,9 +6,9 @@ aggregate is a pipeline breaker, so the tee'd write fully drains before publish.
   * **Write**   `tee(BackendSink(con, staging, mode="create"))` -> staging table.
   * **Audit**   `agg.pandas_df` UDAF drains the stream -> one `bool`. Draining
     finalizes staging before publish runs.
-  * **Publish** `scalar.pyarrow` UDF, catalog-level (no xorq round-trip). Pass:
-    first batch `rename_table(staging -> final)` (metadata-only, zero copy),
-    later batches scan + `append` into final. Fail: staging kept, final untouched.
+  * **Publish** `scalar.pyarrow` UDF, catalog-level, zero data rewritten. Pass:
+    first batch `rename_table(staging -> final)`, later batches `add_files` the
+    staging parquet into final by reference. Fail: staging kept, final untouched.
 
 DQ check from real soil/sensor pipelines: readings must sit in a plausible °C
 range; out-of-range (often a Fahrenheit/Celsius mixup) fails the audit.
@@ -57,10 +57,12 @@ def audit_in_range(df: pd.DataFrame) -> bool:
 
 
 def make_publish(con):
-    """Build the publish UDF, closing over the Iceberg catalog.
+    """Build the publishing UDF, closing over the Iceberg catalog.
 
-    Pass + final absent: rename staging -> final (metadata-only, zero copy).
-    Pass + final exists: scan staging, append into final, drop staging.
+    Both pass paths are metadata-only, zero data rewritten:
+      * final absent: rename staging -> final.
+      * final exists: add_files staging's parquet into final by reference, then
+        drop staging (drop removes metadata only, not the now-shared data files).
     Fail: leave staging, never touch final.
     """
     catalog, namespace = con.catalog, con.namespace
@@ -71,8 +73,9 @@ def make_publish(con):
         p = passed[0].as_py()
         if p:
             if catalog.table_exists(final_id):
-                staged = catalog.load_table(staging_id).scan().to_arrow()
-                catalog.load_table(final_id).append(staged)
+                staging = catalog.load_table(staging_id)
+                files = [task.file.file_path for task in staging.scan().plan_files()]
+                catalog.load_table(final_id).add_files(files)
                 catalog.drop_table(staging_id)
             else:
                 catalog.rename_table(staging_id, final_id)
