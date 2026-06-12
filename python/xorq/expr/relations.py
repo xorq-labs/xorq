@@ -14,6 +14,7 @@ from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
     instrument_reader,
 )
+from xorq.sinking import SinkNode
 from xorq.vendor import ibis
 from xorq.vendor.ibis import Expr, Schema
 from xorq.vendor.ibis.common.collections import (
@@ -132,6 +133,26 @@ class HashingTag(Tag):
             self.parent,
             self.metadata,
         )
+
+
+class TeeNode(ops.Relation):
+    """A transparent pass-through that hands its stream to a SinkNode.
+
+    Modeled on `Tag`: schema and rows equal the parent's, and the node is
+    stripped before the content hash is computed, so `expr.tee(s)` hashes
+    identically to `expr`. The SinkNode's ``execute(batches)`` generator wraps
+    the parent's batch stream: it pulls each batch, writes it as a side effect,
+    and yields it onward. See `register_and_transform_tee_nodes` and ADR-0014.
+    """
+
+    schema: Schema
+    parent: ops.Relation
+    sink: SinkNode
+    values = FrozenDict()
+
+    def __dasher_tokenize__(self) -> tuple:
+        # transparent: contributes nothing beyond the parent
+        return ("normalize_tee_node", self.schema, self.parent)
 
 
 class DatabaseTableView(ops.DatabaseTable):
@@ -653,6 +674,37 @@ def register_and_transform_remote_tables(expr, **kwargs):
 
     expr = op.replace(replacer).to_expr()
     return expr, created
+
+
+@tracer.start_as_current_span("register_and_transform_tee_nodes")
+def register_and_transform_tee_nodes(expr: Expr) -> Expr:
+    """Replace each surviving `TeeNode` with a backend table fed by the
+    sink's ``execute(batches)`` generator.
+
+    The sink wraps the parent's batch stream: it pulls, writes as a side
+    effect, and yields each batch onward. Runs after cache resolution, so a
+    downstream cache hit prunes the `TeeNode` before this pass sees it and
+    the write never fires.
+    """
+    from xorq.common.utils.caching_utils import find_backend  # noqa: PLC0415
+    from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
+
+    def replacer(node, kwargs):
+        if kwargs:
+            node = node.__recreate__(kwargs)
+        if isinstance(node, TeeNode):
+            parent_expr = node.parent.to_expr()
+            con, _ = find_backend(node.parent, use_default=True)
+            reader = parent_expr.to_pyarrow_batches()
+            wrapped = pa.RecordBatchReader.from_batches(
+                reader.schema,
+                node.sink.execute(reader),
+            )
+            table = con.read_record_batches(wrapped, table_name=gen_name())
+            node = table.op()
+        return node
+
+    return replace_nodes(replacer, expr).to_expr()
 
 
 def render_backend(con):
