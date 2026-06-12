@@ -1,27 +1,25 @@
 """Write-Audit-Publish (WAP) on top of ADR-0014's `tee` / `ParquetSink`.
 
-WAP is a publish gate: data is written to a *staging* location, an *audit*
-decides whether it is fit to publish, and only on a passing audit is it moved
-to its *final* location. A failing audit leaves the staging file behind for
-inspection and never touches the final target.
+Traditional approach: To gate a publish on data quality you write the data to a
+staging file, run a separate validation script over it, branch in imperative
+glue code on the result, and `mv` the file into place by hand -- each step
+disconnected from the query that produced the rows.
 
-This example wires WAP out of primitives that already exist in xorq — there is
-no dedicated WAP API:
+With xorq: WAP falls out of primitives that already exist -- there is no
+dedicated WAP API. The dataflow itself enforces write-then-audit-then-publish
+ordering, because the audit aggregate is a pipeline breaker that fully drains
+the tee'd write before the publish UDF ever sees a row.
 
   * **Write**  `expr.tee(ParquetSink(staging))` writes every row that flows
     through it to ``staging`` as a side effect (ADR-0014).
   * **Audit**  `agg.pandas_df` builds a UDAF that receives the whole staged
     DataFrame and returns a single ``bool``. Being an aggregate, it must drain
-    the entire tee'd stream to produce its value — which is exactly what
+    the entire tee'd stream to produce its value -- which is exactly what
     finalizes the staging file before the publish step runs.
   * **Publish**  a `scalar.pyarrow` UDF that runs on the audit's one-row
     result. On a passing audit it moves ``staging`` -> ``final`` with
     ``os.link`` + ``os.unlink`` (atomic, and raising if ``final`` already
     exists); on a failing audit it does nothing.
-
-The dataflow itself enforces write-then-audit-then-publish ordering: the
-aggregate is a pipeline breaker, so the tee is fully drained (staging
-finalized) before the scalar publish UDF ever sees a row.
 """
 
 from __future__ import annotations
@@ -37,6 +35,9 @@ import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.expr.udf import agg, scalar
 from xorq.sinking import ParquetSink
+
+
+data = {"a": [1, 2, 3, 4], "b": ["w", "x", "y", "z"]}
 
 
 @scalar.pyarrow
@@ -70,19 +71,21 @@ def run_wap(t, staging: str, final: str, audit_fn):
     return receipt.execute()
 
 
-def main() -> None:
-    data = {"a": [1, 2, 3, 4], "b": ["w", "x", "y", "z"]}
+# audit predicate: every value in column `a` must be present (no nulls)
+def audit_no_nulls(df: pd.DataFrame) -> bool:
+    return bool(df["a"].notna().all())
 
-    # audit predicate: every value in column `a` must be present (no nulls)
-    def audit_no_nulls(df: pd.DataFrame) -> bool:
-        return bool(df["a"].notna().all())
 
+def audit_always_fails(df: pd.DataFrame) -> bool:
+    return False
+
+
+if __name__ == "__pytest_main__":
     # ---- pass path: audit succeeds -> data published to `final` -------------
     with tempfile.TemporaryDirectory() as d:
         staging = str(Path(d) / "staging.parquet")
         final = str(Path(d) / "final.parquet")
-        con = xo.connect()
-        t = con.register(xo.memtable(data), table_name="src_pass")
+        t = xo.connect().register(xo.memtable(data), table_name="src_pass")
 
         receipt = run_wap(t, staging, final, audit_no_nulls)
         print("PASS path receipt:")
@@ -95,14 +98,10 @@ def main() -> None:
         print(f"  -> published {len(pd.read_parquet(final))} rows to final\n")
 
     # ---- fail path: audit fails -> nothing published, staging retained ------
-    def audit_always_fails(df: pd.DataFrame) -> bool:
-        return False
-
     with tempfile.TemporaryDirectory() as d:
         staging = str(Path(d) / "staging.parquet")
         final = str(Path(d) / "final.parquet")
-        con = xo.connect()
-        t = con.register(xo.memtable(data), table_name="src_fail")
+        t = xo.connect().register(xo.memtable(data), table_name="src_fail")
 
         receipt = run_wap(t, staging, final, audit_always_fails)
         print("FAIL path receipt:")
@@ -114,6 +113,4 @@ def main() -> None:
         assert Path(staging).exists(), "rejected data is retained in staging"
         print("  -> audit failed; rejected data retained at staging, final absent\n")
 
-
-if __name__ == "__main__":
-    main()
+    pytest_examples_passed = True
