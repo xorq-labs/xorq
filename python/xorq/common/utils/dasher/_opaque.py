@@ -275,14 +275,16 @@ def _normalize_computed_kwargs_expr(cke):
     reads = op.find(Read)
     cached = op.find(CachedNode)
 
-    # Strip path identity from read_kwargs — the path's data identity lives
-    # in the outer expression's data leaves, not here.
-    _path_keys = ("hash_path", "read_path")
+    # Strip path identity and build-pipeline markers from read_kwargs — the
+    # path's data identity lives in the outer expression's data leaves, and
+    # the relocate marker is consumed at build time, so the same read must
+    # tokenize identically before and after packing.
+    _excluded_keys = ("hash_path", "read_path", "relocate")
     read_structural = tuple(
         (
             r.schema,
             r.method_name,
-            tuple((k, v) for k, v in r.read_kwargs if k not in _path_keys),
+            tuple((k, v) for k, v in r.read_kwargs if k not in _excluded_keys),
             r.normalize_method,
         )
         for r in reads

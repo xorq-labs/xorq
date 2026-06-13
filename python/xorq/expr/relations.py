@@ -568,7 +568,10 @@ class Read(ops.DatabaseTable):
 
     def make_dt(self):
         method = getattr(self.source, self.method_name)
-        _exclude = ("hash_path", "read_path")
+        # markers consumed by the build pipeline, not by the backend read
+        # method: read_path anchors the file inside a build artifact,
+        # relocate asks `xorq build` to pack the file into the artifact
+        _exclude = ("hash_path", "read_path", "relocate")
         args = tuple(v for k, v in self.read_kwargs if k == "hash_path")
         kwargs = {k: v for k, v in self.read_kwargs if k not in _exclude}
         dt = method(*args, **kwargs).op()

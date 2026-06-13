@@ -57,7 +57,7 @@ from xorq.catalog.constants import (
     METADATA_APPEND,
     PREFERRED_SUFFIX,
 )
-from xorq.catalog.content_store import ContentStoreConfig, atomic_write
+from xorq.catalog.content_store import ContentStoreConfig
 from xorq.catalog.enums import CatalogInfix
 from xorq.catalog.exceptions import CatalogConfigurationError, CatalogPushError
 from xorq.catalog.expr_utils import (
@@ -71,6 +71,7 @@ from xorq.catalog.git_utils import (
 )
 from xorq.catalog.s3_utils import S3_SECRET_FIELDS
 from xorq.catalog.zip_utils import BuildZip, make_zip_context, with_pure_suffix
+from xorq.common.utils.file_utils import atomic_write
 from xorq.common.utils.logging_utils import get_logger
 from xorq.ibis_yaml.enums import DumpFiles, ExprKind
 

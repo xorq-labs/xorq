@@ -3,6 +3,7 @@ import functools
 import json
 import operator
 import pathlib
+import shutil
 import sys
 import warnings
 from pathlib import Path
@@ -41,6 +42,7 @@ from xorq.common.utils.defer_utils import (
     normalize_read_path_md5sum,
     normalize_read_path_stat,
 )
+from xorq.common.utils.file_utils import atomic_write, file_digest
 from xorq.common.utils.graph_utils import (
     find_all_sources,
     opaque_ops,
@@ -90,6 +92,10 @@ def _ensure_translate_registered():
 
 memory_backends = ("pandas", "duckdb", "datafusion", "xorq_datafusion")
 table_like_ops = tuple(o for o in opaque_ops if issubclass(o, DatabaseTable))
+# artifact subdirectory for relocate-marked Reads; unlike MemtableTypes
+# dirs, these are plain reads packed by file copy, never reconstructed
+# as in-memory tables on load
+relocated_reads_dir = "reads"
 
 
 def _to_yaml_safe(data):
@@ -152,6 +158,16 @@ class ArtifactStore:
     def write_parquet(self, table, *path_parts) -> pathlib.Path:
         with self._write(*path_parts) as (path, f):
             pq.write_table(table, path)
+        return path
+
+    def copy_file(self, src, *path_parts) -> pathlib.Path:
+        # atomic so a concurrent build packing the same content-addressed
+        # file never observes a partial copy; shutil.copy (not copyfile)
+        # carries the source's mode over mkstemp's 0600 so packed files
+        # match engine-written ones in shared builds dirs
+        path = self.get_path(*path_parts)
+        with atomic_write(path) as tmp:
+            shutil.copy(src, tmp)
         return path
 
     def exists(self, *path_parts) -> bool:
@@ -463,6 +479,33 @@ class ExprDumper:
         )
         return (path, writer)
 
+    def _prepare_relocated_read(self, node, which):
+        if node.method_name != "read_parquet":
+            raise ValueError(
+                f"relocate only supports read_parquet reads, got {node.method_name!r}"
+            )
+        src = dict(node.read_kwargs)["hash_path"]
+        match src:
+            case [single]:
+                src = single
+            case [*_]:
+                raise ValueError(
+                    f"a relocatable read requires a single local file, got {src!r}"
+                )
+        src = pathlib.Path(src)
+        if not src.is_file():
+            raise ValueError(
+                f"a relocatable read requires a single local file, got {src}"
+            )
+        path_parts = (which, f"{file_digest(src)}.parquet")
+        path = self.artifact_store.get_path(*path_parts)
+        writer = functools.partial(
+            self.artifact_store.copy_file,
+            src,
+            *path_parts,
+        )
+        return (path, writer)
+
     def _prepare_sql_plans(
         self,
         sql_plans: Dict[str, Any],
@@ -569,7 +612,8 @@ class ExprDumper:
         return path_to_writer
 
     def _replace_tables(self, expr):
-        """Single-pass replacement of InMemoryTable and qualifying DatabaseTable nodes.
+        """Single-pass replacement of InMemoryTable, relocatable Read, and
+        qualifying DatabaseTable nodes.
 
         Combines what were previously two separate walk_nodes + replace_nodes
         calls (_memtables_to_deferred_reads and _replace_inmemory_backend_tables)
@@ -586,6 +630,41 @@ class ExprDumper:
                 # across processes and rebuild timestamps.
                 type_kwargs = {str(which): True}
                 con_kwargs = {}
+            elif isinstance(node, Read) and dict(node.read_kwargs).get("relocate"):
+                # the marker is consumed here, at build time; the loader
+                # resolves the packed file via read_path and registers it on
+                # the source backend, so the rewritten read does not carry it.
+                # The source is already a parquet file: copy it byte-for-byte
+                # (content-addressed by file digest) instead of re-encoding
+                # through the engine, so the packed file md5-normalizes
+                # identically to the original.
+                which = relocated_reads_dir
+                path, writer = self._prepare_relocated_read(node, which)
+                # carry user-supplied backend kwargs (e.g. binary_as_string)
+                # over to the packed read; only the markers consumed by the
+                # build pipeline and the keys set explicitly below are dropped
+                _markers = (
+                    "hash_path",
+                    "relocate",
+                    "read_path",
+                    "table_name",
+                    "schema",
+                )
+                user_kwargs = {k: v for k, v in node.read_kwargs if k not in _markers}
+                dr_op = make_read_op(
+                    parquet_path=path,
+                    read_kwargs={
+                        **user_kwargs,
+                        "table_name": node.name,
+                        "schema": node.schema,
+                        "normalize_method": normalize_read_path_md5sum,
+                        "read_path": str(Path(which, path.name)),
+                    },
+                    con=node.source,
+                )
+                path_to_writer[path] = writer
+                replacements[node] = dr_op
+                continue
             elif (
                 isinstance(node, table_like_ops)
                 or node.source.name not in memory_backends

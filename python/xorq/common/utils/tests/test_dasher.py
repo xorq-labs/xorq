@@ -991,3 +991,23 @@ def test_extra_rules_fqn_strings():
     assert production_fqns == set(expected), (
         f"test/production mismatch: {production_fqns.symmetric_difference(set(expected))}"
     )
+
+
+def test_relocate_marker_not_in_cke_token(tmp_path):
+    """The relocate build marker must not leak into structural tokens.
+
+    The marker is consumed at build time, so the same read must tokenize
+    identically before and after packing (and with relocate True or absent).
+    """
+    df = pd.DataFrame({"a": [10, 20, 30]})
+    path = tmp_path / "relocate.parquet"
+    df.to_parquet(path)
+
+    con = xo.connect()
+    plain = xo.deferred_read_parquet(str(path), con, table_name="dr_test")
+    relocatable = xo.deferred_read_parquet(
+        str(path), con, table_name="dr_test", relocate=True
+    )
+    assert _normalize_computed_kwargs_expr(plain) == _normalize_computed_kwargs_expr(
+        relocatable
+    )

@@ -572,6 +572,10 @@ def warn_on_local_path(items: dict) -> None:
         parsed = urlparse(any)
         return not parsed.scheme or parsed.scheme == "file"
 
+    if "read_path" in dict(items):
+        # the file is packed inside the build artifact and re-anchored
+        # against the build dir on load; the local path is not a liability
+        return
     if path := next(
         (v for k, v in dict(items).items() if k in ("hash_path", "source")), None
     ):
