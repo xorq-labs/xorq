@@ -224,6 +224,7 @@ def build_command(
     cache_dir=None,
     debug: bool = False,
     emit_build_path_to=None,
+    pin: bool = False,
 ):
     """
     Generate artifacts from an expression in a given Python script
@@ -234,6 +235,7 @@ def build_command(
     expr_name : The name of the expression to build
     builds_dir : Directory where artifacts will be generated
     cache_dir : Directory where the parquet cache files will be generated
+    pin : Compute every parquet cache once and pin it into the artifact
 
     Returns
     -------
@@ -270,6 +272,15 @@ def build_command(
             raise ValueError(
                 f"The object {expr_name} must be an instance of {Expr.__module__}.{Expr.__name__}"
             )
+
+    if pin:
+        from xorq.expr.pin_lib import _pin_caches  # noqa: PLC0415
+
+        expr, n_new = _pin_caches(expr)
+        if not n_new:
+            print("warning: --pin found no caches to pin", file=sys.stderr)
+        else:
+            print(f"Pinned {n_new} cache(s)", file=sys.stderr)
 
     build_path = build_expr(
         expr, builds_dir=builds_dir, cache_dir=Path(cache_dir), debug=debug
@@ -501,6 +512,160 @@ def run_cached_command(
         file_metrics = RunLogger._compute_file_metrics(output_format, output_path)
         if file_metrics:
             rl.log_span_event(span, "run_cached.output_written", file_metrics)
+
+
+def _report_unpinned(cached_nodes):
+    """Describe leftover CachedNodes by key, tolerating broken sources."""
+
+    def describe(node):
+        try:
+            return node.cache.calc_key(node.to_expr())
+        except Exception as e:
+            return f"<{type(node.cache).__name__}: {e}>"
+
+    return ", ".join(describe(node) for node in cached_nodes)
+
+
+@_lazy_span("cli.pin_command")
+def pin_command(
+    build_path,
+    builds_dir="builds",
+    cache_dir=None,
+    verify=False,
+    keys=(),
+    source_path=None,
+):
+    """
+    Pin the caches of a build artifact into a new build
+
+    Parameters
+    ----------
+    build_path : Path to the build directory produced by `xorq build`
+    builds_dir : Directory where the pinned artifact will be generated
+    cache_dir : Directory where the parquet cache files live
+    verify : Re-read each pinned cache and report content-hash drift
+        instead of pinning
+    keys : Cache keys selecting which caches to pin (default: all
+        parquet-backed caches)
+    source_path : The user-facing path of the input build (build_path may
+        be a temporary unzip dir); echoed when the build is already pinned
+
+    Returns
+    -------
+
+    """
+    from xorq.expr.pin_lib import (  # noqa: PLC0415
+        _pin_caches,
+        pin_infos,
+        verify_pinned,
+    )
+    from xorq.ibis_yaml.compiler import build_expr, load_expr  # noqa: PLC0415
+
+    cache_dir = _get_cache_dir(cache_dir)
+    expr = load_expr(build_path, cache_dir=cache_dir, raise_on_unbound=True)
+    keys = tuple(keys)
+
+    if verify:
+        # the loaded expr's pinned reads have been resolved to registered
+        # tables, so verify against the build's packed parquet files by digest
+        results = verify_pinned(expr, reads_dir=Path(build_path) / "reads")
+        if keys:
+            by_key = {r.cache_key: r for r in results}
+            if missing := set(keys) - set(by_key):
+                raise click.ClickException(
+                    f"no pinned cache matches key(s) {sorted(missing)}"
+                )
+            results = tuple(by_key[k] for k in keys)
+        if not results:
+            raise click.ClickException("no pinned caches found in build")
+        for r in results:
+            status = "ok" if r.ok else "MISMATCH"
+            print(
+                f"{r.cache_key}: {status} "
+                f"expected={r.expected_token[:12]} actual={r.actual_token[:12]}"
+            )
+        if unpinned := expr.ls.cached_nodes:
+            print(
+                f"{len(unpinned)} unpinned cache(s): {_report_unpinned(unpinned)}",
+                file=sys.stderr,
+            )
+        failed = tuple(r for r in results if not r.ok)
+        if failed:
+            raise click.ClickException(
+                f"{len(failed)} pinned cache(s) failed verification"
+            )
+        return
+
+    already_pinned = len(pin_infos(expr))
+    try:
+        pinned, n_new = _pin_caches(expr, keys=keys or None)
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
+    leftover = pinned.ls.cached_nodes
+    if not n_new:
+        if not already_pinned and not leftover:
+            raise click.ClickException("no caches found in build")
+        if not already_pinned:
+            raise click.ClickException(
+                f"no caches pinned; {len(leftover)} cache(s) are not pinnable "
+                f"(non-parquet storage): {_report_unpinned(leftover)}"
+            )
+        # rebuilding a loaded pinned build would produce an equivalent but
+        # differently-hashed artifact (the loader resolves the packed read
+        # into a registered table); the input build is already canonical
+        message = f"all {already_pinned} cache(s) already pinned; nothing to do"
+        if leftover:
+            message += f"; {len(leftover)} cache(s) left unpinned"
+        print(message, file=sys.stderr)
+        print(source_path if source_path is not None else build_path)
+        return
+    message = f"Pinned {n_new} cache(s)"
+    if already_pinned:
+        message += f" ({already_pinned} already pinned)"
+    if leftover:
+        message += f"; {len(leftover)} cache(s) left unpinned"
+    print(message, file=sys.stderr)
+    pinned_build_path = build_expr(
+        pinned, builds_dir=builds_dir, cache_dir=Path(cache_dir)
+    )
+    print(pinned_build_path)
+
+
+@_lazy_span("cli.unpin_command")
+def unpin_command(build_path, builds_dir="builds", cache_dir=None):
+    """
+    Unpin a build: swap each pinned read back for the compute that produced it
+
+    Parameters
+    ----------
+    build_path : Path to a pinned build directory produced by `xorq pin`
+    builds_dir : Directory where the unpinned artifact will be generated
+    cache_dir : Directory where the parquet cache files live
+
+    Returns
+    -------
+
+    """
+    from xorq.expr.pin_lib import pin_infos, unpin  # noqa: PLC0415
+    from xorq.ibis_yaml.compiler import build_expr, load_expr  # noqa: PLC0415
+
+    cache_dir = _get_cache_dir(cache_dir)
+    expr = load_expr(build_path, cache_dir=cache_dir, raise_on_unbound=True)
+    n = len(pin_infos(expr))
+    if not n:
+        raise click.ClickException("no pinned caches found in build")
+    print(f"Unpinned {n} cache(s)", file=sys.stderr)
+    try:
+        unpinned_build_path = build_expr(
+            unpin(expr), builds_dir=builds_dir, cache_dir=Path(cache_dir)
+        )
+    except ValueError as e:
+        # the recovered compute must read from portable sources to rebuild;
+        # an in-memory registered table has no data to re-serialize
+        raise click.ClickException(
+            f"could not rebuild the unpinned expression: {e}"
+        ) from e
+    print(unpinned_build_path)
 
 
 def arbitrate_output_format(expr, output_path, output_format, batch_size=None):
@@ -1100,7 +1265,19 @@ def uv_run_unbound(
         "subprocess consumer needs the path unambiguously."
     ),
 )
-def build(script_path, expr_name, builds_dir, cache_dir, debug, emit_build_path_to):
+@click.option(
+    "--pin",
+    is_flag=True,
+    default=False,
+    help=(
+        "Compute every parquet cache once (hitting the cache when "
+        "present) and pin its data into the artifact so running the build "
+        "never recomputes it."
+    ),
+)
+def build(
+    script_path, expr_name, builds_dir, cache_dir, debug, emit_build_path_to, pin
+):
     """Compile a Xorq expression into a reusable build artifact.
 
     Loads the script, finds the expression variable, and writes serialized
@@ -1118,6 +1295,8 @@ def build(script_path, expr_name, builds_dir, cache_dir, debug, emit_build_path_
       xorq build pipeline.py
       # Build a specific expression into a custom directory
       xorq build pipeline.py -e daily_metrics --builds-dir artifacts
+      # Compute caches once and pin them into the artifact
+      xorq build pipeline.py --pin
     """
     build_command(
         script_path,
@@ -1126,6 +1305,7 @@ def build(script_path, expr_name, builds_dir, cache_dir, debug, emit_build_path_
         cache_dir,
         debug,
         emit_build_path_to=emit_build_path_to,
+        pin=pin,
     )
 
 
@@ -1157,6 +1337,96 @@ def run(build_path, cache_dir, output_path, output_format, limit, raw_params):
     """
     with maybe_unzip(build_path) as p:
         run_command(p, output_path, output_format, cache_dir, limit, raw_params)
+
+
+@cli.command("pin")
+@click.argument("build_path")
+@click.option(
+    "--builds-dir",
+    default="builds",
+    show_default=True,
+    help="Directory for the pinned artifact.",
+)
+@cache_dir_option
+@click.option(
+    "--verify",
+    is_flag=True,
+    default=False,
+    help=(
+        "Re-read each pinned cache and compare content hashes instead of "
+        "pinning. Exits nonzero on mismatch."
+    ),
+)
+@click.option(
+    "--key",
+    "keys",
+    multiple=True,
+    help=(
+        "Cache key selecting a cache to pin (repeatable). Default: pin "
+        "every parquet-backed cache."
+    ),
+)
+def pin(build_path, builds_dir, cache_dir, verify, keys):
+    """Pin the caches of a build into a new, self-contained build.
+
+    Computes each selected cache once (hitting the cache parquet when
+    present) and swaps the cached compute for a read on the parquet,
+    packed inside the new artifact. The pinned build never recomputes the
+    pinned subtrees and stays lazy: loading it does not pull the data
+    into memory.
+
+    \b
+    Arguments:
+      BUILD_PATH  Path to the build directory produced by `xorq build`.
+
+    \b
+    Examples:
+      # Pin a build's caches into a new artifact
+      xorq pin builds/f02d28198715
+      # Pin one cache, selected by its cache key
+      xorq pin builds/f02d28198715 --key letsql_cache-snapshot-abc123
+      # Check that the packed caches still match their pinned hashes
+      xorq pin builds/a1b2c3d4e5f6 --verify
+    """
+    with maybe_unzip(build_path) as p:
+        pin_command(
+            p,
+            builds_dir=builds_dir,
+            cache_dir=cache_dir,
+            verify=verify,
+            keys=keys,
+            source_path=build_path,
+        )
+
+
+@cli.command("unpin")
+@click.argument("build_path")
+@click.option(
+    "--builds-dir",
+    default="builds",
+    show_default=True,
+    help="Directory for the unpinned artifact.",
+)
+@cache_dir_option
+def unpin(build_path, builds_dir, cache_dir):
+    """Reverse `xorq pin`: rebuild the computing form of a pinned build.
+
+    Each pinned read is swapped back for the original compute, recovered
+    from the pin tag's recipe, producing a new build that recomputes and
+    re-caches instead of reading the pinned files. The sources the
+    recovered compute reads from must be available where it runs.
+
+    \b
+    Arguments:
+      BUILD_PATH  Path to a pinned build directory produced by `xorq pin`.
+
+    \b
+    Examples:
+      # Rebuild the computing form of a pinned build
+      xorq unpin builds/f02d28198715
+    """
+    with maybe_unzip(build_path) as p:
+        unpin_command(p, builds_dir=builds_dir, cache_dir=cache_dir)
 
 
 @cli.command("run-cached")

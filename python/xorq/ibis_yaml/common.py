@@ -166,6 +166,10 @@ class TranslationContext:
     remote_table_stack: list[str] = field(
         validator=instance_of(list), factory=list, eq=False
     )
+    # allow unconsumed relocate markers through serialization; set when
+    # embedding a pin recipe (which legitimately carries nested pinned reads),
+    # not for a final build, where a surviving marker means an unpacked file
+    allow_relocate: bool = field(default=False, validator=instance_of(bool))
 
     @property
     def definitions(self):

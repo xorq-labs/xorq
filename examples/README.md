@@ -68,7 +68,7 @@ Most examples define a top-level `expr` variable and can be conveniently run wit
 |------|-------------|
 | `demonstrate_ir_two_categorical.py` | Hybrid ColumnTransformer with numeric, text (TF-IDF), and categorical (OneHotEncoder) features |
 | `deferred_fit_transform_example.py` | TF-IDF transformation with and without caching on HackerNews data |
-| `deferred_fit_predict_example.py` | Linear regression fit/predict with deferred execution and caching |
+| `deferred_fit_predict_example.py` | Linear regression fit/predict with deferred execution, caching, and pinning the fitted model into the DAG |
 | `deferred_fit_transform_predict_example.py` | Chained TF-IDF transform + XGBoost prediction pipeline with Flight server serving |
 
 ### User-Defined Functions (UDFs, UDAFs, UDWFs)

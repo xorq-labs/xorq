@@ -197,11 +197,14 @@ class ArtifactStore:
 
 class YamlExpressionTranslator:
     @staticmethod
-    def to_yaml(expr: ir.Expr, profiles=(), cache_dir=None) -> Dict[str, Any]:
+    def to_yaml(
+        expr: ir.Expr, profiles=(), cache_dir=None, allow_relocate=False
+    ) -> Dict[str, Any]:
         _ensure_translate_registered()
         context = TranslationContext(
             profiles=freeze(dict(profiles)),
             cache_dir=cache_dir,
+            allow_relocate=allow_relocate,
         )
         with SnapshotStrategy().normalization_context(expr):
             expr_dict = translate_to_yaml(expr, context)
@@ -479,7 +482,7 @@ class ExprDumper:
         )
         return (path, writer)
 
-    def _prepare_relocated_read(self, node, which):
+    def _prepare_relocated_read(self, node):
         if node.method_name != "read_parquet":
             raise ValueError(
                 f"relocate only supports read_parquet reads, got {node.method_name!r}"
@@ -497,7 +500,7 @@ class ExprDumper:
             raise ValueError(
                 f"a relocatable read requires a single local file, got {src}"
             )
-        path_parts = (which, f"{file_digest(src)}.parquet")
+        path_parts = (relocated_reads_dir, f"{file_digest(src)}.parquet")
         path = self.artifact_store.get_path(*path_parts)
         writer = functools.partial(
             self.artifact_store.copy_file,
@@ -631,18 +634,12 @@ class ExprDumper:
                 type_kwargs = {str(which): True}
                 con_kwargs = {}
             elif isinstance(node, Read) and dict(node.read_kwargs).get("relocate"):
-                # the marker is consumed here, at build time; the loader
-                # resolves the packed file via read_path and registers it on
-                # the source backend, so the rewritten read does not carry it.
-                # The source is already a parquet file: copy it byte-for-byte
-                # (content-addressed by file digest) instead of re-encoding
-                # through the engine, so the packed file md5-normalizes
-                # identically to the original.
-                which = relocated_reads_dir
-                path, writer = self._prepare_relocated_read(node, which)
-                # carry user-supplied backend kwargs (e.g. binary_as_string)
-                # over to the packed read; only the markers consumed by the
-                # build pipeline and the keys set explicitly below are dropped
+                # consume the marker here: copy the parquet byte-for-byte into
+                # the artifact (re-anchored via read_path on load) rather than
+                # re-encoding, so the packed file md5-normalizes identically
+                path, writer = self._prepare_relocated_read(node)
+                # keep the user's backend kwargs; drop only the markers and the
+                # keys set explicitly below
                 _markers = (
                     "hash_path",
                     "relocate",
@@ -658,7 +655,7 @@ class ExprDumper:
                         "table_name": node.name,
                         "schema": node.schema,
                         "normalize_method": normalize_read_path_md5sum,
-                        "read_path": str(Path(which, path.name)),
+                        "read_path": str(Path(relocated_reads_dir, path.name)),
                     },
                     con=node.source,
                 )

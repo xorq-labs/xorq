@@ -595,6 +595,16 @@ def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
         op.source._profile.hash_name if hasattr(op.source, "_profile") else None
     )
 
+    if dict(op.read_kwargs).get("relocate") and not context.allow_relocate:
+        # _replace_tables consumes the marker when it packs the file; one
+        # surviving to here was never reached (e.g. inside unbound_expr), so
+        # the file is unpacked and the build would break on load
+        raise ValueError(
+            f"read {op.name!r} carries an unconsumed 'relocate' marker; "
+            "relocate is only supported for reads reachable by the build "
+            "pipeline (not inside FlightExpr.unbound_expr)"
+        )
+
     warn_on_local_path(op.read_kwargs)
 
     table_name = op.name
