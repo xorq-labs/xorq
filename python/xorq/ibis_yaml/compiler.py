@@ -652,7 +652,7 @@ class ExprDumper:
                 which = MemtableTypes.read
                 read_path = f"{which}/{path.name}"
                 new_kwargs = update_read_kwargs(
-                    tuple((k, v) for k, v in node.read_kwargs if k != "relocatable"),
+                    node.read_kwargs,
                     (("hash_path", path), ("read_path", read_path)),
                 )
                 dr_op = Read(
@@ -782,6 +782,14 @@ class ExprLoader:
                 )
                 return ibis.memtable(df, schema=dr.schema, name=dr.name).op()
             resolved_kwargs = update_read_kwargs(dr.read_kwargs, (("hash_path", path),))
+            if kw.get("relocatable", False):
+                resolved_kwargs = tuple(
+                    (k, v) for k, v in resolved_kwargs if k != "read_path"
+                )
+                args = dict(zip(dr.__argnames__, dr.__args__)) | {
+                    "read_kwargs": resolved_kwargs
+                }
+                return dr.__recreate__(args)
             args = dict(zip(dr.__argnames__, dr.__args__)) | {
                 "read_kwargs": resolved_kwargs
             }

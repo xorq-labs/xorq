@@ -581,7 +581,10 @@ def warn_on_local_path(items: dict) -> None:
         paths = normalize_filenames(path)
         if any(map(f, paths)):
             warnings.warn(
-                "The Read op path is using a local filesystem path, running the build may not work in other environments.",
+                "The Read op path is using a local filesystem path, running"
+                " the build may not work in other environments. Consider"
+                " using relocatable=True in deferred_read_parquet/deferred_read_csv"
+                " or --relocate-reads when building.",
                 stacklevel=2,
             )
 

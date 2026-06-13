@@ -5,6 +5,7 @@ import json
 import os
 import pathlib
 import tempfile
+import warnings
 
 import pandas as pd
 import pyarrow as pa
@@ -1248,3 +1249,37 @@ def test_relocate_reads_flag_changes_build_hash(builds_dir, tmp_path):
     default_path = build_expr(t, builds_dir=builds_dir)
     reloc_path = build_expr(t, builds_dir=builds_dir, relocate_reads=True)
     assert default_path.name != reloc_path.name
+
+
+def test_relocatable_read_no_local_path_warning(builds_dir, tmp_path):
+    """Relocatable reads should not emit the local-path warning during build."""
+    table = pa.table({"x": [1, 2, 3]})
+    parquet_path = tmp_path / "data.parquet"
+    pq.write_table(table, parquet_path)
+
+    t = deferred_read_parquet(parquet_path, relocatable=True)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        build_expr(t, builds_dir=builds_dir)
+
+    local_path_warnings = [
+        w for w in caught if "local filesystem path" in str(w.message)
+    ]
+    assert local_path_warnings == [], [str(w.message) for w in local_path_warnings]
+
+
+def test_relocatable_survives_round_trip(builds_dir, tmp_path):
+    """A relocatable Read should stay relocatable after build → load."""
+    table = pa.table({"x": [1, 2, 3]})
+    parquet_path = tmp_path / "data.parquet"
+    pq.write_table(table, parquet_path)
+
+    t = deferred_read_parquet(parquet_path, relocatable=True)
+    build_path = build_expr(t, builds_dir=builds_dir)
+    loaded = load_expr(build_path)
+
+    reads = list(walk_nodes(Read, loaded))
+    assert len(reads) == 1
+    kw = dict(reads[0].read_kwargs)
+    assert kw.get("relocatable") is True
+    assert "read_path" not in kw
