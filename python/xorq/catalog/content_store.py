@@ -8,7 +8,6 @@ import shutil
 import tempfile
 import uuid
 from collections.abc import Iterator
-from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
 from typing import Any
@@ -29,7 +28,7 @@ from xorq.catalog.s3_utils import (
     serialize_fields,
 )
 from xorq.common.utils.env_utils import EnvConfigable, env_templates_dir
-from xorq.common.utils.file_utils import file_digest
+from xorq.common.utils.file_utils import atomic_write, file_digest
 
 
 POINTER_VERSION = "xorq-pointer v1"
@@ -76,23 +75,6 @@ def compute_content_key(catalog_id: str, sha256: str) -> str:
     if not _SHA256_RE.match(sha256):
         raise ValueError(f"Invalid sha256: {sha256!r}")
     return f"{catalog_id}/{sha256[:2]}/{sha256[2:4]}/{sha256}.zip"
-
-
-@contextmanager
-def atomic_write(dest: Path) -> Iterator[Path]:
-    """Yield a tmp path in the same directory; on success replace *dest*, on error clean up."""
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=dest.parent, suffix=".tmp")
-    tmp_path = Path(tmp)
-    try:
-        os.close(fd)
-        if dest.exists():
-            os.chmod(tmp, dest.stat().st_mode)
-        yield tmp_path
-        tmp_path.replace(dest)
-    except BaseException:
-        tmp_path.unlink(missing_ok=True)
-        raise
 
 
 def write_pointer(path: str | Path, sha256: str, size: int) -> None:

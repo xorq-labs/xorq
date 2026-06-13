@@ -28,13 +28,13 @@ from xorq.catalog.content_store import (
     ContentIntegrityError,
     ContentStore,
     ContentStoreConfig,
-    atomic_write,
     compute_content_key,
     compute_sha256,
     parse_pointer,
     write_pointer,
 )
 from xorq.catalog.enums import CatalogInfix
+from xorq.common.utils.file_utils import atomic_write
 
 
 def _repo_has_annex_artifacts(repo: Repo) -> bool:

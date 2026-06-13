@@ -1066,6 +1066,76 @@ class LETSQLAccessor:
         return walk_nodes((CachedNode,), self.expr)
 
     @property
+    def pinned_tags(self) -> tuple:
+        """All pin `Tag` operations in the expression graph.
+
+        Returns
+        -------
+        tuple
+            One pin `Tag` per pinned cache (see `xorq.expr.pin_lib`).
+        """
+        from xorq.expr.pin_lib import pinned_tag_nodes
+
+        return pinned_tag_nodes(self.expr)
+
+    @property
+    def pinned_caches(self) -> tuple:
+        """Pin provenance for every pinned cache in the graph.
+
+        Returns
+        -------
+        tuple
+            One `PinInfo` (content hash, source token, cache key) per
+            pinned cache.
+        """
+        from xorq.expr.pin_lib import pin_infos
+
+        return pin_infos(self.expr)
+
+    def pin_caches(self, keys=None, relocate: bool = True):
+        """Materialize each selected cache and pin it into the DAG.
+
+        See `xorq.expr.pin_lib.pin_caches`.
+
+        Returns
+        -------
+        ir.Expr
+            A new expression with the selected caches pinned.
+        """
+        from xorq.expr.pin_lib import pin_caches
+
+        return pin_caches(self.expr, keys=keys, relocate=relocate)
+
+    def unpin(self):
+        """Swap every pinned read back for the compute that produced it.
+
+        The inverse of `pin_caches`, rebuilt from each pin tag's recipe.
+
+        Returns
+        -------
+        ir.Expr
+            A new expression that recomputes rather than reading pinned files.
+        """
+        from xorq.expr.pin_lib import unpin
+
+        return unpin(self.expr)
+
+    def verify_pinned(self, reads_dir=None) -> tuple:
+        """Compare each pinned cache's parquet digest against the pinned value.
+
+        Pass ``reads_dir`` (a build's packed ``reads/`` directory) to verify
+        an expression loaded from a build.
+
+        Returns
+        -------
+        tuple
+            One `PinVerification` per pinned cache.
+        """
+        from xorq.expr.pin_lib import verify_pinned
+
+        return verify_pinned(self.expr, reads_dir=reads_dir)
+
+    @property
     def tags(self):
         return self.get_tags()
 

@@ -3,6 +3,7 @@ import functools
 import json
 import operator
 import pathlib
+import shutil
 import sys
 import warnings
 from pathlib import Path
@@ -41,6 +42,7 @@ from xorq.common.utils.defer_utils import (
     normalize_read_path_md5sum,
     normalize_read_path_stat,
 )
+from xorq.common.utils.file_utils import atomic_write, file_digest
 from xorq.common.utils.graph_utils import (
     find_all_sources,
     opaque_ops,
@@ -58,7 +60,6 @@ from xorq.config import default_backend
 from xorq.expr.api import deferred_read_parquet
 from xorq.expr.operations import _MISSING
 from xorq.expr.relations import (
-    CachedNode,
     Read,
 )
 from xorq.ibis_yaml.common import (
@@ -76,6 +77,7 @@ from xorq.ibis_yaml.enums import (
     RegistryEnum,
 )
 from xorq.ibis_yaml.sql import generate_sql_plans
+from xorq.ibis_yaml.translate import _ensure_sklearn_to_yaml_registered
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
@@ -90,6 +92,10 @@ def _ensure_translate_registered():
 
 memory_backends = ("pandas", "duckdb", "datafusion", "xorq_datafusion")
 table_like_ops = tuple(o for o in opaque_ops if issubclass(o, DatabaseTable))
+# artifact subdirectory for relocate-marked Reads; unlike MemtableTypes
+# dirs, these are plain reads packed by file copy, never reconstructed
+# as in-memory tables on load
+relocated_reads_dir = "reads"
 
 
 def _to_yaml_safe(data):
@@ -154,6 +160,16 @@ class ArtifactStore:
             pq.write_table(table, path)
         return path
 
+    def copy_file(self, src, *path_parts) -> pathlib.Path:
+        # atomic so a concurrent build packing the same content-addressed
+        # file never observes a partial copy; shutil.copy (not copyfile)
+        # carries the source's mode over mkstemp's 0600 so packed files
+        # match engine-written ones in shared builds dirs
+        path = self.get_path(*path_parts)
+        with atomic_write(path) as tmp:
+            shutil.copy(src, tmp)
+        return path
+
     def exists(self, *path_parts) -> bool:
         return self.get_path(*path_parts).exists()
 
@@ -181,11 +197,18 @@ class ArtifactStore:
 
 class YamlExpressionTranslator:
     @staticmethod
-    def to_yaml(expr: ir.Expr, profiles=(), cache_dir=None) -> Dict[str, Any]:
+    def to_yaml(
+        expr: ir.Expr, profiles=(), cache_dir=None, allow_relocate=False
+    ) -> Dict[str, Any]:
         _ensure_translate_registered()
+        # estimator instances live in ML pipeline tag metadata; register their
+        # handler here so every serialization path (pin recipe, FlightExpr, ...)
+        # gets it, not just dump_expr
+        _ensure_sklearn_to_yaml_registered()
         context = TranslationContext(
             profiles=freeze(dict(profiles)),
             cache_dir=cache_dir,
+            allow_relocate=allow_relocate,
         )
         with SnapshotStrategy().normalization_context(expr):
             expr_dict = translate_to_yaml(expr, context)
@@ -463,6 +486,33 @@ class ExprDumper:
         )
         return (path, writer)
 
+    def _prepare_relocated_read(self, node):
+        if node.method_name != "read_parquet":
+            raise ValueError(
+                f"relocate only supports read_parquet reads, got {node.method_name!r}"
+            )
+        src = dict(node.read_kwargs)["hash_path"]
+        match src:
+            case [single]:
+                src = single
+            case [*_]:
+                raise ValueError(
+                    f"a relocatable read requires a single local file, got {src!r}"
+                )
+        src = pathlib.Path(src)
+        if not src.is_file():
+            raise ValueError(
+                f"a relocatable read requires a single local file, got {src}"
+            )
+        path_parts = (relocated_reads_dir, f"{file_digest(src)}.parquet")
+        path = self.artifact_store.get_path(*path_parts)
+        writer = functools.partial(
+            self.artifact_store.copy_file,
+            src,
+            *path_parts,
+        )
+        return (path, writer)
+
     def _prepare_sql_plans(
         self,
         sql_plans: Dict[str, Any],
@@ -569,7 +619,8 @@ class ExprDumper:
         return path_to_writer
 
     def _replace_tables(self, expr):
-        """Single-pass replacement of InMemoryTable and qualifying DatabaseTable nodes.
+        """Single-pass replacement of InMemoryTable, relocatable Read, and
+        qualifying DatabaseTable nodes.
 
         Combines what were previously two separate walk_nodes + replace_nodes
         calls (_memtables_to_deferred_reads and _replace_inmemory_backend_tables)
@@ -586,6 +637,35 @@ class ExprDumper:
                 # across processes and rebuild timestamps.
                 type_kwargs = {str(which): True}
                 con_kwargs = {}
+            elif isinstance(node, Read) and dict(node.read_kwargs).get("relocate"):
+                # consume the marker here: copy the parquet byte-for-byte into
+                # the artifact (re-anchored via read_path on load) rather than
+                # re-encoding, so the packed file md5-normalizes identically
+                path, writer = self._prepare_relocated_read(node)
+                # keep the user's backend kwargs; drop only the markers and the
+                # keys set explicitly below
+                _markers = (
+                    "hash_path",
+                    "relocate",
+                    "read_path",
+                    "table_name",
+                    "schema",
+                )
+                user_kwargs = {k: v for k, v in node.read_kwargs if k not in _markers}
+                dr_op = make_read_op(
+                    parquet_path=path,
+                    read_kwargs={
+                        **user_kwargs,
+                        "table_name": node.name,
+                        "schema": node.schema,
+                        "normalize_method": normalize_read_path_md5sum,
+                        "read_path": str(Path(relocated_reads_dir, path.name)),
+                    },
+                    con=node.source,
+                )
+                path_to_writer[path] = writer
+                replacements[node] = dr_op
+                continue
             elif (
                 isinstance(node, table_like_ops)
                 or node.source.name not in memory_backends
@@ -718,27 +798,34 @@ class ExprLoader:
 
     @staticmethod
     def replace_base_path(expr, base_path):
-        def replace(node, kwargs):
-            if isinstance(node, CachedNode) and isinstance(
-                node.cache,
-                (ParquetCache, ParquetSnapshotCache, ParquetTTLSnapshotCache),
-            ):
-                evolved = evolve(
-                    node.cache,
-                    storage=evolve(
-                        node.cache.storage,
-                        base_path=base_path,
-                    ),
-                )
-                return node.__recreate__(
-                    dict(zip(node.argnames, node.args)) | {"cache": evolved}
-                )
-            elif kwargs:
-                return node.__recreate__(kwargs)
-            else:
-                return node
+        parquet_cache_types = (
+            ParquetCache,
+            ParquetSnapshotCache,
+            ParquetTTLSnapshotCache,
+        )
 
-        return expr.op().replace(replace).to_expr()
+        # Use replace_nodes (not the native op.replace) so the rewrite reaches
+        # CachedNodes nested inside opaque sub-expressions -- RemoteTable's
+        # remote_expr, ExprScalarUDF's computed_kwargs_expr, etc. Native
+        # replace does not descend into those, so a cache behind an
+        # into_backend (e.g. an ML pipeline fit) would keep base_path=None and
+        # silently resolve to the default cache dir, ignoring cache_dir.
+        def replacer(node, kwargs):
+            overrides = {}
+            cache = getattr(node, "cache", None)
+            if isinstance(cache, parquet_cache_types):
+                overrides["cache"] = evolve(
+                    cache, storage=evolve(cache.storage, base_path=base_path)
+                )
+            if overrides or kwargs:
+                merged = dict(zip(node.__argnames__, node.__args__))
+                if kwargs:
+                    merged |= kwargs
+                merged |= overrides
+                return node.__recreate__(merged)
+            return node
+
+        return replace_nodes(replacer, expr).to_expr()
 
 
 @functools.wraps(ExprLoader)

@@ -1127,3 +1127,19 @@ def test_tokenize_missing_path_still_raises(parquet_dir):
 
     with pytest.raises(FileNotFoundError, match="memtables/does-not-exist"):
         tokenize(bad.to_expr())
+
+
+def test_relocated_read_preserves_user_kwargs(tmp_path):
+    df = pd.DataFrame({"a": [1, 2, 3]})
+    path = tmp_path / "data.parquet"
+    df.to_parquet(path)
+    con = xo.connect()
+    t = deferred_read_parquet(
+        str(path), con, "data", relocate=True, file_extension=".parquet"
+    )
+    expected = t.execute()
+    build_path = build_expr(t, builds_dir=tmp_path / "builds")
+    # the user's backend kwarg survives the packing rewrite
+    assert "file_extension" in (build_path / "expr.yaml").read_text()
+    loaded = load_expr(build_path)
+    pd.testing.assert_frame_equal(expected, loaded.execute())
