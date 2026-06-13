@@ -159,13 +159,6 @@ def test_udwf_roundtrip(compiler, df):
 
 
 def test_aggudf_func_token_survives_roundtrip(compiler):
-    # The AggUDF from_yaml handler must rebuild __func__ capturing a Schema
-    # (as the live agg.pandas_df does), not the raw kwargs dict. The dasher
-    # hashes the closure's captured cells, so a dict capture makes a loaded
-    # AggUDF tokenize differently than the live one -- and since
-    # SnapshotStrategy.calc_key folds that token in, the snapshot cache key
-    # would drift across the yaml round-trip (xorq pin then misses the
-    # build's cache and silently re-computes).
     con = xo.connect()
     t = con.register(pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]}), "t")
 
