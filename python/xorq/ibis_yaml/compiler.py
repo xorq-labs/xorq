@@ -58,7 +58,6 @@ from xorq.config import default_backend
 from xorq.expr.api import deferred_read_parquet
 from xorq.expr.operations import _MISSING
 from xorq.expr.relations import (
-    CachedNode,
     Read,
 )
 from xorq.ibis_yaml.common import (
@@ -718,27 +717,34 @@ class ExprLoader:
 
     @staticmethod
     def replace_base_path(expr, base_path):
-        def replace(node, kwargs):
-            if isinstance(node, CachedNode) and isinstance(
-                node.cache,
-                (ParquetCache, ParquetSnapshotCache, ParquetTTLSnapshotCache),
-            ):
-                evolved = evolve(
-                    node.cache,
-                    storage=evolve(
-                        node.cache.storage,
-                        base_path=base_path,
-                    ),
-                )
-                return node.__recreate__(
-                    dict(zip(node.argnames, node.args)) | {"cache": evolved}
-                )
-            elif kwargs:
-                return node.__recreate__(kwargs)
-            else:
-                return node
+        parquet_cache_types = (
+            ParquetCache,
+            ParquetSnapshotCache,
+            ParquetTTLSnapshotCache,
+        )
 
-        return expr.op().replace(replace).to_expr()
+        # Use replace_nodes (not the native op.replace) so the rewrite reaches
+        # CachedNodes nested inside opaque sub-expressions -- RemoteTable's
+        # remote_expr, ExprScalarUDF's computed_kwargs_expr, etc. Native
+        # replace does not descend into those, so a cache behind an
+        # into_backend (e.g. an ML pipeline fit) would keep base_path=None and
+        # silently resolve to the default cache dir, ignoring cache_dir.
+        def replacer(node, kwargs):
+            overrides = {}
+            cache = getattr(node, "cache", None)
+            if isinstance(cache, parquet_cache_types):
+                overrides["cache"] = evolve(
+                    cache, storage=evolve(cache.storage, base_path=base_path)
+                )
+            if overrides or kwargs:
+                merged = dict(zip(node.__argnames__, node.__args__))
+                if kwargs:
+                    merged |= kwargs
+                merged |= overrides
+                return node.__recreate__(merged)
+            return node
+
+        return replace_nodes(replacer, expr).to_expr()
 
 
 @functools.wraps(ExprLoader)
