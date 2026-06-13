@@ -64,7 +64,9 @@ def snapshot_normalize_read(read):
         case _:
             raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
     tpls += tuple(
-        (k, v) for k, v in read.read_kwargs if k in ("mode", "schema", "temporary")
+        (k, v)
+        for k, v in read.read_kwargs
+        if k in ("mode", "schema", "temporary", "relocatable")
     )
     return ("snapshot_normalize_read", read.schema, tpls)
 

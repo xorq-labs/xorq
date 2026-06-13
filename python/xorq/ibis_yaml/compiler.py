@@ -3,6 +3,7 @@ import functools
 import json
 import operator
 import pathlib
+import shutil
 import sys
 import warnings
 from pathlib import Path
@@ -90,6 +91,32 @@ def _ensure_translate_registered():
 
 memory_backends = ("pandas", "duckdb", "datafusion", "xorq_datafusion")
 table_like_ops = tuple(o for o in opaque_ops if issubclass(o, DatabaseTable))
+_REMOTE_SCHEMES = ("http://", "https://", "s3://", "gs://", "gcs://")
+
+
+def _is_local_read(node):
+    if not isinstance(node, Read):
+        return False
+    kw = dict(node.read_kwargs)
+    if kw.get("relocatable", False):
+        return False
+    return not str(kw.get("hash_path", "")).startswith(_REMOTE_SCHEMES)
+
+
+def _mark_reads_relocatable(expr):
+    """Inject ``relocatable=True`` into all local-file Read nodes."""
+
+    def _relocate(node, kwargs):
+        if _is_local_read(node):
+            new_kwargs = node.read_kwargs + (("relocatable", True),)
+            args = dict(zip(node.__argnames__, node.__args__)) | {
+                "read_kwargs": new_kwargs
+            }
+            return node.__recreate__((kwargs or {}) | args)
+        return node.__recreate__(kwargs) if kwargs else node
+
+    op = replace_nodes(_relocate, expr.op())
+    return op.to_expr()
 
 
 def _to_yaml_safe(data):
@@ -153,6 +180,12 @@ class ArtifactStore:
         with self._write(*path_parts) as (path, f):
             pq.write_table(table, path)
         return path
+
+    def copy_file(self, source: pathlib.Path, *path_parts: str) -> pathlib.Path:
+        dest = self.get_path(*path_parts)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, dest)
+        return dest
 
     def exists(self, *path_parts) -> bool:
         return self.get_path(*path_parts).exists()
@@ -395,18 +428,22 @@ class ExprDumper:
     builds_dir: root directory where expr builds are stored
     cache_dir: optional directory for parquet cache files
     debug: when True, output SQL files and debug artifacts (sql.yaml, deferred_reads.yaml)
+    relocate_reads: when True, copy local-file Read sources into the build artifact
     """
 
     expr = field(validator=instance_of(ir.Expr))
     builds_dir = field(validator=instance_of(Path), converter=Path, default="./builds")
     cache_dir = field(validator=optional(instance_of(Path)), factory=get_xorq_cache_dir)
     debug = field(validator=instance_of(bool), default=False)
+    relocate_reads = field(validator=instance_of(bool), default=False)
     read_normalize_method = field(
         validator=is_callable(), default=normalize_read_path_stat
     )
 
     def __attrs_post_init__(self):
         expr = canonicalize_expr(self.expr, self.read_normalize_method)
+        if self.relocate_reads:
+            expr = _mark_reads_relocatable(expr)
         object.__setattr__(self, "expr", expr)
         attrname = "cache_dir"
         match value := getattr(self, attrname):
@@ -459,6 +496,24 @@ class ExprDumper:
         writer = functools.partial(
             self.artifact_store.write_parquet,
             table,
+            *path_parts,
+        )
+        return (path, writer)
+
+    def _prepare_relocatable_read(
+        self, read_node: Read
+    ) -> tuple[pathlib.Path, functools.partial]:
+        kw = dict(read_node.read_kwargs)
+        source_path = Path(str(kw["hash_path"]))
+        which = MemtableTypes.read
+        filename = (
+            f"{tokenize(normalize_read_path_md5sum(source_path))}{source_path.suffix}"
+        )
+        path_parts = (which, filename)
+        path = self.artifact_store.get_path(*path_parts)
+        writer = functools.partial(
+            self.artifact_store.copy_file,
+            source_path,
             *path_parts,
         )
         return (path, writer)
@@ -568,12 +623,18 @@ class ExprDumper:
         path_to_writer = path_to_writer0 | path_to_writer1
         return path_to_writer
 
+    def _is_relocatable_read(self, node: DatabaseTable) -> bool:
+        if not isinstance(node, Read):
+            return False
+        return dict(node.read_kwargs).get("relocatable", False)
+
     def _replace_tables(self, expr):
         """Single-pass replacement of InMemoryTable and qualifying DatabaseTable nodes.
 
         Combines what were previously two separate walk_nodes + replace_nodes
         calls (_memtables_to_deferred_reads and _replace_inmemory_backend_tables)
-        into one graph traversal and one replacement pass.
+        into one graph traversal and one replacement pass.  Relocatable Read
+        nodes are also bundled into the archive here.
         """
         path_to_writer = {}
         replacements = {}
@@ -586,6 +647,25 @@ class ExprDumper:
                 # across processes and rebuild timestamps.
                 type_kwargs = {str(which): True}
                 con_kwargs = {}
+            elif self._is_relocatable_read(node):
+                path, writer = self._prepare_relocatable_read(node)
+                which = MemtableTypes.read
+                read_path = f"{which}/{path.name}"
+                new_kwargs = update_read_kwargs(
+                    tuple((k, v) for k, v in node.read_kwargs if k != "relocatable"),
+                    (("hash_path", path), ("read_path", read_path)),
+                )
+                dr_op = Read(
+                    method_name=node.method_name,
+                    name=node.name,
+                    schema=node.schema,
+                    source=node.source,
+                    read_kwargs=new_kwargs,
+                    normalize_method=node.normalize_method,
+                )
+                path_to_writer[path] = writer
+                replacements[node] = dr_op
+                continue
             elif (
                 isinstance(node, table_like_ops)
                 or node.source.name not in memory_backends

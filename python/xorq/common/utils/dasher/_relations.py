@@ -96,7 +96,9 @@ def _normalize_single_path(path, read_kwargs, read):
 
 def _read_extra_kwargs(read):
     return tuple(
-        (k, v) for k, v in read.read_kwargs if k in ("mode", "schema", "temporary")
+        (k, v)
+        for k, v in read.read_kwargs
+        if k in ("mode", "schema", "temporary", "relocatable")
     )
 
 

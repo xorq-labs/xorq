@@ -8,6 +8,7 @@ import tempfile
 
 import pandas as pd
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 import toolz
 import yaml12
@@ -26,6 +27,7 @@ from xorq.catalog.backend import GitBackend
 from xorq.catalog.catalog import Catalog
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.defer_utils import (
+    deferred_read_csv,
     deferred_read_parquet,
     normalize_read_path_md5sum,
 )
@@ -1127,3 +1129,122 @@ def test_tokenize_missing_path_still_raises(parquet_dir):
 
     with pytest.raises(FileNotFoundError, match="memtables/does-not-exist"):
         tokenize(bad.to_expr())
+
+
+def test_relocatable_read_parquet(
+    builds_dir: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
+    """A relocatable Read should survive deletion of the original file."""
+    table = pa.table({"x": [1, 2, 3], "y": [4, 5, 6]})
+    parquet_path = tmp_path / "input.parquet"
+    pq.write_table(table, parquet_path)
+
+    t = deferred_read_parquet(parquet_path, relocatable=True)
+    expr = t.filter(t.x > 1)
+    build_path = build_expr(expr, builds_dir=builds_dir)
+
+    reads_dir = build_path / "reads"
+    assert reads_dir.exists(), "reads/ directory should be created"
+    parquet_files = list(reads_dir.glob("*.parquet"))
+    assert len(parquet_files) == 1
+
+    parquet_path.unlink()
+
+    loaded = load_expr(build_path)
+    result = loaded.execute()
+    assert len(result) == 2
+    assert list(result.x) == [2, 3]
+
+
+def test_relocatable_read_via_relocate_reads_flag(
+    builds_dir: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
+    """--relocate-reads should bundle even non-relocatable Read nodes."""
+    table = pa.table({"a": [10, 20], "b": [30, 40]})
+    parquet_path = tmp_path / "data.parquet"
+    pq.write_table(table, parquet_path)
+
+    t = deferred_read_parquet(parquet_path)
+    build_path = build_expr(t, builds_dir=builds_dir, relocate_reads=True)
+
+    reads_dir = build_path / "reads"
+    assert reads_dir.exists()
+    assert list(reads_dir.glob("*.parquet"))
+
+    parquet_path.unlink()
+
+    loaded = load_expr(build_path)
+    result = loaded.execute()
+    assert len(result) == 2
+
+
+def test_relocatable_read_csv(builds_dir: pathlib.Path, tmp_path: pathlib.Path) -> None:
+    """A CSV Read with relocatable=True should copy the CSV into the archive."""
+    csv_path = tmp_path / "data.csv"
+    csv_path.write_text("x,y\n1,4\n2,5\n3,6\n")
+
+    t = deferred_read_csv(csv_path, relocatable=True)
+    expr = t.filter(t.x > 1)
+    build_path = build_expr(expr, builds_dir=builds_dir)
+
+    reads_dir = build_path / "reads"
+    assert reads_dir.exists()
+    assert list(reads_dir.glob("*.csv"))
+
+    csv_path.unlink()
+
+    loaded = load_expr(build_path)
+    result = loaded.execute()
+    assert len(result) == 2
+    assert sorted(result.x.tolist()) == [2, 3]
+
+
+def test_relocatable_read_multiple_joined(
+    builds_dir: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
+    """Two relocatable reads joined in one expression should both be bundled."""
+    pq.write_table(pa.table({"key": [1, 2], "val_a": [10, 20]}), tmp_path / "a.parquet")
+    pq.write_table(pa.table({"key": [1, 2], "val_b": [30, 40]}), tmp_path / "b.parquet")
+
+    a = deferred_read_parquet(tmp_path / "a.parquet", relocatable=True)
+    b = deferred_read_parquet(tmp_path / "b.parquet", relocatable=True)
+    expr = a.join(b, "key")
+    build_path = build_expr(expr, builds_dir=builds_dir)
+
+    reads_dir = build_path / "reads"
+    assert len(list(reads_dir.glob("*.parquet"))) == 2
+
+    (tmp_path / "a.parquet").unlink()
+    (tmp_path / "b.parquet").unlink()
+
+    loaded = load_expr(build_path)
+    result = loaded.execute()
+    assert len(result) == 2
+    assert sorted(result.val_a.tolist()) == [10, 20]
+    assert sorted(result.val_b.tolist()) == [30, 40]
+
+
+def test_relocatable_changes_build_hash(builds_dir, tmp_path):
+    """relocatable=True must produce a different build hash than the default."""
+    table = pa.table({"x": [1, 2, 3]})
+    parquet_path = tmp_path / "data.parquet"
+    pq.write_table(table, parquet_path)
+
+    plain = deferred_read_parquet(parquet_path)
+    reloc = deferred_read_parquet(parquet_path, relocatable=True)
+
+    plain_path = build_expr(plain, builds_dir=builds_dir)
+    reloc_path = build_expr(reloc, builds_dir=builds_dir)
+    assert plain_path.name != reloc_path.name
+
+
+def test_relocate_reads_flag_changes_build_hash(builds_dir, tmp_path):
+    """--relocate-reads must produce a different build hash than the default."""
+    table = pa.table({"x": [1, 2, 3]})
+    parquet_path = tmp_path / "data.parquet"
+    pq.write_table(table, parquet_path)
+
+    t = deferred_read_parquet(parquet_path)
+    default_path = build_expr(t, builds_dir=builds_dir)
+    reloc_path = build_expr(t, builds_dir=builds_dir, relocate_reads=True)
+    assert default_path.name != reloc_path.name

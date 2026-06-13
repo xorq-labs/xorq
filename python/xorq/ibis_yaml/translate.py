@@ -572,9 +572,11 @@ def warn_on_local_path(items: dict) -> None:
         parsed = urlparse(any)
         return not parsed.scheme or parsed.scheme == "file"
 
-    if path := next(
-        (v for k, v in dict(items).items() if k in ("hash_path", "source")), None
-    ):
+    kw = dict(items)
+    # read_path is set by relocatable reads — the file is bundled in the archive
+    if "read_path" in kw:
+        return
+    if path := next((v for k, v in kw.items() if k in ("hash_path", "source")), None):
         f = toolz.excepts((ValueError, AttributeError), is_local_path)
         paths = normalize_filenames(path)
         if any(map(f, paths)):

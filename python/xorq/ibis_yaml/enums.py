@@ -31,6 +31,7 @@ class ExprKind(StrEnum):
 class MemtableTypes(StrEnum):
     inmemory = "memtables"
     database_table = "database_tables"
+    read = "reads"
 
 
 class RefEnum(StrEnum):
