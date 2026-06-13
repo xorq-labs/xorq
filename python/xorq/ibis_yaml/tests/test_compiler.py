@@ -32,7 +32,7 @@ from xorq.common.utils.defer_utils import (
 from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.conftest import array_types_df
-from xorq.expr.relations import CachedNode, Read
+from xorq.expr.relations import CachedNode, Read, RemoteTable
 from xorq.ibis_yaml.compiler import (
     ArtifactStore,
     DumpFiles,
@@ -1127,3 +1127,36 @@ def test_tokenize_missing_path_still_raises(parquet_dir):
 
     with pytest.raises(FileNotFoundError, match="memtables/does-not-exist"):
         tokenize(bad.to_expr())
+
+
+def test_cache_dir_reaches_remote_expr_nested_cache(tmp_path):
+    # load_expr(cache_dir=...) must rewrite base_path on CachedNodes nested
+    # inside opaque sub-expressions -- here a RemoteTable.remote_expr created
+    # by into_backend. Regression: replace_base_path used the native
+    # op.replace, which does not descend into remote_expr, so such caches kept
+    # base_path=None and silently resolved to the default cache dir, ignoring
+    # cache_dir.
+    cona = xo.connect()
+    conb = xo.connect()
+    t = cona.register(pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}), "t")
+    cache = ParquetSnapshotCache.from_kwargs(
+        source=cona, relative_path="c", base_path=tmp_path / "buildcache"
+    )
+    cached = t.mutate(s=t.a + t.b).cache(cache=cache)
+    expr = cached.into_backend(conb, "moved")
+
+    # the cache really is nested under a RemoteTable.remote_expr (so the
+    # native op.replace would miss it)
+    assert any(
+        walk_nodes((CachedNode,), rt.remote_expr)
+        for rt in walk_nodes((RemoteTable,), expr)
+    )
+
+    build_path = build_expr(expr, builds_dir=tmp_path / "builds")
+    target = tmp_path / "cache_target"
+    loaded = load_expr(build_path, cache_dir=str(target))
+
+    cached_nodes = walk_nodes((CachedNode,), loaded)
+    assert cached_nodes
+    for cn in cached_nodes:
+        assert cn.cache.storage.base_path == target
