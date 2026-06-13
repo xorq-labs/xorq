@@ -63,11 +63,7 @@ def snapshot_normalize_read(read):
             tpls = (("path", str(path)),)
         case _:
             raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
-    tpls += tuple(
-        (k, v)
-        for k, v in read.read_kwargs
-        if k in ("mode", "schema", "temporary", "relocatable")
-    )
+    tpls += tuple((k, v) for k, v in read.read_kwargs if k in Read.IDENTITY_KEYS)
     return ("snapshot_normalize_read", read.schema, tpls)
 
 

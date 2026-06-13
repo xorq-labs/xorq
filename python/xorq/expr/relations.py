@@ -566,6 +566,8 @@ class Read(ops.DatabaseTable):
     read_kwargs: Any = ()
     normalize_method: Callable = None
 
+    IDENTITY_KEYS = ("mode", "schema", "temporary", "relocatable")
+
     def make_dt(self):
         method = getattr(self.source, self.method_name)
         _exclude = ("hash_path", "read_path", "relocatable")

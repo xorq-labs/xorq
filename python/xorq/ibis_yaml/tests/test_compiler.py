@@ -42,6 +42,7 @@ from xorq.ibis_yaml.compiler import (
     ExprKind,
     RefEnum,
     _extract_sql_queries,
+    _mark_reads_relocatable,
     _sanitize_generated_names,
     build_expr,
     load_expr,
@@ -1283,3 +1284,32 @@ def test_relocatable_survives_round_trip(builds_dir, tmp_path):
     kw = dict(reads[0].read_kwargs)
     assert kw.get("relocatable") is True
     assert "read_path" not in kw
+
+
+def test_mark_reads_relocatable_skips_remote(tmp_path):
+    """_mark_reads_relocatable should not inject relocatable for remote paths."""
+    table = pa.table({"x": [1, 2, 3]})
+    parquet_path = tmp_path / "local.parquet"
+    pq.write_table(table, parquet_path)
+
+    local_t = deferred_read_parquet(parquet_path)
+    local_read = list(walk_nodes(Read, local_t))[0]
+
+    remote_read = Read(
+        method_name=local_read.method_name,
+        name="remote_table",
+        schema=local_read.schema,
+        source=local_read.source,
+        read_kwargs=(("hash_path", "s3://bucket/data.parquet"),),
+        normalize_method=local_read.normalize_method,
+    )
+    expr = local_t.join(remote_read.to_expr(), "x")
+
+    marked = _mark_reads_relocatable(expr)
+    reads = list(walk_nodes(Read, marked))
+    for read in reads:
+        kw = dict(read.read_kwargs)
+        if kw.get("hash_path") == "s3://bucket/data.parquet":
+            assert not kw.get("relocatable", False)
+        else:
+            assert kw.get("relocatable") is True
