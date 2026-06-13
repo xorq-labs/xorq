@@ -35,6 +35,7 @@ from xorq.vendor.ibis.expr.operations.relations import InMemoryTable
 sk_linear_model = pytest.importorskip("sklearn.linear_model")
 sk_preprocessing = pytest.importorskip("sklearn.preprocessing")
 sklearn_pipeline = pytest.importorskip("sklearn.pipeline")
+sk_compose = pytest.importorskip("sklearn.compose")
 
 
 deferred_linear_regression = deferred_fit_predict_sklearn(
@@ -303,6 +304,37 @@ def test_pin_pipeline_multi_step(train_path, tmp_path, cache):
     pinned = pin_caches(expr)
     pd.testing.assert_frame_equal(expected, pinned.execute())
     assert len(pin_infos(pinned)) == 2
+
+    build_path = build_expr(pinned, builds_dir=tmp_path / "builds")
+    loaded = load_expr(build_path)
+    pd.testing.assert_frame_equal(expected, loaded.execute())
+
+
+def test_pin_pipeline_column_transformer(train_path, tmp_path, cache):
+    # a ColumnTransformer carries nested estimator *instances* in its tag
+    # metadata; pinning serializes the recipe through to_yaml, which must
+    # register the sklearn estimator handler or it raises
+    # "No translation rule for <class 'sklearn.pipeline.Pipeline'>"
+    (_, features, target) = make_data()
+    con = xo.connect()
+    t = deferred_read_parquet(train_path, con, "train")
+    inner = sklearn_pipeline.Pipeline([("scaler", sk_preprocessing.StandardScaler())])
+    preprocessor = sk_compose.ColumnTransformer([("num", inner, list(features))])
+    pipeline = Pipeline.from_instance(
+        sklearn_pipeline.Pipeline(
+            [
+                ("preprocessor", preprocessor),
+                ("lr", sk_linear_model.LinearRegression()),
+            ]
+        )
+    )
+    fitted = pipeline.fit(t, features=list(features), target=target, cache=cache)
+    expr = fitted.predict(t)
+    expected = expr.execute()
+
+    pinned = pin_caches(expr)
+    pd.testing.assert_frame_equal(expected, pinned.execute())
+    assert pin_infos(pinned)
 
     build_path = build_expr(pinned, builds_dir=tmp_path / "builds")
     loaded = load_expr(build_path)

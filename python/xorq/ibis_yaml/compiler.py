@@ -78,6 +78,7 @@ from xorq.ibis_yaml.enums import (
     RegistryEnum,
 )
 from xorq.ibis_yaml.sql import generate_sql_plans
+from xorq.ibis_yaml.translate import _ensure_sklearn_to_yaml_registered
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
@@ -201,6 +202,10 @@ class YamlExpressionTranslator:
         expr: ir.Expr, profiles=(), cache_dir=None, allow_relocate=False
     ) -> Dict[str, Any]:
         _ensure_translate_registered()
+        # estimator instances live in ML pipeline tag metadata; register their
+        # handler here so every serialization path (pin recipe, FlightExpr, ...)
+        # gets it, not just dump_expr
+        _ensure_sklearn_to_yaml_registered()
         context = TranslationContext(
             profiles=freeze(dict(profiles)),
             cache_dir=cache_dir,
