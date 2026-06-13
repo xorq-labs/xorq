@@ -1,9 +1,15 @@
+import pandas as pd
 import pyarrow as pa
 import pytest
 
 import xorq.api as xo
+import xorq.expr.datatypes as dt
+import xorq.expr.udf as udf
 import xorq.ibis_yaml
 import xorq.ibis_yaml.utils
+import xorq.vendor.ibis.expr.operations as ops
+from xorq.common.utils.dasher import tokenize
+from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.udf import pyarrow_udwf
 from xorq.vendor import ibis
 
@@ -150,3 +156,32 @@ def test_udwf_roundtrip(compiler, df):
     roundtrip_expr = compiler.from_yaml(yaml_dict, profiles=profiles)
 
     roundtrip_expr.execute()
+
+
+def test_aggudf_func_token_survives_roundtrip(compiler):
+    con = xo.connect()
+    t = con.register(pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]}), "t")
+
+    @udf.agg.pandas_df(
+        schema=ibis.schema({"a": dt.float64, "b": dt.float64}),
+        return_type=dt.float64,
+        name="mysum",
+    )
+    def mysum(sample_df):
+        return float(sample_df["a"].sum() + sample_df["b"].sum())
+
+    expr = t.mutate(s=mysum.on_expr(t))
+
+    def aggudf_func_tokens(e):
+        return sorted(
+            tokenize(node.__func__)
+            for node in walk_nodes(object, e)
+            if isinstance(node, ops.udf.AggUDF)
+        )
+
+    live_tokens = aggudf_func_tokens(expr)
+    assert len(live_tokens) == 1
+
+    profiles = {con._profile.hash_name: con}
+    roundtrip = compiler.from_yaml(compiler.to_yaml(expr), profiles=profiles)
+    assert aggudf_func_tokens(roundtrip) == live_tokens
