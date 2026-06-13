@@ -106,6 +106,12 @@ def _is_local_read(node):
     return not str(hash_path).startswith(_REMOTE_SCHEMES)
 
 
+def _is_relocatable_read(node):
+    if not isinstance(node, Read):
+        return False
+    return dict(node.read_kwargs).get("relocatable", False)
+
+
 def _mark_reads_relocatable(expr):
     """Inject ``relocatable=True`` into all local-file Read nodes."""
 
@@ -505,9 +511,9 @@ class ExprDumper:
 
     def _prepare_relocatable_read(
         self, read_node: Read
-    ) -> tuple[pathlib.Path, functools.partial]:
+    ) -> tuple[Path, functools.partial]:
         kw = dict(read_node.read_kwargs)
-        source_path = Path(str(kw["hash_path"]))
+        source_path = Path(kw["hash_path"])
         which = MemtableTypes.read
         filename = (
             f"{tokenize(normalize_read_path_md5sum(source_path))}{source_path.suffix}"
@@ -626,11 +632,6 @@ class ExprDumper:
         path_to_writer = path_to_writer0 | path_to_writer1
         return path_to_writer
 
-    def _is_relocatable_read(self, node: DatabaseTable) -> bool:
-        if not isinstance(node, Read):
-            return False
-        return dict(node.read_kwargs).get("relocatable", False)
-
     def _replace_tables(self, expr):
         """Single-pass replacement of InMemoryTable and qualifying DatabaseTable nodes.
 
@@ -650,7 +651,7 @@ class ExprDumper:
                 # across processes and rebuild timestamps.
                 type_kwargs = {str(which): True}
                 con_kwargs = {}
-            elif self._is_relocatable_read(node):
+            elif _is_relocatable_read(node):
                 path, writer = self._prepare_relocatable_read(node)
                 which = MemtableTypes.read
                 read_path = f"{which}/{path.name}"
@@ -658,16 +659,11 @@ class ExprDumper:
                     node.read_kwargs,
                     (("hash_path", path), ("read_path", read_path)),
                 )
-                dr_op = Read(
-                    method_name=node.method_name,
-                    name=node.name,
-                    schema=node.schema,
-                    source=node.source,
-                    read_kwargs=new_kwargs,
-                    normalize_method=node.normalize_method,
-                )
+                args = dict(zip(node.__argnames__, node.__args__)) | {
+                    "read_kwargs": new_kwargs
+                }
                 path_to_writer[path] = writer
-                replacements[node] = dr_op
+                replacements[node] = node.__recreate__(args)
                 continue
             elif (
                 isinstance(node, table_like_ops)
@@ -794,6 +790,7 @@ class ExprLoader:
                 "read_kwargs": resolved_kwargs
             }
             node = dr.__recreate__(args)
+            # relocatable reads keep the Read node so the archived file is used at execution time
             return node if relocatable else node.make_dt()
 
         drs = tuple(

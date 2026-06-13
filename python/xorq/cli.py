@@ -1111,14 +1111,14 @@ def uv_run_unbound(
     ),
 )
 def build(
-    script_path: str,
-    expr_name: str,
-    builds_dir: str,
-    cache_dir: str,
-    debug: bool,
-    relocate_reads: bool,
-    emit_build_path_to: str | None,
-) -> None:
+    script_path,
+    expr_name,
+    builds_dir,
+    cache_dir,
+    debug,
+    relocate_reads,
+    emit_build_path_to,
+):
     """Compile a Xorq expression into a reusable build artifact.
 
     Loads the script, finds the expression variable, and writes serialized

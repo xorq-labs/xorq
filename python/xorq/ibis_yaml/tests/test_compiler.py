@@ -1133,9 +1133,7 @@ def test_tokenize_missing_path_still_raises(parquet_dir):
         tokenize(bad.to_expr())
 
 
-def test_relocatable_read_parquet(
-    builds_dir: pathlib.Path, tmp_path: pathlib.Path
-) -> None:
+def test_relocatable_read_parquet(builds_dir, tmp_path):
     """A relocatable Read should survive deletion of the original file."""
     table = pa.table({"x": [1, 2, 3], "y": [4, 5, 6]})
     parquet_path = tmp_path / "input.parquet"
@@ -1158,9 +1156,7 @@ def test_relocatable_read_parquet(
     assert list(result.x) == [2, 3]
 
 
-def test_relocatable_read_via_relocate_reads_flag(
-    builds_dir: pathlib.Path, tmp_path: pathlib.Path
-) -> None:
+def test_relocatable_read_via_relocate_reads_flag(builds_dir, tmp_path):
     """--relocate-reads should bundle even non-relocatable Read nodes."""
     table = pa.table({"a": [10, 20], "b": [30, 40]})
     parquet_path = tmp_path / "data.parquet"
@@ -1180,7 +1176,7 @@ def test_relocatable_read_via_relocate_reads_flag(
     assert len(result) == 2
 
 
-def test_relocatable_read_csv(builds_dir: pathlib.Path, tmp_path: pathlib.Path) -> None:
+def test_relocatable_read_csv(builds_dir, tmp_path):
     """A CSV Read with relocatable=True should copy the CSV into the archive."""
     csv_path = tmp_path / "data.csv"
     csv_path.write_text("x,y\n1,4\n2,5\n3,6\n")
@@ -1201,9 +1197,7 @@ def test_relocatable_read_csv(builds_dir: pathlib.Path, tmp_path: pathlib.Path) 
     assert sorted(result.x.tolist()) == [2, 3]
 
 
-def test_relocatable_read_multiple_joined(
-    builds_dir: pathlib.Path, tmp_path: pathlib.Path
-) -> None:
+def test_relocatable_read_multiple_joined(builds_dir, tmp_path):
     """Two relocatable reads joined in one expression should both be bundled."""
     pq.write_table(pa.table({"key": [1, 2], "val_a": [10, 20]}), tmp_path / "a.parquet")
     pq.write_table(pa.table({"key": [1, 2], "val_b": [30, 40]}), tmp_path / "b.parquet")
