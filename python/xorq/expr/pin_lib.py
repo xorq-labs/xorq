@@ -44,6 +44,7 @@ from xorq.common.utils.defer_utils import (
 )
 from xorq.common.utils.file_utils import file_digest
 from xorq.common.utils.graph_utils import find_all_sources, replace_nodes, walk_nodes
+from xorq.common.utils.node_utils import do_replace_dct
 from xorq.expr.relations import CachedNode, Read, Tag
 from xorq.vendor.ibis.expr.types import Expr
 
@@ -356,13 +357,8 @@ def unpin(expr):
     tag_nodes = pinned_tag_nodes(expr)
     if not tag_nodes:
         return expr
+    # match each pin tag by its original identity and swap in the recovered
+    # pre-pin compute, discarding the pinned read entirely; do_replace_dct's
+    # match-dict-first ordering is exactly this (recreate only non-matches)
     originals = {node: PinnedCache.from_tag_node(node).expr.op() for node in tag_nodes}
-
-    def replacer(op, kwargs):
-        if op in originals:
-            return originals[op]
-        if kwargs:
-            return op.__recreate__(kwargs)
-        return op
-
-    return replace_nodes(replacer, expr).to_expr()
+    return replace_nodes(do_replace_dct(replace_dct=originals), expr).to_expr()
