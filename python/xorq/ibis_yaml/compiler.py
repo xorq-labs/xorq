@@ -100,7 +100,10 @@ def _is_local_read(node):
     kw = dict(node.read_kwargs)
     if kw.get("relocatable", False):
         return False
-    return not str(kw.get("hash_path", "")).startswith(_REMOTE_SCHEMES)
+    hash_path = kw.get("hash_path")
+    if hash_path is None:
+        return False
+    return not str(hash_path).startswith(_REMOTE_SCHEMES)
 
 
 def _mark_reads_relocatable(expr):
@@ -782,18 +785,16 @@ class ExprLoader:
                 )
                 return ibis.memtable(df, schema=dr.schema, name=dr.name).op()
             resolved_kwargs = update_read_kwargs(dr.read_kwargs, (("hash_path", path),))
-            if kw.get("relocatable", False):
+            relocatable = kw.get("relocatable", False)
+            if relocatable:
                 resolved_kwargs = tuple(
                     (k, v) for k, v in resolved_kwargs if k != "read_path"
                 )
-                args = dict(zip(dr.__argnames__, dr.__args__)) | {
-                    "read_kwargs": resolved_kwargs
-                }
-                return dr.__recreate__(args)
             args = dict(zip(dr.__argnames__, dr.__args__)) | {
                 "read_kwargs": resolved_kwargs
             }
-            return dr.__recreate__(args).make_dt()
+            node = dr.__recreate__(args)
+            return node if relocatable else node.make_dt()
 
         drs = tuple(
             dr for dr in walk_nodes(Read, loaded) if "read_path" in dict(dr.read_kwargs)
