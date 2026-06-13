@@ -808,27 +808,29 @@ class ExprLoader:
 
     @staticmethod
     def replace_base_path(expr, base_path):
-        def replace(node, kwargs):
+        parquet_cache_types = (
+            ParquetCache,
+            ParquetSnapshotCache,
+            ParquetTTLSnapshotCache,
+        )
+
+        # Use replace_nodes (not the native op.replace) so the rewrite reaches
+        # CachedNodes nested inside opaque sub-expressions (e.g. a cache behind
+        # an into_backend, under RemoteTable.remote_expr). Native replace does
+        # not descend into those, so such a cache would keep base_path=None and
+        # silently resolve to the default cache dir, ignoring cache_dir.
+        def replacer(node, kwargs):
             if isinstance(node, CachedNode) and isinstance(
-                node.cache,
-                (ParquetCache, ParquetSnapshotCache, ParquetTTLSnapshotCache),
+                node.cache, parquet_cache_types
             ):
                 evolved = evolve(
                     node.cache,
-                    storage=evolve(
-                        node.cache.storage,
-                        base_path=base_path,
-                    ),
+                    storage=evolve(node.cache.storage, base_path=base_path),
                 )
-                return node.__recreate__(
-                    dict(zip(node.argnames, node.args)) | {"cache": evolved}
-                )
-            elif kwargs:
-                return node.__recreate__(kwargs)
-            else:
-                return node
+                return recreate(node, **((kwargs or {}) | {"cache": evolved}))
+            return node.__recreate__(kwargs) if kwargs else node
 
-        return expr.op().replace(replace).to_expr()
+        return replace_nodes(replacer, expr).to_expr()
 
 
 @functools.wraps(ExprLoader)
