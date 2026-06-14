@@ -21,6 +21,7 @@ from xorq_dasher.rules.expr import (
 )
 
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.common.constants import READ_IDENTITY_KEYS
 from xorq.common.utils.dasher import (
     HASHER,
     fqn,
@@ -63,8 +64,6 @@ def snapshot_normalize_read(read):
             tpls = (("path", str(path)),)
         case _:
             raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
-    from xorq.common.constants import READ_IDENTITY_KEYS  # noqa: PLC0415
-
     tpls += tuple((k, v) for k, v in read.read_kwargs if k in READ_IDENTITY_KEYS)
     return ("snapshot_normalize_read", read.schema, tpls)
 

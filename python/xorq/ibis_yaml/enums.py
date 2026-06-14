@@ -28,7 +28,7 @@ class ExprKind(StrEnum):
     ExprBuilder = "expr_builder"
 
 
-class InlineSourceTypes(StrEnum):
+class BundledSourceTypes(StrEnum):
     inmemory = "memtables"
     database_table = "database_tables"
     read = "reads"

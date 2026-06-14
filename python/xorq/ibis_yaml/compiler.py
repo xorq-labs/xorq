@@ -72,9 +72,9 @@ from xorq.ibis_yaml.common import (
 )
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.enums import (
+    BundledSourceTypes,
     DumpFiles,
     ExprKind,
-    InlineSourceTypes,
     RefEnum,
     RegistryEnum,
 )
@@ -112,7 +112,7 @@ def _is_relocatable_read(node: Any) -> bool:
     """Return True if *node* is a Read already marked ``relocatable``."""
     if not isinstance(node, Read):
         return False
-    return dict(node.read_kwargs).get("relocatable", False)
+    return any(k == "relocatable" and v for k, v in node.read_kwargs)
 
 
 def _mark_reads_relocatable(expr: ir.Expr) -> ir.Expr:
@@ -297,17 +297,15 @@ def _sanitize_generated_names(expr, normalize_method):
                 )
         else:
             if prefix := get_uid_prefix(node.name):
-                # Relocatable reads carry their own normalize_method (md5sum)
-                # to ensure hash parity between the per-call API and the flag.
-                nm = (
+                read_nm = (
                     node.normalize_method
                     if _is_relocatable_read(node)
                     else normalize_method
                 )
-                table_name = f"{prefix}{tokenize(recreate(node, name='name', normalize_method=nm).to_expr())}"
+                table_name = f"{prefix}{tokenize(recreate(node, name='name', normalize_method=read_nm).to_expr())}"
                 replacements[node] = recreate(
                     change_read_table_name(node, table_name=table_name),
-                    normalize_method=nm,
+                    normalize_method=read_nm,
                 )
     op = expr.op()
     if replacements:
@@ -509,7 +507,7 @@ class ExprDumper:
         return (path, writer)
 
     def _prepare_memtable(self, mt, which):
-        assert which in InlineSourceTypes
+        assert which in BundledSourceTypes
         table = mt.to_expr().to_pyarrow()
         filename = f"{tokenize(table)}.parquet"
         path_parts = (which, filename)
@@ -654,7 +652,7 @@ class ExprDumper:
         replacements = {}
         for node in walk_nodes((InMemoryTable, DatabaseTable), expr):
             if isinstance(node, InMemoryTable):
-                which = InlineSourceTypes.inmemory
+                which = BundledSourceTypes.inmemory
                 # The `inmemory` marker flags this Read for memtable
                 # reconstruction on load; InMemoryTable data is deterministic,
                 # so content-hash normalization keeps the YAML reproducible
@@ -663,7 +661,7 @@ class ExprDumper:
                 con_kwargs = {}
             elif _is_relocatable_read(node):
                 path, writer = self._prepare_relocatable_read(node)
-                which = InlineSourceTypes.read
+                which = BundledSourceTypes.read
                 read_path = f"{which}/{path.name}"
                 new_kwargs = update_read_kwargs(
                     node.read_kwargs,
@@ -681,7 +679,7 @@ class ExprDumper:
             ):
                 continue
             else:
-                which = InlineSourceTypes.database_table
+                which = BundledSourceTypes.database_table
                 type_kwargs = {}
                 con_kwargs = {"con": node.source}
 
@@ -783,7 +781,7 @@ class ExprLoader:
         def resolve_read(dr):
             kw = dict(dr.read_kwargs)
             path = expr_path.joinpath(kw["read_path"])
-            if InlineSourceTypes.inmemory in kw:
+            if BundledSourceTypes.inmemory in kw:
                 df = (
                     pq.read_schema(path).empty_table().to_pandas()
                     if read_only_parquet_metadata

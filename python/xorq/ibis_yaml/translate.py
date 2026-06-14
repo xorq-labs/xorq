@@ -568,8 +568,8 @@ def _remotetable_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.E
 def warn_on_local_path(items: Iterable[tuple[str, Any]]) -> None:
     from urllib.parse import urlparse  # noqa: PLC0415
 
-    def is_local_path(any: str | Path) -> bool:
-        parsed = urlparse(any)
+    def is_local_path(value: str | Path) -> bool:
+        parsed = urlparse(value)
         return not parsed.scheme or parsed.scheme == "file"
 
     kw = dict(items)
