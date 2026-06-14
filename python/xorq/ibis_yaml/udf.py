@@ -223,10 +223,7 @@ def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
 
     config = meta["__config__"]
     if "fn" in config:
-        # capture a Schema (not the raw kwargs dict) so the rebuilt closure
-        # tokenizes identically to the live build (agg.pandas_df captures a
-        # Schema); otherwise the snapshot cache key drifts across the
-        # build->load round-trip. Mirrors the ExprScalarUDF loader below.
+        # pass Schema, not dict, to match the live agg.pandas_df build path (see ExprScalarUDF below)
         kwds["__func__"] = udf.make_dunder_func(config["fn"], kwargs_to_schema(kwargs))
     elif {
         "evaluate",
