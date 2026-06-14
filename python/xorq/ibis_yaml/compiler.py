@@ -94,7 +94,8 @@ table_like_ops = tuple(o for o in opaque_ops if issubclass(o, DatabaseTable))
 _REMOTE_SCHEMES = ("http://", "https://", "s3://", "gs://", "gcs://")
 
 
-def _is_local_read(node):
+def _is_relocatable_candidate(node):
+    """Local-file Read that has not yet been marked ``relocatable``."""
     if not isinstance(node, Read):
         return False
     kw = dict(node.read_kwargs)
@@ -116,7 +117,7 @@ def _mark_reads_relocatable(expr):
     """Inject ``relocatable=True`` into all local-file Read nodes."""
 
     def _relocate(node, kwargs):
-        if _is_local_read(node):
+        if _is_relocatable_candidate(node):
             new_kwargs = node.read_kwargs + (("relocatable", True),)
             args = dict(zip(node.__argnames__, node.__args__)) | {
                 "read_kwargs": new_kwargs
@@ -513,6 +514,7 @@ class ExprDumper:
         self, read_node: Read
     ) -> tuple[Path, functools.partial]:
         kw = dict(read_node.read_kwargs)
+        assert "hash_path" in kw, "relocatable Read must have hash_path"
         source_path = Path(kw["hash_path"])
         which = MemtableTypes.read
         filename = (
