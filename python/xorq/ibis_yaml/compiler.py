@@ -35,6 +35,7 @@ from xorq.caching import (
     SnapshotStrategy,
 )
 from xorq.common.compat import StrEnum
+from xorq.common.constants import REMOTE_SCHEMES
 from xorq.common.exceptions import UnboundExpressionError
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.dasher import tokenize
@@ -73,7 +74,7 @@ from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.enums import (
     DumpFiles,
     ExprKind,
-    MemtableTypes,
+    InlineSourceTypes,
     RefEnum,
     RegistryEnum,
 )
@@ -92,7 +93,6 @@ def _ensure_translate_registered():
 
 memory_backends = ("pandas", "duckdb", "datafusion", "xorq_datafusion")
 table_like_ops = tuple(o for o in opaque_ops if issubclass(o, DatabaseTable))
-_REMOTE_SCHEMES = ("http://", "https://", "s3://", "gs://", "gcs://")
 
 
 def _is_relocatable_candidate(node: Any) -> bool:
@@ -105,10 +105,11 @@ def _is_relocatable_candidate(node: Any) -> bool:
     hash_path = kw.get("hash_path")
     if hash_path is None:
         return False
-    return not str(hash_path).startswith(_REMOTE_SCHEMES)
+    return not str(hash_path).startswith(REMOTE_SCHEMES)
 
 
 def _is_relocatable_read(node: Any) -> bool:
+    """Return True if *node* is a Read already marked ``relocatable``."""
     if not isinstance(node, Read):
         return False
     return dict(node.read_kwargs).get("relocatable", False)
@@ -119,12 +120,7 @@ def _mark_reads_relocatable(expr: ir.Expr) -> ir.Expr:
 
     def _relocate(node, kwargs):
         if _is_relocatable_candidate(node):
-            kw = dict(node.read_kwargs)
-            source_path = Path(kw["hash_path"])
-            new_kwargs = node.read_kwargs + (
-                ("relocatable", True),
-                ("read_path", relocatable_read_path(source_path)),
-            )
+            new_kwargs = node.read_kwargs + (("relocatable", True),)
             args = dict(zip(node.__argnames__, node.__args__)) | {
                 "read_kwargs": new_kwargs,
                 "normalize_method": normalize_read_path_md5sum,
@@ -301,10 +297,17 @@ def _sanitize_generated_names(expr, normalize_method):
                 )
         else:
             if prefix := get_uid_prefix(node.name):
-                table_name = f"{prefix}{tokenize(recreate(node, name='name', normalize_method=normalize_method).to_expr())}"
+                # Relocatable reads carry their own normalize_method (md5sum)
+                # to ensure hash parity between the per-call API and the flag.
+                nm = (
+                    node.normalize_method
+                    if _is_relocatable_read(node)
+                    else normalize_method
+                )
+                table_name = f"{prefix}{tokenize(recreate(node, name='name', normalize_method=nm).to_expr())}"
                 replacements[node] = recreate(
                     change_read_table_name(node, table_name=table_name),
-                    normalize_method=normalize_method,
+                    normalize_method=nm,
                 )
     op = expr.op()
     if replacements:
@@ -458,9 +461,10 @@ class ExprDumper:
     )
 
     def __attrs_post_init__(self):
-        expr = canonicalize_expr(self.expr, self.read_normalize_method)
+        expr = self.expr
         if self.relocate_reads:
             expr = _mark_reads_relocatable(expr)
+        expr = canonicalize_expr(expr, self.read_normalize_method)
         object.__setattr__(self, "expr", expr)
         attrname = "cache_dir"
         match value := getattr(self, attrname):
@@ -505,7 +509,7 @@ class ExprDumper:
         return (path, writer)
 
     def _prepare_memtable(self, mt, which):
-        assert which in MemtableTypes
+        assert which in InlineSourceTypes
         table = mt.to_expr().to_pyarrow()
         filename = f"{tokenize(table)}.parquet"
         path_parts = (which, filename)
@@ -650,7 +654,7 @@ class ExprDumper:
         replacements = {}
         for node in walk_nodes((InMemoryTable, DatabaseTable), expr):
             if isinstance(node, InMemoryTable):
-                which = MemtableTypes.inmemory
+                which = InlineSourceTypes.inmemory
                 # The `inmemory` marker flags this Read for memtable
                 # reconstruction on load; InMemoryTable data is deterministic,
                 # so content-hash normalization keeps the YAML reproducible
@@ -659,7 +663,7 @@ class ExprDumper:
                 con_kwargs = {}
             elif _is_relocatable_read(node):
                 path, writer = self._prepare_relocatable_read(node)
-                which = MemtableTypes.read
+                which = InlineSourceTypes.read
                 read_path = f"{which}/{path.name}"
                 new_kwargs = update_read_kwargs(
                     node.read_kwargs,
@@ -677,7 +681,7 @@ class ExprDumper:
             ):
                 continue
             else:
-                which = MemtableTypes.database_table
+                which = InlineSourceTypes.database_table
                 type_kwargs = {}
                 con_kwargs = {"con": node.source}
 
@@ -779,7 +783,7 @@ class ExprLoader:
         def resolve_read(dr):
             kw = dict(dr.read_kwargs)
             path = expr_path.joinpath(kw["read_path"])
-            if MemtableTypes.inmemory in kw:
+            if InlineSourceTypes.inmemory in kw:
                 df = (
                     pq.read_schema(path).empty_table().to_pandas()
                     if read_only_parquet_metadata

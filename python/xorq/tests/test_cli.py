@@ -99,7 +99,7 @@ def test_build_command_relocate_reads(tmp_path: Path) -> None:
 
     script = tmp_path / "script.py"
     script.write_text(
-        f"from xorq.common.utils.defer_utils import deferred_read_parquet\n"
+        "from xorq.common.utils.defer_utils import deferred_read_parquet\n"
         f"expr = deferred_read_parquet('{parquet_path}')\n"
     )
     builds_dir = tmp_path / "builds"

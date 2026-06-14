@@ -153,13 +153,13 @@ def deferred_read_csv(
 
     Parameters
     ----------
-    con : Backend
+    path : str or Path
+        The path to the CSV file to be read. This can be a local file path or a URL.
+
+    con : Backend, optional
         The connection object representing the backend where the CSV will be read.
         This can be any backend that supports reading CSV files (pandas, duckdb,
         postgres, etc.).
-
-    path : str or Path
-        The path to the CSV file to be read. This can be a local file path or a URL.
 
     table_name : str, optional
         The name to give to the resulting table in the backend. If not provided,
@@ -209,10 +209,7 @@ def deferred_read_csv(
             method, path, table_name, schema=schema, **kwargs
         )
     if relocatable:
-        read_kwargs = read_kwargs + (
-            ("relocatable", True),
-            ("read_path", relocatable_read_path(path)),
-        )
+        read_kwargs = read_kwargs + (("relocatable", True),)
         normalize_method = normalize_read_path_md5sum
     return Read(
         method_name=method_name,
@@ -242,18 +239,18 @@ def deferred_read_parquet(
 
     Parameters
     ----------
-    con : Backend
-        The connection object representing the backend where the Parquet data will be read.
-
     path : str or Path
         The path to the Parquet file or directory to be read.
+
+    con : Backend, optional
+        The connection object representing the backend where the Parquet data will be read.
 
     table_name : str, optional
         The name to give to the resulting table in the backend. If not provided,
         a unique name will be generated automatically.
 
     normalize_method : Callable, optional
-     The method that returns the values to be used in the hashing of the Read operation.
+        The method that returns the values to be used in the hashing of the Read operation.
 
     relocatable : bool, optional
         When True, ``xorq build`` will copy the backing file into the build
@@ -262,10 +259,10 @@ def deferred_read_parquet(
     **kwargs : dict
         Additional keyword arguments passed to the backend's read_parquet method.
 
-     Returns
-     -------
-     Expr
-         An expression representing the deferred read operation.
+    Returns
+    -------
+    Expr
+        An expression representing the deferred read operation.
     """
 
     method_name = "read_parquet"
@@ -279,10 +276,7 @@ def deferred_read_parquet(
         kwargs.setdefault("mode", "replace")
     read_kwargs = make_read_kwargs(method, path, table_name=table_name, **kwargs)
     if relocatable:
-        read_kwargs = read_kwargs + (
-            ("relocatable", True),
-            ("read_path", relocatable_read_path(path)),
-        )
+        read_kwargs = read_kwargs + (("relocatable", True),)
         normalize_method = normalize_read_path_md5sum
     return Read(
         method_name=method_name,

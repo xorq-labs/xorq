@@ -5,7 +5,7 @@ import datetime
 import decimal
 import functools
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -565,7 +565,7 @@ def _remotetable_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.E
     return remote_table_expr
 
 
-def warn_on_local_path(items: dict) -> None:
+def warn_on_local_path(items: Iterable[tuple[str, Any]]) -> None:
     from urllib.parse import urlparse  # noqa: PLC0415
 
     def is_local_path(any: str | Path) -> bool:
@@ -573,7 +573,7 @@ def warn_on_local_path(items: dict) -> None:
         return not parsed.scheme or parsed.scheme == "file"
 
     kw = dict(items)
-    if "read_path" in kw:
+    if "read_path" in kw or kw.get("relocatable", False):
         return
     if path := next((v for k, v in kw.items() if k in ("hash_path", "source")), None):
         f = toolz.excepts((ValueError, AttributeError), is_local_path)

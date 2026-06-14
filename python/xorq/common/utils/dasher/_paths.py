@@ -17,6 +17,8 @@ import urllib.request
 
 import yaml12
 
+from xorq.common.constants import REMOTE_SCHEMES
+
 
 # Catalog-extract tempdir prefix. ``xorq.catalog.expr_utils.load_expr_from_zip``
 # extracts each load into a fresh ``tempfile.mkdtemp(prefix="xorq-catalog-")``,
@@ -26,8 +28,6 @@ import yaml12
 # ``xorq-catalog-<…>/`` segment, leaving the build-hashed suffix (which IS
 # content-addressed and stable across reloads). Owned by ADR-0007.
 _CATALOG_EXTRACT_DIR_RE = re.compile(r".*/xorq-catalog-[^/]+/")
-
-_REMOTE_SCHEMES = ("http://", "https://", "s3://", "gs://", "gcs://")
 
 
 def _canonicalize_catalog_path(s: str) -> tuple[str, bool]:
@@ -94,7 +94,7 @@ def _stat_or_canonical(path: str) -> tuple:
     """
 
     if isinstance(path, str) and (
-        path.startswith(_REMOTE_SCHEMES) or pathlib.Path(path).is_absolute()
+        path.startswith(REMOTE_SCHEMES) or pathlib.Path(path).is_absolute()
     ):
         return _normalize_path_stat(path)
     return ("canonical-build-path", path)
@@ -112,7 +112,7 @@ def _extract_duckdb_file_paths(sql_ddl: str) -> tuple[str, ...]:
     tree = sg.parse_one(sql_ddl, dialect="duckdb")
 
     def canon(raw):
-        if raw.startswith(_REMOTE_SCHEMES):
+        if raw.startswith(REMOTE_SCHEMES):
             return raw
         p = pathlib.Path(raw)
         absolute = str(p if p.is_absolute() else pathlib.Path("/") / raw)
@@ -157,7 +157,7 @@ def _extract_datafusion_plan_paths(ep_str: str) -> tuple[str, ...]:
     (groups,) = parsed.values()
     out = []
     for raw in itertools.chain.from_iterable(groups):
-        if raw.startswith(_REMOTE_SCHEMES):
+        if raw.startswith(REMOTE_SCHEMES):
             out.append(raw)
             continue
         p = pathlib.Path(raw)
@@ -168,7 +168,6 @@ def _extract_datafusion_plan_paths(ep_str: str) -> tuple[str, ...]:
 
 
 __all__ = [
-    "_REMOTE_SCHEMES",
     "_canonicalize_catalog_path",
     "_extract_datafusion_plan_paths",
     "_extract_duckdb_file_paths",

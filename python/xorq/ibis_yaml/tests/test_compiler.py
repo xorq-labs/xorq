@@ -27,6 +27,7 @@ from xorq.caching import (
 from xorq.caching.strategy import snapshot_normalize_read
 from xorq.catalog.backend import GitBackend
 from xorq.catalog.catalog import Catalog
+from xorq.common.constants import READ_IDENTITY_KEYS
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.defer_utils import (
     deferred_read_csv,
@@ -1259,6 +1260,23 @@ def test_relocate_reads_flag_changes_build_hash(
     assert default_path.name != reloc_path.name
 
 
+def test_relocatable_api_and_flag_produce_same_hash(
+    builds_dir: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
+    """relocatable=True at construction and --relocate-reads at build time produce the same build hash."""
+    table = pa.table({"x": [1, 2, 3]})
+    parquet_path = tmp_path / "data.parquet"
+    pq.write_table(table, parquet_path)
+
+    api_t = deferred_read_parquet(parquet_path, relocatable=True)
+    api_path = build_expr(api_t, builds_dir=builds_dir / "api")
+
+    plain_t = deferred_read_parquet(parquet_path)
+    flag_path = build_expr(plain_t, builds_dir=builds_dir / "flag", relocate_reads=True)
+
+    assert api_path.name == flag_path.name
+
+
 def test_relocatable_read_no_local_path_warning(
     builds_dir: pathlib.Path, tmp_path: pathlib.Path
 ) -> None:
@@ -1332,8 +1350,8 @@ def test_mark_reads_relocatable_skips_remote(tmp_path: pathlib.Path) -> None:
 
 
 def test_identity_keys_includes_relocatable() -> None:
-    """Read.IDENTITY_KEYS must contain 'relocatable'."""
-    assert "relocatable" in Read.IDENTITY_KEYS
+    """READ_IDENTITY_KEYS must contain 'relocatable'."""
+    assert "relocatable" in READ_IDENTITY_KEYS
 
 
 def test_tokenize_differs_by_relocatable(tmp_path: pathlib.Path) -> None:
@@ -1464,6 +1482,18 @@ def test_warn_on_local_path_skips_when_read_path_present() -> None:
     items = (
         ("hash_path", "/absolute/local/file.parquet"),
         ("read_path", "reads/abc123.parquet"),
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warn_on_local_path(items)
+    assert caught == []
+
+
+def test_warn_on_local_path_skips_when_relocatable_flag_set() -> None:
+    """warn_on_local_path should not warn when relocatable=True even without read_path."""
+    items = (
+        ("hash_path", "/absolute/local/file.parquet"),
+        ("relocatable", True),
     )
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
