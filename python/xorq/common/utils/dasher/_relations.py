@@ -20,10 +20,10 @@ from xorq_dasher.rules.expr import (
     normalize_remote_table,
 )
 
+from xorq.common.constants import READ_IDENTITY_KEYS, REMOTE_SCHEMES
 from xorq.common.utils.dasher._gap_rules import normalize_ibis_schema
 from xorq.common.utils.dasher._opaque import _MISSING, _rename_unbound_xorq
 from xorq.common.utils.dasher._paths import (
-    _REMOTE_SCHEMES,
     _extract_datafusion_plan_paths,
     _extract_duckdb_file_paths,
     _normalize_path_stat,
@@ -83,7 +83,7 @@ def _normalize_read_xorq(read):
 def _normalize_single_path(path, read_kwargs, read):
     """Normalize a single string path for Read tokenization."""
 
-    if path.startswith(_REMOTE_SCHEMES):
+    if path.startswith(REMOTE_SCHEMES):
         stat_kwargs = {k: v for k, v in read_kwargs.items() if k != "hash_path"}
         return _normalize_path_stat(path, **stat_kwargs)
     elif not pathlib.Path(path).is_absolute() and path == read_kwargs.get("read_path"):
@@ -95,9 +95,7 @@ def _normalize_single_path(path, read_kwargs, read):
 
 
 def _read_extra_kwargs(read):
-    return tuple(
-        (k, v) for k, v in read.read_kwargs if k in ("mode", "schema", "temporary")
-    )
+    return tuple((k, v) for k, v in read.read_kwargs if k in READ_IDENTITY_KEYS)
 
 
 def _normalize_duckdb_databasetable_xorq(dt):

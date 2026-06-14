@@ -5,7 +5,7 @@ import datetime
 import decimal
 import functools
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -565,21 +565,25 @@ def _remotetable_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.E
     return remote_table_expr
 
 
-def warn_on_local_path(items: dict) -> None:
+def warn_on_local_path(items: Iterable[tuple[str, Any]]) -> None:
     from urllib.parse import urlparse  # noqa: PLC0415
 
-    def is_local_path(any: str | Path) -> bool:
-        parsed = urlparse(any)
+    def is_local_path(value: str | Path) -> bool:
+        parsed = urlparse(value)
         return not parsed.scheme or parsed.scheme == "file"
 
-    if path := next(
-        (v for k, v in dict(items).items() if k in ("hash_path", "source")), None
-    ):
+    kw = dict(items)
+    if kw.get("relocatable", False):
+        return
+    if path := next((v for k, v in kw.items() if k in ("hash_path", "source")), None):
         f = toolz.excepts((ValueError, AttributeError), is_local_path)
         paths = normalize_filenames(path)
         if any(map(f, paths)):
             warnings.warn(
-                "The Read op path is using a local filesystem path, running the build may not work in other environments.",
+                "The Read op path is using a local filesystem path, running"
+                " the build may not work in other environments. Consider"
+                " using relocatable=True in deferred_read_parquet/deferred_read_csv"
+                " or --relocate-reads when building.",
                 stacklevel=2,
             )
 

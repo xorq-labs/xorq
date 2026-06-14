@@ -567,10 +567,11 @@ class Read(ops.DatabaseTable):
     normalize_method: Callable = None
 
     def make_dt(self):
+        from xorq.common.constants import READ_EXCLUDE_KEYS  # noqa: PLC0415
+
         method = getattr(self.source, self.method_name)
-        _exclude = ("hash_path", "read_path")
         args = tuple(v for k, v in self.read_kwargs if k == "hash_path")
-        kwargs = {k: v for k, v in self.read_kwargs if k not in _exclude}
+        kwargs = {k: v for k, v in self.read_kwargs if k not in READ_EXCLUDE_KEYS}
         dt = method(*args, **kwargs).op()
         return dt
 

@@ -5,9 +5,11 @@ import json
 import os
 import pathlib
 import tempfile
+import warnings
 
 import pandas as pd
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 import toolz
 import yaml12
@@ -22,10 +24,13 @@ from xorq.caching import (
     SourceCache,
     SourceSnapshotCache,
 )
+from xorq.caching.strategy import snapshot_normalize_read
 from xorq.catalog.backend import GitBackend
 from xorq.catalog.catalog import Catalog
+from xorq.common.constants import READ_IDENTITY_KEYS
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.defer_utils import (
+    deferred_read_csv,
     deferred_read_parquet,
     normalize_read_path_md5sum,
 )
@@ -39,12 +44,15 @@ from xorq.ibis_yaml.compiler import (
     ExprKind,
     RefEnum,
     _extract_sql_queries,
+    _is_relocatable_candidate,
+    _mark_reads_relocatable,
     _sanitize_generated_names,
     build_expr,
     load_expr,
 )
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.sql import find_relations
+from xorq.ibis_yaml.translate import warn_on_local_path
 from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
@@ -1127,3 +1135,445 @@ def test_tokenize_missing_path_still_raises(parquet_dir):
 
     with pytest.raises(FileNotFoundError, match="memtables/does-not-exist"):
         tokenize(bad.to_expr())
+
+
+@pytest.fixture
+def sample_parquet(tmp_path: pathlib.Path) -> pathlib.Path:
+    path = tmp_path / "data.parquet"
+    pq.write_table(pa.table({"x": [1, 2, 3]}), path)
+    return path
+
+
+def test_relocatable_read_parquet(
+    builds_dir: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
+    """A relocatable Read should survive deletion of the original file."""
+    table = pa.table({"x": [1, 2, 3], "y": [4, 5, 6]})
+    parquet_path = tmp_path / "input.parquet"
+    pq.write_table(table, parquet_path)
+
+    t = deferred_read_parquet(parquet_path, relocatable=True)
+    expr = t.filter(t.x > 1)
+    build_path = build_expr(expr, builds_dir=builds_dir)
+
+    reads_dir = build_path / "reads"
+    assert reads_dir.exists(), "reads/ directory should be created"
+    parquet_files = list(reads_dir.glob("*.parquet"))
+    assert len(parquet_files) == 1
+
+    parquet_path.unlink()
+
+    loaded = load_expr(build_path)
+    result = loaded.execute()
+    assert len(result) == 2
+    assert list(result.x) == [2, 3]
+
+
+def test_relocatable_read_via_relocate_reads_flag(
+    builds_dir: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
+    """--relocate-reads should bundle even non-relocatable Read nodes."""
+    table = pa.table({"a": [10, 20], "b": [30, 40]})
+    parquet_path = tmp_path / "data.parquet"
+    pq.write_table(table, parquet_path)
+
+    t = deferred_read_parquet(parquet_path)
+    build_path = build_expr(t, builds_dir=builds_dir, relocate_reads=True)
+
+    reads_dir = build_path / "reads"
+    assert reads_dir.exists()
+    assert list(reads_dir.glob("*.parquet"))
+
+    parquet_path.unlink()
+
+    loaded = load_expr(build_path)
+    result = loaded.execute()
+    assert len(result) == 2
+
+
+def test_relocatable_read_csv(builds_dir: pathlib.Path, tmp_path: pathlib.Path) -> None:
+    """A CSV Read with relocatable=True should copy the CSV into the archive."""
+    csv_path = tmp_path / "data.csv"
+    csv_path.write_text("x,y\n1,4\n2,5\n3,6\n")
+
+    t = deferred_read_csv(csv_path, relocatable=True)
+    expr = t.filter(t.x > 1)
+    build_path = build_expr(expr, builds_dir=builds_dir)
+
+    reads_dir = build_path / "reads"
+    assert reads_dir.exists()
+    assert list(reads_dir.glob("*.csv"))
+
+    csv_path.unlink()
+
+    loaded = load_expr(build_path)
+    result = loaded.execute()
+    assert len(result) == 2
+    assert sorted(result.x.tolist()) == [2, 3]
+
+
+def test_relocatable_read_multiple_joined(
+    builds_dir: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
+    """Two relocatable reads joined in one expression should both be bundled."""
+    pq.write_table(pa.table({"key": [1, 2], "val_a": [10, 20]}), tmp_path / "a.parquet")
+    pq.write_table(pa.table({"key": [1, 2], "val_b": [30, 40]}), tmp_path / "b.parquet")
+
+    a = deferred_read_parquet(tmp_path / "a.parquet", relocatable=True)
+    b = deferred_read_parquet(tmp_path / "b.parquet", relocatable=True)
+    expr = a.join(b, "key")
+    build_path = build_expr(expr, builds_dir=builds_dir)
+
+    reads_dir = build_path / "reads"
+    assert len(list(reads_dir.glob("*.parquet"))) == 2
+
+    (tmp_path / "a.parquet").unlink()
+    (tmp_path / "b.parquet").unlink()
+
+    loaded = load_expr(build_path)
+    result = loaded.execute()
+    assert len(result) == 2
+    assert sorted(result.val_a.tolist()) == [10, 20]
+    assert sorted(result.val_b.tolist()) == [30, 40]
+
+
+def test_relocatable_changes_build_hash(
+    builds_dir: pathlib.Path, sample_parquet: pathlib.Path
+) -> None:
+    """relocatable=True must produce a different build hash than the default."""
+    plain = deferred_read_parquet(sample_parquet)
+    reloc = deferred_read_parquet(sample_parquet, relocatable=True)
+
+    plain_path = build_expr(plain, builds_dir=builds_dir)
+    reloc_path = build_expr(reloc, builds_dir=builds_dir)
+    assert plain_path.name != reloc_path.name
+
+
+def test_relocate_reads_flag_changes_build_hash(
+    builds_dir: pathlib.Path, sample_parquet: pathlib.Path
+) -> None:
+    """--relocate-reads must produce a different build hash than the default."""
+    t = deferred_read_parquet(sample_parquet)
+    default_path = build_expr(t, builds_dir=builds_dir)
+    reloc_path = build_expr(t, builds_dir=builds_dir, relocate_reads=True)
+    assert default_path.name != reloc_path.name
+
+
+def test_relocatable_api_and_flag_produce_same_hash(
+    builds_dir: pathlib.Path, sample_parquet: pathlib.Path
+) -> None:
+    """relocatable=True at construction and --relocate-reads at build time produce the same build hash."""
+    api_t = deferred_read_parquet(sample_parquet, relocatable=True)
+    api_path = build_expr(api_t, builds_dir=builds_dir / "api")
+
+    plain_t = deferred_read_parquet(sample_parquet)
+    flag_path = build_expr(plain_t, builds_dir=builds_dir / "flag", relocate_reads=True)
+
+    assert api_path.name == flag_path.name
+
+
+def test_relocatable_read_no_local_path_warning(
+    builds_dir: pathlib.Path, sample_parquet: pathlib.Path
+) -> None:
+    """Relocatable reads should not emit the local-path warning during build."""
+    t = deferred_read_parquet(sample_parquet, relocatable=True)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        build_expr(t, builds_dir=builds_dir)
+
+    local_path_warnings = [
+        w for w in caught if "local filesystem path" in str(w.message)
+    ]
+    assert local_path_warnings == [], [str(w.message) for w in local_path_warnings]
+
+
+def test_relocatable_survives_round_trip(
+    builds_dir: pathlib.Path, sample_parquet: pathlib.Path
+) -> None:
+    """A relocatable Read should stay relocatable after build → load."""
+    t = deferred_read_parquet(sample_parquet, relocatable=True)
+    build_path = build_expr(t, builds_dir=builds_dir)
+    loaded = load_expr(build_path)
+
+    reads = list(walk_nodes(Read, loaded))
+    assert len(reads) == 1
+    kw = dict(reads[0].read_kwargs)
+    assert kw.get("relocatable") is True
+    assert "read_path" in kw
+
+
+def test_relocatable_rebuild_from_loaded_expr(
+    builds_dir: pathlib.Path, sample_parquet: pathlib.Path
+) -> None:
+    """A loaded relocatable expr can be re-built and the result still executes.
+
+    This is why relocatable reads stay as Read nodes after load rather than
+    being eagerly resolved to DatabaseTable: the relocatable marker must
+    survive so a subsequent build_expr can re-bundle the file.
+    """
+    t = deferred_read_parquet(sample_parquet, relocatable=True)
+    first_build = build_expr(t, builds_dir=builds_dir / "first")
+    loaded = load_expr(first_build)
+
+    second_build = build_expr(loaded, builds_dir=builds_dir / "second")
+
+    sample_parquet.unlink()
+    first_build_reads = list((first_build / "reads").glob("*"))
+    for f in first_build_reads:
+        f.unlink()
+
+    result = load_expr(second_build).execute()
+    assert len(result) == 3
+    assert sorted(result.x.tolist()) == [1, 2, 3]
+
+
+def test_mark_reads_relocatable_skips_remote(sample_parquet: pathlib.Path) -> None:
+    """_mark_reads_relocatable should not inject relocatable for remote paths."""
+    local_t = deferred_read_parquet(sample_parquet)
+    local_read = list(walk_nodes(Read, local_t))[0]
+
+    remote_read = Read(
+        method_name=local_read.method_name,
+        name="remote_table",
+        schema=local_read.schema,
+        source=local_read.source,
+        read_kwargs=(("hash_path", "s3://bucket/data.parquet"),),
+        normalize_method=local_read.normalize_method,
+    )
+    expr = local_t.join(remote_read.to_expr(), "x")
+
+    marked = _mark_reads_relocatable(expr)
+    reads = list(walk_nodes(Read, marked))
+    for read in reads:
+        kw = dict(read.read_kwargs)
+        if kw.get("hash_path") == "s3://bucket/data.parquet":
+            assert not kw.get("relocatable", False)
+        else:
+            assert kw.get("relocatable") is True
+
+
+# ---------------------------------------------------------------------------
+# IDENTITY_KEYS — relocatable affects tokenization and snapshot keys
+# ---------------------------------------------------------------------------
+
+
+def test_identity_keys_includes_relocatable() -> None:
+    """READ_IDENTITY_KEYS must contain 'relocatable'."""
+    assert "relocatable" in READ_IDENTITY_KEYS
+
+
+def test_tokenize_differs_by_relocatable(sample_parquet: pathlib.Path) -> None:
+    """Two Reads differing only in relocatable should produce different tokens."""
+    plain = deferred_read_parquet(sample_parquet)
+    reloc = deferred_read_parquet(sample_parquet, relocatable=True)
+
+    assert tokenize(plain) != tokenize(reloc)
+
+
+def test_snapshot_normalize_read_differs_by_relocatable(
+    sample_parquet: pathlib.Path,
+) -> None:
+    """snapshot_normalize_read should yield different results when relocatable differs."""
+    plain = deferred_read_parquet(sample_parquet)
+    reloc = deferred_read_parquet(sample_parquet, relocatable=True)
+
+    plain_read = list(walk_nodes(Read, plain))[0]
+    reloc_read = list(walk_nodes(Read, reloc))[0]
+
+    assert snapshot_normalize_read(plain_read) != snapshot_normalize_read(reloc_read)
+
+
+# ---------------------------------------------------------------------------
+# _is_relocatable_candidate edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_is_relocatable_candidate_not_a_read() -> None:
+    """Non-Read nodes are never candidates."""
+    node = rel.DatabaseTable(
+        name="t",
+        schema=ibis.schema({"x": "int64"}),
+        source=ibis.duckdb.connect(),
+        namespace=rel.Namespace(database=None, catalog=None),
+    )
+    assert not _is_relocatable_candidate(node)
+
+
+def test_is_relocatable_candidate_already_relocatable(
+    sample_parquet: pathlib.Path,
+) -> None:
+    """A Read that is already relocatable is not a candidate (no double-marking)."""
+    t = deferred_read_parquet(sample_parquet, relocatable=True)
+    read = list(walk_nodes(Read, t))[0]
+    assert not _is_relocatable_candidate(read)
+
+
+def test_is_relocatable_candidate_no_hash_path(sample_parquet: pathlib.Path) -> None:
+    """A Read with no hash_path is not a candidate."""
+    t = deferred_read_parquet(sample_parquet)
+    read = list(walk_nodes(Read, t))[0]
+    no_hash = Read(
+        method_name=read.method_name,
+        name=read.name,
+        schema=read.schema,
+        source=read.source,
+        read_kwargs=tuple((k, v) for k, v in read.read_kwargs if k != "hash_path"),
+        normalize_method=read.normalize_method,
+    )
+    assert not _is_relocatable_candidate(no_hash)
+
+
+def test_is_relocatable_candidate_local_path(sample_parquet: pathlib.Path) -> None:
+    """A normal local-file Read IS a candidate."""
+    t = deferred_read_parquet(sample_parquet)
+    read = list(walk_nodes(Read, t))[0]
+    assert _is_relocatable_candidate(read)
+
+
+# ---------------------------------------------------------------------------
+# ArtifactStore.copy_file
+# ---------------------------------------------------------------------------
+
+
+def test_artifact_store_copy_file(tmp_path: pathlib.Path) -> None:
+    """copy_file should copy the file and create parent directories."""
+    source = tmp_path / "source.txt"
+    source.write_text("hello")
+
+    store = ArtifactStore(root_path=tmp_path / "store")
+    dest = store.copy_file(source, "sub", "copied.txt")
+
+    assert dest.exists()
+    assert dest.read_text() == "hello"
+    assert dest == store.get_path("sub", "copied.txt")
+
+
+def test_artifact_store_copy_file_overwrites(tmp_path: pathlib.Path) -> None:
+    """copy_file should overwrite an existing destination."""
+    source = tmp_path / "source.txt"
+    source.write_text("new content")
+
+    store = ArtifactStore(root_path=tmp_path / "store")
+    dest = store.get_path("out.txt")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text("old content")
+
+    store.copy_file(source, "out.txt")
+    assert dest.read_text() == "new content"
+
+
+def test_artifact_store_copy_file_missing_source(tmp_path: pathlib.Path) -> None:
+    """copy_file should raise when the source file does not exist."""
+    store = ArtifactStore(root_path=tmp_path / "store")
+    with pytest.raises(FileNotFoundError):
+        store.copy_file(tmp_path / "nonexistent.txt", "out.txt")
+
+
+# ---------------------------------------------------------------------------
+# warn_on_local_path changes
+# ---------------------------------------------------------------------------
+
+
+def test_warn_on_local_path_skips_when_relocatable(tmp_path: pathlib.Path) -> None:
+    """warn_on_local_path should not warn when relocatable=True."""
+    local_file = tmp_path / "file.parquet"
+    local_file.write_bytes(b"data")
+    items = (
+        ("hash_path", str(local_file)),
+        ("relocatable", True),
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warn_on_local_path(items)
+    assert caught == []
+
+
+def test_warn_on_local_path_warns_when_read_path_but_not_relocatable(
+    tmp_path: pathlib.Path,
+) -> None:
+    """read_path alone does not suppress the warning — only relocatable does."""
+    local_file = tmp_path / "file.parquet"
+    local_file.write_bytes(b"data")
+    items = (
+        ("hash_path", str(local_file)),
+        ("read_path", "database_tables/abc123.parquet"),
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warn_on_local_path(items)
+    assert len(caught) == 1
+
+
+def test_warn_on_local_path_warns_for_non_relocatable_local(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Non-relocatable local reads should still warn with the updated message."""
+    local_file = tmp_path / "file.parquet"
+    local_file.write_bytes(b"data")
+    items = (("hash_path", str(local_file)),)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warn_on_local_path(items)
+    assert len(caught) == 1
+    assert "relocatable=True" in str(caught[0].message)
+    assert "--relocate-reads" in str(caught[0].message)
+
+
+# ---------------------------------------------------------------------------
+# ExprLoader — relocatable reads stay as Read nodes, not DatabaseTable
+# ---------------------------------------------------------------------------
+
+
+def test_loaded_relocatable_is_read_not_database_table(
+    builds_dir: pathlib.Path, sample_parquet: pathlib.Path
+) -> None:
+    """After load, a relocatable Read should remain a Read node, not DatabaseTable."""
+    t = deferred_read_parquet(sample_parquet, relocatable=True)
+    build_path = build_expr(t, builds_dir=builds_dir)
+    loaded = load_expr(build_path)
+
+    reads = list(walk_nodes(Read, loaded))
+    assert len(reads) == 1, "relocatable Read should survive as Read, not be converted"
+
+    dts = [
+        n
+        for n in walk_nodes((rel.DatabaseTable,), loaded)
+        if type(n) is rel.DatabaseTable and not isinstance(n, Read)
+    ]
+    assert dts == [], (
+        "relocatable Read should not be converted to a plain DatabaseTable"
+    )
+
+
+def test_loaded_non_relocatable_becomes_database_table(
+    builds_dir: pathlib.Path, sample_parquet: pathlib.Path
+) -> None:
+    """After load, a non-relocatable Read should be resolved to a DatabaseTable."""
+    t = deferred_read_parquet(sample_parquet)
+    build_path = build_expr(t, builds_dir=builds_dir)
+    loaded = load_expr(build_path)
+
+    reads = [r for r in walk_nodes(Read, loaded) if "read_path" in dict(r.read_kwargs)]
+    assert reads == [], "non-relocatable Read should be resolved to DatabaseTable"
+
+
+# ---------------------------------------------------------------------------
+# _mark_reads_relocatable is idempotent
+# ---------------------------------------------------------------------------
+
+
+def test_mark_reads_relocatable_is_idempotent(sample_parquet: pathlib.Path) -> None:
+    """Calling _mark_reads_relocatable twice should not double-wrap."""
+    t = deferred_read_parquet(sample_parquet)
+    once = _mark_reads_relocatable(t)
+    twice = _mark_reads_relocatable(once)
+
+    once_reads = list(walk_nodes(Read, once))
+    twice_reads = list(walk_nodes(Read, twice))
+    assert len(once_reads) == len(twice_reads) == 1
+
+    once_kw = dict(once_reads[0].read_kwargs)
+    twice_kw = dict(twice_reads[0].read_kwargs)
+    assert once_kw == twice_kw
+
+    assert tokenize(once) == tokenize(twice)
