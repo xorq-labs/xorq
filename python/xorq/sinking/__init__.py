@@ -6,6 +6,11 @@ from xorq.sinking.sink import (
     SinkMode,
     SinkNode,
 )
+from xorq.sinking.wap import (
+    make_iceberg_branch_wap_expr,
+    make_iceberg_wap_expr,
+    make_parquet_wap_expr,
+)
 
 
 __all__ = [
@@ -13,4 +18,7 @@ __all__ = [
     "ParquetSink",
     "SinkMode",
     "SinkNode",
+    "make_iceberg_branch_wap_expr",
+    "make_iceberg_wap_expr",
+    "make_parquet_wap_expr",
 ]

@@ -297,11 +297,49 @@ class Backend(SQLBackend):
         self,
         reader: Union[pa.RecordBatchReader, pa.ChunkedArray],
         table_name: Optional[str] = None,
+        mode: str = "create",
+        branch: Optional[str] = None,
     ) -> ir.Table:
         table_name = table_name or gen_name("read_record_batches")
-        table = pa.Table.from_batches(reader, reader.schema)
+        data = pa.Table.from_batches(reader, reader.schema)
 
-        self.create_table(name=table_name, obj=table, database=self.namespace)
+        if branch is None:
+            if mode == "create":
+                self.create_table(name=table_name, obj=data, database=self.namespace)
+            else:
+                self.insert(table_name, data, mode="append")
+        else:
+            full_name = f"{self.namespace}.{table_name}"
+            data = data.cast(
+                pa.schema(
+                    [
+                        pa.field(name, type=typ)
+                        for name, typ in zip(data.schema.names, data.schema.types)
+                    ]
+                )
+            )
+
+            if not self.catalog.table_exists(full_name):
+                ice = self.catalog.create_table(
+                    identifier=full_name, schema=data.schema
+                )
+                ice.append(data.schema.empty_table())
+                ice = self.catalog.load_table(full_name)
+            else:
+                ice = self.catalog.load_table(full_name)
+
+            if mode == "create" and branch in ice.refs():
+                raise ValueError(
+                    f"Branch {branch!r} already exists on table {full_name}"
+                )
+
+            if branch not in ice.refs():
+                snap_id = ice.current_snapshot().snapshot_id
+                ice.manage_snapshots().create_branch(snap_id, branch).commit()
+                ice = self.catalog.load_table(full_name)
+
+            ice.append(data, branch=branch)
+
         return self.table(table_name)
 
     def list_snapshots(self, database=None) -> dict[str, int]:
