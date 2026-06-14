@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781203679414,
+  "lastUpdate": 1781476108475,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -17616,6 +17616,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.014678602551387379",
             "extra": "mean: 37.273599259259946 msec\nrounds: 27"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1a73b2fb8e0c7bcb44eefacc28b32b8dbb4d4361",
+          "message": "feat: add relocatable reads support (#2070)\n\n## Summary\n- Bundle local-file Read nodes into build artifacts so expressions can\nbe executed without access to the original source files\n- Add `--relocate-reads` CLI flag to `xorq build` for opting in to file\nbundling\n- Use content-hash normalization for relocatable reads to ensure\ndeterministic build hashes\n- Extract `Read.IDENTITY_KEYS` for consistent key handling across\ncaching and tokenization\n- Comprehensive test coverage for relocatable reads (round-trip,\nCSV/Parquet, multi-join, idempotency, edge cases)\n\n## Test plan\n- [x] Relocatable parquet reads survive deletion of original file\n- [x] `--relocate-reads` flag bundles non-relocatable Read nodes\n- [x] CSV reads with relocatable flag work correctly\n- [x] Multiple joined relocatable reads are all bundled\n- [x] Relocatable flag changes build hash\n- [x] Remote schemes (http, s3, gs) are skipped by relocatable marking\n- [x] Round-trip preserves relocatable flag\n- [x] Idempotency of `_mark_reads_relocatable`\n- [x] `xorq-check-style` passes on all changed lines\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-06-14T18:24:38-04:00",
+          "tree_id": "e06c59b56480589f891a54522b6dffe8714204a7",
+          "url": "https://github.com/xorq-labs/xorq/commit/1a73b2fb8e0c7bcb44eefacc28b32b8dbb4d4361"
+        },
+        "date": 1781476105396,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.7163627300469075,
+            "unit": "iter/sec",
+            "range": "stddev: 0.021619650865792726",
+            "extra": "mean: 129.59473718181738 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.478890150746476,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07355087022862301",
+            "extra": "mean: 403.4063387999936 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7089578629286175,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18992894093116333",
+            "extra": "mean: 1.4105210652000153 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.1699461912626705,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07445123914611429",
+            "extra": "mean: 460.8409204000168 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.176881409627756,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05882732226802161",
+            "extra": "mean: 459.3727502000206 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.190788086883596,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05588236102218821",
+            "extra": "mean: 456.4567454000098 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 194.70335165435876,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005770437054740033",
+            "extra": "mean: 5.136018417264946 msec\nrounds: 278"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.302195809089201,
+            "unit": "iter/sec",
+            "range": "stddev: 0.034931130975746134",
+            "extra": "mean: 232.43944357142254 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 21.888051646833848,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013028699593973651",
+            "extra": "mean: 45.68702670000562 msec\nrounds: 30"
           }
         ]
       }
