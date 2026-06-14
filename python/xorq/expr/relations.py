@@ -566,9 +566,11 @@ class Read(ops.DatabaseTable):
     read_kwargs: Any = ()
     normalize_method: Callable = None
 
+    IDENTITY_KEYS = frozenset({"mode", "schema", "temporary", "relocatable"})
+
     def make_dt(self):
         method = getattr(self.source, self.method_name)
-        _exclude = ("hash_path", "read_path")
+        _exclude = ("hash_path", "read_path", "relocatable")
         args = tuple(v for k, v in self.read_kwargs if k == "hash_path")
         kwargs = {k: v for k, v in self.read_kwargs if k not in _exclude}
         dt = method(*args, **kwargs).op()

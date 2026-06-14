@@ -95,9 +95,9 @@ def _normalize_single_path(path, read_kwargs, read):
 
 
 def _read_extra_kwargs(read):
-    return tuple(
-        (k, v) for k, v in read.read_kwargs if k in ("mode", "schema", "temporary")
-    )
+    from xorq.expr.relations import Read  # noqa: PLC0415
+
+    return tuple((k, v) for k, v in read.read_kwargs if k in Read.IDENTITY_KEYS)
 
 
 def _normalize_duckdb_databasetable_xorq(dt):
