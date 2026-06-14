@@ -223,6 +223,7 @@ def build_command(
     builds_dir="builds",
     cache_dir=None,
     debug: bool = False,
+    relocate_reads: bool = False,
     emit_build_path_to=None,
 ):
     """
@@ -272,7 +273,11 @@ def build_command(
             )
 
     build_path = build_expr(
-        expr, builds_dir=builds_dir, cache_dir=Path(cache_dir), debug=debug
+        expr,
+        builds_dir=builds_dir,
+        cache_dir=Path(cache_dir),
+        debug=debug,
+        relocate_reads=relocate_reads,
     )
     expr_hash = build_path.name
     span.add_event("build.outputs", {"expr_hash": expr_hash})
@@ -1091,6 +1096,11 @@ def uv_run_unbound(
     help="Output SQL files and other debug artifacts.",
 )
 @click.option(
+    "--relocate-reads",
+    is_flag=True,
+    help="Bundle all local-file Read nodes into the build artifact.",
+)
+@click.option(
     "--emit-build-path-to",
     type=click.Path(),
     default=None,
@@ -1100,7 +1110,15 @@ def uv_run_unbound(
         "subprocess consumer needs the path unambiguously."
     ),
 )
-def build(script_path, expr_name, builds_dir, cache_dir, debug, emit_build_path_to):
+def build(
+    script_path: str,
+    expr_name: str,
+    builds_dir: str,
+    cache_dir: str,
+    debug: bool,
+    relocate_reads: bool,
+    emit_build_path_to: str | None,
+) -> None:
     """Compile a Xorq expression into a reusable build artifact.
 
     Loads the script, finds the expression variable, and writes serialized
@@ -1125,6 +1143,7 @@ def build(script_path, expr_name, builds_dir, cache_dir, debug, emit_build_path_
         builds_dir,
         cache_dir,
         debug,
+        relocate_reads=relocate_reads,
         emit_build_path_to=emit_build_path_to,
     )
 

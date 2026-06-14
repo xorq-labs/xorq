@@ -92,6 +92,26 @@ def test_build_command_function(tmp_path, fixture_dir):
     assert builds_dir.exists()
 
 
+def test_build_command_relocate_reads(tmp_path: Path) -> None:
+    """--relocate-reads flag should plumb through build_command and bundle local files."""
+    parquet_path = tmp_path / "input.parquet"
+    pq.write_table(pa.table({"x": [1, 2, 3]}), parquet_path)
+
+    script = tmp_path / "script.py"
+    script.write_text(
+        f"from xorq.common.utils.defer_utils import deferred_read_parquet\n"
+        f"expr = deferred_read_parquet('{parquet_path}')\n"
+    )
+    builds_dir = tmp_path / "builds"
+    build_command(str(script), "expr", str(builds_dir), relocate_reads=True)
+
+    build_dirs = list(builds_dir.iterdir())
+    assert len(build_dirs) == 1
+    reads_dir = build_dirs[0] / "reads"
+    assert reads_dir.exists(), "reads/ directory should be created by relocate_reads"
+    assert list(reads_dir.glob("*.parquet"))
+
+
 def test_build_command(tmp_path, fixture_dir):
     builds_dir = tmp_path / "builds"
     script_path = fixture_dir / "pipeline.py"

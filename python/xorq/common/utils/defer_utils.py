@@ -57,6 +57,13 @@ def normalize_read_path_md5sum(path):
     return (("content-md5sum", file_digest(path)),)
 
 
+def relocatable_read_path(path: str | Path) -> str:
+    from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
+
+    path = Path(path)
+    return f"reads/{tokenize(normalize_read_path_md5sum(path))}{path.suffix}"
+
+
 def normalize_read_path_stat(path):
     stat = path.stat()
     tpls = tuple(
@@ -130,6 +137,7 @@ def deferred_read_csv(
     table_name: str | None = None,
     schema: Schema | None = None,
     normalize_method: Callable = normalize_read_path_stat,
+    relocatable: bool = False,
     **kwargs,
 ) -> ir.Table:
     """
@@ -160,6 +168,10 @@ def deferred_read_csv(
     schema : Schema, optional
         The schema definition for the CSV data. If not provided, the schema will
         be inferred from the data by sampling the CSV file.
+
+    relocatable : bool, optional
+        When True, ``xorq build`` will copy the backing file into the build
+        artifact and rewrite the path so the archive is self-contained.
 
     kwargs : Any
         Additional keyword arguments that will be passed to the backend's read_csv
@@ -196,6 +208,12 @@ def deferred_read_csv(
         read_kwargs = make_read_kwargs(
             method, path, table_name, schema=schema, **kwargs
         )
+    if relocatable:
+        read_kwargs = read_kwargs + (
+            ("relocatable", True),
+            ("read_path", relocatable_read_path(path)),
+        )
+        normalize_method = normalize_read_path_md5sum
     return Read(
         method_name=method_name,
         name=table_name,
@@ -212,6 +230,7 @@ def deferred_read_parquet(
     table_name: str | None = None,
     schema: Schema | None = None,
     normalize_method: Callable = normalize_read_path_stat,
+    relocatable: bool = False,
     **kwargs,
 ) -> ir.Table:
     """
@@ -236,6 +255,10 @@ def deferred_read_parquet(
     normalize_method : Callable, optional
      The method that returns the values to be used in the hashing of the Read operation.
 
+    relocatable : bool, optional
+        When True, ``xorq build`` will copy the backing file into the build
+        artifact and rewrite the path so the archive is self-contained.
+
     **kwargs : dict
         Additional keyword arguments passed to the backend's read_parquet method.
 
@@ -255,6 +278,12 @@ def deferred_read_parquet(
     if con.name in _ADBC_BACKENDS:
         kwargs.setdefault("mode", "replace")
     read_kwargs = make_read_kwargs(method, path, table_name=table_name, **kwargs)
+    if relocatable:
+        read_kwargs = read_kwargs + (
+            ("relocatable", True),
+            ("read_path", relocatable_read_path(path)),
+        )
+        normalize_method = normalize_read_path_md5sum
     return Read(
         method_name=method_name,
         name=table_name,
