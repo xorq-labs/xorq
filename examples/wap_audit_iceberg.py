@@ -17,7 +17,9 @@ range; out-of-range (often a Fahrenheit/Celsius mixup) fails the audit.
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import pyarrow as pa
@@ -27,6 +29,11 @@ import xorq.expr.datatypes as dt
 from xorq.api import _
 from xorq.expr.udf import agg, scalar
 from xorq.sinking import BackendSink
+
+
+if TYPE_CHECKING:
+    from xorq.backends.pyiceberg import Backend as IcebergBackend
+    from xorq.vendor.ibis.expr.types import Table
 
 
 STAGING = "sensor_staging"
@@ -56,7 +63,7 @@ def audit_in_range(df: pd.DataFrame) -> bool:
     return bool(df["temp_c"].between(-10.0, 50.0).all())
 
 
-def make_publish(con):
+def make_publish(con: IcebergBackend) -> Callable[..., pa.Array]:
     """Build the publishing UDF, closing over the Iceberg catalog.
 
     Both pass paths are metadata-only, zero data rewritten:
@@ -84,7 +91,9 @@ def make_publish(con):
     return publish
 
 
-def run_wap(con, source, audit_fn):
+def run_wap(
+    con: IcebergBackend, source: Table, audit_fn: Callable[[pd.DataFrame], bool]
+) -> pd.DataFrame:
     """write (tee) -> audit (agg) -> publish (mutate) -> execute. Returns receipt."""
     teed = source.tee(BackendSink(con=con, table_name=STAGING, mode="create"))
     audit_udaf = agg.pandas_df(

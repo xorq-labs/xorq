@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -109,8 +111,6 @@ def test_create_sink_execute_raises_fileexists(tmp_path: Path) -> None:
 
 
 def test_concurrent_create_only_one_wins(tmp_path: Path) -> None:
-    import threading  # noqa: PLC0415
-
     target = tmp_path / "out.parquet"
     batches = [pa.record_batch({"a": [i]}) for i in range(4)]
     barrier = threading.Barrier(2)
@@ -478,8 +478,6 @@ def test_parquet_multi_batch_single_file(tmp_path: Path) -> None:
 def test_parquet_create_link_failure_cleans_up(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import os as _os  # noqa: PLC0415
-
     target = tmp_path / "out.parquet"
     sink = ParquetSink(path=target, mode="create")
     batches = [pa.record_batch({"a": [1, 2]})]
@@ -487,7 +485,7 @@ def test_parquet_create_link_failure_cleans_up(
     def failing_link(src, dst):
         raise OSError("simulated link failure")
 
-    monkeypatch.setattr(_os, "link", failing_link)
+    monkeypatch.setattr(os, "link", failing_link)
     with pytest.raises(OSError, match="simulated link failure"):
         list(sink.execute(batches))
     assert not target.exists()

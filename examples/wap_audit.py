@@ -26,7 +26,9 @@ from __future__ import annotations
 
 import os
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import pyarrow as pa
@@ -35,6 +37,10 @@ import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.expr.udf import agg, scalar
 from xorq.sinking import ParquetSink
+
+
+if TYPE_CHECKING:
+    from xorq.vendor.ibis.expr.types import Table
 
 
 data = {"a": [1, 2, 3, 4], "b": ["w", "x", "y", "z"]}
@@ -55,7 +61,9 @@ def publish(staging: dt.string, final: dt.string, passed: dt.boolean) -> dt.bool
     return pa.array([bool(p)], type=pa.bool_())
 
 
-def run_wap(t, staging: str, final: str, audit_fn):
+def run_wap(
+    t: Table, staging: str, final: str, audit_fn: Callable[[pd.DataFrame], bool]
+) -> pd.DataFrame:
     """Build and execute the WAP pipeline; return the one-row receipt DataFrame."""
     teed = t.tee(ParquetSink(path=staging, mode="create"))
     audit_udaf = agg.pandas_df(
