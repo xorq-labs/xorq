@@ -1302,6 +1302,31 @@ def test_relocatable_survives_round_trip(
     assert "read_path" in kw
 
 
+def test_relocatable_rebuild_from_loaded_expr(
+    builds_dir: pathlib.Path, sample_parquet: pathlib.Path
+) -> None:
+    """A loaded relocatable expr can be re-built and the result still executes.
+
+    This is why relocatable reads stay as Read nodes after load rather than
+    being eagerly resolved to DatabaseTable: the relocatable marker must
+    survive so a subsequent build_expr can re-bundle the file.
+    """
+    t = deferred_read_parquet(sample_parquet, relocatable=True)
+    first_build = build_expr(t, builds_dir=builds_dir / "first")
+    loaded = load_expr(first_build)
+
+    second_build = build_expr(loaded, builds_dir=builds_dir / "second")
+
+    sample_parquet.unlink()
+    first_build_reads = list((first_build / "reads").glob("*"))
+    for f in first_build_reads:
+        f.unlink()
+
+    result = load_expr(second_build).execute()
+    assert len(result) == 3
+    assert sorted(result.x.tolist()) == [1, 2, 3]
+
+
 def test_mark_reads_relocatable_skips_remote(sample_parquet: pathlib.Path) -> None:
     """_mark_reads_relocatable should not inject relocatable for remote paths."""
     local_t = deferred_read_parquet(sample_parquet)
