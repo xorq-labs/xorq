@@ -573,7 +573,7 @@ def warn_on_local_path(items: Iterable[tuple[str, Any]]) -> None:
         return not parsed.scheme or parsed.scheme == "file"
 
     kw = dict(items)
-    if "read_path" in kw or kw.get("relocatable", False):
+    if kw.get("relocatable", False):
         return
     if path := next((v for k, v in kw.items() if k in ("hash_path", "source")), None):
         f = toolz.excepts((ValueError, AttributeError), is_local_path)

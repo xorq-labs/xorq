@@ -63,8 +63,10 @@ def file_digest(
                 algo,
                 size,
             )
-        with p.open("rb") as fh:
-            return hashlib.file_digest(fh, digest).hexdigest()
+        if hasattr(hashlib, "file_digest"):
+            with p.open("rb") as fh:
+                return hashlib.file_digest(fh, digest).hexdigest()
+        return _manual_file_digest(p, digest, size=size)
     elif hasattr(hashlib, "file_digest"):
         if isinstance(path, ZipExtFile):
             return hashlib.file_digest(path, digest).hexdigest()

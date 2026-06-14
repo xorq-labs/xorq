@@ -1449,16 +1449,34 @@ def test_artifact_store_copy_file_missing_source(tmp_path: pathlib.Path) -> None
 # ---------------------------------------------------------------------------
 
 
-def test_warn_on_local_path_skips_when_read_path_present() -> None:
-    """warn_on_local_path should not warn when read_path is set (relocatable reads)."""
+def test_warn_on_local_path_skips_when_relocatable(tmp_path: pathlib.Path) -> None:
+    """warn_on_local_path should not warn when relocatable=True."""
+    local_file = tmp_path / "file.parquet"
+    local_file.write_bytes(b"data")
     items = (
-        ("hash_path", "/absolute/local/file.parquet"),
-        ("read_path", "reads/abc123.parquet"),
+        ("hash_path", str(local_file)),
+        ("relocatable", True),
     )
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         warn_on_local_path(items)
     assert caught == []
+
+
+def test_warn_on_local_path_warns_when_read_path_but_not_relocatable(
+    tmp_path: pathlib.Path,
+) -> None:
+    """read_path alone does not suppress the warning — only relocatable does."""
+    local_file = tmp_path / "file.parquet"
+    local_file.write_bytes(b"data")
+    items = (
+        ("hash_path", str(local_file)),
+        ("read_path", "database_tables/abc123.parquet"),
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warn_on_local_path(items)
+    assert len(caught) == 1
 
 
 def test_warn_on_local_path_warns_for_non_relocatable_local(
