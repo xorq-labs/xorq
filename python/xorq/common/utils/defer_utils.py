@@ -57,11 +57,11 @@ def normalize_read_path_md5sum(path):
     return (("content-md5sum", file_digest(path)),)
 
 
-def relocatable_read_path(path: str | Path) -> str:
+def relocatable_read_path(path: str | Path) -> tuple[str, str]:
     from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
 
     path = Path(path)
-    return f"reads/{tokenize(normalize_read_path_md5sum(path))}{path.suffix}"
+    return ("reads", f"{tokenize(normalize_read_path_md5sum(path))}{path.suffix}")
 
 
 def normalize_read_path_stat(path):

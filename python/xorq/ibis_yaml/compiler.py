@@ -526,8 +526,7 @@ class ExprDumper:
         if "hash_path" not in kw:
             raise ValueError("relocatable Read must have hash_path")
         source_path = Path(kw["hash_path"])
-        rp = relocatable_read_path(source_path)
-        path_parts = tuple(rp.split("/", 1))
+        path_parts = relocatable_read_path(source_path)
         path = self.artifact_store.get_path(*path_parts)
         writer = functools.partial(
             self.artifact_store.copy_file,
