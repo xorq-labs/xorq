@@ -40,9 +40,11 @@ from xorq.common.exceptions import UnboundExpressionError
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.defer_utils import (
+    relocatable_read_path,
+)
+from xorq.common.utils.file_utils import (
     normalize_read_path_md5sum,
     normalize_read_path_stat,
-    relocatable_read_path,
 )
 from xorq.common.utils.graph_utils import (
     find_all_sources,
