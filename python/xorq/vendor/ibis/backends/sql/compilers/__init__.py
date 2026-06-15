@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+
 
 __all__ = [
     "BigQueryCompiler",
@@ -22,21 +24,42 @@ __all__ = [
     "TrinoCompiler",
 ]
 
-from xorq.vendor.ibis.backends.sql.compilers.bigquery import BigQueryCompiler
-from xorq.vendor.ibis.backends.sql.compilers.clickhouse import ClickHouseCompiler
-from xorq.vendor.ibis.backends.sql.compilers.databricks import DatabricksCompiler
-from xorq.vendor.ibis.backends.sql.compilers.datafusion import DataFusionCompiler
-from xorq.vendor.ibis.backends.sql.compilers.druid import DruidCompiler
-from xorq.vendor.ibis.backends.sql.compilers.duckdb import DuckDBCompiler
-from xorq.vendor.ibis.backends.sql.compilers.exasol import ExasolCompiler
-from xorq.vendor.ibis.backends.sql.compilers.flink import FlinkCompiler
-from xorq.vendor.ibis.backends.sql.compilers.impala import ImpalaCompiler
-from xorq.vendor.ibis.backends.sql.compilers.mssql import MSSQLCompiler
-from xorq.vendor.ibis.backends.sql.compilers.mysql import MySQLCompiler
-from xorq.vendor.ibis.backends.sql.compilers.oracle import OracleCompiler
-from xorq.vendor.ibis.backends.sql.compilers.postgres import PostgresCompiler
-from xorq.vendor.ibis.backends.sql.compilers.pyspark import PySparkCompiler
-from xorq.vendor.ibis.backends.sql.compilers.risingwave import RisingWaveCompiler
-from xorq.vendor.ibis.backends.sql.compilers.snowflake import SnowflakeCompiler
-from xorq.vendor.ibis.backends.sql.compilers.sqlite import SQLiteCompiler
-from xorq.vendor.ibis.backends.sql.compilers.trino import TrinoCompiler
+_CLASS_TO_MODULE = {
+    "BigQueryCompiler": "bigquery",
+    "ClickHouseCompiler": "clickhouse",
+    "DatabricksCompiler": "databricks",
+    "DataFusionCompiler": "datafusion",
+    "DruidCompiler": "druid",
+    "DuckDBCompiler": "duckdb",
+    "ExasolCompiler": "exasol",
+    "FlinkCompiler": "flink",
+    "ImpalaCompiler": "impala",
+    "MSSQLCompiler": "mssql",
+    "MySQLCompiler": "mysql",
+    "OracleCompiler": "oracle",
+    "PostgresCompiler": "postgres",
+    "PySparkCompiler": "pyspark",
+    "RisingWaveCompiler": "risingwave",
+    "SnowflakeCompiler": "snowflake",
+    "SQLiteCompiler": "sqlite",
+    "TrinoCompiler": "trino",
+}
+
+_SUBMODULES = frozenset(_CLASS_TO_MODULE.values())
+
+
+def __getattr__(name):
+    if name in _CLASS_TO_MODULE:
+        module = importlib.import_module(f".{_CLASS_TO_MODULE[name]}", __name__)
+        cls = getattr(module, name)
+        globals()[name] = cls
+        return cls
+    if name in _SUBMODULES:
+        module = importlib.import_module(f".{name}", __name__)
+        globals()[name] = module
+        return module
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    return __all__ + sorted(_SUBMODULES)
