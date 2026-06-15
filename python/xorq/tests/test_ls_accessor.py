@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 import xorq.api as xo
@@ -7,7 +10,10 @@ import xorq.vendor.ibis.expr.operations.relations as rel
 from xorq.backends.xorq_datafusion import Backend
 from xorq.caching import (
     ParquetCache,
+    ParquetSnapshotCache,
 )
+from xorq.common.utils.graph_utils import walk_nodes
+from xorq.expr.relations import CachedNode
 
 
 @pytest.fixture
@@ -111,6 +117,19 @@ def test_has_cached(cached_two, cached_two_joined):
 @pytest.mark.postgres
 def test_uncached(cached_two):
     assert cached_two.ls.has_cached and not cached_two.ls.uncached.ls.has_cached
+
+
+def test_uncached_strips_cache_inside_remote_expr(tmp_path: Path) -> None:
+    """uncached must strip CachedNodes nested inside opaque sub-expressions."""
+    cona = xo.connect()
+    conb = xo.connect()
+    t = cona.register(pd.DataFrame({"a": [1, 2, 3]}), "t")
+    cache = ParquetSnapshotCache.from_kwargs(source=cona, relative_path=tmp_path)
+    cached = t.cache(cache=cache)
+    expr = cached.into_backend(conb, "moved")
+
+    result = expr.ls.uncached
+    assert not walk_nodes((CachedNode,), result)
 
 
 @pytest.mark.postgres
