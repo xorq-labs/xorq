@@ -30,28 +30,9 @@ from xorq.vendor.ibis.expr.operations import Node, Relation
 def replace_cache_table(node: Node, kwargs: dict[str, Any] | None) -> Node:
     if kwargs:
         node = node.__recreate__(kwargs)
-
-    match node:
-        case CachedNode():
-            return node.parent.op().replace(replace_cache_table)
-        case RemoteTable():
-            return node.remote_expr.op().replace(replace_cache_table)
-        case FlightExpr() | FlightUDXF():
-            input_expr = node.input_expr.op().replace(replace_cache_table).to_expr()
-            return node.__recreate__(
-                dict(zip(node.__argnames__, node.__args__)) | {"input_expr": input_expr}
-            )
-        case _:
-            from xorq.expr.udf import ExprScalarUDF  # noqa: PLC0415
-
-            if isinstance(node, ExprScalarUDF):
-                cke = (
-                    node.computed_kwargs_expr.op()
-                    .replace(replace_cache_table)
-                    .to_expr()
-                )
-                return node.with_computed_kwargs_expr(cke)
-            return node
+    if isinstance(node, CachedNode):
+        return node.parent.op()
+    return node
 
 
 # https://stackoverflow.com/questions/6703594/is-the-result-of-itertools-tee-thread-safe-python

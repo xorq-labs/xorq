@@ -1219,11 +1219,11 @@ class LETSQLAccessor:
             The expression with all `CachedNode` layers stripped. Returned
             unchanged when the graph has no cache nodes.
         """
+        from xorq.common.utils.graph_utils import replace_nodes
         from xorq.expr.relations import replace_cache_table
 
         if self.has_cached:
-            op = self.expr.op()
-            return op.replace(replace_cache_table).to_expr()
+            return replace_nodes(replace_cache_table, self.expr).to_expr()
         else:
             return self.expr
 
