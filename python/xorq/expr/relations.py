@@ -2,6 +2,8 @@ import functools
 import itertools
 import operator
 from collections import defaultdict
+from itertools import tee
+from threading import Lock
 from typing import Any, Callable
 
 import pyarrow as pa
@@ -59,9 +61,6 @@ class SafeTee(object):
     @classmethod
     def tee(cls, iterable, n=2):
         """tuple of n independent thread-safe iterators"""
-        from itertools import tee  # noqa: PLC0415
-        from threading import Lock  # noqa: PLC0415
-
         lock = Lock()
         return tuple(cls(teeobj, lock) for teeobj in tee(iterable, n))
 

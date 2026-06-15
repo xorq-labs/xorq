@@ -15,7 +15,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
+import attr
 import click
+
+from xorq.catalog import constants as catalog_constants
 
 
 if TYPE_CHECKING:
@@ -560,19 +563,20 @@ def default_catalog(set_name, unset):
       xorq catalog default --unset
     """
     from xorq.catalog.catalog import Catalog  # noqa: PLC0415
-    from xorq.catalog.constants import DEFAULT_CATALOG_CONFIG  # noqa: PLC0415
     from xorq.vendor.ibis.config import env_config  # noqa: PLC0415
 
     if set_name and unset:
         raise click.UsageError("--set and --unset are mutually exclusive.")
 
     if set_name:
-        DEFAULT_CATALOG_CONFIG.parent.mkdir(parents=True, exist_ok=True)
-        DEFAULT_CATALOG_CONFIG.write_text(set_name + "\n")
+        catalog_constants.DEFAULT_CATALOG_CONFIG.parent.mkdir(
+            parents=True, exist_ok=True
+        )
+        catalog_constants.DEFAULT_CATALOG_CONFIG.write_text(set_name + "\n")
         click.echo(f"Default catalog set to {set_name!r}")
     elif unset:
         try:
-            DEFAULT_CATALOG_CONFIG.unlink()
+            catalog_constants.DEFAULT_CATALOG_CONFIG.unlink()
             click.echo("Default catalog unset (reverted to 'default')")
         except FileNotFoundError:
             click.echo("No persisted default to unset.")
@@ -580,8 +584,8 @@ def default_catalog(set_name, unset):
         name = Catalog._resolve_default_name()
         if env_config.XORQ_DEFAULT_CATALOG:
             source = "env (XORQ_DEFAULT_CATALOG)"
-        elif DEFAULT_CATALOG_CONFIG.exists():
-            source = f"config ({DEFAULT_CATALOG_CONFIG})"
+        elif catalog_constants.DEFAULT_CATALOG_CONFIG.exists():
+            source = f"config ({catalog_constants.DEFAULT_CATALOG_CONFIG})"
         else:
             source = "built-in"
         click.echo(f"{name}  (source: {source})")
@@ -964,7 +968,6 @@ def log(ctx: click.Context, as_json: bool) -> None:
       xorq catalog log
       xorq catalog log --json | jq '.[] | select(.type == "Add")'
     """
-    import attr  # noqa: PLC0415
 
     from xorq.catalog.replay import Replayer  # noqa: PLC0415
 
@@ -2121,8 +2124,6 @@ def serve_unbound(
       # Bind a runtime parameter
       xorq catalog serve-unbound scorer --params threshold=0.5
     """
-    from functools import partial  # noqa: PLC0415
-
     import xorq.expr.relations  # noqa: PLC0415
     import xorq.flight  # noqa: PLC0415
     from xorq.caching.strategy import SnapshotStrategy  # noqa: PLC0415
