@@ -4,11 +4,18 @@ import contextlib
 import contextvars
 import pathlib
 from abc import abstractmethod
+from typing import TYPE_CHECKING
 
 from attr import field, frozen
 from attr.validators import instance_of
 
 from xorq.common.constants import READ_IDENTITY_KEYS
+
+
+if TYPE_CHECKING:
+    from xorq_dasher import Hasher
+
+    from xorq.vendor.ibis import Expr
 
 
 # Per-outer-call memo for ``SnapshotStrategy.normalize_databasetable``.
@@ -133,10 +140,14 @@ class SnapshotStrategy(CacheStrategy):
         ]
         return snapshot_hasher(*extra)
 
-    def _replace_remote_table(self, expr, local_hasher):
+    def _replace_remote_table(self, expr: Expr, local_hasher: Hasher) -> Expr:
+        from xorq.common.utils.graph_utils import (  # noqa: PLC0415
+            replace_nodes,
+            walk_nodes,
+        )
         from xorq.expr.relations import RemoteTable  # noqa: PLC0415
 
-        if expr.op().find(RemoteTable):
+        if walk_nodes((RemoteTable,), expr):
 
             def rename(node, kwargs):
                 if isinstance(node, RemoteTable):
@@ -149,7 +160,7 @@ class SnapshotStrategy(CacheStrategy):
                     )
                 return node.__recreate__(kwargs) if kwargs else node
 
-            return expr.op().replace(rename).to_expr()
+            return replace_nodes(rename, expr).to_expr()
         return expr
 
     @staticmethod

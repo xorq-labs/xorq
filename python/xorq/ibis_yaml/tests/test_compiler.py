@@ -24,7 +24,7 @@ from xorq.caching import (
     SourceCache,
     SourceSnapshotCache,
 )
-from xorq.caching.strategy import snapshot_normalize_read
+from xorq.caching.strategy import SnapshotStrategy, snapshot_normalize_read
 from xorq.catalog.backend import GitBackend
 from xorq.catalog.catalog import Catalog
 from xorq.common.constants import READ_IDENTITY_KEYS
@@ -1579,7 +1579,7 @@ def test_mark_reads_relocatable_is_idempotent(sample_parquet: pathlib.Path) -> N
     assert tokenize(once) == tokenize(twice)
 
 
-def test_cache_dir_reaches_remote_expr_nested_cache(tmp_path):
+def test_cache_dir_reaches_remote_expr_nested_cache(tmp_path: pathlib.Path) -> None:
     cona = xo.connect()
     conb = xo.connect()
     t = cona.register(pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}), "t")
@@ -1602,3 +1602,51 @@ def test_cache_dir_reaches_remote_expr_nested_cache(tmp_path):
     assert cached_nodes
     for cn in cached_nodes:
         assert cn.cache.storage.base_path == target
+
+
+# ---------------------------------------------------------------------------
+# Execution pipeline descends into opaque sub-expressions
+# ---------------------------------------------------------------------------
+
+
+def test_execution_handles_cache_in_remote_expr(tmp_path: pathlib.Path) -> None:
+    """Caches nested inside RemoteTable.remote_expr must be executed."""
+    cona = xo.connect()
+    conb = xo.connect()
+    t = cona.register(pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}), "t")
+    cache = ParquetSnapshotCache.from_kwargs(
+        source=cona, relative_path="c", base_path=tmp_path
+    )
+    cached = t.mutate(s=t.a + t.b).cache(cache=cache)
+    expr = cached.into_backend(conb, "moved")
+
+    # Verify that there really is a CachedNode nested inside a RemoteTable
+    remote_tables = walk_nodes((RemoteTable,), expr)
+    assert remote_tables, "expected at least one RemoteTable"
+    nested_caches = [
+        cn for rt in remote_tables for cn in walk_nodes((CachedNode,), rt.remote_expr)
+    ]
+    assert nested_caches, "expected a CachedNode nested in remote_expr"
+
+    # Should execute without error — the cache inside remote_expr gets found
+    result = expr.execute()
+    assert len(result) == 3
+
+
+def test_hashing_handles_remote_table_in_opaque_subexpr(tmp_path: pathlib.Path) -> None:
+    """_replace_remote_table must find RemoteTables nested in opaque sub-exprs."""
+    cona = xo.connect()
+    conb = xo.connect()
+    t = cona.register(pd.DataFrame({"x": [10, 20]}), "t")
+    inner_cache = ParquetSnapshotCache.from_kwargs(
+        source=cona, relative_path="inner", base_path=tmp_path / "inner"
+    )
+    cached = t.cache(cache=inner_cache)
+    expr = cached.into_backend(conb, "moved")
+
+    # Hashing the expression should not raise, and the key should be stable
+    strategy = SnapshotStrategy(key_prefix="test-")
+    key1 = strategy.calc_key(expr)
+    key2 = strategy.calc_key(expr)
+    assert key1 == key2
+    assert key1.startswith("test-snapshot-")

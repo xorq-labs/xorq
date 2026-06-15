@@ -242,7 +242,7 @@ def _register_and_transform_cache_tables(expr):
             )
         return node
 
-    out = op.replace(fn)
+    out = replace_nodes(fn, expr)
 
     return out.to_expr()
 
@@ -275,7 +275,7 @@ def _transform_deferred_reads(expr):
                 node = node.__recreate__(_kwargs)
         return node
 
-    expr = expr.op().replace(replace_read).to_expr()
+    expr = replace_nodes(replace_read, expr).to_expr()
     return expr, dt_to_read
 
 

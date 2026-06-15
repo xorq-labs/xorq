@@ -584,7 +584,9 @@ _count = itertools.count()
 
 
 @tracer.start_as_current_span("register_and_transform_remote_tables")
-def register_and_transform_remote_tables(expr, **kwargs):
+def register_and_transform_remote_tables(
+    expr: Expr, **kwargs: Any
+) -> tuple[Expr, dict]:
     created = {}
 
     op = expr.op()
@@ -650,6 +652,8 @@ def register_and_transform_remote_tables(expr, **kwargs):
 
         return node
 
+    # Intentionally op.replace, not replace_nodes: mark_remote_table has side effects
+    # that must not descend into opaque sub-exprs (e.g. ExprScalarUDF.computed_kwargs_expr)
     expr = op.replace(replacer).to_expr()
     return expr, created
 
