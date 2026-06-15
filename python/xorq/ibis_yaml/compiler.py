@@ -815,8 +815,7 @@ class ExprLoader:
         )
 
         # replace_nodes (not op.replace) so the rewrite reaches CachedNodes
-        # nested in opaque sub-exprs (e.g. a cache behind into_backend); native
-        # replace skips those, leaving base_path=None and ignoring cache_dir.
+        # nested inside opaque sub-exprs like RemoteTable.remote_expr.
         def replacer(node, kwargs):
             if isinstance(node, CachedNode) and isinstance(
                 node.cache, parquet_cache_types
