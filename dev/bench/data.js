@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781521699961,
+  "lastUpdate": 1781524595025,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -18312,6 +18312,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.008894376109887914",
             "extra": "mean: 35.79566858621382 msec\nrounds: 29"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "439a31642f2c139b76b17888300e885626f2551d",
+          "message": "docs(concepts): add 'catalog as executable memory' explanation (#2034)\n\n## Summary\n\nAdds a net-new explanation page, **\"The catalog as executable memory\"**,\nto the Concepts → Fundamentals section. It frames a Xorq catalog as a\ngit repo of content-addressed build artifacts — *executable* memory, in\ncontrast to prose/vector memory that has to be re-read and\nre-interpreted.\n\n## Changes\n\n- **New page**\n`docs/concepts/understanding_xorq/catalog_as_executable_memory.qmd`\ncovering:\n- What a memory *entry* is (built expression + pinned environment;\nreasoned about by schema, lineage, content hash, deterministic\nexecution)\n- Why a git repo, not a service (discovery via `ls`/`grep`/`git`,\nhistory as audit log, sharing via `git push`/`clone`, no vendor lock-in)\n  - Indexes are derived, not the source of truth\n- What's on disk after `catalog init` / `catalog add`, grounded in a\nlive layout\n- Why content-addressing matters (automatic reuse, honest identity;\naliases as intent)\n- **Nav**: registered the page in `docs/_quarto.yml` under Fundamentals,\nafter `why_deferred_execution`\n- **`expression_types.qmd`**: minor vale lint fixes (contraction + \"for\nexample\" over \"e.g.\")\n\n## Notes\n\nCross-refs and the previously-dead `environments_and_uv.qmd` link were\nresolved in follow-up commits on this branch.\n\nPart of the Diataxis docs effort — #2023 (Phase 0a: #2024).\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-15T13:52:46+02:00",
+          "tree_id": "650d43fce3c8770643f38a8b89a567589d42e732",
+          "url": "https://github.com/xorq-labs/xorq/commit/439a31642f2c139b76b17888300e885626f2551d"
+        },
+        "date": 1781524592038,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.16584243118064,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008889959410964765",
+            "extra": "mean: 122.46133922221878 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.838008470489249,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04153371563895215",
+            "extra": "mean: 352.35976579999715 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.8248039115387277,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1458495380571384",
+            "extra": "mean: 1.2124093811999899 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.8828330027038116,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04969121798973822",
+            "extra": "mean: 346.8810017999999 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.11123315884203,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01753921148264436",
+            "extra": "mean: 321.415962399999 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.2026624075918706,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010536965650412726",
+            "extra": "mean: 312.2402154000099 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 194.21021090871795,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0072935701384435276",
+            "extra": "mean: 5.149059852831408 msec\nrounds: 265"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.841477746138782,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07168886398626934",
+            "extra": "mean: 171.18955912500056 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 27.306084360559467,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00924083047277605",
+            "extra": "mean: 36.62187469999859 msec\nrounds: 30"
           }
         ]
       }
