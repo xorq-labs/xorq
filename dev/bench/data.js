@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781515606908,
+  "lastUpdate": 1781517860117,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -18138,6 +18138,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.015532650928767216",
             "extra": "mean: 48.14673411537849 msec\nrounds: 26"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "60093723886fab61dff92acc3091abf17861551a",
+          "message": "refactor: hoist deferred imports after enum extraction (#2056)\n\n## Summary\n\n- Removes 24 unnecessary deferred imports across 9 files, enabled by the\nlightweight enum/constants modules introduced in #2054 and #2053\n- Three categories of hoists: dead re-imports (names already at module\nlevel), stdlib imports (always cheap), and imports from\nnewly-lightweight internal modules\n- Uses module-level reference\n(`catalog_constants.DEFAULT_CATALOG_CONFIG`) for monkeypatchable\nconstants to preserve test compatibility\n\n## Dependencies\n\n**Stacked on #2054** (`centralize-strenum-compat`) — must be merged\nfirst. Also builds on #2053 (already merged).\n\n## Test plan\n\n- [x] All 9 changed modules import cleanly\n- [x] `ruff check` and `ruff format` pass\n- [x] `test_catalog_default.py` — 17/17 pass (validates monkeypatch\ncompatibility)\n- [x] `test_replay_rebuild.py` + `test_three_way_list_merge.py` — 42/42\npass\n- [x] `test_dasher.py` + `test_hashing_tag.py` +\n`test_provenance_utils.py` — 99 passed, 1 xfailed\n- [x] `ibis_yaml/tests/` — 103/103 pass (excluding pre-existing\nbenchmark failure)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>\nCo-authored-by: Daniel Mesejo <mesejoleon@gmail.com>",
+          "timestamp": "2026-06-15T12:00:28+02:00",
+          "tree_id": "cf63874e0ce99c2a383e22db7f32098ab9d3d750",
+          "url": "https://github.com/xorq-labs/xorq/commit/60093723886fab61dff92acc3091abf17861551a"
+        },
+        "date": 1781517857046,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 5.762853846365606,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01725739080055708",
+            "extra": "mean: 173.52513644444733 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.814376448206415,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01860252471278256",
+            "extra": "mean: 355.3184935999923 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7828945442428238,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1815237889749856",
+            "extra": "mean: 1.2773112386000207 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.6638873002072736,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06550659378437718",
+            "extra": "mean: 375.39125619998686 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.870420368734395,
+            "unit": "iter/sec",
+            "range": "stddev: 0.031402576870204923",
+            "extra": "mean: 348.38102840000147 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.127572641563669,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010679353403105819",
+            "extra": "mean: 319.7367781999901 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 191.81124739733343,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005652945836948182",
+            "extra": "mean: 5.213458613970215 msec\nrounds: 272"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.841930540431743,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08491003624671759",
+            "extra": "mean: 171.17629062499873 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 29.383294402289494,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006983399906410645",
+            "extra": "mean: 34.032943560000604 msec\nrounds: 25"
           }
         ]
       }
