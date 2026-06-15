@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781524604712,
+  "lastUpdate": 1781525276173,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -18486,6 +18486,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.012930389320758778",
             "extra": "mean: 37.10872741379294 msec\nrounds: 29"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "998e8e92c26642b80665eb293e5ac6ae0496d13d",
+          "message": "docs(tutorials): drive working_with_the_catalog from the CLI (#2031)\n\nRewrites the `working_with_the_catalog` tutorial to drive the catalog\ncollaboration loop (publish / clone / PR / pull) from the `xorq` CLI\nrather\nthan the Python API, and brings the prose in line with the verified\n`.snippets.py` companion.\n\n## What changed\n\n- **`working_with_the_catalog.qmd`** — prose converted to the CLI flow:\n- new \"Build the model into an artifact\" step (`xorq uv build -e expr`)\n- `xorq catalog init / add / list-aliases / set-remote / push / pull /\nclone`\nreplace `Catalog.from_repo_path`, `catalog.add(expr)`,\n`Catalog.clone_from`,\n    etc.; GitHub vs local-bare-repo tabs preserved\n  - wheel-build callout moved to `xorq uv build` (where it happens);\n    `sync=False` → `--no-sync`\n- the two genuinely-Python steps (BSL recovery via `from_tagged`,\nprofile\n    swap via `Profile` / `catalog.load`) kept and flagged as such\n  - \"What you learned\" updated to CLI verbs\n- **`working_with_the_catalog.snippets.py`** — smoke test drives the\nsame CLI\n  flow via `subprocess`, so test and prose now agree.\n\n## Why CLI (Diataxis rationale)\n\nThis is a **tutorial** — learning-oriented, so the steps must be\nreproducible\nand trustworthy. Two reasons to drive it from the CLI:\n\n- **Fills a coverage hole, no duplication.** The foundation tutorial\n(`build_a_semantic_catalog`) already teaches the Python API. Re-teaching\nthe\nsame surface here would be redundant; the CLI is the surface that\notherwise\n  has no tutorial.\n- **Matches who does this work.** The collaboration loop is\nshell/CI/teammate\n  territory (publish, clone, open a PR, pull) — the CLI is the interface\noperators actually use and the form you'd drop in a Makefile or CI step.\n\n## On testing\n\nDriving from the CLI is *harder* to smoke-test than the Python API\n(subprocess, stdout build-path capture, exit codes) — but it tests\n**more**:\nthe installed `xorq` binary, entry-point wiring, arg parsing, and flags\n(`-e`, `--no-sync`, `set-remote`). A pure-Python test can pass while\n`xorq catalog add` is broken; the CLI test exercises the full stack the\nreader\nruns. The extra brittleness mirrors the friction a reader hits — useful\nsignal,\nnot pure cost.\n\n## Verification\n\n- `.snippets.py` runs end-to-end (publish / clone / branch / merge /\npull)\n  clean against `xorq 0.3.27`\n- `vale` 0/0/0, `pymarkdown` clean, `quarto render` succeeds\n\n## Follow-up (not in this PR)\n\nThe smoke test runs `.snippets.py`, not the `.qmd` fences — so\nprose↔snippet\ndrift isn't caught automatically (it's what let the docs go stale here).\nA\nlightweight doc→CLI contract test (introspect the click app, assert\nevery\n`xorq ...` invocation referenced in docs resolves to a real command +\nflags)\nwould close that gap. Tracked separately.\n\nPart of the Diataxis docs effort — #2023 (Phase 0a: #2024).\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-15T14:04:11+02:00",
+          "tree_id": "3803f892b7a83a0d7172dc83a4b9582d2e989be9",
+          "url": "https://github.com/xorq-labs/xorq/commit/998e8e92c26642b80665eb293e5ac6ae0496d13d"
+        },
+        "date": 1781525272926,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.241325105780266,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01987654999154653",
+            "extra": "mean: 138.09627180000064 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.541441472778021,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07377596169720049",
+            "extra": "mean: 393.4774854000125 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7722602221642627,
+            "unit": "iter/sec",
+            "range": "stddev: 0.20189065545286378",
+            "extra": "mean: 1.294900308599989 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.7668505580292186,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06576798197790229",
+            "extra": "mean: 361.4217605999954 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.411422928158804,
+            "unit": "iter/sec",
+            "range": "stddev: 0.033586671616531096",
+            "extra": "mean: 414.6929135999926 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.819250234620402,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05757980230713123",
+            "extra": "mean: 354.7042357999999 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 136.7032214729742,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018548405379996937",
+            "extra": "mean: 7.315116565835259 msec\nrounds: 281"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.63308337959111,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07887046397392931",
+            "extra": "mean: 177.52266966667682 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 27.868576398449818,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008736660983060437",
+            "extra": "mean: 35.88270838461719 msec\nrounds: 26"
           }
         ]
       }
