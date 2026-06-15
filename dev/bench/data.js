@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781508525512,
+  "lastUpdate": 1781509575156,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -17790,6 +17790,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.007740445914145813",
             "extra": "mean: 34.8925900357163 msec\nrounds: 28"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "19fd1e8f4ac82e984eeb2c69e2f70c8fccb1859d",
+          "message": "test: add file_utils.file_digest coverage (#2075)\n\n## Summary\n- Add tests for `file_digest` in `xorq.common.utils.file_utils` —\npreviously untested\n- Covers str paths, Path objects, caching consistency, and the\n`ValueError` branch for unsupported types on Python 3.11+\n\nFollow-up to #2070 (relocatable reads), which refactored `file_digest`\nto add caching and a new code path.\n\n## Test plan\n- [x] `pytest python/xorq/common/utils/tests/test_file_utils.py` — 4/4\npass\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-06-15T09:42:39+02:00",
+          "tree_id": "fb0c4e719395398452441767bd6ff2374876db70",
+          "url": "https://github.com/xorq-labs/xorq/commit/19fd1e8f4ac82e984eeb2c69e2f70c8fccb1859d"
+        },
+        "date": 1781509572193,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.626277385884295,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0051241000976262555",
+            "extra": "mean: 103.88231711111631 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.4097626912547465,
+            "unit": "iter/sec",
+            "range": "stddev: 0.056126097961220096",
+            "extra": "mean: 414.97862159999954 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7257355793079314,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2193073528099193",
+            "extra": "mean: 1.377912325799997 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.8810109412999414,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006634470268340579",
+            "extra": "mean: 347.10038260000147 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.8060294292471926,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017808946249308243",
+            "extra": "mean: 356.375449799998 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.8288923003845254,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02363753195059206",
+            "extra": "mean: 353.49525320001476 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 221.55635010003564,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004917151555266778",
+            "extra": "mean: 4.513524435424608 msec\nrounds: 271"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.777079202127235,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06288504517799269",
+            "extra": "mean: 173.09785187500637 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 30.527695941948622,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0068664624931358146",
+            "extra": "mean: 32.75713967741284 msec\nrounds: 31"
           }
         ]
       }
