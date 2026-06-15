@@ -223,7 +223,8 @@ def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
 
     config = meta["__config__"]
     if "fn" in config:
-        kwds["__func__"] = udf.make_dunder_func(config["fn"], kwargs)
+        # pass Schema, not dict, to match the live agg.pandas_df build path (see ExprScalarUDF below)
+        kwds["__func__"] = udf.make_dunder_func(config["fn"], kwargs_to_schema(kwargs))
     elif {
         "evaluate",
         "evaluate_all",
