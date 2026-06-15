@@ -20,6 +20,7 @@ import click
 
 from xorq.catalog import constants as catalog_constants
 
+
 if TYPE_CHECKING:
     from xorq.catalog.content_store import ContentStoreConfig
 
@@ -332,6 +333,8 @@ def init(
             ) from err
         click.echo(f"Initialized catalog at {catalog.repo_path}")
         if remote_url:
+            from xorq.catalog.constants import DEFAULT_REMOTE  # noqa: PLC0415
+
             remote = catalog.set_remote(DEFAULT_REMOTE, remote_url)
             click.echo(f"Set remote {remote.name} -> {remote_url}")
 
@@ -701,6 +704,7 @@ def set_remote(ctx, url, name, force):
       # Replace an existing remote
       xorq catalog set-remote git@github.com:me/flights-catalog.git --force
     """
+    from xorq.catalog.constants import DEFAULT_REMOTE  # noqa: PLC0415
     from xorq.catalog.exceptions import CatalogConfigurationError  # noqa: PLC0415
 
     with click_context_catalog(ctx):
@@ -964,6 +968,7 @@ def log(ctx: click.Context, as_json: bool) -> None:
       xorq catalog log
       xorq catalog log --json | jq '.[] | select(.type == "Add")'
     """
+
     from xorq.catalog.replay import Replayer  # noqa: PLC0415
 
     with click_context_catalog(ctx):
@@ -1063,7 +1068,7 @@ def replay(
         replayer.replay(target, preserve_commits=preserve_commits)
         click.echo(f"Replayed {len(replayer.ops)} operations into {target_path}")
         if remote_url:
-            from xorq.catalog.constants import (
+            from xorq.catalog.constants import (  # noqa: PLC0415
                 ANNEX_BRANCH,
                 DEFAULT_REMOTE,
                 MAIN_BRANCH,

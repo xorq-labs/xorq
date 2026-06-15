@@ -415,8 +415,6 @@ def _transform_expr(expr, params=None, **kwargs):
 
 
 def _pandas_execute(con, expr: ir.Expr, **kwargs):
-    from xorq.expr.relations import FlightExpr, FlightUDXF  # noqa: PLC0415
-
     span = get_current_span()
 
     node = expr.op()
@@ -456,7 +454,6 @@ def to_pyarrow_batches(
     results
         RecordBatchReader
     """
-    from xorq.expr.relations import FlightExpr, FlightUDXF  # noqa: PLC0415
 
     span = get_current_span()
 
