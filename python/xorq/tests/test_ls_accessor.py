@@ -4,16 +4,21 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from toolz import identity
 
 import xorq.api as xo
+import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations.relations as rel
+from xorq import udf
 from xorq.backends.xorq_datafusion import Backend
 from xorq.caching import (
     ParquetCache,
     ParquetSnapshotCache,
 )
 from xorq.common.utils.graph_utils import walk_nodes
-from xorq.expr.relations import CachedNode
+from xorq.expr.relations import CachedNode, FlightExpr, FlightUDXF
+from xorq.expr.udf import ExprScalarUDF
+from xorq.vendor import ibis
 
 
 @pytest.fixture
@@ -130,6 +135,96 @@ def test_uncached_strips_cache_inside_remote_expr(tmp_path: Path) -> None:
 
     result = expr.ls.uncached
     assert not walk_nodes((CachedNode,), result)
+
+
+def test_uncached_strips_cache_inside_flight_expr(tmp_path: Path) -> None:
+    con = xo.connect()
+    t = con.register(pd.DataFrame({"a": [1, 2, 3]}), "t")
+    cache = ParquetSnapshotCache.from_kwargs(source=con, relative_path=tmp_path)
+    cached = t.cache(cache=cache)
+    expr = FlightExpr(
+        name="test_flight",
+        schema=cached.schema(),
+        source=con,
+        input_expr=cached,
+        unbound_expr=xo.table(cached.schema(), name="u"),
+        make_server=identity,
+        make_connection=identity,
+    ).to_expr()
+
+    assert walk_nodes((CachedNode,), expr)
+    assert not walk_nodes((CachedNode,), expr.ls.uncached)
+
+
+def test_uncached_strips_cache_inside_flight_udxf(tmp_path: Path) -> None:
+    con = xo.connect()
+    t = con.register(pd.DataFrame({"a": [1, 2, 3]}), "t")
+    cache = ParquetSnapshotCache.from_kwargs(source=con, relative_path=tmp_path)
+    cached = t.cache(cache=cache)
+
+    class DummyUDXF:
+        schema_in_required = None
+
+        @staticmethod
+        def schema_in_condition(sch):
+            return True
+
+        @staticmethod
+        def calc_schema_out(sch):
+            return sch
+
+    expr = FlightUDXF(
+        name="test_udxf",
+        schema=cached.schema(),
+        source=con,
+        input_expr=cached,
+        udxf=DummyUDXF,
+        make_server=identity,
+        make_connection=identity,
+    ).to_expr()
+
+    assert walk_nodes((CachedNode,), expr)
+    assert not walk_nodes((CachedNode,), expr.ls.uncached)
+
+
+def test_uncached_strips_cache_inside_expr_scalar_udf(tmp_path: Path) -> None:
+    con = xo.connect()
+    df = pd.DataFrame({"x": [1, 2, 3]})
+    data = con.register(df, "data").select("x")
+    schema = data.schema()
+    cache = ParquetSnapshotCache.from_kwargs(source=con, relative_path=tmp_path)
+
+    @udf.agg.pandas_df(schema=schema, return_type=dt.float64, name="my_sum")
+    def my_sum(frame):
+        return frame["x"].astype(float).sum()
+
+    cached = data.cache(cache=cache)
+    computed_kwargs_expr = my_sum.on_expr(cached).name("my_sum").as_table()
+
+    predict_udf = udf.make_pandas_expr_udf(
+        computed_kwargs_expr=computed_kwargs_expr,
+        fn=lambda value, frame, **kw: (frame["x"] + float(value)).astype(float),
+        schema=ibis.schema({"x": dt.float64}),
+        name="add_sum",
+        return_type=dt.float64,
+        post_process_fn=identity,
+    )
+
+    expr = data.mutate(out=predict_udf.on_expr(data)).as_table()
+
+    assert walk_nodes((ExprScalarUDF,), expr)
+    assert walk_nodes((CachedNode,), expr)
+    assert not walk_nodes((CachedNode,), expr.ls.uncached)
+
+
+def test_uncached_strips_nested_cached_nodes(tmp_path: Path) -> None:
+    con = xo.connect()
+    t = con.register(pd.DataFrame({"a": [1, 2, 3]}), "t")
+    cache = ParquetSnapshotCache.from_kwargs(source=con, relative_path=tmp_path)
+    expr = t.cache(cache=cache).cache(cache=cache)
+
+    assert len(walk_nodes((CachedNode,), expr)) == 2
+    assert not walk_nodes((CachedNode,), expr.ls.uncached)
 
 
 @pytest.mark.postgres

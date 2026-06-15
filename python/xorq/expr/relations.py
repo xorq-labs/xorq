@@ -30,8 +30,8 @@ from xorq.vendor.ibis.expr.operations import Node, Relation
 def replace_cache_table(node: Node, kwargs: dict[str, Any] | None) -> Node:
     if kwargs:
         node = node.__recreate__(kwargs)
-    if isinstance(node, CachedNode):
-        return node.parent.op()
+    while isinstance(node, CachedNode):
+        node = node.parent.op()
     return node
 
 
