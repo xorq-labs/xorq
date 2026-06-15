@@ -10,7 +10,7 @@ from zipfile import ZipExtFile
 
 
 def _manual_file_digest(
-    path: str | Path, digest: Callable = hashlib.md5, size: int = 2**20
+    path: str | Path | IO[bytes], digest: Callable = hashlib.md5, size: int = 2**20
 ) -> str:
     fh = path if hasattr(path, "read") else Path(path).open("rb")
     with closing(fh):

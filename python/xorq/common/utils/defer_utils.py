@@ -5,12 +5,16 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
+import pandas as pd
+import pyarrow as pa
 import toolz
 
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.xorq_datafusion import connect as xo_connect
-from xorq.common.utils.file_utils import file_digest
-from xorq.common.utils.file_utils import normalize_read_path_stat
+from xorq.common.utils.file_utils import (
+    normalize_read_path_md5sum,
+    normalize_read_path_stat,
+)
 from xorq.common.utils.inspect_utils import (
     get_arguments,
 )
@@ -53,10 +57,6 @@ def make_read_kwargs(f, *args, **kwargs):
     return tpl
 
 
-def normalize_read_path_md5sum(path):
-    return (("content-md5sum", file_digest(path)),)
-
-
 def relocatable_read_path(path: str | Path) -> tuple[str, str]:
     from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
 
@@ -64,24 +64,8 @@ def relocatable_read_path(path: str | Path) -> tuple[str, str]:
     return ("reads", f"{tokenize(normalize_read_path_md5sum(path))}{path.suffix}")
 
 
-def normalize_read_path_stat(path):
-    stat = path.stat()
-    tpls = tuple(
-        (attrname, getattr(stat, attrname))
-        for attrname in (
-            "st_mtime",
-            "st_size",
-            # mtime, size <?-?> md5sum
-            "st_ino",
-        )
-    )
-    return tpls
-
-
 @toolz.curry
 def infer_csv_schema_pandas(path, chunksize=DEFAULT_CHUNKSIZE, **kwargs):
-    import pandas as pd  # noqa: PLC0415
-    import pyarrow as pa  # noqa: PLC0415
 
     path = normalize_filenames(path)
     gen = pd.read_csv(path[0], chunksize=chunksize, **kwargs)
@@ -93,8 +77,6 @@ def infer_csv_schema_pandas(path, chunksize=DEFAULT_CHUNKSIZE, **kwargs):
 
 def read_csv_rbr(*args, schema=None, chunksize=DEFAULT_CHUNKSIZE, dtype=None, **kwargs):
     """Deferred and streaming csv reading via pandas"""
-    import pandas as pd  # noqa: PLC0415
-    import pyarrow as pa  # noqa: PLC0415
 
     if dtype is not None:
         raise TypeError("pass `dtype` as pyarrow `schema`")

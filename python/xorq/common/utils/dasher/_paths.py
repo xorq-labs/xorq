@@ -17,9 +17,8 @@ import urllib.request
 
 import yaml12
 
-from xorq.common.utils.file_utils import normalize_read_path_stat
-
 from xorq.common.constants import REMOTE_SCHEMES
+from xorq.common.utils.file_utils import normalize_read_path_stat
 
 
 # Catalog-extract tempdir prefix. ``xorq.catalog.expr_utils.load_expr_from_zip``
