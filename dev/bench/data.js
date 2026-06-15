@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781524595025,
+  "lastUpdate": 1781524604712,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -18399,6 +18399,93 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.00924083047277605",
             "extra": "mean: 36.62187469999859 msec\nrounds: 30"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hussainz@gmail.com",
+            "name": "Hussain Sultan",
+            "username": "hussainsultan"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0a080c97e38acab96a518542f86832d5bffc9229",
+          "message": "fix(tokenize): yaml roundtrip cache key for aggudf (#2068)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-06-15T07:52:58-04:00",
+          "tree_id": "b5b770326ecdf5fe447654e1e3b9205e6ee2057e",
+          "url": "https://github.com/xorq-labs/xorq/commit/0a080c97e38acab96a518542f86832d5bffc9229"
+        },
+        "date": 1781524601178,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.340374094698602,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00664660078792301",
+            "extra": "mean: 119.89869862499702 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.607785592600181,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07478066721982937",
+            "extra": "mean: 383.4671081999943 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.8032441537980333,
+            "unit": "iter/sec",
+            "range": "stddev: 0.144352428401568",
+            "extra": "mean: 1.244951482400006 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.669911854104353,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06043126414743437",
+            "extra": "mean: 374.54420019999475 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.9869185006951056,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008171370658498127",
+            "extra": "mean: 334.79319900000064 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.1330102043940653,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012585981073927489",
+            "extra": "mean: 319.18185220000055 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 180.94128309726847,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0071640735679920275",
+            "extra": "mean: 5.5266547406012965 msec\nrounds: 266"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.41924678102647,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08416616279059451",
+            "extra": "mean: 184.5274888571485 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 26.947838680889667,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012930389320758778",
+            "extra": "mean: 37.10872741379294 msec\nrounds: 29"
           }
         ]
       }
