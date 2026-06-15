@@ -814,11 +814,9 @@ class ExprLoader:
             ParquetTTLSnapshotCache,
         )
 
-        # Use replace_nodes (not the native op.replace) so the rewrite reaches
-        # CachedNodes nested inside opaque sub-expressions (e.g. a cache behind
-        # an into_backend, under RemoteTable.remote_expr). Native replace does
-        # not descend into those, so such a cache would keep base_path=None and
-        # silently resolve to the default cache dir, ignoring cache_dir.
+        # replace_nodes (not op.replace) so the rewrite reaches CachedNodes
+        # nested in opaque sub-exprs (e.g. a cache behind into_backend); native
+        # replace skips those, leaving base_path=None and ignoring cache_dir.
         def replacer(node, kwargs):
             if isinstance(node, CachedNode) and isinstance(
                 node.cache, parquet_cache_types
