@@ -8,6 +8,8 @@ from abc import abstractmethod
 from attr import field, frozen
 from attr.validators import instance_of
 
+from xorq.common.constants import READ_IDENTITY_KEYS
+
 
 # Per-outer-call memo for ``SnapshotStrategy.normalize_databasetable``.
 # Mirrors ``_dt_normalize_memo`` in ``_relations.py`` but kept separate so
