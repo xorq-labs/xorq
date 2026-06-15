@@ -37,7 +37,7 @@ from xorq.common.utils.file_utils import normalize_read_path_md5sum
 from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.conftest import array_types_df
-from xorq.expr.relations import CachedNode, Read
+from xorq.expr.relations import CachedNode, Read, RemoteTable
 from xorq.ibis_yaml.compiler import (
     ArtifactStore,
     DumpFiles,
@@ -1577,3 +1577,28 @@ def test_mark_reads_relocatable_is_idempotent(sample_parquet: pathlib.Path) -> N
     assert once_kw == twice_kw
 
     assert tokenize(once) == tokenize(twice)
+
+
+def test_cache_dir_reaches_remote_expr_nested_cache(tmp_path):
+    cona = xo.connect()
+    conb = xo.connect()
+    t = cona.register(pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}), "t")
+    cache = ParquetSnapshotCache.from_kwargs(
+        source=cona, relative_path="c", base_path=tmp_path / "buildcache"
+    )
+    cached = t.mutate(s=t.a + t.b).cache(cache=cache)
+    expr = cached.into_backend(conb, "moved")
+
+    assert any(
+        walk_nodes((CachedNode,), rt.remote_expr)
+        for rt in walk_nodes((RemoteTable,), expr)
+    )
+
+    build_path = build_expr(expr, builds_dir=tmp_path / "builds")
+    target = tmp_path / "cache_target"
+    loaded = load_expr(build_path, cache_dir=str(target))
+
+    cached_nodes = walk_nodes((CachedNode,), loaded)
+    assert cached_nodes
+    for cn in cached_nodes:
+        assert cn.cache.storage.base_path == target
