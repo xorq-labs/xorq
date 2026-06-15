@@ -102,6 +102,7 @@ website:
           section: "Fundamentals"
           contents:
             - concepts/understanding_xorq/why_deferred_execution.qmd
+            - concepts/understanding_xorq/catalog_as_executable_memory.qmd
             - concepts/understanding_xorq/expression_format.qmd
             - concepts/understanding_xorq/expression_types.qmd
         - id: execution-backends-section

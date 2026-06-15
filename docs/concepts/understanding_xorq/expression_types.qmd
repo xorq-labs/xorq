@@ -16,7 +16,7 @@ Three of the kinds are **structural** --- they fall out of the shape of the expr
 | **Expr** | Bound data with transformations applied | No |
 | **UnboundExpr** | A template expression not tied to any backend | Yes |
 
-Two more are **tag-driven**—they're recognized by domain-specific tags
+Two more are **tag-driven** --- they're recognized by domain-specific tags
 that higher-level tools (the ML pipeline API, the catalog, semantic layers)
 attach to the outermost node:
 
