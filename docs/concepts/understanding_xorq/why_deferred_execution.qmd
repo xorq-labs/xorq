@@ -2,5 +2,131 @@
 title: "Deferred Execution"
 ---
 
-Deferred execution is a core architectural principle in Xorq that builds computational graphs rather than immediately executing operations. This approach enables powerful optimizations, cross-engine portability, and efficient resource management - similar to how [Polars Lazy](https://docs.pola.rs/user-guide/concepts/lazy-api/), and [Dask Delayed](https://docs.dask.org/en/stable/delayed.html) work, but specifically designed for ML pipelines and multi-engine data workflows.
+Deferred execution is the architectural choice that everything else in Xorq
+builds on. When you chain operations on a Xorq expression, nothing runs. Xorq
+records *what you asked for* as a graph of operations and waits. Computation
+happens only when you explicitly ask for results—`.execute()`, `.to_pandas()`,
+`.to_pyarrow()`. The same approach drives [Polars
+Lazy](https://docs.pola.rs/user-guide/concepts/lazy-api/) and [Dask
+Delayed](https://docs.dask.org/en/stable/delayed.html), but Xorq applies it to
+ML pipelines that span multiple engines.
 
+This page explains why the deferral is there and what you get for it. For a
+hands-on walkthrough of when computation fires, see the
+[Defer query execution](../../getting_started/understand_deferred_execution.qmd)
+tutorial.
+
+## What "deferred" means here
+
+A Xorq expression is a description, not a result. `iris.filter(...)` returns
+another expression; `.group_by(...).agg(...)` returns another still. Each call
+adds a node to an **expression graph**—a tree of operations rooted at a source
+table—and returns immediately without touching data. The graph is a value you
+can inspect, hash, serialize, and pass around. It's not the answer; it's the
+plan for computing the answer.
+
+Because the plan is a first-class object, Xorq can look at the *whole* pipeline
+before it runs any of it. An eager system sees one operation at a time and must
+commit to a result before it knows what comes next. A deferred system sees the
+filter, the join, the aggregation, and the cache boundary all at once, and gets
+to decide how to run them together.
+
+## Why it matters for ML pipelines
+
+ML pipelines are where the payoff shows up, for three reasons.
+
+**Full-pipeline optimization.** With the entire graph in hand, Xorq can prune
+columns that nothing downstream reads, push filters closer to the source so less
+data moves, and collapse redundant steps. Run the operations eagerly and each
+one materializes its result before the next is even known, so none of these
+rewrites are possible.
+
+**Cross-engine routing.** A real pipeline rarely lives in one engine. You might
+read from Postgres, do a heavy join in DuckDB, and run a model in Python. Because
+the graph names every backend boundary explicitly, Xorq can route each part to
+the engine that suits it and stream the data across the boundary—without you
+hand-coding the transfers. The graph is what makes
+[multi-engine execution](multi_engine_execution.qmd) automatic instead of manual.
+
+**A portable artifact.** A deferred graph can be serialized to a manifest and
+re-run elsewhere. That's what lets a build become a catalog entry: the plan
+travels, and a different machine reproduces the computation from it.
+
+## Eager versus deferred
+
+The difference is concrete. Build an expression and it stays an expression—no
+data has moved yet:
+
+```{python}
+import xorq.api as xo
+
+con = xo.connect()
+iris = xo.examples.iris.fetch(backend=con)
+
+# Deferred: still an expression; the full plan is visible to Xorq.
+deferred = (
+    iris.filter(xo._.sepal_length > 6)
+    .group_by("species")
+    .agg(avg_width=xo._.sepal_width.mean())
+)
+
+print(f"deferred is still an expression: {type(deferred).__module__}.{type(deferred).__name__}")
+```
+
+Force execution after the first step instead, and you hold materialized data—a
+table—that Xorq can no longer optimize or chain:
+
+```{python}
+# Eager: execute() runs now and returns data, so optimization stops here.
+immediate = iris.filter(xo._.sepal_length > 6).execute()
+
+print(f"immediate is materialized data: {type(immediate).__module__}.{type(immediate).__name__}")
+print(f"rows: {len(immediate)}")
+```
+
+In the eager line, the filter runs against the full table before the group-by
+exists, so Xorq can't fuse the two or push the predicate down. In the deferred
+graph, the filter, group-by, and aggregation are one plan; Xorq optimizes and
+runs them as a unit when you finally call `.execute()`:
+
+```{python}
+result = deferred.execute()
+print(result)
+```
+
+## The tradeoff
+
+Deferral isn't free. The result you want isn't there until you ask for it, and
+an expression that looks complete may still be hiding an error that surfaces only
+at execution time. The graph adds a layer of indirection between your code and
+your data, and debugging sometimes means reasoning about a plan rather than
+inspecting a value.
+
+The fix is to execute deliberately. Call `.execute()` early when you genuinely
+need materialized data—an exploratory peek at a sample, a value you have to
+branch on in Python, a result you'll hand to a library that doesn't speak Xorq.
+The rule of thumb: defer while you're still describing the pipeline, materialize
+when you've crossed into needing the data itself. Executing too early just throws
+away optimization Xorq would otherwise have done for you.
+
+## Connection to caching
+
+Deferred execution is what makes Xorq's [caching](intelligent_caching_system.qmd)
+possible at all. Because the pipeline is a known graph before it runs, Xorq can
+attach a cache to any node and compute a stable key for the computation that node
+represents. `.cache()` doesn't run anything—it inserts a `CachedNode` into the
+graph. On execution Xorq walks the graph, and at each cached node either reuses a
+stored result or computes and stores it.
+
+That only works because the structure is known up front. An eager system has no
+graph to attach a cache to and no way to ask whether this exact computation has
+run before—the computation is already gone by the time you'd ask. A deferred graph
+gives every node a stable identity, which is the same property that powers
+[content-addressed artifacts](why_content_addressed_artifacts.qmd).
+
+::: {.callout-tip}
+### Where to go next
+- [Defer query execution](../../getting_started/understand_deferred_execution.qmd)—a hands-on walkthrough of when computation fires.
+- [Multi-engine execution](multi_engine_execution.qmd)—how the graph routes work across backends.
+- [Caching](intelligent_caching_system.qmd)—how a known graph becomes cacheable nodes.
+:::
