@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import operator
 from datetime import datetime, timedelta
 
 import pytest
 
 import xorq.api as xo
+from xorq.backends.duckdb import Backend as DuckDBBackend
 from xorq.vendor import ibis
 from xorq.vendor.ibis.util import gen_name
 
@@ -105,7 +108,7 @@ def test_keyed_asof_join_with_tolerance(
 
 
 # https://github.com/xorq-labs/xorq/issues/983
-def test_asof_join_tolerance_with_into_backend(duckdb_con):
+def test_asof_join_tolerance_with_into_backend(duckdb_con: DuckDBBackend) -> None:
     sensors_df = pd.DataFrame(
         {
             "site": ["a", "b", "a", "b", "a"],

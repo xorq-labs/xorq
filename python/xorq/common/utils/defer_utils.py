@@ -289,13 +289,3 @@ def deferred_read_parquet(
         read_kwargs=read_kwargs,
         normalize_method=normalize_method,
     ).to_expr()
-
-
-def rbr_wrapper(reader, clean_up):
-    def gen():
-        try:
-            yield from reader
-        finally:
-            clean_up()
-
-    return pa.RecordBatchReader.from_batches(reader.schema, gen())

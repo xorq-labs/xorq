@@ -3299,14 +3299,14 @@ class Table(Expr, _FixedTextJupyterMixin):
             name = util.gen_name("sql_query")
             expr = self
 
-        from xorq.expr.api import transformed
+        from xorq.expr.api import remote_table_scope
 
         # full close (placeholder drops included) on exit: only the schema
-        # probe runs while the scope is open. The returned SQLStringView
+        # probe runs while the scope is open.  The returned SQLStringView
         # embeds the transformed child, but executing it over RemoteTables
         # already fails at alias-name resolution before the released
         # resources could matter; closing here at least stops the leak.
-        with transformed(expr) as expr:
+        with remote_table_scope(expr) as expr:
             schema = backend._get_sql_string_view_schema(
                 name=name, table=expr, query=query
             )

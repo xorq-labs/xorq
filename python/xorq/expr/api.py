@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
@@ -36,7 +37,11 @@ from xorq.expr.operations import _MISSING, NamedScalarParameter
 from xorq.expr.relations import (
     CachedNode,
     HashingTag,
+    Read,
     Tag,
+)
+from xorq.expr.remote_table_exec import (
+    bind_scope_to_reader,
     register_and_transform_remote_tables,
 )
 from xorq.vendor.ibis.backends import BaseBackend
@@ -246,14 +251,10 @@ def _register_and_transform_cache_tables(expr):
 
 
 @tracer.start_as_current_span("_transform_deferred_reads")
-def _transform_deferred_reads(expr):
-    dt_to_read = {}
-
+def _transform_deferred_reads(expr: ir.Expr) -> ir.Expr:
     span = trace.get_current_span()
 
     def replace_read(node, _kwargs):
-        from xorq.expr.relations import Read  # noqa: PLC0415
-
         if isinstance(node, Read):
             read_kwargs = dict(node.read_kwargs)
             span.add_event(
@@ -269,14 +270,13 @@ def _transform_deferred_reads(expr):
                 },
             )
             # FIXME: pandas read is not lazy, leave it to the pandas executor to do
-            node = dt_to_read[node] = node.make_dt()
+            node = node.make_dt()
         else:
             if _kwargs:
                 node = node.__recreate__(_kwargs)
         return node
 
-    expr = expr.op().replace(replace_read).to_expr()
-    return expr, dt_to_read
+    return expr.op().replace(replace_read).to_expr()
 
 
 @tracer.start_as_current_span("execute")
@@ -419,7 +419,7 @@ def _transform_expr(expr, params=None, **kwargs):
     expr = _register_and_transform_cache_tables(expr)
     expr, scope = register_and_transform_remote_tables(expr, **kwargs)
     try:
-        expr, dt_to_read = _transform_deferred_reads(expr)
+        expr = _transform_deferred_reads(expr)
     except Exception:
         scope.close()
         raise
@@ -427,7 +427,7 @@ def _transform_expr(expr, params=None, **kwargs):
 
 
 @contextmanager
-def transformed(expr, **kwargs):
+def remote_table_scope(expr: ir.Expr, **kwargs: Any) -> Generator[ir.Expr]:
     """Transform ``expr`` and yield it with a guaranteed full scope close.
 
     For eager call sites only: the body must fully materialize the result
@@ -453,7 +453,7 @@ def _pandas_execute(con, expr: ir.Expr, **kwargs):
 
     span.set_attribute("engine", "pandas")
     # full close is safe here: con.execute returns a materialized DataFrame
-    with transformed(expr, params=params) as expr:
+    with remote_table_scope(expr, params=params) as expr:
         return con.execute(expr, **kwargs)
 
 
@@ -501,7 +501,7 @@ def to_pyarrow_batches(
 
     # cleanup stays deferred to the result reader's exhaustion/collection:
     # the backends scan the placeholders lazily while the reader drains
-    return otel_instrument_reader(scope.bind(reader))
+    return otel_instrument_reader(bind_scope_to_reader(scope, reader))
 
 
 def to_pyarrow(expr: ir.Expr, **kwargs: Any):
@@ -651,7 +651,7 @@ def to_json(
 
 def get_plans(expr):
     # full close is safe here: EXPLAIN is materialized via to_pandas inside
-    with transformed(expr) as _expr:
+    with remote_table_scope(expr) as _expr:
         con, _ = find_backend(_expr.op())
         sql = f"EXPLAIN {to_sql(_expr)}"
         return con.con.sql(sql).to_pandas().set_index("plan_type")["plan"].to_dict()

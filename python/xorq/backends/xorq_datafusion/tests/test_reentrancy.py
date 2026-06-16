@@ -2,7 +2,7 @@
 
 xorq's execution teardown drops the views it registered from inside the result
 ``RecordBatchReader``'s generator ``finally`` block (see
-``rbr_wrapper``/``clean_up`` in ``xorq/expr/api.py``). That fires
+``bind_scope_to_reader`` in ``xorq/expr/remote_table_exec.py``). That fires
 ``con.sql("DROP VIEW ...")`` while the reader from the same datafusion
 ``SessionContext`` is still draining. When the context method held an exclusive
 borrow across the GIL-releasing future, the re-entrant ``sql()`` raised
@@ -16,6 +16,8 @@ eviction never shifts the stream-exhaustion timing that made this deterministic.
 These tests guard against reintroducing the hazard from the xorq side.
 """
 
+from __future__ import annotations
+
 import gc
 import io
 import threading
@@ -26,7 +28,7 @@ import xorq.api as xo
 from xorq.vendor.ibis.expr import types as ir
 
 
-def _teardown_expr(con) -> ir.Table:
+def _teardown_expr(con: xo.Backend) -> ir.Table:
     """An expr whose execution registers datafusion views that the result
     reader's ``finally`` drops while the reader is still draining."""
     df = pa.table({"user_id": [1, 2, 3], "amount": [10.0, 20.0, 30.0]})

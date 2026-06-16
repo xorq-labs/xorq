@@ -24,6 +24,8 @@ Fix (xorq-datafusion ef86e2b):
   See: https://github.com/xorq-labs/xorq-datafusion/commit/ef86e2b10190c5f0276d4d4aa4dd9135a8dcb82a
 """
 
+from __future__ import annotations
+
 import subprocess
 import sys
 
@@ -57,7 +59,7 @@ print("ok")
 """
 
 
-def test_stream_cache_two_scan_no_deadlock():
+def test_stream_cache_two_scan_no_deadlock() -> None:
     """Two scalar subqueries over a StreamCache-backed table must not deadlock."""
     try:
         proc = subprocess.run(

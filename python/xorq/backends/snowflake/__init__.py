@@ -14,7 +14,7 @@ import xorq.vendor.ibis.expr.api as api
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.logging_utils import get_logger
-from xorq.expr.relations import (
+from xorq.expr.remote_table_exec import (
     prepare_create_table_from_expr,
 )
 from xorq.vendor.ibis.backends.snowflake import _SNOWFLAKE_MAP_UDFS
@@ -176,33 +176,40 @@ class Backend(IbisSnowflakeBackend):
         if comment is not None:
             properties.append(sge.SchemaCommentProperty(this=sge.convert(comment)))
 
-        if obj is not None:
-            if not isinstance(obj, ir.Expr):
-                table = api.memtable(obj)
-            else:
+        scope = None
+        match obj:
+            case ir.Expr():
                 if catalog is not None and db is not None:
-                    table = prepare_create_table_from_expr(
+                    (table, scope) = prepare_create_table_from_expr(
                         self, obj, database=(catalog, db)
                     )
                 else:
-                    table = prepare_create_table_from_expr(self, obj)
+                    (table, scope) = prepare_create_table_from_expr(self, obj)
+            case pd.DataFrame() | pa.Table():
+                table = api.memtable(obj)
+            case None:
+                table = None
+            case _:
+                raise TypeError(f"unsupported obj type: {type(obj)}")
 
-            self._run_pre_execute_hooks(table)
-
-            query = self.compiler.to_sqlglot(table)
-        else:
-            query = None
-
-        create_stmt = sge.Create(
-            kind="TABLE",
-            this=target,
-            replace=overwrite,
-            properties=sge.Properties(expressions=properties),
-            expression=query,
-        )
-
-        with self._safe_raw_sql(create_stmt):
-            pass
+        try:
+            if table is not None:
+                self._run_pre_execute_hooks(table)
+                query = self.compiler.to_sqlglot(table)
+            else:
+                query = None
+            create_stmt = sge.Create(
+                kind="TABLE",
+                this=target,
+                replace=overwrite,
+                properties=sge.Properties(expressions=properties),
+                expression=query,
+            )
+            with self._safe_raw_sql(create_stmt):
+                pass
+        finally:
+            if scope is not None:
+                scope.close()
 
         return self.table(name, database=(catalog, db))
 
