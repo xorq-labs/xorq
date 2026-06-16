@@ -122,12 +122,25 @@ batch 0. The same holds for ASOF-with-`tolerance` and any other multi-scan shape
 #### Bounded eviction via `max_readers`
 
 `count_remote_table_readers` compiles the expression to a sqlglot AST with sentinel
-table names and counts how many `Table` nodes bear each sentinel — giving the exact
-physical scan count whatever lowering the backend compiler applies. The count becomes
+table names and counts how many `Table` nodes bear each sentinel. The count becomes
 `StreamCache`'s `max_readers`, allowing it to evict batches once all readers advance
-past them. This is a memory optimisation, not a correctness requirement: if no AST
-can be produced (non-SQL backend), `max_readers` is omitted and the cache retains all
-batches.
+past them. When no AST can be produced (non-SQL backend), `max_readers` is omitted and
+the cache retains all batches.
+
+This count is a best-effort *lower bound*, not an exact physical scan count. It sees
+only the scans the compiled SQL spells out; it cannot see re-scans the backend's
+optimiser introduces *below* the SQL layer. The known gap: DuckDB lowers a
+`PARTITION BY`-only aggregate window (`sum(v) OVER (PARTITION BY k)`, no `ORDER BY`)
+into a `GROUP BY` self-join — `HASH_JOIN(SEQ_SCAN, GROUP_BY(SEQ_SCAN))`, no `WINDOW`
+operator — that scans its input twice, while the AST counts one `Table` node.
+
+`max_readers` is enforced as a **hard cap**: a reader beyond the cap raises
+`ValueError: Maximum number of readers reached`. So an *undercount* is not merely a
+missed memory optimisation — it is a correctness bug for the query shapes it misses
+(the partition-window case above is one). Omitting the count entirely is always safe
+(unbounded cache); deriving a count that is too low is not. This is the one place the
+batchcorder design still depends on getting a scan count right, and the AST heuristic
+does not get it right for every shape. (See "Counting accuracy" under Negative.)
 
 ### Storage modes
 
@@ -200,22 +213,33 @@ ingestion and an optional disk spill path.
 
 ### Positive
 
-- **No pre-counting for correctness.** `replacer` creates one `StreamCache` per
-  `RemoteTable` node without knowing how many times DuckDB will scan it.
-  `max_readers` is a memory-eviction hint derived from the sqlglot AST; omitting
-  it is safe — the cache simply retains all batches.
+- **Replay is decoupled from the count.** `replacer` creates one `StreamCache` per
+  `RemoteTable` node, and any reader can replay the full stream from batch 0. The
+  sqlglot-AST count feeds only `max_readers`, which bounds eviction; omitting it is
+  always safe — the cache simply retains all batches. (The count is *not* free of
+  correctness consequences when supplied — see "Counting accuracy" below.)
 - **Thread-safe reads.** Concurrent `StreamCacheReader` handles share an
   `Arc<Mutex<DatasetInner>>` and are designed for concurrent use.
 - **Prompt resource release.** `RemoteTableScope.close()` releases tables, caches,
   and readers in dependency order. Eager call sites use `remote_table_scope`;
   streaming call sites use `bind_scope_to_reader`.
-- **Fixes #983 and the full multi-scan class.** ASOF join with `tolerance` and
-  self-join both work correctly.
+- **Fixes #983 and most of the multi-scan class.** ASOF join with `tolerance` and
+  self-join both work correctly. The replay mechanism itself handles any number of
+  scans; the remaining gap is purely in `max_readers` undercounting certain shapes
+  (see "Counting accuracy").
 
 ### Negative
 
-- **New runtime dependency.** `batchcorder >= 0.1.2` is now required. It ships
+- **New runtime dependency.** `batchcorder == 0.1.3` is now required. It ships
   pre-built wheels, requires only `pyarrow` (no `arro3`), and supports Python ≥ 3.10.
+- **Counting accuracy (`max_readers`).** The sqlglot-AST scan count is a heuristic
+  lower bound, and `max_readers` is a hard cap, so any query whose backend re-scans a
+  source below the SQL layer can undercount and raise `ValueError: Maximum number of
+  readers reached`. The known case is a `PARTITION BY`-only aggregate window on DuckDB
+  (lowered to a `GROUP BY` self-join). Reading the backend's physical `EXPLAIN` plan
+  would give the exact count, but that plan is data-dependent (the optimiser prunes
+  scans of provably-empty placeholder tables), so it cannot be reproduced offline
+  without representative data; pending a fix, the AST count stands.
 - **Abandoned reader leak (streaming path).** `bind_scope_to_reader` defers cleanup
   to a wrapping generator's `finally` block, with a `weakref.finalize` backstop.
   Python guarantees the finaliser runs when the reader is GCed, but the timing is
