@@ -240,18 +240,23 @@ def register_and_transform_remote_tables(
     def replacer(node, kwargs):
         if isinstance(node, RemoteTable):
             remote_expr = node.remote_expr
-            # Cache the reader's own (physical) schema, not the logical
-            # ``as_table().schema()``. The two can diverge -- e.g. a dropped
-            # ``row_number`` still rides along in the stream -- and StreamCache
-            # exports the declared schema over the Arrow C stream FFI, where a
-            # batch with extra children aborts the process
-            # (``fields.len() == num_children``). The reader already carries the
-            # true schema; column coercion is the consumer's job
-            # (``read_record_batches`` -> ``_select_and_cast``).
-            reader = scope.adopt_reader(remote_expr.to_pyarrow_batches())
+            # Cast batches to the logical schema before entering
+            # StreamCache. The raw reader may carry extra physical columns
+            # (e.g. row_number) or mismatched types (large_utf8 vs utf8);
+            # StreamCache replays through the C Data Interface using the
+            # declared schema, so uncasted data silently corrupts reads.
+            raw_reader = scope.adopt_reader(remote_expr.to_pyarrow_batches())
+            logical_schema = node.schema.to_pyarrow()
+            casting_reader = pa.RecordBatchReader.from_batches(
+                logical_schema,
+                (
+                    batch.select(logical_schema.names).cast(logical_schema)
+                    for batch in raw_reader
+                ),
+            )
             cache = scope.adopt_cache(
                 StreamCache(
-                    reader,
+                    casting_reader,
                     max_readers=reader_counts.get(node),
                 )
             )
@@ -261,7 +266,7 @@ def register_and_transform_remote_tables(
             # registered
             table_name = scope.adopt_table(node.source, gen_name())
             result = node.source.read_record_batches(
-                cache, table_name=table_name, **read_kwargs
+                cache, table_name=table_name, schema=logical_schema, **read_kwargs
             )
             return result.op()
 

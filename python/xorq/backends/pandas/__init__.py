@@ -345,7 +345,8 @@ class Backend(BasePandasBackend):
         | list[pa.RecordBatch]
         | tuple[pa.RecordBatch],
         table_name: str | None = None,
-    ):
+        schema: pa.Schema | None = None,
+    ) -> ir.Table:
         if isinstance(record_batches, (list, tuple)):
             record_batches = pa.RecordBatchReader.from_batches(
                 record_batches[0].schema, record_batches

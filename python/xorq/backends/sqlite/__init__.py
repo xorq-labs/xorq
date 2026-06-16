@@ -25,6 +25,7 @@ class Backend(IbisSQLiteBackend):
         table_name: str | None = None,
         mode: str = "create",
         overwrite: bool = True,
+        schema: pa.Schema | None = None,
         **kwargs: Any,
     ) -> ir.Table:
         from xorq.common.utils.sqlite_utils import SQLiteADBC  # noqa: PLC0415

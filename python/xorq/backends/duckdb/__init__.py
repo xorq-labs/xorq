@@ -20,7 +20,12 @@ class Backend(IbisDuckDBBackend):
             batch_reader.read_pandas(timestamp_as_object=True)
         )
 
-    def read_record_batches(self, source, table_name=None):
+    def read_record_batches(
+        self,
+        source: pa.Table | pa.RecordBatchReader,
+        table_name: str | None = None,
+        schema: pa.Schema | None = None,
+    ) -> ir.Table:
         table_name = table_name or gen_name("read_record_batches")
         self.con.register(table_name, source)
         return self.table(table_name)

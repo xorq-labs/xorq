@@ -723,23 +723,23 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         | StreamCache
         | Iterable[pa.RecordBatch],
         table_name: str | None = None,
+        schema: pa.Schema | None = None,
     ) -> ir.Table:
         """Register Arrow data as a table in the current database.
 
-        Except for ``StreamCache``, each batch is cast to the declared schema
-        before being handed to DataFusion. This prevents silent data corruption
-        when physical Arrow types differ from the declared schema (e.g.
-        ``large_utf8`` batches with a ``utf8`` schema), which would otherwise
-        cause DataFusion to misread 64-bit offsets as 32-bit across the C Data
-        Interface boundary.
+        Each batch is cast to a target schema before being handed to
+        DataFusion. This prevents silent data corruption when physical Arrow
+        types differ from the declared schema (e.g. ``large_utf8`` batches
+        with a ``utf8`` schema), which would otherwise cause DataFusion to
+        misread 64-bit offsets as 32-bit across the C Data Interface boundary.
 
         Parameters
         ----------
         source
             The Arrow data to register. Accepts:
 
-            - ``StreamCache`` — replayable and self-describing; registered
-              directly to serve DataFusion's multi-scan plans.
+            - ``StreamCache`` — multi-scan capable; batches are cast and
+              re-ingested into a new inner cache.
             - ``pa.Table`` — converted to batches via ``to_batches()``.
             - ``pa.RecordBatchReader`` — consumed directly; schema taken from
               the reader.
@@ -751,6 +751,11 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         table_name
             Name for the registered table. Defaults to a sequentially
             generated name.
+        schema
+            Logical schema to project and cast batches to. When provided,
+            ``_select_and_cast`` uses this schema instead of the source's
+            own schema, dropping any extra physical columns. Defaults to
+            ``None``, which uses the source's declared schema.
 
         Returns
         -------
@@ -786,13 +791,30 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
         self.con.deregister_table(table_ident)
         match source:
-            # StreamCache is replayable and self-describing -- register directly.
             case StreamCache():
-                reader = source
+                target_schema = schema if schema is not None else source.schema
+                reader = pa.RecordBatchReader.from_stream(source)
+
+                def _cast_batches() -> Iterable[pa.RecordBatch]:
+                    with contextlib.closing(reader):
+                        for batch in reader:
+                            yield _select_and_cast(batch, target_schema)
+
+                inner_cache = StreamCache(
+                    pa.RecordBatchReader.from_batches(target_schema, _cast_batches())
+                )
+                self.con.register_record_batch_reader(table_ident, inner_cache)
+                try:
+                    return self.table(table_name)
+                except Exception:
+                    self.con.deregister_table(table_ident)
+                    raise
             case pa.Table():
-                reader = _casting_reader(source.schema, source.to_batches())
+                target_schema = schema if schema is not None else source.schema
+                batches = source.to_batches()
             case pa.RecordBatchReader():
-                reader = _casting_reader(source.schema, source)
+                target_schema = schema if schema is not None else source.schema
+                batches = source
             case str() | bytes():
                 raise TypeError(f"unsupported source type: {type(source).__name__}")
             case _ if hasattr(source, "__iter__"):
@@ -801,10 +823,17 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                     first = next(it)
                 except StopIteration:
                     raise ValueError("source has no rows") from None
-                reader = _casting_reader(first.schema, itertools.chain([first], it))
+                target_schema = schema if schema is not None else first.schema
+                batches = itertools.chain([first], it)
             case _:
                 raise TypeError(f"unsupported source type: {type(source).__name__}")
-        self.con.register_record_batch_reader(table_ident, reader)
+        self.con.register_record_batch_reader(
+            table_ident,
+            pa.RecordBatchReader.from_batches(
+                target_schema,
+                (_select_and_cast(batch, target_schema) for batch in batches),
+            ),
+        )
         return self.table(table_name)
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
