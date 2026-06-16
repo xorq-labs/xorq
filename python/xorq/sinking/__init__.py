@@ -5,6 +5,7 @@ from xorq.sinking.sink import (
     ParquetSink,
     SinkMode,
     SinkNode,
+    ThreadedBackendSink,
 )
 from xorq.sinking.wap import (
     make_iceberg_branch_wap_expr,
@@ -18,6 +19,7 @@ __all__ = [
     "ParquetSink",
     "SinkMode",
     "SinkNode",
+    "ThreadedBackendSink",
     "make_iceberg_branch_wap_expr",
     "make_iceberg_wap_expr",
     "make_parquet_wap_expr",

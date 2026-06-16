@@ -210,3 +210,78 @@ class BackendSink(SinkNode):
         if collected:
             reader = pa.RecordBatchReader.from_batches(collected[0].schema, collected)
             self._ingest(reader, self.mode.value)
+
+
+@frozen
+class ThreadedBackendSink(BackendSink):
+    """A BackendSink that streams a single ingest through a background thread.
+
+    ``execute`` keeps the same generator shape — pull a batch, yield it onward —
+    but the side effect is a single ``read_record_batches`` call running on a
+    background thread, fed by a queue. Each batch is pushed onto the queue and
+    yielded downstream; the thread's reader drains the queue. This replaces both
+    the per-batch round-trips (one call per batch, partial commits) and the bulk
+    path's full-memory buffer (whole stream in RAM) with one streaming call.
+
+    There is no create→append switching: a single call uses a single ``mode``.
+    The ``mode`` kwarg is only forwarded to backends that accept it (inherited
+    ``_ingest`` gate), so no-``mode`` backends (DataFusion, DuckDB, Pandas) work
+    too.
+
+    The queue is unbounded (``queue.SimpleQueue``): there is no backpressure, so
+    a sink slower than the downstream consumer buffers the lag in memory. This
+    is the deadlock-safe choice — a bounded queue would block the producer
+    forever if the sink thread died without draining. Rollback on a mid-stream
+    error follows the backend's own semantics; this is not guaranteed
+    all-or-nothing.
+    """
+
+    def execute(self, batches: Iterable[pa.RecordBatch]) -> Iterator[pa.RecordBatch]:
+        import queue  # noqa: PLC0415
+        import threading  # noqa: PLC0415
+
+        import pyarrow as pa  # noqa: PLC0415
+
+        q: queue.SimpleQueue = queue.SimpleQueue()
+        error: list[BaseException] = []
+
+        def sink_thread(schema: pa.Schema) -> None:
+            def drain() -> Iterator[pa.RecordBatch]:
+                while True:
+                    item = q.get()
+                    # None: clean exhaustion. A BaseException: upstream failed or
+                    # the downstream consumer stopped early — end the reader short.
+                    if item is None or isinstance(item, BaseException):
+                        return
+                    yield item
+
+            try:
+                reader = pa.RecordBatchReader.from_batches(schema, drain())
+                self._ingest(reader, self.mode.value)
+            except BaseException as exc:  # noqa: BLE001
+                error.append(exc)
+
+        thread: threading.Thread | None = None
+        try:
+            for batch in batches:
+                if error:
+                    # the sink thread already died; stop feeding a queue nobody
+                    # drains and surface its error after the join below.
+                    break
+                if thread is None:
+                    thread = threading.Thread(
+                        target=sink_thread, args=(batch.schema,), daemon=True
+                    )
+                    thread.start()
+                q.put(batch)
+                yield batch
+            q.put(None)
+        except BaseException as exc:
+            q.put(exc)
+            raise
+        finally:
+            if thread is not None:
+                thread.join()
+
+        if error:
+            raise error[0]

@@ -12,7 +12,7 @@ import pytest
 import xorq.api as xo
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.common.utils.node_utils import compute_expr_hash
-from xorq.sinking import BackendSink, ParquetSink
+from xorq.sinking import BackendSink, ParquetSink, ThreadedBackendSink
 
 
 if TYPE_CHECKING:
@@ -537,3 +537,262 @@ def test_per_batch_error_retains_first_batch_data() -> None:
     assert len(backend.calls) == 2
     assert backend.calls[0][1] == "create"
     assert len(backend.calls[0][2]) == 1
+
+
+# ---- threaded ingest path (ThreadedBackendSink) ------------------------------
+
+
+class _RecordingBackend:
+    """Fake mode-capable backend that drains the reader as a stream.
+
+    Records one entry per ``read_record_batches`` call (the threaded path makes
+    exactly one) holding the table name, mode, kwargs, and the batches it pulled
+    — in pull order. ``on_batch(idx, batch)`` fires as each batch is drained, so
+    a test can observe consumption interleaving with production.
+    """
+
+    name = "recording"
+
+    def __init__(self, on_batch=None) -> None:
+        self.calls: list[dict] = []
+        self.worker: threading.Thread | None = None
+        self._on_batch = on_batch
+
+    def read_record_batches(
+        self,
+        source: Any,
+        table_name: str | None = None,
+        mode: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.worker = threading.current_thread()
+        batches: list = []
+        for batch in source:
+            if self._on_batch is not None:
+                self._on_batch(len(batches), batch)
+            batches.append(batch)
+        self.calls.append(
+            {
+                "table_name": table_name,
+                "mode": mode,
+                "kwargs": kwargs,
+                "batches": batches,
+            }
+        )
+
+
+def _first(batch) -> int:
+    return batch.column("a")[0].as_py()
+
+
+def test_threaded_single_call_all_batches() -> None:
+    # mode-capable backend: threaded path makes ONE read_record_batches call
+    # carrying every batch, not one call per batch.
+    backend = _FakePerBatchBackend()
+    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+    batches = [pa.record_batch({"a": [1]}), pa.record_batch({"a": [2]})]
+    result = list(sink.execute(batches))
+    assert len(result) == 2  # passthrough: every batch yielded downstream
+    assert len(backend.calls) == 1
+    table_name, mode, ingested = backend.calls[0]
+    assert table_name == "t"
+    assert mode == "create"
+    assert len(ingested) == 2
+
+
+def test_threaded_no_mode_backend_omits_mode() -> None:
+    # backend without a `mode` parameter: mode must NOT be forwarded (the bug
+    # the _ingest gate fixes), and all batches still land in one call.
+    backend = _FakeKwargsBackend()
+    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+    batches = [pa.record_batch({"a": [1]}), pa.record_batch({"a": [2]})]
+    list(sink.execute(batches))
+    assert len(backend.calls) == 1
+    assert "mode" not in backend.calls[0]
+    assert len(backend.calls[0]["_batches"]) == 2
+
+
+def test_threaded_kwargs_reach_backend() -> None:
+    backend = _FakeKwargsBackend()
+    sink = ThreadedBackendSink(
+        backend, table_name="t", mode="create", kwargs={"custom_opt": 42}
+    )
+    list(sink.execute([pa.record_batch({"a": [1]})]))
+    assert backend.calls[0]["custom_opt"] == 42
+
+
+def test_threaded_empty_stream_no_call() -> None:
+    backend = _FakePerBatchBackend()
+    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+    assert list(sink.execute([])) == []
+    assert backend.calls == []
+
+
+def test_threaded_sink_thread_error_propagates() -> None:
+    # an error raised inside read_record_batches is captured on the thread and
+    # re-raised on the main thread after the join.
+    class _Exploding(_FakePerBatchBackend):
+        def read_record_batches(
+            self, source: Any, table_name: str | None = None, mode: str | None = None
+        ) -> None:
+            list(source)  # drain the queue so the producer never blocks
+            raise RuntimeError("simulated ingest failure")
+
+    backend = _Exploding()
+    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+    batches = [pa.record_batch({"a": [1]}), pa.record_batch({"a": [2]})]
+    with pytest.raises(RuntimeError, match="simulated ingest failure"):
+        list(sink.execute(batches))
+
+
+def test_threaded_upstream_error_propagates_and_joins() -> None:
+    backend = _RecordingBackend()
+    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+
+    def exploding_batches():
+        yield pa.record_batch({"a": [1, 2]})
+        raise RuntimeError("simulated mid-stream failure")
+
+    with pytest.raises(RuntimeError, match="simulated mid-stream failure"):
+        list(sink.execute(exploding_batches()))
+    # the worker saw a truncated stream and was joined before execute returned
+    assert backend.worker is not None
+    assert not backend.worker.is_alive()
+
+
+def test_threaded_early_stop_ends_reader_and_joins() -> None:
+    # abandoning the generator mid-stream signals the reader to end short; the
+    # worker drains what it has and is joined — no hang, no leaked thread.
+    backend = _RecordingBackend()
+    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+    batches = [pa.record_batch({"a": [i]}) for i in range(5)]
+    gen = sink.execute(iter(batches))
+    next(gen)
+    gen.close()  # GeneratorExit -> reader ends short, worker joins
+    assert backend.worker is not None
+    assert not backend.worker.is_alive()
+
+
+def test_threaded_preserves_order_and_content() -> None:
+    # passthrough is identity in order, and the sink pulls in the same order.
+    backend = _RecordingBackend()
+    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+    batches = [pa.record_batch({"a": [i]}) for i in range(10)]
+    out = list(sink.execute(iter(batches)))
+    assert [_first(b) for b in out] == list(range(10))
+    assert [_first(b) for b in backend.calls[0]["batches"]] == list(range(10))
+
+
+def test_threaded_forwards_append_mode() -> None:
+    backend = _RecordingBackend()
+    sink = ThreadedBackendSink(backend, table_name="t", mode="append")
+    list(sink.execute([pa.record_batch({"a": [1]})]))
+    assert backend.calls[0]["mode"] == "append"
+
+
+def test_threaded_streams_without_buffering() -> None:
+    # proves concurrency: the sink consumes batch 0 while the producer is still
+    # blocked before yielding batch 1.  A buffer-everything-then-ingest path
+    # would never set the event during production and time out.
+    received_first = threading.Event()
+
+    def on_batch(idx: int, batch) -> None:
+        if idx == 0:
+            received_first.set()
+
+    backend = _RecordingBackend(on_batch=on_batch)
+    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+
+    def producer():
+        yield pa.record_batch({"a": [0]})
+        assert received_first.wait(timeout=5), "sink did not consume batch 0 early"
+        yield pa.record_batch({"a": [1]})
+
+    out = list(sink.execute(producer()))
+    assert [_first(b) for b in out] == [0, 1]
+    assert len(backend.calls[0]["batches"]) == 2
+
+
+def test_threaded_joins_worker_before_return() -> None:
+    backend = _RecordingBackend()
+    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+    list(sink.execute([pa.record_batch({"a": [i]}) for i in range(3)]))
+    # the single ingest completed (one recorded call) and its worker is dead
+    assert len(backend.calls) == 1
+    assert backend.worker is not None
+    assert not backend.worker.is_alive()
+
+
+def test_threaded_sink_is_reusable() -> None:
+    # frozen, no shared mutable state in execute(): the same sink runs twice.
+    backend = _RecordingBackend()
+    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+    list(sink.execute([pa.record_batch({"a": [1]})]))
+    list(sink.execute([pa.record_batch({"a": [2]})]))
+    assert len(backend.calls) == 2
+    assert _first(backend.calls[0]["batches"][0]) == 1
+    assert _first(backend.calls[1]["batches"][0]) == 2
+
+
+def test_threaded_unbounded_queue_no_deadlock_when_sink_lags() -> None:
+    # the sink refuses to pull until released; the unbounded queue lets the
+    # producer push and yield all 50 batches anyway (no backpressure, no hang).
+    release = threading.Event()
+
+    class _LaggyBackend(_RecordingBackend):
+        def read_record_batches(self, source, table_name=None, mode=None, **kwargs):
+            assert release.wait(timeout=5)
+            super().read_record_batches(
+                source, table_name=table_name, mode=mode, **kwargs
+            )
+
+    backend = _LaggyBackend()
+    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+    batches = [pa.record_batch({"a": [i]}) for i in range(50)]
+
+    out = []
+    for i, batch in enumerate(sink.execute(iter(batches))):
+        out.append(_first(batch))
+        if i == len(batches) - 1:
+            release.set()  # unblock the sink before the join on the next pull
+    assert out == list(range(50))
+    assert [_first(b) for b in backend.calls[0]["batches"]] == list(range(50))
+
+
+def test_threaded_stops_feeding_after_sink_error() -> None:
+    # the sink dies after one batch; the `if error: break` guard stops the
+    # producer well short of its full run instead of pushing into a dead queue.
+    sink_failed = threading.Event()
+
+    class _FailFast(_RecordingBackend):
+        def read_record_batches(self, source, table_name=None, mode=None, **kwargs):
+            self.worker = threading.current_thread()
+            it = iter(source)
+            next(it)
+            sink_failed.set()
+            raise RuntimeError("simulated ingest failure")
+
+    backend = _FailFast()
+    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+    produced = []
+
+    def producer():
+        for i in range(100):
+            yield pa.record_batch({"a": [i]})
+            produced.append(i)
+            if i == 0:
+                assert sink_failed.wait(timeout=5)
+
+    with pytest.raises(RuntimeError, match="simulated ingest failure"):
+        list(sink.execute(producer()))
+    assert len(produced) < 100
+    assert backend.worker is not None
+    assert not backend.worker.is_alive()
+
+
+def test_threaded_creates_table_real_backend(t: Table) -> None:
+    target_con = xo.connect()
+    sink = ThreadedBackendSink(target_con, table_name="th_tgt", mode="create")
+    out = t.tee(sink).execute()
+    assert len(out) == len(t.execute())
+    assert len(target_con.table("th_tgt").execute()) == len(t.execute())
