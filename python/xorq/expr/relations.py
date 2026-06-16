@@ -3,18 +3,13 @@ from __future__ import annotations
 import functools
 import operator
 import warnings
-import weakref
-from collections import Counter
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any, Callable
 
 import pyarrow as pa
 import toolz
-from batchcorder import StreamCache
-from opentelemetry import trace
 
 from xorq.backends.xorq_datafusion import connect as xo_connect
 from xorq.common.exceptions import IntegrityError
-from xorq.common.utils.logging_utils import get_logger
 from xorq.common.utils.otel_utils import get_current_span, tracer
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
@@ -22,6 +17,7 @@ from xorq.common.utils.rbr_utils import (
 )
 from xorq.vendor import ibis
 from xorq.vendor.ibis import Expr, Schema
+from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.common.collections import (
     FrozenDict,
     FrozenOrderedDict,
@@ -30,13 +26,6 @@ from xorq.vendor.ibis.expr import operations as ops
 from xorq.vendor.ibis.expr.format import fmt, render_schema
 from xorq.vendor.ibis.expr.operations import Node
 from xorq.writes import DrainingIterator, WriteThrough
-
-
-if TYPE_CHECKING:
-    from xorq.vendor.ibis.backends import BaseBackend
-
-
-logger = get_logger(__name__)
 
 
 def replace_cache_table(node: Node, kwargs: dict[str, Any] | None) -> Node:
@@ -587,268 +576,6 @@ class Read(ops.DatabaseTable):
         )
 
 
-def count_remote_table_readers(expr):
-    """Count how many times each ``RemoteTable`` is physically scanned.
-
-    The scan count is not visible in the expression graph: a single graph
-    reference can compile to several physical table scans. The asof-join with
-    tolerance lowering, for one, scans an input twice (xorq #983). Each
-    ``RemoteTable`` is rewritten to a placeholder table under a freshly
-    generated, unique name, the placeholder expression is compiled to a sqlglot
-    AST, and the ``Table`` nodes bearing that name are counted — giving the
-    exact per-table scan count whatever lowering the backend compiler applies.
-    Counting ``Table`` AST nodes (rather than substrings of the rendered SQL)
-    ignores column references, aliases, and string literals, so even a short or
-    shared user-supplied table name cannot inflate the count.
-
-    The counts become each ``StreamCache``'s ``max_readers``, bounding memory:
-    batches are evicted once all readers advance past them. Each count is
-    floored at 1 — a bare ``RemoteTable`` is still scanned once, and
-    ``max_readers=0`` would forbid the reader that is in fact created.
-
-    Returns an empty mapping when no SQL AST can be produced (e.g. a non-SQL
-    backend); the caller then builds an unbounded cache — safe, but without
-    eviction.
-    """
-    import sqlglot as sg  # noqa: PLC0415
-
-    op = expr.op()
-    sentinels = {}
-
-    def replacer(node, kwargs):
-        if isinstance(node, RemoteTable):
-            name = gen_name()
-            sentinels[node] = name
-            return ops.DatabaseTable(name=name, schema=node.schema, source=node.source)
-        if kwargs:
-            node = node.__recreate__(kwargs)
-        return node
-
-    placeholder = op.replace(replacer).to_expr()
-    if not sentinels:
-        return {}
-    try:
-        provider = placeholder._find_backend(use_default=True)
-        compiler = getattr(provider, "compiler", None)
-        if compiler is None:
-            return {}
-        out = compiler.to_sqlglot(placeholder.unbind())
-    except Exception:
-        return {}
-
-    counts = Counter()
-    for query in out if isinstance(out, list) else [out]:
-        for table in query.find_all(sg.exp.Table):
-            counts[table.name] += 1
-    return {node: max(1, counts[name]) for node, name in sentinels.items()}
-
-
-def drop_placeholder(con, table_name):
-    """Best-effort drop of a placeholder registered by ``read_record_batches``.
-
-    duckdb registers the StreamCache as a VIEW, so ``drop_table`` always
-    raises a kind-mismatch there (``force=True`` does not suppress it) and
-    ``drop_view`` is the real path; pandas raises KeyError on a missing
-    table even with ``force=True``, hence the inner suppression --
-    ``force=True`` alone cannot make this idempotent across backends.
-    """
-    try:
-        con.drop_table(table_name, force=True)
-    except Exception:
-        try:
-            con.drop_view(table_name, force=True)
-        except Exception:
-            pass
-
-
-class TransformScope:
-    """Owns every resource materialized while transforming an expr.
-
-    Upstream readers, StreamCaches and registered placeholder tables enter
-    the scope at acquisition time via the ``adopt*`` methods; ``close`` runs
-    the cleanups in LIFO order (drop placeholder, close cache, close
-    upstream reader per RemoteTable), is idempotent, and step-isolated: a
-    failing cleanup is logged and never skips the others. Closing drops the
-    scope's references to the adopted objects so refcount-zero finalization
-    can release generator-backed readers (pyarrow's
-    ``RecordBatchReader.close`` does not finalize a wrapped generator).
-    """
-
-    def __init__(self) -> None:
-        self._entries: list[tuple[str, str, Callable[[], None]]] = []
-        self._drains: list[DrainingIterator] = []
-        self._closed = False
-        self.created: dict[str, Any] = {}
-
-    @property
-    def closed(self) -> bool:
-        return self._closed
-
-    def adopt(
-        self, label: str, cleanup: Callable[[], None], kind: str = "resource"
-    ) -> None:
-        self._entries.append((kind, label, cleanup))
-
-    def adopt_drain(self, drain: DrainingIterator) -> DrainingIterator:
-        # Drains are tracked separately from the LIFO entries: every drain
-        # must close-then-join (so the write-through generator finishes
-        # feeding its placeholder table) BEFORE any placeholder is dropped,
-        # regardless of adoption order.
-        self._drains.append(drain)
-        return drain
-
-    def adopt_reader(self, reader: pa.RecordBatchReader) -> pa.RecordBatchReader:
-        self.adopt("reader", reader.close)
-        return reader
-
-    def adopt_cache(self, cache: StreamCache) -> StreamCache:
-        self.adopt("cache", cache.close)
-        return cache
-
-    def adopt_table(self, con: Any, table_name: str) -> str:
-        self.created[table_name] = con
-        self.adopt(
-            table_name, functools.partial(drop_placeholder, con, table_name), "table"
-        )
-        return table_name
-
-    def _drain_step(self) -> None:
-        # Mirror api._close_and_join_drains: start every drain thread, then
-        # join them, so concurrent write-through generators all finish before
-        # the placeholders they feed get dropped. Step-isolated and logged so
-        # one failure never strands the rest (the scope never raises).
-        for drain in self._drains:
-            try:
-                drain.close()
-            except Exception:
-                logger.warning("transform scope drain close failed", exc_info=True)
-        for drain in self._drains:
-            try:
-                drain.join()
-            except Exception:
-                logger.warning("transform scope drain join failed", exc_info=True)
-        self._drains = []
-
-    def close(self, drop_tables: bool = True) -> None:
-        """Release everything the scope owns; idempotent, never raises.
-
-        ``drop_tables=False`` leaves the placeholder tables registered for
-        callers whose result still references them after this returns
-        (see ``prepare_create_table_from_expr``).
-        """
-        if self._closed:
-            return
-        self._closed = True
-        # Drains first: a write-through must finish feeding its placeholder
-        # table before that table is dropped below.
-        self._drain_step()
-        (entries, self._entries) = (self._entries, [])
-        for kind, label, cleanup in reversed(entries):
-            if kind == "table" and not drop_tables:
-                continue
-            try:
-                cleanup()
-            except Exception:
-                logger.warning(
-                    "transform scope cleanup step failed",
-                    kind=kind,
-                    label=label,
-                    exc_info=True,
-                )
-
-    def bind(self, reader: pa.RecordBatchReader) -> pa.RecordBatchReader:
-        """Defer this scope's close to ``reader``'s exhaustion or collection.
-
-        Cleanup must stay deferred on the streaming path: duckdb/datafusion
-        scan the placeholder when the result reader is drained, and dropping
-        the duckdb view mid-drain silently truncates results. The wrapping
-        generator's ``finally`` fires on full drain; the ``weakref.finalize``
-        backstop covers readers abandoned before the first read (a
-        never-started generator never runs its ``finally``). Note that on
-        pyarrow 21 ``reader.close()`` alone does not finalize the wrapped
-        generator -- cleanup then fires when the last reference drops.
-        """
-
-        def gen():
-            try:
-                yield from reader
-            finally:
-                self.close()
-
-        out = pa.RecordBatchReader.from_batches(reader.schema, gen())
-        # NB: the finalize registry holds ``self`` via ``self.close``; the
-        # scope must never hold a strong reference to ``out`` or both become
-        # immortal.
-        weakref.finalize(out, self.close)
-        return out
-
-    def __enter__(self) -> TransformScope:
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        self.close()
-
-
-@tracer.start_as_current_span("register_and_transform_remote_tables")
-def register_and_transform_remote_tables(
-    expr: Expr, **kwargs: Any
-) -> tuple[Expr, TransformScope]:
-    scope = TransformScope()
-    # ``replacer``'s ``kwargs`` parameter (node-recreate args) shadows the
-    # outer ``**kwargs``; capture the through-kwargs here so they reach
-    # ``read_record_batches`` (e.g. Snowflake's ``database=(catalog, db)``).
-    read_kwargs = kwargs
-
-    op = expr.op()
-    reader_counts = count_remote_table_readers(expr)
-
-    def replacer(node, kwargs):
-        if isinstance(node, RemoteTable):
-            remote_expr = node.remote_expr
-            # Cache the reader's own (physical) schema, not the logical
-            # ``as_table().schema()``. The two can diverge -- e.g. a dropped
-            # ``row_number`` still rides along in the stream -- and StreamCache
-            # exports the declared schema over the Arrow C stream FFI, where a
-            # batch with extra children aborts the process
-            # (``fields.len() == num_children``). The reader already carries the
-            # true schema; column coercion is the consumer's job
-            # (``read_record_batches`` -> ``_select_and_cast``).
-            reader = scope.adopt_reader(remote_expr.to_pyarrow_batches())
-            cache = scope.adopt_cache(
-                StreamCache(
-                    reader,
-                    max_readers=reader_counts.get(node),
-                )
-            )
-            # adopt before registering: a partial failure inside
-            # read_record_batches (register, then raise) can't strand the
-            # placeholder, and drop_placeholder is a no-op if it never
-            # registered
-            table_name = scope.adopt_table(node.source, gen_name())
-            result = node.source.read_record_batches(
-                cache, table_name=table_name, **read_kwargs
-            )
-            return result.op()
-
-        if kwargs:
-            node = node.__recreate__(kwargs)
-
-        return node
-
-    # Intentionally op.replace, not replace_nodes: replacer has side effects
-    # that must not descend into opaque sub-exprs (e.g. ExprScalarUDF.computed_kwargs_expr)
-    try:
-        expr = op.replace(replacer).to_expr()
-    except Exception:
-        scope.close()
-        raise
-    if scope.created:
-        trace.get_current_span().add_event(
-            "remote_table.replace", {"remote_table.count": len(scope.created)}
-        )
-    return expr, scope
-
-
 # Backends whose single, non-re-entrant connection deadlocks the streaming tee
 # transport (it pulls the parent reader while that connection serves the outer
 # query). See ADR-0014.
@@ -922,7 +649,7 @@ def register_and_transform_tee_nodes(
     return op.replace(replacer).to_expr(), created, drains
 
 
-def render_backend(con):
+def render_backend(con: BaseBackend) -> str:
     return f"{con.name}-{id(con)}"
 
 
@@ -965,29 +692,3 @@ def _fmt_read(op, name, method_name, source, **kwargs):
     backend = render_backend(source)
     name = f"{op.__class__.__name__}[name={name}, method_name={method_name}, source={backend}]\n"
     return name + render_schema(op.schema, 1)
-
-
-def prepare_create_table_from_expr(con: Any, expr: Expr, **kwargs: Any) -> Expr:
-    """Transform ``expr`` into a table on ``con``, then close its stream caches.
-
-    Only safe for backends whose ``read_record_batches`` eagerly ingests the
-    stream synchronously (Snowflake, Postgres via ADBC): the caches are closed
-    in the ``finally`` before returning, so a lazy-scan backend (DuckDB,
-    DataFusion) that still holds a live dependency on a cache would read an
-    empty result. Do not call with a lazy-ingestion backend.
-    """
-    from xorq.expr.api import _transform_expr  # noqa: PLC0415
-
-    expr_backend = expr._find_backend()  # xorq-style: disable=protected-access
-    if expr_backend != con:
-        raise ValueError(f"expr backend must be {con}, is {expr_backend}")
-    (table, scope) = _transform_expr(expr, **kwargs)
-    try:
-        return table
-    finally:
-        # The sole caller (snowflake create_table) compiles and runs CTAS
-        # against the returned expr -- and thus its placeholder tables --
-        # AFTER this returns, so the placeholders must stay registered;
-        # snowflake's eager adbc_ingest drained the caches during the
-        # transform, which is what makes closing them here safe.
-        scope.close(drop_tables=False)

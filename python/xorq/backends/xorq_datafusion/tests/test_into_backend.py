@@ -10,16 +10,19 @@ fan-out queries execute correctly and without the GIL/mutex deadlock that
 concurrent StreamCache scans previously triggered.
 """
 
+from __future__ import annotations
+
 import pandas as pd
 import pytest
 
 import xorq.api as xo
-from xorq.expr.relations import count_remote_table_readers
+import xorq.vendor.ibis.expr.types as ir
+from xorq.expr.remote_table_exec import count_remote_table_readers
 from xorq.tests.util import assert_frame_equal
 
 
 @pytest.fixture
-def df():
+def df() -> pd.DataFrame:
     return pd.DataFrame(
         {
             "id": [1, 2, 3, 4],
@@ -30,43 +33,49 @@ def df():
 
 
 @pytest.fixture
-def target():
+def target() -> xo.Backend:
     return xo.connect()
 
 
-def reader_counts(expr):
+def reader_counts(expr: ir.Expr) -> list[int]:
     return sorted(count_remote_table_readers(expr).values())
 
 
-def test_into_backend_bare_single_reader(df, target):
+def test_into_backend_bare_single_reader(df: pd.DataFrame, target: xo.Backend) -> None:
     expr = xo.memtable(df).into_backend(target, "t")
     assert reader_counts(expr) == [1]
     result = expr.execute().sort_values("id").reset_index(drop=True)
     assert_frame_equal(result, df, check_like=True)
 
 
-def test_into_backend_filter_single_scan(df, target):
+def test_into_backend_filter_single_scan(df: pd.DataFrame, target: xo.Backend) -> None:
     rt = xo.memtable(df).into_backend(target, "t")
     expr = rt.filter(rt.v > 15)
     assert reader_counts(expr) == [1]
     assert sorted(expr.execute()["v"]) == [20, 30, 40]
 
 
-def test_into_backend_many_columns_one_scan(df, target):
+def test_into_backend_many_columns_one_scan(
+    df: pd.DataFrame, target: xo.Backend
+) -> None:
     rt = xo.memtable(df).into_backend(target, "t")
     expr = rt.select(s=rt.id + rt.v, d=rt.v - rt.id)
     assert reader_counts(expr) == [1]
     assert not expr.execute().empty
 
 
-def test_into_backend_self_join_two_readers(df, target):
+def test_into_backend_self_join_two_readers(
+    df: pd.DataFrame, target: xo.Backend
+) -> None:
     rt = xo.memtable(df).into_backend(target, "t")
     expr = rt.join(rt.view(), "k")
     assert reader_counts(expr) == [2]
     assert len(expr.execute()) == 8
 
 
-def test_into_backend_two_scalar_subqueries_no_deadlock(df, target):
+def test_into_backend_two_scalar_subqueries_no_deadlock(
+    df: pd.DataFrame, target: xo.Backend
+) -> None:
     # two concurrent scans of one cache: the GIL/mutex deadlock regression
     rt = xo.memtable(df).into_backend(target, "t")
     expr = rt.v.sum().as_scalar().as_table().mutate(cnt=rt.v.count().as_scalar())
@@ -76,7 +85,9 @@ def test_into_backend_two_scalar_subqueries_no_deadlock(df, target):
     assert int(result["cnt"].iloc[0]) == 4
 
 
-def test_into_backend_threeway_fanout_three_readers(df, target):
+def test_into_backend_threeway_fanout_three_readers(
+    df: pd.DataFrame, target: xo.Backend
+) -> None:
     rt = xo.memtable(df).into_backend(target, "t")
     expr = (
         rt.filter(rt.v < 15).union(rt.filter(rt.v > 35)).union(rt.filter(rt.k == "b"))
@@ -85,7 +96,9 @@ def test_into_backend_threeway_fanout_three_readers(df, target):
     assert sorted(expr.execute()["v"]) == [10, 30, 40, 40]
 
 
-def test_into_backend_self_join_limit_early_termination(df, target):
+def test_into_backend_self_join_limit_early_termination(
+    df: pd.DataFrame, target: xo.Backend
+) -> None:
     # fan-out (2 readers) + limit: the scan stops before exhausting the cache
     rt = xo.memtable(df).into_backend(target, "t")
     expr = rt.join(rt.view(), "k").limit(2)
@@ -93,7 +106,7 @@ def test_into_backend_self_join_limit_early_termination(df, target):
     assert len(expr.execute()) == 2
 
 
-def test_into_backend_two_distinct_tables(df, target):
+def test_into_backend_two_distinct_tables(df: pd.DataFrame, target: xo.Backend) -> None:
     left = xo.memtable(df).into_backend(target, "l")
     right = xo.memtable(df.assign(v=df.v * 2)).into_backend(target, "r")
     expr = left.join(right, "k")
@@ -103,7 +116,9 @@ def test_into_backend_two_distinct_tables(df, target):
     assert len(expr.execute()) == 8
 
 
-def test_into_backend_empty_table_fanout(target):
+def test_into_backend_empty_table_fanout(
+    target: xo.Backend,
+) -> None:
     empty = pd.DataFrame(
         {"id": pd.Series([], dtype="int64"), "v": pd.Series([], dtype="int64")}
     )
@@ -113,7 +128,7 @@ def test_into_backend_empty_table_fanout(target):
     assert expr.execute().empty
 
 
-def test_into_backend_nested_chain(df, target):
+def test_into_backend_nested_chain(df: pd.DataFrame, target: xo.Backend) -> None:
     # data flows memtable -> duckdb -> datafusion, then fans out on datafusion
     inner = xo.memtable(df).into_backend(xo.duckdb.connect(), "inner")
     rt = inner.into_backend(target, "outer")

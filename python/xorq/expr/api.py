@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
@@ -41,8 +42,11 @@ from xorq.expr.relations import (
     Read,
     Tag,
     TeeNode,
-    register_and_transform_remote_tables,
     register_and_transform_tee_nodes,
+)
+from xorq.expr.remote_table_exec import (
+    bind_scope_to_reader,
+    register_and_transform_remote_tables,
 )
 from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.expr import api
@@ -276,7 +280,7 @@ def _transform_deferred_reads(expr):
                 },
             )
             # FIXME: pandas read is not lazy, leave it to the pandas executor to do
-            node = dt_to_read[node] = node.make_dt()
+            node = node.make_dt()
         else:
             if _kwargs:
                 node = node.__recreate__(_kwargs)
@@ -501,13 +505,13 @@ def _transform_expr(expr, params=None, **kwargs):
     expr, scope = register_and_transform_remote_tables(expr, **kwargs)
     # Fold the tee-node materializations (placeholder tables + write-through
     # drains) into the same scope so a single close() tears everything down.
-    # Drains close-then-join before any table drops (see TransformScope.close).
+    # Drains close-then-join before any table drops (see RemoteTableScope.close).
     for table_name, con in tee_created.items():
         scope.adopt_table(con, table_name)
     for drain in drains:
         scope.adopt_drain(drain)
     try:
-        expr, dt_to_read = _transform_deferred_reads(expr)
+        expr, _dt_to_read = _transform_deferred_reads(expr)
     except Exception:
         scope.close()
         raise
@@ -515,7 +519,7 @@ def _transform_expr(expr, params=None, **kwargs):
 
 
 @contextmanager
-def transformed(expr, **kwargs):
+def remote_table_scope(expr: ir.Expr, **kwargs: Any) -> Generator[ir.Expr]:
     """Transform ``expr`` and yield it with a guaranteed full scope close.
 
     For eager call sites only: the body must fully materialize the result
@@ -539,7 +543,7 @@ def _pandas_execute(con, expr: ir.Expr, **kwargs):
 
     span.set_attribute("engine", "pandas")
     # full close is safe here: con.execute returns a materialized DataFrame
-    with transformed(expr, params=params) as expr:
+    with remote_table_scope(expr, params=params) as expr:
         return con.execute(expr, **kwargs)
 
 
@@ -591,7 +595,7 @@ def to_pyarrow_batches(
 
     # cleanup stays deferred to the result reader's exhaustion/collection:
     # the backends scan the placeholders lazily while the reader drains
-    return otel_instrument_reader(scope.bind(reader))
+    return otel_instrument_reader(bind_scope_to_reader(scope, reader))
 
 
 def to_pyarrow(expr: ir.Expr, **kwargs: Any):
@@ -743,7 +747,7 @@ def get_plans(expr: ir.Expr) -> dict:
     # Strip tee nodes first (like to_sql): EXPLAIN is a non-executing path, so
     # it must not register a pass-through table or fire the side-effect write.
     # Full close is safe here: EXPLAIN is materialized via to_pandas inside.
-    with transformed(_remove_tee_nodes(expr)) as _expr:
+    with remote_table_scope(_remove_tee_nodes(expr)) as _expr:
         con, _ = find_backend(_expr.op())
         sql = f"EXPLAIN {to_sql(_expr)}"
         return con.con.sql(sql).to_pandas().set_index("plan_type")["plan"].to_dict()
