@@ -27,17 +27,12 @@ from xorq.vendor.ibis.expr.format import fmt, render_schema
 from xorq.vendor.ibis.expr.operations import Node, Relation
 
 
-def replace_cache_table(node, kwargs):
+def replace_cache_table(node: Node, kwargs: dict[str, Any] | None) -> Node:
     if kwargs:
         node = node.__recreate__(kwargs)
-
-    match node:
-        case CachedNode():
-            return node.parent.op().replace(replace_cache_table)
-        case RemoteTable():
-            return node.remote_expr.op().replace(replace_cache_table)
-        case _:
-            return node
+    while isinstance(node, CachedNode):
+        node = node.parent.op()
+    return node
 
 
 # https://stackoverflow.com/questions/6703594/is-the-result-of-itertools-tee-thread-safe-python
