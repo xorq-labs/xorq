@@ -317,13 +317,18 @@ class Backend(SQLBackend):
         table_name: Optional[str] = None,
         mode: WriteMode | str = WriteMode.CREATE,
         branch: Optional[str] = None,
+        schema: Optional[pa.Schema] = None,
+        **kwargs: Any,
     ) -> ir.Table:
         # Callers on the write-through path hand us the wire string (mode.value);
         # normalize at the boundary so the body always works with the enum.
         mode = WriteMode(mode)
         table_name = table_name or gen_name("read_record_batches")
         full_name = f"{self.namespace}.{table_name}"
-        schema = reader.schema
+        # ``reader`` is already projected and cast to the logical schema upstream
+        # (register_and_transform_remote_tables), so reader.schema == the passed
+        # schema; fall back to it when the caller does not supply one.
+        schema = schema or reader.schema
         exists = self.catalog.table_exists(full_name)
 
         if branch is None:

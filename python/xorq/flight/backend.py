@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Iterable, Mapping
 
 import pyarrow as pa
 import toolz
+from batchcorder import StreamCache
 
 from xorq.common.utils.rbr_utils import (
     make_filtered_reader,
@@ -163,7 +164,16 @@ class Backend(SQLBackend):
 
         return self.read_record_batches(source, table_name=table_name)
 
-    def read_record_batches(self, source, table_name=None):
+    def read_record_batches(
+        self,
+        source: pa.Table | pa.RecordBatchReader | StreamCache,
+        table_name: str | None = None,
+        schema: pa.Schema | None = None,
+        **kwargs: Any,
+    ) -> ir.Table:
+        # ``schema`` is accepted-and-ignored: the stream is already projected and
+        # cast to the logical schema upstream, before the StreamCache, in
+        # register_and_transform_remote_tables.
         table_name = table_name or gen_name("read_record_batches")
         self.con.upload_batches(table_name, source)
         return self.table(table_name)
