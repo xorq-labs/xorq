@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+### Details
+
+## [0.3.30] - 2026-06-16
+### Details
+#### Added
+- Add relocatable reads support by @dlovell in [#2070](https://github.com/xorq-labs/xorq/pull/2070)
+- Add file_utils.file_digest coverage by @dlovell in [#2075](https://github.com/xorq-labs/xorq/pull/2075)
+- Add 'catalog as executable memory' explanation by @mesejo in [#2034](https://github.com/xorq-labs/xorq/pull/2034)
+
+#### Changed
+- Dedup tutorials, split caching docs, clean stale artifacts by @mesejo in [#2050](https://github.com/xorq-labs/xorq/pull/2050)
+- Accept zip files in `xorq run` and `xorq uv run` by @dlovell in [#2041](https://github.com/xorq-labs/xorq/pull/2041)
+- Centralize StrEnum compat shim and enum modules by @dlovell in [#2054](https://github.com/xorq-labs/xorq/pull/2054)
+- Lazy-load SQL compilers, OpenTelemetry SDK, and pyarrow by @dlovell in [#2062](https://github.com/xorq-labs/xorq/pull/2062)
+- Update xorq-style to ~=0.3.0 by @dlovell in [#2076](https://github.com/xorq-labs/xorq/pull/2076)
+- Extract file_digest into standalone file_utils module by @dlovell in [#2061](https://github.com/xorq-labs/xorq/pull/2061)
+- Hoist deferred imports after enum extraction by @dlovell in [#2056](https://github.com/xorq-labs/xorq/pull/2056)
+- Defer heavy imports for 10x faster import by @dlovell in [#2059](https://github.com/xorq-labs/xorq/pull/2059)
+- Drive working_with_the_catalog from the CLI by @mesejo in [#2031](https://github.com/xorq-labs/xorq/pull/2031)
+
+#### Fixed
+- Retry pins metadata fetch and enable fsspec cache by @dlovell in [#2040](https://github.com/xorq-labs/xorq/pull/2040)
+- Yaml roundtrip cache key for aggudf by @hussainsultan in [#2068](https://github.com/xorq-labs/xorq/pull/2068)
+- Cache dir nested remote expr by @hussainsultan in [#2069](https://github.com/xorq-labs/xorq/pull/2069)
+
 ## [0.3.29] - 2026-06-09
 ### Details
 #### Added
@@ -26,9 +52,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix fragmented coverage reporting and scope flags to paths by @mesejo in [#1968](https://github.com/xorq-labs/xorq/pull/1968)
 - Wait for all CI jobs before posting status checks by @dlovell in [#2049](https://github.com/xorq-labs/xorq/pull/2049)
 - Drop Alias wrapper on NamedScalarParameter placeholder by @dlovell in [#2039](https://github.com/xorq-labs/xorq/pull/2039)
-
-## [Unreleased]
-### Details
 
 ## [0.3.28] - 2026-06-02
 ### Details
