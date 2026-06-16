@@ -18,7 +18,6 @@ from attr.validators import (
     instance_of,
     optional,
 )
-from git import Repo
 
 from xorq.catalog.constants import ANNEX_BRANCH
 from xorq.catalog.s3_utils import (
@@ -180,6 +179,8 @@ class Annex:
         cached = self._remote_log_cache
         if cached is not None:
             return cached
+        from git import Repo  # noqa: PLC0415
+
         self._merge_annex_branch()
         branch = Repo(self.repo_path).commit(ANNEX_BRANCH)
         try:

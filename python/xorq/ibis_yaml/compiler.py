@@ -9,7 +9,6 @@ import warnings
 from pathlib import Path
 from typing import Any, Dict
 
-import pyarrow.parquet as pq
 import toolz
 import yaml12
 from attr import (
@@ -25,7 +24,6 @@ from attr.validators import (
 )
 
 import xorq
-import xorq.common.utils.logging_utils as lu
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.types as ir
 from xorq.caching import (
@@ -192,6 +190,8 @@ class ArtifactStore:
         return path
 
     def write_parquet(self, table, *path_parts) -> pathlib.Path:
+        import pyarrow.parquet as pq  # noqa: PLC0415
+
         with self._write(*path_parts) as (path, f):
             pq.write_table(table, path)
         return path
@@ -579,6 +579,8 @@ class ExprDumper:
 
     @staticmethod
     def _make_build_metadata() -> str:
+        import xorq.common.utils.logging_utils as lu  # noqa: PLC0415
+
         metadata = {
             "current_library_version": xorq.__version__,
             "metadata_version": "0.0.0",  # TODO: make it a real thing
@@ -783,6 +785,8 @@ class ExprLoader:
             kw = dict(dr.read_kwargs)
             path = expr_path.joinpath(kw["read_path"])
             if BundledSourceTypes.inmemory in kw:
+                import pyarrow.parquet as pq  # noqa: PLC0415
+
                 df = (
                     pq.read_schema(path).empty_table().to_pandas()
                     if read_only_parquet_metadata

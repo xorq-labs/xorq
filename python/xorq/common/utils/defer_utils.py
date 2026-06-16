@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Callable
 import toolz
 
 import xorq.vendor.ibis.expr.types as ir
-from xorq.backends.xorq_datafusion import connect as xo_connect
 from xorq.common.utils.file_utils import (
     normalize_read_path_md5sum,
     normalize_read_path_stat,
@@ -257,7 +256,10 @@ def deferred_read_parquet(
     method = getattr(con, method_name)
     if table_name is None:
         table_name = gen_name(f"xorq-{method_name}")
-    schema = schema or xo_connect().read_parquet(path).schema()
+    if not schema:
+        from xorq.backends.xorq_datafusion import connect  # noqa: PLC0415
+
+        schema = schema or connect().read_parquet(path).schema()
     if con.name in _ADBC_BACKENDS:
         kwargs.setdefault("mode", "replace")
     read_kwargs = make_read_kwargs(method, path, table_name=table_name, **kwargs)
