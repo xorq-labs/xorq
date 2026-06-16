@@ -1,7 +1,9 @@
 import operator
+from datetime import datetime, timedelta
 
 import pytest
 
+import xorq.api as xo
 from xorq.vendor import ibis
 
 
@@ -99,3 +101,140 @@ def test_keyed_asof_join_with_tolerance(
 
     # check that time is equal in value, if not dtype
     tm.assert_series_equal(result["time"], expected["time"], check_dtype=False)
+
+
+# regression tests for xorq-labs/xorq#983: the tolerance lowering used to
+# reference the left source twice (filter + re-join), which silently broke
+# one-shot inputs and could fan out on duplicate left keys. The single-pass
+# null-out lowering must keep every left row exactly once.
+
+
+@pytest.fixture(scope="module")
+def sensors_df():
+    return pd.DataFrame(
+        {
+            "site": ["a", "b", "a", "b", "a"],
+            "humidity": [0.3, 0.4, 0.5, 0.6, 0.7],
+            "event_time": [
+                datetime(2024, 11, 16, 12, 0, 15, 500000),
+                datetime(2024, 11, 16, 12, 0, 15, 700000),
+                datetime(2024, 11, 17, 18, 12, 14, 950000),
+                datetime(2024, 11, 17, 18, 12, 15, 120000),
+                datetime(2024, 11, 18, 18, 12, 15, 100000),
+            ],
+        }
+    )
+
+
+@pytest.fixture(scope="module")
+def events_df():
+    return pd.DataFrame(
+        {
+            "site": ["a", "b", "a"],
+            "event_type": ["cloud coverage", "rain start", "rain stop"],
+            "event_time": [
+                datetime(2024, 11, 16, 12, 0, 15, 400000),
+                datetime(2024, 11, 17, 18, 12, 15, 100000),
+                datetime(2024, 11, 18, 18, 12, 15, 100000),
+            ],
+        }
+    )
+
+
+def test_asof_tolerance_preserves_unmatched_left_rows(
+    duckdb_con, sensors_df, events_df
+):
+    # every left row must survive; out-of-tolerance matches get NULL right cols
+    left = duckdb_con.create_table("sensors_tol", sensors_df)
+    right = duckdb_con.create_table("events_tol", events_df)
+    expr = left.asof_join(
+        right, on="event_time", predicates="site", tolerance=timedelta(seconds=1)
+    )
+    result = expr.execute().sort_values(["site", "humidity"]).reset_index(drop=True)
+
+    assert len(result) == len(sensors_df)
+    matched = result.dropna(subset=["event_type"]).set_index("humidity")["event_type"]
+    assert matched.to_dict() == {
+        0.3: "cloud coverage",
+        0.6: "rain start",
+        0.7: "rain stop",
+    }
+    # the two out-of-tolerance rows are present with NULL right columns
+    assert set(result.loc[result["event_type"].isna(), "humidity"]) == {0.4, 0.5}
+
+
+def test_asof_tolerance_one_shot_reader(sensors_df, events_df):
+    # the actual issue #983: into_backend registers one-shot RecordBatchReaders;
+    # a double-scan lowering reads 0 rows on the second pass.
+    con = xo.duckdb.connect()
+    sensors = ibis.memtable(sensors_df)
+    events = ibis.memtable(events_df)
+    expr = (
+        sensors.into_backend(con, "sensors_rbr")
+        .asof_join(
+            events.into_backend(con, "events_rbr"),
+            on="event_time",
+            predicates="site",
+            tolerance=timedelta(seconds=1),
+        )
+        .order_by(["site", "humidity"])
+    )
+    result = expr.execute()
+
+    assert len(result) == len(sensors_df)
+    matched = result.dropna(subset=["event_type"]).set_index("humidity")["event_type"]
+    assert matched.to_dict() == {
+        0.3: "cloud coverage",
+        0.6: "rain start",
+        0.7: "rain stop",
+    }
+
+
+def test_asof_tolerance_boundary_inclusive(duckdb_con):
+    # a match exactly at the tolerance boundary must be kept (inclusive window)
+    left = duckdb_con.create_table(
+        "boundary_left",
+        pd.DataFrame(
+            {"key": [1], "time": [datetime(2024, 1, 1, 0, 0, 10)], "lv": [1.0]}
+        ),
+    )
+    right = duckdb_con.create_table(
+        "boundary_right",
+        pd.DataFrame(
+            {"key": [1], "time": [datetime(2024, 1, 1, 0, 0, 8)], "rv": [2.0]}
+        ),
+    )
+    expr = left.asof_join(
+        right, on="time", predicates="key", tolerance=timedelta(seconds=2)
+    )
+    result = expr.execute()
+    assert result["rv"].notna().all()
+    assert result["rv"].iloc[0] == 2.0
+
+
+def test_asof_tolerance_duplicate_left_keys(duckdb_con):
+    # duplicate left `on` values within a predicate group: the old re-join on
+    # left_on == right_on could fan out / mismatch; single pass keeps 1 row each
+    left = duckdb_con.create_table(
+        "dup_left",
+        pd.DataFrame(
+            {
+                "key": [1, 1, 1],
+                "time": [datetime(2024, 1, 1, 0, 0, 5)] * 3,
+                "lv": [10.0, 20.0, 30.0],
+            }
+        ),
+    )
+    right = duckdb_con.create_table(
+        "dup_right",
+        pd.DataFrame(
+            {"key": [1], "time": [datetime(2024, 1, 1, 0, 0, 5)], "rv": [99.0]}
+        ),
+    )
+    expr = left.asof_join(
+        right, on="time", predicates="key", tolerance=timedelta(seconds=1)
+    )
+    result = expr.execute()
+    # no fan-out: exactly the 3 left rows, each matched to the single right row
+    assert len(result) == 3
+    assert (result["rv"] == 99.0).all()
