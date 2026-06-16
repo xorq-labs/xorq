@@ -1,4 +1,4 @@
-"""Write-Audit-Publish (WAP) into a Parquet file via atomic move.
+"""Write-Audit-Publish (WAP) into a Parquet file via copy-on-pass.
 
 WAP is a publish gate built from existing primitives — no dedicated API needed.
 The audit aggregate is a pipeline breaker, so the tee'd write fully drains the
@@ -6,7 +6,7 @@ staging file before the publish decision runs.
 
   * **Write**   `tee(ParquetSink)` writes to a staging Parquet file.
   * **Audit**   `agg` UDAF drains the stream into a single `bool`.
-  * **Publish** Pass: copy staging -> final, drop staging.
+  * **Publish** Pass: copy staging -> final; staging retained.
     Fail: staging retained for inspection, final untouched.
 
 DQ check: every value in column ``a`` must be non-null; null values fail the
@@ -64,7 +64,7 @@ if __name__ == "__pytest_main__":
     assert out["passed"].iloc[0]
     assert out["published"].iloc[0]
     assert Path(final).exists(), "published data should exist at final"
-    assert not Path(staging).exists(), "staging should be consumed by the move"
+    assert Path(staging).exists(), "staging is retained after the copy"
     print(f"  -> published {len(pd.read_parquet(final))} rows to final\n")
 
     # fail: audit fails -> nothing published, staging retained
