@@ -65,11 +65,14 @@ two-pass graph walk:
 
 Problems:
 
-- **Pre-counting is fragile.** DuckDB can scan a registered source more than once
-  inside a single query (ASOF joins, self-joins, joins with intermediate aggregations).
-  The scan count is not part of DuckDB's public API and varies by query shape,
-  DuckDB version, and optimiser decisions. Undercounting exhausted the tee pool;
-  overcounting leaked unconsumed iterators.
+- **Correctness depended on an exact pre-count.** `SafeTee` allocated exactly `n`
+  tee copies up front, so an inaccurate `n` was a *correctness* bug, not a tuning
+  miss: undercounting exhausted the tee pool (empty results), overcounting leaked
+  unconsumed iterators. But the scan count is not part of DuckDB's public API — it
+  varies by query shape, DuckDB version, and optimiser decisions (ASOF joins,
+  self-joins, and joins with intermediate aggregations all re-scan). A count that
+  cannot be known exactly must not gate correctness. (We still pre-count under
+  batchcorder, but only as an eviction hint — see `max_readers` below.)
 - **Thread safety is incomplete.** `itertools.tee` is explicitly documented as not
   thread-safe. DuckDB scans registered tables from parallel threads within a single
   query.
@@ -79,7 +82,6 @@ Problems:
 
 ## Decision drivers
 
-- Multi-scan must be transparent — no pre-counting at call sites.
 - Concurrent reads (DuckDB scanning from multiple threads) must be safe.
 - Memory and disk resources must be released promptly after execution.
 
@@ -111,6 +113,11 @@ DuckDB acquires a fresh `StreamCacheReader` via `__arrow_c_stream__` each time i
 scans the registered table. Every reader starts at batch 0 and advances
 independently. The upstream remote expression is called exactly once — ingestion is
 lazy and shared across all readers via an internal `Arc<Mutex<DatasetInner>>`.
+
+This is what makes `SafeTee` unnecessary. Because the registered table is replayable,
+a self-join over a `RemoteTable` works without any caller-side tee allocation: each
+join side acquires its own `StreamCacheReader` and replays the same stream from
+batch 0. The same holds for ASOF-with-`tolerance` and any other multi-scan shape.
 
 #### Bounded eviction via `max_readers`
 
