@@ -22,27 +22,35 @@ logger = get_logger(__name__)
 
 
 def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
-    """Count how many times each ``RemoteTable`` is physically scanned.
+    """Best-effort count of how many times each ``RemoteTable`` is scanned.
 
     The scan count is not visible in the expression graph: a single graph
-    reference can compile to several physical table scans. The asof-join with
-    tolerance lowering, for one, scans an input twice (xorq #983). Each
-    ``RemoteTable`` is rewritten to a placeholder table under a freshly
-    generated, unique name, the placeholder expression is compiled to a sqlglot
-    AST, and the ``Table`` nodes bearing that name are counted — giving the
-    exact per-table scan count whatever lowering the backend compiler applies.
-    Counting ``Table`` AST nodes (rather than substrings of the rendered SQL)
-    ignores column references, aliases, and string literals, so even a short or
-    shared user-supplied table name cannot inflate the count.
+    reference can compile to several physical table scans (e.g. a self-join over
+    one ``RemoteTable``). Each ``RemoteTable`` is rewritten to a placeholder
+    table under a freshly generated, unique name, the placeholder expression is
+    compiled to a sqlglot AST, and the ``Table`` nodes bearing that name are
+    counted. Counting ``Table`` AST nodes (rather than substrings of the
+    rendered SQL) ignores column references, aliases, and string literals, so
+    even a short or shared user-supplied table name cannot inflate the count.
 
-    The counts become each ``StreamCache``'s ``max_readers``, bounding memory:
-    batches are evicted once all readers advance past them. Each count is
-    floored at 1 — a bare ``RemoteTable`` is still scanned once, and
-    ``max_readers=0`` would forbid the reader that is in fact created.
+    This is a *lower bound*, not the exact physical scan count: it sees only the
+    scans the compiled SQL spells out, and cannot see re-scans the backend's
+    optimiser introduces below the SQL layer. The known gap is a
+    ``PARTITION BY``-only aggregate window on DuckDB, lowered to a ``GROUP BY``
+    self-join that scans its input twice while the AST shows one ``Table`` node.
+
+    The counts become each ``StreamCache``'s ``max_readers``, which both bounds
+    memory (batches are evicted once all readers advance past them) and is a
+    hard cap (a reader beyond it raises ``ValueError``). Because it is a hard
+    cap, an undercount is a correctness bug for the shapes it misses, not just a
+    missed optimisation. Each count is floored at 1 — a bare ``RemoteTable`` is
+    still scanned once, and ``max_readers=0`` would forbid the reader that is in
+    fact created.
 
     Returns an empty mapping when no SQL AST can be produced (e.g. a non-SQL
-    backend); the caller then builds an unbounded cache — safe, but without
-    eviction.
+    backend); the caller then builds an unbounded cache — always safe, just
+    without eviction. Omitting the count is safe; deriving one too low is not.
+    See ADR-0013 ("Counting accuracy").
     """
     import sqlglot as sg  # noqa: PLC0415
 
