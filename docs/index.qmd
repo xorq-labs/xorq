@@ -8,7 +8,6 @@ listing:
   - id: getting-started-cards
     template: "style/gallery.ejs"
     contents:
-      - "getting_started/introduction.qmd"
       - "getting_started/quickstart.qmd"
       - "how_to/install_xorq.qmd"
       - "getting_started/understand_deferred_execution.qmd"
@@ -40,6 +39,10 @@ Write your ML pipelines once. Run them anywhere. Xorq handles caching, lineage, 
 :::
 
 ::: {.content-section}
+
+## <i class="bi bi-info-circle"></i> What is Xorq?
+
+Xorq is an open source engine for portable, multi-engine ML pipelines, with deferred execution, caching, and lineage tracking built in. [Read the introduction →](concepts/understanding_xorq/what_is_xorq.qmd)
 
 ## <i class="bi bi-rocket-takeoff"></i> Getting started
 
