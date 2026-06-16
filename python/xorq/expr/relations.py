@@ -10,7 +10,7 @@ import toolz
 
 from xorq.backends.xorq_datafusion import connect as xo_connect
 from xorq.common.exceptions import IntegrityError
-from xorq.common.utils.otel_utils import get_current_span, tracer
+from xorq.common.utils.otel_utils import tracer
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
     instrument_reader,

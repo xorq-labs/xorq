@@ -260,8 +260,6 @@ def _register_and_transform_cache_tables(expr):
 
 @tracer.start_as_current_span("_transform_deferred_reads")
 def _transform_deferred_reads(expr):
-    dt_to_read = {}
-
     span = get_current_span()
 
     def replace_read(node, _kwargs):
