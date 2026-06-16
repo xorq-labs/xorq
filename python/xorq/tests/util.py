@@ -49,3 +49,9 @@ def assert_frame_equal(
 
 def default_series_rename(series: pd.Series, name: str = "tmp") -> pd.Series:
     return series.rename(name)
+
+
+def reader_counts(expr: Any) -> list[int]:
+    from xorq.expr.remote_table_exec import count_remote_table_readers  # noqa: PLC0415
+
+    return sorted(count_remote_table_readers(expr).values())

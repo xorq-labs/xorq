@@ -3,6 +3,7 @@ import warnings
 import pandas as pd
 import pyarrow as pa
 import pytest
+from batchcorder import StreamCache
 
 import xorq.api as xo
 from xorq.backends.xorq_datafusion import _select_and_cast
@@ -57,6 +58,43 @@ def test_register_table_provider():
     # None table_name generates a name; returned table reflects it
     t = con.register_table_provider(source)
     assert t.get_name() in con.list_tables()
+
+
+def test_read_record_batches_type_mismatch() -> None:
+    con = xo.connect()
+    utf8_schema = pa.schema([("x", pa.utf8())])
+    batch = pa.record_batch({"x": pa.array(["hello", "world"], type=pa.large_utf8())})
+    lying_reader = pa.RecordBatchReader.from_batches(utf8_schema, [batch])
+    assert lying_reader.schema.field("x").type == pa.utf8()
+    t = con.read_record_batches(lying_reader)
+    assert t.execute()["x"].tolist() == ["hello", "world"]
+
+
+def test_read_record_batches_stream_cache_casts_to_logical_schema() -> None:
+    con = xo.connect()
+    logical_schema = pa.schema([("x", pa.utf8())])
+    batch = pa.record_batch({"x": pa.array(["hello", "world"], type=pa.large_utf8())})
+    # Cast before entering StreamCache (as remote_table_exec does) to avoid
+    # C Data Interface corruption from large_utf8-vs-utf8 offset mismatch.
+    cast_reader = pa.RecordBatchReader.from_batches(
+        logical_schema,
+        (b.select(logical_schema.names).cast(logical_schema) for b in [batch]),
+    )
+    cache = StreamCache(cast_reader)
+    t = con.read_record_batches(cache, schema=logical_schema)
+    assert t.execute()["x"].tolist() == ["hello", "world"]
+
+
+def test_read_record_batches_stream_cache_schema_drops_extra_columns() -> None:
+    con = xo.connect()
+    batch = pa.record_batch({"a": [1, 2], "extra": [9, 9]})
+    reader = pa.RecordBatchReader.from_batches(batch.schema, [batch])
+    cache = StreamCache(reader)
+    logical_schema = pa.schema([("a", pa.int64())])
+    t = con.read_record_batches(cache, schema=logical_schema)
+    result = t.execute()
+    assert result.columns.tolist() == ["a"]
+    assert result["a"].tolist() == [1, 2]
 
 
 def test_read_record_batches_from_table() -> None:
