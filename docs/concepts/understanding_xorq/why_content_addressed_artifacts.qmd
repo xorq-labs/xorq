@@ -1,0 +1,123 @@
+---
+title: "Content-addressed artifacts"
+---
+
+Most systems name things by *where* or *when*: a path, a timestamp, a
+version number someone bumped by hand. Xorq names things by *what they contain*. An
+artifact's name is a deterministic hash of the computation that produces it, so
+identical computations get identical names and different computations get
+different names—automatically, with no bookkeeping. This is **content
+addressing**, and it's the mechanism underneath both Xorq's
+[cache](intelligent_caching_system.qmd) and its
+[catalog](catalog_as_executable_memory.qmd).
+
+This page explains what that hash is, why Xorq is built around it, and what it
+buys you in practice.
+
+## What gets hashed
+
+The hash is computed over the [expression
+graph](why_deferred_execution.qmd)—the tree of operations you built—not over the
+data the graph produces and not over the wall-clock time you built it. Two
+expressions that describe the same computation hash to the same value; change any
+operation in the graph and the hash changes.
+
+You can see this directly. The same pipeline built twice produces the same hash;
+widen the filter and you get a different one:
+
+```{python}
+import xorq.api as xo
+
+con = xo.connect()
+iris = xo.examples.iris.fetch(backend=con)
+
+def pipeline(threshold):
+    return (
+        iris.filter(xo._.sepal_length > threshold)
+        .group_by("species")
+        .agg(n=xo._.species.count())
+    )
+
+a = pipeline(6)
+b = pipeline(6)   # same computation
+c = pipeline(5)   # one operand changed
+
+print(f"a: {a.ls.tokenized}")
+print(f"b: {b.ls.tokenized}")
+print(f"c: {c.ls.tokenized}")
+print(f"a == b (same pipeline):     {a.ls.tokenized == b.ls.tokenized}")
+print(f"a == c (filter changed):    {a.ls.tokenized == c.ls.tokenized}")
+```
+
+The hash is deterministic and stable across processes and machines: it depends
+only on the structure of the computation, so the same pipeline run tomorrow on
+another host produces the same name. Note that it fingerprints the
+*specification*, not the bytes of the output—a run can still differ in timestamps
+or floating-point rounding, but its identity as a computation is fixed.
+
+## Why Xorq uses it
+
+Three properties fall out of naming by content, and Xorq leans on all three.
+
+**Reproducibility.** A name that's a function of the computation is a name that
+can't drift. `final_v2_fixed.parquet` tells you nothing about what's inside;
+`8b4472fbeb97` *is* the computation. If you have the hash, you can ask for
+exactly that artifact and know you got the right one.
+
+**Cache validity.** A cache is only useful if you can answer whether this exact
+computation has run before. Content addressing makes that a dictionary lookup: hash the
+expression, check whether the key exists. Xorq's
+[`ModificationTimeStrategy`](intelligent_caching_system.qmd) folds the source's
+change metadata into the hash, so when upstream data changes the key changes, the
+old key misses, and the result recomputes. Invalidation isn't a timer or a
+watcher—it's a key that stops matching when its inputs change.
+
+**Artifact identity.** When two artifacts share a hash they *are* the same
+computation; when the hashes differ, something in the graph or its inputs
+changed. The name can't lie about what the artifact does. That honesty is what
+lets a catalog dedupe, share, and reuse entries without trusting a human-chosen
+label.
+
+## What it means in practice
+
+The practical payoff is that *reuse is automatic*. Build the same pipeline twice
+and the second build is a no-op—the artifact already exists under that name, so
+there is nothing to recompute and nothing to ask. You never write "did someone
+already produce this?" logic; identical computations collapse to one artifact by
+construction.
+
+This is the opposite of prose or vector memory, which has to dedupe explicitly—
+comparing embeddings or running similarity heuristics—because two records of the
+same fact look different on disk. Content addressing makes that question
+disappear.
+
+## Connection to the catalog
+
+A [Xorq catalog](catalog_as_executable_memory.qmd) is a git repository of build
+artifacts, and content addressing is how it names them. Each entry is a zipped
+build named by its content hash:
+
+```
+git-catalogs/penguins
+├── aliases
+│   └── penguins-agg.zip -> ../entries/fa2122f6a9e9.zip
+├── entries
+│   └── fa2122f6a9e9.zip
+└── metadata
+    └── fa2122f6a9e9.zip.metadata.yaml
+```
+
+The hash is the identity; an **alias** is a human-readable symlink—
+`penguins-agg`—pointing at whatever hash is current. As the pipeline evolves the
+hash moves and the alias follows. The hash answers *what is this*; the alias
+answers *which one do I want*. Because the name is derived from the computation,
+the catalog gets deduplication, honest provenance, and conflict-free sharing for
+free—the same git repo two people clone can never disagree about what an entry
+contains.
+
+::: {.callout-tip}
+### Where to go next
+- [Deferred execution](why_deferred_execution.qmd)—the graph that gets hashed.
+- [Caching](intelligent_caching_system.qmd)—how the hash becomes a cache key and drives invalidation.
+- [The catalog as executable memory](catalog_as_executable_memory.qmd)—how content-addressed entries become shareable, runnable memory.
+:::
