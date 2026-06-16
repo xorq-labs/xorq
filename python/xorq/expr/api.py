@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
 
@@ -19,7 +20,6 @@ from xorq.common.utils.caching_utils import find_backend
 from xorq.common.utils.defer_utils import (  # noqa: F403
     deferred_read_csv,
     deferred_read_parquet,
-    rbr_wrapper,
 )
 from xorq.common.utils.graph_utils import replace_nodes, walk_nodes
 from xorq.common.utils.io_utils import (
@@ -463,11 +463,11 @@ def _drop_created_tables(created: dict) -> None:
     raise_collected_errors("failed to drop created tables", errors)
 
 
-def _run_cleanup(drains: list, created: dict, caches: list = ()) -> None:
-    """Close/join drains, drop created tables, close caches; surface every failure.
+def _run_cleanup(drains: list, created: dict) -> None:
+    """Close/join drains and drop created tables, surfacing every failure.
 
-    All steps always run even if an earlier one raises, so a drain failure never
-    leaks temp tables or caches, and a later failure never hides an earlier one.
+    Both steps always run even if the first raises, so a drain failure never
+    leaks the temp tables and a drop failure never hides a drain failure.
     """
     cleanup_errors: list[BaseException] = []
     try:
@@ -478,17 +478,17 @@ def _run_cleanup(drains: list, created: dict, caches: list = ()) -> None:
         _drop_created_tables(created)
     except BaseException as exc:  # noqa: BLE001
         cleanup_errors.append(exc)
-    for cache in caches:
-        try:
-            cache.close()
-        except BaseException as exc:  # noqa: BLE001
-            cleanup_errors.append(exc)
     raise_collected_errors("execution cleanup failed", cleanup_errors)
 
 
 @tracer.start_as_current_span("_transform_expr")
 def _transform_expr(expr, params=None, **kwargs):
-    """Transform an expression for execution, binding any named scalar parameters."""
+    """Transform an expression for execution, binding any named scalar parameters.
+
+    Returns ``(expr, scope)``: the scope owns every resource the transform
+    materialized (upstream readers, StreamCaches, placeholder tables) and the
+    caller must close it once the transformed expr is consumed.
+    """
     name_values = _resolve_params(params)
     expr = (
         bind_params(expr, name_values)
@@ -498,10 +498,32 @@ def _transform_expr(expr, params=None, **kwargs):
     expr = _remove_tag_nodes(expr)
     expr = _register_and_transform_cache_tables(expr)
     expr, tee_created, drains = register_and_transform_tee_nodes(expr)
-    expr, created, caches = register_and_transform_remote_tables(expr, **kwargs)
-    expr, dt_to_read = _transform_deferred_reads(expr)
-    created = {**created, **tee_created}
-    return (expr, created, drains, caches)
+    expr, scope = register_and_transform_remote_tables(expr, **kwargs)
+    # Fold the tee-node materializations (placeholder tables + write-through
+    # drains) into the same scope so a single close() tears everything down.
+    # Drains close-then-join before any table drops (see TransformScope.close).
+    for table_name, con in tee_created.items():
+        scope.adopt_table(con, table_name)
+    for drain in drains:
+        scope.adopt_drain(drain)
+    try:
+        expr, dt_to_read = _transform_deferred_reads(expr)
+    except Exception:
+        scope.close()
+        raise
+    return (expr, scope)
+
+
+@contextmanager
+def transformed(expr, **kwargs):
+    """Transform ``expr`` and yield it with a guaranteed full scope close.
+
+    For eager call sites only: the body must fully materialize the result
+    before exiting (placeholder tables are dropped on exit).
+    """
+    (expr, scope) = _transform_expr(expr, **kwargs)
+    with scope:
+        yield expr
 
 
 def _pandas_execute(con, expr: ir.Expr, **kwargs):
@@ -514,23 +536,11 @@ def _pandas_execute(con, expr: ir.Expr, **kwargs):
         df = node.to_rbr().read_pandas(timestamp_as_object=True)
         return expr.__pandas_result__(df)
     params = kwargs.pop("params", None)
-    expr, created, drains, caches = _transform_expr(expr, params=params)
 
     span.set_attribute("engine", "pandas")
-    try:
-        result = con.execute(expr, **kwargs)
-    except BaseException as primary:
-        try:
-            _run_cleanup(drains, created, caches)
-        except BaseException as cleanup_exc:  # noqa: BLE001
-            raise_collected_errors(
-                "execute failed and cleanup failed",
-                [primary, cleanup_exc],
-            )
-        raise
-    else:
-        _run_cleanup(drains, created, caches)
-        return result
+    # full close is safe here: con.execute returns a materialized DataFrame
+    with transformed(expr, params=params) as expr:
+        return con.execute(expr, **kwargs)
 
 
 @tracer.start_as_current_span("to_pyarrow_batches")
@@ -570,27 +580,18 @@ def to_pyarrow_batches(
         span.set_attribute("engine", "flight")
         return expr.op().to_rbr()
     params = kwargs.pop("params", None)
-    expr, created, drains, caches = _transform_expr(expr, params=params)
-    con, _ = find_backend(expr.op(), use_default=True)
-
-    span.set_attribute("engine", con.name)
-
-    def clean_up():
-        _run_cleanup(drains, created, caches)
-
+    expr, scope = _transform_expr(expr, params=params)
     try:
+        con, _ = find_backend(expr.op(), use_default=True)
+        span.set_attribute("engine", con.name)
         reader = con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
-    except BaseException as primary:
-        try:
-            clean_up()
-        except BaseException as cleanup_exc:  # noqa: BLE001
-            raise_collected_errors(
-                "to_pyarrow_batches failed and cleanup failed",
-                [primary, cleanup_exc],
-            )
+    except Exception:
+        scope.close()
         raise
 
-    return otel_instrument_reader(rbr_wrapper(reader, clean_up))
+    # cleanup stays deferred to the result reader's exhaustion/collection:
+    # the backends scan the placeholders lazily while the reader drains
+    return otel_instrument_reader(scope.bind(reader))
 
 
 def to_pyarrow(expr: ir.Expr, **kwargs: Any):
@@ -741,14 +742,11 @@ def to_json(
 def get_plans(expr: ir.Expr) -> dict:
     # Strip tee nodes first (like to_sql): EXPLAIN is a non-executing path, so
     # it must not register a pass-through table or fire the side-effect write.
-    _expr, _created, _drains, _caches = _transform_expr(_remove_tee_nodes(expr))
-    try:
+    # Full close is safe here: EXPLAIN is materialized via to_pandas inside.
+    with transformed(_remove_tee_nodes(expr)) as _expr:
         con, _ = find_backend(_expr.op())
         sql = f"EXPLAIN {to_sql(_expr)}"
         return con.con.sql(sql).to_pandas().set_index("plan_type")["plan"].to_dict()
-    finally:
-        for cache in _caches:
-            cache.close()
 
 
 def get_object_metadata(path: str, **kwargs: Any) -> dict:
