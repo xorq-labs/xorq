@@ -8,7 +8,6 @@ import pyarrow as pa
 import toolz
 
 from xorq.backends.xorq_datafusion import connect as xo_connect
-from xorq.common.utils.otel_utils import get_current_span, tracer
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
     instrument_reader,
