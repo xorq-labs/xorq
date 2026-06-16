@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import itertools
 import operator
 import random
@@ -11,13 +13,15 @@ import pytest
 from pytest import param
 
 import xorq.api as xo
+import xorq.vendor.ibis.expr.types as ir
 from xorq.caching import ParquetCache, SourceCache
 from xorq.common.exceptions import XorqError
-from xorq.expr.relations import register_and_transform_remote_tables
+from xorq.expr.remote_table_exec import register_and_transform_remote_tables
 from xorq.loader import load_backend
 from xorq.tests.util import assert_frame_equal, check_eq
 from xorq.vendor import ibis
 from xorq.vendor.ibis import _
+from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.expr.types.relations import CACHED_NODE_NAME_PLACEHOLDER
 
 
@@ -258,31 +262,29 @@ def test_into_backend_duckdb(pg):
     )
 
     expr, scope = register_and_transform_remote_tables(expr)
-    query = ibis.to_sql(expr, dialect="duckdb")
+    with scope:
+        query = ibis.to_sql(expr, dialect="duckdb")
+        res = ddb.con.sql(query).df()
 
-    res = ddb.con.sql(query).df()
-    scope.close()
-
-    assert len(scope.created) == 1
-    registered_name = next(iter(scope.created))
+    assert scope.table_count == 1
+    registered_name = scope.table_names[0]
     assert query.count(registered_name) == 2
     assert 0 < len(res) <= 15
 
 
 @pytest.mark.postgres
-def test_into_backend_duckdb_expr(pg):
+def test_into_backend_duckdb_expr(pg: BaseBackend) -> None:
     ddb = xo.duckdb.connect()
     t = pg.table("batting").into_backend(ddb, "ls_batting")
     expr = t.join(t, "playerID").limit(15).select(_.playerID * 2)
 
     expr, scope = register_and_transform_remote_tables(expr)
-    query = ibis.to_sql(expr, dialect="duckdb")
+    with scope:
+        query = ibis.to_sql(expr, dialect="duckdb")
+        res = ddb.con.sql(query).df()
 
-    res = ddb.con.sql(query).df()
-    scope.close()
-
-    assert len(scope.created) == 1
-    registered_name = next(iter(scope.created))
+    assert scope.table_count == 1
+    registered_name = scope.table_names[0]
     assert query.count(registered_name) == 2
     assert 0 < len(res) <= 15
 
@@ -293,18 +295,17 @@ def test_into_backend_duckdb_trino(trino_table):
     expr = trino_table.head(10_000).into_backend(db_con).pipe(make_merged)
 
     expr, scope = register_and_transform_remote_tables(expr)
-    query = ibis.to_sql(expr, dialect="duckdb")
-
-    df = db_con.con.sql(query).df()  # to bypass execute hotfix
-    scope.close()
+    with scope:
+        query = ibis.to_sql(expr, dialect="duckdb")
+        df = db_con.con.sql(query).df()  # to bypass execute hotfix
 
     assert isinstance(df, pd.DataFrame)
     assert len(df) > 0
-    assert len(scope.created) == 1
+    assert scope.table_count == 1
 
 
 @pytest.mark.trino
-def test_multiple_into_backend_duckdb_xorq(trino_table):
+def test_multiple_into_backend_duckdb_xorq(trino_table: ir.Table) -> None:
     db_con = xo.duckdb.connect()
     ls_con = xo.connect()
 
@@ -316,13 +317,12 @@ def test_multiple_into_backend_duckdb_xorq(trino_table):
     )
 
     expr, scope = register_and_transform_remote_tables(expr)
-
-    df = expr.execute()
-    scope.close()
+    with scope:
+        df = expr.execute()
 
     assert isinstance(df, pd.DataFrame)
     assert len(df) > 0
-    assert len(scope.created) == 1
+    assert scope.table_count == 1
 
 
 @pytest.mark.trino

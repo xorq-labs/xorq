@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pyarrow as pa
 import sqlglot as sg
 import sqlglot.expressions as sge
 
@@ -13,6 +12,10 @@ from xorq.vendor.ibis.backends.sqlite import Backend as IbisSQLiteBackend
 from xorq.vendor.ibis.backends.sqlite import _quote
 from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import gen_name
+
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 
 class Backend(IbisSQLiteBackend):
@@ -68,7 +71,11 @@ class Backend(IbisSQLiteBackend):
 
         return self.table(table_name)
 
-    def _into_memory_record_batches(self, record_batches, table_name):
+    def _into_memory_record_batches(
+        self, record_batches: pa.RecordBatchReader, table_name: str
+    ) -> None:
+        import pyarrow as pa  # noqa: PLC0415
+
         schema = Schema.from_pyarrow(record_batches.schema)
         table = sg.table(table_name, quoted=self.compiler.quoted, catalog="temp")
         create_stmt = self._generate_create_table(table, schema).sql(self.name)

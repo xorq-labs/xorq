@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-05-22
 - **Deciders:** Daniel
-- **Context area:** `python/xorq/expr/relations.py`, `python/xorq/expr/api.py`, `python/xorq/backends/pandas/__init__.py`
+- **Context area:** `python/xorq/expr/remote_table_exec.py`, `python/xorq/expr/api.py`, `python/xorq/expr/relations.py`
 
 ## Context
 
@@ -27,7 +27,7 @@ expr.execute()  # empty — should have 5 rows
 
 ### Root cause: multi-scan of a one-shot Arrow iterator
 
-`register_and_transform_remote_tables` (`relations.py`) walks an expression graph,
+`register_and_transform_remote_tables` (`remote_table_exec.py`) walks an expression graph,
 finds every `RemoteTable` node, materialises the remote expression as an Arrow
 `RecordBatchReader`, and registers it with the local DuckDB backend so the expression
 can execute locally.
@@ -94,22 +94,33 @@ batches lazily from the upstream reader and stores them internally. Any number o
 independent `StreamCacheReader` handles can replay the full stream from position zero
 without knowing the total reader count in advance.
 
-In `replacer`, each `RemoteTable` now gets a single `StreamCache`:
+In `replacer` (inside `register_and_transform_remote_tables` in
+`remote_table_exec.py`), each `RemoteTable` gets a single `StreamCache` whose
+resources are tracked by a `RemoteTableScope`:
 
 ```python
-cache = StreamCache(
-    pa.RecordBatchReader.from_batches(schema, remote_expr.to_pyarrow_batches())
+reader = scope.adopt_reader(remote_expr.to_pyarrow_batches())
+cache = scope.adopt_cache(
+    StreamCache(reader, max_readers=reader_counts.get(node))
 )
-caches.append(cache)
-table_name = gen_name()
-result = node.source.read_record_batches(cache, table_name=table_name)
-created[table_name] = node.source
+table_name = scope.adopt_table(node.source, gen_name())
+result = node.source.read_record_batches(cache, table_name=table_name, **read_kwargs)
 ```
 
 DuckDB acquires a fresh `StreamCacheReader` via `__arrow_c_stream__` each time it
 scans the registered table. Every reader starts at batch 0 and advances
 independently. The upstream remote expression is called exactly once — ingestion is
 lazy and shared across all readers via an internal `Arc<Mutex<DatasetInner>>`.
+
+#### Bounded eviction via `max_readers`
+
+`count_remote_table_readers` compiles the expression to a sqlglot AST with sentinel
+table names and counts how many `Table` nodes bear each sentinel — giving the exact
+physical scan count whatever lowering the backend compiler applies. The count becomes
+`StreamCache`'s `max_readers`, allowing it to evict batches once all readers advance
+past them. This is a memory optimisation, not a correctness requirement: if no AST
+can be produced (non-SQL backend), `max_readers` is omitted and the cache retains all
+batches.
 
 ### Storage modes
 
@@ -125,29 +136,29 @@ streams that exceed available RAM. Because `close()` is already called explicitl
 all executing call sites, enabling disk mode later is a configuration change only —
 no new cleanup logic is required.
 
-### Resource lifecycle
+### Resource lifecycle — `RemoteTableScope`
 
-`register_and_transform_remote_tables` returns `(expr, created, caches)` where
-`caches: list[StreamCache]` is owned by the call site.
+`register_and_transform_remote_tables` returns `(expr, scope)` where
+`scope: RemoteTableScope` owns every resource the transform materialised:
+upstream `RecordBatchReader`s, `StreamCache`s, and placeholder tables.
+`scope.close()` tears down in dependency order (tables → caches → readers),
+LIFO within each category, and is idempotent.
 
-**Executing call sites close caches explicitly:**
+Call sites use one of two patterns depending on whether execution is eager or
+streaming:
 
-- **`_pandas_execute`**: `finally` block immediately after `con.execute()` returns.
-  Pandas execution is synchronous and fully materialises before returning.
-- **`get_plans`**: `finally` block after the `EXPLAIN` SQL completes. The upstream
-  stream is never read during `EXPLAIN`; closing here releases it without waiting
-  for GC.
-- **`to_pyarrow_batches`**: `cache.close()` inside the `clean_up` callback passed
-  to `rbr_wrapper`. The callback fires when the returned `RecordBatchReader` generator
-  exits — either on full exhaustion or when the generator is closed/GCed.
-- **`prepare_create_table_from_expr`**: `finally` block after the transformed
-  expression is returned. Caches are closed before the caller materialises the table.
+- **Eager (fully materialised before returning):**
+  `remote_table_scope` is a context manager in `api.py` that yields the
+  transformed expression and closes the scope on exit.  Used by
+  `_pandas_execute`, `get_plans`, and any backend whose
+  `read_record_batches` eagerly ingests the stream (Snowflake, Postgres via
+  ADBC through `prepare_create_table_from_expr`).
 
-### Effect on `created`
-
-`created` maps `table_name → backend`. For a self-join that previously generated
-three `SafeTee` copies, `len(created)` drops from 3 to 1 — one entry per unique
-`RemoteTable` node.
+- **Streaming (`to_pyarrow_batches`):**
+  `bind_scope_to_reader` wraps the result `RecordBatchReader` in a generator
+  whose `finally` block calls `scope.close()`.  A `weakref.finalize`
+  backstop covers readers abandoned before the first read (a never-started
+  generator never runs its `finally`).
 
 ## Alternatives considered
 
@@ -182,13 +193,15 @@ ingestion and an optional disk spill path.
 
 ### Positive
 
-- **No pre-counting.** `replacer` creates one `StreamCache` per `RemoteTable` node
-  without knowing how many times DuckDB will scan it.
+- **No pre-counting for correctness.** `replacer` creates one `StreamCache` per
+  `RemoteTable` node without knowing how many times DuckDB will scan it.
+  `max_readers` is a memory-eviction hint derived from the sqlglot AST; omitting
+  it is safe — the cache simply retains all batches.
 - **Thread-safe reads.** Concurrent `StreamCacheReader` handles share an
   `Arc<Mutex<DatasetInner>>` and are designed for concurrent use.
-- **Prompt resource release.** Explicit `close()` at execution boundaries releases
-  memory immediately rather than waiting for GC.
-- **`created` cardinality is natural.** One entry per unique `RemoteTable` node.
+- **Prompt resource release.** `RemoteTableScope.close()` releases tables, caches,
+  and readers in dependency order. Eager call sites use `remote_table_scope`;
+  streaming call sites use `bind_scope_to_reader`.
 - **Fixes #983 and the full multi-scan class.** ASOF join with `tolerance` and
   self-join both work correctly.
 
@@ -196,17 +209,17 @@ ingestion and an optional disk spill path.
 
 - **New runtime dependency.** `batchcorder >= 0.1.2` is now required. It ships
   pre-built wheels, requires only `pyarrow` (no `arro3`), and supports Python ≥ 3.10.
-- **Abandoned reader leak (generator close path).** `clean_up` in `to_pyarrow_batches`
-  fires inside the generator's `finally` block. Python guarantees this runs when the
-  generator is closed or GCed, but the timing is non-deterministic for callers that
-  drop the reader early. In memory-only mode this is acceptable; disk mode would
-  require deterministic cleanup (e.g. wrapping the reader in a context manager).
+- **Abandoned reader leak (streaming path).** `bind_scope_to_reader` defers cleanup
+  to a wrapping generator's `finally` block, with a `weakref.finalize` backstop.
+  Python guarantees the finaliser runs when the reader is GCed, but the timing is
+  non-deterministic for callers that drop the reader early. In memory-only mode this
+  is acceptable; disk mode would require deterministic cleanup (e.g. wrapping the
+  reader in a context manager).
 
 ## References
 
 - [Issue #983](https://github.com/xorq-labs/xorq/issues/983) — `asof_join` with `tolerance` and `into_backend` gives empty result
-- `python/xorq/expr/relations.py` — `register_and_transform_remote_tables`, `replacer`, `prepare_create_table_from_expr`
-- `python/xorq/expr/api.py` — `_transform_expr`, `to_pyarrow_batches`, `_pandas_execute`, `get_plans`
-- `python/xorq/backends/pandas/__init__.py` — `read_record_batches` StreamCache branch
-- `python/xorq/common/utils/defer_utils.py` — `rbr_wrapper`
+- `python/xorq/expr/remote_table_exec.py` — `RemoteTableScope`, `bind_scope_to_reader`, `register_and_transform_remote_tables`, `count_remote_table_readers`, `prepare_create_table_from_expr`
+- `python/xorq/expr/api.py` — `_transform_expr`, `remote_table_scope`, `to_pyarrow_batches`, `_pandas_execute`, `get_plans`
+- `python/xorq/expr/relations.py` — `RemoteTable`
 - [batchcorder on PyPI](https://pypi.org/project/batchcorder/)

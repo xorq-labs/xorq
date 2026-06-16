@@ -212,12 +212,12 @@ class SourceStorage(CacheStorage):
 
         if is_remote(value):
             if is_single_backend(self, value):
-                from xorq.expr.api import transformed  # noqa: PLC0415
+                from xorq.expr.api import remote_table_scope  # noqa: PLC0415
 
                 # must transform for Read ops: create_table expects a vanilla ibis expr
                 # full close is safe here: create_table is an eager server-side
                 # CTAS and get(key) below never references the placeholders
-                with transformed(value.to_expr()) as transformed_expr:
+                with remote_table_scope(value.to_expr()) as transformed_expr:
                     self.source.create_table(key, transformed_expr)
             else:
                 assert hasattr(self.source, "read_record_batches")
