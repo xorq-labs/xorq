@@ -310,11 +310,14 @@ class Backend(SQLBackend):
                 self.insert(table_name, data, mode="append")
         else:
             full_name = f"{self.namespace}.{table_name}"
+            # Strip Arrow field-level metadata (PyIceberg rejects it) while
+            # preserving each field's nullability — rebuilding from name/type
+            # alone would silently force every field to nullable=True.
             data = data.cast(
                 pa.schema(
                     [
-                        pa.field(name, type=typ)
-                        for name, typ in zip(data.schema.names, data.schema.types)
+                        pa.field(f.name, type=f.type, nullable=f.nullable)
+                        for f in data.schema
                     ]
                 )
             )

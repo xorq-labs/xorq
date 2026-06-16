@@ -47,7 +47,7 @@ make_sink_with_parquet = curry(ParquetSink, mode=SinkMode.CREATE)
 def publish_with_parquet(df):
     ((staging, final, passed), *rest) = df.values
     if rest:
-        raise ValueError
+        raise ValueError(f"expected exactly 1 row, got {1 + len(rest)}")
     written = False
     if passed:
         shutil.copy2(staging, final)
@@ -74,7 +74,7 @@ def make_publish_with_iceberg(con):
     def publish_with_iceberg(df):
         ((staging, final, passed), *rest) = df.values
         if rest:
-            raise ValueError
+            raise ValueError(f"expected exactly 1 row, got {1 + len(rest)}")
         written = False
         if passed:
             staged = con.table(staging).execute()
@@ -115,7 +115,7 @@ def make_publish_with_iceberg_branch(con):
     def publish_with_iceberg_branch(df):
         ((branch, table_name, passed), *rest) = df.values
         if rest:
-            raise ValueError
+            raise ValueError(f"expected exactly 1 row, got {1 + len(rest)}")
         written = False
         if passed:
             full_name = f"{con.namespace}.{table_name}"

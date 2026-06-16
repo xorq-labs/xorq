@@ -97,7 +97,7 @@ def test_create_fails_if_target_exists(t: Table, tmp_path: Path) -> None:
         t.tee(ParquetSink(path=target, mode="create")).execute()
     # the failed run published nothing: original file intact, no stray temp
     assert len(pq.read_table(str(target))) == 4
-    assert not Path(str(target) + ".tmp").exists()
+    assert list(tmp_path.glob("*.tmp")) == []
 
 
 def test_create_sink_execute_raises_fileexists(tmp_path: Path) -> None:
@@ -112,14 +112,19 @@ def test_create_sink_execute_raises_fileexists(tmp_path: Path) -> None:
 
 def test_concurrent_create_only_one_wins(tmp_path: Path) -> None:
     target = tmp_path / "out.parquet"
-    batches = [pa.record_batch({"a": [i]}) for i in range(4)]
     barrier = threading.Barrier(2)
     results: list[Exception | None] = [None, None]
+
+    # each worker writes a value-disjoint dataset (worker idx -> [idx*100 + i]),
+    # so a corrupted interleave of the two staging streams is detectable: the
+    # published file must contain exactly one worker's rows, never a mix.
+    def make_batches(idx: int) -> list[pa.RecordBatch]:
+        return [pa.record_batch({"a": [idx * 100 + i]}) for i in range(4)]
 
     def worker(idx: int) -> None:
         sink = ParquetSink(path=target, mode="create")
         try:
-            gen = sink.execute(iter(batches))
+            gen = sink.execute(iter(make_batches(idx)))
             first = next(gen)
             barrier.wait(timeout=5)
             _ = [first, *gen]
@@ -132,12 +137,20 @@ def test_concurrent_create_only_one_wins(tmp_path: Path) -> None:
     for th in threads:
         th.join(timeout=10)
 
-    winners = [r for r in results if r is None]
-    losers = [r for r in results if isinstance(r, (FileExistsError, Exception))]
+    winners = [i for i, r in enumerate(results) if r is None]
+    losers = [r for r in results if isinstance(r, Exception)]
     assert len(winners) == 1, f"expected exactly one winner, got results={results}"
     assert len(losers) == 1
     assert target.exists()
-    assert not Path(str(target) + ".tmp").exists()
+
+    # published content must be exactly the winner's dataset — no interleave,
+    # no partial rows from the loser's stream.
+    expected = pa.Table.from_batches(make_batches(winners[0]))
+    written = pq.read_table(str(target))
+    assert written.equals(expected), f"corrupted publish: {written.to_pydict()}"
+
+    # no stray staging files left behind (unique per-invocation temp names)
+    assert list(tmp_path.glob("*.tmp")) == []
 
 
 def test_invalid_mode_raises(tmp_path: Path) -> None:
@@ -302,7 +315,7 @@ def test_parquet_execute_abandoned_cleans_up(tmp_path: Path) -> None:
     next(gen)  # consume one batch, open the writer
     gen.close()  # abandon mid-stream
     assert not target.exists()
-    assert not Path(str(target) + ".tmp").exists()
+    assert list(tmp_path.glob("*.tmp")) == []
 
 
 # ---- per-batch ingest path (BackendSink with mode support) -------------------
@@ -489,7 +502,7 @@ def test_parquet_create_link_failure_cleans_up(
     with pytest.raises(OSError, match="simulated link failure"):
         list(sink.execute(batches))
     assert not target.exists()
-    assert not Path(str(target) + ".tmp").exists()
+    assert list(tmp_path.glob("*.tmp")) == []
 
 
 def test_parquet_append_rename_failure_cleans_up(
@@ -510,7 +523,7 @@ def test_parquet_append_rename_failure_cleans_up(
     with pytest.raises(OSError, match="simulated rename failure"):
         list(sink.execute(batches))
     assert not target.exists()
-    assert not Path(str(target) + ".tmp").exists()
+    assert list(tmp_path.glob("*.tmp")) == []
 
 
 # ---- per-batch partial write retains committed data --------------------------

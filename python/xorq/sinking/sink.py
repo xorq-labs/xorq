@@ -10,7 +10,6 @@ single parquet file; `BackendSink` delegates to a backend's
 from __future__ import annotations
 
 import abc
-import fcntl
 import inspect
 import os
 from enum import StrEnum
@@ -78,7 +77,10 @@ class ParquetSink(SinkNode):
         import pyarrow.parquet as pq  # noqa: PLC0415
 
         writer = None
-        tmp = Path(str(self.path) + ".tmp")
+        # unique per invocation: two concurrent sinks targeting the same path
+        # must not share a staging file, else their writes interleave and
+        # corrupt the staged data before the atomic publish step.
+        tmp = Path(str(self.path) + f".{os.getpid()}.{id(batches)}.tmp")
         exhausted = False
         try:
             for batch in batches:
@@ -119,6 +121,9 @@ class ParquetSink(SinkNode):
             finally:
                 tmp.unlink(missing_ok=True)
         else:
+            # POSIX-only: append mode (flock) is unsupported on Windows.
+            import fcntl  # noqa: PLC0415
+
             lock_path = Path(str(self.path) + ".lock")
             try:
                 with open(lock_path, "w") as lock_fd:
