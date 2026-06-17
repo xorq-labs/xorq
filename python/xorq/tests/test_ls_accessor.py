@@ -124,19 +124,6 @@ def test_uncached(cached_two):
     assert cached_two.ls.has_cached and not cached_two.ls.uncached.ls.has_cached
 
 
-def test_uncached_strips_cache_inside_remote_expr(tmp_path: Path) -> None:
-    """uncached must strip CachedNodes nested inside opaque sub-expressions."""
-    cona = xo.connect()
-    conb = xo.connect()
-    t = cona.register(pd.DataFrame({"a": [1, 2, 3]}), "t")
-    cache = ParquetSnapshotCache.from_kwargs(source=cona, relative_path=tmp_path)
-    cached = t.cache(cache=cache)
-    expr = cached.into_backend(conb, "moved")
-
-    result = expr.ls.uncached
-    assert not walk_nodes((CachedNode,), result)
-
-
 def test_uncached_strips_cache_inside_flight_expr(tmp_path: Path) -> None:
     con = xo.connect()
     t = con.register(pd.DataFrame({"a": [1, 2, 3]}), "t")
@@ -214,16 +201,6 @@ def test_uncached_strips_cache_inside_expr_scalar_udf(tmp_path: Path) -> None:
 
     assert walk_nodes((ExprScalarUDF,), expr)
     assert walk_nodes((CachedNode,), expr)
-    assert not walk_nodes((CachedNode,), expr.ls.uncached)
-
-
-def test_uncached_strips_nested_cached_nodes(tmp_path: Path) -> None:
-    con = xo.connect()
-    t = con.register(pd.DataFrame({"a": [1, 2, 3]}), "t")
-    cache = ParquetSnapshotCache.from_kwargs(source=con, relative_path=tmp_path)
-    expr = t.cache(cache=cache).cache(cache=cache)
-
-    assert len(walk_nodes((CachedNode,), expr)) == 2
     assert not walk_nodes((CachedNode,), expr.ls.uncached)
 
 

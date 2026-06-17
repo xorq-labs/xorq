@@ -733,7 +733,7 @@ def test_expr_metadata_round_trip_memtable():
     token = tokenize(expr)
     meta = expr_metadata(expr)
 
-    assert meta["version"] == 3
+    assert meta["version"] == 4
     assert isinstance(meta["structural_hash"], str)
     assert len(meta["slots"]) >= 1
 
@@ -917,7 +917,7 @@ def test_recompute_fallback_encode_matches_dasher_core():
         b"bytes",
         (),
         ("a", 1, None, (True, -3, 2.0, b"\xff")),
-        ("ibis.Expr.v3", "a" * 32, "b" * 32, "c" * 32),
+        ("ibis.Expr.v4", "a" * 32, "b" * 32, "c" * 32),
     ]
     for obj in cases:
         assert _encode_fallback(obj) == _dasher_encode(obj), f"mismatch for {obj!r}"
@@ -953,7 +953,7 @@ def test_expr_metadata_zero_slot_scalar():
     token = tokenize(expr)
     meta = expr_metadata(expr)
 
-    assert meta["version"] == 3
+    assert meta["version"] == 4
     assert meta["slots"] == []
     assert isinstance(meta["structural_hash"], str)
     assert compute_expr_token(meta["structural_hash"], ()) == token
