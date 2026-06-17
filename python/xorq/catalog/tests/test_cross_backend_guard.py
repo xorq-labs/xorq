@@ -13,6 +13,7 @@ from xorq.catalog.backend import GitAnnexBackend, GitPointerBackend
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.constants import CONTENT_STORE_YAML, MAIN_BRANCH
 from xorq.catalog.content_store import ContentCache, DirectoryContentStoreConfig
+from xorq.catalog.tests.conftest import requires_annex
 
 
 def _init_annex_repo(path: Path) -> Repo:
@@ -35,6 +36,7 @@ def _make_cache(repo_path: Path) -> ContentCache:
     )
 
 
+@requires_annex
 def test_pointer_rejects_repo_with_annex_branch(tmp_path: Path) -> None:
     repo = _init_annex_repo(tmp_path / "repo")
     with pytest.raises(ValueError, match="git-annex artifacts"):
@@ -49,6 +51,7 @@ def test_pointer_rejects_repo_with_annex_directory(tmp_path: Path) -> None:
         GitPointerBackend.from_repo(repo, cache=_make_cache(tmp_path))
 
 
+@requires_annex
 def test_annex_rejects_repo_with_content_store_yaml(tmp_path: Path) -> None:
     repo = _init_annex_repo(tmp_path / "repo")
     repo_path = Path(repo.working_dir)
@@ -57,6 +60,7 @@ def test_annex_rejects_repo_with_content_store_yaml(tmp_path: Path) -> None:
         GitAnnexBackend(repo=repo, annex=Annex(repo_path=repo_path))
 
 
+@requires_annex
 def test_annex_rejects_repo_with_pointer_files(tmp_path: Path) -> None:
     repo = _init_annex_repo(tmp_path / "repo")
     repo_path = Path(repo.working_dir)
@@ -75,6 +79,7 @@ def test_normal_pointer_backend_without_annex(tmp_path: Path) -> None:
     GitPointerBackend.from_repo(repo, cache=_make_cache(tmp_path))
 
 
+@requires_annex
 def test_normal_annex_backend_without_pointer(tmp_path: Path) -> None:
     repo = _init_annex_repo(tmp_path / "repo")
     repo_path = Path(repo.working_dir)

@@ -148,6 +148,10 @@ def compare_repo_and_catalog(repo, catalog):
 
 _annex_available = shutil.which("git-annex") is not None
 
+requires_annex = pytest.mark.skipif(
+    not _annex_available, reason="git-annex not installed"
+)
+
 
 @pytest.fixture(
     scope="session",
