@@ -10,7 +10,6 @@ single parquet file; `BackendSink` delegates to a backend's
 from __future__ import annotations
 
 import abc
-import fcntl
 import inspect
 import os
 import queue
@@ -22,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Iterator
 from attr import Attribute, field, frozen
 from attr.validators import instance_of
 
+from xorq.common.compat import flock_exclusive
 from xorq.sinking.enums import SinkMode
 
 
@@ -135,7 +135,7 @@ class ParquetSink(Sink):
             lock_path = Path(str(self.path) + ".lock")
             try:
                 with open(lock_path, "w") as lock_fd:
-                    fcntl.flock(lock_fd, fcntl.LOCK_EX)
+                    flock_exclusive(lock_fd)
                     if self.path.exists():
                         merged = Path(str(self.path) + ".merge.tmp")
                         try:
@@ -176,6 +176,8 @@ class BackendSink(Sink):
     con: BaseBackend = field(validator=_has_read_record_batches)
     table_name: str = field(validator=instance_of(str))
     mode: SinkMode = field(default=SinkMode.CREATE, converter=_coerce_sink_mode)
+    # Not identity-bearing: kwargs tune write mechanics (batch size, compression, etc.),
+    # not the logical result, so they are excluded from hash/eq/__dasher_tokenize__.
     kwargs: dict[str, Any] = field(
         factory=dict, hash=False, eq=False, validator=instance_of(dict)
     )
