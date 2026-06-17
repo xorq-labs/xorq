@@ -658,6 +658,8 @@ def register_and_transform_remote_tables(
 
         return node
 
+    # op.replace, not replace_nodes: replacer has side effects that must not
+    # fire inside opaque sub-exprs (handled lazily during UDF execution).
     expr = op.replace(replacer).to_expr()
     return expr, created
 
@@ -679,30 +681,30 @@ def register_and_transform_tee_nodes(
     completes so that the sink can finish consuming the stream.
     """
     from xorq.common.utils.caching_utils import find_backend  # noqa: PLC0415
-    from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
 
     drains: list[DrainingIterator] = []
 
     def replacer(node, kwargs):
-        if kwargs:
-            node = node.__recreate__(kwargs)
-        if isinstance(node, TeeNode):
-            parent_expr = node.parent.to_expr()
-            con, _ = find_backend(node.parent, use_default=True)
-            reader = parent_expr.to_pyarrow_batches()
-            sink_iter = node.sink.sink(reader)
-            if node.drain:
-                sink_iter = DrainingIterator(sink_iter)
-                drains.append(sink_iter)
-            wrapped = pa.RecordBatchReader.from_batches(
-                reader.schema,
-                sink_iter,
-            )
-            table = con.read_record_batches(wrapped, table_name=gen_name())
-            node = table.op()
-        return node
+        if not isinstance(node, TeeNode):
+            return node.__recreate__(kwargs) if kwargs else node
+        parent_expr = node.parent.to_expr()
+        con, _ = find_backend(node.parent, use_default=True)
+        reader = parent_expr.to_pyarrow_batches()
+        sink_iter = node.sink.sink(reader)
+        if node.drain:
+            sink_iter = DrainingIterator(sink_iter)
+            drains.append(sink_iter)
+        wrapped = pa.RecordBatchReader.from_batches(
+            reader.schema,
+            sink_iter,
+        )
+        table = con.read_record_batches(wrapped, table_name=gen_name())
+        return table.op()
 
-    return replace_nodes(replacer, expr).to_expr(), drains
+    # op.replace, not replace_nodes: replacer has side effects that must not
+    # fire inside opaque sub-exprs (handled lazily during UDF execution).
+    op = expr.op()
+    return op.replace(replacer).to_expr(), drains
 
 
 def render_backend(con):
