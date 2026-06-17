@@ -3425,9 +3425,15 @@ class Table(Expr, _FixedTextJupyterMixin):
         target: Sink | BaseBackend,
         *,
         table_name: str | None = None,
+        drain: bool = False,
         **kwargs: Any,
     ) -> Table:
-        """Pass rows through while writing them as a side effect (ADR-0014)."""
+        """Pass rows through while writing them as a side effect (ADR-0014).
+
+        When *drain* is True, early termination by downstream causes the
+        remaining batches to be consumed through the sink in a background
+        thread so the write completes.
+        """
         from xorq.expr.relations import TeeNode  # noqa: PLC0415
         from xorq.sinking import BackendSink, Sink  # noqa: PLC0415
         from xorq.vendor.ibis.backends import BaseBackend  # noqa: PLC0415
@@ -3451,7 +3457,7 @@ class Table(Expr, _FixedTextJupyterMixin):
                 f"(with read_record_batches), got {type(target).__name__}"
             )
 
-        op = TeeNode(schema=self.schema(), parent=self.op(), sink=sink)
+        op = TeeNode(schema=self.schema(), parent=self.op(), sink=sink, drain=drain)
         return op.to_expr()
 
     def _make_tag(self, cls, tag, **kwargs):

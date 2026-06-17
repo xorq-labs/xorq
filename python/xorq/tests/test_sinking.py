@@ -13,7 +13,13 @@ import xorq.api as xo
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.common.utils.node_utils import compute_expr_hash
 from xorq.common.utils.provenance_utils import get_expr_hash
-from xorq.sinking import BackendSink, ParquetSink, Sink, ThreadedBackendSink
+from xorq.sinking import (
+    BackendSink,
+    DrainingIterator,
+    ParquetSink,
+    Sink,
+    ThreadedBackendSink,
+)
 
 
 if TYPE_CHECKING:
@@ -842,3 +848,97 @@ def test_threaded_creates_table_real_backend(t: Table) -> None:
     out = t.tee(sink).execute()
     assert len(out) == len(t.execute())
     assert len(target_con.table("th_tgt").execute()) == len(t.execute())
+
+
+# ---- DrainingIterator --------------------------------------------------------
+
+
+def test_draining_iterator_passthrough_on_full_consumption(tmp_path: Path) -> None:
+    target = tmp_path / "pass.parquet"
+    batches = [pa.record_batch({"a": [i]}) for i in range(5)]
+    sink = ParquetSink(path=target, mode="append")
+    gen = sink.sink(iter(batches))
+    it = DrainingIterator(gen)
+    result = list(it)
+    assert len(result) == 5
+    assert it._exhausted
+
+
+def test_draining_iterator_drains_on_close(tmp_path: Path) -> None:
+    target = tmp_path / "drain.parquet"
+    sink = ParquetSink(path=target, mode="append")
+    batches = [pa.record_batch({"a": [i]}) for i in range(10)]
+    gen = sink.sink(iter(batches))
+    it = DrainingIterator(gen)
+    next(it)
+    next(it)
+    it.close()
+    it.join(timeout=5)
+    assert target.exists()
+    assert len(pq.read_table(str(target))) == 10
+
+
+def test_draining_iterator_close_is_idempotent(tmp_path: Path) -> None:
+    target = tmp_path / "drain_idem.parquet"
+    sink = ParquetSink(path=target, mode="append")
+    batches = [pa.record_batch({"a": [1]})]
+    gen = sink.sink(iter(batches))
+    it = DrainingIterator(gen)
+    next(it)
+    it.close()
+    first_thread = it._drain_thread
+    it.close()
+    assert it._drain_thread is first_thread
+    it.join(timeout=5)
+
+
+def test_draining_iterator_noop_when_exhausted() -> None:
+    batches = [pa.record_batch({"a": [1]})]
+
+    class PassthroughSink(Sink):
+        def sink(self, batches, **_kw):
+            yield from batches
+
+    gen = PassthroughSink().sink(iter(batches))
+    it = DrainingIterator(gen)
+    list(it)
+    assert it._exhausted
+    it.close()
+    assert it._drain_thread is None
+
+
+def test_draining_iterator_join_surfaces_error() -> None:
+    def exploding_gen():
+        yield pa.record_batch({"a": [1]})
+        raise RuntimeError("simulated sink failure")
+
+    it = DrainingIterator(exploding_gen())
+    next(it)
+    it.close()
+    with pytest.raises(RuntimeError, match="simulated sink failure"):
+        it.join(timeout=5)
+
+
+# ---- drain=True via .tee() --------------------------------------------------
+
+
+def test_tee_drain_writes_full_on_early_stop(t: Table, tmp_path: Path) -> None:
+    target = tmp_path / "drain_tee.parquet"
+    out = t.tee(ParquetSink(path=target), drain=True).limit(2).execute()
+    assert len(out) == 2
+    assert target.exists()
+    written = pq.read_table(str(target))
+    assert len(written) == 4
+
+
+def test_tee_drain_false_does_not_drain(t: Table, tmp_path: Path) -> None:
+    target = tmp_path / "no_drain.parquet"
+    t.tee(ParquetSink(path=target), drain=False).limit(2).execute()
+    assert not target.exists()
+
+
+def test_drain_build_hash_same(t: Table, tmp_path: Path) -> None:
+    sink = ParquetSink(path=tmp_path / "out.parquet")
+    no_drain = t.tee(sink, drain=False)
+    with_drain = t.tee(sink, drain=True)
+    assert get_expr_hash(no_drain) == get_expr_hash(with_drain)

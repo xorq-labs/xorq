@@ -425,6 +425,21 @@ def _resolve_params(params):
     return name_values
 
 
+def _close_and_join_drains(drains: list) -> None:
+    for d in drains:
+        d.close()
+    errors: list[BaseException] = []
+    for d in drains:
+        try:
+            d.join()
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+    if errors:
+        if len(errors) == 1:
+            raise errors[0]
+        raise errors[0] from errors[1]
+
+
 @tracer.start_as_current_span("_transform_expr")
 def _transform_expr(expr, params=None, **kwargs):
     """Transform an expression for execution, binding any named scalar parameters."""
@@ -436,10 +451,10 @@ def _transform_expr(expr, params=None, **kwargs):
     )
     expr = _remove_tag_nodes(expr)
     expr = _register_and_transform_cache_tables(expr)
-    expr = register_and_transform_tee_nodes(expr)
+    expr, drains = register_and_transform_tee_nodes(expr)
     expr, created = register_and_transform_remote_tables(expr, **kwargs)
     expr, dt_to_read = _transform_deferred_reads(expr)
-    return (expr, created)
+    return (expr, created, drains)
 
 
 def _pandas_execute(con, expr: ir.Expr, **kwargs):
@@ -452,10 +467,13 @@ def _pandas_execute(con, expr: ir.Expr, **kwargs):
         df = node.to_rbr().read_pandas(timestamp_as_object=True)
         return expr.__pandas_result__(df)
     params = kwargs.pop("params", None)
-    expr, created = _transform_expr(expr, params=params)
+    expr, created, drains = _transform_expr(expr, params=params)
 
     span.set_attribute("engine", "pandas")
-    return con.execute(expr, **kwargs)
+    try:
+        return con.execute(expr, **kwargs)
+    finally:
+        _close_and_join_drains(drains)
 
 
 @tracer.start_as_current_span("to_pyarrow_batches")
@@ -490,13 +508,14 @@ def to_pyarrow_batches(
         span.set_attribute("engine", "flight")
         return expr.op().to_rbr()
     params = kwargs.pop("params", None)
-    expr, created = _transform_expr(expr, params=params)
+    expr, created, drains = _transform_expr(expr, params=params)
     con, _ = find_backend(expr.op(), use_default=True)
 
     span.set_attribute("engine", con.name)
     reader = con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
 
     def clean_up():
+        _close_and_join_drains(drains)
         for table_name, conn in created.items():
             try:
                 conn.drop_table(table_name, force=True)
@@ -652,7 +671,7 @@ def to_json(
 
 
 def get_plans(expr):
-    _expr, _ = _transform_expr(expr)
+    _expr, _, _ = _transform_expr(expr)
     con, _ = find_backend(_expr.op())
     sql = f"EXPLAIN {to_sql(_expr)}"
     return con.con.sql(sql).to_pandas().set_index("plan_type")["plan"].to_dict()

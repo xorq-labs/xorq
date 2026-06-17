@@ -15,7 +15,7 @@ from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
     instrument_reader,
 )
-from xorq.sinking import Sink
+from xorq.sinking import DrainingIterator, Sink
 from xorq.vendor import ibis
 from xorq.vendor.ibis import Expr, Schema
 from xorq.vendor.ibis.common.collections import (
@@ -122,11 +122,16 @@ class TeeNode(ops.Relation):
     (``expr.ls.tokenized``) strips the node so ``expr.tee(s)`` caches
     identically to ``expr``.  The build hash (``get_expr_hash``) includes
     the sink identity so different sinks produce different build artifacts.
+
+    When ``drain`` is True, early termination by downstream causes the
+    remaining batches to be consumed through the sink in a background
+    thread so the write completes.
     """
 
     schema: Schema
     parent: ops.Relation
     sink: Sink
+    drain: bool = False
     values = FrozenDict()
 
     def __dasher_tokenize__(self) -> tuple:
@@ -658,7 +663,9 @@ def register_and_transform_remote_tables(
 
 
 @tracer.start_as_current_span("register_and_transform_tee_nodes")
-def register_and_transform_tee_nodes(expr: Expr) -> Expr:
+def register_and_transform_tee_nodes(
+    expr: Expr,
+) -> tuple[Expr, list[DrainingIterator]]:
     """Replace each surviving `TeeNode` with a backend table fed by the
     sink's ``sink(batches)`` generator.
 
@@ -666,9 +673,15 @@ def register_and_transform_tee_nodes(expr: Expr) -> Expr:
     effect, and yields each batch onward. Runs after cache resolution, so a
     downstream cache hit prunes the `TeeNode` before this pass sees it and
     the write never fires.
+
+    Returns the transformed expression and a list of `DrainingIterator`
+    instances whose ``close()`` must be called after downstream execution
+    completes so that the sink can finish consuming the stream.
     """
     from xorq.common.utils.caching_utils import find_backend  # noqa: PLC0415
     from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
+
+    drains: list[DrainingIterator] = []
 
     def replacer(node, kwargs):
         if kwargs:
@@ -677,15 +690,19 @@ def register_and_transform_tee_nodes(expr: Expr) -> Expr:
             parent_expr = node.parent.to_expr()
             con, _ = find_backend(node.parent, use_default=True)
             reader = parent_expr.to_pyarrow_batches()
+            sink_iter = node.sink.sink(reader)
+            if node.drain:
+                sink_iter = DrainingIterator(sink_iter)
+                drains.append(sink_iter)
             wrapped = pa.RecordBatchReader.from_batches(
                 reader.schema,
-                node.sink.sink(reader),
+                sink_iter,
             )
             table = con.read_record_batches(wrapped, table_name=gen_name())
             node = table.op()
         return node
 
-    return replace_nodes(replacer, expr).to_expr()
+    return replace_nodes(replacer, expr).to_expr(), drains
 
 
 def render_backend(con):

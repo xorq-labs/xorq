@@ -302,3 +302,55 @@ class ThreadedBackendSink(BackendSink):
                 thread.join()
             if error:
                 raise error[0]
+
+
+class DrainingIterator:
+    """Wraps a sink generator; drains remaining batches on close.
+
+    Normal iteration is lock-step pass-through.  When the downstream
+    consumer closes without exhausting the stream, a non-daemon background
+    thread continues iterating the generator so the sink's write
+    side-effect runs to completion.
+
+    Callers must call ``close()`` then ``join()`` after downstream
+    execution completes.  There is no ``__del__`` finalizer — the
+    execution pipeline (``api.py``) owns the lifecycle explicitly.
+    """
+
+    def __init__(self, sink_gen: Iterator) -> None:
+        self._gen = sink_gen
+        self._exhausted = False
+        self._drain_thread: threading.Thread | None = None
+        self._error: BaseException | None = None
+        self._lock = threading.Lock()
+
+    def __iter__(self) -> DrainingIterator:  # noqa: PYI034
+        return self
+
+    def __next__(self) -> Any:
+        try:
+            return next(self._gen)
+        except StopIteration:
+            self._exhausted = True
+            raise
+
+    def _drain(self) -> None:
+        try:
+            for _ in self._gen:
+                pass
+        except BaseException as exc:  # noqa: BLE001
+            self._error = exc
+        self._exhausted = True
+
+    def close(self) -> None:
+        with self._lock:
+            if self._exhausted or self._drain_thread is not None:
+                return
+            self._drain_thread = threading.Thread(target=self._drain, daemon=False)
+            self._drain_thread.start()
+
+    def join(self, timeout: float | None = None) -> None:
+        if self._drain_thread is not None:
+            self._drain_thread.join(timeout=timeout)
+            if self._error is not None:
+                raise self._error

@@ -126,12 +126,36 @@ died without draining. Rollback on error follows the backend's own semantics.
 `.tee()` is polymorphic — it accepts either a `Sink` directly or a backend connection:
 
 ```python
-def tee(self, target: Sink | BaseBackend, *, table_name=None, **kwargs) -> Table
+def tee(self, target: Sink | BaseBackend, *, table_name=None, drain=False, **kwargs) -> Table
 ```
 
 When `target` is a `BaseBackend` (with `read_record_batches`), `.tee()` auto-creates a
 `BackendSink` from `table_name` and the remaining `**kwargs`. When `target` is already a
 `Sink`, extra keyword arguments are rejected.
+
+### `drain=True`: completing the write on early stop
+
+By default, a downstream early-stop (`LIMIT`/`head`) aborts the sink — the generator sees
+`GeneratorExit`, cleanup runs, and nothing is published. With `drain=True`, the execution
+pipeline wraps the sink generator in a `DrainingIterator` (`python/xorq/sinking/sink.py`).
+
+During normal iteration, `DrainingIterator` is a transparent pass-through. After downstream
+execution completes, the pipeline calls `close()` on each `DrainingIterator`. If the
+generator was not fully consumed, `close()` spawns a non-daemon background thread that
+continues iterating the generator — each `next()` triggers the sink's write side-effect as
+usual, but the yielded batches are discarded since no downstream consumer remains. The
+pipeline then calls `join()` to wait for the drain thread before dropping temporary tables
+(so the parent reader stays valid during the drain).
+
+The key invariant that makes this safe: the "no independent pulling" constraint exists to
+avoid buffering for downstream. Once downstream is done, there is no downstream to buffer
+for, so the sink can freely consume the remainder of the parent stream.
+
+If the drain thread encounters an error, `join()` re-raises it to the caller. The lifecycle
+is explicit — there is no `__del__` finalizer, since the backend holds the reader alive
+past GC, making finalizer-based cleanup unreliable.
+
+No changes to the `Sink` ABC or any existing sink implementation are required.
 
 ### Fan-out of two, chained for N
 
@@ -155,16 +179,18 @@ class TeeNode(ops.Relation):
     schema: Schema            # == parent.schema; pass-through
     parent: ops.Relation
     sink: Sink                # a Sink whose sink() drives the write
+    drain: bool = False       # drain remaining batches on early stop
     values = FrozenDict()     # hash-neutral, like Tag
 ```
 
 `TeeNode` declares its identity via `__dasher_tokenize__`, which returns
 `("tee-node", self.schema, self.sink)` — delegating sink identity to each
-`Sink` subclass's own `__dasher_tokenize__`.  The cache hash path strips
-`TeeNode` (like `Tag`), so `__dasher_tokenize__` is only reached when
-`_hash_expr_components` explicitly tokenizes the extracted nodes.  The build
-hash path (`get_expr_hash`) sets `_include_tee_nodes` so that different sinks
-produce different build artifacts.
+`Sink` subclass's own `__dasher_tokenize__`.  `drain` is excluded from the
+token because it is purely an execution-time concern that does not change the
+logical result.  The cache hash path strips `TeeNode` (like `Tag`), so
+`__dasher_tokenize__` is only reached when `_hash_expr_components` explicitly
+tokenizes the extracted nodes.  The build hash path (`get_expr_hash`) sets
+`_include_tee_nodes` so that different sinks produce different build artifacts.
 
 ```python
 # python/xorq/sinking/sink.py
@@ -187,9 +213,9 @@ class BackendSink(Sink):
 ```python
 # Table.tee (vendored relations.py): the user-facing attach
 
-def tee(self, target: Sink | BaseBackend, *, table_name=None, **kwargs) -> Table:
+def tee(self, target: Sink | BaseBackend, *, table_name=None, drain=False, **kwargs) -> Table:
     ...
-    op = TeeNode(schema=self.schema(), parent=self.op(), sink=sink)
+    op = TeeNode(schema=self.schema(), parent=self.op(), sink=sink, drain=drain)
     return op.to_expr()
 ```
 
@@ -276,13 +302,21 @@ N-way node can come later if chaining proves insufficient.
   merge-then-rename. A partial or aborted run never corrupts the target.
 - `.tee()` accepting both `Sink` and `BaseBackend` gives a concise shorthand
   (`t.tee(con, table_name="tgt")`) for the common case.
+- `drain=True` lets the sink complete the full write even when downstream stops early
+  (`LIMIT`/`head`), using a `DrainingIterator` that continues iterating the sink generator
+  in a background thread. No changes to the `Sink` ABC or any existing sink implementation
+  are required — the drain simply continues normal generator iteration to exhaustion.
 
 ### Negative
 
 - The default inline generator runs the write and the downstream consumer lock-step, so a
   slow write slows downstream. `ThreadedBackendSink` decouples via an unbounded queue, but
   full disk-spill decoupling (batchcorder) is a future optimization.
-- A downstream early-stop (`LIMIT`/`head`) publishes nothing rather than the pulled prefix.
+- A downstream early-stop (`LIMIT`/`head`) publishes nothing by default. With `drain=True`,
+  the remaining batches are consumed through the sink in a background thread after execution,
+  so the write completes. The drain thread is non-daemon and is joined before temporary
+  tables are dropped, so the parent reader stays valid. A `LIMIT 10` on a billion-row
+  parent with `drain=True` writes all billion rows — expected, but potentially surprising.
 - `ParquetSink` append mode rewrites the entire file on each append (streaming, not
   in-memory, but still O(existing + new) in I/O). A future optimization could append row
   groups without rewriting, but parquet's footer makes that non-trivial.
