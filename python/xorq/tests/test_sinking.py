@@ -861,7 +861,7 @@ def test_draining_iterator_passthrough_on_full_consumption(tmp_path: Path) -> No
     it = DrainingIterator(gen)
     result = list(it)
     assert len(result) == 5
-    assert it._exhausted
+    assert it.exhausted
 
 
 def test_draining_iterator_drains_on_close(tmp_path: Path) -> None:
@@ -881,30 +881,32 @@ def test_draining_iterator_drains_on_close(tmp_path: Path) -> None:
 def test_draining_iterator_close_is_idempotent(tmp_path: Path) -> None:
     target = tmp_path / "drain_idem.parquet"
     sink = ParquetSink(path=target, mode="append")
-    batches = [pa.record_batch({"a": [1]})]
+    batches = [pa.record_batch({"a": [i]}) for i in range(3)]
     gen = sink.sink(iter(batches))
     it = DrainingIterator(gen)
     next(it)
     it.close()
-    first_thread = it._drain_thread
     it.close()
-    assert it._drain_thread is first_thread
     it.join(timeout=5)
+    assert len(pq.read_table(str(target))) == 3
 
 
 def test_draining_iterator_noop_when_exhausted() -> None:
     batches = [pa.record_batch({"a": [1]})]
 
     class PassthroughSink(Sink):
+        def __dasher_tokenize__(self) -> tuple:
+            return ("passthrough",)
+
         def sink(self, batches, **_kw):
             yield from batches
 
     gen = PassthroughSink().sink(iter(batches))
     it = DrainingIterator(gen)
     list(it)
-    assert it._exhausted
+    assert it.exhausted
     it.close()
-    assert it._drain_thread is None
+    it.join(timeout=5)
 
 
 def test_draining_iterator_join_surfaces_error() -> None:
@@ -917,6 +919,13 @@ def test_draining_iterator_join_surfaces_error() -> None:
     it.close()
     with pytest.raises(RuntimeError, match="simulated sink failure"):
         it.join(timeout=5)
+
+
+def test_draining_iterator_join_before_close_raises() -> None:
+    it = DrainingIterator(iter([pa.record_batch({"a": [1]})]))
+    next(it)
+    with pytest.raises(RuntimeError, match="join.*before close"):
+        it.join()
 
 
 # ---- drain=True via .tee() --------------------------------------------------

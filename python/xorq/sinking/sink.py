@@ -317,21 +317,27 @@ class DrainingIterator:
     execution pipeline (``api.py``) owns the lifecycle explicitly.
     """
 
-    def __init__(self, sink_gen: Iterator) -> None:
+    def __init__(self, sink_gen: Iterator[pa.RecordBatch]) -> None:
         self._gen = sink_gen
         self._exhausted = False
         self._drain_thread: threading.Thread | None = None
         self._error: BaseException | None = None
         self._lock = threading.Lock()
 
+    @property
+    def exhausted(self) -> bool:
+        with self._lock:
+            return self._exhausted
+
     def __iter__(self) -> DrainingIterator:  # noqa: PYI034
         return self
 
-    def __next__(self) -> Any:
+    def __next__(self) -> pa.RecordBatch:
         try:
             return next(self._gen)
         except StopIteration:
-            self._exhausted = True
+            with self._lock:
+                self._exhausted = True
             raise
 
     def _drain(self) -> None:
@@ -340,13 +346,14 @@ class DrainingIterator:
                 pass
         except BaseException as exc:  # noqa: BLE001
             self._error = exc
-        self._exhausted = True
+        with self._lock:
+            self._exhausted = True
 
     def close(self) -> None:
         with self._lock:
             if self._exhausted or self._drain_thread is not None:
                 return
-            self._drain_thread = threading.Thread(target=self._drain, daemon=False)
+            self._drain_thread = threading.Thread(target=self._drain)
             self._drain_thread.start()
 
     def join(self, timeout: float | None = None) -> None:
@@ -354,3 +361,7 @@ class DrainingIterator:
             self._drain_thread.join(timeout=timeout)
             if self._error is not None:
                 raise self._error
+        elif not self.exhausted:
+            raise RuntimeError(
+                "join() called before close() on a partially-consumed DrainingIterator"
+            )

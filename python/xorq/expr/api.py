@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
 
@@ -437,7 +438,17 @@ def _close_and_join_drains(drains: list) -> None:
     if errors:
         if len(errors) == 1:
             raise errors[0]
+        if sys.version_info >= (3, 11):
+            raise ExceptionGroup("drain failures", errors)  # noqa: F405
         raise errors[0] from errors[1]
+
+
+def _drop_created_tables(created: dict) -> None:
+    for table_name, conn in created.items():
+        try:
+            conn.drop_table(table_name, force=True)
+        except Exception:
+            conn.drop_view(table_name)
 
 
 @tracer.start_as_current_span("_transform_expr")
@@ -471,9 +482,18 @@ def _pandas_execute(con, expr: ir.Expr, **kwargs):
 
     span.set_attribute("engine", "pandas")
     try:
-        return con.execute(expr, **kwargs)
-    finally:
+        result = con.execute(expr, **kwargs)
+    except BaseException:
+        try:
+            _close_and_join_drains(drains)
+        except Exception:
+            pass
+        raise
+    else:
         _close_and_join_drains(drains)
+        return result
+    finally:
+        _drop_created_tables(created)
 
 
 @tracer.start_as_current_span("to_pyarrow_batches")
@@ -516,11 +536,7 @@ def to_pyarrow_batches(
 
     def clean_up():
         _close_and_join_drains(drains)
-        for table_name, conn in created.items():
-            try:
-                conn.drop_table(table_name, force=True)
-            except Exception:
-                conn.drop_view(table_name)
+        _drop_created_tables(created)
 
     return otel_instrument_reader(rbr_wrapper(reader, clean_up))
 
