@@ -8,6 +8,7 @@ of falling back to the global, data-sensitive HASHER).
 
 from __future__ import annotations
 
+import contextlib
 import contextvars
 import itertools
 import logging
@@ -39,8 +40,10 @@ if TYPE_CHECKING:
         name: str
         hash: str
 
+    from xorq.expr.relations import HashingTag, TeeNode
+
     class ExprMetadata(TypedDict):
-        version: Literal[3]
+        version: Literal[4]
         structural_hash: str
         slots: list[SlotDict]
 
@@ -70,8 +73,24 @@ _expr_normalize_memo: contextvars.ContextVar[dict | None] = contextvars.ContextV
     "_xorq_expr_normalize_memo", default=None
 )
 
+# When True, TeeNode sink identity is folded into the structural hash.
+# Set by ``get_expr_hash`` (build hash path) so that different sinks produce
+# different build artifacts, while the cache hash path leaves this False.
+_include_tee_nodes: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "_xorq_include_tee_nodes", default=False
+)
 
-def _rename_unbound_xorq(op, prefix="static"):
+
+@contextlib.contextmanager
+def include_tee_nodes() -> contextlib.AbstractContextManager[None]:
+    token = _include_tee_nodes.set(True)
+    try:
+        yield
+    finally:
+        _include_tee_nodes.reset(token)
+
+
+def _rename_unbound_xorq(op: Node, prefix: str = "static") -> Node:
     """Rewrite UnboundTable nodes to sequential placeholder names.
 
     Equivalent of ``xorq_dasher.rules.expr._rename_unbound`` but with a correct
@@ -174,7 +193,6 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
         CachedNode,
         FlightExpr,
         FlightUDXF,
-        HashingTag,
         Read,
         RemoteTable,
     )
@@ -220,13 +238,6 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
                 _parent_token(node.input_expr),
                 type(node.udxf).__qualname__,
                 _parent_token(getattr(node.udxf, "exchange_f", _MISSING)),
-            )
-        case HashingTag():
-            name = _stable_opaque_name(
-                "tag",
-                node.schema,
-                node.metadata,
-                _parent_token(node.parent),
             )
         case xops.NamedScalarParameter():
             # Replace with a typed NULL so SQL compilation works without a
@@ -366,17 +377,25 @@ def _decompose_expr(
     tuple[AggUDF | ScalarUDF, ...],
     tuple[InMemoryTable, ...],
     tuple[str, ...],
+    tuple[HashingTag, ...],
+    tuple[TeeNode, ...],
 ]:
-    """Split an expression into structural SQL, data leaves, and UDFs.
+    """Split an expression into structural SQL, data leaves, UDFs, and identity nodes.
 
-    Returns ``(sql, reads, dts, udfs, mems, param_anchors)`` where
-    *reads*/*dts*/*mems* are the data-carrying leaf ops, *udfs* are
-    structural code-identity ops, and *param_anchors* are stable identity
-    strings for each NamedScalarParameter in graph order.
+    Returns ``(sql, reads, dts, udfs, mems, param_anchors, hashing_tags, tee_nodes)``
+    where *reads*/*dts*/*mems* are the data-carrying leaf ops, *udfs* are
+    structural code-identity ops, *param_anchors* are stable identity
+    strings for each NamedScalarParameter in graph order, *hashing_tags*
+    carry user-supplied metadata, and *tee_nodes* carry sink identity.
     """
     from xorq.common.utils.graph_utils import replace_nodes, walk_nodes  # noqa: PLC0415
     from xorq.expr.api import get_compiler, to_sql  # noqa: PLC0415
-    from xorq.expr.relations import CachedNode, Read  # noqa: PLC0415
+    from xorq.expr.relations import (  # noqa: PLC0415
+        CachedNode,
+        HashingTag,
+        Read,
+        TeeNode,
+    )
     from xorq.vendor.ibis.expr.operations.relations import (  # noqa: PLC0415
         DatabaseTable,
         InMemoryTable,
@@ -404,21 +423,36 @@ def _decompose_expr(
     )
     udfs = tuple(walk_nodes((AggUDF, ScalarUDF), op))
     mems = tuple(walk_nodes(InMemoryTable, op))
-    return sql, reads, dts, udfs, mems, param_anchors
+    hashing_tags = tuple(walk_nodes(HashingTag, op))
+    tee_nodes = tuple(walk_nodes(TeeNode, op))
+    return sql, reads, dts, udfs, mems, param_anchors, hashing_tags, tee_nodes
 
 
 def _hash_expr_components(expr: Expr, op: Node) -> tuple[str, list[SlotDict]]:
     from xorq.common.utils.dasher import HASHER, _current_hasher  # noqa: PLC0415
 
-    sql, reads, dts, udfs, mems, param_anchors = _decompose_expr(expr, op)
+    (
+        sql,
+        reads,
+        dts,
+        udfs,
+        mems,
+        param_anchors,
+        hashing_tags,
+        tee_nodes,
+    ) = _decompose_expr(expr, op)
     hasher = _current_hasher.get() or HASHER
 
     hash_args = ("ibis.Expr.structural", sql, udfs)
     if param_anchors:
         hash_args += (param_anchors,)
+    if hashing_tags:
+        hash_args += (tuple(hasher.tokenize(ht) for ht in hashing_tags),)
+    if _include_tee_nodes.get() and tee_nodes:
+        hash_args += (tuple(hasher.tokenize(tn) for tn in tee_nodes),)
     structural_hash = hasher.tokenize(*hash_args)
 
-    def _read_name(r):
+    def _read_name(r: Read) -> str:
         read_kwargs = dict(r.read_kwargs)
         rp = read_kwargs.get("read_path")
         name = rp if rp is not None else read_kwargs.get("hash_path", "")
@@ -449,7 +483,7 @@ def _hash_expr_components(expr: Expr, op: Node) -> tuple[str, list[SlotDict]]:
 def _normalize_expr_xorq_impl(expr: Expr, op: Node) -> tuple[str, ...]:
     structural_hash, slots = _hash_expr_components(expr, op)
     slot_hashes = tuple(s["hash"] for s in slots)
-    return ("ibis.Expr.v3", structural_hash, *slot_hashes)
+    return ("ibis.Expr.v4", structural_hash, *slot_hashes)
 
 
 def expr_metadata(expr: Expr) -> ExprMetadata:
@@ -458,7 +492,7 @@ def expr_metadata(expr: Expr) -> ExprMetadata:
     Returns a dict of the form::
 
         {
-          "version": 3,
+          "version": 4,
           "structural_hash": "<xxh128 hex>",
           "slots": [
               {"index": 0, "kind": "Read", "name": "...", "hash": "<xxh128 hex>"},
@@ -466,8 +500,11 @@ def expr_metadata(expr: Expr) -> ExprMetadata:
           ],
         }
 
-    UDFs (``AggUDF``, ``ScalarUDF``) contribute to ``structural_hash``
-    rather than appearing as separate slots.
+    UDFs (``AggUDF``, ``ScalarUDF``), HashingTags (via ``__dasher_tokenize__``),
+    and (when ``_include_tee_nodes`` is set) TeeNodes (via
+    ``__dasher_tokenize__``, which delegates to each ``Sink``'s own
+    ``__dasher_tokenize__``) all contribute to ``structural_hash`` rather
+    than appearing as separate slots.
 
     The expression token can be recomputed from this dict using
     :func:`~xorq.common.utils.dasher._recompute.compute_expr_token`, which
@@ -477,7 +514,7 @@ def expr_metadata(expr: Expr) -> ExprMetadata:
     structural_hash, slots = _hash_expr_components(expr, op)
 
     return {
-        "version": 3,
+        "version": 4,
         "structural_hash": structural_hash,
         "slots": slots,
     }
@@ -492,4 +529,5 @@ __all__ = [
     "_stable_opaque_name",
     "_xorq_opaque_to_placeholder",
     "expr_metadata",
+    "include_tee_nodes",
 ]

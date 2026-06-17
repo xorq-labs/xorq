@@ -15,6 +15,7 @@ from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
     instrument_reader,
 )
+from xorq.sinking import Sink
 from xorq.vendor import ibis
 from xorq.vendor.ibis import Expr, Schema
 from xorq.vendor.ibis.common.collections import (
@@ -98,16 +99,8 @@ class Tag(ops.Relation):
     values = FrozenDict()
 
     @property
-    def tag(self):
+    def tag(self) -> str | None:
         return self.metadata.get("tag")
-
-    def __dasher_tokenize__(self):
-        return (
-            "normalize_tag",
-            self.schema,
-            self.parent,
-            self.metadata,
-        )
 
 
 class HashingTag(Tag):
@@ -118,13 +111,26 @@ class HashingTag(Tag):
     produce distinct hashes.
     """
 
-    def __dasher_tokenize__(self):
-        return (
-            "normalize_hashing_tag",
-            self.schema,
-            self.parent,
-            self.metadata,
-        )
+    def __dasher_tokenize__(self) -> tuple:
+        return ("hashing-tag", self.schema, self.metadata)
+
+
+class TeeNode(ops.Relation):
+    """A transparent pass-through that hands its stream to a Sink.
+
+    Schema and rows equal the parent's.  The cache hash
+    (``expr.ls.tokenized``) strips the node so ``expr.tee(s)`` caches
+    identically to ``expr``.  The build hash (``get_expr_hash``) includes
+    the sink identity so different sinks produce different build artifacts.
+    """
+
+    schema: Schema
+    parent: ops.Relation
+    sink: Sink
+    values = FrozenDict()
+
+    def __dasher_tokenize__(self) -> tuple:
+        return ("tee-node", self.schema, self.sink)
 
 
 class DatabaseTableView(ops.DatabaseTable):
@@ -647,10 +653,39 @@ def register_and_transform_remote_tables(
 
         return node
 
-    # Intentionally op.replace, not replace_nodes: mark_remote_table has side effects
-    # that must not descend into opaque sub-exprs (e.g. ExprScalarUDF.computed_kwargs_expr)
     expr = op.replace(replacer).to_expr()
     return expr, created
+
+
+@tracer.start_as_current_span("register_and_transform_tee_nodes")
+def register_and_transform_tee_nodes(expr: Expr) -> Expr:
+    """Replace each surviving `TeeNode` with a backend table fed by the
+    sink's ``sink(batches)`` generator.
+
+    The sink wraps the parent's batch stream: it pulls, writes as a side
+    effect, and yields each batch onward. Runs after cache resolution, so a
+    downstream cache hit prunes the `TeeNode` before this pass sees it and
+    the write never fires.
+    """
+    from xorq.common.utils.caching_utils import find_backend  # noqa: PLC0415
+    from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
+
+    def replacer(node, kwargs):
+        if kwargs:
+            node = node.__recreate__(kwargs)
+        if isinstance(node, TeeNode):
+            parent_expr = node.parent.to_expr()
+            con, _ = find_backend(node.parent, use_default=True)
+            reader = parent_expr.to_pyarrow_batches()
+            wrapped = pa.RecordBatchReader.from_batches(
+                reader.schema,
+                node.sink.sink(reader),
+            )
+            table = con.read_record_batches(wrapped, table_name=gen_name())
+            node = table.op()
+        return node
+
+    return replace_nodes(replacer, expr).to_expr()
 
 
 def render_backend(con):

@@ -38,6 +38,8 @@ if TYPE_CHECKING:
 
     import xorq.vendor.ibis.expr.types as ir
     import xorq.vendor.ibis.selectors as s
+    from xorq.sinking import Sink
+    from xorq.vendor.ibis.backends import BaseBackend
     from xorq.vendor.ibis.expr.operations.relations import JoinKind, Set
     from xorq.vendor.ibis.expr.schema import SchemaLike
     from xorq.vendor.ibis.expr.types import Table
@@ -3416,6 +3418,40 @@ class Table(Expr, _FixedTextJupyterMixin):
             source=cache.storage.source,
             cache=cache,
         )
+        return op.to_expr()
+
+    def tee(
+        self,
+        target: Sink | BaseBackend,
+        *,
+        table_name: str | None = None,
+        **kwargs: Any,
+    ) -> Table:
+        """Pass rows through while writing them as a side effect (ADR-0014)."""
+        from xorq.expr.relations import TeeNode  # noqa: PLC0415
+        from xorq.sinking import BackendSink, Sink  # noqa: PLC0415
+        from xorq.vendor.ibis.backends import BaseBackend  # noqa: PLC0415
+
+        if isinstance(target, Sink):
+            if table_name is not None or kwargs:
+                raise TypeError(
+                    "tee() does not accept table_name or extra keyword "
+                    "arguments when target is a Sink"
+                )
+            sink = target
+        elif isinstance(target, BaseBackend) and hasattr(target, "read_record_batches"):
+            if table_name is None:
+                raise TypeError(
+                    "tee() requires table_name when target is a backend connection"
+                )
+            sink = BackendSink(target, table_name=table_name, **kwargs)
+        else:
+            raise TypeError(
+                f"tee() target must be a Sink or a backend connection "
+                f"(with read_record_batches), got {type(target).__name__}"
+            )
+
+        op = TeeNode(schema=self.schema(), parent=self.op(), sink=sink)
         return op.to_expr()
 
     def _make_tag(self, cls, tag, **kwargs):

@@ -39,7 +39,9 @@ from xorq.expr.relations import (
     HashingTag,
     Read,
     Tag,
+    TeeNode,
     register_and_transform_remote_tables,
+    register_and_transform_tee_nodes,
 )
 from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.expr import api
@@ -207,7 +209,7 @@ def to_sql(expr: ir.Expr, compiler=None, pretty: bool = True) -> SQLString:
     if compiler is None:
         compiler = get_compiler(expr)
 
-    unbound = _remove_tag_nodes(expr).unbind().op()
+    unbound = _remove_tee_nodes(_remove_tag_nodes(expr)).unbind().op()
     return SQLString(_cached_with_op(unbound, pretty, compiler))
 
 
@@ -242,7 +244,7 @@ def _register_and_transform_cache_tables(expr):
             )
         return node
 
-    out = replace_nodes(fn, expr)
+    out = op.replace(fn)
 
     return out.to_expr()
 
@@ -275,7 +277,7 @@ def _transform_deferred_reads(expr):
                 node = node.__recreate__(_kwargs)
         return node
 
-    expr = replace_nodes(replace_read, expr).to_expr()
+    expr = expr.op().replace(replace_read).to_expr()
     return expr, dt_to_read
 
 
@@ -342,6 +344,25 @@ def _remove_tag_nodes(expr):
     return replace_nodes(replacer, expr).to_expr()
 
 
+@tracer.start_as_current_span("_remove_tee_nodes")
+def _remove_tee_nodes(expr: ir.Expr) -> ir.Expr:
+    """Strip transparent `TeeNode`s to their parent (for SQL / hashing).
+
+    Execution keeps the `TeeNode` until `register_and_transform_tee_nodes`
+    fires the write, so this is only used off the execution path.
+    """
+
+    def replacer(node, kwargs):
+        if kwargs:
+            node = node.__recreate__(kwargs)
+        if isinstance(node, TeeNode):
+            while isinstance(node, TeeNode):
+                node = node.parent
+        return node
+
+    return replace_nodes(replacer, expr).to_expr()
+
+
 @tracer.start_as_current_span("_remove_non_hashing_tag_nodes")
 def _remove_non_hashing_tag_nodes(expr):
     """Strip Tag nodes but preserve HashingTag nodes during hash computation."""
@@ -356,6 +377,12 @@ def _remove_non_hashing_tag_nodes(expr):
                 while isinstance(node, Tag) and not isinstance(node, HashingTag):
                     node = node.parent
                 return replace_nodes(replacer, node)
+            case TeeNode():
+                if kwargs:
+                    node = node.__recreate__(kwargs)
+                while isinstance(node, TeeNode):
+                    node = node.parent
+                return node
             case _:
                 if kwargs:
                     node = node.__recreate__(kwargs)
@@ -409,6 +436,7 @@ def _transform_expr(expr, params=None, **kwargs):
     )
     expr = _remove_tag_nodes(expr)
     expr = _register_and_transform_cache_tables(expr)
+    expr = register_and_transform_tee_nodes(expr)
     expr, created = register_and_transform_remote_tables(expr, **kwargs)
     expr, dt_to_read = _transform_deferred_reads(expr)
     return (expr, created)

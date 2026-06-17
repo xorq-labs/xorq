@@ -141,13 +141,9 @@ class SnapshotStrategy(CacheStrategy):
         return snapshot_hasher(*extra)
 
     def _replace_remote_table(self, expr: Expr, local_hasher: Hasher) -> Expr:
-        from xorq.common.utils.graph_utils import (  # noqa: PLC0415
-            replace_nodes,
-            walk_nodes,
-        )
         from xorq.expr.relations import RemoteTable  # noqa: PLC0415
 
-        if walk_nodes((RemoteTable,), expr):
+        if expr.op().find(RemoteTable):
 
             def rename(node, kwargs):
                 if isinstance(node, RemoteTable):
@@ -160,7 +156,7 @@ class SnapshotStrategy(CacheStrategy):
                     )
                 return node.__recreate__(kwargs) if kwargs else node
 
-            return replace_nodes(rename, expr).to_expr()
+            return expr.op().replace(rename).to_expr()
         return expr
 
     @staticmethod
