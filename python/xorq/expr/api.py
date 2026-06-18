@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import functools
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
 
@@ -427,6 +426,8 @@ def _resolve_params(params):
 
 
 def _close_and_join_drains(drains: list) -> None:
+    from xorq.common.compat import raise_collected_errors  # noqa: PLC0415
+
     for d in drains:
         d.close()
     errors: list[BaseException] = []
@@ -435,15 +436,7 @@ def _close_and_join_drains(drains: list) -> None:
             d.join()
         except BaseException as exc:  # noqa: BLE001
             errors.append(exc)
-    if errors:
-        if len(errors) == 1:
-            raise errors[0]
-        if sys.version_info >= (3, 11):
-            raise ExceptionGroup("drain failures", errors)  # noqa: F405
-        # Chain all errors so none are silently dropped.
-        for i in range(len(errors) - 1, 0, -1):
-            errors[i - 1].__cause__ = errors[i]
-        raise errors[0]
+    raise_collected_errors("drain failures", errors)
 
 
 def _drop_created_tables(created: dict) -> None:
@@ -486,17 +479,25 @@ def _pandas_execute(con, expr: ir.Expr, **kwargs):
     span.set_attribute("engine", "pandas")
     try:
         result = con.execute(expr, **kwargs)
-    except BaseException:
+    except BaseException as primary:
+        drain_errors: list[BaseException] = []
         try:
             _close_and_join_drains(drains)
-        except Exception:
-            pass
+        except BaseException as drain_exc:  # noqa: BLE001
+            drain_errors.append(drain_exc)
+        _drop_created_tables(created)
+        if drain_errors:
+            from xorq.common.compat import raise_collected_errors  # noqa: PLC0415
+
+            raise_collected_errors(
+                "execute failed and drains failed",
+                [primary, *drain_errors],
+            )
         raise
     else:
         _close_and_join_drains(drains)
-        return result
-    finally:
         _drop_created_tables(created)
+        return result
 
 
 @tracer.start_as_current_span("to_pyarrow_batches")

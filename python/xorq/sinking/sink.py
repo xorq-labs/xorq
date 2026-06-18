@@ -1,11 +1,4 @@
-"""Deferred write as a side effect: the consumer side of `TeeNode`.
-
-See ADR-0014. A `TeeNode` wraps an expression with a `Sink` whose
-``sink(batches)`` generator pulls from the upstream, writes each batch as a
-side effect, and yields it downstream unchanged. `ParquetSink` writes to a
-single parquet file; `BackendSink` delegates to a backend's
-``read_record_batches`` for per-batch ingest (e.g. Postgres via ADBC).
-"""
+"""Sink implementations for ``TeeNode`` deferred writes.  See ADR-0014."""
 
 from __future__ import annotations
 
@@ -55,12 +48,7 @@ def _has_read_record_batches(
 
 
 class Sink(abc.ABC):
-    """A side-effect consumer that wraps a batch stream.
-
-    ``sink(batches)`` is a generator: it pulls from *batches*, writes each
-    batch as a side effect, and yields it onward. The downstream consumer
-    drives iteration — the sink never independently pulls.
-    """
+    """A side-effect consumer that wraps a batch stream.  See ADR-0014."""
 
     @abc.abstractmethod
     def sink(self, batches: Iterable[pa.RecordBatch]) -> Iterator[pa.RecordBatch]:
@@ -70,15 +58,11 @@ class Sink(abc.ABC):
 
 @frozen
 class ParquetSink(Sink):
-    """A Sink that writes to a single parquet file.
+    """Sink that writes to a single parquet file with atomic publish.
 
-    Each ``sink`` run stages batches to a temp file and atomically publishes
-    on clean exhaustion. An error mid-stream discards the temp file.
-
-    ``mode="create"`` raises `FileExistsError` if the target already exists
-    (like SQL ``CREATE TABLE``).
-    ``mode="append"`` merges new data with any existing file content under a
-    file lock, then atomically swaps the merged file into place.
+    ``mode="create"`` raises `FileExistsError` if the target exists.
+    ``mode="append"`` merges new data with any existing file under a lock.
+    Batches are staged to a temp file; an error mid-stream discards it.
     """
 
     path: Path = field(converter=Path)
@@ -168,15 +152,12 @@ class ParquetSink(Sink):
 
 @frozen
 class BackendSink(Sink):
-    """A Sink that writes to a table on any xorq backend.
+    """Sink that writes to a table on any xorq backend.
 
-    Backends that accept a ``mode`` parameter (e.g. Postgres via ADBC) are
-    ingested per-batch with create→append mode switching — each batch commits
-    immediately, so failures mid-stream leave earlier batches written.
-
-    Backends without ``mode`` (DataFusion, DuckDB, Pandas) register a single
-    table from all batches after the stream is fully consumed.  Batches are
-    buffered in memory so the registration is a single call.
+    Backends that accept ``mode`` are ingested per-batch (each batch commits
+    independently — partial writes on mid-stream error).  Backends without
+    ``mode`` (DataFusion, DuckDB, Pandas) buffer all batches in memory and
+    register a single table after the stream is fully consumed.
     """
 
     con: BaseBackend = field(validator=_has_read_record_batches)
@@ -216,6 +197,8 @@ class BackendSink(Sink):
     def _sink_per_batch(
         self, batches: Iterable[pa.RecordBatch]
     ) -> Iterator[pa.RecordBatch]:
+        # NOTE: non-atomic — each batch commits independently, so a mid-stream
+        # error leaves earlier batches written.
         import pyarrow as pa  # noqa: PLC0415
 
         first = True
@@ -246,26 +229,12 @@ class BackendSink(Sink):
 
 @frozen
 class ThreadedBackendSink(BackendSink):
-    """A BackendSink that streams a single ingest through a background thread.
+    """BackendSink that streams a single ingest on a background thread.
 
-    ``sink`` keeps the same generator shape — pull a batch, yield it onward —
-    but the side effect is a single ``read_record_batches`` call running on a
-    background thread, fed by a queue. Each batch is pushed onto the queue and
-    yielded downstream; the thread's reader drains the queue. This replaces both
-    the per-batch round-trips (one call per batch, partial commits) and the bulk
-    path's full-memory buffer (whole stream in RAM) with one streaming call.
-
-    There is no create→append switching: a single call uses a single ``mode``.
-    The ``mode`` kwarg is only forwarded to backends that accept it (inherited
-    ``_ingest`` gate), so no-``mode`` backends (DataFusion, DuckDB, Pandas) work
-    too.
-
-    The queue is unbounded (``queue.SimpleQueue``): there is no backpressure, so
-    a sink slower than the downstream consumer buffers the lag in memory. This
-    is the deadlock-safe choice — a bounded queue would block the producer
-    forever if the sink thread died without draining. Rollback on a mid-stream
-    error follows the backend's own semantics; this is not guaranteed
-    all-or-nothing.
+    Batches are pushed to an unbounded queue and yielded downstream; a
+    background thread drains the queue into a single ``read_record_batches``
+    call.  The queue is unbounded (no backpressure) because a bounded queue
+    would deadlock if the sink thread died without draining.
     """
 
     def sink(self, batches: Iterable[pa.RecordBatch]) -> Iterator[pa.RecordBatch]:
@@ -318,14 +287,8 @@ class ThreadedBackendSink(BackendSink):
 class DrainingIterator:
     """Wraps a sink generator; drains remaining batches on close.
 
-    Normal iteration is lock-step pass-through.  When the downstream
-    consumer closes without exhausting the stream, a non-daemon background
-    thread continues iterating the generator so the sink's write
-    side-effect runs to completion.
-
-    Callers must call ``close()`` then ``join()`` after downstream
-    execution completes.  There is no ``__del__`` finalizer — the
-    execution pipeline (``api.py``) owns the lifecycle explicitly.
+    Callers must call ``close()`` then ``join()`` — there is no ``__del__``
+    finalizer; the execution pipeline (``api.py``) owns the lifecycle.
     """
 
     def __init__(self, sink_gen: Iterator[pa.RecordBatch]) -> None:

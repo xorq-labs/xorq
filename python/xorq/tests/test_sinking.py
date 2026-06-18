@@ -911,9 +911,6 @@ def test_draining_iterator_noop_when_exhausted() -> None:
     batches = [pa.record_batch({"a": [1]})]
 
     class PassthroughSink(Sink):
-        def __dasher_tokenize__(self) -> tuple:
-            return ("passthrough",)
-
         def sink(self, batches, **_kw):
             yield from batches
 
