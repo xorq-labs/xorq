@@ -687,6 +687,8 @@ def register_and_transform_tee_nodes(
     def replacer(node, kwargs):
         if not isinstance(node, TeeNode):
             return node.__recreate__(kwargs) if kwargs else node
+        if kwargs:
+            node = node.__recreate__(kwargs)
         parent_expr = node.parent.to_expr()
         con, _ = find_backend(node.parent, use_default=True)
         reader = parent_expr.to_pyarrow_batches()

@@ -440,7 +440,10 @@ def _close_and_join_drains(drains: list) -> None:
             raise errors[0]
         if sys.version_info >= (3, 11):
             raise ExceptionGroup("drain failures", errors)  # noqa: F405
-        raise errors[0] from errors[1]
+        # Chain all errors so none are silently dropped.
+        for i in range(len(errors) - 1, 0, -1):
+            errors[i - 1].__cause__ = errors[i]
+        raise errors[0]
 
 
 def _drop_created_tables(created: dict) -> None:

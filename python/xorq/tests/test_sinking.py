@@ -112,7 +112,7 @@ def test_create_fails_if_target_exists(t: Table, tmp_path: Path) -> None:
         t.tee(ParquetSink(path=target, mode="create")).execute()
     # the failed run published nothing: original file intact, no stray temp
     assert len(pq.read_table(str(target))) == 4
-    assert not Path(str(target) + ".tmp").exists()
+    assert not list(target.parent.glob("*.tmp"))
 
 
 def test_create_sink_raises_fileexists(tmp_path: Path) -> None:
@@ -152,7 +152,7 @@ def test_concurrent_create_only_one_wins(tmp_path: Path) -> None:
     assert len(winners) == 1, f"expected exactly one winner, got results={results}"
     assert len(losers) == 1
     assert target.exists()
-    assert not Path(str(target) + ".tmp").exists()
+    assert not list(target.parent.glob("*.tmp"))
 
 
 def test_invalid_mode_raises(tmp_path: Path) -> None:
@@ -173,6 +173,7 @@ def test_sink_empty_publishes_nothing(tmp_path: Path) -> None:
     sink = ParquetSink(path=target, mode="append")
     list(sink.sink([]))
     assert not target.exists()
+    assert not list(tmp_path.glob("*.tmp"))
 
 
 # ---- cross-backend ----------------------------------------------------------
@@ -243,6 +244,21 @@ def test_chained_sinks_fan_out(t: Table, tmp_path: Path) -> None:
     t.tee(ParquetSink(path=f1)).tee(ParquetSink(path=f2)).execute()
     assert f1.exists()
     assert f2.exists()
+
+
+def test_chained_tees_call_each_sink_once(t: Table) -> None:
+    class _CountingSink(Sink):
+        def __init__(self):
+            self.call_count = 0
+
+        def sink(self, batches):
+            self.call_count += 1
+            return (batch for batch in batches)
+
+    s1, s2 = _CountingSink(), _CountingSink()
+    t.tee(s1).tee(s2).execute()
+    assert s1.call_count == 1, f"inner sink called {s1.call_count} times, expected 1"
+    assert s2.call_count == 1, f"outer sink called {s2.call_count} times, expected 1"
 
 
 # ---- BackendSink ------------------------------------------------------------
@@ -317,7 +333,7 @@ def test_parquet_sink_abandoned_cleans_up(tmp_path: Path) -> None:
     next(gen)  # consume one batch, open the writer
     gen.close()  # abandon mid-stream
     assert not target.exists()
-    assert not Path(str(target) + ".tmp").exists()
+    assert not list(target.parent.glob("*.tmp"))
 
 
 # ---- per-batch ingest path (BackendSink with mode support) -------------------
@@ -541,7 +557,7 @@ def test_parquet_create_link_failure_cleans_up(
     with pytest.raises(OSError, match="simulated link failure"):
         list(sink.sink(batches))
     assert not target.exists()
-    assert not Path(str(target) + ".tmp").exists()
+    assert not list(target.parent.glob("*.tmp"))
 
 
 def test_parquet_append_rename_failure_cleans_up(
@@ -562,7 +578,7 @@ def test_parquet_append_rename_failure_cleans_up(
     with pytest.raises(OSError, match="simulated rename failure"):
         list(sink.sink(batches))
     assert not target.exists()
-    assert not Path(str(target) + ".tmp").exists()
+    assert not list(target.parent.glob("*.tmp"))
 
 
 # ---- per-batch partial write retains committed data --------------------------

@@ -13,6 +13,7 @@ import abc
 import inspect
 import os
 import queue
+import tempfile
 import threading
 from functools import cached_property
 from pathlib import Path
@@ -90,12 +91,16 @@ class ParquetSink(Sink):
         import pyarrow.parquet as pq  # noqa: PLC0415
 
         writer = None
-        tmp = Path(str(self.path) + ".tmp")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_str = tempfile.mkstemp(
+            suffix=".tmp", prefix=self.path.name + ".", dir=self.path.parent
+        )
+        os.close(fd)
+        tmp = Path(tmp_str)
         exhausted = False
         try:
             for batch in batches:
                 if writer is None:
-                    self.path.parent.mkdir(parents=True, exist_ok=True)
                     if self.mode is SinkMode.CREATE and self.path.exists():
                         raise FileExistsError(
                             f"create sink target already exists: {self.path}"
@@ -117,6 +122,8 @@ class ParquetSink(Sink):
             except BaseException:
                 tmp.unlink(missing_ok=True)
                 raise
+        else:
+            tmp.unlink(missing_ok=True)
 
     def _publish(self, tmp: Path) -> None:
         import pyarrow.parquet as pq  # noqa: PLC0415
@@ -131,7 +138,6 @@ class ParquetSink(Sink):
             finally:
                 tmp.unlink(missing_ok=True)
         else:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
             lock_path = Path(str(self.path) + ".lock")
             try:
                 with open(lock_path, "w") as lock_fd:
@@ -224,6 +230,9 @@ class BackendSink(Sink):
             yield batch
 
     def _sink_bulk(self, batches: Iterable[pa.RecordBatch]) -> Iterator[pa.RecordBatch]:
+        # NOTE: non-atomic — all batches are yielded downstream BEFORE the
+        # backend ingest runs.  If _ingest fails the downstream consumer has
+        # already received every batch, so the tee "write" guarantee is lost.
         import pyarrow as pa  # noqa: PLC0415
 
         collected = []
