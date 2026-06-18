@@ -1,99 +1,60 @@
 ---
 pagetitle: "Xorq documentation"
-description: "Official Xorq documentation. Learn how to build portable, multi-engine ML pipelines with deferred execution, caching, lineage tracking, and deployment-ready artifacts."
+description: "Official Xorq documentation. Learn how to build portable, multi-engine data pipelines with deferred execution, caching, lineage tracking, and deployment-ready artifacts."
 toc: false
 page-layout: custom
 classes: homepage
-listing:
-  - id: getting-started-cards
-    template: "style/gallery.ejs"
-    contents:
-      - "getting_started/quickstart.qmd"
-      - "how_to/install_xorq.qmd"
-      - "getting_started/understand_deferred_execution.qmd"
-      - "getting_started/explore_caching.qmd"
-      - "getting_started/switch_backends.qmd"
-    type: grid
-    grid-columns: 6
-    fields: [title, description]
-  - id: ml-tutorials-cards
-    template: "style/gallery.ejs"
-    contents:
-      - "tutorials/ml_tutorials/split_data_for_training.qmd"
-      - "tutorials/ml_tutorials/train_your_first_model.qmd"
-      - "tutorials/ml_tutorials/explore_model_evaluation.qmd"
-    type: grid
-    grid-columns: 3
-    fields: [title, description]
 ---
 
 ::: {.hero-section}
 ::: {.hero-content}
 # Xorq documentation
 
-Write your ML pipelines once. Run them anywhere. Xorq handles caching, lineage, and multi-engine execution automatically.
+Write your pipelines once, run them anywhere. Xorq is an open source engine for portable, multi-engine data pipelines, with deferred execution, caching, and lineage tracking built in.
 
 [GET STARTED →](getting_started/quickstart.qmd){.hero-btn .hero-btn-primary}
+[READ THE INTRODUCTION](concepts/understanding_xorq/what_is_xorq.qmd){.hero-btn .hero-btn-secondary}
 [VIEW ON GITHUB](https://github.com/xorq-labs/xorq){.hero-btn .hero-btn-secondary}
 :::
 :::
 
 ::: {.content-section}
 
-## <i class="bi bi-info-circle"></i> What is Xorq?
-
-Xorq is an open source engine for portable, multi-engine ML pipelines, with deferred execution, caching, and lineage tracking built in. [Read the introduction →](concepts/understanding_xorq/what_is_xorq.qmd)
-
 ## <i class="bi bi-signpost-split"></i> Find your path
 
-Not sure where to start? Pick the row that matches what you're trying to do.
-
-| I want to… | Go to |
-|---|---|
-| **Learn the basics** by following a worked example | [Tutorials](tutorials/core_tutorials/get-started-with-xorq-init.qmd) |
-| **Get a specific task done** with a focused recipe | [How-to guides](how_to/install_xorq.qmd) |
-| **Understand why** Xorq works the way it does | [Concepts](concepts/understanding_xorq/what_is_xorq.qmd) |
-| **Look up an API or CLI command** | [Python API](reference/) · [CLI reference](api_reference/cli/) |
-
-## <i class="bi bi-rocket-takeoff"></i> Getting started
-
-New to Xorq? Start here to build your first pipeline.
-
-:::{#getting-started-cards}
-:::
-
-## <i class="bi bi-cpu"></i> ML tutorials
-
-Train models, split data, and deploy predictions with Xorq's ML workflow.
-
-:::{#ml-tutorials-cards}
-:::
-
-## <i class="bi bi-grid-3x3"></i> Explore the docs
+Not sure where to start? Pick the card that matches what you're trying to do.
 
 ::: {.docs-grid}
 ::: {.doc-card}
-<i class="bi bi-lightbulb"></i>
+<i class="bi bi-mortarboard"></i>
 
-[**Concepts**](concepts/understanding_xorq/why_deferred_execution.qmd)
+[**Tutorials**](tutorials/core_tutorials/get-started-with-xorq-init.qmd)
 
-Deep dives into deferred execution, caching, and architecture
+Learn the basics by following a worked example
 :::
 
 ::: {.doc-card}
-<i class="bi bi-terminal"></i>
+<i class="bi bi-list-check"></i>
 
-[**Command-line tool reference**](api_reference/cli/)
+[**How-to guides**](how_to/install_xorq.qmd)
 
-Every command you need to build, run, and serve pipelines
+Get a specific task done with a focused recipe
+:::
+
+::: {.doc-card}
+<i class="bi bi-lightbulb"></i>
+
+[**Concepts**](concepts/understanding_xorq/what_is_xorq.qmd)
+
+Understand why Xorq works the way it does
 :::
 
 ::: {.doc-card}
 <i class="bi bi-code-square"></i>
 
-[**Python API**](reference/)
+[**Reference**](reference/)
 
-Full reference for Xorq's Python API
+Look up the [Python API](reference/) or [CLI commands](api_reference/cli/)
 :::
 :::
 :::
