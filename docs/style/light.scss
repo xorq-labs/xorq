@@ -643,7 +643,7 @@ pre>code.sourceCode {
   }
 }
 
-/* Hero install command (copy-on-click) */
+/* Hero install command (links to the installation guide) */
 .install-cmd {
   display: inline-flex;
   align-items: center;
@@ -665,12 +665,8 @@ pre>code.sourceCode {
     user-select: none;
   }
 
-  .install-arrow-icon {
-    color: $gray-300;
-    font-size: 0.8125rem;
-  }
-
   &:hover {
+    border-color: $black;
     background: rgba($black, 0.08);
     transform: translateY(-2px);
     text-decoration: none;

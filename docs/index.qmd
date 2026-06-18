@@ -12,7 +12,7 @@ classes: homepage
 
 Xorq is an open source engine for portable, multi-engine data pipelines, with built-in deferred execution, caching, lineage tracking, and a git-backed catalog to publish, discover, and reuse them.
 
-[[$]{.install-prompt}[pip install xorq]{.install-text}](how_to/install_xorq.qmd){.install-cmd title="Installation guide"}
+[[$]{.install-prompt} pip install xorq](how_to/install_xorq.qmd){.install-cmd title="Installation guide"}
 [GET STARTED →](getting_started/quickstart.qmd){.hero-btn .hero-btn-primary}
 :::
 :::
