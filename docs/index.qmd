@@ -44,6 +44,17 @@ Write your ML pipelines once. Run them anywhere. Xorq handles caching, lineage, 
 
 Xorq is an open source engine for portable, multi-engine ML pipelines, with deferred execution, caching, and lineage tracking built in. [Read the introduction →](concepts/understanding_xorq/what_is_xorq.qmd)
 
+## <i class="bi bi-signpost-split"></i> Find your path
+
+Not sure where to start? Pick the row that matches what you're trying to do.
+
+| I want to… | Go to |
+|---|---|
+| **Learn the basics** by following a worked example | [Tutorials](tutorials/core_tutorials/get-started-with-xorq-init.qmd) |
+| **Get a specific task done** with a focused recipe | [How-to guides](how_to/install_xorq.qmd) |
+| **Understand why** Xorq works the way it does | [Concepts](concepts/understanding_xorq/what_is_xorq.qmd) |
+| **Look up an API or CLI command** | [Python API](reference/) · [CLI reference](api_reference/cli/) |
+
 ## <i class="bi bi-rocket-takeoff"></i> Getting started
 
 New to Xorq? Start here to build your first pipeline.

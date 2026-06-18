@@ -39,3 +39,10 @@ result.execute()
 * **Leverage engine strengths** - Use DuckDB for local analysis, Postgres for joins
 * **Combine data sources** - Join tables from different databases
 * **Optimize performance** - Move small tables to where large tables live
+
+## See also
+
+- [Route a step to a specific backend](/how_to/switch_backends.qmd)—use `into_backend()` to place each step on the right engine.
+- [Switch between backends](/getting_started/switch_backends.qmd)—a tutorial introduction to the same machinery.
+- [`Table.into_backend`](/reference/Table.qmd#xorq.vendor.ibis.expr.types.relations.Table.into_backend)—the API that moves a step across engines.
+- [Caching](/concepts/understanding_xorq/intelligent_caching_system.qmd)—cache the transferred result so the move doesn't repeat.

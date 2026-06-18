@@ -411,3 +411,10 @@ The tag-driven kinds (**ExprBuilder**, **Composed**) execute, hash, and
 serialize like the structural expression underneath them; the tag adds the
 metadata the ML pipeline API and catalog use to recover or resolve the
 higher-level object.
+
+## See also
+
+- [Get started with Xorq](/tutorials/core_tutorials/get-started-with-xorq-init.qmd)—construct Source and Expr nodes and build them into an artifact.
+- [Deferred execution](/concepts/understanding_xorq/why_deferred_execution.qmd)—why expressions stay unevaluated until you ask for results.
+- [`connect`](/reference/connect.qmd) and [`memtable`](/reference/memtable.qmd)—the API entry points that produce Source expressions.
+- [`execute`](/reference/execute.qmd)—materialize any structural expression kind.
