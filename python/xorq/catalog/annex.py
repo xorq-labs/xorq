@@ -48,7 +48,7 @@ def require_git_annex():
     if shutil.which(GIT_ANNEX_COMMAND) is None:
         raise AnnexError(
             f"'{GIT_ANNEX_COMMAND}' not found on $PATH. "
-            "Install git-annex, or pass annex=False for a plain-git catalog."
+            "Install with `pip install 'xorq[annex]'`, or pass annex=False for a plain-git catalog."
         )
 
 

@@ -63,6 +63,7 @@ from xorq.catalog.tests.conftest import (
     TEST_WHEEL_NAME,
     compare_repo_and_catalog,
     directory_store_config,
+    requires_annex,
 )
 from xorq.catalog.tui import get_cache_key_path
 from xorq.catalog.zip_utils import (
@@ -547,21 +548,23 @@ def test_clone_from_false_forces_plain_git(repo_cloned_bare, tmpdir):
 # ---------------------------------------------------------------------------
 
 
-def test_from_repo_path_auto_detects_annex(tmpdir):
+@requires_annex
+def test_from_repo_path_auto_detects_annex(tmp_path: Path) -> None:
     """from_repo_path with annex=None auto-detects .git/annex."""
-    repo_path = Path(tmpdir).joinpath("annex-repo")
+    repo_path = tmp_path / "annex-repo"
     Catalog.from_repo_path(repo_path, init=True, annex=LOCAL_ANNEX)
 
     reopened = Catalog.from_repo_path(repo_path)
     assert isinstance(reopened.backend, GitAnnexBackend)
 
 
-def test_remote_log_available_after_init(tmpdir):
+@requires_annex
+def test_remote_log_available_after_init(tmp_path: Path) -> None:
     """remote.log is readable immediately after initremote (journal flushed)."""
-    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir = tmp_path / "remote-store"
     remote_dir.mkdir()
     remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
-    repo_path = Path(tmpdir).joinpath("repo")
+    repo_path = tmp_path / "repo"
     Catalog.from_repo_path(repo_path, init=True, annex=remote_config)
 
     annex = Annex(repo_path=repo_path)
@@ -572,11 +575,14 @@ def test_remote_log_available_after_init(tmpdir):
     assert config["type"] == "directory"
 
 
-def test_enableremote_falls_back_to_initremote_on_empty_remote_log(tmpdir):
+@requires_annex
+def test_enableremote_falls_back_to_initremote_on_empty_remote_log(
+    tmp_path: Path,
+) -> None:
     """enableremote on a fresh annex repo (no remote.log) creates the remote."""
-    repo_path = Path(tmpdir).joinpath("repo")
+    repo_path = tmp_path / "repo"
     Catalog.from_repo_path(repo_path, init=True, annex=LOCAL_ANNEX)
-    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir = tmp_path / "remote-store"
     remote_dir.mkdir()
     rc = DirectoryRemoteConfig(name="newdir", directory=str(remote_dir))
 
@@ -587,15 +593,18 @@ def test_enableremote_falls_back_to_initremote_on_empty_remote_log(tmpdir):
     assert next(iter(remote_log.values()))["name"] == "newdir"
 
 
-def test_enableremote_raises_when_name_missing_from_nonempty_remote_log(tmpdir):
+@requires_annex
+def test_enableremote_raises_when_name_missing_from_nonempty_remote_log(
+    tmp_path: Path,
+) -> None:
     """enableremote refuses to silently create a second remote next to an existing one."""
-    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir = tmp_path / "remote-store"
     remote_dir.mkdir()
     existing = DirectoryRemoteConfig(name="existing", directory=str(remote_dir))
-    repo_path = Path(tmpdir).joinpath("repo")
+    repo_path = tmp_path / "repo"
     Catalog.from_repo_path(repo_path, init=True, annex=existing)
 
-    other_dir = Path(tmpdir).joinpath("other-store")
+    other_dir = tmp_path / "other-store"
     other_dir.mkdir()
     other = DirectoryRemoteConfig(name="other", directory=str(other_dir))
 
@@ -612,9 +621,10 @@ def test_from_repo_path_no_annex(tmpdir):
     assert isinstance(reopened.backend, GitBackend)
 
 
-def test_from_repo_path_false_forces_plain_git(tmpdir):
+@requires_annex
+def test_from_repo_path_false_forces_plain_git(tmp_path: Path) -> None:
     """annex=False forces GitBackend even when .git/annex exists."""
-    repo_path = Path(tmpdir).joinpath("annex-repo")
+    repo_path = tmp_path / "annex-repo"
     Catalog.from_repo_path(repo_path, init=True, annex=LOCAL_ANNEX)
 
     reopened = Catalog.from_repo_path(repo_path, annex=False)
@@ -1737,12 +1747,13 @@ def test_get_entry_unknown_raises(catalog):
         catalog.get_catalog_entry("no-such")
 
 
-def test_directory_remote(tmpdir):
+@requires_annex
+def test_directory_remote(tmp_path: Path) -> None:
     """Add entries, copy to a directory remote, drop local, get back."""
-    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir = tmp_path / "remote-store"
     remote_dir.mkdir()
     remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
-    repo_path = Path(tmpdir).joinpath("repo")
+    repo_path = tmp_path / "repo"
     Catalog.init_repo_path(repo_path, annex=remote_config)
     annex = Annex(repo_path=repo_path)
     backend = GitAnnexBackend(repo=GitRepo(repo_path), annex=annex)
@@ -1769,12 +1780,13 @@ def test_directory_remote(tmpdir):
     assert entry.catalog_path.exists()
 
 
-def test_annex_is_content_local_after_drop(tmpdir):
+@requires_annex
+def test_annex_is_content_local_after_drop(tmp_path: Path) -> None:
     """is_content_local is False when annex content has been dropped."""
-    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir = tmp_path / "remote-store"
     remote_dir.mkdir()
     remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
-    repo_path = Path(tmpdir).joinpath("repo")
+    repo_path = tmp_path / "repo"
     Catalog.init_repo_path(repo_path, annex=remote_config)
     annex = Annex(repo_path=repo_path)
     backend = GitAnnexBackend(repo=GitRepo(repo_path), annex=annex)
@@ -1794,12 +1806,13 @@ def test_annex_is_content_local_after_drop(tmpdir):
     assert not entry.is_available
 
 
-def test_annex_auto_fetch_after_drop(tmpdir):
+@requires_annex
+def test_annex_auto_fetch_after_drop(tmp_path: Path) -> None:
     """Sidecar metadata works after drop; expr and get auto-fetch from remote."""
-    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir = tmp_path / "remote-store"
     remote_dir.mkdir()
     remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
-    repo_path = Path(tmpdir).joinpath("repo")
+    repo_path = tmp_path / "repo"
     Catalog.init_repo_path(repo_path, annex=remote_config)
     annex = Annex(repo_path=repo_path)
     backend = GitAnnexBackend(repo=GitRepo(repo_path), annex=annex)
@@ -1820,18 +1833,19 @@ def test_annex_auto_fetch_after_drop(tmpdir):
 
     # drop again and verify get also auto-fetches
     annex.drop()
-    out_dir = str(tmpdir.join("out"))
-    Path(out_dir).mkdir()
-    result = entry.get(dir_path=out_dir)
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    result = entry.get(dir_path=str(out_dir))
     assert result.exists()
 
 
-def test_annex_fetch_restores_content(tmpdir):
+@requires_annex
+def test_annex_fetch_restores_content(tmp_path: Path) -> None:
     """entry.fetch() retrieves annex content for a single entry."""
-    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir = tmp_path / "remote-store"
     remote_dir.mkdir()
     remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
-    repo_path = Path(tmpdir).joinpath("repo")
+    repo_path = tmp_path / "repo"
     Catalog.init_repo_path(repo_path, annex=remote_config)
     annex = Annex(repo_path=repo_path)
     backend = GitAnnexBackend(repo=GitRepo(repo_path), annex=annex)
@@ -1851,12 +1865,13 @@ def test_annex_fetch_restores_content(tmpdir):
     assert entry.metadata is not None
 
 
-def test_fetch_entries_bulk(tmpdir):
+@requires_annex
+def test_fetch_entries_bulk(tmp_path: Path) -> None:
     """catalog.fetch_entries() batch-fetches multiple entries in one operation."""
-    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir = tmp_path / "remote-store"
     remote_dir.mkdir()
     remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
-    repo_path = Path(tmpdir).joinpath("repo")
+    repo_path = tmp_path / "repo"
     Catalog.init_repo_path(repo_path, annex=remote_config)
     annex = Annex(repo_path=repo_path)
     backend = GitAnnexBackend(repo=GitRepo(repo_path), annex=annex)
@@ -1906,12 +1921,13 @@ def test_sidecar_contains_promoted_fields(catalog):
     assert isinstance(sidecar["backends"], list)
 
 
-def test_metadata_from_sidecar_after_drop(tmpdir):
+@requires_annex
+def test_metadata_from_sidecar_after_drop(tmp_path: Path) -> None:
     """All metadata properties work from sidecar after annex content is dropped."""
-    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir = tmp_path / "remote-store"
     remote_dir.mkdir()
     remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
-    repo_path = Path(tmpdir).joinpath("repo")
+    repo_path = tmp_path / "repo"
     Catalog.init_repo_path(repo_path, annex=remote_config)
     annex = Annex(repo_path=repo_path)
     backend = GitAnnexBackend(repo=GitRepo(repo_path), annex=annex)
@@ -2049,7 +2065,8 @@ def test_s3_fileprefix_namespaced_in_remote_log(tmpdir):
         annex.enableremote(mismatched)
 
 
-def test_from_repo_path_enables_special_remote_on_clone(tmpdir):
+@requires_annex
+def test_from_repo_path_enables_special_remote_on_clone(tmp_path: Path) -> None:
     """from_repo_path enables the special remote on a fresh clone.
 
     Simulates the scenario where a catalog is cloned via git submodule add
@@ -2057,10 +2074,10 @@ def test_from_repo_path_enables_special_remote_on_clone(tmpdir):
     git-annex cannot locate the special remote and content fetch fails.
     """
     # create origin catalog with a directory remote
-    remote_dir = Path(tmpdir).joinpath("remote-store")
+    remote_dir = tmp_path / "remote-store"
     remote_dir.mkdir()
     remote_config = DirectoryRemoteConfig(name="mydir", directory=str(remote_dir))
-    origin_path = Path(tmpdir).joinpath("origin")
+    origin_path = tmp_path / "origin"
     Catalog.init_repo_path(origin_path, annex=remote_config)
     annex = Annex(repo_path=origin_path)
     backend = GitAnnexBackend(repo=GitRepo(origin_path), annex=annex)
@@ -2074,13 +2091,13 @@ def test_from_repo_path_enables_special_remote_on_clone(tmpdir):
     annex.copy(to="mydir")
 
     # create a bare clone (intermediary, like GitHub)
-    bare_path = Path(tmpdir).joinpath("bare")
+    bare_path = tmp_path / "bare"
     GitRepo.clone_from(origin_path, bare_path, bare=True)
     _do_inside(bare_path, "init")
     _do_inside(bare_path, "sync", "--content")
 
     # clone from bare (simulates git submodule add)
-    clone_path = Path(tmpdir).joinpath("cloned")
+    clone_path = tmp_path / "cloned"
     GitRepo.clone_from(bare_path, clone_path)
     _do_inside(clone_path, "init")
 
@@ -2153,9 +2170,10 @@ def test_base_path_is_silently_dropped_through_catalog_round_trip(catalog, tmp_p
     assert ck.key
 
 
-def test_annex_fetch_content_no_remote_raises(tmpdir):
+@requires_annex
+def test_annex_fetch_content_no_remote_raises(tmp_path: Path) -> None:
     """fetch_content raises instead of hanging when no remote is configured."""
-    repo_path = Path(tmpdir) / "no-remote"
+    repo_path = tmp_path / "no-remote"
     repo = Catalog.init_repo_path(repo_path, annex=LOCAL_ANNEX)
     backend = GitAnnexBackend(repo=repo, annex=Annex(repo_path=repo_path))
     catalog = Catalog(backend=backend)

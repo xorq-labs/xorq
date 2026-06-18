@@ -13,7 +13,7 @@ from xorq.catalog.catalog import (
     Catalog,
 )
 from xorq.catalog.constants import MAIN_BRANCH
-from xorq.catalog.tests.conftest import compare_repo_and_catalog
+from xorq.catalog.tests.conftest import compare_repo_and_catalog, requires_annex
 
 
 # ---------------------------------------------------------------------------
@@ -30,8 +30,9 @@ def _make_bare_clone(source_catalog, tmpdir_path):
     )
 
 
-def test_catalog_ctor_fails(tmpdir):
-    uninited_repo = Repo.init(Path(tmpdir), mkdir=True, initial_branch=MAIN_BRANCH)
+@requires_annex
+def test_catalog_ctor_fails(tmp_path: Path) -> None:
+    uninited_repo = Repo.init(str(tmp_path), mkdir=True, initial_branch=MAIN_BRANCH)
     with pytest.raises(
         (ValueError, AssertionError),
     ):

@@ -146,8 +146,27 @@ def compare_repo_and_catalog(repo, catalog):
     assert tuple(sorted(alias_names)) == tuple(sorted(catalog.list_aliases()))
 
 
-@pytest.fixture(scope="session", params=["git", "annex", "pointer"])
-def backend_type(request):
+_annex_available = shutil.which("git-annex") is not None
+
+requires_annex = pytest.mark.skipif(
+    not _annex_available, reason="git-annex not installed"
+)
+
+
+@pytest.fixture(
+    scope="session",
+    params=[
+        "git",
+        pytest.param(
+            "annex",
+            marks=pytest.mark.skipif(
+                not _annex_available, reason="git-annex not installed"
+            ),
+        ),
+        "pointer",
+    ],
+)
+def backend_type(request: pytest.FixtureRequest) -> str:
     return request.param
 
 
