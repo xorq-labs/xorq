@@ -3303,7 +3303,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         from xorq.expr.api import _transform_expr
 
-        (expr, _) = _transform_expr(expr)
+        (expr, _, _) = _transform_expr(expr)
 
         schema = backend._get_sql_string_view_schema(name=name, table=expr, query=query)
         node = ops.SQLStringView(child=expr.op(), query=query, schema=schema)
