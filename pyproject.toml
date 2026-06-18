@@ -30,7 +30,6 @@ dependencies = [
     "attrs>=24.1.0; python_version >= '3.10' and python_version < '4.0'",
     "pyarrow>=13.0.0,<22; python_version >= '3.10' and python_version < '4.0'",
     "structlog>=24.2.0,<26; python_version >= '3.10' and python_version < '4.0'",
-    "cityhash>=0.4.7,<1 ; python_version >= '3.10' and python_version < '4.0'",
     "pandas>=1.5.3,<3 ; python_version >= '3.10' and python_version < '4.0'",
     "pyarrow-hotfix>=0.4,<1 ; python_version >= '3.10' and python_version < '4.0'",
     "atpublic>=5.1",
@@ -123,6 +122,7 @@ postgres = [
 ]
 sqlite = [
     "adbc-driver-sqlite>=1.4.0",
+    "cityhash>=0.4.7,<1",
 ]
 gizmosql = [
     "adbc-driver-gizmosql>=1.1.5",

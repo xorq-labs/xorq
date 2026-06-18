@@ -6091,7 +6091,6 @@ source = { editable = "." }
 dependencies = [
     { name = "atpublic" },
     { name = "attrs" },
-    { name = "cityhash" },
     { name = "click" },
     { name = "cloudpickle" },
     { name = "cryptography" },
@@ -6180,6 +6179,7 @@ snowflake = [
 ]
 sqlite = [
     { name = "adbc-driver-sqlite" },
+    { name = "cityhash" },
 ]
 trino = [
     { name = "trino" },
@@ -6243,7 +6243,7 @@ requires-dist = [
     { name = "atpublic", specifier = ">=5.1" },
     { name = "attrs", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=24.1.0" },
     { name = "boring-semantic-layer", marker = "extra == 'bsl'", specifier = ">=0.3.13" },
-    { name = "cityhash", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.4.7,<1" },
+    { name = "cityhash", marker = "extra == 'sqlite'", specifier = ">=0.4.7,<1" },
     { name = "click", specifier = ">=8.0" },
     { name = "cloudpickle", specifier = ">=3.1.1" },
     { name = "cryptography", specifier = ">=45.0.3" },
