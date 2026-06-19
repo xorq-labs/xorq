@@ -18,6 +18,7 @@ from xorq.writes import (
     DrainingIterator,
     ParquetWriteThrough,
     ThreadedBackendWriteThrough,
+    WritePrimaryWriteThrough,
     WriteThrough,
 )
 
@@ -964,3 +965,94 @@ def test_drain_build_hash_same(t: Table, tmp_path: Path) -> None:
     no_drain = t.tee(writer, drain=False)
     with_drain = t.tee(writer, drain=True)
     assert get_expr_hash(no_drain) == get_expr_hash(with_drain)
+
+
+# ---- write-primary transport (WritePrimaryWriteThrough) ----------------------
+
+
+class _RecordingWriteThrough(WriteThrough):
+    """Inner write-through that records each batch it writes, in pull order."""
+
+    def __init__(self) -> None:
+        self.written: list[pa.RecordBatch] = []
+
+    def __dasher_tokenize__(self) -> tuple:
+        return ("_RecordingWriteThrough",)
+
+    def write_through(self, batches: Any) -> Any:
+        for batch in batches:
+            self.written.append(batch)
+            yield batch
+
+
+class _ExplodingWriteThrough(WriteThrough):
+    def __dasher_tokenize__(self) -> tuple:
+        return ("_ExplodingWriteThrough",)
+
+    def write_through(self, batches: Any) -> Any:
+        for _ in batches:
+            raise RuntimeError("boom")
+            yield _  # pragma: no cover - unreachable, makes this a generator
+
+
+def test_write_primary_full_consumption() -> None:
+    inner = _RecordingWriteThrough()
+    writer = WritePrimaryWriteThrough(inner)
+    batches = [pa.record_batch({"a": [i]}) for i in range(3)]
+    out = list(writer.write_through(batches))
+    assert len(out) == 3  # passthrough preserved
+    assert len(inner.written) == 3
+
+
+def test_write_primary_completes_on_early_stop() -> None:
+    # The write owns the pull loop, so closing the generator after two batches
+    # still drives the inner write to completion — drain-always by construction.
+    inner = _RecordingWriteThrough()
+    writer = WritePrimaryWriteThrough(inner)
+    batches = [pa.record_batch({"a": [i]}) for i in range(5)]
+    gen = writer.write_through(batches)
+    got = [next(gen), next(gen)]
+    gen.close()
+    assert len(got) == 2
+    assert len(inner.written) == 5
+
+
+def test_write_primary_bounded_completes_on_early_stop() -> None:
+    # bounded queue must not deadlock when downstream stops: the close path
+    # keeps draining so the blocked write thread can finish.
+    inner = _RecordingWriteThrough()
+    writer = WritePrimaryWriteThrough(inner, maxsize=1)
+    batches = [pa.record_batch({"a": [i]}) for i in range(5)]
+    gen = writer.write_through(batches)
+    next(gen)
+    gen.close()
+    assert len(inner.written) == 5
+
+
+def test_write_primary_error_propagates() -> None:
+    writer = WritePrimaryWriteThrough(_ExplodingWriteThrough())
+    with pytest.raises(RuntimeError, match="boom"):
+        list(writer.write_through([pa.record_batch({"a": [1]})]))
+
+
+def test_write_primary_identity_delegates_to_inner(tmp_path: Path) -> None:
+    inner = ParquetWriteThrough(path=tmp_path / "x.parquet")
+    writer = WritePrimaryWriteThrough(inner)
+    assert writer.__dasher_tokenize__() == inner.__dasher_tokenize__()
+
+
+def test_write_primary_build_hash_same(t: Table, tmp_path: Path) -> None:
+    inner = ParquetWriteThrough(path=tmp_path / "out.parquet")
+    plain = t.tee(inner)
+    wrapped = t.tee(WritePrimaryWriteThrough(inner))
+    assert get_expr_hash(plain) == get_expr_hash(wrapped)
+
+
+def test_write_primary_via_tee_parquet(t: Table, tmp_path: Path) -> None:
+    # end-to-end: a write-primary Parquet write (no dedicated threaded-parquet
+    # class previously existed) completes through .tee().execute().
+    target = tmp_path / "wp.parquet"
+    out = t.tee(WritePrimaryWriteThrough(ParquetWriteThrough(path=target))).execute()
+    assert target.exists()
+    written = pq.read_table(str(target))
+    assert len(written) == len(out)

@@ -6,6 +6,7 @@ from xorq.writes.write_through import (
     DrainingIterator,
     ParquetWriteThrough,
     ThreadedBackendWriteThrough,
+    WritePrimaryWriteThrough,
     WriteThrough,
 )
 
@@ -16,5 +17,6 @@ __all__ = [
     "ParquetWriteThrough",
     "ThreadedBackendWriteThrough",
     "WriteMode",
+    "WritePrimaryWriteThrough",
     "WriteThrough",
 ]

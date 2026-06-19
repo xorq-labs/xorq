@@ -294,6 +294,78 @@ class ThreadedBackendWriteThrough(BackendWriteThrough):
                 raise error[0]
 
 
+@frozen
+class WritePrimaryWriteThrough(WriteThrough):
+    """Run an inner ``WriteThrough`` *write-primary* — the mirror of the default
+    downstream-primary transport.
+
+    In the default transport the downstream pull drives the write: the write can
+    lag behind (unbounded queue) but never lead, and an early-stopping downstream
+    needs ``drain=True`` to finish the write.  Here the **write** owns the pull
+    loop on a background thread and downstream consumes the already-written
+    batches through a single 1:1 queue (no fan-out — write and pass-through are
+    the same batch sequence at the same position).  The write therefore runs to
+    completion independently of the downstream consumption rate: it is
+    intrinsically drain-always, so an early stop cannot abort it.
+
+    Transport is identity-neutral: ``__dasher_tokenize__`` delegates to the inner
+    writer, so wrapping does not change the cache key or build artifact (the same
+    principle as ``drain``).
+
+    ``maxsize`` is the backpressure dial: ``0`` (default) is an unbounded queue
+    (write races ahead, downstream may lag in memory); ``>0`` is a bounded queue
+    where a full queue blocks the write — i.e. downstream back-pressures the
+    write.  After an early stop the generator keeps draining (discarding) so a
+    bounded write thread cannot deadlock on a full queue nobody reads.
+    """
+
+    inner: WriteThrough = field(validator=instance_of(WriteThrough))
+    # Not identity-bearing: transport tuning, not the logical result.
+    maxsize: int = field(default=0, hash=False, eq=False, validator=instance_of(int))
+
+    def __dasher_tokenize__(self) -> tuple:
+        return self.inner.__dasher_tokenize__()
+
+    def write_through(
+        self, batches: Iterable[pa.RecordBatch]
+    ) -> Iterator[pa.RecordBatch]:
+        done = object()
+        q: queue.Queue | queue.SimpleQueue = (
+            queue.Queue(self.maxsize) if self.maxsize > 0 else queue.SimpleQueue()
+        )
+        error: list[BaseException] = []
+
+        def write_thread() -> None:
+            try:
+                for batch in self.inner.write_through(batches):
+                    q.put(batch)
+            except BaseException as exc:  # noqa: BLE001
+                error.append(exc)
+            finally:
+                q.put(done)
+
+        thread = threading.Thread(target=write_thread, daemon=True)
+        thread.start()
+        draining = False
+        try:
+            while True:
+                item = q.get()
+                if item is done:
+                    break
+                if not draining:
+                    try:
+                        yield item
+                    except GeneratorExit:
+                        # downstream stopped early: keep pulling the queue so the
+                        # write thread runs to completion (write-primary is
+                        # drain-always), then fall through to join below.
+                        draining = True
+        finally:
+            thread.join()
+            if error:
+                raise error[0]
+
+
 class DrainingIterator:
     """Wraps a write-through generator; drains remaining batches on close.
 
