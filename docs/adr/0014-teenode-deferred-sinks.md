@@ -14,8 +14,10 @@ the `Read` op (`relations.py`) defer a read to execution time, invoking
 a side effect and keep going.
 
 This ADR adds that: a write performed as a side effect of execution. It is implemented as a
-hash-neutral pass-through `TeeNode` that drives a `Sink` generator. A terminal write
-node (the eventual terminal `Sink`) is deferred to a later phase (see Alternatives).
+cache-hash-neutral pass-through `TeeNode` (the cache hash ignores it; the build hash
+reflects the sink) that drives a `Sink` generator. A terminal write
+node (which would use `Sink` directly, without a `TeeNode`) is deferred to a later phase
+(see Alternatives).
 
 ## Decision drivers
 
