@@ -73,8 +73,8 @@ _expr_normalize_memo: contextvars.ContextVar[dict | None] = contextvars.ContextV
     "_xorq_expr_normalize_memo", default=None
 )
 
-# When True, TeeNode sink identity is folded into the structural hash.
-# Set by ``get_expr_hash`` (build hash path) so that different sinks produce
+# When True, TeeNode writer identity is folded into the structural hash.
+# Set by ``get_expr_hash`` (build hash path) so that different writers produce
 # different build artifacts, while the cache hash path leaves this False.
 _include_tee_nodes: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "_xorq_include_tee_nodes", default=False
@@ -386,7 +386,7 @@ def _decompose_expr(
     where *reads*/*dts*/*mems* are the data-carrying leaf ops, *udfs* are
     structural code-identity ops, *param_anchors* are stable identity
     strings for each NamedScalarParameter in graph order, *hashing_tags*
-    carry user-supplied metadata, and *tee_nodes* carry sink identity.
+    carry user-supplied metadata, and *tee_nodes* carry writer identity.
     """
     from xorq.common.utils.graph_utils import replace_nodes, walk_nodes  # noqa: PLC0415
     from xorq.expr.api import get_compiler, to_sql  # noqa: PLC0415
@@ -502,7 +502,7 @@ def expr_metadata(expr: Expr) -> ExprMetadata:
 
     UDFs (``AggUDF``, ``ScalarUDF``), HashingTags (via ``__dasher_tokenize__``),
     and (when ``_include_tee_nodes`` is set) TeeNodes (via
-    ``__dasher_tokenize__``, which delegates to each ``Sink``'s own
+    ``__dasher_tokenize__``, which delegates to each ``WriteThrough``'s own
     ``__dasher_tokenize__``) all contribute to ``structural_hash`` rather
     than appearing as separate slots.
 

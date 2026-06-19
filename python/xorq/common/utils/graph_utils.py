@@ -106,7 +106,7 @@ def replace_nodes(
     ``FlightExpr.input_expr``, ``ExprScalarUDF.computed_kwargs_expr``).
 
     Only safe for **pure structural rewrites** — replacers with side effects
-    (materializing batches, registering tables on a backend, creating sinks)
+    (materializing batches, registering tables on a backend, deferred writes)
     must use ``op.replace()`` directly so they do not fire inside opaque
     sub-expressions whose contents are handled lazily at execution time.
     """

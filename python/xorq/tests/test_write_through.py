@@ -13,12 +13,12 @@ import xorq.api as xo
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.common.utils.node_utils import compute_expr_hash
 from xorq.common.utils.provenance_utils import get_expr_hash
-from xorq.sinking import (
-    BackendSink,
+from xorq.writes import (
+    BackendWriteThrough,
     DrainingIterator,
-    ParquetSink,
-    Sink,
-    ThreadedBackendSink,
+    ParquetWriteThrough,
+    ThreadedBackendWriteThrough,
+    WriteThrough,
 )
 
 
@@ -54,41 +54,41 @@ def _connect(name: str) -> Any:
 @pytest.fixture(params=["datafusion", "pandas"])
 def backend_table(request: pytest.FixtureRequest) -> Table:
     con = _connect(request.param)
-    return con.create_table("sink_src", pa.table(TABLE))
+    return con.create_table("write_src", pa.table(TABLE))
 
 
-def test_sink_is_passthrough(t: Table, tmp_path: Path) -> None:
-    expr = t.tee(ParquetSink(path=tmp_path / "out.parquet"))
+def test_write_is_passthrough(t: Table, tmp_path: Path) -> None:
+    expr = t.tee(ParquetWriteThrough(path=tmp_path / "out.parquet"))
     assert expr.schema() == t.schema()
     assert expr.execute().equals(t.execute())
 
 
-def test_sink_writes_what_flows(t: Table, tmp_path: Path) -> None:
+def test_write_writes_what_flows(t: Table, tmp_path: Path) -> None:
     target = tmp_path / "out.parquet"
-    t.tee(ParquetSink(path=target)).execute()
+    t.tee(ParquetWriteThrough(path=target)).execute()
     written = pq.read_table(str(target))
     assert len(written) == len(t.execute())
 
 
-def test_sink_hash_is_transparent(t: Table, tmp_path: Path) -> None:
+def test_write_hash_is_transparent(t: Table, tmp_path: Path) -> None:
     strategy = SnapshotStrategy()
-    sinked = t.tee(ParquetSink(path=tmp_path / "out.parquet"))
-    assert compute_expr_hash(sinked, strategy=strategy) == compute_expr_hash(
+    teed = t.tee(ParquetWriteThrough(path=tmp_path / "out.parquet"))
+    assert compute_expr_hash(teed, strategy=strategy) == compute_expr_hash(
         t, strategy=strategy
     )
 
 
-def test_build_hash_distinguishes_sinks(t: Table, tmp_path: Path) -> None:
-    a = t.tee(ParquetSink(path=tmp_path / "a.parquet"))
-    b = t.tee(ParquetSink(path=tmp_path / "b.parquet"))
+def test_build_hash_distinguishes_writers(t: Table, tmp_path: Path) -> None:
+    a = t.tee(ParquetWriteThrough(path=tmp_path / "a.parquet"))
+    b = t.tee(ParquetWriteThrough(path=tmp_path / "b.parquet"))
     hash_a = get_expr_hash(a)
     hash_b = get_expr_hash(b)
-    assert hash_a != hash_b, "different sinks must produce different build hashes"
+    assert hash_a != hash_b, "different writers must produce different build hashes"
 
 
 def test_cache_hit_does_not_write(t: Table, tmp_path: Path) -> None:
     target = tmp_path / "out.parquet"
-    cached = t.tee(ParquetSink(path=target)).cache()
+    cached = t.tee(ParquetWriteThrough(path=target)).cache()
     cached.execute()  # miss: writes
     mtime = target.stat().st_mtime_ns
     cached.execute()  # hit: must not write again
@@ -97,32 +97,32 @@ def test_cache_hit_does_not_write(t: Table, tmp_path: Path) -> None:
 
 def test_append_accumulates_rows(t: Table, tmp_path: Path) -> None:
     target = tmp_path / "out.parquet"
-    t.tee(ParquetSink(path=target, mode="append")).execute()
+    t.tee(ParquetWriteThrough(path=target, mode="append")).execute()
     assert len(pq.read_table(str(target))) == 4
-    t.tee(ParquetSink(path=target, mode="append")).execute()
+    t.tee(ParquetWriteThrough(path=target, mode="append")).execute()
     assert len(pq.read_table(str(target))) == 8
 
 
 def test_create_fails_if_target_exists(t: Table, tmp_path: Path) -> None:
     target = tmp_path / "out.parquet"
-    t.tee(ParquetSink(path=target, mode="create")).execute()
+    t.tee(ParquetWriteThrough(path=target, mode="create")).execute()
     assert target.exists()
     # raised mid-pull, the engine wraps FileExistsError (Arrow C-stream boundary)
     with pytest.raises(Exception, match="already exists"):
-        t.tee(ParquetSink(path=target, mode="create")).execute()
+        t.tee(ParquetWriteThrough(path=target, mode="create")).execute()
     # the failed run published nothing: original file intact, no stray temp
     assert len(pq.read_table(str(target))) == 4
     assert not list(target.parent.glob("*.tmp"))
 
 
-def test_create_sink_raises_fileexists(tmp_path: Path) -> None:
+def test_create_write_raises_fileexists(tmp_path: Path) -> None:
     target = tmp_path / "out.parquet"
-    sink = ParquetSink(path=target, mode="create")
+    writer = ParquetWriteThrough(path=target, mode="create")
     batches = [pa.record_batch({"a": [1]})]
-    list(sink.sink(batches))
+    list(writer.write_through(batches))
     assert target.exists()
     with pytest.raises(FileExistsError):
-        list(ParquetSink(path=target, mode="create").sink(batches))
+        list(ParquetWriteThrough(path=target, mode="create").write_through(batches))
 
 
 def test_concurrent_create_only_one_wins(tmp_path: Path) -> None:
@@ -132,9 +132,9 @@ def test_concurrent_create_only_one_wins(tmp_path: Path) -> None:
     results: list[Exception | None] = [None, None]
 
     def worker(idx: int) -> None:
-        sink = ParquetSink(path=target, mode="create")
+        writer = ParquetWriteThrough(path=target, mode="create")
         try:
-            gen = sink.sink(iter(batches))
+            gen = writer.write_through(iter(batches))
             first = next(gen)
             barrier.wait(timeout=5)
             _ = [first, *gen]
@@ -157,21 +157,21 @@ def test_concurrent_create_only_one_wins(tmp_path: Path) -> None:
 
 def test_invalid_mode_raises(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
-        ParquetSink(path=tmp_path, mode="merge")
+        ParquetWriteThrough(path=tmp_path, mode="merge")
 
 
-def test_sink_publishes(tmp_path: Path) -> None:
+def test_write_publishes(tmp_path: Path) -> None:
     target = tmp_path / "out.parquet"
-    sink = ParquetSink(path=target, mode="append")
+    writer = ParquetWriteThrough(path=target, mode="append")
     batches = [pa.record_batch({"a": [1, 2]})]
-    list(sink.sink(batches))
+    list(writer.write_through(batches))
     assert target.exists()
 
 
-def test_sink_empty_publishes_nothing(tmp_path: Path) -> None:
+def test_write_empty_publishes_nothing(tmp_path: Path) -> None:
     target = tmp_path / "out.parquet"
-    sink = ParquetSink(path=target, mode="append")
-    list(sink.sink([]))
+    writer = ParquetWriteThrough(path=target, mode="append")
+    list(writer.write_through([]))
     assert not target.exists()
     assert not list(tmp_path.glob("*.tmp"))
 
@@ -179,36 +179,36 @@ def test_sink_empty_publishes_nothing(tmp_path: Path) -> None:
 # ---- cross-backend ----------------------------------------------------------
 
 
-def test_sink_across_backends(backend_table: Table, tmp_path: Path) -> None:
+def test_write_across_backends(backend_table: Table, tmp_path: Path) -> None:
     target = tmp_path / "out.parquet"
-    out = backend_table.tee(ParquetSink(path=target, mode="append")).execute()
+    out = backend_table.tee(ParquetWriteThrough(path=target, mode="append")).execute()
     assert len(out) == 4
     assert len(pq.read_table(str(target))) == 4
     # second append merges into the same file
-    backend_table.tee(ParquetSink(path=target, mode="append")).execute()
+    backend_table.tee(ParquetWriteThrough(path=target, mode="append")).execute()
     assert len(pq.read_table(str(target))) == 8
 
 
 # ---- mixed ops --------------------------------------------------------------
 
 
-def test_sink_after_deferred_read(tmp_path: Path) -> None:
+def test_write_after_deferred_read(tmp_path: Path) -> None:
     src = tmp_path / "src.parquet"
     pq.write_table(pa.table({"a": [1, 2, 3, 4]}), str(src))
     target = tmp_path / "out.parquet"
     expr = xo.deferred_read_parquet(path=src, con=xo.connect(), table_name="dr").tee(
-        ParquetSink(path=target)
+        ParquetWriteThrough(path=target)
     )
     assert len(expr.execute()) == 4
     assert target.exists()
 
 
-def test_sink_after_into_backend(tmp_path: Path) -> None:
+def test_write_after_into_backend(tmp_path: Path) -> None:
     con = xo.connect()
     other = xo.connect()  # second datafusion; duckdb would deadlock (see fixture)
     t = con.create_table("ib_src", pa.table({"a": [1, 2, 3, 4]}))
     target = tmp_path / "out.parquet"
-    t.into_backend(other, "ib").tee(ParquetSink(path=target)).execute()
+    t.into_backend(other, "ib").tee(ParquetWriteThrough(path=target)).execute()
     assert target.exists()
 
 
@@ -217,69 +217,69 @@ def test_sink_after_into_backend(tmp_path: Path) -> None:
     "the parent reader while the same connection serves the outer query, which "
     "deadlocks. Phase 1 targets engines with concurrent reader pulls (datafusion)."
 )
-def test_sink_duckdb_streaming_deadlocks(tmp_path: Path) -> None:
+def test_write_duckdb_streaming_deadlocks(tmp_path: Path) -> None:
     con = xo.duckdb.connect()
     t = con.create_table("dd_src", pa.table({"a": [1, 2, 3, 4]}))
-    t.tee(ParquetSink(path=tmp_path / "out.parquet")).execute()
+    t.tee(ParquetWriteThrough(path=tmp_path / "out.parquet")).execute()
 
 
-def test_sink_with_cache_upstream(tmp_path: Path) -> None:
+def test_write_with_cache_upstream(tmp_path: Path) -> None:
     con = xo.connect()
     t = con.create_table("c_src", pa.table({"a": [1, 2, 3, 4]}))
     target = tmp_path / "out.parquet"
-    t.cache().tee(ParquetSink(path=target)).execute()
+    t.cache().tee(ParquetWriteThrough(path=target)).execute()
     assert target.exists()
 
 
-def test_sink_in_middle_writes_full_parent(t: Table, tmp_path: Path) -> None:
+def test_write_in_middle_writes_full_parent(t: Table, tmp_path: Path) -> None:
     target = tmp_path / "out.parquet"
     # a downstream filter reduces the result, but the tee wrote the full parent
-    out = t.tee(ParquetSink(path=target)).filter(xo._.a > 2).execute()
+    out = t.tee(ParquetWriteThrough(path=target)).filter(xo._.a > 2).execute()
     assert len(out) == 2
     assert len(pq.read_table(str(target))) == 4
 
 
-def test_chained_sinks_fan_out(t: Table, tmp_path: Path) -> None:
+def test_chained_writers_fan_out(t: Table, tmp_path: Path) -> None:
     f1, f2 = tmp_path / "t1.parquet", tmp_path / "t2.parquet"
-    t.tee(ParquetSink(path=f1)).tee(ParquetSink(path=f2)).execute()
+    t.tee(ParquetWriteThrough(path=f1)).tee(ParquetWriteThrough(path=f2)).execute()
     assert f1.exists()
     assert f2.exists()
 
 
-def test_chained_tees_call_each_sink_once(t: Table) -> None:
-    class _CountingSink(Sink):
+def test_chained_tees_call_each_write_once(t: Table) -> None:
+    class _CountingWriteThrough(WriteThrough):
         def __init__(self):
             self.call_count = 0
 
-        def sink(self, batches):
+        def write_through(self, batches):
             self.call_count += 1
             return (batch for batch in batches)
 
-    s1, s2 = _CountingSink(), _CountingSink()
+    s1, s2 = _CountingWriteThrough(), _CountingWriteThrough()
     t.tee(s1).tee(s2).execute()
-    assert s1.call_count == 1, f"inner sink called {s1.call_count} times, expected 1"
-    assert s2.call_count == 1, f"outer sink called {s2.call_count} times, expected 1"
+    assert s1.call_count == 1, f"inner writer called {s1.call_count} times, expected 1"
+    assert s2.call_count == 1, f"outer writer called {s2.call_count} times, expected 1"
 
 
-# ---- BackendSink ------------------------------------------------------------
+# ---- BackendWriteThrough ------------------------------------------------------------
 
 
-def test_backend_sink_creates_table(t: Table) -> None:
+def test_backend_write_creates_table(t: Table) -> None:
     target_con = xo.connect()
     t.tee(target_con, table_name="bs_tgt", mode="create").execute()
     result = target_con.table("bs_tgt").execute()
     assert len(result) == len(t.execute())
 
 
-def test_backend_sink_via_explicit_sink_node(t: Table) -> None:
+def test_backend_write_via_explicit_write_node(t: Table) -> None:
     target_con = xo.connect()
-    sink = BackendSink(target_con, table_name="bs_explicit", mode="create")
-    t.tee(sink).execute()
+    writer = BackendWriteThrough(target_con, table_name="bs_explicit", mode="create")
+    t.tee(writer).execute()
     result = target_con.table("bs_explicit").execute()
     assert len(result) == len(t.execute())
 
 
-def test_backend_sink_append_mode(t: Table) -> None:
+def test_backend_write_append_mode(t: Table) -> None:
     # DataFusion re-registers the table on each call (no true append), so the
     # second run overwrites rather than accumulating.  Backends with mode
     # support (Postgres via ADBC) would accumulate rows.
@@ -291,11 +291,11 @@ def test_backend_sink_append_mode(t: Table) -> None:
 
 
 def test_tee_rejects_invalid_target(t: Table) -> None:
-    with pytest.raises(TypeError, match="Sink or a backend"):
+    with pytest.raises(TypeError, match="WriteThrough or a backend"):
         t.tee("not_a_backend")
 
 
-def test_backend_sink_bulk_writes_nothing_on_error() -> None:
+def test_backend_write_bulk_writes_nothing_on_error() -> None:
     # Bulk backends (no mode support, e.g. DataFusion) register the table after
     # full stream exhaustion.  A mid-stream error means nothing is written.
     target_con = xo.connect()
@@ -304,20 +304,20 @@ def test_backend_sink_bulk_writes_nothing_on_error() -> None:
         yield pa.record_batch({"a": [1, 2]})
         raise RuntimeError("simulated mid-stream failure")
 
-    sink = BackendSink(target_con, table_name="bs_err", mode="create")
+    writer = BackendWriteThrough(target_con, table_name="bs_err", mode="create")
     with pytest.raises(RuntimeError, match="simulated"):
-        list(sink.sink(exploding_batches()))
+        list(writer.write_through(exploding_batches()))
     with pytest.raises(ValueError, match="Table not found"):
         target_con.table("bs_err")
 
 
-def test_backend_sink_bulk_registers_all_batches() -> None:
+def test_backend_write_bulk_registers_all_batches() -> None:
     # Bulk backends register all batches in a single call after exhaustion,
     # so the resulting table contains every batch — not just the last one.
     target_con = xo.connect()
     batches = [pa.record_batch({"a": [1, 2]}), pa.record_batch({"a": [3, 4]})]
-    sink = BackendSink(target_con, table_name="bs_bulk", mode="create")
-    list(sink.sink(batches))
+    writer = BackendWriteThrough(target_con, table_name="bs_bulk", mode="create")
+    list(writer.write_through(batches))
     result = target_con.table("bs_bulk").execute()
     assert len(result) == 4
 
@@ -325,18 +325,18 @@ def test_backend_sink_bulk_registers_all_batches() -> None:
 # ---- generator lifecycle / cleanup -------------------------------------------
 
 
-def test_parquet_sink_abandoned_cleans_up(tmp_path: Path) -> None:
+def test_parquet_write_abandoned_cleans_up(tmp_path: Path) -> None:
     target = tmp_path / "out.parquet"
-    sink = ParquetSink(path=target, mode="append")
+    writer = ParquetWriteThrough(path=target, mode="append")
     batches = [pa.record_batch({"a": [1, 2]}), pa.record_batch({"a": [3, 4]})]
-    gen = sink.sink(iter(batches))
+    gen = writer.write_through(iter(batches))
     next(gen)  # consume one batch, open the writer
     gen.close()  # abandon mid-stream
     assert not target.exists()
     assert not list(target.parent.glob("*.tmp"))
 
 
-# ---- per-batch ingest path (BackendSink with mode support) -------------------
+# ---- per-batch ingest path (BackendWriteThrough with mode support) -------------------
 
 
 class _FakePerBatchBackend:
@@ -355,9 +355,9 @@ class _FakePerBatchBackend:
 
 def test_per_batch_path_create_then_append() -> None:
     backend = _FakePerBatchBackend()
-    sink = BackendSink(backend, table_name="t", mode="create")
+    writer = BackendWriteThrough(backend, table_name="t", mode="create")
     batches = [pa.record_batch({"a": [1]}), pa.record_batch({"a": [2]})]
-    result = list(sink.sink(batches))
+    result = list(writer.write_through(batches))
     assert len(result) == 2
     assert backend.calls[0][1] == "create"
     assert all(c[1] == "append" for c in backend.calls[1:])
@@ -365,9 +365,9 @@ def test_per_batch_path_create_then_append() -> None:
 
 def test_per_batch_path_append_mode() -> None:
     backend = _FakePerBatchBackend()
-    sink = BackendSink(backend, table_name="t", mode="append")
+    writer = BackendWriteThrough(backend, table_name="t", mode="append")
     batches = [pa.record_batch({"a": [1]}), pa.record_batch({"a": [2]})]
-    list(sink.sink(batches))
+    list(writer.write_through(batches))
     assert all(c[1] == "append" for c in backend.calls)
 
 
@@ -382,20 +382,20 @@ def test_per_batch_partial_write_on_error() -> None:
             self.calls.append((table_name, mode, batches))
 
     backend = _FailOnSecond()
-    sink = BackendSink(backend, table_name="t", mode="create")
+    writer = BackendWriteThrough(backend, table_name="t", mode="create")
     batches = [pa.record_batch({"a": [1]}), pa.record_batch({"a": [2]})]
     with pytest.raises(RuntimeError, match="simulated"):
-        list(sink.sink(batches))
+        list(writer.write_through(batches))
     assert len(backend.calls) == 1
 
 
 # ---- tee() argument validation -----------------------------------------------
 
 
-def test_tee_rejects_extra_kwargs_with_sink_node(t: Table, tmp_path: Path) -> None:
-    sink = ParquetSink(path=tmp_path / "out.parquet")
+def test_tee_rejects_extra_kwargs_with_write_node(t: Table, tmp_path: Path) -> None:
+    writer = ParquetWriteThrough(path=tmp_path / "out.parquet")
     with pytest.raises(TypeError, match="does not accept"):
-        t.tee(sink, table_name="oops")
+        t.tee(writer, table_name="oops")
 
 
 def test_tee_requires_table_name_for_backend(t: Table) -> None:
@@ -408,7 +408,7 @@ def test_tee_rejects_backend_without_read_record_batches(t: Table) -> None:
     class _NoRRB:
         name = "fake"
 
-    with pytest.raises(TypeError, match="Sink or a backend"):
+    with pytest.raises(TypeError, match="WriteThrough or a backend"):
         t.tee(_NoRRB(), table_name="tgt")
 
 
@@ -417,22 +417,22 @@ def test_tee_rejects_backend_without_read_record_batches(t: Table) -> None:
 
 def test_to_sql_strips_tee_node(t: Table, tmp_path: Path) -> None:
     bare_sql = xo.to_sql(t)
-    teed_sql = xo.to_sql(t.tee(ParquetSink(path=tmp_path / "out.parquet")))
+    teed_sql = xo.to_sql(t.tee(ParquetWriteThrough(path=tmp_path / "out.parquet")))
     assert bare_sql == teed_sql
 
 
 def test_to_sql_strips_nested_tee_nodes(t: Table, tmp_path: Path) -> None:
     bare_sql = xo.to_sql(t)
-    double_tee = t.tee(ParquetSink(path=tmp_path / "t1.parquet")).tee(
-        ParquetSink(path=tmp_path / "t2.parquet")
+    double_tee = t.tee(ParquetWriteThrough(path=tmp_path / "t1.parquet")).tee(
+        ParquetWriteThrough(path=tmp_path / "t2.parquet")
     )
     assert xo.to_sql(double_tee) == bare_sql
 
 
 def test_nested_tee_hash_is_transparent(t: Table, tmp_path: Path) -> None:
     strategy = SnapshotStrategy()
-    double_tee = t.tee(ParquetSink(path=tmp_path / "t1.parquet")).tee(
-        ParquetSink(path=tmp_path / "t2.parquet")
+    double_tee = t.tee(ParquetWriteThrough(path=tmp_path / "t1.parquet")).tee(
+        ParquetWriteThrough(path=tmp_path / "t2.parquet")
     )
     assert compute_expr_hash(double_tee, strategy=strategy) == compute_expr_hash(
         t, strategy=strategy
@@ -440,46 +440,46 @@ def test_nested_tee_hash_is_transparent(t: Table, tmp_path: Path) -> None:
 
 
 def test_tee_affects_build_hash(t: Table, tmp_path: Path) -> None:
-    teed = t.tee(ParquetSink(path=tmp_path / "out.parquet"))
+    teed = t.tee(ParquetWriteThrough(path=tmp_path / "out.parquet"))
     assert get_expr_hash(teed) != get_expr_hash(t)
 
 
-def test_different_sinks_produce_different_build_hashes(
+def test_different_writers_produce_different_build_hashes(
     t: Table, tmp_path: Path
 ) -> None:
-    teed_a = t.tee(ParquetSink(path=tmp_path / "a.parquet"))
-    teed_b = t.tee(ParquetSink(path=tmp_path / "b.parquet"))
+    teed_a = t.tee(ParquetWriteThrough(path=tmp_path / "a.parquet"))
+    teed_b = t.tee(ParquetWriteThrough(path=tmp_path / "b.parquet"))
     assert get_expr_hash(teed_a) != get_expr_hash(teed_b)
 
 
-def test_nested_tee_build_hash_includes_both_sinks(t: Table, tmp_path: Path) -> None:
-    single = t.tee(ParquetSink(path=tmp_path / "t1.parquet"))
-    double = t.tee(ParquetSink(path=tmp_path / "t1.parquet")).tee(
-        ParquetSink(path=tmp_path / "t2.parquet")
+def test_nested_tee_build_hash_includes_both_writers(t: Table, tmp_path: Path) -> None:
+    single = t.tee(ParquetWriteThrough(path=tmp_path / "t1.parquet"))
+    double = t.tee(ParquetWriteThrough(path=tmp_path / "t1.parquet")).tee(
+        ParquetWriteThrough(path=tmp_path / "t2.parquet")
     )
     assert get_expr_hash(single) != get_expr_hash(double)
 
 
-def test_backend_sink_affects_build_hash(t: Table) -> None:
+def test_backend_write_affects_build_hash(t: Table) -> None:
     target_con = xo.connect()
-    teed = t.tee(BackendSink(target_con, table_name="bs_hash", mode="create"))
+    teed = t.tee(BackendWriteThrough(target_con, table_name="bs_hash", mode="create"))
     assert get_expr_hash(teed) != get_expr_hash(t)
 
 
-def test_unknown_sink_type_raises_on_build_hash(t: Table) -> None:
-    class CustomSink(Sink):
-        def sink(self, batches, **_kw):
+def test_unknown_write_type_raises_on_build_hash(t: Table) -> None:
+    class CustomWriteThrough(WriteThrough):
+        def write_through(self, batches, **_kw):
             yield from batches
 
-    teed = t.tee(CustomSink())
+    teed = t.tee(CustomWriteThrough())
     with pytest.raises(ValueError, match="No normalizer registered"):
         get_expr_hash(teed)
 
 
 def test_tee_plus_tag_hash_is_transparent(t: Table, tmp_path: Path) -> None:
     strategy = SnapshotStrategy()
-    tee_then_tag = t.tee(ParquetSink(path=tmp_path / "out.parquet")).tag("v1")
-    tag_then_tee = t.tag("v1").tee(ParquetSink(path=tmp_path / "out2.parquet"))
+    tee_then_tag = t.tee(ParquetWriteThrough(path=tmp_path / "out.parquet")).tag("v1")
+    tag_then_tee = t.tag("v1").tee(ParquetWriteThrough(path=tmp_path / "out2.parquet"))
     base_hash = compute_expr_hash(t, strategy=strategy)
     assert compute_expr_hash(tee_then_tag, strategy=strategy) == base_hash
     assert compute_expr_hash(tag_then_tee, strategy=strategy) == base_hash
@@ -488,16 +488,16 @@ def test_tee_plus_tag_hash_is_transparent(t: Table, tmp_path: Path) -> None:
 def test_to_sql_with_tag_and_tee(t: Table, tmp_path: Path) -> None:
     bare_sql = xo.to_sql(t)
     assert (
-        xo.to_sql(t.tee(ParquetSink(path=tmp_path / "out.parquet")).tag("v1"))
+        xo.to_sql(t.tee(ParquetWriteThrough(path=tmp_path / "out.parquet")).tag("v1"))
         == bare_sql
     )
     assert (
-        xo.to_sql(t.tag("v1").tee(ParquetSink(path=tmp_path / "out2.parquet")))
+        xo.to_sql(t.tag("v1").tee(ParquetWriteThrough(path=tmp_path / "out2.parquet")))
         == bare_sql
     )
 
 
-# ---- BackendSink kwargs passthrough ------------------------------------------
+# ---- BackendWriteThrough kwargs passthrough ------------------------------------------
 
 
 class _FakeKwargsBackend:
@@ -513,41 +513,41 @@ class _FakeKwargsBackend:
         self.calls.append(kwargs)
 
 
-def test_backend_sink_extra_kwargs_reach_backend() -> None:
+def test_backend_write_extra_kwargs_reach_backend() -> None:
     backend = _FakeKwargsBackend()
-    sink = BackendSink(
+    writer = BackendWriteThrough(
         backend, table_name="t", mode="create", kwargs={"custom_opt": 42}
     )
     batches = [pa.record_batch({"a": [1]})]
-    list(sink.sink(batches))
+    list(writer.write_through(batches))
     assert len(backend.calls) == 1
     assert backend.calls[0]["custom_opt"] == 42
     assert backend.calls[0]["table_name"] == "t"
 
 
-# ---- ParquetSink multi-batch -------------------------------------------------
+# ---- ParquetWriteThrough multi-batch -------------------------------------------------
 
 
 def test_parquet_multi_batch_single_file(tmp_path: Path) -> None:
     target = tmp_path / "out.parquet"
-    sink = ParquetSink(path=target, mode="append")
+    writer = ParquetWriteThrough(path=target, mode="append")
     batches = [
         pa.record_batch({"a": [1, 2]}),
         pa.record_batch({"a": [3, 4]}),
         pa.record_batch({"a": [5, 6]}),
     ]
-    list(sink.sink(batches))
+    list(writer.write_through(batches))
     assert len(pq.read_table(str(target))) == 6
 
 
-# ---- ParquetSink publish failure cleanup --------------------------------------
+# ---- ParquetWriteThrough publish failure cleanup --------------------------------------
 
 
 def test_parquet_create_link_failure_cleans_up(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     target = tmp_path / "out.parquet"
-    sink = ParquetSink(path=target, mode="create")
+    writer = ParquetWriteThrough(path=target, mode="create")
     batches = [pa.record_batch({"a": [1, 2]})]
 
     def failing_link(src, dst):
@@ -555,7 +555,7 @@ def test_parquet_create_link_failure_cleans_up(
 
     monkeypatch.setattr(os, "link", failing_link)
     with pytest.raises(OSError, match="simulated link failure"):
-        list(sink.sink(batches))
+        list(writer.write_through(batches))
     assert not target.exists()
     assert not list(target.parent.glob("*.tmp"))
 
@@ -564,7 +564,7 @@ def test_parquet_append_rename_failure_cleans_up(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     target = tmp_path / "out.parquet"
-    sink = ParquetSink(path=target, mode="append")
+    writer = ParquetWriteThrough(path=target, mode="append")
     batches = [pa.record_batch({"a": [1, 2]})]
 
     original_rename = Path.rename
@@ -576,7 +576,7 @@ def test_parquet_append_rename_failure_cleans_up(
 
     monkeypatch.setattr(Path, "rename", failing_rename)
     with pytest.raises(OSError, match="simulated rename failure"):
-        list(sink.sink(batches))
+        list(writer.write_through(batches))
     assert not target.exists()
     assert not list(target.parent.glob("*.tmp"))
 
@@ -598,16 +598,16 @@ def test_per_batch_error_retains_first_batch_data() -> None:
                 raise RuntimeError("simulated failure on second batch")
 
     backend = _FailOnSecondBatch()
-    sink = BackendSink(backend, table_name="t", mode="create")
+    writer = BackendWriteThrough(backend, table_name="t", mode="create")
     batches = [pa.record_batch({"a": [1]}), pa.record_batch({"a": [2]})]
     with pytest.raises(RuntimeError, match="simulated"):
-        list(sink.sink(batches))
+        list(writer.write_through(batches))
     assert len(backend.calls) == 2
     assert backend.calls[0][1] == "create"
     assert len(backend.calls[0][2]) == 1
 
 
-# ---- threaded ingest path (ThreadedBackendSink) ------------------------------
+# ---- threaded ingest path (ThreadedBackendWriteThrough) ------------------------------
 
 
 class _RecordingBackend:
@@ -657,9 +657,9 @@ def test_threaded_single_call_all_batches() -> None:
     # mode-capable backend: threaded path makes ONE read_record_batches call
     # carrying every batch, not one call per batch.
     backend = _FakePerBatchBackend()
-    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+    writer = ThreadedBackendWriteThrough(backend, table_name="t", mode="create")
     batches = [pa.record_batch({"a": [1]}), pa.record_batch({"a": [2]})]
-    result = list(sink.sink(batches))
+    result = list(writer.write_through(batches))
     assert len(result) == 2  # passthrough: every batch yielded downstream
     assert len(backend.calls) == 1
     table_name, mode, ingested = backend.calls[0]
@@ -672,9 +672,9 @@ def test_threaded_no_mode_backend_omits_mode() -> None:
     # backend without a `mode` parameter: mode must NOT be forwarded (the bug
     # the _ingest gate fixes), and all batches still land in one call.
     backend = _FakeKwargsBackend()
-    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+    writer = ThreadedBackendWriteThrough(backend, table_name="t", mode="create")
     batches = [pa.record_batch({"a": [1]}), pa.record_batch({"a": [2]})]
-    list(sink.sink(batches))
+    list(writer.write_through(batches))
     assert len(backend.calls) == 1
     assert "mode" not in backend.calls[0]
     assert len(backend.calls[0]["_batches"]) == 2
@@ -682,21 +682,21 @@ def test_threaded_no_mode_backend_omits_mode() -> None:
 
 def test_threaded_kwargs_reach_backend() -> None:
     backend = _FakeKwargsBackend()
-    sink = ThreadedBackendSink(
+    writer = ThreadedBackendWriteThrough(
         backend, table_name="t", mode="create", kwargs={"custom_opt": 42}
     )
-    list(sink.sink([pa.record_batch({"a": [1]})]))
+    list(writer.write_through([pa.record_batch({"a": [1]})]))
     assert backend.calls[0]["custom_opt"] == 42
 
 
 def test_threaded_empty_stream_no_call() -> None:
     backend = _FakePerBatchBackend()
-    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
-    assert list(sink.sink([])) == []
+    writer = ThreadedBackendWriteThrough(backend, table_name="t", mode="create")
+    assert list(writer.write_through([])) == []
     assert backend.calls == []
 
 
-def test_threaded_sink_thread_error_propagates() -> None:
+def test_threaded_write_thread_error_propagates() -> None:
     # an error raised inside read_record_batches is captured on the thread and
     # re-raised on the main thread after the join.
     class _Exploding(_FakePerBatchBackend):
@@ -707,23 +707,23 @@ def test_threaded_sink_thread_error_propagates() -> None:
             raise RuntimeError("simulated ingest failure")
 
     backend = _Exploding()
-    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+    writer = ThreadedBackendWriteThrough(backend, table_name="t", mode="create")
     batches = [pa.record_batch({"a": [1]}), pa.record_batch({"a": [2]})]
     with pytest.raises(RuntimeError, match="simulated ingest failure"):
-        list(sink.sink(batches))
+        list(writer.write_through(batches))
 
 
 def test_threaded_upstream_error_propagates_and_joins() -> None:
     backend = _RecordingBackend()
-    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+    writer = ThreadedBackendWriteThrough(backend, table_name="t", mode="create")
 
     def exploding_batches():
         yield pa.record_batch({"a": [1, 2]})
         raise RuntimeError("simulated mid-stream failure")
 
     with pytest.raises(RuntimeError, match="simulated mid-stream failure"):
-        list(sink.sink(exploding_batches()))
-    # the worker saw a truncated stream and was joined before sink returned
+        list(writer.write_through(exploding_batches()))
+    # the worker saw a truncated stream and was joined before writer returned
     assert backend.worker is not None
     assert not backend.worker.is_alive()
 
@@ -732,9 +732,9 @@ def test_threaded_early_stop_ends_reader_and_joins() -> None:
     # abandoning the generator mid-stream signals the reader to end short; the
     # worker drains what it has and is joined — no hang, no leaked thread.
     backend = _RecordingBackend()
-    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+    writer = ThreadedBackendWriteThrough(backend, table_name="t", mode="create")
     batches = [pa.record_batch({"a": [i]}) for i in range(5)]
-    gen = sink.sink(iter(batches))
+    gen = writer.write_through(iter(batches))
     next(gen)
     gen.close()  # GeneratorExit -> reader ends short, worker joins
     assert backend.worker is not None
@@ -742,24 +742,24 @@ def test_threaded_early_stop_ends_reader_and_joins() -> None:
 
 
 def test_threaded_preserves_order_and_content() -> None:
-    # passthrough is identity in order, and the sink pulls in the same order.
+    # passthrough is identity in order, and the writer pulls in the same order.
     backend = _RecordingBackend()
-    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+    writer = ThreadedBackendWriteThrough(backend, table_name="t", mode="create")
     batches = [pa.record_batch({"a": [i]}) for i in range(10)]
-    out = list(sink.sink(iter(batches)))
+    out = list(writer.write_through(iter(batches)))
     assert [_first(b) for b in out] == list(range(10))
     assert [_first(b) for b in backend.calls[0]["batches"]] == list(range(10))
 
 
 def test_threaded_forwards_append_mode() -> None:
     backend = _RecordingBackend()
-    sink = ThreadedBackendSink(backend, table_name="t", mode="append")
-    list(sink.sink([pa.record_batch({"a": [1]})]))
+    writer = ThreadedBackendWriteThrough(backend, table_name="t", mode="append")
+    list(writer.write_through([pa.record_batch({"a": [1]})]))
     assert backend.calls[0]["mode"] == "append"
 
 
 def test_threaded_streams_without_buffering() -> None:
-    # proves concurrency: the sink consumes batch 0 while the producer is still
+    # proves concurrency: the writer consumes batch 0 while the producer is still
     # blocked before yielding batch 1.  A buffer-everything-then-ingest path
     # would never set the event during production and time out.
     received_first = threading.Event()
@@ -769,41 +769,41 @@ def test_threaded_streams_without_buffering() -> None:
             received_first.set()
 
     backend = _RecordingBackend(on_batch=on_batch)
-    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+    writer = ThreadedBackendWriteThrough(backend, table_name="t", mode="create")
 
     def producer():
         yield pa.record_batch({"a": [0]})
-        assert received_first.wait(timeout=5), "sink did not consume batch 0 early"
+        assert received_first.wait(timeout=5), "writer did not consume batch 0 early"
         yield pa.record_batch({"a": [1]})
 
-    out = list(sink.sink(producer()))
+    out = list(writer.write_through(producer()))
     assert [_first(b) for b in out] == [0, 1]
     assert len(backend.calls[0]["batches"]) == 2
 
 
 def test_threaded_joins_worker_before_return() -> None:
     backend = _RecordingBackend()
-    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
-    list(sink.sink([pa.record_batch({"a": [i]}) for i in range(3)]))
+    writer = ThreadedBackendWriteThrough(backend, table_name="t", mode="create")
+    list(writer.write_through([pa.record_batch({"a": [i]}) for i in range(3)]))
     # the single ingest completed (one recorded call) and its worker is dead
     assert len(backend.calls) == 1
     assert backend.worker is not None
     assert not backend.worker.is_alive()
 
 
-def test_threaded_sink_is_reusable() -> None:
-    # frozen, no shared mutable state in sink(): the same instance runs twice.
+def test_threaded_write_is_reusable() -> None:
+    # frozen, no shared mutable state in writer(): the same instance runs twice.
     backend = _RecordingBackend()
-    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
-    list(sink.sink([pa.record_batch({"a": [1]})]))
-    list(sink.sink([pa.record_batch({"a": [2]})]))
+    writer = ThreadedBackendWriteThrough(backend, table_name="t", mode="create")
+    list(writer.write_through([pa.record_batch({"a": [1]})]))
+    list(writer.write_through([pa.record_batch({"a": [2]})]))
     assert len(backend.calls) == 2
     assert _first(backend.calls[0]["batches"][0]) == 1
     assert _first(backend.calls[1]["batches"][0]) == 2
 
 
-def test_threaded_unbounded_queue_no_deadlock_when_sink_lags() -> None:
-    # the sink refuses to pull until released; the unbounded queue lets the
+def test_threaded_unbounded_queue_no_deadlock_when_write_lags() -> None:
+    # the writer refuses to pull until released; the unbounded queue lets the
     # producer push and yield all 50 batches anyway (no backpressure, no hang).
     release = threading.Event()
 
@@ -815,33 +815,33 @@ def test_threaded_unbounded_queue_no_deadlock_when_sink_lags() -> None:
             )
 
     backend = _LaggyBackend()
-    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+    writer = ThreadedBackendWriteThrough(backend, table_name="t", mode="create")
     batches = [pa.record_batch({"a": [i]}) for i in range(50)]
 
     out = []
-    for i, batch in enumerate(sink.sink(iter(batches))):
+    for i, batch in enumerate(writer.write_through(iter(batches))):
         out.append(_first(batch))
         if i == len(batches) - 1:
-            release.set()  # unblock the sink before the join on the next pull
+            release.set()  # unblock the writer before the join on the next pull
     assert out == list(range(50))
     assert [_first(b) for b in backend.calls[0]["batches"]] == list(range(50))
 
 
-def test_threaded_stops_feeding_after_sink_error() -> None:
-    # the sink dies after one batch; the `if error: break` guard stops the
+def test_threaded_stops_feeding_after_write_error() -> None:
+    # the writer dies after one batch; the `if error: break` guard stops the
     # producer well short of its full run instead of pushing into a dead queue.
-    sink_failed = threading.Event()
+    write_failed = threading.Event()
 
     class _FailFast(_RecordingBackend):
         def read_record_batches(self, source, table_name=None, mode=None, **kwargs):
             self.worker = threading.current_thread()
             it = iter(source)
             next(it)
-            sink_failed.set()
+            write_failed.set()
             raise RuntimeError("simulated ingest failure")
 
     backend = _FailFast()
-    sink = ThreadedBackendSink(backend, table_name="t", mode="create")
+    writer = ThreadedBackendWriteThrough(backend, table_name="t", mode="create")
     produced = []
 
     def producer():
@@ -849,10 +849,10 @@ def test_threaded_stops_feeding_after_sink_error() -> None:
             yield pa.record_batch({"a": [i]})
             produced.append(i)
             if i == 0:
-                assert sink_failed.wait(timeout=5)
+                assert write_failed.wait(timeout=5)
 
     with pytest.raises(RuntimeError, match="simulated ingest failure"):
-        list(sink.sink(producer()))
+        list(writer.write_through(producer()))
     assert len(produced) < 100
     assert backend.worker is not None
     assert not backend.worker.is_alive()
@@ -860,8 +860,8 @@ def test_threaded_stops_feeding_after_sink_error() -> None:
 
 def test_threaded_creates_table_real_backend(t: Table) -> None:
     target_con = xo.connect()
-    sink = ThreadedBackendSink(target_con, table_name="th_tgt", mode="create")
-    out = t.tee(sink).execute()
+    writer = ThreadedBackendWriteThrough(target_con, table_name="th_tgt", mode="create")
+    out = t.tee(writer).execute()
     assert len(out) == len(t.execute())
     assert len(target_con.table("th_tgt").execute()) == len(t.execute())
 
@@ -872,8 +872,8 @@ def test_threaded_creates_table_real_backend(t: Table) -> None:
 def test_draining_iterator_passthrough_on_full_consumption(tmp_path: Path) -> None:
     target = tmp_path / "pass.parquet"
     batches = [pa.record_batch({"a": [i]}) for i in range(5)]
-    sink = ParquetSink(path=target, mode="append")
-    gen = sink.sink(iter(batches))
+    writer = ParquetWriteThrough(path=target, mode="append")
+    gen = writer.write_through(iter(batches))
     it = DrainingIterator(gen)
     result = list(it)
     assert len(result) == 5
@@ -882,9 +882,9 @@ def test_draining_iterator_passthrough_on_full_consumption(tmp_path: Path) -> No
 
 def test_draining_iterator_drains_on_close(tmp_path: Path) -> None:
     target = tmp_path / "drain.parquet"
-    sink = ParquetSink(path=target, mode="append")
+    writer = ParquetWriteThrough(path=target, mode="append")
     batches = [pa.record_batch({"a": [i]}) for i in range(10)]
-    gen = sink.sink(iter(batches))
+    gen = writer.write_through(iter(batches))
     it = DrainingIterator(gen)
     next(it)
     next(it)
@@ -896,9 +896,9 @@ def test_draining_iterator_drains_on_close(tmp_path: Path) -> None:
 
 def test_draining_iterator_close_is_idempotent(tmp_path: Path) -> None:
     target = tmp_path / "drain_idem.parquet"
-    sink = ParquetSink(path=target, mode="append")
+    writer = ParquetWriteThrough(path=target, mode="append")
     batches = [pa.record_batch({"a": [i]}) for i in range(3)]
-    gen = sink.sink(iter(batches))
+    gen = writer.write_through(iter(batches))
     it = DrainingIterator(gen)
     next(it)
     it.close()
@@ -910,11 +910,11 @@ def test_draining_iterator_close_is_idempotent(tmp_path: Path) -> None:
 def test_draining_iterator_noop_when_exhausted() -> None:
     batches = [pa.record_batch({"a": [1]})]
 
-    class PassthroughSink(Sink):
-        def sink(self, batches, **_kw):
+    class PassthroughWriteThrough(WriteThrough):
+        def write_through(self, batches, **_kw):
             yield from batches
 
-    gen = PassthroughSink().sink(iter(batches))
+    gen = PassthroughWriteThrough().write_through(iter(batches))
     it = DrainingIterator(gen)
     list(it)
     assert it.exhausted
@@ -925,12 +925,12 @@ def test_draining_iterator_noop_when_exhausted() -> None:
 def test_draining_iterator_join_surfaces_error() -> None:
     def exploding_gen():
         yield pa.record_batch({"a": [1]})
-        raise RuntimeError("simulated sink failure")
+        raise RuntimeError("simulated writer failure")
 
     it = DrainingIterator(exploding_gen())
     next(it)
     it.close()
-    with pytest.raises(RuntimeError, match="simulated sink failure"):
+    with pytest.raises(RuntimeError, match="simulated writer failure"):
         it.join(timeout=5)
 
 
@@ -946,7 +946,7 @@ def test_draining_iterator_join_before_close_raises() -> None:
 
 def test_tee_drain_writes_full_on_early_stop(t: Table, tmp_path: Path) -> None:
     target = tmp_path / "drain_tee.parquet"
-    out = t.tee(ParquetSink(path=target), drain=True).limit(2).execute()
+    out = t.tee(ParquetWriteThrough(path=target), drain=True).limit(2).execute()
     assert len(out) == 2
     assert target.exists()
     written = pq.read_table(str(target))
@@ -955,12 +955,12 @@ def test_tee_drain_writes_full_on_early_stop(t: Table, tmp_path: Path) -> None:
 
 def test_tee_drain_false_does_not_drain(t: Table, tmp_path: Path) -> None:
     target = tmp_path / "no_drain.parquet"
-    t.tee(ParquetSink(path=target), drain=False).limit(2).execute()
+    t.tee(ParquetWriteThrough(path=target), drain=False).limit(2).execute()
     assert not target.exists()
 
 
 def test_drain_build_hash_same(t: Table, tmp_path: Path) -> None:
-    sink = ParquetSink(path=tmp_path / "out.parquet")
-    no_drain = t.tee(sink, drain=False)
-    with_drain = t.tee(sink, drain=True)
+    writer = ParquetWriteThrough(path=tmp_path / "out.parquet")
+    no_drain = t.tee(writer, drain=False)
+    with_drain = t.tee(writer, drain=True)
     assert get_expr_hash(no_drain) == get_expr_hash(with_drain)

@@ -38,7 +38,6 @@ if TYPE_CHECKING:
 
     import xorq.vendor.ibis.expr.types as ir
     import xorq.vendor.ibis.selectors as s
-    from xorq.sinking import Sink
     from xorq.vendor.ibis.backends import BaseBackend
     from xorq.vendor.ibis.expr.operations.relations import JoinKind, Set
     from xorq.vendor.ibis.expr.schema import SchemaLike
@@ -48,6 +47,7 @@ if TYPE_CHECKING:
     from xorq.vendor.ibis.formats.pandas import PandasData
     from xorq.vendor.ibis.formats.pyarrow import PyArrowData
     from xorq.vendor.ibis.selectors import IfAnyAll
+    from xorq.writes import WriteThrough
 
 
 def _regular_join_method(
@@ -3422,7 +3422,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
     def tee(
         self,
-        target: Sink | BaseBackend,
+        target: WriteThrough | BaseBackend,
         *,
         table_name: str | None = None,
         drain: bool = False,
@@ -3431,33 +3431,33 @@ class Table(Expr, _FixedTextJupyterMixin):
         """Pass rows through while writing them as a side effect (ADR-0014).
 
         When *drain* is True, early termination by downstream causes the
-        remaining batches to be consumed through the sink in a background
+        remaining batches to be consumed through the writer in a background
         thread so the write completes.
         """
         from xorq.expr.relations import TeeNode  # noqa: PLC0415
-        from xorq.sinking import BackendSink, Sink  # noqa: PLC0415
         from xorq.vendor.ibis.backends import BaseBackend  # noqa: PLC0415
+        from xorq.writes import BackendWriteThrough, WriteThrough  # noqa: PLC0415
 
-        if isinstance(target, Sink):
+        if isinstance(target, WriteThrough):
             if table_name is not None or kwargs:
                 raise TypeError(
                     "tee() does not accept table_name or extra keyword "
-                    "arguments when target is a Sink"
+                    "arguments when target is a WriteThrough"
                 )
-            sink = target
+            writer = target
         elif isinstance(target, BaseBackend) and hasattr(target, "read_record_batches"):
             if table_name is None:
                 raise TypeError(
                     "tee() requires table_name when target is a backend connection"
                 )
-            sink = BackendSink(target, table_name=table_name, **kwargs)
+            writer = BackendWriteThrough(target, table_name=table_name, **kwargs)
         else:
             raise TypeError(
-                f"tee() target must be a Sink or a backend connection "
+                f"tee() target must be a WriteThrough or a backend connection "
                 f"(with read_record_batches), got {type(target).__name__}"
             )
 
-        op = TeeNode(schema=self.schema(), parent=self.op(), sink=sink, drain=drain)
+        op = TeeNode(schema=self.schema(), parent=self.op(), writer=writer, drain=drain)
         return op.to_expr()
 
     def _make_tag(self, cls, tag, **kwargs):

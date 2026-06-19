@@ -16,7 +16,6 @@ from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
     instrument_reader,
 )
-from xorq.sinking import DrainingIterator, Sink
 from xorq.vendor import ibis
 from xorq.vendor.ibis import Expr, Schema
 from xorq.vendor.ibis.common.collections import (
@@ -27,6 +26,7 @@ from xorq.vendor.ibis.common.graph import Graph
 from xorq.vendor.ibis.expr import operations as ops
 from xorq.vendor.ibis.expr.format import fmt, render_schema
 from xorq.vendor.ibis.expr.operations import Node, Relation
+from xorq.writes import DrainingIterator, WriteThrough
 
 
 def replace_cache_table(node: Node, kwargs: dict[str, Any] | None) -> Node:
@@ -117,21 +117,21 @@ class HashingTag(Tag):
 
 
 class TeeNode(ops.Relation):
-    """A transparent pass-through that hands its stream to a Sink.
+    """A transparent pass-through that hands its stream to a WriteThrough.
 
     Schema and rows equal the parent's.  The cache hash
     (``expr.ls.tokenized``) strips the node so ``expr.tee(s)`` caches
     identically to ``expr``.  The build hash (``get_expr_hash``) includes
-    the sink identity so different sinks produce different build artifacts.
+    the writer identity so different writers produce different build artifacts.
 
     When ``drain`` is True, early termination by downstream causes the
-    remaining batches to be consumed through the sink in a background
+    remaining batches to be consumed through the writer in a background
     thread so the write completes.
     """
 
     schema: Schema
     parent: ops.Relation
-    sink: Sink
+    writer: WriteThrough
     drain: bool = False
     values = FrozenDict()
 
@@ -139,7 +139,7 @@ class TeeNode(ops.Relation):
         self,
         schema: Schema,
         parent: ops.Relation,
-        sink: Sink,
+        writer: WriteThrough,
         drain: bool = False,
     ) -> None:
         if schema != parent.schema:
@@ -147,10 +147,10 @@ class TeeNode(ops.Relation):
                 f"TeeNode schema {schema} does not match parent schema "
                 f"{parent.schema}; a TeeNode is a transparent pass-through."
             )
-        super().__init__(schema=schema, parent=parent, sink=sink, drain=drain)
+        super().__init__(schema=schema, parent=parent, writer=writer, drain=drain)
 
     def __dasher_tokenize__(self) -> tuple:
-        return ("tee-node", self.schema, self.sink)
+        return ("tee-node", self.schema, self.writer)
 
 
 class DatabaseTableView(ops.DatabaseTable):
@@ -684,16 +684,16 @@ def register_and_transform_tee_nodes(
     expr: Expr,
 ) -> tuple[Expr, list[DrainingIterator]]:
     """Replace each surviving `TeeNode` with a backend table fed by the
-    sink's ``sink(batches)`` generator.
+    writer's ``write_through(batches)`` generator.
 
-    The sink wraps the parent's batch stream: it pulls, writes as a side
+    The writer wraps the parent's batch stream: it pulls, writes as a side
     effect, and yields each batch onward. Runs after cache resolution, so a
     downstream cache hit prunes the `TeeNode` before this pass sees it and
     the write never fires.
 
     Returns the transformed expression and a list of `DrainingIterator`
     instances whose ``close()`` must be called after downstream execution
-    completes so that the sink can finish consuming the stream.
+    completes so that the writer can finish consuming the stream.
     """
     from xorq.common.utils.caching_utils import find_backend  # noqa: PLC0415
 
@@ -707,13 +707,13 @@ def register_and_transform_tee_nodes(
         parent_expr = node.parent.to_expr()
         con, _ = find_backend(node.parent, use_default=True)
         reader = parent_expr.to_pyarrow_batches()
-        sink_iter = node.sink.sink(reader)
+        write_iter = node.writer.write_through(reader)
         if node.drain:
-            sink_iter = DrainingIterator(sink_iter)
-            drains.append(sink_iter)
+            write_iter = DrainingIterator(write_iter)
+            drains.append(write_iter)
         wrapped = pa.RecordBatchReader.from_batches(
             reader.schema,
-            sink_iter,
+            write_iter,
         )
         table = con.read_record_batches(wrapped, table_name=gen_name())
         return table.op()

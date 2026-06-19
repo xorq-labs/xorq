@@ -1,4 +1,4 @@
-"""Sink implementations for ``TeeNode`` deferred writes.  See ADR-0014."""
+"""WriteThrough implementations for ``TeeNode`` deferred writes.  See ADR-0014."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from attr import Attribute, field, frozen
 from attr.validators import instance_of
 
 from xorq.common.compat import flock_exclusive
-from xorq.sinking.enums import SinkMode
+from xorq.writes.enums import WriteMode
 
 
 if TYPE_CHECKING:
@@ -27,14 +27,14 @@ if TYPE_CHECKING:
     from xorq.vendor.ibis.backends import BaseBackend
 
 
-def _coerce_sink_mode(value: str | SinkMode) -> SinkMode:
-    if isinstance(value, SinkMode):
+def _coerce_write_mode(value: str | WriteMode) -> WriteMode:
+    if isinstance(value, WriteMode):
         return value
     try:
-        return SinkMode(value)
+        return WriteMode(value)
     except ValueError:
         raise ValueError(
-            f"mode must be one of {tuple(SinkMode)}, got {value!r}"
+            f"mode must be one of {tuple(WriteMode)}, got {value!r}"
         ) from None
 
 
@@ -47,18 +47,20 @@ def _has_read_record_batches(
         )
 
 
-class Sink(abc.ABC):
+class WriteThrough(abc.ABC):
     """A side-effect consumer that wraps a batch stream.  See ADR-0014."""
 
     @abc.abstractmethod
-    def sink(self, batches: Iterable[pa.RecordBatch]) -> Iterator[pa.RecordBatch]:
+    def write_through(
+        self, batches: Iterable[pa.RecordBatch]
+    ) -> Iterator[pa.RecordBatch]:
         """Pull from *batches*, write each as a side effect, yield onward."""
         ...
 
 
 @frozen
-class ParquetSink(Sink):
-    """Sink that writes to a single parquet file with atomic publish.
+class ParquetWriteThrough(WriteThrough):
+    """WriteThrough that writes to a single parquet file with atomic publish.
 
     ``mode="create"`` raises `FileExistsError` if the target exists.
     ``mode="append"`` merges new data with any existing file under a lock.
@@ -66,12 +68,14 @@ class ParquetSink(Sink):
     """
 
     path: Path = field(converter=Path)
-    mode: SinkMode = field(default=SinkMode.APPEND, converter=_coerce_sink_mode)
+    mode: WriteMode = field(default=WriteMode.APPEND, converter=_coerce_write_mode)
 
     def __dasher_tokenize__(self) -> tuple:
-        return ("ParquetSink", str(self.path), self.mode)
+        return ("ParquetWriteThrough", str(self.path), self.mode)
 
-    def sink(self, batches: Iterable[pa.RecordBatch]) -> Iterator[pa.RecordBatch]:
+    def write_through(
+        self, batches: Iterable[pa.RecordBatch]
+    ) -> Iterator[pa.RecordBatch]:
         import pyarrow.parquet as pq  # noqa: PLC0415
 
         writer = None
@@ -85,9 +89,9 @@ class ParquetSink(Sink):
         try:
             for batch in batches:
                 if writer is None:
-                    if self.mode is SinkMode.CREATE and self.path.exists():
+                    if self.mode is WriteMode.CREATE and self.path.exists():
                         raise FileExistsError(
-                            f"create sink target already exists: {self.path}"
+                            f"create target already exists: {self.path}"
                         )
                     writer = pq.ParquetWriter(str(tmp), batch.schema)
                 writer.write_batch(batch)
@@ -112,12 +116,12 @@ class ParquetSink(Sink):
     def _publish(self, tmp: Path) -> None:
         import pyarrow.parquet as pq  # noqa: PLC0415
 
-        if self.mode is SinkMode.CREATE:
+        if self.mode is WriteMode.CREATE:
             try:
                 os.link(str(tmp), str(self.path))
             except FileExistsError:
                 raise FileExistsError(
-                    f"create sink target already exists: {self.path}"
+                    f"create target already exists: {self.path}"
                 ) from None
             finally:
                 tmp.unlink(missing_ok=True)
@@ -151,8 +155,8 @@ class ParquetSink(Sink):
 
 
 @frozen
-class BackendSink(Sink):
-    """Sink that writes to a table on any xorq backend.
+class BackendWriteThrough(WriteThrough):
+    """WriteThrough that writes to a table on any xorq backend.
 
     Backends that accept ``mode`` are ingested per-batch (each batch commits
     independently — partial writes on mid-stream error).  Backends without
@@ -162,7 +166,7 @@ class BackendSink(Sink):
 
     con: BaseBackend = field(validator=_has_read_record_batches)
     table_name: str = field(validator=instance_of(str))
-    mode: SinkMode = field(default=SinkMode.CREATE, converter=_coerce_sink_mode)
+    mode: WriteMode = field(default=WriteMode.CREATE, converter=_coerce_write_mode)
     # Not identity-bearing: kwargs tune write mechanics (batch size, compression, etc.),
     # not the logical result, so they are excluded from hash/eq/__dasher_tokenize__.
     kwargs: dict[str, Any] = field(
@@ -171,7 +175,7 @@ class BackendSink(Sink):
 
     def __dasher_tokenize__(self) -> tuple:
         return (
-            "BackendSink",
+            "BackendWriteThrough",
             getattr(self.con, "name", ""),
             self.table_name,
             self.mode,
@@ -188,13 +192,15 @@ class BackendSink(Sink):
             kw["mode"] = mode
         self.con.read_record_batches(reader, table_name=self.table_name, **kw)
 
-    def sink(self, batches: Iterable[pa.RecordBatch]) -> Iterator[pa.RecordBatch]:
+    def write_through(
+        self, batches: Iterable[pa.RecordBatch]
+    ) -> Iterator[pa.RecordBatch]:
         if self._supports_mode:
-            yield from self._sink_per_batch(batches)
+            yield from self._write_per_batch(batches)
         else:
-            yield from self._sink_bulk(batches)
+            yield from self._write_bulk(batches)
 
-    def _sink_per_batch(
+    def _write_per_batch(
         self, batches: Iterable[pa.RecordBatch]
     ) -> Iterator[pa.RecordBatch]:
         # NOTE: non-atomic — each batch commits independently, so a mid-stream
@@ -205,14 +211,16 @@ class BackendSink(Sink):
         for batch in batches:
             reader = pa.RecordBatchReader.from_batches(batch.schema, [batch])
             if first:
-                mode = "create" if self.mode is SinkMode.CREATE else "append"
+                mode = "create" if self.mode is WriteMode.CREATE else "append"
                 first = False
             else:
                 mode = "append"
             self._ingest(reader, mode)
             yield batch
 
-    def _sink_bulk(self, batches: Iterable[pa.RecordBatch]) -> Iterator[pa.RecordBatch]:
+    def _write_bulk(
+        self, batches: Iterable[pa.RecordBatch]
+    ) -> Iterator[pa.RecordBatch]:
         # NOTE: non-atomic — all batches are yielded downstream BEFORE the
         # backend ingest runs.  If _ingest fails the downstream consumer has
         # already received every batch, so the tee "write" guarantee is lost.
@@ -228,22 +236,24 @@ class BackendSink(Sink):
 
 
 @frozen
-class ThreadedBackendSink(BackendSink):
-    """BackendSink that streams a single ingest on a background thread.
+class ThreadedBackendWriteThrough(BackendWriteThrough):
+    """BackendWriteThrough that streams a single ingest on a background thread.
 
     Batches are pushed to an unbounded queue and yielded downstream; a
     background thread drains the queue into a single ``read_record_batches``
     call.  The queue is unbounded (no backpressure) because a bounded queue
-    would deadlock if the sink thread died without draining.
+    would deadlock if the write thread died without draining.
     """
 
-    def sink(self, batches: Iterable[pa.RecordBatch]) -> Iterator[pa.RecordBatch]:
+    def write_through(
+        self, batches: Iterable[pa.RecordBatch]
+    ) -> Iterator[pa.RecordBatch]:
         import pyarrow as pa  # noqa: PLC0415
 
         q: queue.SimpleQueue = queue.SimpleQueue()
         error: list[BaseException] = []
 
-        def sink_thread(schema: pa.Schema) -> None:
+        def write_thread(schema: pa.Schema) -> None:
             def drain() -> Iterator[pa.RecordBatch]:
                 while True:
                     item = q.get()
@@ -263,12 +273,12 @@ class ThreadedBackendSink(BackendSink):
         try:
             for batch in batches:
                 if error:
-                    # the sink thread already died; stop feeding a queue nobody
+                    # the write thread already died; stop feeding a queue nobody
                     # drains and surface its error after the join below.
                     break
                 if thread is None:
                     thread = threading.Thread(
-                        target=sink_thread, args=(batch.schema,), daemon=True
+                        target=write_thread, args=(batch.schema,), daemon=True
                     )
                     thread.start()
                 q.put(batch)
@@ -285,14 +295,14 @@ class ThreadedBackendSink(BackendSink):
 
 
 class DrainingIterator:
-    """Wraps a sink generator; drains remaining batches on close.
+    """Wraps a write-through generator; drains remaining batches on close.
 
     Callers must call ``close()`` then ``join()`` — there is no ``__del__``
     finalizer; the execution pipeline (``api.py``) owns the lifecycle.
     """
 
-    def __init__(self, sink_gen: Iterator[pa.RecordBatch]) -> None:
-        self._gen = sink_gen
+    def __init__(self, write_gen: Iterator[pa.RecordBatch]) -> None:
+        self._gen = write_gen
         self._exhausted = False
         self._drain_thread: threading.Thread | None = None
         self._error: BaseException | None = None
