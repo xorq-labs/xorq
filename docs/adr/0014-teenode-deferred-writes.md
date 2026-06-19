@@ -31,11 +31,13 @@ Postgres-native write-through cache later without reopening this decision.
 
 - A write should be a **side effect** that does not change what an expression evaluates to,
   so it composes with the rest of the graph and with caching.
-- The write must **respect the cache**, independent of transport: it fires **iff the consuming
-  query runs and pulls the parent**. For the client-side generator transport this is the
-  single-puller property (no pull → the generator never runs); for an in-engine transport it is
-  that the writing statement is a sub-statement of the consuming query, so it runs exactly when
-  that query does. Either way, a downstream cache hit that elides the pull elides the write.
+- The write must **respect the cache**, independent of transport. Cache *hits* are handled
+  **structurally and ahead of execution**: the cache pass runs before the tee pass and prunes the
+  `TeeNode` (or its in-engine target) from the graph before any write is registered or lowered, so
+  no write fires on a hit regardless of transport or which side drives the pull. Orthogonally, a
+  write that *is* registered fires only when its output is actually consumed — the single-puller
+  property for the client-side generator (no pull → the generator never runs), or the writing
+  statement being a sub-statement of the consuming query for an in-engine transport.
 - A `WriteThrough` in xorq is **always a streaming write-through**: it writes each batch as a side
   effect and yields it onward. There is no terminal sink node (despite the general
   convention that "sink" means terminal); terminal behavior is reached by composition, not a
@@ -96,7 +98,10 @@ This gives the cache-respecting behavior for free:
 
 - **Single puller.** The only consumer of the stream is downstream. The write-through never
   pulls independently; it receives batches the downstream pull already produced. If downstream
-  does not pull (a cache hit), the generator never runs and nothing is written.
+  does not pull — an unconsumed or dead branch — the generator never runs and nothing is written.
+  (Cache *hits* are handled earlier and structurally: the cache pass prunes the `TeeNode` before
+  the tee pass registers any write — see below — so cache suppression does **not** rely on this
+  runtime property.)
 - **Write-then-yield.** For write-throughs that commit incrementally (`ParquetWriteThrough`, and
   `BackendWriteThrough` against a backend whose `read_record_batches` accepts a write `mode`),
   every batch handed downstream was written by the write-through first, so the written set equals
@@ -381,9 +386,13 @@ streaming `WriteThrough` covers both needs without a dual-mode node.
 
 Fire the write whenever a write node is present in the executed subgraph.
 
-**Rejected.** It would fire on a pure cache hit, doing I/O for data nobody pulled. Tying the
-write to the `write_through` generator, which only runs when the main consumer pulls, makes "cache
-hit means no write" follow automatically.
+**Rejected.** It would fire on any branch whose output is never consumed, doing I/O nobody asked
+for. Note this is **not** what gives cache-hit suppression — that is structural: the cache pass
+runs before the tee pass and prunes the `TeeNode` on a hit
+(`_register_and_transform_cache_tables` → `register_and_transform_tee_nodes`), so the write is
+never registered regardless of transport or which side drives the pull. What tying the write to
+the `write_through` generator adds is narrower: a `TeeNode` that survives to execution writes only
+if its output is actually pulled.
 
 ### Decouple the write with a buffered tee (batchcorder)
 
