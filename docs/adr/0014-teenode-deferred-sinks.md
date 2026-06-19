@@ -15,9 +15,9 @@ a side effect and keep going.
 
 This ADR adds that: a write performed as a side effect of execution. It is implemented as a
 cache-hash-neutral pass-through `TeeNode` (the cache hash ignores it; the build hash
-reflects the sink) that drives a `Sink` generator. A terminal write
-node (which would use `Sink` directly, without a `TeeNode`) is deferred to a later phase
-(see Alternatives).
+reflects the sink) that drives a `Sink` generator. xorq commits to a single invariant —
+**every node streams batches** — so there is no terminal sink node; "terminal" behavior
+(data in, nothing out) is reached by composition (see Alternatives).
 
 ## Decision drivers
 
@@ -25,8 +25,10 @@ node (which would use `Sink` directly, without a `TeeNode`) is deferred to a lat
   so it composes with the rest of the graph and with caching.
 - The write must **respect the cache**: if downstream work is served from a cache and the
   data is never pulled, the write must not fire.
-- "Sink" is **terminal** by convention (data goes in, nothing comes out). The common need
-  is the opposite, to write and keep going, so the node that ships first is a pass-through.
+- A `Sink` in xorq is **always a streaming write-through**: it writes each batch as a side
+  effect and yields it onward. There is no terminal sink node (despite the general
+  convention that "sink" means terminal); terminal behavior is reached by composition, not a
+  dedicated node (see Alternatives).
 
 ## Decision
 
@@ -35,9 +37,9 @@ node (which would use `Sink` directly, without a `TeeNode`) is deferred to a lat
 `TeeNode` is a **pass-through**: it evaluates to its parent's rows unchanged and, as those
 rows are pulled through it, **hands each batch to a sink** as a side effect. The TeeNode
 does not write anything itself; it delegates to a `Sink` whose `sink(batches)`
-generator wraps the parent's batch stream. The user-facing `.tee()` builds a `TeeNode`. A
-separate terminal write node is deferred (see Alternatives), so `TeeNode` is the only node
-this ADR ships.
+generator wraps the parent's batch stream. The user-facing `.tee()` builds a `TeeNode`.
+There is no terminal write node — every node streams batches — so `TeeNode` is the only
+node this ADR ships; terminal behavior is composed (see Alternatives).
 
 `TeeNode` does not reference any concrete writer type. It holds a `Sink` in its `sink`
 field (see the `Sink` contract below) and is otherwise oblivious to what the sink does
@@ -64,7 +66,9 @@ class Sink(abc.ABC):
 ```
 
 `sink(batches)` is a **generator**: it pulls from `batches`, writes each batch as a side
-effect, and yields it downstream unchanged. Each sink subclass owns its full lifecycle
+effect, and yields it downstream unchanged. Every `Sink` is a streaming write-through by
+definition — there is no terminal variant — so the `-> Iterator` signature is the whole
+contract, not a special case. Each sink subclass owns its full lifecycle
 (open, commit/publish, abort/cleanup) inside its `sink` implementation. The downstream
 consumer drives iteration — the sink never independently pulls.
 
@@ -250,29 +254,49 @@ Two resolution passes keep hash neutrality and the side effect separate:
 
 The user-facing method is `.tee()`, matching the Unix `tee` command: data flows through and
 a copy is written as a side effect. The consumer abstraction is named `Sink`, and the
-field on `TeeNode` is `sink`. This split is deliberate: "tee" names the pass-through
-behavior the caller sees, while "sink" names what the consumer does with the data it
-receives (writes it somewhere). A future terminal write node (see Alternatives) would use
-`Sink` directly without wrapping it in a `TeeNode`.
+field on `TeeNode` is `sink`. The split is **node vs. consumer**, not pass-through vs.
+terminal: `tee`/`TeeNode` is the thing in the graph, and `Sink` is the streaming
+write-consumer it drives. Both stream — every `Sink` writes each batch and yields it
+onward; xorq has no terminal sink. "Terminal" behavior is composed from a draining tee
+(see Alternatives), so `Sink` keeps a single, total meaning and there is never a second
+thing also called `Sink`.
 
 ## Alternatives considered
 
-### A terminal `Sink` (deferred write via `methodcaller`)
+### A terminal `Sink` node (deferred write via `methodcaller`)
 
-A terminal node, the true counterpart to `deferred_read_*`: data in, nothing past. Executing
-it would fire `operator.methodcaller(sink_method)(parent)` at execution time, mirroring how
-`Read.make_dt` resolves a deferred read via `getattr(source, method_name)(...)`.
+A dedicated terminal node, the true counterpart to `deferred_read_*`: data in, nothing past.
+Executing it would fire `operator.methodcaller(sink_method)(parent)` at execution time,
+mirroring how `Read.make_dt` resolves a deferred read via `getattr(source, method_name)(...)`.
 
-**Deferred.** It is orthogonal to `TeeNode` (neither would reference the other) and not needed
-for the pass-through write that ships first. It is recorded here as the next node to add when
-a terminal, non-pass-through write is wanted.
+**Rejected.** xorq commits to one invariant — **every node streams batches** — so there is
+no terminal sink node. Terminal behavior is reached by composition instead (see below).
+Keeping a single streaming `Sink` concept (rather than a streaming `Sink` plus a terminal
+one) removes the recurring "which `Sink`?" ambiguity and lets `Sink` keep a single, total
+meaning.
+
+### Terminal write as a draining tee plus discard (`.write()`)
+
+Rather than a terminal node, a terminal write is **composed**: write-through the tee, drain
+the remainder, and discard the output. Mechanically this is `expr.tee(sink, drain=True)` with
+the sink reader drained to exhaustion and the rows discarded — equivalent in spirit to
+`expr.tee(sink, drain=True).limit(0)`, but `limit(0)` is an implementation detail, not the
+surface.
+
+**Adopted as the terminal story, exposed via sugar.** A future `.write(sink)` helper expands
+to this composite. Two caveats it must document: (1) the write fires *only* because
+`drain=True` forces consumption after downstream stops — a plain `tee(sink).limit(0)` is
+pull-suppressed and silently writes nothing, so `limit(0)` must never be the user-facing
+surface; (2) drain runs the write on a background thread joined before teardown, so a write
+failure surfaces post-execution at `join()` rather than as the expression's own failure.
 
 ### A single node that both writes and passes through
 
 One node that is simultaneously a terminal sink and a pass-through tee.
 
-**Rejected.** It conflates two behaviors with opposite modes. A pass-through `TeeNode` and a
-(deferred) terminal `Sink` stay orthogonal and each name matches its behavior.
+**Rejected.** It conflates two behaviors with opposite modes. With every node streaming and
+terminal behavior composed from a draining tee, a single pass-through `TeeNode` driving a
+streaming `Sink` covers both needs without a dual-mode node.
 
 ### Write unconditionally at execution, regardless of pull
 
@@ -350,3 +374,4 @@ N-way node can come later if chaining proves insufficient.
 - RemoteTable fan-out (node rewrite at execution): `register_and_transform_remote_tables` in `python/xorq/expr/relations.py`
 - Atomic write precedent (temp file + rename): `python/xorq/caching/storage.py`
 - ADR-0013: batchcorder StreamCache for RemoteTable fan-out (forthcoming), candidate for the future buffered-tee optimization
+- Issue #2087 (build- vs. cache-hash naming): this ADR edits `get_expr_hash` (`python/xorq/common/utils/provenance_utils.py`) and relies on the build/cache hash split. A rename there (`get_expr_hash` → `compute_build_hash`) must update this ADR's references and the `include_tee_nodes` call site.
