@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-06-10
 - **Deciders:** Daniel Mesejo, Dan Lovell
-- **Context area:** `python/xorq/sinking/` (new), `python/xorq/expr/relations.py`, `python/xorq/expr/api.py`, `python/xorq/vendor/ibis/expr/types/relations.py`
+- **Context area:** `python/xorq/writes/` (new), `python/xorq/expr/relations.py`, `python/xorq/expr/api.py`, `python/xorq/vendor/ibis/expr/types/relations.py`
 
 ## Context
 
@@ -19,12 +19,23 @@ reflects the write-through) that drives a `WriteThrough` generator. xorq commits
 **every node streams batches** — so there is no terminal sink node; "terminal" behavior
 (data in, nothing out) is reached by composition (see Alternatives).
 
+The write is performed through a **transport**. Phase 1 ships one: a client-side streaming
+generator that round-trips the parent through Arrow. The design treats this as the *default,
+portable* transport rather than the definition of a deferred write, and explicitly admits an
+in-engine transport (CTAS / writable CTE) for the case where the parent and the write target
+share a backend (see Alternatives). Keeping the write *what* (a hash-neutral, cache-respecting
+side effect) separate from the write *how* (transport) is what lets the same construct back a
+Postgres-native write-through cache later without reopening this decision.
+
 ## Decision drivers
 
 - A write should be a **side effect** that does not change what an expression evaluates to,
   so it composes with the rest of the graph and with caching.
-- The write must **respect the cache**: if downstream work is served from a cache and the
-  data is never pulled, the write must not fire.
+- The write must **respect the cache**, independent of transport: it fires **iff the consuming
+  query runs and pulls the parent**. For the client-side generator transport this is the
+  single-puller property (no pull → the generator never runs); for an in-engine transport it is
+  that the writing statement is a sub-statement of the consuming query, so it runs exactly when
+  that query does. Either way, a downstream cache hit that elides the pull elides the write.
 - A `WriteThrough` in xorq is **always a streaming write-through**: it writes each batch as a side
   effect and yields it onward. There is no terminal sink node (despite the general
   convention that "sink" means terminal); terminal behavior is reached by composition, not a
@@ -71,6 +82,15 @@ definition — there is no terminal variant — so the `-> Iterator` signature i
 contract, not a special case. Each write-through subclass owns its full lifecycle
 (open, commit/publish, abort/cleanup) inside its `write_through` implementation. The downstream
 consumer drives iteration — the write-through never independently pulls.
+
+This generator is the **client-side transport**, not the definition of a write-through. It is the
+only transport Phase 1 ships, but when the parent and the write target live on the same backend
+the write MAY instead be lowered into the engine (CTAS or a writable CTE), in which case no Arrow
+batches cross the client and the `-> Iterator` interface is never invoked. The contract every
+write-through owes is the **side effect** — hash-neutral, cache-respecting, write-then-yield — not
+the generator shape. The cache-respecting guarantee survives the swap: for the generator it comes
+from single-puller semantics; for an in-engine transport it comes from the writing statement
+running exactly when the consuming query runs (see Alternatives).
 
 This gives the cache-respecting behavior for free:
 
@@ -150,7 +170,7 @@ When `target` is a `BaseBackend` (with `read_record_batches`), `.tee()` auto-cre
 
 By default, a downstream early-stop (`LIMIT`/`head`) aborts the write-through — the generator sees
 `GeneratorExit`, cleanup runs, and nothing is published. With `drain=True`, the execution
-pipeline wraps the write-through generator in a `DrainingIterator` (`python/xorq/sinking/sink.py`).
+pipeline wraps the write-through generator in a `DrainingIterator` (`python/xorq/writes/write_through.py`).
 
 During normal iteration, `DrainingIterator` is a transparent pass-through. After downstream
 execution completes, the pipeline calls `close()` on each `DrainingIterator`. If the
@@ -180,8 +200,13 @@ is achieved by **chaining N-1 `TeeNode`s**, not by a dedicated N-way node.
 A deferred write yields a **persistent, user-named, user-owned** target. It is never temporary
 and never auto-dropped; teardown is explicit. This is the concrete difference from
 `RemoteTable`/`into_backend`, which produces an **anonymous, ephemeral** table dropped in
-`clean_up` (`api.py`). They share the underlying write transport but are separate
-constructs, and the API keeps them separate.
+`clean_up` (`api.py`). They share the underlying write transport, and a `CachedNode` is a third
+user of it. What separates these constructs is **downstream wiring** and **target ownership**, not
+the transport: a cache substitutes the source with a read of the target and is keyed by hit/miss;
+a tee leaves the target as a side branch and passes the original rows through; `into_backend`
+yields an ephemeral table. They may share execution machinery while the API keeps the surfaces
+distinct — which is what leaves room for a write-through cache built on the tee transport without
+collapsing the user-facing distinction.
 
 ### Node shape
 
@@ -206,18 +231,18 @@ tokenizes the extracted nodes.  The build hash path (`get_expr_hash`) sets
 `_include_tee_nodes` so that different write-throughs produce different build artifacts.
 
 ```python
-# python/xorq/sinking/sink.py
+# python/xorq/writes/write_through.py
 
 class ParquetWriteThrough(WriteThrough):
     path: Path                # the final file path (not a directory)
-    mode: SinkMode            # "create" (link) | "append" (merge + rename)
+    mode: WriteMode           # "create" (link) | "append" (merge + rename)
     def __dasher_tokenize__(self): return ("ParquetWriteThrough", str(self.path), self.mode)
     def write_through(self, batches): ...  # stage to path.tmp, publish on exhaustion
 
 class BackendWriteThrough(WriteThrough):
     con: Any
     table_name: str
-    mode: SinkMode
+    mode: WriteMode
     kwargs: dict
     def __dasher_tokenize__(self): return ("BackendWriteThrough", getattr(self.con, "name", ""), self.table_name, self.mode)
     def write_through(self, batches): ...  # per-batch or bulk, depending on backend
@@ -237,8 +262,8 @@ Two resolution passes keep hash neutrality and the side effect separate:
 - **Hashing**: a strip pass replaces each `TeeNode` with its parent before the hash is
   computed, like `_remove_non_hashing_tag_nodes` for `Tag`. `_remove_tee_nodes`
   does the same off the SQL path.
-- **Execution**: `register_and_transform_tee_nodes` replaces each surviving `TeeNode` with a
-  backend table fed by `writer.write_through(reader)`:
+- **Execution**: the **default transport** is `register_and_transform_tee_nodes`, which replaces
+  each surviving `TeeNode` with a backend table fed by `writer.write_through(reader)`:
 
   ```python
   reader = parent_expr.to_pyarrow_batches()
@@ -246,9 +271,15 @@ Two resolution passes keep hash neutrality and the side effect separate:
   table = con.read_record_batches(wrapped, table_name=gen_name())
   ```
 
-  This mirrors the RemoteTable pass (`register_and_transform_remote_tables`). It runs after
+  This mirrors the RemoteTable pass (`register_and_transform_remote_tables`); it is portable
+  across backends but always round-trips the parent through Arrow in the client. It runs after
   cache resolution, so a downstream cache hit prunes the tee before this pass sees it and the
-  write never fires.
+  write never fires. When the parent and the write target share a backend, an in-engine transport
+  MAY satisfy the write directly (CTAS for materialize/create, a writable CTE for
+  append/pass-through), bypassing the round-trip — the same-backend short-circuit
+  `SourceStorage.put` already uses for caching (`is_single_backend` → `create_table`, in
+  `python/xorq/caching/storage.py`). That transport is deferred (see Alternatives); only the Arrow
+  transport ships in Phase 1.
 
 ### Naming
 
@@ -289,6 +320,32 @@ to this composite. Two caveats it must document: (1) the write fires *only* beca
 pull-suppressed and silently writes nothing, so `limit(0)` must never be the user-facing
 surface; (2) drain runs the write on a background thread joined before teardown, so a write
 failure surfaces post-execution at `join()` rather than as the expression's own failure.
+
+### In-engine (same-backend) write transport
+
+When the parent expression and the write target live on the **same backend**, the write need not
+round-trip through Arrow. Postgres (and similar SQL engines) can satisfy it in a single statement:
+
+- **Materialize / `create`**: `CREATE TABLE target AS <parent SQL>` — terminal; downstream then
+  reads the target. This is the *cache* shape, and `SourceStorage.put` already does it
+  (`is_single_backend` → `create_table`, `python/xorq/caching/storage.py`).
+- **Append / pass-through**: a data-modifying CTE,
+  `WITH w AS (INSERT INTO target SELECT … RETURNING *) SELECT * FROM w` — writes as a side effect
+  and yields the rows onward, the SQL-native analogue of `write_through`.
+
+**Deferred — door explicitly left open.** This is not Rejected; it is the path to Postgres-native
+deferred writes and write-through caching. Three things make it future work rather than Phase 1:
+
+1. **A compile/lowering seam is required.** Today `TeeNode` is stripped off the SQL path
+   (`_remove_tee_nodes`) and rewritten to an Arrow-fed table *before* SQL compilation, so it never
+   reaches the compiler. An in-engine transport needs `TeeNode` (or its target) to lower to SQL
+   instead of being rewritten — a new capability, not a tweak to the existing pass.
+2. **Drain semantics become intrinsic, not opt-in.** Postgres data-modifying CTEs always run to
+   completion regardless of an outer `LIMIT`, so this transport is **drain-always** and cannot
+   honor the default `drain=False` early-stop abort.
+3. **Scope is same-instance tables only.** Parquet targets (`ParquetWriteThrough`) and
+   cross-backend writes still require the Arrow transport; the in-engine path is an optimization
+   for the same-backend case, not a replacement.
 
 ### A single node that both writes and passes through
 
@@ -363,6 +420,11 @@ N-way node can come later if chaining proves insufficient.
 - `BackendWriteThrough`'s per-batch path (for backends with `mode` support) commits each batch
   individually, so a mid-stream failure leaves earlier batches written. This is not
   all-or-nothing like `ParquetWriteThrough`; rollback requires the backend's own transactional support.
+- Drain semantics are **transport-dependent**. The `drain=False` "early-stop aborts the write"
+  guarantee is a property of the client-side generator transport. A future in-engine transport
+  (e.g. a Postgres data-modifying CTE) runs to completion by construction, so it would be
+  drain-always and could not honor early-stop abort — callers relying on early-stop suppression
+  must not assume it holds once such a transport exists.
 
 ## References
 
