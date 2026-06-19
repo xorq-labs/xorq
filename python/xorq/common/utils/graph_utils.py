@@ -133,7 +133,7 @@ def replace_nodes(
                 remote_expr = _replace_sub(op.remote_expr.op())
                 return do_recreate(op, _kwargs, remote_expr=remote_expr)
             case rel.CachedNode():
-                parent = _replace_sub(op.parent.op())
+                parent = _replace_sub(to_node(op.parent))
                 return do_recreate(op, _kwargs, parent=parent)
             case rel.FlightExpr() | rel.FlightUDXF():
                 input_expr = _replace_sub(op.input_expr.op())
@@ -149,7 +149,8 @@ def replace_nodes(
                     raise ValueError(f"unhandled opaque op {type(op)}")
                 return op
 
-    initial_op = expr.op() if hasattr(expr, "op") else expr
+    # hasattr(x, "op") is unreliable: some Nodes have an `op` field (e.g. IntervalAdd)
+    initial_op = to_node(expr)
     op = initial_op.replace(process_node)
     return op
 

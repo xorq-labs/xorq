@@ -14,13 +14,26 @@ if sys.platform == "win32":
     import msvcrt
 
     def flock_exclusive(fd: IO) -> None:
-        """Acquire an exclusive lock on an open file (Windows)."""
+        """Acquire an exclusive lock on an open file (Windows).
+
+        Platform difference: ``msvcrt.LK_LOCK`` retries ~10 times at 1-second
+        intervals and then raises ``OSError`` if the lock is still held. The
+        POSIX branch (``fcntl.flock(LOCK_EX)``) blocks indefinitely instead.
+        Under heavy concurrent contention (many writers appending to the same
+        file), Windows callers can therefore see an ``OSError`` after ~10s
+        where POSIX callers would simply keep queueing.
+        """
         msvcrt.locking(fd.fileno(), msvcrt.LK_LOCK, 1)
 else:
     import fcntl
 
     def flock_exclusive(fd: IO) -> None:
-        """Acquire an exclusive lock on an open file (POSIX)."""
+        """Acquire an exclusive lock on an open file (POSIX).
+
+        Blocks indefinitely until the lock is acquired. See the Windows branch
+        for a platform difference: Windows raises after a ~10s timeout under
+        contention rather than blocking.
+        """
         fcntl.flock(fd, fcntl.LOCK_EX)
 
 

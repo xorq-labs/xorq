@@ -13,10 +13,13 @@ import pyarrow.parquet as pq
 import pytest
 import toolz
 import yaml12
+from toolz import identity
 
 import xorq.api as xo
+import xorq.expr.datatypes as dt
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations.relations as rel
+from xorq import udf
 from xorq.caching import (
     ParquetCache,
     ParquetSnapshotCache,
@@ -24,7 +27,7 @@ from xorq.caching import (
     SourceCache,
     SourceSnapshotCache,
 )
-from xorq.caching.strategy import snapshot_normalize_read
+from xorq.caching.strategy import SnapshotStrategy, snapshot_normalize_read
 from xorq.catalog.backend import GitBackend
 from xorq.catalog.catalog import Catalog
 from xorq.common.constants import READ_IDENTITY_KEYS
@@ -38,6 +41,7 @@ from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.conftest import array_types_df
 from xorq.expr.relations import CachedNode, Read, RemoteTable
+from xorq.expr.udf import ExprScalarUDF
 from xorq.ibis_yaml.compiler import (
     ArtifactStore,
     DumpFiles,
@@ -1602,3 +1606,102 @@ def test_cache_dir_reaches_remote_expr_nested_cache(tmp_path: pathlib.Path) -> N
     assert cached_nodes
     for cn in cached_nodes:
         assert cn.cache.storage.base_path == target
+
+
+# ---------------------------------------------------------------------------
+# Execution pipeline descends into opaque sub-expressions
+# ---------------------------------------------------------------------------
+
+
+def test_execution_handles_cache_in_remote_expr(tmp_path: pathlib.Path) -> None:
+    """Caches nested inside RemoteTable.remote_expr must be executed."""
+    cona = xo.connect()
+    conb = xo.connect()
+    t = cona.register(pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}), "t")
+    cache = ParquetSnapshotCache.from_kwargs(
+        source=cona, relative_path="c", base_path=tmp_path
+    )
+    cached = t.mutate(s=t.a + t.b).cache(cache=cache)
+    expr = cached.into_backend(conb, "moved")
+
+    # Verify that there really is a CachedNode nested inside a RemoteTable
+    remote_tables = walk_nodes((RemoteTable,), expr)
+    assert remote_tables, "expected at least one RemoteTable"
+    nested_caches = [
+        cn for rt in remote_tables for cn in walk_nodes((CachedNode,), rt.remote_expr)
+    ]
+    assert nested_caches, "expected a CachedNode nested in remote_expr"
+
+    # Should execute without error — the cache inside remote_expr gets found
+    result = expr.execute()
+    assert len(result) == 3
+
+
+def test_hashing_handles_remote_table_in_opaque_subexpr(tmp_path: pathlib.Path) -> None:
+    """_replace_remote_table must find RemoteTables nested in opaque sub-exprs."""
+    cona = xo.connect()
+    conb = xo.connect()
+    t = cona.register(pd.DataFrame({"x": [10, 20]}), "t")
+    inner_cache = ParquetSnapshotCache.from_kwargs(
+        source=cona, relative_path="inner", base_path=tmp_path / "inner"
+    )
+    cached = t.cache(cache=inner_cache)
+    expr = cached.into_backend(conb, "moved")
+
+    # Hashing the expression should not raise, and the key should be stable
+    strategy = SnapshotStrategy(key_prefix="test-")
+    key1 = strategy.calc_key(expr)
+    key2 = strategy.calc_key(expr)
+    assert key1 == key2
+    assert key1.startswith("test-snapshot-")
+
+
+def test_execution_handles_remote_table_in_computed_kwargs_expr(
+    tmp_path: pathlib.Path,
+) -> None:
+    """RemoteTables nested inside ExprScalarUDF.computed_kwargs_expr must be
+    materialized lazily when the UDF is compiled, not during the outer
+    register_and_transform_remote_tables pass (which intentionally skips
+    opaque sub-expressions)."""
+    cona = xo.connect()
+    conb = xo.connect()
+
+    df = pd.DataFrame({"x": [1, 2, 3]})
+    data = cona.register(df, "data").select("x")
+    schema = data.schema()
+
+    @udf.agg.pandas_df(schema=schema, return_type=dt.float64, name="my_sum")
+    def my_sum(frame):
+        return frame["x"].astype(float).sum()
+
+    # Build computed_kwargs_expr with a RemoteTable: aggregate on data moved
+    # to a different backend, so the expression tree contains a RemoteTable.
+    remote_data = data.into_backend(conb, "remote_data")
+    computed_kwargs_expr = my_sum.on_expr(remote_data).name("my_sum").as_table()
+
+    # Verify the RemoteTable is actually nested inside the computed_kwargs_expr
+    assert walk_nodes((RemoteTable,), computed_kwargs_expr), (
+        "expected a RemoteTable in computed_kwargs_expr"
+    )
+
+    predict_udf = udf.make_pandas_expr_udf(
+        computed_kwargs_expr=computed_kwargs_expr,
+        fn=lambda value, frame, **kw: (frame["x"] + float(value)).astype(float),
+        schema=ibis.schema({"x": dt.float64}),
+        name="add_remote_sum",
+        return_type=dt.float64,
+        post_process_fn=identity,
+    )
+
+    expr = data.mutate(out=predict_udf.on_expr(data)).as_table()
+
+    # The outer expression contains an ExprScalarUDF whose computed_kwargs_expr
+    # holds a RemoteTable — this RemoteTable is opaque to op.replace and must
+    # be materialized lazily during _compile_pyarrow_expr_udf.
+    assert walk_nodes((ExprScalarUDF,), expr)
+
+    result = expr.execute()
+    assert len(result) == 3
+    # my_sum(1+2+3) = 6.0; each row: x + 6.0
+    expected_out = [7.0, 8.0, 9.0]
+    assert list(result["out"]) == expected_out

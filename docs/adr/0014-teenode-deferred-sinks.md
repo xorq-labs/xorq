@@ -71,8 +71,15 @@ This gives the cache-respecting behavior for free:
 - **Single puller.** The only consumer of the stream is downstream. The sink never pulls
   independently; it receives batches the downstream pull already produced. If downstream
   does not pull (a cache hit), the generator never runs and nothing is written.
-- **Write-then-yield.** Every batch handed downstream was written by the sink first, so
-  the written set equals the delivered set with no off-by-one.
+- **Write-then-yield.** For sinks that commit incrementally (`ParquetSink`, and
+  `BackendSink` against a backend whose `read_record_batches` accepts a write `mode`),
+  every batch handed downstream was written by the sink first, so the written set equals
+  the delivered set with no off-by-one. Bulk backends are the exception: a backend that
+  cannot append must ingest in a single call, so `BackendSink._sink_bulk` yields every
+  batch downstream first and ingests once after the stream is exhausted. There the write
+  trails delivery — a post-stream ingest failure means downstream already saw data the
+  sink never persisted. Such failures surface as drain/close errors rather than being
+  swallowed.
 - **Default: lock-step.** By default the write sits in the pull path, so a slow write
   blocks the producer. `ThreadedBackendSink` relaxes this by running the ingest on a
   background thread with an unbounded queue, decoupling the write from the downstream

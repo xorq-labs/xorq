@@ -447,6 +447,26 @@ def _drop_created_tables(created: dict) -> None:
             conn.drop_view(table_name)
 
 
+def _run_cleanup(drains: list, created: dict) -> None:
+    """Close/join drains and drop created tables, surfacing every failure.
+
+    Both steps always run even if the first raises, so a drain failure never
+    leaks the temp tables and a drop failure never hides a drain failure.
+    """
+    from xorq.common.compat import raise_collected_errors  # noqa: PLC0415
+
+    cleanup_errors: list[BaseException] = []
+    try:
+        _close_and_join_drains(drains)
+    except BaseException as exc:  # noqa: BLE001
+        cleanup_errors.append(exc)
+    try:
+        _drop_created_tables(created)
+    except BaseException as exc:  # noqa: BLE001
+        cleanup_errors.append(exc)
+    raise_collected_errors("execution cleanup failed", cleanup_errors)
+
+
 @tracer.start_as_current_span("_transform_expr")
 def _transform_expr(expr, params=None, **kwargs):
     """Transform an expression for execution, binding any named scalar parameters."""
@@ -480,23 +500,18 @@ def _pandas_execute(con, expr: ir.Expr, **kwargs):
     try:
         result = con.execute(expr, **kwargs)
     except BaseException as primary:
-        drain_errors: list[BaseException] = []
         try:
-            _close_and_join_drains(drains)
-        except BaseException as drain_exc:  # noqa: BLE001
-            drain_errors.append(drain_exc)
-        _drop_created_tables(created)
-        if drain_errors:
+            _run_cleanup(drains, created)
+        except BaseException as cleanup_exc:  # noqa: BLE001
             from xorq.common.compat import raise_collected_errors  # noqa: PLC0415
 
             raise_collected_errors(
-                "execute failed and drains failed",
-                [primary, *drain_errors],
+                "execute failed and cleanup failed",
+                [primary, cleanup_exc],
             )
         raise
     else:
-        _close_and_join_drains(drains)
-        _drop_created_tables(created)
+        _run_cleanup(drains, created)
         return result
 
 
@@ -511,6 +526,11 @@ def to_pyarrow_batches(
 
     This method is eager and will execute the associated expression
     immediately.
+
+    The returned reader must be **fully consumed**: drain threads are joined
+    and temp tables are dropped only after the last batch is read. Consuming
+    partially (an early ``break``) or discarding the reader leaks those
+    resources. Drain failures are surfaced when the reader is exhausted.
 
     Parameters
     ----------
@@ -536,11 +556,23 @@ def to_pyarrow_batches(
     con, _ = find_backend(expr.op(), use_default=True)
 
     span.set_attribute("engine", con.name)
-    reader = con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
 
     def clean_up():
-        _close_and_join_drains(drains)
-        _drop_created_tables(created)
+        _run_cleanup(drains, created)
+
+    try:
+        reader = con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
+    except BaseException as primary:
+        try:
+            clean_up()
+        except BaseException as cleanup_exc:  # noqa: BLE001
+            from xorq.common.compat import raise_collected_errors  # noqa: PLC0415
+
+            raise_collected_errors(
+                "to_pyarrow_batches failed and cleanup failed",
+                [primary, cleanup_exc],
+            )
+        raise
 
     return otel_instrument_reader(rbr_wrapper(reader, clean_up))
 

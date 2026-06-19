@@ -10,6 +10,7 @@ import pyarrow as pa
 import toolz
 
 from xorq.backends.xorq_datafusion import connect as xo_connect
+from xorq.common.exceptions import IntegrityError
 from xorq.common.utils.otel_utils import get_current_span, tracer
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
@@ -133,6 +134,20 @@ class TeeNode(ops.Relation):
     sink: Sink
     drain: bool = False
     values = FrozenDict()
+
+    def __init__(
+        self,
+        schema: Schema,
+        parent: ops.Relation,
+        sink: Sink,
+        drain: bool = False,
+    ) -> None:
+        if schema != parent.schema:
+            raise IntegrityError(
+                f"TeeNode schema {schema} does not match parent schema "
+                f"{parent.schema}; a TeeNode is a transparent pass-through."
+            )
+        super().__init__(schema=schema, parent=parent, sink=sink, drain=drain)
 
     def __dasher_tokenize__(self) -> tuple:
         return ("tee-node", self.schema, self.sink)
