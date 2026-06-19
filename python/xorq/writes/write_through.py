@@ -239,55 +239,13 @@ class BackendWriteThrough(WriteThrough):
 class ThreadedBackendWriteThrough(BackendWriteThrough):
     """BackendWriteThrough that streams a single ingest on a background thread.
 
-    Two transport directions, selected by ``write_primary`` (the side that owns
-    the parent-pull loop); both share one queue, one thread and one streaming
-    ``read_record_batches`` ingest:
-
-    - ``write_primary=False`` (default, downstream-primary): the downstream pull
-      drives.  Each pulled batch is pushed to an unbounded queue and yielded
-      onward; the background thread drains the queue into the ingest reader.  The
-      write lags behind downstream and never leads; an early-stopping downstream
-      needs ``drain=True`` to finish the write.
-    - ``write_primary=True``: the **write** drives.  The background thread owns
-      the parent-pull loop and the ingest; each pulled batch is handed to the
-      ingest reader and pushed to the queue, and the downstream generator
-      consumes the queue.  The write runs to completion regardless of downstream
-      consumption — intrinsically drain-always, so ``drain`` is redundant.
-      Requires a *mode-capable* backend whose ``read_record_batches`` eagerly
-      consumes its reader; no-mode backends (DataFusion, DuckDB, Pandas) register
-      lazily and cannot drive the pull, so ``write_primary=True`` raises for them.
-
-    The queue is unbounded (no backpressure) so the write thread can never
-    deadlock on a full queue.  ``write_primary`` is transport tuning, not the
-    logical result, so it is excluded from hash/eq/``__dasher_tokenize__``.
+    Batches are pushed to an unbounded queue and yielded downstream; a
+    background thread drains the queue into a single ``read_record_batches``
+    call.  The queue is unbounded (no backpressure) because a bounded queue
+    would deadlock if the write thread died without draining.
     """
 
-    # Not identity-bearing: selects transport direction, not the logical result.
-    write_primary: bool = field(
-        default=False, hash=False, eq=False, validator=instance_of(bool)
-    )
-
     def write_through(
-        self, batches: Iterable[pa.RecordBatch]
-    ) -> Iterator[pa.RecordBatch]:
-        if self.write_primary:
-            if not self._supports_mode:
-                # write-primary needs the ingest to DRIVE the pull. No-mode
-                # backends (DataFusion, DuckDB, Pandas) register the reader
-                # lazily — they pull only when the target is later queried — so
-                # the write never feeds the downstream queue. Fail loudly rather
-                # than silently dropping every passthrough batch.
-                raise ValueError(
-                    "write_primary requires a mode-capable (eager-ingesting) "
-                    f"backend; {getattr(self.con, 'name', type(self.con).__name__)!r} "
-                    "registers reads lazily. Use the default downstream-primary "
-                    "transport for it."
-                )
-            yield from self._write_primary(batches)
-        else:
-            yield from self._write_downstream_primary(batches)
-
-    def _write_downstream_primary(
         self, batches: Iterable[pa.RecordBatch]
     ) -> Iterator[pa.RecordBatch]:
         import pyarrow as pa  # noqa: PLC0415
@@ -334,73 +292,6 @@ class ThreadedBackendWriteThrough(BackendWriteThrough):
                 thread.join()
             if error:
                 raise error[0]
-
-    def _write_primary(
-        self, batches: Iterable[pa.RecordBatch]
-    ) -> Iterator[pa.RecordBatch]:
-        import pyarrow as pa  # noqa: PLC0415
-
-        done = object()
-        q: queue.SimpleQueue = queue.SimpleQueue()
-        error: list[BaseException] = []
-
-        def write_thread() -> None:
-            try:
-                it = iter(batches)
-                try:
-                    first = next(it)
-                except StopIteration:
-                    return
-
-                def teed() -> Iterator[pa.RecordBatch]:
-                    # push each pulled batch to the downstream queue, then hand it
-                    # to the ingest reader — same sequence, same position (1:1).
-                    q.put(first)
-                    yield first
-                    for batch in it:
-                        q.put(batch)
-                        yield batch
-
-                reader = pa.RecordBatchReader.from_batches(first.schema, teed())
-                self._ingest(reader, self.mode.value)
-            except BaseException as exc:  # noqa: BLE001
-                error.append(exc)
-            finally:
-                q.put(done)
-
-        thread = threading.Thread(target=write_thread, daemon=True)
-        thread.start()
-        yield from _consume_write_primary_queue(q, done, error, thread)
-
-
-def _consume_write_primary_queue(
-    q: queue.Queue | queue.SimpleQueue,
-    done: object,
-    error: list[BaseException],
-    thread: threading.Thread,
-) -> Iterator[pa.RecordBatch]:
-    """Downstream consumer for a write-primary transport.
-
-    Yield batches the write thread pushed onto *q* until the ``done`` sentinel.
-    On early stop (``GeneratorExit``) keep draining/discarding the queue so the
-    write thread runs to completion (write-primary is drain-always) and a bounded
-    queue cannot deadlock; then join and surface any write error.
-    """
-    draining = False
-    try:
-        while True:
-            item = q.get()
-            if item is done:
-                break
-            if not draining:
-                try:
-                    yield item
-                except GeneratorExit:
-                    draining = True
-    finally:
-        thread.join()
-        if error:
-            raise error[0]
 
 
 @frozen
@@ -455,7 +346,24 @@ class WritePrimaryWriteThrough(WriteThrough):
 
         thread = threading.Thread(target=write_thread, daemon=True)
         thread.start()
-        yield from _consume_write_primary_queue(q, done, error, thread)
+        draining = False
+        try:
+            while True:
+                item = q.get()
+                if item is done:
+                    break
+                if not draining:
+                    try:
+                        yield item
+                    except GeneratorExit:
+                        # downstream stopped early: keep draining the queue so the
+                        # write thread runs to completion (write-primary is
+                        # drain-always), then fall through to join below.
+                        draining = True
+        finally:
+            thread.join()
+            if error:
+                raise error[0]
 
 
 class DrainingIterator:
