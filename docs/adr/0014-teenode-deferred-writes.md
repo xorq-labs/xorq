@@ -106,10 +106,13 @@ This gives the cache-respecting behavior for free:
   trails delivery — a post-stream ingest failure means downstream already saw data the
   write-through never persisted. Such failures surface as drain/close errors rather than being
   swallowed.
-- **Default: lock-step.** By default the write sits in the pull path, so a slow write
-  blocks the producer. `ThreadedBackendWriteThrough` relaxes this by running the ingest on a
-  background thread with an unbounded queue, decoupling the write from the downstream
-  consumer at the cost of buffering lag in memory.
+- **Preferred: threaded.** `ThreadedBackendWriteThrough` is the preferred backend consumer
+  and is what `.tee(con, table_name=...)` constructs by default: it runs the ingest on a
+  background thread with an unbounded queue, decoupling the write from the downstream consumer
+  so a slow write does not block the producer. The cost is buffering lag in memory (the
+  unbounded queue gives up backpressure). The plain inline `BackendWriteThrough` remains
+  available for callers who want the write in the pull path with bounded memory; passing it
+  explicitly opts back into lock-step.
 
 ### `ParquetWriteThrough`: single-file parquet consumer
 
@@ -169,18 +172,20 @@ died without draining. Rollback on error follows the backend's own semantics.
 `.tee()` is polymorphic — it accepts either a `WriteThrough` directly or a backend connection:
 
 ```python
-def tee(self, target: WriteThrough | BaseBackend, *, table_name=None, drain=False, **kwargs) -> Table
+def tee(self, target: WriteThrough | BaseBackend, *, table_name=None, drain=True, **kwargs) -> Table
 ```
 
-When `target` is a `BaseBackend` (with `read_record_batches`), `.tee()` auto-creates a
-`BackendWriteThrough` from `table_name` and the remaining `**kwargs`. When `target` is already a
-`WriteThrough`, extra keyword arguments are rejected.
+When `target` is a `BaseBackend` (with `read_record_batches`), `.tee()` auto-creates the
+preferred `ThreadedBackendWriteThrough` from `table_name` and the remaining `**kwargs`. When
+`target` is already a `WriteThrough`, extra keyword arguments are rejected.
 
-### `drain=True`: completing the write on early stop
+### `drain` (default `True`): completing the write on early stop
 
-By default, a downstream early-stop (`LIMIT`/`head`) aborts the write-through — the generator sees
-`GeneratorExit`, cleanup runs, and nothing is published. With `drain=True`, the execution
-pipeline wraps the write-through generator in a `DrainingIterator` (`python/xorq/writes/write_through.py`).
+By default (`drain=True`), the execution pipeline wraps the write-through generator in a
+`DrainingIterator` (`python/xorq/writes/write_through.py`) so a downstream early-stop
+(`LIMIT`/`head`) still consumes the remaining batches through the writer on a background
+thread and the write completes. With `drain=False`, an early-stop instead aborts the
+write-through — the generator sees `GeneratorExit`, cleanup runs, and nothing is published.
 
 During normal iteration, `DrainingIterator` is a transparent pass-through. After downstream
 execution completes, the pipeline calls `close()` on each `DrainingIterator`. If the
@@ -227,7 +232,7 @@ class TeeNode(ops.Relation):
     schema: Schema            # == parent.schema; pass-through
     parent: ops.Relation
     writer: WriteThrough      # a WriteThrough whose write_through() drives the write
-    drain: bool = False       # drain remaining batches on early stop
+    drain: bool = True        # drain remaining batches on early stop (default)
     values = FrozenDict()     # hash-neutral, like Tag
 ```
 
@@ -268,7 +273,7 @@ class BackendWriteThrough(WriteThrough):
 ```python
 # Table.tee (vendored relations.py): the user-facing attach
 
-def tee(self, target: WriteThrough | BaseBackend, *, table_name=None, drain=False, **kwargs) -> Table:
+def tee(self, target: WriteThrough | BaseBackend, *, table_name=None, drain=True, **kwargs) -> Table:
     ...
     op = TeeNode(schema=self.schema(), parent=self.op(), writer=writer, drain=drain)
     return op.to_expr()
@@ -358,8 +363,8 @@ deferred writes and write-through caching. Three things make it future work rath
    reaches the compiler. An in-engine transport needs `TeeNode` (or its target) to lower to SQL
    instead of being rewritten — a new capability, not a tweak to the existing pass.
 2. **Drain semantics become intrinsic, not opt-in.** Postgres data-modifying CTEs always run to
-   completion regardless of an outer `LIMIT`, so this transport is **drain-always** and cannot
-   honor the default `drain=False` early-stop abort.
+   completion regardless of an outer `LIMIT`, so this transport is **drain-always**. That matches
+   the default (`drain=True`) but cannot honor an explicit `drain=False` early-stop abort.
 3. **Scope is same-instance tables only.** Parquet targets (`ParquetWriteThrough`) and
    cross-backend writes still require the Arrow transport; the in-engine path is an optimization
    for the same-backend case, not a replacement.
@@ -408,22 +413,32 @@ N-way node can come later if chaining proves insufficient.
 - `ParquetWriteThrough` provides atomic publish: create via `os.link` (create-or-fail), append via
   merge-then-rename. A partial or aborted run never corrupts the target.
 - `.tee()` accepting both `WriteThrough` and `BaseBackend` gives a concise shorthand
-  (`t.tee(con, table_name="tgt")`) for the common case.
-- `drain=True` lets the write-through complete the full write even when downstream stops early
-  (`LIMIT`/`head`), using a `DrainingIterator` that continues iterating the write-through generator
-  in a background thread. No changes to the `WriteThrough` ABC or any existing write-through implementation
-  are required — the drain simply continues normal generator iteration to exhaustion.
+  (`t.tee(con, table_name="tgt")`) for the common case, constructing the preferred
+  `ThreadedBackendWriteThrough` so the write does not block downstream.
+- `drain` defaults to `True`, so the write-through completes the full write even when downstream
+  stops early (`LIMIT`/`head`), using a `DrainingIterator` that continues iterating the
+  write-through generator in a background thread. No changes to the `WriteThrough` ABC or any
+  existing write-through implementation are required — the drain simply continues normal generator
+  iteration to exhaustion. Pass `drain=False` to opt into early-stop abort.
 
 ### Negative
 
-- The default inline generator runs the write and the downstream consumer lock-step, so a
-  slow write slows downstream. `ThreadedBackendWriteThrough` decouples via an unbounded queue, but
-  full disk-spill decoupling (batchcorder) is a future optimization.
-- A downstream early-stop (`LIMIT`/`head`) publishes nothing by default. With `drain=True`,
-  the remaining batches are consumed through the write-through in a background thread after execution,
-  so the write completes. The drain thread is non-daemon and is joined before temporary
-  tables are dropped, so the parent reader stays valid. A `LIMIT 10` on a billion-row
-  parent with `drain=True` writes all billion rows — expected, but potentially surprising.
+- The default backend consumer (`ThreadedBackendWriteThrough`) decouples the write via an
+  **unbounded** queue, giving up backpressure: if downstream pulls faster than the write
+  ingests, the queue grows without bound. Full disk-spill decoupling (batchcorder) is a future
+  optimization. Note the inline `BackendWriteThrough` is **not** a bounded-memory fallback in
+  general — only its per-batch path (mode-capable backends, e.g. Postgres/ADBC) keeps memory
+  at O(batch) and back-pressures the producer, and it does so at the cost of one ingest
+  roundtrip per batch with non-atomic per-batch commits. Its bulk path (no-mode backends:
+  DataFusion, DuckDB, Pandas) buffers the entire dataset in memory before a single ingest, so
+  it already sits at worst-case memory with no backpressure. Against that bulk path the threaded
+  default is a wash-or-win: a single streaming ingest whose concurrent drain keeps typical peak
+  memory at or below the buffered approach.
+- A downstream early-stop (`LIMIT`/`head`) completes the write by default (`drain=True`): the
+  remaining batches are consumed through the write-through in a background thread after execution.
+  The drain thread is non-daemon and is joined before temporary tables are dropped, so the parent
+  reader stays valid. A `LIMIT 10` on a billion-row parent writes all billion rows by default —
+  expected, but potentially surprising; pass `drain=False` to abort the write on early-stop.
 - `ParquetWriteThrough` append mode rewrites the entire file on each append (streaming, not
   in-memory, but still O(existing + new) in I/O). A future optimization could append row
   groups without rewriting, but parquet's footer makes that non-trivial.
@@ -437,9 +452,9 @@ N-way node can come later if chaining proves insufficient.
 - `BackendWriteThrough`'s per-batch path (for backends with `mode` support) commits each batch
   individually, so a mid-stream failure leaves earlier batches written. This is not
   all-or-nothing like `ParquetWriteThrough`; rollback requires the backend's own transactional support.
-- Drain semantics are **transport-dependent**. The `drain=False` "early-stop aborts the write"
-  guarantee is a property of the client-side generator transport. A future in-engine transport
-  (e.g. a Postgres data-modifying CTE) runs to completion by construction, so it would be
+- Drain semantics are **transport-dependent**. The explicit `drain=False` "early-stop aborts the
+  write" guarantee is a property of the client-side generator transport. A future in-engine
+  transport (e.g. a Postgres data-modifying CTE) runs to completion by construction, so it would be
   drain-always and could not honor early-stop abort — callers relying on early-stop suppression
   must not assume it holds once such a transport exists.
 - `BackendWriteThrough.kwargs` is excluded from the identity (hash, equality, token), so any

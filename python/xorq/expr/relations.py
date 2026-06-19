@@ -124,15 +124,16 @@ class TeeNode(ops.Relation):
     identically to ``expr``.  The build hash (``get_expr_hash``) includes
     the writer identity so different writers produce different build artifacts.
 
-    When ``drain`` is True, early termination by downstream causes the
-    remaining batches to be consumed through the writer in a background
-    thread so the write completes.
+    When ``drain`` is True (the default), early termination by downstream
+    causes the remaining batches to be consumed through the writer in a
+    background thread so the write completes.  Pass ``drain=False`` to let a
+    downstream early-stop (``LIMIT``/``head``) abort the write instead.
     """
 
     schema: Schema
     parent: ops.Relation
     writer: WriteThrough
-    drain: bool = False
+    drain: bool = True
     values = FrozenDict()
 
     def __init__(
@@ -140,7 +141,7 @@ class TeeNode(ops.Relation):
         schema: Schema,
         parent: ops.Relation,
         writer: WriteThrough,
-        drain: bool = False,
+        drain: bool = True,
     ) -> None:
         if schema != parent.schema:
             raise IntegrityError(

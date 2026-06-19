@@ -3425,18 +3425,27 @@ class Table(Expr, _FixedTextJupyterMixin):
         target: WriteThrough | BaseBackend,
         *,
         table_name: str | None = None,
-        drain: bool = False,
+        drain: bool = True,
         **kwargs: Any,
     ) -> Table:
         """Pass rows through while writing them as a side effect (ADR-0014).
 
-        When *drain* is True, early termination by downstream causes the
-        remaining batches to be consumed through the writer in a background
-        thread so the write completes.
+        When *drain* is True (the default), early termination by downstream
+        causes the remaining batches to be consumed through the writer in a
+        background thread so the write completes.  Pass ``drain=False`` to let
+        a downstream early-stop (``LIMIT``/``head``) abort the write instead.
+
+        When *target* is a bare backend connection, the preferred
+        ``ThreadedBackendWriteThrough`` is constructed, which streams the
+        ingest on a background thread so a slow write does not block the
+        downstream consumer.
         """
         from xorq.expr.relations import TeeNode  # noqa: PLC0415
         from xorq.vendor.ibis.backends import BaseBackend  # noqa: PLC0415
-        from xorq.writes import BackendWriteThrough, WriteThrough  # noqa: PLC0415
+        from xorq.writes import (  # noqa: PLC0415
+            ThreadedBackendWriteThrough,
+            WriteThrough,
+        )
 
         if isinstance(target, WriteThrough):
             if table_name is not None or kwargs:
@@ -3450,7 +3459,9 @@ class Table(Expr, _FixedTextJupyterMixin):
                 raise TypeError(
                     "tee() requires table_name when target is a backend connection"
                 )
-            writer = BackendWriteThrough(target, table_name=table_name, **kwargs)
+            writer = ThreadedBackendWriteThrough(
+                target, table_name=table_name, **kwargs
+            )
         else:
             raise TypeError(
                 f"tee() target must be a WriteThrough or a backend connection "
