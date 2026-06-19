@@ -51,8 +51,7 @@ Postgres-native write-through cache later without reopening this decision.
 rows are pulled through it, **hands each batch to a write-through** as a side effect. The TeeNode
 does not write anything itself; it delegates to a `WriteThrough` whose `write_through(batches)`
 generator wraps the parent's batch stream. The user-facing `.tee()` builds a `TeeNode`.
-There is no terminal write node — every node streams batches — so `TeeNode` is the only
-node this ADR ships; terminal behavior is composed (see Alternatives).
+Per the streaming invariant above, `TeeNode` is the only node this ADR ships.
 
 `TeeNode` does not reference any concrete writer type. It holds a `WriteThrough` in its `writer`
 field (see the `WriteThrough` contract below) and is otherwise oblivious to what the
@@ -172,6 +171,30 @@ is pushed onto the queue and yielded downstream; the thread's reader drains the 
 queue is unbounded (no backpressure) — a bounded queue would deadlock if the write-through thread
 died without draining. Rollback on error follows the backend's own semantics.
 
+### `WritePrimaryWriteThrough`: the write-primary transport
+
+`ThreadedBackendWriteThrough` is **downstream-primary**: the downstream pull drives the write,
+which can lag behind (unbounded queue) but never lead, and an early-stopping downstream needs
+`drain=True` to finish the write. `WritePrimaryWriteThrough(inner, maxsize=0)` is the mirror — a
+generic wrapper around any `WriteThrough` where the **write** owns the pull loop on a background
+thread and downstream consumes the already-written batches through a single 1:1 queue (no fan-out;
+the write and the pass-through are the same batch sequence at the same position). Two consequences
+follow:
+
+- **Drain-always.** Because the write thread drives the pull, it runs to completion independently
+  of the downstream consumption rate. An early stop cannot abort it: on `GeneratorExit` the
+  generator keeps draining (and discarding) the queue so the write thread finishes. This is the
+  same drain-always shape the future in-engine transport has (see Alternatives) — `WritePrimaryWriteThrough`
+  is a shipped instance of it, and like that transport it cannot honor `drain=False`.
+- **Backpressure dial.** `maxsize` tunes the bridge queue: `0` (default) is unbounded (the write
+  races ahead, downstream may lag in memory); `>0` is a bounded queue where a full queue blocks
+  the write — i.e. downstream back-pressures the write. This is the one shipped consumer that can
+  bound memory while still decoupling the write onto its own thread.
+
+`maxsize` is **identity-neutral** (`hash=False, eq=False`) and `__dasher_tokenize__` delegates to
+the inner writer, so wrapping a writer changes neither the cache key nor the build artifact — the
+same principle as `drain`.
+
 ### `.tee()`: the user-facing method
 
 `.tee()` is polymorphic — it accepts either a `WriteThrough` directly or a backend connection:
@@ -270,7 +293,7 @@ class BackendWriteThrough(WriteThrough):
     con: Any
     table_name: str
     mode: WriteMode
-    kwargs: dict
+    kwargs: dict = field(hash=False, eq=False)   # identity-neutral: tunes mechanics, not rows
     def __dasher_tokenize__(self): return ("BackendWriteThrough", getattr(self.con, "name", ""), self.table_name, self.mode)
     def write_through(self, batches): ...  # per-batch or bulk, depending on backend
 ```
@@ -314,10 +337,8 @@ The user-facing method is `.tee()`, matching the Unix `tee` command: data flows 
 a copy is written as a side effect. The consumer abstraction is named `WriteThrough`, and the
 field on `TeeNode` is `writer`. The split is **node vs. consumer**, not pass-through vs.
 terminal: `tee`/`TeeNode` is the thing in the graph, and `WriteThrough` is the streaming
-write-consumer it drives. Both stream — every `WriteThrough` writes each batch and yields it
-onward; xorq has no terminal sink. "Terminal" behavior is composed from a draining tee
-(see Alternatives), so `WriteThrough` keeps a single, total meaning and there is never a second
-thing also called `WriteThrough`.
+write-consumer it drives. Because of the streaming invariant there is no second, terminal kind
+of `WriteThrough`, so the name keeps a single, total meaning.
 
 ## Alternatives considered
 
@@ -327,11 +348,9 @@ A dedicated terminal node, the true counterpart to `deferred_read_*`: data in, n
 Executing it would fire `operator.methodcaller(sink_method)(parent)` at execution time,
 mirroring how `Read.make_dt` resolves a deferred read via `getattr(source, method_name)(...)`.
 
-**Rejected.** xorq commits to one invariant — **every node streams batches** — so there is
-no terminal sink node. Terminal behavior is reached by composition instead (see below).
-Keeping a single streaming `WriteThrough` concept (rather than a streaming `WriteThrough` plus a terminal
-one) removes the recurring "which `WriteThrough`?" ambiguity and lets `WriteThrough` keep a single, total
-meaning.
+**Rejected.** It violates the streaming invariant (every node streams batches). Terminal
+behavior is reached by composition instead (see below); keeping a single streaming `WriteThrough`
+concept removes the recurring "which `WriteThrough`?" ambiguity.
 
 ### Terminal write as a draining tee plus discard (`.write()`)
 
@@ -400,10 +419,12 @@ Back the consumer with a buffer so the write can run at its own pace, independen
 downstream consumer, with disk spill when it lags.
 
 **Partially addressed.** `ThreadedBackendWriteThrough` decouples the write via an unbounded
-in-memory queue and a background thread. Full disk-spill decoupling needs a bounded buffer
-that spills to disk, which reintroduces a second puller. batchcorder (ADR-0013, forthcoming)
-is the candidate, and would additionally need a durable Parquet writer in its disk
-layer.
+in-memory queue and a background thread. `WritePrimaryWriteThrough` adds the bounded-memory
+variant: a `maxsize > 0` queue lets downstream back-pressure the write while still running it on
+its own thread (at the cost of being drain-always — see its subsection). What neither ships is
+*disk-spill* decoupling: a bounded buffer that spills to disk rather than blocking, which
+reintroduces a second puller. batchcorder (ADR-0013, forthcoming) is the candidate, and would
+additionally need a durable Parquet writer in its disk layer.
 
 ### A dedicated N-way fan-out node
 
@@ -432,40 +453,48 @@ N-way node can come later if chaining proves insufficient.
 
 ### Negative
 
+The first four are the footguns — cases where the write does something a caller would not expect
+(or nothing at all). The rest are cost/resource trade-offs.
+
+- **DuckDB (and any single-connection engine) deadlocks.** The streaming tee requires a backend
+  whose reader can be pulled concurrently with the outer query. Datafusion and the pandas path
+  work; duckdb **deadlocks**, because the tee re-enters the same connection to pull the parent
+  while that connection is serving the outer query. Supporting such engines needs the parent
+  pulled on a separate connection or thread, which is deferred. This is a hard "feature does not
+  work here," not a slowdown.
+- **`LIMIT`/`head` writes the whole parent by default.** A downstream early-stop completes the
+  write under `drain=True`: the remaining batches are consumed through the write-through in a
+  background thread after execution (the thread is non-daemon and is joined before temporary
+  tables are dropped, so the parent reader stays valid). A `LIMIT 10` on a billion-row parent
+  writes all billion rows — expected given the default, but surprising; pass `drain=False` to
+  abort the write on early-stop.
+- **The write is not all-or-nothing for backends.** `BackendWriteThrough`'s per-batch path
+  (mode-capable backends, e.g. Postgres/ADBC) commits each batch individually, so a mid-stream
+  failure leaves earlier batches written; rollback requires the backend's own transactional
+  support. Worse, the bulk path (no-mode backends: DataFusion, DuckDB, Pandas) yields every batch
+  downstream *before* the single post-stream ingest, so a failure there means downstream already
+  consumed data the write-through never persisted — the "write-then-yield" guarantee is inverted.
+  Such failures surface as drain/close errors rather than being swallowed, but the divergence is
+  real. Only `ParquetWriteThrough` is genuinely atomic.
+- **The `drain=False` abort guarantee is transport-dependent.** "Early-stop aborts the write" is a
+  property of the client-side generator transport. The shipped `WritePrimaryWriteThrough` and the
+  future in-engine transport (e.g. a Postgres data-modifying CTE) are drain-always by construction
+  and cannot honor it — callers relying on early-stop suppression must not assume it holds for
+  those transports.
 - The default backend consumer (`ThreadedBackendWriteThrough`) decouples the write via an
-  **unbounded** queue, giving up backpressure: if downstream pulls faster than the write
-  ingests, the queue grows without bound. Full disk-spill decoupling (batchcorder) is a future
-  optimization. Note the inline `BackendWriteThrough` is **not** a bounded-memory fallback in
-  general — only its per-batch path (mode-capable backends, e.g. Postgres/ADBC) keeps memory
-  at O(batch) and back-pressures the producer, and it does so at the cost of one ingest
-  roundtrip per batch with non-atomic per-batch commits. Its bulk path (no-mode backends:
-  DataFusion, DuckDB, Pandas) buffers the entire dataset in memory before a single ingest, so
-  it already sits at worst-case memory with no backpressure. Against that bulk path the threaded
-  default is a wash-or-win: a single streaming ingest whose concurrent drain keeps typical peak
-  memory at or below the buffered approach.
-- A downstream early-stop (`LIMIT`/`head`) completes the write by default (`drain=True`): the
-  remaining batches are consumed through the write-through in a background thread after execution.
-  The drain thread is non-daemon and is joined before temporary tables are dropped, so the parent
-  reader stays valid. A `LIMIT 10` on a billion-row parent writes all billion rows by default —
-  expected, but potentially surprising; pass `drain=False` to abort the write on early-stop.
+  **unbounded** queue, giving up backpressure: if downstream pulls faster than the write ingests,
+  the queue grows without bound. `WritePrimaryWriteThrough(maxsize > 0)` is the shipped
+  bounded-memory option (downstream back-pressures the write), at the cost of being drain-always;
+  full disk-spill decoupling (batchcorder) is still future. Note the inline `BackendWriteThrough`
+  is **not** a bounded-memory fallback in general — only its per-batch path keeps memory at
+  O(batch) and back-pressures the producer, at the cost of one ingest roundtrip per batch. Its
+  bulk path buffers the entire dataset before a single ingest, so it already sits at worst-case
+  memory with no backpressure; against that bulk path the threaded default is a wash-or-win.
 - `ParquetWriteThrough` append mode rewrites the entire file on each append (streaming, not
   in-memory, but still O(existing + new) in I/O). A future optimization could append row
   groups without rewriting, but parquet's footer makes that non-trivial.
 - A stray `.tmp` or `.merge.tmp` may linger if a consumer abandons the reader without exhausting it (cleanup is
   best-effort; nothing is ever published).
-- The streaming tee requires a backend whose reader can be pulled concurrently with the outer
-  query. Datafusion and the pandas path work; a single-connection engine like duckdb
-  **deadlocks**, because the tee re-enters the same connection to pull the parent while that
-  connection is serving the outer query. Supporting such engines needs the parent pulled on a
-  separate connection or thread, which is deferred.
-- `BackendWriteThrough`'s per-batch path (for backends with `mode` support) commits each batch
-  individually, so a mid-stream failure leaves earlier batches written. This is not
-  all-or-nothing like `ParquetWriteThrough`; rollback requires the backend's own transactional support.
-- Drain semantics are **transport-dependent**. The explicit `drain=False` "early-stop aborts the
-  write" guarantee is a property of the client-side generator transport. A future in-engine
-  transport (e.g. a Postgres data-modifying CTE) runs to completion by construction, so it would be
-  drain-always and could not honor early-stop abort — callers relying on early-stop suppression
-  must not assume it holds once such a transport exists.
 - `BackendWriteThrough.kwargs` is excluded from the identity (hash, equality, token), so any
   option passed through it that changes the rows written — rather than just tuning mechanics —
   silently escapes the build and cache hashes, risking a stale cache hit. The invariant
