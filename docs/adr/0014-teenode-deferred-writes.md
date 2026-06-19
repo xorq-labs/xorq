@@ -1,6 +1,6 @@
 # ADR-0014: TeeNode, deferred write as a side effect
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-06-10
 - **Deciders:** Daniel Mesejo, Dan Lovell
 - **Context area:** `python/xorq/writes/` (new), `python/xorq/expr/relations.py`, `python/xorq/expr/api.py`, `python/xorq/vendor/ibis/expr/types/relations.py`
@@ -114,17 +114,21 @@ This gives the cache-respecting behavior for free:
 ### `ParquetWriteThrough`: single-file parquet consumer
 
 `ParquetWriteThrough(path, mode)` writes to a single, user-named parquet file. `path` is the final
-file path, known at construction time. `write_through` stages batches to a temp sibling
-(`path + ".tmp"`), then publishes atomically after clean exhaustion:
+file path, known at construction time. `mode` defaults to `create` (matching `BackendWriteThrough`),
+so an unqualified write fails rather than silently appending to an existing target. `write_through`
+stages batches to a randomized temp sibling (`tempfile.mkstemp` with a `.tmp` suffix in `path`'s
+directory), then publishes atomically after clean exhaustion:
 
 - **`create`**: publishes via `os.link(tmp, path)` — atomic create-or-fail. If `path`
   already exists the link raises `FileExistsError`; no glob, no lock needed. The temp is
   always cleaned up.
-- **`append`**: acquires an `fcntl.flock` on `path + ".lock"`, then streams the existing
+- **`append`**: acquires an exclusive lock (`flock_exclusive`, the `fcntl.flock` wrapper in
+  `xorq.common.compat`) on `path + ".lock"`. If `path` already exists, it streams the existing
   file's row groups followed by the staged batches through a `ParquetWriter` into a second
-  temp (`path + ".merge.tmp"`), and renames that over the target. Both reads use
+  temp (`path + ".merge.tmp"`), and renames that over the target; both reads use
   `ParquetFile.iter_batches()`, so memory stays at O(batch_size) regardless of existing file
-  size. The lock serializes concurrent appenders; the rename is atomic. The lock file is
+  size. If `path` does not exist, the staged temp is renamed into place directly — no merge.
+  The lock serializes concurrent appenders; the rename is atomic. The lock file is
   removed after the operation.
 
 An error or early stop mid-stream discards the temp file and publishes nothing. Object
@@ -146,6 +150,12 @@ accepts a `mode` parameter:
   error means nothing is written.
 
 Extra `kwargs` are forwarded to `read_record_batches`, allowing backend-specific options.
+`kwargs` is **identity-neutral**: it is excluded from equality, hashing, and
+`__dasher_tokenize__` (`hash=False, eq=False`), so two tees differing only in `kwargs`
+hash identically and key the same cache entry and build artifact. This is sound only because
+`kwargs` is meant to tune write *mechanics* (compression, batch size, ADBC options), not the
+logical result. Anything that changes the rows written must not be passed through `kwargs`,
+or it will silently escape the hash (see Consequences).
 
 `ThreadedBackendWriteThrough` is a `BackendWriteThrough` subclass that replaces both the per-batch
 round-trips and the bulk buffer with a single streaming `read_record_batches` call on a
@@ -227,8 +237,15 @@ class TeeNode(ops.Relation):
 token because it is purely an execution-time concern that does not change the
 logical result.  The cache hash path strips `TeeNode` (like `Tag`), so
 `__dasher_tokenize__` is only reached when `_hash_expr_components` explicitly
-tokenizes the extracted nodes.  The build hash path (`get_expr_hash`) sets
-`_include_tee_nodes` so that different write-throughs produce different build artifacts.
+tokenizes the extracted nodes.  The build hash path (`get_expr_hash`) enters the
+`include_tee_nodes()` context manager so that different write-throughs produce different
+build artifacts.
+
+The blocks below are illustrative. In the implementation `WriteThrough` is an `abc.ABC` and the
+concretes are `@frozen` attrs classes (immutable, value-equal, with converters/validators — e.g.
+`mode` coerces from a string, `con` is validated to expose `read_record_batches`). Immutability and
+value-equality are what make a write-through safe to embed in the hashed `TeeNode`; a mutable
+plain-class reimplementation would break build-hash determinism.
 
 ```python
 # python/xorq/writes/write_through.py
@@ -425,6 +442,10 @@ N-way node can come later if chaining proves insufficient.
   (e.g. a Postgres data-modifying CTE) runs to completion by construction, so it would be
   drain-always and could not honor early-stop abort — callers relying on early-stop suppression
   must not assume it holds once such a transport exists.
+- `BackendWriteThrough.kwargs` is excluded from the identity (hash, equality, token), so any
+  option passed through it that changes the rows written — rather than just tuning mechanics —
+  silently escapes the build and cache hashes, risking a stale cache hit. The invariant
+  ("kwargs tunes mechanics only") is a documented contract, not an enforced one.
 
 ## References
 

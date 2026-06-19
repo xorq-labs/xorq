@@ -68,7 +68,7 @@ class ParquetWriteThrough(WriteThrough):
     """
 
     path: Path = field(converter=Path)
-    mode: WriteMode = field(default=WriteMode.APPEND, converter=_coerce_write_mode)
+    mode: WriteMode = field(default=WriteMode.CREATE, converter=_coerce_write_mode)
 
     def __dasher_tokenize__(self) -> tuple:
         return ("ParquetWriteThrough", str(self.path), self.mode)
