@@ -13,6 +13,7 @@ import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.xorq_datafusion import Backend
+from xorq.common.compat import raise_collected_errors
 from xorq.common.exceptions import XorqError
 from xorq.common.utils.caching_utils import find_backend
 from xorq.common.utils.defer_utils import (  # noqa: F403
@@ -426,8 +427,6 @@ def _resolve_params(params):
 
 
 def _close_and_join_drains(drains: list) -> None:
-    from xorq.common.compat import raise_collected_errors  # noqa: PLC0415
-
     for d in drains:
         d.close()
     errors: list[BaseException] = []
@@ -453,8 +452,6 @@ def _run_cleanup(drains: list, created: dict) -> None:
     Both steps always run even if the first raises, so a drain failure never
     leaks the temp tables and a drop failure never hides a drain failure.
     """
-    from xorq.common.compat import raise_collected_errors  # noqa: PLC0415
-
     cleanup_errors: list[BaseException] = []
     try:
         _close_and_join_drains(drains)
@@ -504,8 +501,6 @@ def _pandas_execute(con, expr: ir.Expr, **kwargs):
         try:
             _run_cleanup(drains, created)
         except BaseException as cleanup_exc:  # noqa: BLE001
-            from xorq.common.compat import raise_collected_errors  # noqa: PLC0415
-
             raise_collected_errors(
                 "execute failed and cleanup failed",
                 [primary, cleanup_exc],
@@ -567,8 +562,6 @@ def to_pyarrow_batches(
         try:
             clean_up()
         except BaseException as cleanup_exc:  # noqa: BLE001
-            from xorq.common.compat import raise_collected_errors  # noqa: PLC0415
-
             raise_collected_errors(
                 "to_pyarrow_batches failed and cleanup failed",
                 [primary, cleanup_exc],
