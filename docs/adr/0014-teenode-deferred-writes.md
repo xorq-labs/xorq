@@ -133,9 +133,14 @@ early-stop can abort the write (vs. *drain-always*, which ignores it).
   downstream too, capping buffered memory. Bounded mode holds a **discard-on-death** invariant: if
   the write thread dies mid-stream it keeps draining (discarding) the queue to the producer's
   terminal sentinel, so the producer's blocking `put` cannot wedge on a full queue nobody reads.
-  Unlike `WritePrimaryWriteThrough`, this stays *not* drain-always — early stop is still honored
-  (and a dead write cuts downstream off at the failure point rather than handing out data as though
-  the write succeeded). `maxsize` is identity-neutral (`hash=False, eq=False`).
+  In bounded mode a dead write also cuts downstream off at the failure point rather than handing out
+  data as though the write succeeded, because the blocking `put` keeps the producer within `maxsize`
+  batches of the write. Unlike `WritePrimaryWriteThrough`, this stays *not* drain-always — early stop
+  is still honored, and a write failure is ultimately fatal to downstream (the exception propagates
+  out of the generator). With the unbounded default the producer races ahead of the lagging write
+  and only observes the failure between batches, so un-persisted batches may already have been
+  delivered before the error surfaces; the failure-point cutoff is a `maxsize>0` property.
+  `maxsize` is identity-neutral (`hash=False, eq=False`).
 - **`WritePrimaryWriteThrough(inner, maxsize=0)`** is the mirror of the default's
   *downstream-primary* model: the **write** owns the pull loop on a background thread and downstream
   consumes already-written batches through a 1:1 queue. Like `ThreadedBackendWriteThrough` it bounds
