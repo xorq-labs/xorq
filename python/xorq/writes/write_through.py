@@ -6,6 +6,7 @@ import abc
 import inspect
 import os
 import queue
+import sys
 import tempfile
 import threading
 import warnings
@@ -336,7 +337,11 @@ class ThreadedBackendWriteThrough(BackendWriteThrough):
         finally:
             if thread is not None:
                 thread.join()
-            if error:
+            # Surface a write-thread error only if nothing is already
+            # propagating; otherwise a late write failure here would mask the
+            # in-flight upstream/GeneratorExit error (the root cause), which
+            # survives on __context__ but should remain the raised exception.
+            if error and sys.exc_info()[0] is None:
                 raise error[0]
 
 
@@ -461,6 +466,8 @@ class DrainingIterator:
     def join(self, timeout: float | None = None) -> None:
         if self._drain_thread is not None:
             self._drain_thread.join(timeout=timeout)
+            if self._drain_thread.is_alive():
+                raise TimeoutError("drain thread did not finish within timeout")
             if self._error is not None:
                 raise self._error
         elif not self.exhausted:
