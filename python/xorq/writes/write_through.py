@@ -29,6 +29,13 @@ if TYPE_CHECKING:
     from xorq.vendor.ibis.backends import BaseBackend
 
 
+# Targets (backend name, table) already warned about the non-atomic bulk path,
+# so the hazard is surfaced once per target instead of on every execution. The
+# default warnings filter dedupes by call site, but that breaks under filters
+# set to "always" (e.g. inside pytest.warns); this guard is filter-independent.
+_warned_bulk_targets: set[tuple[str, str]] = set()
+
+
 def _coerce_write_mode(value: str | WriteMode) -> WriteMode:
     if isinstance(value, WriteMode):
         return value
@@ -233,15 +240,19 @@ class BackendWriteThrough(WriteThrough):
         # already received every batch, so the tee "write" guarantee is lost.
         import pyarrow as pa  # noqa: PLC0415
 
-        warnings.warn(
-            f"BackendWriteThrough to {getattr(self.con, 'name', '')!r} "
-            f"table {self.table_name!r} uses the bulk path: this backend has no "
-            "mode-based ingest, so every batch is delivered downstream before "
-            "the single post-stream write runs. A write failure therefore "
-            "leaves downstream having consumed data that was never persisted, "
-            "and the write is not atomic. See ADR-0014.",
-            stacklevel=2,
-        )
+        con_name = getattr(self.con, "name", "")
+        key = (con_name, self.table_name)
+        if key not in _warned_bulk_targets:
+            _warned_bulk_targets.add(key)
+            warnings.warn(
+                f"BackendWriteThrough to {con_name!r} "
+                f"table {self.table_name!r} uses the bulk path: this backend has no "
+                "mode-based ingest, so every batch is delivered downstream before "
+                "the single post-stream write runs. A write failure therefore "
+                "leaves downstream having consumed data that was never persisted, "
+                "and the write is not atomic. See ADR-0014.",
+                stacklevel=2,
+            )
         collected = []
         for batch in batches:
             collected.append(batch)
@@ -284,6 +295,10 @@ class ThreadedBackendWriteThrough(BackendWriteThrough):
         q: queue.Queue | queue.SimpleQueue = (
             queue.Queue(self.maxsize) if self.maxsize > 0 else queue.SimpleQueue()
         )
+        # Shared producer<->write-thread flags. Used lock-free: only ever
+        # appended to (never mutated in place) and read for truthiness, so
+        # correctness relies on the GIL making list.append atomic. Anyone
+        # porting this off CPython must add explicit synchronization.
         error: list[BaseException] = []
         sentinel_seen: list[bool] = []
 
