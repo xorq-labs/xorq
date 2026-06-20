@@ -73,7 +73,7 @@ class ParquetWriteThrough(WriteThrough):
     mode: WriteMode = field(default=WriteMode.CREATE, converter=_coerce_write_mode)
 
     def __dasher_tokenize__(self) -> tuple:
-        return ("ParquetWriteThrough", str(self.path), self.mode)
+        return ("parquet-write-through", str(self.path), self.mode)
 
     def write_through(
         self, batches: Iterable[pa.RecordBatch]
@@ -178,7 +178,7 @@ class BackendWriteThrough(WriteThrough):
 
     def __dasher_tokenize__(self) -> tuple:
         return (
-            "BackendWriteThrough",
+            "backend-write-through",
             getattr(self.con, "name", ""),
             self.table_name,
             self.mode,

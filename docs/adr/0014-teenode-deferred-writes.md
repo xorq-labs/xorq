@@ -229,7 +229,7 @@ plain-class reimplementation would break build-hash determinism.
 class ParquetWriteThrough(WriteThrough):
     path: Path                # the final file path (not a directory)
     mode: WriteMode           # "create" (link) | "append" (merge + rename)
-    def __dasher_tokenize__(self): return ("ParquetWriteThrough", str(self.path), self.mode)
+    def __dasher_tokenize__(self): return ("parquet-write-through", str(self.path), self.mode)
     def write_through(self, batches): ...  # stage to path.tmp, publish on exhaustion
 
 class BackendWriteThrough(WriteThrough):
@@ -237,7 +237,7 @@ class BackendWriteThrough(WriteThrough):
     table_name: str
     mode: WriteMode
     kwargs: dict = field(hash=False, eq=False)   # identity-neutral: tunes mechanics, not rows
-    def __dasher_tokenize__(self): return ("BackendWriteThrough", getattr(self.con, "name", ""), self.table_name, self.mode)
+    def __dasher_tokenize__(self): return ("backend-write-through", getattr(self.con, "name", ""), self.table_name, self.mode)
     def write_through(self, batches): ...  # per-batch or bulk, depending on backend
 ```
 
