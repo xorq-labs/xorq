@@ -434,9 +434,12 @@ def _resolve_params(params):
 
 
 def _close_and_join_drains(drains: list) -> None:
-    for d in drains:
-        d.close()
     errors: list[BaseException] = []
+    for d in drains:
+        try:
+            d.close()
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
     for d in drains:
         try:
             d.join()

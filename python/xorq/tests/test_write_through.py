@@ -14,6 +14,7 @@ from xorq.caching.strategy import SnapshotStrategy
 from xorq.common.utils.node_utils import compute_expr_hash
 from xorq.common.utils.provenance_utils import get_expr_hash
 from xorq.expr.api import (
+    _close_and_join_drains,
     _drop_created_tables,
     _run_cleanup,
     get_plans,
@@ -662,6 +663,42 @@ def test_run_cleanup_drops_tables_even_if_drain_fails() -> None:
         _run_cleanup([_FailingDrain()], {"t0": _RecordingCon()})
 
     assert dropped == ["t0"], "table was not dropped after the drain failed"
+
+
+def test_close_and_join_drains_closes_all_when_one_close_fails() -> None:
+    # A close() failure on one drain (e.g. thread start fails under resource
+    # exhaustion) must not skip closing the rest, nor skip the join loop that
+    # reaps already-started drain threads. The close error is collected, not
+    # raised mid-loop.
+    log: list[tuple[str, str]] = []
+
+    class _RecordingDrain:
+        def __init__(self, name: str, fail_close: bool = False) -> None:
+            self.name = name
+            self.fail_close = fail_close
+
+        def close(self) -> None:
+            log.append(("close", self.name))
+            if self.fail_close:
+                raise RuntimeError(f"close boom {self.name}")
+
+        def join(self, timeout: float | None = None) -> None:
+            log.append(("join", self.name))
+
+    drains = [
+        _RecordingDrain("d0", fail_close=True),
+        _RecordingDrain("d1"),
+    ]
+
+    with pytest.raises(BaseException) as excinfo:  # noqa: PT011
+        _close_and_join_drains(drains)
+
+    assert ("close", "d0") in log and ("close", "d1") in log, (
+        f"a close() failure skipped a later close(): {log}"
+    )
+    assert ("join", "d1") in log, f"join loop did not run after a close failure: {log}"
+    messages = [str(e) for e in _flatten_exceptions(excinfo.value)]
+    assert any("close boom d0" in m for m in messages)
 
 
 def test_to_pyarrow_batches_full_consumption_cleans_up(tmp_path: Path) -> None:
