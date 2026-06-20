@@ -138,15 +138,17 @@ early-stop can abort the write (vs. *drain-always*, which ignores it).
 
 ### `.tee()`: the user-facing method
 
-`.tee()` is polymorphic — it accepts either a `WriteThrough` directly or a backend connection:
+`.tee()` is polymorphic on `target`'s type — a `WriteThrough`, a backend connection, or a path:
 
 ```python
-def tee(self, target: WriteThrough | BaseBackend, *, table_name=None, drain=True, **kwargs) -> Table
+def tee(self, target: WriteThrough | BaseBackend | str | os.PathLike, *, table_name=None, drain=True, **kwargs) -> Table
 ```
 
 When `target` is a `BaseBackend` (with `read_record_batches`), `.tee()` auto-creates the
 preferred `ThreadedBackendWriteThrough` from `table_name` and the remaining `**kwargs`. When
-`target` is already a `WriteThrough`, extra keyword arguments are rejected.
+`target` is a `str` or `os.PathLike`, it auto-creates a `ParquetWriteThrough` for that path
+(`**kwargs` such as `mode` flow through; `table_name` is rejected). When `target` is already a
+`WriteThrough`, extra keyword arguments are rejected.
 
 ### `drain` (default `True`): completing the write on early stop
 
@@ -230,7 +232,7 @@ class BackendWriteThrough(WriteThrough):
 ```python
 # Table.tee (vendored relations.py): the user-facing attach
 
-def tee(self, target: WriteThrough | BaseBackend, *, table_name=None, drain=True, **kwargs) -> Table:
+def tee(self, target: WriteThrough | BaseBackend | str | os.PathLike, *, table_name=None, drain=True, **kwargs) -> Table:
     ...
     op = TeeNode(schema=self.schema(), parent=self.op(), writer=writer, drain=drain)
     return op.to_expr()

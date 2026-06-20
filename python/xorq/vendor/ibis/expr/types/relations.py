@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import itertools
 import operator
+import os
 import re
 import warnings
 from collections import deque
@@ -3422,7 +3423,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
     def tee(
         self,
-        target: WriteThrough | BaseBackend,
+        target: WriteThrough | BaseBackend | str | os.PathLike,
         *,
         table_name: str | None = None,
         drain: bool = True,
@@ -3435,14 +3436,23 @@ class Table(Expr, _FixedTextJupyterMixin):
         background thread so the write completes.  Pass ``drain=False`` to let
         a downstream early-stop (``LIMIT``/``head``) abort the write instead.
 
-        When *target* is a bare backend connection, the preferred
-        ``ThreadedBackendWriteThrough`` is constructed, which streams the
-        ingest on a background thread so a slow write does not block the
-        downstream consumer.
+        The writer is selected by *target*'s type:
+
+        - a ``WriteThrough`` is used as given;
+        - a bare backend connection builds the preferred
+          ``ThreadedBackendWriteThrough`` (streams the ingest on a background
+          thread so a slow write does not block downstream) and requires
+          ``table_name``;
+        - a ``str`` or ``os.PathLike`` builds a ``ParquetWriteThrough`` writing
+          to that path.
+
+        Extra keyword arguments (e.g. ``mode``) are forwarded to the
+        constructed writer.
         """
         from xorq.expr.relations import TeeNode  # noqa: PLC0415
         from xorq.vendor.ibis.backends import BaseBackend  # noqa: PLC0415
         from xorq.writes import (  # noqa: PLC0415
+            ParquetWriteThrough,
             ThreadedBackendWriteThrough,
             WriteThrough,
         )
@@ -3462,10 +3472,17 @@ class Table(Expr, _FixedTextJupyterMixin):
             writer = ThreadedBackendWriteThrough(
                 target, table_name=table_name, **kwargs
             )
+        elif isinstance(target, (str, os.PathLike)):
+            if table_name is not None:
+                raise TypeError(
+                    "tee() does not accept table_name when target is a path"
+                )
+            writer = ParquetWriteThrough(target, **kwargs)
         else:
             raise TypeError(
-                f"tee() target must be a WriteThrough or a backend connection "
-                f"(with read_record_batches), got {type(target).__name__}"
+                f"tee() target must be a WriteThrough, a backend connection "
+                f"(with read_record_batches), or a path, got "
+                f"{type(target).__name__}"
             )
 
         op = TeeNode(schema=self.schema(), parent=self.op(), writer=writer, drain=drain)

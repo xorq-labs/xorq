@@ -292,8 +292,8 @@ def test_backend_write_append_mode(t: Table) -> None:
 
 
 def test_tee_rejects_invalid_target(t: Table) -> None:
-    with pytest.raises(TypeError, match="WriteThrough or a backend"):
-        t.tee("not_a_backend")
+    with pytest.raises(TypeError, match="must be a WriteThrough"):
+        t.tee(42)
 
 
 def test_backend_write_bulk_writes_nothing_on_error() -> None:
@@ -399,6 +399,24 @@ def test_tee_rejects_extra_kwargs_with_write_node(t: Table, tmp_path: Path) -> N
         t.tee(writer, table_name="oops")
 
 
+def test_tee_path_target_builds_parquet_writer(t: Table, tmp_path: Path) -> None:
+    target = tmp_path / "out.parquet"
+    t.tee(target).execute()
+    assert len(pq.read_table(str(target))) == len(t.execute())
+
+
+def test_tee_path_target_forwards_mode(t: Table, tmp_path: Path) -> None:
+    target = tmp_path / "out.parquet"
+    t.tee(str(target), mode="append").execute()
+    t.tee(str(target), mode="append").execute()
+    assert len(pq.read_table(str(target))) == 2 * len(t.execute())
+
+
+def test_tee_path_target_rejects_table_name(t: Table, tmp_path: Path) -> None:
+    with pytest.raises(TypeError, match="does not accept table_name"):
+        t.tee(tmp_path / "out.parquet", table_name="oops")
+
+
 def test_tee_requires_table_name_for_backend(t: Table) -> None:
     target_con = xo.connect()
     with pytest.raises(TypeError, match="requires table_name"):
@@ -409,7 +427,7 @@ def test_tee_rejects_backend_without_read_record_batches(t: Table) -> None:
     class _NoRRB:
         name = "fake"
 
-    with pytest.raises(TypeError, match="WriteThrough or a backend"):
+    with pytest.raises(TypeError, match="must be a WriteThrough"):
         t.tee(_NoRRB(), table_name="tgt")
 
 
