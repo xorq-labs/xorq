@@ -291,6 +291,17 @@ def test_backend_write_append_mode(t: Table) -> None:
     assert len(result) == len(t.execute())
 
 
+def test_tee_drops_intermediate_table(tmp_path: Path) -> None:
+    # The tee pass registers a pass-through table on the parent backend to feed
+    # the writer; it must be dropped after execution rather than accumulating in
+    # the backend catalog (mirrors the RemoteTable cleanup).
+    con = xo.connect()
+    t0 = con.register(xo.memtable(TABLE), table_name="t0")
+    before = set(con.list_tables())
+    t0.tee(tmp_path / "out.parquet").execute()
+    assert set(con.list_tables()) == before
+
+
 def test_tee_rejects_invalid_target(t: Table) -> None:
     with pytest.raises(TypeError, match="must be a WriteThrough"):
         t.tee(42)

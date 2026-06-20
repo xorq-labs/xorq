@@ -478,9 +478,10 @@ def _transform_expr(expr, params=None, **kwargs):
     )
     expr = _remove_tag_nodes(expr)
     expr = _register_and_transform_cache_tables(expr)
-    expr, drains = register_and_transform_tee_nodes(expr)
+    expr, tee_created, drains = register_and_transform_tee_nodes(expr)
     expr, created = register_and_transform_remote_tables(expr, **kwargs)
     expr, dt_to_read = _transform_deferred_reads(expr)
+    created = {**created, **tee_created}
     return (expr, created, drains)
 
 

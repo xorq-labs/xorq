@@ -683,7 +683,7 @@ def register_and_transform_remote_tables(
 @tracer.start_as_current_span("register_and_transform_tee_nodes")
 def register_and_transform_tee_nodes(
     expr: Expr,
-) -> tuple[Expr, list[DrainingIterator]]:
+) -> tuple[Expr, dict, list[DrainingIterator]]:
     """Replace each surviving `TeeNode` with a backend table fed by the
     writer's ``write_through(batches)`` generator.
 
@@ -692,13 +692,18 @@ def register_and_transform_tee_nodes(
     downstream cache hit prunes the `TeeNode` before this pass sees it and
     the write never fires.
 
-    Returns the transformed expression and a list of `DrainingIterator`
-    instances whose ``close()`` must be called after downstream execution
-    completes so that the writer can finish consuming the stream.
+    Returns ``(expr, created, drains)``: the transformed expression, a
+    ``{table_name: con}`` map of the intermediate pass-through tables
+    registered on each parent backend (these persist in the backend's
+    catalog until dropped, so callers must drop them once downstream
+    consumption is done), and a list of `DrainingIterator` instances whose
+    ``close()`` must be called after downstream execution completes so that
+    the writer can finish consuming the stream.
     """
     from xorq.common.utils.caching_utils import find_backend  # noqa: PLC0415
 
     drains: list[DrainingIterator] = []
+    created: dict = {}
 
     def replacer(node, kwargs):
         if not isinstance(node, TeeNode):
@@ -716,13 +721,15 @@ def register_and_transform_tee_nodes(
             reader.schema,
             write_iter,
         )
-        table = con.read_record_batches(wrapped, table_name=gen_name())
+        table_name = gen_name()
+        table = con.read_record_batches(wrapped, table_name=table_name)
+        created[table_name] = con
         return table.op()
 
     # op.replace, not replace_nodes: replacer has side effects that must not
     # fire inside opaque sub-exprs (handled lazily during UDF execution).
     op = expr.op()
-    return op.replace(replacer).to_expr(), drains
+    return op.replace(replacer).to_expr(), created, drains
 
 
 def render_backend(con):
