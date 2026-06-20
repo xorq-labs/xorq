@@ -13,8 +13,12 @@ import xorq.api as xo
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.common.utils.node_utils import compute_expr_hash
 from xorq.common.utils.provenance_utils import get_expr_hash
-from xorq.expr.api import _run_cleanup
-from xorq.expr.relations import register_and_transform_tee_nodes
+from xorq.expr.api import (
+    _drop_created_tables,
+    _run_cleanup,
+    get_plans,
+)
+from xorq.expr.relations import HashingTag, register_and_transform_tee_nodes
 from xorq.writes import (
     BackendWriteThrough,
     DrainingIterator,
@@ -541,6 +545,208 @@ def test_to_sql_strips_nested_tee_nodes(t: Table, tmp_path: Path) -> None:
         ParquetWriteThrough(path=tmp_path / "t2.parquet")
     )
     assert xo.to_sql(double_tee) == bare_sql
+
+
+def _placeholder_tables(con: Any) -> set[str]:
+    return {name for name in con.list_tables() if "placeholder" in name}
+
+
+def test_get_plans_does_not_write_or_leak(tmp_path: Path) -> None:
+    """get_plans is a non-executing path: it must neither fire the side-effect
+    write nor leak the pass-through table it would otherwise register."""
+    con = xo.connect()
+    tt = con.register(xo.memtable(TABLE), table_name="t0")
+    target = tmp_path / "plans.parquet"
+    expr = tt.tee(ParquetWriteThrough(path=target))
+
+    before = _placeholder_tables(con)
+    get_plans(expr)
+
+    assert not target.exists(), "EXPLAIN must not fire the deferred write"
+    assert _placeholder_tables(con) == before, "tee pass-through table leaked"
+
+
+def test_sql_view_does_not_write_or_leak(tmp_path: Path) -> None:
+    """Defining a SQL view is a non-executing path: it must neither fire the
+    side-effect write nor leak the pass-through table."""
+    con = xo.connect()
+    tt = con.register(xo.memtable(TABLE), table_name="t0")
+    target = tmp_path / "view.parquet"
+    expr = tt.tee(ParquetWriteThrough(path=target))
+
+    before = _placeholder_tables(con)
+    view = expr.sql("SELECT a FROM t0")
+
+    assert not target.exists(), "view definition must not fire the deferred write"
+    assert _placeholder_tables(con) == before, "tee pass-through table leaked"
+    # The view is still usable and the tee is transparent to it.
+    assert view.execute()["a"].tolist() == TABLE["a"]
+
+
+def test_drop_created_tables_drops_all_and_raises(tmp_path: Path) -> None:
+    """_drop_created_tables must attempt every table even when one fails its
+    drop entirely, and surface the failure rather than swallowing it."""
+
+    class _FakeCon:
+        def __init__(self, *, fail_both: bool = False) -> None:
+            self.fail_both = fail_both
+            self.dropped: list[str] = []
+
+        def drop_table(self, name: str, force: bool = False) -> None:
+            if self.fail_both:
+                raise ValueError(f"drop_table {name}")
+            self.dropped.append(name)
+
+        def drop_view(self, name: str) -> None:
+            if self.fail_both:
+                raise ValueError(f"drop_view {name}")
+            self.dropped.append(name)
+
+    good_a, bad, good_b = _FakeCon(), _FakeCon(fail_both=True), _FakeCon()
+    created = {"a": good_a, "bad": bad, "b": good_b}
+
+    with pytest.raises(ValueError, match="drop_view bad"):
+        _drop_created_tables(created)
+
+    # the failing table in the middle did not strand the others
+    assert good_a.dropped == ["a"]
+    assert good_b.dropped == ["b"]
+
+
+def test_run_cleanup_joins_drains_before_dropping_tables() -> None:
+    """_run_cleanup must join every drain before dropping any table, so the
+    backend reader the drain consumes stays valid until the write completes."""
+    log: list[tuple[str, str]] = []
+
+    class _RecordingDrain:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def close(self) -> None:
+            log.append(("close", self.name))
+
+        def join(self) -> None:
+            log.append(("join", self.name))
+
+    class _RecordingCon:
+        def drop_table(self, name: str, force: bool = False) -> None:
+            log.append(("drop", name))
+
+    _run_cleanup(
+        [_RecordingDrain("d0"), _RecordingDrain("d1")], {"t0": _RecordingCon()}
+    )
+
+    join_idx = [i for i, (action, _) in enumerate(log) if action == "join"]
+    drop_idx = [i for i, (action, _) in enumerate(log) if action == "drop"]
+    assert join_idx and drop_idx
+    assert max(join_idx) < min(drop_idx), f"drop ran before a join: {log}"
+
+
+def test_run_cleanup_drops_tables_even_if_drain_fails() -> None:
+    """A drain failure must not strand the created tables, and the drain error
+    must still surface rather than being swallowed by the drop step."""
+    dropped: list[str] = []
+
+    class _FailingDrain:
+        def close(self) -> None:
+            pass
+
+        def join(self) -> None:
+            raise ValueError("drain boom")
+
+    class _RecordingCon:
+        def drop_table(self, name: str, force: bool = False) -> None:
+            dropped.append(name)
+
+    with pytest.raises(ValueError, match="drain boom"):
+        _run_cleanup([_FailingDrain()], {"t0": _RecordingCon()})
+
+    assert dropped == ["t0"], "table was not dropped after the drain failed"
+
+
+def test_to_pyarrow_batches_full_consumption_cleans_up(tmp_path: Path) -> None:
+    """The documented contract: drains are joined and the pass-through table is
+    dropped only once the reader is fully consumed (which also publishes the
+    write)."""
+    con = xo.connect()
+    tt = con.register(xo.memtable(TABLE), table_name="t0")
+    target = tmp_path / "out.parquet"
+
+    before = _placeholder_tables(con)
+    reader = tt.tee(ParquetWriteThrough(path=target)).to_pyarrow_batches()
+    # the pass-through table is registered eagerly at transform time
+    assert _placeholder_tables(con) - before, "tee pass-through table not registered"
+
+    reader.read_all()
+
+    assert target.exists(), "full consumption must publish the write"
+    assert _placeholder_tables(con) == before, "pass-through table not cleaned up"
+
+
+def test_to_pyarrow_batches_partial_consumption_holds_resources(
+    tmp_path: Path,
+) -> None:
+    """Counterpart to the contract above: a partial read (an early break) does
+    not run cleanup, so nothing is published and the table is held. This locks
+    in the leak the to_pyarrow_batches docstring warns about."""
+    con = xo.connect()
+    tt = con.register(xo.memtable(TABLE), table_name="t0")
+    target = tmp_path / "out.parquet"
+
+    before = _placeholder_tables(con)
+    reader = tt.tee(ParquetWriteThrough(path=target)).to_pyarrow_batches()
+    reader.read_next_batch()  # read one batch, do not exhaust
+
+    assert not target.exists(), "nothing should be published before exhaustion"
+    assert _placeholder_tables(con) - before, "table released before full consume"
+
+
+def test_cross_backend_tee_cleans_up_all_placeholders(tmp_path: Path) -> None:
+    """A tee over an into_backend parent registers two placeholders (the remote
+    table and the tee pass-through). Full execution must drop both, exercising
+    the multi-entry created-table cleanup."""
+    con = xo.connect()
+    other = xo.connect()
+    t = con.create_table("ib_src", pa.table({"a": [1, 2, 3, 4]}))
+    target = tmp_path / "out.parquet"
+
+    before_con = _placeholder_tables(con)
+    before_other = _placeholder_tables(other)
+
+    t.into_backend(other, "ib").tee(ParquetWriteThrough(path=target)).execute()
+
+    assert target.exists()
+    assert _placeholder_tables(con) == before_con, "source backend leaked a table"
+    assert _placeholder_tables(other) == before_other, "target backend leaked a table"
+
+
+def test_hashing_tag_tokenize_ignores_parent(t: Table) -> None:
+    """A HashingTag tokenizes by (schema, metadata) only -- not its parent. Two
+    tags with identical metadata over same-schema but different parents collapse
+    to the same token; graph position is captured by the SQL instead."""
+    ht1 = t.filter(t.a > 1).hashing_tag("k").op()
+    ht2 = t.filter(t.a > 2).hashing_tag("k").op()
+
+    assert isinstance(ht1, HashingTag) and isinstance(ht2, HashingTag)
+    assert ht1.parent != ht2.parent
+    assert ht1.schema == ht2.schema
+    assert ht1.__dasher_tokenize__() == ht2.__dasher_tokenize__()
+
+
+def test_hashing_tag_build_hash_uses_sql_for_position(t: Table) -> None:
+    """Because the tag token drops the parent, position must still come through
+    the SQL: structurally different exprs carrying the same tag must not collapse
+    to one build hash, while the tag's metadata still contributes."""
+    h1 = get_expr_hash(t.filter(t.a > 1).hashing_tag("k"))
+    h2 = get_expr_hash(t.filter(t.a > 2).hashing_tag("k"))
+    assert h1 != h2, "differing SQL must yield differing build hashes"
+
+    assert get_expr_hash(t.hashing_tag("a")) != get_expr_hash(t.hashing_tag("b")), (
+        "tag metadata must contribute to the build hash"
+    )
+    assert get_expr_hash(t.hashing_tag("a")) != get_expr_hash(t), (
+        "attaching a HashingTag must change the build hash"
+    )
 
 
 def test_nested_tee_hash_is_transparent(t: Table, tmp_path: Path) -> None:

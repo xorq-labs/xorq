@@ -3302,9 +3302,12 @@ class Table(Expr, _FixedTextJupyterMixin):
             name = util.gen_name("sql_query")
             expr = self
 
-        from xorq.expr.api import _transform_expr
+        from xorq.expr.api import _remove_tee_nodes, _transform_expr
 
-        (expr, _, _) = _transform_expr(expr)
+        # Strip tee nodes first: defining a SQL view is a non-executing path, so
+        # it must not register a pass-through table or fire the side-effect
+        # write. Tee is schema-preserving, so the view schema is unaffected.
+        (expr, _, _) = _transform_expr(_remove_tee_nodes(expr))
 
         schema = backend._get_sql_string_view_schema(name=name, table=expr, query=query)
         node = ops.SQLStringView(child=expr.op(), query=query, schema=schema)

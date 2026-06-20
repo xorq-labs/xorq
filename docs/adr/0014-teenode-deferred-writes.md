@@ -437,6 +437,10 @@ The first four are the footguns: cases where the write does something a caller w
   groups without rewriting, but parquet's footer makes that non-trivial.
 - A stray `.tmp` or `.merge.tmp` may linger if a consumer abandons the reader without exhausting it (cleanup is
   best-effort; nothing is ever published).
+- `ParquetWriteThrough` opens its writer lazily on the first batch, so an **empty stream publishes
+  nothing**: `create` writes no file at all (not even an empty one) and `append` leaves any existing
+  file untouched. A caller expecting a zero-row file to appear after a tee over an empty parent will
+  not get one.
 - `BackendWriteThrough.kwargs` is excluded from the identity (hash, equality, token), so any
   option passed through it that changes the rows written, rather than just tuning mechanics,
   silently escapes the build and cache hashes, risking a stale cache hit. The invariant

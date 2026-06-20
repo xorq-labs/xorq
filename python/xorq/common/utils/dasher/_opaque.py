@@ -447,6 +447,11 @@ def _hash_expr_components(expr: Expr, op: Node) -> tuple[str, list[SlotDict]]:
     if param_anchors:
         hash_args += (param_anchors,)
     if hashing_tags:
+        # By design, a HashingTag tokenizes by (schema, metadata) only -- not its
+        # parent (see HashingTag.__dasher_tokenize__). Graph position is already
+        # captured by `sql` above, so dropping the parent here cannot collapse two
+        # structurally-different exprs; it only means same-metadata tags at
+        # different points contribute the same token, which is correct.
         hash_args += (tuple(hasher.tokenize(ht) for ht in hashing_tags),)
     if _include_tee_nodes.get() and tee_nodes:
         hash_args += (tuple(hasher.tokenize(tn) for tn in tee_nodes),)

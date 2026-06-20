@@ -245,6 +245,10 @@ def _register_and_transform_cache_tables(expr):
             )
         return node
 
+    # op.replace, not replace_nodes (see its docstring): cache resolution has
+    # side effects (set_default executes/materializes), so it must fire only at
+    # this execution boundary. CachedNodes inside opaque sub-exprs re-enter this
+    # pass when those sub-exprs execute -- descending here would double-resolve.
     out = op.replace(fn)
 
     return out.to_expr()
@@ -278,6 +282,9 @@ def _transform_deferred_reads(expr):
                 node = node.__recreate__(_kwargs)
         return node
 
+    # op.replace, not replace_nodes (see its docstring): make_dt resolves a
+    # deferred read at this execution boundary; reads inside opaque sub-exprs
+    # are resolved when those sub-exprs execute, so descending here is wrong.
     expr = expr.op().replace(replace_read).to_expr()
     return expr, dt_to_read
 
@@ -439,11 +446,18 @@ def _close_and_join_drains(drains: list) -> None:
 
 
 def _drop_created_tables(created: dict) -> None:
+    # Drop every table even if one fails, so a single bad drop never strands the
+    # rest (created may hold several entries: tee + remote-table placeholders).
+    errors: list[BaseException] = []
     for table_name, conn in created.items():
         try:
             conn.drop_table(table_name, force=True)
         except Exception:
-            conn.drop_view(table_name)
+            try:
+                conn.drop_view(table_name)
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+    raise_collected_errors("failed to drop created tables", errors)
 
 
 def _run_cleanup(drains: list, created: dict) -> None:
@@ -716,8 +730,10 @@ def to_json(
                 f.write(batch_json)
 
 
-def get_plans(expr):
-    _expr, _, _ = _transform_expr(expr)
+def get_plans(expr: ir.Expr) -> dict:
+    # Strip tee nodes first (like to_sql): EXPLAIN is a non-executing path, so
+    # it must not register a pass-through table or fire the side-effect write.
+    _expr, _, _ = _transform_expr(_remove_tee_nodes(expr))
     con, _ = find_backend(_expr.op())
     sql = f"EXPLAIN {to_sql(_expr)}"
     return con.con.sql(sql).to_pandas().set_index("plan_type")["plan"].to_dict()

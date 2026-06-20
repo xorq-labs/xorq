@@ -67,6 +67,10 @@ class ParquetWriteThrough(WriteThrough):
     ``mode="create"`` raises `FileExistsError` if the target exists.
     ``mode="append"`` merges new data with any existing file under a lock.
     Batches are staged to a temp file; an error mid-stream discards it.
+
+    An empty stream (no batches) publishes nothing: ``create`` writes no file
+    and ``append`` leaves any existing file untouched. There is no empty-file
+    artifact, since the writer is opened lazily on the first batch.
     """
 
     path: Path = field(converter=Path)

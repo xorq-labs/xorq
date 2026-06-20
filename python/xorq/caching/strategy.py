@@ -156,6 +156,9 @@ class SnapshotStrategy(CacheStrategy):
                     )
                 return node.__recreate__(kwargs) if kwargs else node
 
+            # op.replace, not replace_nodes (see its docstring): renaming the
+            # top-level RemoteTables is enough for this hasher; a RemoteTable's
+            # own remote_expr is hashed at its own boundary, so we do not descend.
             return expr.op().replace(rename).to_expr()
         return expr
 
