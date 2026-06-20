@@ -126,32 +126,33 @@ class ParquetWriteThrough(WriteThrough):
             finally:
                 tmp.unlink(missing_ok=True)
         else:
+            # The lock file is a permanent sidecar, never unlinked: removing it
+            # would let a later appender open a fresh inode while another still
+            # holds the old one's flock, breaking mutual exclusion (concurrent
+            # merge-then-rename, last rename wins, rows silently dropped).
             lock_path = Path(str(self.path) + ".lock")
-            try:
-                with open(lock_path, "w") as lock_fd:
-                    flock_exclusive(lock_fd)
-                    if self.path.exists():
-                        merged = Path(str(self.path) + ".merge.tmp")
-                        try:
-                            existing = pq.ParquetFile(str(self.path))
-                            staged = pq.ParquetFile(str(tmp))
-                            with pq.ParquetWriter(
-                                str(merged), existing.schema_arrow
-                            ) as writer:
-                                for batch in existing.iter_batches():
-                                    writer.write_batch(batch)
-                                for batch in staged.iter_batches():
-                                    writer.write_batch(batch)
-                            merged.rename(self.path)
-                        except BaseException:
-                            merged.unlink(missing_ok=True)
-                            raise
-                        finally:
-                            tmp.unlink(missing_ok=True)
-                    else:
-                        tmp.rename(self.path)
-            finally:
-                lock_path.unlink(missing_ok=True)
+            with open(lock_path, "w") as lock_fd:
+                flock_exclusive(lock_fd)
+                if self.path.exists():
+                    merged = Path(str(self.path) + ".merge.tmp")
+                    try:
+                        existing = pq.ParquetFile(str(self.path))
+                        staged = pq.ParquetFile(str(tmp))
+                        with pq.ParquetWriter(
+                            str(merged), existing.schema_arrow
+                        ) as writer:
+                            for batch in existing.iter_batches():
+                                writer.write_batch(batch)
+                            for batch in staged.iter_batches():
+                                writer.write_batch(batch)
+                        merged.rename(self.path)
+                    except BaseException:
+                        merged.unlink(missing_ok=True)
+                        raise
+                    finally:
+                        tmp.unlink(missing_ok=True)
+                else:
+                    tmp.rename(self.path)
 
 
 @frozen
