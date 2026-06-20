@@ -13,6 +13,7 @@ import xorq.api as xo
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.common.utils.node_utils import compute_expr_hash
 from xorq.common.utils.provenance_utils import get_expr_hash
+from xorq.expr.relations import register_and_transform_tee_nodes
 from xorq.writes import (
     BackendWriteThrough,
     DrainingIterator,
@@ -156,6 +157,35 @@ def test_concurrent_create_only_one_wins(tmp_path: Path) -> None:
     assert not list(target.parent.glob("*.tmp"))
 
 
+def test_concurrent_append_no_lost_rows(tmp_path: Path) -> None:
+    # The permanent lock file must serialize concurrent appends so every
+    # writer's rows survive. Unlinking the lock let appenders race on separate
+    # inodes (last merge-then-rename wins, dropping the others' rows).
+    target = tmp_path / "out.parquet"
+    n = 3
+    barrier = threading.Barrier(n)
+    errors: list[BaseException] = []
+
+    def worker(i: int) -> None:
+        try:
+            barrier.wait(timeout=5)
+            writer = ParquetWriteThrough(path=target, mode="append")
+            list(writer.write_through([pa.record_batch({"a": [i]})]))
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(n)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join(timeout=10)
+
+    assert not errors, errors
+    assert target.exists()
+    result = pq.read_table(str(target)).column("a").to_pylist()
+    assert sorted(result) == [0, 1, 2]
+
+
 def test_invalid_mode_raises(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         ParquetWriteThrough(path=tmp_path, mode="merge")
@@ -222,6 +252,17 @@ def test_write_duckdb_streaming_deadlocks(tmp_path: Path) -> None:
     con = xo.duckdb.connect()
     t = con.create_table("dd_src", pa.table({"a": [1, 2, 3, 4]}))
     t.tee(ParquetWriteThrough(path=tmp_path / "out.parquet")).execute()
+
+
+def test_tee_duckdb_warns_deadlock(tmp_path: Path) -> None:
+    # The transform must warn before wiring a streaming tee on a non-reentrant
+    # backend. duckdb registration is lazy, so the transform itself does not
+    # deadlock — only a later execute would — which lets us assert the warning.
+    con = _connect("duckdb")
+    t = con.create_table("dd_warn", pa.table({"a": [1, 2, 3, 4]}))
+    expr = t.tee(ParquetWriteThrough(path=tmp_path / "out.parquet"))
+    with pytest.warns(UserWarning, match="deadlock"):
+        register_and_transform_tee_nodes(expr)
 
 
 def test_write_with_cache_upstream(tmp_path: Path) -> None:
@@ -332,6 +373,18 @@ def test_backend_write_bulk_registers_all_batches() -> None:
     list(writer.write_through(batches))
     result = target_con.table("bs_bulk").execute()
     assert len(result) == 4
+
+
+def test_bulk_path_warns_not_atomic() -> None:
+    # Bulk backends (no mode support, e.g. DataFusion) deliver every batch
+    # downstream before the single post-stream write, so the write is not
+    # atomic. The bulk path must warn callers of that hazard. Drive the writer
+    # directly: under .execute() datafusion pulls the reader on a worker thread
+    # where pytest.warns cannot observe the warning.
+    target_con = xo.connect()
+    writer = BackendWriteThrough(target_con, table_name="bulk_warn", mode="create")
+    with pytest.warns(UserWarning, match="bulk path"):
+        list(writer.write_through([pa.record_batch({"a": [1, 2]})]))
 
 
 # ---- generator lifecycle / cleanup -------------------------------------------
