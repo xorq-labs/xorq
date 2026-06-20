@@ -13,6 +13,7 @@ import xorq.api as xo
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.common.utils.node_utils import compute_expr_hash
 from xorq.common.utils.provenance_utils import get_expr_hash
+from xorq.expr.api import _run_cleanup
 from xorq.expr.relations import register_and_transform_tee_nodes
 from xorq.writes import (
     BackendWriteThrough,
@@ -341,6 +342,36 @@ def test_tee_drops_intermediate_table(tmp_path: Path) -> None:
     before = set(con.list_tables())
     t0.tee(tmp_path / "out.parquet").execute()
     assert set(con.list_tables()) == before
+
+
+def test_tee_drops_intermediate_table_on_early_stop(tmp_path: Path) -> None:
+    # Same cleanup guarantee as full consumption, but the downstream stops early
+    # (.limit) and drain=True finishes the write. The intermediate pass-through
+    # table must still be dropped once the drain joins.
+    con = xo.connect()
+    t0 = con.register(xo.memtable(TABLE), table_name="t0")
+    target = tmp_path / "out.parquet"
+    before = set(con.list_tables())
+    out = t0.tee(ParquetWriteThrough(path=target), drain=True).limit(2).execute()
+    assert len(out) == 2
+    assert len(pq.read_table(str(target))) == 4  # drain wrote the full parent
+    assert set(con.list_tables()) == before
+
+
+def test_tee_partial_consumption_leaks_intermediate_table(tmp_path: Path) -> None:
+    # KNOWN HAZARD (see the to_pyarrow_batches docstring / ADR-0014): cleanup
+    # runs only after the reader is fully consumed. Abandoning it after a partial
+    # read leaks the intermediate pass-through table. Pinned to lock the contract
+    # the docstring promises; tighten this test if partial cleanup is ever added.
+    con = xo.connect()
+    t0 = con.register(xo.memtable(TABLE), table_name="t0")
+    target = tmp_path / "out.parquet"
+    before = set(con.list_tables())
+    reader = t0.tee(ParquetWriteThrough(path=target)).to_pyarrow_batches(chunk_size=1)
+    reader.read_next_batch()  # consume one batch only, then abandon
+    assert set(con.list_tables()) - before, (
+        "expected the intermediate tee table to leak on partial consumption"
+    )
 
 
 def test_tee_rejects_invalid_target(t: Table) -> None:
@@ -1120,6 +1151,44 @@ def test_draining_iterator_join_surfaces_error() -> None:
     it.close()
     with pytest.raises(RuntimeError, match="simulated writer failure"):
         it.join(timeout=5)
+
+
+def _flatten_exceptions(exc: BaseException) -> list[BaseException]:
+    out = [exc]
+    for sub in getattr(exc, "exceptions", ()):  # BaseExceptionGroup (3.11+)
+        out.extend(_flatten_exceptions(sub))
+    if exc.__cause__ is not None:  # chained fallback (3.10)
+        out.extend(_flatten_exceptions(exc.__cause__))
+    return out
+
+
+def test_run_cleanup_aggregates_drain_and_drop_failures() -> None:
+    # Both cleanup steps run even when the first raises: a drain-join failure and
+    # a table-drop failure must surface together as a group, neither hiding the
+    # other (this is what the execute / to_pyarrow_batches paths rely on).
+    class _FailingDrain:
+        def close(self) -> None: ...
+
+        def join(self, timeout: float | None = None) -> None:
+            raise RuntimeError("drain join boom")
+
+    class _FailingCon:
+        def drop_table(self, name: str, force: bool = False) -> None:
+            raise RuntimeError("drop_table boom")
+
+        def drop_view(self, name: str) -> None:
+            raise RuntimeError("drop_view boom")
+
+    raised: BaseException | None = None
+    try:
+        _run_cleanup([_FailingDrain()], {"leaked_tbl": _FailingCon()})
+    except BaseException as exc:  # noqa: BLE001
+        raised = exc
+
+    assert raised is not None, "cleanup must surface the failures"
+    messages = [str(e) for e in _flatten_exceptions(raised)]
+    assert any("drain join boom" in m for m in messages)
+    assert any("drop_view boom" in m for m in messages)
 
 
 def test_draining_iterator_join_before_close_raises() -> None:
