@@ -112,7 +112,7 @@ early-stop can abort the write (vs. *drain-always*, which ignores it).
 | `ParquetWriteThrough` | one parquet file | yes (link / merge-rename) | O(batch) | in pull path | honored |
 | `BackendWriteThrough` per-batch | mode-capable backend table (Postgres/ADBC) | no (per-batch commit) | O(batch) | yes | honored |
 | `BackendWriteThrough` bulk | no-mode backend table (DataFusion/DuckDB/Pandas) | no (write trails delivery) | O(dataset) | none | honored |
-| `ThreadedBackendWriteThrough` (default for `.tee(con, …)`) | any backend table, on a bg thread | per backend | O(lag) | none (unbounded queue) | honored |
+| `ThreadedBackendWriteThrough(maxsize)` (default for `.tee(con, …)`) | any backend table, on a bg thread | per backend | `maxsize=0`: O(lag) / `>0`: bounded | only if `maxsize>0` | honored |
 | `WritePrimaryWriteThrough(inner, maxsize)` | wraps any consumer; write owns the pull loop | inner's | `maxsize=0`: O(lag) / `>0`: bounded | only if `maxsize>0` | **drain-always** |
 
 - **`ParquetWriteThrough(path, mode)`** writes one user-named file. It stages batches to a temp
@@ -126,15 +126,22 @@ early-stop can abort the write (vs. *drain-always*, which ignores it).
   no-mode backends buffer the whole stream and register one table after exhaustion. `kwargs` is
   identity-neutral (`hash=False, eq=False`) — sound only because it tunes write *mechanics*
   (compression, batch size, ADBC options), never the rows (see Consequences).
-- **`ThreadedBackendWriteThrough`** (what `.tee(con, table_name=…)` builds) runs a single streaming
-  ingest on a background thread fed by an unbounded queue, so a slow write does not block the
-  producer — at the cost of unbounded buffering lag.
+- **`ThreadedBackendWriteThrough(maxsize=0)`** (what `.tee(con, table_name=…)` builds) runs a single
+  streaming ingest on a background thread fed by a queue. `maxsize=0` (default) is unbounded, so a
+  slow write does not block the producer — at the cost of unbounded buffering lag. `maxsize>0`
+  bounds the queue, and because this consumer is *downstream-primary* a full queue back-pressures
+  downstream too, capping buffered memory. Bounded mode holds a **discard-on-death** invariant: if
+  the write thread dies mid-stream it keeps draining (discarding) the queue to the producer's
+  terminal sentinel, so the producer's blocking `put` cannot wedge on a full queue nobody reads.
+  Unlike `WritePrimaryWriteThrough`, this stays *not* drain-always — early stop is still honored
+  (and a dead write cuts downstream off at the failure point rather than handing out data as though
+  the write succeeded). `maxsize` is identity-neutral (`hash=False, eq=False`).
 - **`WritePrimaryWriteThrough(inner, maxsize=0)`** is the mirror of the default's
   *downstream-primary* model: the **write** owns the pull loop on a background thread and downstream
-  consumes already-written batches through a 1:1 queue. It is the one shipped consumer that can
-  bound memory (`maxsize>0` lets downstream back-pressure the write), but because the write drives
-  the pull it is drain-always. `maxsize` is identity-neutral and `__dasher_tokenize__` delegates to
-  `inner`.
+  consumes already-written batches through a 1:1 queue. Like `ThreadedBackendWriteThrough` it bounds
+  memory at `maxsize>0` (downstream back-pressures the write), but because the write drives the pull
+  it is drain-always — the bounded counterpart that keeps early stop is `ThreadedBackendWriteThrough(maxsize>0)`.
+  `maxsize` is identity-neutral and `__dasher_tokenize__` delegates to `inner`.
 
 ### `.tee()`: the user-facing method
 
@@ -345,13 +352,14 @@ if its output is actually pulled.
 Back the consumer with a buffer so the write can run at its own pace, independent of the
 downstream consumer, with disk spill when it lags.
 
-**Partially addressed.** `ThreadedBackendWriteThrough` decouples the write via an unbounded
-in-memory queue and a background thread. `WritePrimaryWriteThrough` adds the bounded-memory
-variant: a `maxsize > 0` queue lets downstream back-pressure the write while still running it on
-its own thread (at the cost of being drain-always — see Write consumers). What neither ships is
-*disk-spill* decoupling: a bounded buffer that spills to disk rather than blocking, which
-reintroduces a second puller. batchcorder (ADR-0013, forthcoming) is the candidate, and would
-additionally need a durable Parquet writer in its disk layer.
+**Partially addressed.** `ThreadedBackendWriteThrough` decouples the write via an in-memory queue
+and a background thread, defaulting to an unbounded queue (`maxsize=0`). Two consumers now bound
+memory: `ThreadedBackendWriteThrough(maxsize>0)` keeps the *downstream-primary* model (early stop
+honored, a write failure cuts downstream off — backpressure via a discard-on-death bounded queue),
+while `WritePrimaryWriteThrough(maxsize>0)` is the *write-primary* mirror (drain-always — see Write
+consumers). What neither ships is *disk-spill* decoupling: a bounded buffer that spills to disk
+rather than blocking, which reintroduces a second puller. batchcorder (ADR-0013, forthcoming) is
+the candidate, and would additionally need a durable Parquet writer in its disk layer.
 
 ### A dedicated N-way fan-out node
 
@@ -408,11 +416,13 @@ The first four are the footguns — cases where the write does something a calle
   future in-engine transport (e.g. a Postgres data-modifying CTE) are drain-always by construction
   and cannot honor it — callers relying on early-stop suppression must not assume it holds for
   those transports.
-- The default backend consumer (`ThreadedBackendWriteThrough`) decouples the write via an
-  **unbounded** queue, giving up backpressure: if downstream pulls faster than the write ingests,
-  the queue grows without bound. `WritePrimaryWriteThrough(maxsize > 0)` is the shipped
-  bounded-memory option (downstream back-pressures the write), at the cost of being drain-always;
-  full disk-spill decoupling (batchcorder) is still future. Note the inline `BackendWriteThrough`
+- The default backend consumer (`ThreadedBackendWriteThrough`) defaults to an **unbounded** queue
+  (`maxsize=0`), giving up backpressure: if downstream pulls faster than the write ingests, the
+  queue grows without bound. Two bounded-memory options ship: `ThreadedBackendWriteThrough(maxsize
+  > 0)` back-pressures downstream while staying downstream-primary (early stop honored; a write
+  failure is fatal to the read side, made deadlock-safe by the discard-on-death invariant), and
+  `WritePrimaryWriteThrough(maxsize > 0)` does so write-primary at the cost of being drain-always.
+  Full disk-spill decoupling (batchcorder) is still future. Note the inline `BackendWriteThrough`
   is **not** a bounded-memory fallback in general — only its per-batch path keeps memory at
   O(batch) and back-pressures the producer, at the cost of one ingest roundtrip per batch. Its
   bulk path buffers the entire dataset before a single ingest, so it already sits at worst-case

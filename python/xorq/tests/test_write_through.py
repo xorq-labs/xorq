@@ -877,12 +877,117 @@ def test_threaded_stops_feeding_after_write_error() -> None:
     assert not backend.worker.is_alive()
 
 
+def test_threaded_bounded_writes_all_batches() -> None:
+    # a bounded queue still streams every batch through, in order, to a single
+    # ingest call — backpressure caps memory, it does not drop data.
+    backend = _RecordingBackend()
+    writer = ThreadedBackendWriteThrough(
+        backend, table_name="t", mode="create", maxsize=2
+    )
+    batches = [pa.record_batch({"a": [i]}) for i in range(20)]
+    out = list(writer.write_through(iter(batches)))
+    assert [_first(b) for b in out] == list(range(20))
+    assert [_first(b) for b in backend.calls[0]["batches"]] == list(range(20))
+
+
+def test_threaded_bounded_no_deadlock_when_write_dies() -> None:
+    # the discard-on-death invariant: with a full bounded queue the producer
+    # blocks on put(); when the write thread dies it keeps draining (discarding)
+    # so the producer unblocks, the error surfaces, and downstream is cut off at
+    # the failure point instead of receiving every batch.
+    class _FailAfterFirst(_RecordingBackend):
+        def read_record_batches(self, source, table_name=None, mode=None, **kwargs):
+            self.worker = threading.current_thread()
+            it = iter(source)
+            next(it)  # pull exactly one batch, then stop draining
+            raise RuntimeError("simulated ingest failure")
+
+    backend = _FailAfterFirst()
+    writer = ThreadedBackendWriteThrough(
+        backend, table_name="t", mode="create", maxsize=1
+    )
+    yielded: list[int] = []
+    result: list[BaseException | None] = []
+
+    def run() -> None:
+        try:
+            for batch in writer.write_through(
+                iter([pa.record_batch({"a": [i]}) for i in range(100)])
+            ):
+                yielded.append(_first(batch))
+            result.append(None)
+        except BaseException as exc:  # noqa: BLE001
+            result.append(exc)
+
+    th = threading.Thread(target=run)
+    th.start()
+    th.join(timeout=10)
+    assert not th.is_alive(), "bounded write_through deadlocked on write death"
+    assert isinstance(result[0], RuntimeError)
+    assert len(yielded) < 100  # downstream cut off at the failure point
+
+
+def test_threaded_bounded_drain_on_close_writes_all() -> None:
+    # drain semantics over a *bounded* threaded write: stopping downstream early
+    # and draining (DrainingIterator.close) must finish the full write without
+    # wedging on the bounded queue — the drain thread keeps consuming yields so
+    # the producer never blocks, and every batch reaches the single ingest.
+    backend = _RecordingBackend()
+    writer = ThreadedBackendWriteThrough(
+        backend, table_name="t", mode="create", maxsize=2
+    )
+    batches = [pa.record_batch({"a": [i]}) for i in range(10)]
+    gen = writer.write_through(iter(batches))
+    it = DrainingIterator(gen)
+    next(it)
+    next(it)
+    it.close()  # downstream stops early; drain finishes the write
+    it.join(timeout=5)
+    assert it.exhausted
+    assert [_first(b) for b in backend.calls[0]["batches"]] == list(range(10))
+
+
+def test_threaded_maxsize_is_identity_neutral() -> None:
+    con = xo.connect()
+    a = ThreadedBackendWriteThrough(con, table_name="x", mode="create")
+    b = ThreadedBackendWriteThrough(con, table_name="x", mode="create", maxsize=4)
+    assert a.__dasher_tokenize__() == b.__dasher_tokenize__()
+    assert a == b
+    assert hash(a) == hash(b)
+
+
 def test_threaded_creates_table_real_backend(t: Table) -> None:
     target_con = xo.connect()
     writer = ThreadedBackendWriteThrough(target_con, table_name="th_tgt", mode="create")
     out = t.tee(writer).execute()
     assert len(out) == len(t.execute())
     assert len(target_con.table("th_tgt").execute()) == len(t.execute())
+
+
+def test_threaded_bounded_terminal_write_limit_zero(t: Table) -> None:
+    # terminal-write pattern: a bounded threaded writer behind .limit(0) returns
+    # nothing downstream yet completes the full write via the post-execution
+    # drain (drain=True default).  The bounded queue only paces producer<->write
+    # thread here, so it must not wedge with no real downstream consuming.
+    target_con = xo.connect()
+    writer = ThreadedBackendWriteThrough(
+        target_con, table_name="term_tgt", mode="create", maxsize=2
+    )
+    out = t.tee(writer).limit(0).execute()
+    assert len(out) == 0
+    assert len(target_con.table("term_tgt").execute()) == len(t.execute())
+
+
+def test_threaded_bounded_terminal_write_no_drain_skips_write(t: Table) -> None:
+    # drain=False + .limit(0): the generator is never driven, so the write never
+    # fires — bounded mode does not change the early-stop-aborts semantics.
+    target_con = xo.connect()
+    writer = ThreadedBackendWriteThrough(
+        target_con, table_name="term_no_drain", mode="create", maxsize=2
+    )
+    t.tee(writer, drain=False).limit(0).execute()
+    with pytest.raises((ValueError, Exception), match="not found|term_no_drain"):
+        target_con.table("term_no_drain")
 
 
 # ---- DrainingIterator --------------------------------------------------------

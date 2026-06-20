@@ -239,19 +239,37 @@ class BackendWriteThrough(WriteThrough):
 class ThreadedBackendWriteThrough(BackendWriteThrough):
     """BackendWriteThrough that streams a single ingest on a background thread.
 
-    Batches are pushed to an unbounded queue and yielded downstream; a
-    background thread drains the queue into a single ``read_record_batches``
-    call.  The queue is unbounded (no backpressure) because a bounded queue
-    would deadlock if the write thread died without draining.
+    Batches are pushed to a queue and yielded downstream; a background thread
+    drains the queue into a single ``read_record_batches`` call.
+
+    ``maxsize`` is the backpressure dial.  ``0`` (default) is an unbounded queue:
+    the producer never blocks, so a slow write only costs memory — O(lag)
+    buffered batches.  ``>0`` is a bounded queue: a full queue blocks the
+    producer, and because the producer is downstream-primary this back-pressures
+    *downstream* too, capping buffered memory at ``maxsize`` batches.
+
+    Bounded mode upholds a **discard-on-death** invariant: if the write thread
+    dies mid-stream it keeps draining (discarding) the queue until it sees the
+    producer's terminal sentinel, so the producer's blocking ``put`` can never
+    wedge on a full queue nobody reads.  A dead write also cuts downstream off at
+    the failure point — the in-flight batch is not yielded — so a write failure
+    is fatal to the read side rather than silently handing out data as though the
+    write had succeeded.  ``maxsize`` is identity-neutral.
     """
+
+    # Not identity-bearing: transport tuning, not the logical result.
+    maxsize: int = field(default=0, hash=False, eq=False, validator=instance_of(int))
 
     def write_through(
         self, batches: Iterable[pa.RecordBatch]
     ) -> Iterator[pa.RecordBatch]:
         import pyarrow as pa  # noqa: PLC0415
 
-        q: queue.SimpleQueue = queue.SimpleQueue()
+        q: queue.Queue | queue.SimpleQueue = (
+            queue.Queue(self.maxsize) if self.maxsize > 0 else queue.SimpleQueue()
+        )
         error: list[BaseException] = []
+        sentinel_seen: list[bool] = []
 
         def write_thread(schema: pa.Schema) -> None:
             def drain() -> Iterator[pa.RecordBatch]:
@@ -260,6 +278,7 @@ class ThreadedBackendWriteThrough(BackendWriteThrough):
                     # None: clean exhaustion. A BaseException: upstream failed or
                     # the downstream consumer stopped early — end the reader short.
                     if item is None or isinstance(item, BaseException):
+                        sentinel_seen.append(True)
                         return
                     yield item
 
@@ -268,6 +287,17 @@ class ThreadedBackendWriteThrough(BackendWriteThrough):
                 self._ingest(reader, self.mode.value)
             except BaseException as exc:  # noqa: BLE001
                 error.append(exc)
+            finally:
+                # discard-on-death: if the ingest died before drain() reached the
+                # producer's terminal sentinel, keep draining (discarding) so a
+                # bounded producer's put() cannot wedge on a full queue nobody
+                # reads.  Bounded by the sentinel the producer is guaranteed to
+                # send, so this cannot loop forever.
+                if error and not sentinel_seen:
+                    while True:
+                        item = q.get()
+                        if item is None or isinstance(item, BaseException):
+                            break
 
         thread: threading.Thread | None = None
         try:
@@ -282,6 +312,11 @@ class ThreadedBackendWriteThrough(BackendWriteThrough):
                     )
                     thread.start()
                 q.put(batch)
+                if error:
+                    # the write died while this batch was in flight: do not hand
+                    # it downstream.  A bounded write failure is fatal to the read
+                    # side; surface the error after the join below.
+                    break
                 yield batch
             q.put(None)
         except BaseException as exc:
