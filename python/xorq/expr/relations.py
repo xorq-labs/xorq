@@ -7,7 +7,7 @@ import warnings
 from collections import defaultdict
 from itertools import tee
 from threading import Lock
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import pyarrow as pa
 import toolz
@@ -30,6 +30,10 @@ from xorq.vendor.ibis.expr import operations as ops
 from xorq.vendor.ibis.expr.format import fmt, render_schema
 from xorq.vendor.ibis.expr.operations import Node, Relation
 from xorq.writes import DrainingIterator, WriteThrough
+
+
+if TYPE_CHECKING:
+    from xorq.vendor.ibis.backends import BaseBackend
 
 
 def replace_cache_table(node: Node, kwargs: dict[str, Any] | None) -> Node:
@@ -122,14 +126,14 @@ class HashingTag(Tag):
 class TeeNode(ops.Relation):
     """A transparent pass-through that hands its stream to a WriteThrough.
 
-    Schema and rows equal the parent's.  The cache hash
+    Schema and rows equal the parent's. The cache hash
     (``expr.ls.tokenized``) strips the node so ``expr.tee(s)`` caches
-    identically to ``expr``.  The build hash (``get_expr_hash``) includes
+    identically to ``expr``. The build hash (``get_expr_hash``) includes
     the writer identity so different writers produce different build artifacts.
 
     When ``drain`` is True (the default), early termination by downstream
     causes the remaining batches to be consumed through the writer in a
-    background thread so the write completes.  Pass ``drain=False`` to let a
+    background thread so the write completes. Pass ``drain=False`` to let a
     downstream early-stop (``LIMIT``/``head``) abort the write instead.
     """
 
@@ -692,7 +696,7 @@ _NON_REENTRANT_TEE_BACKENDS = frozenset({"duckdb"})
 @tracer.start_as_current_span("register_and_transform_tee_nodes")
 def register_and_transform_tee_nodes(
     expr: Expr,
-) -> tuple[Expr, dict, list[DrainingIterator]]:
+) -> tuple[Expr, dict[str, BaseBackend], list[DrainingIterator]]:
     """Replace each surviving `TeeNode` with a backend table fed by the
     writer's ``write_through(batches)`` generator.
 
@@ -712,7 +716,7 @@ def register_and_transform_tee_nodes(
     from xorq.common.utils.caching_utils import find_backend  # noqa: PLC0415
 
     drains: list[DrainingIterator] = []
-    created: dict = {}
+    created: dict[str, BaseBackend] = {}
 
     def replacer(node, kwargs):
         if not isinstance(node, TeeNode):

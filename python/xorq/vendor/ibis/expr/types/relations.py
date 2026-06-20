@@ -3433,7 +3433,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         When *drain* is True (the default), early termination by downstream
         causes the remaining batches to be consumed through the writer in a
-        background thread so the write completes.  Pass ``drain=False`` to let
+        background thread so the write completes. Pass ``drain=False`` to let
         a downstream early-stop (``LIMIT``/``head``) abort the write instead.
 
         The writer is selected by *target*'s type:

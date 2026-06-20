@@ -1,4 +1,4 @@
-"""WriteThrough implementations for ``TeeNode`` deferred writes.  See ADR-0014."""
+"""WriteThrough implementations for ``TeeNode`` deferred writes. See ADR-0014."""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ def _has_read_record_batches(
 
 
 class WriteThrough(abc.ABC):
-    """A side-effect consumer that wraps a batch stream.  See ADR-0014."""
+    """A side-effect consumer that wraps a batch stream. See ADR-0014."""
 
     @abc.abstractmethod
     def write_through(
@@ -162,7 +162,7 @@ class BackendWriteThrough(WriteThrough):
     """WriteThrough that writes to a table on any xorq backend.
 
     Backends that accept ``mode`` are ingested per-batch (each batch commits
-    independently — partial writes on mid-stream error).  Backends without
+    independently — partial writes on mid-stream error). Backends without
     ``mode`` (DataFusion, DuckDB, Pandas) buffer all batches in memory and
     register a single table after the stream is fully consumed.
     """
@@ -225,12 +225,12 @@ class BackendWriteThrough(WriteThrough):
         self, batches: Iterable[pa.RecordBatch]
     ) -> Iterator[pa.RecordBatch]:
         # NOTE: non-atomic — all batches are yielded downstream BEFORE the
-        # backend ingest runs.  If _ingest fails the downstream consumer has
+        # backend ingest runs. If _ingest fails the downstream consumer has
         # already received every batch, so the tee "write" guarantee is lost.
         import pyarrow as pa  # noqa: PLC0415
 
         warnings.warn(
-            f"BackendWriteThrough to {getattr(self.con, 'name', self.con)!r} "
+            f"BackendWriteThrough to {getattr(self.con, 'name', '')!r} "
             f"table {self.table_name!r} uses the bulk path: this backend has no "
             "mode-based ingest, so every batch is delivered downstream before "
             "the single post-stream write runs. A write failure therefore "
@@ -254,19 +254,19 @@ class ThreadedBackendWriteThrough(BackendWriteThrough):
     Batches are pushed to a queue and yielded downstream; a background thread
     drains the queue into a single ``read_record_batches`` call.
 
-    ``maxsize`` is the backpressure dial.  ``0`` (default) is an unbounded queue:
+    ``maxsize`` is the backpressure dial. ``0`` (default) is an unbounded queue:
     the producer never blocks, so a slow write only costs memory — O(lag)
-    buffered batches.  ``>0`` is a bounded queue: a full queue blocks the
+    buffered batches. ``>0`` is a bounded queue: a full queue blocks the
     producer, and because the producer is downstream-primary this back-pressures
     *downstream* too, capping buffered memory at ``maxsize`` batches.
 
     Bounded mode upholds a **discard-on-death** invariant: if the write thread
     dies mid-stream it keeps draining (discarding) the queue until it sees the
     producer's terminal sentinel, so the producer's blocking ``put`` can never
-    wedge on a full queue nobody reads.  A dead write also cuts downstream off at
+    wedge on a full queue nobody reads. A dead write also cuts downstream off at
     the failure point — the in-flight batch is not yielded — so a write failure
     is fatal to the read side rather than silently handing out data as though the
-    write had succeeded.  ``maxsize`` is identity-neutral.
+    write had succeeded. ``maxsize`` is identity-neutral.
     """
 
     # Not identity-bearing: transport tuning, not the logical result.
@@ -303,7 +303,7 @@ class ThreadedBackendWriteThrough(BackendWriteThrough):
                 # discard-on-death: if the ingest died before drain() reached the
                 # producer's terminal sentinel, keep draining (discarding) so a
                 # bounded producer's put() cannot wedge on a full queue nobody
-                # reads.  Bounded by the sentinel the producer is guaranteed to
+                # reads. Bounded by the sentinel the producer is guaranteed to
                 # send, so this cannot loop forever.
                 if error and not sentinel_seen:
                     while True:
@@ -326,7 +326,7 @@ class ThreadedBackendWriteThrough(BackendWriteThrough):
                 q.put(batch)
                 if error:
                     # the write died while this batch was in flight: do not hand
-                    # it downstream.  A bounded write failure is fatal to the read
+                    # it downstream. A bounded write failure is fatal to the read
                     # side; surface the error after the join below.
                     break
                 yield batch
@@ -352,10 +352,10 @@ class WritePrimaryWriteThrough(WriteThrough):
 
     In the default transport the downstream pull drives the write: the write can
     lag behind (unbounded queue) but never lead, and an early-stopping downstream
-    needs ``drain=True`` to finish the write.  Here the **write** owns the pull
+    needs ``drain=True`` to finish the write. Here the **write** owns the pull
     loop on a background thread and downstream consumes the already-written
     batches through a single 1:1 queue (no fan-out — write and pass-through are
-    the same batch sequence at the same position).  The write therefore runs to
+    the same batch sequence at the same position). The write therefore runs to
     completion independently of the downstream consumption rate: it is
     intrinsically drain-always, so an early stop cannot abort it.
 
@@ -366,7 +366,7 @@ class WritePrimaryWriteThrough(WriteThrough):
     ``maxsize`` is the backpressure dial: ``0`` (default) is an unbounded queue
     (write races ahead, downstream may lag in memory); ``>0`` is a bounded queue
     where a full queue blocks the write — i.e. downstream back-pressures the
-    write.  After an early stop the generator keeps draining (discarding) so a
+    write. After an early stop the generator keeps draining (discarding) so a
     bounded write thread cannot deadlock on a full queue nobody reads.
     """
 
