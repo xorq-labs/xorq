@@ -744,8 +744,14 @@ def register_and_transform_tee_nodes(
         created[table_name] = con
         return table.op()
 
-    # op.replace, not replace_nodes: replacer has side effects that must not
-    # fire inside opaque sub-exprs (handled lazily during UDF execution).
+    # op.replace, not replace_nodes: this replacer has side effects (registers
+    # pass-through tables, starts writers), so it must fire only at *this*
+    # execution boundary. Descending into opaque sub-exprs (RemoteTable,
+    # CachedNode, Flight*, ExprScalarUDF) is deliberately avoided -- that is not
+    # a coverage gap: each opaque interior re-enters this transform at its own
+    # execution boundary (e.g. caching/storage.py resolves and re-transforms the
+    # cached parent; into_backend/flight re-pull via to_pyarrow_batches), so its
+    # TeeNodes still fire exactly once. replace_nodes would fire them twice.
     op = expr.op()
     return op.replace(replacer).to_expr(), created, drains
 
