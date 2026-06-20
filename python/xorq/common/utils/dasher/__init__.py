@@ -63,6 +63,8 @@ from xorq.common.utils.dasher._gap_rules import (  # noqa: E402
     normalize_pandas_dataframe,
     normalize_pandas_series,
     normalize_property,
+    normalize_sklearn_constraint,
+    normalize_sklearn_hidden,
     normalize_slice,
     normalize_toolz_compose,
     normalize_toolz_curry,
@@ -120,6 +122,8 @@ _EXTRA_RULES: tuple[tuple[str, object], ...] = (
     ("pandas.core.series.Series", normalize_pandas_series),
     ("pandas.core.frame.DataFrame", normalize_pandas_dataframe),
     ("xorq.common.utils.toolz_utils.curry", normalize_toolz_curry),
+    ("sklearn.utils._param_validation._Constraint", normalize_sklearn_constraint),
+    ("sklearn.utils._param_validation.Hidden", normalize_sklearn_hidden),
 )
 
 HASHER: Hasher = DEFAULT_HASHER.override(*_EXTRA_RULES)

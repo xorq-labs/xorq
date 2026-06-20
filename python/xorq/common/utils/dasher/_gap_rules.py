@@ -21,6 +21,12 @@ from xorq.common.utils.inspect_utils import get_partial_arguments
 if TYPE_CHECKING:
     import numpy as np
     import pandas as pd
+    from sklearn.utils._param_validation import (
+        Hidden as _SklearnHidden,  # noqa: PLC2701
+    )
+    from sklearn.utils._param_validation import (
+        _Constraint as _SklearnConstraint,  # noqa: PLC2701
+    )
 
     from xorq.vendor.ibis.expr.schema import Schema
 
@@ -143,6 +149,28 @@ def normalize_pandas_dataframe(df: pd.DataFrame) -> tuple:
     )
 
 
+def normalize_sklearn_constraint(obj: _SklearnConstraint) -> tuple:
+    """Normalize sklearn parameter-validation constraint objects.
+
+    These live in function ``__dict__["_skl_parameter_constraints"]`` and
+    are reached when ``normalize_function`` recurses into ``__dict__``.
+    """
+    cls = type(obj)
+    fqn = f"{cls.__module__}.{cls.__qualname__}"
+    items = tuple(
+        (
+            k,
+            tuple(sorted(v)) if isinstance(v, (set, frozenset)) else v,
+        )
+        for k, v in sorted(obj.__dict__.items())
+    )
+    return ("sklearn._Constraint", fqn, items)
+
+
+def normalize_sklearn_hidden(obj: _SklearnHidden) -> tuple:
+    return ("sklearn.Hidden", obj.constraint)
+
+
 __all__ = [
     "normalize_attrs",
     "normalize_builtin_callable",
@@ -154,6 +182,8 @@ __all__ = [
     "normalize_pandas_dataframe",
     "normalize_pandas_series",
     "normalize_property",
+    "normalize_sklearn_constraint",
+    "normalize_sklearn_hidden",
     "normalize_slice",
     "normalize_toolz_compose",
     "normalize_toolz_curry",

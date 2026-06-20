@@ -24,8 +24,10 @@ still apply to the dasher-backed cache-key subsystem:
 from __future__ import annotations
 
 import functools
+import numbers
 import operator
 import pickle
+import tempfile
 import types
 
 import numpy as np
@@ -56,6 +58,8 @@ from xorq.common.utils.dasher._gap_rules import (
     normalize_methodcaller,
     normalize_pandas_dataframe,
     normalize_pandas_series,
+    normalize_sklearn_constraint,
+    normalize_sklearn_hidden,
     normalize_slice,
 )
 from xorq.common.utils.dasher._opaque import (
@@ -65,11 +69,32 @@ from xorq.common.utils.dasher._opaque import (
 from xorq.common.utils.file_utils import normalize_read_path_stat
 from xorq.common.utils.tests._test_helpers import BombHasher, MockOp, Probe
 from xorq.common.utils.toolz_utils import curry as xo_curry
+from xorq.expr import api
+from xorq.expr.ml.metrics import MetricComputation, deferred_sklearn_metric
 from xorq.expr.udf import agg, make_pandas_expr_udf
+from xorq.ibis_yaml.compiler import build_expr
 from xorq.vendor.ibis.expr.operations.generic import Cast
 from xorq.vendor.ibis.expr.operations.relations import DatabaseTable, Schema
 from xorq.vendor.ibis.expr.operations.udf import ScalarUDF
 from xorq.vendor.ibis.expr.types import Expr
+
+
+try:
+    from sklearn.metrics import accuracy_score, roc_auc_score
+    from sklearn.utils._param_validation import HasMethods as _SklearnHasMethods
+    from sklearn.utils._param_validation import Hidden as _SklearnHidden
+    from sklearn.utils._param_validation import Interval as _SklearnInterval
+    from sklearn.utils._param_validation import (
+        MissingValues as _SklearnMissingValues,
+    )
+    from sklearn.utils._param_validation import StrOptions as _SklearnStrOptions
+    from sklearn.utils._param_validation import _Constraint as _SklearnConstraint
+
+    _has_sklearn = True
+except ImportError:
+    _has_sklearn = False
+
+requires_sklearn = pytest.mark.skipif(not _has_sklearn, reason="sklearn not installed")
 
 
 # --- file-change invalidation ---------------------------------------------
@@ -959,7 +984,8 @@ def test_expr_metadata_zero_slot_scalar():
     assert compute_expr_token(meta["structural_hash"], ()) == token
 
 
-def test_extra_rules_fqn_strings():
+@requires_sklearn
+def test_extra_rules_fqn_strings() -> None:
     """Guard against class relocations silently breaking hardcoded FQN strings."""
     expected = {
         "functools._lru_cache_wrapper": functools._lru_cache_wrapper,
@@ -980,6 +1006,8 @@ def test_extra_rules_fqn_strings():
         "pandas.core.series.Series": pd.Series,
         "pandas.core.frame.DataFrame": pd.DataFrame,
         "xorq.common.utils.toolz_utils.curry": xo_curry,
+        "sklearn.utils._param_validation._Constraint": _SklearnConstraint,
+        "sklearn.utils._param_validation.Hidden": _SklearnHidden,
     }
     for literal, cls in expected.items():
         assert fqn(cls) == literal, (
@@ -991,3 +1019,86 @@ def test_extra_rules_fqn_strings():
     assert production_fqns == set(expected), (
         f"test/production mismatch: {production_fqns.symmetric_difference(set(expected))}"
     )
+
+
+# --- sklearn constraint normalizers -----------------------------------------
+
+
+@requires_sklearn
+def test_normalize_sklearn_constraint_stroptions() -> None:
+    obj = _SklearnStrOptions({"micro", "macro", "weighted"})
+    result = normalize_sklearn_constraint(obj)
+    assert result[0] == "sklearn._Constraint"
+    assert "StrOptions" in result[1]
+    items_dict = dict(result[2])
+    assert items_dict["options"] == tuple(sorted({"micro", "macro", "weighted"}))
+
+
+@requires_sklearn
+def test_normalize_sklearn_constraint_interval() -> None:
+    obj = _SklearnInterval(type=numbers.Real, left=0, right=1, closed="both")
+    result = normalize_sklearn_constraint(obj)
+    assert result[0] == "sklearn._Constraint"
+    assert "Interval" in result[1]
+
+
+@requires_sklearn
+def test_normalize_sklearn_hidden() -> None:
+    obj = _SklearnHidden(constraint="array-like")
+    result = normalize_sklearn_hidden(obj)
+    assert result == ("sklearn.Hidden", "array-like")
+
+
+@requires_sklearn
+def test_normalize_sklearn_constraint_hasmethods() -> None:
+    result = normalize_sklearn_constraint(_SklearnHasMethods(["fit", "predict"]))
+    assert result[0] == "sklearn._Constraint"
+    assert "HasMethods" in result[1]
+
+
+@requires_sklearn
+def test_normalize_sklearn_constraint_missingvalues() -> None:
+    """MissingValues has nested _Constraint objects in __dict__ — dasher must recurse."""
+    obj = _SklearnMissingValues()
+    tok = tokenize(obj)
+    assert isinstance(tok, str) and len(tok) > 0
+    assert tok == tokenize(_SklearnMissingValues())
+
+
+@requires_sklearn
+def test_sklearn_constraint_set_order_stable() -> None:
+    """StrOptions with the same elements in any insertion order must normalize identically."""
+    a = normalize_sklearn_constraint(_SklearnStrOptions({"z", "a", "m"}))
+    b = normalize_sklearn_constraint(_SklearnStrOptions({"a", "m", "z"}))
+    assert a == b
+
+
+# --- MetricComputation tokenization -----------------------------------------
+
+
+@requires_sklearn
+def test_metric_computation_tokenize_stable() -> None:
+    mc1 = MetricComputation(target="y", pred="pred", metric_fn=roc_auc_score)
+    mc2 = MetricComputation(target="y", pred="pred", metric_fn=roc_auc_score)
+    assert tokenize(mc1) == tokenize(mc2)
+
+
+@requires_sklearn
+def test_metric_computation_different_fn_different_token() -> None:
+    mc_auc = MetricComputation(target="y", pred="pred", metric_fn=roc_auc_score)
+    mc_acc = MetricComputation(target="y", pred="pred", metric_fn=accuracy_score)
+    assert tokenize(mc_auc) != tokenize(mc_acc)
+
+
+@requires_sklearn
+def test_deferred_sklearn_metric_build_expr() -> None:
+    """End-to-end: deferred_sklearn_metric expression tokenizes via build_expr."""
+    preds = api.register(
+        pd.DataFrame({"y": [0, 1, 0, 1], "pred": [0.1, 0.9, 0.25, 0.8]}),
+        "preds",
+    )
+    expr = deferred_sklearn_metric(
+        expr=preds, target="y", pred="pred", metric=roc_auc_score
+    )
+    result = build_expr(expr, builds_dir=tempfile.mkdtemp())
+    assert result is not None
