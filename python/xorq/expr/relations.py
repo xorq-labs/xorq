@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import functools
 import itertools
 import operator
+import warnings
 from collections import defaultdict
 from itertools import tee
 from threading import Lock
@@ -680,6 +683,12 @@ def register_and_transform_remote_tables(
     return expr, created
 
 
+# Backends whose single, non-re-entrant connection deadlocks the streaming tee
+# transport (it pulls the parent reader while that connection serves the outer
+# query). See ADR-0014.
+_NON_REENTRANT_TEE_BACKENDS = frozenset({"duckdb"})
+
+
 @tracer.start_as_current_span("register_and_transform_tee_nodes")
 def register_and_transform_tee_nodes(
     expr: Expr,
@@ -712,6 +721,15 @@ def register_and_transform_tee_nodes(
             node = node.__recreate__(kwargs)
         parent_expr = node.parent.to_expr()
         con, _ = find_backend(node.parent, use_default=True)
+        if con.name in _NON_REENTRANT_TEE_BACKENDS:
+            warnings.warn(
+                f"tee() on a {con.name!r} backend is likely to deadlock: the "
+                "streaming write pulls the parent reader on the same single "
+                "connection that serves the outer query. Phase 1 targets "
+                "engines that allow concurrent reader pulls (e.g. datafusion). "
+                "See ADR-0014.",
+                stacklevel=2,
+            )
         reader = parent_expr.to_pyarrow_batches()
         write_iter = node.writer.write_through(reader)
         if node.drain:

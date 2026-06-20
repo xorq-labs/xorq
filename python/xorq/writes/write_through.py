@@ -8,6 +8,7 @@ import os
 import queue
 import tempfile
 import threading
+import warnings
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator
@@ -227,6 +228,15 @@ class BackendWriteThrough(WriteThrough):
         # already received every batch, so the tee "write" guarantee is lost.
         import pyarrow as pa  # noqa: PLC0415
 
+        warnings.warn(
+            f"BackendWriteThrough to {getattr(self.con, 'name', self.con)!r} "
+            f"table {self.table_name!r} uses the bulk path: this backend has no "
+            "mode-based ingest, so every batch is delivered downstream before "
+            "the single post-stream write runs. A write failure therefore "
+            "leaves downstream having consumed data that was never persisted, "
+            "and the write is not atomic. See ADR-0014.",
+            stacklevel=2,
+        )
         collected = []
         for batch in batches:
             collected.append(batch)
