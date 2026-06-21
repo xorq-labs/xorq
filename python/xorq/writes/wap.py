@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import shutil
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Callable, Protocol
 
 from toolz import curry
 
@@ -10,12 +10,20 @@ if TYPE_CHECKING:
     import pandas as pd
 
     from xorq.vendor.ibis.backends import BaseBackend
-    from xorq.vendor.ibis.expr.types import Table
+    from xorq.vendor.ibis.expr.types import Table, Value
     from xorq.writes.write_through import (
         BackendWriteThrough,
         ParquetWriteThrough,
         WriteThrough,
     )
+
+    class PublishUDF(Protocol):
+        """UDF constructor returned by make_pandas_udf for the publish step."""
+
+        fn: Callable[[pd.DataFrame], list[bool]]
+
+        def on_expr(self, e: Table) -> Value: ...
+
 
 # Column-name contract shared by the audit/publish UDF schemas and the mutate keys.
 STAGING = "staging"
@@ -46,7 +54,7 @@ def make_wap_expr(
     final: str,
     audit_fn: Callable[[pd.DataFrame], bool],
     make_sink: Callable[[str], WriteThrough],
-    publish: Any,
+    publish: PublishUDF,
 ) -> Table:
     from xorq.vendor.ibis.expr.types.generic import literal  # noqa: PLC0415
 
@@ -66,7 +74,7 @@ def _make_sink_with_parquet(path: str) -> ParquetWriteThrough:
     return ParquetWriteThrough(path=path, mode=WriteMode.CREATE)
 
 
-def _make_publish_with_parquet() -> Any:
+def _make_publish_with_parquet() -> PublishUDF:
     import xorq.expr.datatypes as dt  # noqa: PLC0415
     from xorq.expr.udf import make_pandas_udf  # noqa: PLC0415
     from xorq.vendor.ibis import schema  # noqa: PLC0415
@@ -124,7 +132,7 @@ def make_sink_with_iceberg(
     )
 
 
-def make_publish_with_iceberg(con: BaseBackend, branch: bool = False) -> Any:
+def make_publish_with_iceberg(con: BaseBackend, branch: bool = False) -> PublishUDF:
     import xorq.expr.datatypes as dt  # noqa: PLC0415
     from xorq.expr.udf import make_pandas_udf  # noqa: PLC0415
     from xorq.vendor.ibis import schema  # noqa: PLC0415

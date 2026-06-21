@@ -200,10 +200,11 @@ class BackendWriteThrough(WriteThrough):
         sig = inspect.signature(self.con.read_record_batches)
         return "mode" in sig.parameters
 
-    def _ingest(self, reader: pa.RecordBatchReader, mode: str) -> None:
+    def _ingest(self, reader: pa.RecordBatchReader, mode: WriteMode) -> None:
         kw = dict(self.kwargs)
         if self._supports_mode:
-            kw["mode"] = mode
+            # Backends (and ADBC under them) expect the wire string, not the enum.
+            kw["mode"] = mode.value
         self.con.read_record_batches(reader, table_name=self.table_name, **kw)
 
     def write_through(
@@ -225,10 +226,10 @@ class BackendWriteThrough(WriteThrough):
         for batch in batches:
             reader = pa.RecordBatchReader.from_batches(batch.schema, [batch])
             if first:
-                mode = "create" if self.mode is WriteMode.CREATE else "append"
+                mode = self.mode
                 first = False
             else:
-                mode = "append"
+                mode = WriteMode.APPEND
             self._ingest(reader, mode)
             yield batch
 
@@ -259,7 +260,7 @@ class BackendWriteThrough(WriteThrough):
             yield batch
         if collected:
             reader = pa.RecordBatchReader.from_batches(collected[0].schema, collected)
-            self._ingest(reader, self.mode.value)
+            self._ingest(reader, self.mode)
 
 
 @frozen
@@ -315,7 +316,7 @@ class ThreadedBackendWriteThrough(BackendWriteThrough):
 
             try:
                 reader = pa.RecordBatchReader.from_batches(schema, drain())
-                self._ingest(reader, self.mode.value)
+                self._ingest(reader, self.mode)
             except BaseException as exc:  # noqa: BLE001
                 error.append(exc)
             finally:
