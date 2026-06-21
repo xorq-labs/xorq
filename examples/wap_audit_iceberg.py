@@ -44,6 +44,8 @@ atexit.register(shutil.rmtree, tmp)
 warehouse = str(Path(tmp) / "warehouse")
 con = xo.pyiceberg.connect(warehouse_path=warehouse)
 
+# binds `con` up front and returns a curried builder, so one `wap` reuses the
+# connection across exprs (unlike parquet, which pipes the flat factory directly)
 wap = make_iceberg_wap_expr(con, FINAL)
 
 create_expr = (
@@ -88,6 +90,8 @@ if __name__ in ("__main__", "__pytest_main__"):
         cur_count = len(con.table(FINAL).execute())
         if prev_count:
             assert cur_count == prev_count + 4, "validated batch should append"
+        else:
+            assert cur_count == 4, "create should publish the first batch"
         print(f"  -> {label}; final now has {cur_count} rows\n")
         prev_count = cur_count
 
@@ -102,5 +106,26 @@ if __name__ in ("__main__", "__pytest_main__"):
     # staging branch retained so rejected data can be inspected
     assert STAGING in ice2.refs(), "staging branch should be retained for inspection"
     print("  -> audit failed; staging branch retained, main untouched\n")
+
+    # reuse-after-failure: the retained staging branch blocks an identical retry,
+    # since create-mode refuses to recreate an existing branch. Drop it to retry.
+    try:
+        fail_expr.execute()
+    except ValueError as exc:
+        assert "already exists" in str(exc), exc
+        print("  -> retry refused: staging branch from the failed run still exists")
+    else:
+        raise AssertionError("retry should refuse to recreate the retained branch")
+
+    ice2.manage_snapshots().remove_branch(STAGING).commit()
+    out = fail_expr.execute()
+    assert not out["passed"].iloc[0], "same bad data still fails the audit"
+    assert not out["published"].iloc[0], "failing retry must not publish"
+    assert len(con2.table(FINAL).execute()) == 0, (
+        "main must stay empty after failing retry"
+    )
+    ice2 = con2.catalog.load_table(f"{con2.namespace}.{FINAL}")
+    assert STAGING in ice2.refs(), "staging branch is retained again for inspection"
+    print("  -> staging branch dropped; retry runs again (audit still fails)\n")
 
     pytest_examples_passed = True

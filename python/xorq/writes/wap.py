@@ -87,10 +87,10 @@ def _make_publish_with_parquet() -> PublishUDF:
     def publish_with_parquet(df: pd.DataFrame) -> list[bool]:
         if len(df) != 1:
             raise ValueError(f"expected 1 row, got {len(df)}")
-        staging, final, passed = df.values[0]
+        row = df.iloc[0]
         written = False
-        if passed:
-            shutil.copy2(staging, final)
+        if row[PASSED]:
+            shutil.copy2(row[STAGING], row[FINAL])
             written = True
         return [written]
 
@@ -147,14 +147,14 @@ def make_publish_with_iceberg(
     def publish_with_iceberg(df: pd.DataFrame) -> list[bool]:
         if len(df) != 1:
             raise ValueError(f"expected 1 row, got {len(df)}")
-        staging, final, passed = df.values[0]
+        row = df.iloc[0]
         written = False
-        if passed:
+        if row[PASSED]:
             if branch:
                 # staging=branch name, final=table name for the branch strategy
-                con.publish_branch(final, staging)
+                con.publish_branch(row[FINAL], row[STAGING])
             else:
-                con.publish_staging_table(staging, final)
+                con.publish_staging_table(row[STAGING], row[FINAL])
             written = True
         return [written]
 

@@ -263,6 +263,14 @@ known-first-party = ["xorq"]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 lines-after-imports = 2
 
+[tool.xorq-style.print]
+# Example scripts print receipts to stdout by design. allow-files matches on
+# basename only (no globs), so list each example explicitly as it's touched.
+allow-files = [
+    "wap_audit_iceberg.py",
+    "wap_audit_parquet.py",
+]
+
 [tool.codespell]
 skip = "*.lock,.direnv,.git,docs/_freeze/**/html.json"
 ignore-regex = '\b(DOUB|i[if]f|I[IF]F|lamduh|AFE|crate|ba|fpr)\b'

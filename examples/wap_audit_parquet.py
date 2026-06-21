@@ -78,4 +78,22 @@ if __name__ in ("__main__", "__pytest_main__"):
     assert Path(fail_staging).exists(), "rejected data is retained in staging"
     print("  -> audit failed; rejected data retained at staging, final absent\n")
 
+    # reuse-after-failure: the retained staging file blocks an identical retry,
+    # since create-mode refuses to clobber it. Clear it (or stage elsewhere) first.
+    # The writer's FileExistsError crosses Arrow's C Data interface as a ValueError.
+    try:
+        fail_expr.execute()
+    except ValueError as exc:
+        assert "already exists" in str(exc), exc
+        print("  -> retry refused: staging from the failed run still exists")
+    else:
+        raise AssertionError("retry should refuse to clobber retained staging")
+
+    Path(fail_staging).unlink()
+    out = fail_expr.execute()
+    assert not out["passed"].iloc[0], "same bad data still fails the audit"
+    assert not out["published"].iloc[0], "failing retry must not publish"
+    assert not Path(fail_final).exists(), "final must stay absent after failing retry"
+    print("  -> staging cleared; retry runs again (audit still fails on bad data)\n")
+
     pytest_examples_passed = True
