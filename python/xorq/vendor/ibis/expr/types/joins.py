@@ -348,8 +348,8 @@ class Join(Table):
             # the ifelse falls to the NULL branch — the desired output.
             (bound_left_on,) = joined.bind(left_on)
             (bound_right_on,) = joined.bind(right_on)
-            within = (bound_left_on <= bound_right_on + tolerance) & (
-                bound_left_on >= bound_right_on - tolerance
+            within = bound_left_on.between(
+                bound_right_on - tolerance, bound_right_on + tolerance
             )
 
             # distinguish right columns by field origin (the relation the Field
