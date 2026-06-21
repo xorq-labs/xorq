@@ -58,18 +58,13 @@ def make_wap_expr(
 ) -> Table:
     from xorq.vendor.ibis.expr.types.generic import literal  # noqa: PLC0415
 
-    # Load-bearing ordering invariant: the staging write must fully commit before
-    # publish reads it. `tee` writes to staging as a side effect as batches pass
-    # through; `.aggregate` is a pipeline breaker that has to pull the *entire*
-    # tee'd stream to produce its single `passed` row, so the staging write is
-    # drained to completion before that row flows into the publish `.mutate`.
-    #
-    # This holds only because the default sinks write inline in the draining
-    # thread (ParquetWriteThrough; per-batch BackendWriteThrough). A
-    # background-threaded sink (ThreadedBackendWriteThrough / WritePrimaryWriteThrough)
-    # would break it: draining the read side does not join the write thread, so
-    # publish could run before staging commits. The publish UDFs raise if the
-    # staging artifact is missing as a backstop against that.
+    # Load-bearing ordering invariant: staging must fully commit before publish
+    # reads it. `tee` writes staging as a side effect while batches pass; the
+    # `.aggregate` pipeline breaker pulls the *entire* stream to produce `passed`,
+    # so staging is drained before that row reaches publish. This holds only for
+    # sinks that write inline in the draining thread (the defaults) — a
+    # background-threaded sink would let publish run before staging commits, which
+    # is why the publish UDFs raise if the staging artifact is missing.
     wap_expr = (
         expr.tee(make_sink(staging))
         .aggregate(**{PASSED: audit_expr(audit_fn=audit_fn, name=PASSED)})
@@ -107,19 +102,15 @@ def _make_publish_with_parquet() -> PublishUDF:
         if row[PASSED]:
             staging = Path(row[STAGING])
             final = Path(row[FINAL])
-            # Backstop for the ordering invariant in make_wap_expr: if the audit
-            # really drained the inline staging write, the file is here by now.
             if not staging.exists():
                 raise RuntimeError(
                     f"staging {str(staging)!r} missing at publish: the audit ran "
                     "before the staging write committed (async sink?)"
                 )
-            # Append into final, then consume staging — mirrors the iceberg
-            # strategies (add_files / fast-forward main, then drop the staging
-            # table / branch). Parquet has no metadata-only append, so we rewrite:
-            # read both sides, write to a temp in final's dir, then swap. The temp
-            # shares final's filesystem, so .replace is an atomic same-fs rename;
-            # reading staging via pyarrow works across filesystems.
+            # Parquet has no metadata-only append, so accumulating into final
+            # means a rewrite: concat both sides into a temp in final's dir, then
+            # swap. The temp shares final's filesystem, so .replace is an atomic
+            # same-fs rename; reading staging via pyarrow works across filesystems.
             final.parent.mkdir(parents=True, exist_ok=True)
             tables = [pq.read_table(staging)]
             if final.exists():
@@ -207,23 +198,15 @@ def make_publish_with_iceberg(
 def make_iceberg_wap_expr(
     con: PyIcebergBackend, table_name: str | None = None
 ) -> Callable[..., Table]:
-    # Unlike make_parquet_wap_expr (a flat function), this is a factory that binds
-    # `con` up front and returns a curried builder, so it composes with `.pipe()`
-    # and can be reused across exprs without re-threading the connection.
+    # Factory that binds `con` and returns a curried builder, so it composes with
+    # `.pipe()`. table_name set -> branch strategy on that table; None -> table
+    # strategy staging into a separate table.
     #
-    # Passing table_name selects the branch strategy on that table; otherwise
-    # the table strategy stages into a separate table named by the caller.
-    #
-    # Executing a WAP expr is NOT idempotent: publish runs as a side effect of
-    # execution, so re-executing publishes again. Every strategy appends to final
-    # on each pass run and consumes staging (iceberg: fast-forward / add_files
-    # then drop the branch/table; parquet: merge then unlink), so repeated passing
-    # runs accumulate in final.
-    #
-    # On audit failure the staging branch (branch strategy), staging table
-    # (table strategy), or staging file (parquet) is retained for inspection.
-    # Re-running against the same target then fails because the stale staging ref
-    # still exists; remove it first or stage under a fresh name before retrying.
+    # Executing a WAP expr is NOT idempotent: publish is a side effect of
+    # execution, every strategy appends to final on a pass and consumes staging,
+    # so re-executing accumulates. On audit failure staging is retained for
+    # inspection, which then blocks an identical retry (create-mode refuses the
+    # stale ref) — drop it or stage under a fresh name to retry.
     return make_wap_expr(
         make_sink=make_sink_with_iceberg(con, table_name=table_name),
         publish=make_publish_with_iceberg(con, branch=table_name is not None),

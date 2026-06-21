@@ -112,9 +112,7 @@ def test_table_wap_append(fresh_con: Backend) -> None:
 
 
 def test_table_wap_publish_does_not_purge_staging_files(fresh_con: Backend) -> None:
-    # The table strategy promotes by repointing metadata: staging's parquet
-    # files are registered into final, then staging's catalog entry is dropped.
-    # The drop must not purge those files, or final reads stale/missing data.
+    # Regression: dropping staging must leave final's just-registered files intact.
     wap = make_iceberg_wap_expr(fresh_con)
     _wap_expr(wap, good, "src_good").execute()
 
@@ -125,9 +123,7 @@ def test_table_wap_publish_does_not_purge_staging_files(fresh_con: Backend) -> N
 
 
 def test_branch_wap_rerun_after_fail_raises(fresh_con: Backend) -> None:
-    # A failed audit retains the staging branch. Re-running against the same
-    # target then writes mode=CREATE into a branch that already exists, which
-    # the backend rejects rather than silently appending to stale staging data.
+    # A retained staging branch blocks an identical retry rather than appending.
     wap = make_iceberg_wap_expr(fresh_con, FINAL)
     _wap_expr(wap, bad, "src_bad").execute()
     assert STAGING in _refs(fresh_con)
@@ -137,8 +133,7 @@ def test_branch_wap_rerun_after_fail_raises(fresh_con: Backend) -> None:
 
 
 def test_iceberg_publish_guard_rejects_multi_row(fresh_con: Backend) -> None:
-    # The publish UDF assumes the audit aggregate collapsed to exactly one row;
-    # guard against a contract break upstream.
+    # Publish expects the audit aggregate to collapse to exactly one row.
     publish = make_publish_with_iceberg(fresh_con)
     df = pd.DataFrame(
         {

@@ -87,9 +87,7 @@ def test_parquet_publish_guard_rejects_multi_row() -> None:
 
 
 def test_parquet_wap_rerun_after_fail_raises(tmp_path: Path) -> None:
-    # A failed audit retains the staging file. Re-running against the same target
-    # then writes create-mode over an existing file, which the sink refuses
-    # rather than silently clobbering (FileExistsError surfaces as ValueError).
+    # A retained staging file blocks an identical retry rather than clobbering.
     staging = str(tmp_path / "staging.parquet")
     final = str(tmp_path / "final.parquet")
     _wap_expr(bad, staging, final, "src_bad").execute()
@@ -100,8 +98,7 @@ def test_parquet_wap_rerun_after_fail_raises(tmp_path: Path) -> None:
 
 
 def test_parquet_publish_requires_staging_present(tmp_path: Path) -> None:
-    # Backstop for the WAP ordering invariant: publishing before the staging
-    # write committed (e.g. an async sink) raises rather than publishing nothing.
+    # Publishing with staging absent raises rather than publishing nothing.
     final = tmp_path / "final.parquet"
     publish = _make_publish_with_parquet()
     df = pd.DataFrame(

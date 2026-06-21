@@ -69,8 +69,7 @@ if __name__ in ("__main__", "__pytest_main__"):
     assert len(pd.read_parquet(final)) == 4
     print(f"  -> published {len(pd.read_parquet(final))} rows to final\n")
 
-    # append: a second passing run accumulates into final (staging was consumed,
-    # so create-mode stages fresh, and publish merges into the existing final).
+    # append: a second passing run accumulates into final.
     out = pass_expr.execute()
     assert out["published"].iloc[0]
     assert len(pd.read_parquet(final)) == 8, "passing runs accumulate in final"
@@ -88,9 +87,8 @@ if __name__ in ("__main__", "__pytest_main__"):
     assert Path(fail_staging).exists(), "rejected data is retained in staging"
     print("  -> audit failed; rejected data retained at staging, final absent\n")
 
-    # reuse-after-failure: the retained staging file blocks an identical retry,
-    # since create-mode refuses to clobber it. Clear it (or stage elsewhere) first.
-    # The writer's FileExistsError crosses Arrow's C Data interface as a ValueError.
+    # reuse-after-failure: the retained staging file blocks an identical retry;
+    # clear it (or stage elsewhere) first.
     try:
         fail_expr.execute()
     except ValueError as exc:
