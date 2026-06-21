@@ -305,10 +305,15 @@ class Backend(SQLBackend):
         data = pa.Table.from_batches(reader, reader.schema)
 
         if branch is None:
-            if mode == WriteMode.CREATE:
-                self.create_table(name=table_name, obj=data, database=self.namespace)
-            else:
-                self.insert(table_name, data, mode=WriteMode.APPEND)
+            match mode:
+                case WriteMode.CREATE:
+                    self.create_table(
+                        name=table_name, obj=data, database=self.namespace
+                    )
+                case WriteMode.APPEND:
+                    self.insert(table_name, data, mode=mode)
+                case _:
+                    raise ValueError(f"Unsupported write mode: {mode!r}")
         else:
             full_name = f"{self.namespace}.{table_name}"
 
