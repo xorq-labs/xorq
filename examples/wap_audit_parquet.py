@@ -1,4 +1,4 @@
-"""Write-Audit-Publish (WAP) into a Parquet file via copy-on-pass.
+"""Write-Audit-Publish (WAP) into a Parquet file via merge-on-pass.
 
 WAP is a publish gate built from existing primitives — no dedicated API needed.
 The audit aggregate is a pipeline breaker, so the tee'd write fully drains the
@@ -6,7 +6,8 @@ staging file before the publish decision runs.
 
   * **Write**   `tee(ParquetWriteThrough)` writes to a staging Parquet file.
   * **Audit**   `agg` UDAF drains the stream into a single `bool`.
-  * **Publish** Pass: copy staging -> final; staging retained.
+  * **Publish** Pass: merge staging into final, then consume staging — so
+    repeated passing runs accumulate, matching the iceberg strategies.
     Fail: staging retained for inspection, final untouched.
 
 DQ check: every value in column ``a`` must be non-null; null values fail the
@@ -64,8 +65,17 @@ if __name__ in ("__main__", "__pytest_main__"):
     assert out["passed"].iloc[0]
     assert out["published"].iloc[0]
     assert Path(final).exists(), "published data should exist at final"
-    assert Path(staging).exists(), "staging is retained after the copy"
+    assert not Path(staging).exists(), "staging is consumed on publish"
+    assert len(pd.read_parquet(final)) == 4
     print(f"  -> published {len(pd.read_parquet(final))} rows to final\n")
+
+    # append: a second passing run accumulates into final (staging was consumed,
+    # so create-mode stages fresh, and publish merges into the existing final).
+    out = pass_expr.execute()
+    assert out["published"].iloc[0]
+    assert len(pd.read_parquet(final)) == 8, "passing runs accumulate in final"
+    assert not Path(staging).exists(), "staging is consumed on each publish"
+    print("  -> second pass appended; final now has 8 rows\n")
 
     # fail: audit fails -> nothing published, staging retained
     out = fail_expr.execute()

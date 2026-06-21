@@ -315,9 +315,12 @@ class Backend(SQLBackend):
         self,
         reader: Union[pa.RecordBatchReader, pa.ChunkedArray],
         table_name: Optional[str] = None,
-        mode: WriteMode = WriteMode.CREATE,
+        mode: WriteMode | str = WriteMode.CREATE,
         branch: Optional[str] = None,
     ) -> ir.Table:
+        # Callers on the write-through path hand us the wire string (mode.value);
+        # normalize at the boundary so the body always works with the enum.
+        mode = WriteMode(mode)
         table_name = table_name or gen_name("read_record_batches")
         full_name = f"{self.namespace}.{table_name}"
         schema = reader.schema
@@ -337,6 +340,10 @@ class Backend(SQLBackend):
                     raise ValueError(f"Unsupported write mode: {mode!r}")
         else:
             if not exists:
+                # A branch must point at a snapshot, and a freshly created table
+                # has none. Seed one empty snapshot so create_branch below has a
+                # base; the seed carries no rows and becomes ancestor history once
+                # the branch is fast-forwarded into main at publish.
                 ice = self.catalog.create_table(identifier=full_name, schema=schema)
                 ice.append(schema.empty_table())
                 ice = self.catalog.load_table(full_name)
@@ -367,10 +374,17 @@ class Backend(SQLBackend):
         return self.table(table_name)
 
     def publish_branch(self, table_name: str, branch: str) -> None:
-        # Fast-forward the table's main snapshot to the staging branch tip,
-        # then drop the branch.
+        # Repoint main at the staging branch tip, then drop the branch. This is a
+        # fast-forward, NOT a merge: set_current_snapshot overwrites the main
+        # pointer, so any commits made to main since the branch was cut would be
+        # discarded. Safe under WAP because main only ever advances via publish.
         full_name = f"{self.namespace}.{table_name}"
         ice = self.catalog.load_table(full_name)
+        if branch not in ice.refs():
+            raise RuntimeError(
+                f"staging branch {branch!r} missing at publish on {full_name}: "
+                "the audit ran before the staging write committed (async sink?)"
+            )
         staging_snap = ice.refs()[branch].snapshot_id
         ice.manage_snapshots().set_current_snapshot(staging_snap).commit()
         ice = self.catalog.load_table(full_name)
@@ -379,10 +393,18 @@ class Backend(SQLBackend):
     def publish_staging_table(self, staging: str, final: str) -> None:
         # Repoint metadata instead of copying rows: register staging's parquet
         # data files into final, then drop staging's catalog entry. add_files is
-        # metadata-only (reads footers, not rows) and drop_table only removes the
-        # catalog entry, so the files now live under final without being rewritten.
+        # metadata-only (reads footers, not rows). This relies on pyiceberg's
+        # Catalog.drop_table contract — it removes only the catalog entry and does
+        # NOT purge data files (purge_table is the separate, opt-in API) — so the
+        # files now live under final without being rewritten. A catalog that
+        # purged on drop would delete the files out from under final.
         full_staging = f"{self.namespace}.{staging}"
         full_final = f"{self.namespace}.{final}"
+        if not self.catalog.table_exists(full_staging):
+            raise RuntimeError(
+                f"staging table {full_staging!r} missing at publish: the audit ran "
+                "before the staging write committed (async sink?)"
+            )
         staged_tbl = self.catalog.load_table(full_staging)
         data_files = [task.file.file_path for task in staged_tbl.scan().plan_files()]
         if not self.catalog.table_exists(full_final):

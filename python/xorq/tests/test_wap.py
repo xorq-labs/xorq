@@ -47,8 +47,19 @@ def test_parquet_wap_pass(tmp_path: Path) -> None:
     assert out["passed"].iloc[0]
     assert out["published"].iloc[0]
     assert Path(final).exists()
-    assert Path(staging).exists(), "staging is retained after the copy"
+    assert not Path(staging).exists(), "staging is consumed on publish"
     assert len(pd.read_parquet(final)) == 4
+
+
+def test_parquet_wap_append(tmp_path: Path) -> None:
+    # Repeated passing runs accumulate in final, matching the iceberg strategies.
+    staging = str(tmp_path / "staging.parquet")
+    final = str(tmp_path / "final.parquet")
+    _wap_expr(good, staging, final, "src1").execute()
+    _wap_expr(good, staging, final, "src2").execute()
+
+    assert len(pd.read_parquet(final)) == 8
+    assert not Path(staging).exists(), "staging is consumed on each publish"
 
 
 def test_parquet_wap_fail(tmp_path: Path) -> None:
@@ -72,4 +83,33 @@ def test_parquet_publish_guard_rejects_multi_row() -> None:
         }
     )
     with pytest.raises(ValueError, match="expected 1 row"):
+        publish.fn(df)
+
+
+def test_parquet_wap_rerun_after_fail_raises(tmp_path: Path) -> None:
+    # A failed audit retains the staging file. Re-running against the same target
+    # then writes create-mode over an existing file, which the sink refuses
+    # rather than silently clobbering (FileExistsError surfaces as ValueError).
+    staging = str(tmp_path / "staging.parquet")
+    final = str(tmp_path / "final.parquet")
+    _wap_expr(bad, staging, final, "src_bad").execute()
+    assert Path(staging).exists()
+
+    with pytest.raises(ValueError, match="already exists"):
+        _wap_expr(good, staging, final, "src_retry").execute()
+
+
+def test_parquet_publish_requires_staging_present(tmp_path: Path) -> None:
+    # Backstop for the WAP ordering invariant: publishing before the staging
+    # write committed (e.g. an async sink) raises rather than publishing nothing.
+    final = tmp_path / "final.parquet"
+    publish = _make_publish_with_parquet()
+    df = pd.DataFrame(
+        {
+            STAGING: [str(tmp_path / "missing.parquet")],
+            FINAL: [str(final)],
+            PASSED: [True],
+        }
+    )
+    with pytest.raises(RuntimeError, match="missing at publish"):
         publish.fn(df)
