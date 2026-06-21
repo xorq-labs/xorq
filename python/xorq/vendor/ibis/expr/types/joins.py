@@ -310,15 +310,21 @@ class Join(Table):
     ):
         predicates = util.promote_list(predicates)
         if tolerance is not None:
-            # `tolerance` parameter is mimicking the pandas API, but we express
-            # it at the expression level by a sequence of operations:
-            # 1. perform the `asof` join with the `on` an `predicates` parameters
+            # `tolerance` mimics the pandas API. We lower it to a single asof
+            # join followed by a null-out projection (xorq-labs/xorq#983):
+            # 1. perform the `asof` join with the `on` and `predicates` params
             #    where the `on` parameter is an inequality predicate
-            # 2. filter the asof join result using the `tolerance` parameter and
-            #    the `on` parameter
-            # 3. perform a left join between the original left table and the
-            #    filtered asof join result using the left operand of the `on` parameter but this
-            #    time as an equality predicate
+            # 2. select left columns unchanged and null out each right column
+            #    on rows whose asof match falls outside the tolerance window
+            #
+            # The previous lowering filtered the asof result then re-joined the
+            # original left table back in to restore the dropped left rows. That
+            # referenced the left source twice, so a one-shot input (e.g. a
+            # RecordBatchReader registered via `into_backend`) was consumed by
+            # the first physical scan and the second read 0 rows. The re-join on
+            # `left_on == right_on` could also fan out when `left_on` was not
+            # unique per predicate group. Nulling out the right columns over the
+            # single asof join (which is already left-preserving) avoids both.
             if isinstance(on, str):
                 # self is always a JoinChain so reference one of the join tables
                 left_on = self.op().values[on].to_expr()
@@ -336,20 +342,29 @@ class Join(Table):
             joined = self.asof_join(
                 right, on=on, predicates=predicates, lname=lname, rname=rname
             )
-            filtered = joined.filter(
-                left_on <= right_on + tolerance, left_on >= right_on - tolerance
-            )
-            (right_on,) = filtered.bind(left_on)
 
-            # without joining twice the table would not contain the rows from
-            # the left table that do not match any row from the right table
-            # given the tolerance filter
-            result = self.left_join(
-                filtered, predicates=[left_on == right_on] + predicates
+            # bind `on` operands to their disambiguated post-join columns; a
+            # NULL `right_on` (left row with no match) makes `within` NULL, so
+            # the ifelse falls to the NULL branch — the desired output.
+            (bound_left_on,) = joined.bind(left_on)
+            (bound_right_on,) = joined.bind(right_on)
+            within = bound_left_on.between(
+                bound_right_on - tolerance, bound_right_on + tolerance
             )
-            values = {**filtered.op().values, **self.op().values}
 
-            return result.select(**values)
+            # distinguish right columns by field origin (the relation the Field
+            # references), not by name, to stay robust under lname/rname.
+            # JoinChain.values are always ops.Field nodes, so `field.rel` exists.
+            join_chain = joined.op()
+            right_rel = join_chain.rest[-1].table
+            values = {}
+            for name, field in join_chain.values.items():
+                col = field.to_expr()
+                if field.rel is right_rel:
+                    col = within.ifelse(col, ibis.null(col.type()))
+                values[name] = col
+
+            return joined.select(**values)
 
         chain = self.op()
         right = right.op()

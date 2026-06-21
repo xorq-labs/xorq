@@ -370,6 +370,7 @@ generic = {
 
 
 columnwise = {
+    ops.Between: lambda df: df["arg"].between(df["lower_bound"], df["upper_bound"]),
     ops.Clip: lambda df: df["arg"].clip(lower=df["lower"], upper=df["upper"]),
     ops.IfElse: lambda df: df["true_expr"].where(
         df["bool_expr"], other=df["false_null_expr"]
