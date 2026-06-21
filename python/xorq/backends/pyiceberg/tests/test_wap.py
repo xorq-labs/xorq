@@ -13,11 +13,16 @@ from __future__ import annotations
 from typing import Callable
 
 import pandas as pd
+import pytest
 
 import xorq.api as xo
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.pyiceberg import Backend
 from xorq.writes import make_iceberg_wap_expr
+from xorq.writes.wap import FINAL as FINAL_COL
+from xorq.writes.wap import PASSED as PASSED_COL
+from xorq.writes.wap import STAGING as STAGING_COL
+from xorq.writes.wap import make_publish_with_iceberg
 
 
 FINAL = "final"
@@ -104,3 +109,43 @@ def test_table_wap_append(fresh_con: Backend) -> None:
     _wap_expr(wap, good, "src2").execute()
 
     assert len(fresh_con.table(FINAL).execute()) == 8
+
+
+def test_table_wap_publish_does_not_purge_staging_files(fresh_con: Backend) -> None:
+    # The table strategy promotes by repointing metadata: staging's parquet
+    # files are registered into final, then staging's catalog entry is dropped.
+    # The drop must not purge those files, or final reads stale/missing data.
+    wap = make_iceberg_wap_expr(fresh_con)
+    _wap_expr(wap, good, "src_good").execute()
+
+    assert STAGING not in fresh_con.list_tables()
+    published = fresh_con.table(FINAL).execute().sort_values("a")
+    assert published["a"].tolist() == good["a"]
+    assert published["b"].tolist() == good["b"]
+
+
+def test_branch_wap_rerun_after_fail_raises(fresh_con: Backend) -> None:
+    # A failed audit retains the staging branch. Re-running against the same
+    # target then writes mode=CREATE into a branch that already exists, which
+    # the backend rejects rather than silently appending to stale staging data.
+    wap = make_iceberg_wap_expr(fresh_con, FINAL)
+    _wap_expr(wap, bad, "src_bad").execute()
+    assert STAGING in _refs(fresh_con)
+
+    with pytest.raises(ValueError, match="already exists"):
+        _wap_expr(wap, good, "src_retry").execute()
+
+
+def test_iceberg_publish_guard_rejects_multi_row(fresh_con: Backend) -> None:
+    # The publish UDF assumes the audit aggregate collapsed to exactly one row;
+    # guard against a contract break upstream.
+    publish = make_publish_with_iceberg(fresh_con)
+    df = pd.DataFrame(
+        {
+            STAGING_COL: [STAGING, STAGING],
+            FINAL_COL: [FINAL, FINAL],
+            PASSED_COL: [True, True],
+        }
+    )
+    with pytest.raises(ValueError, match="expected 1 row"):
+        publish.fn(df)

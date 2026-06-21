@@ -16,6 +16,7 @@ from xorq.vendor.ibis.backends.sql import SQLBackend
 from xorq.vendor.ibis.expr import schema as sch
 from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import gen_name
+from xorq.writes.enums import WriteMode
 
 
 def parse_url(url: str) -> Dict[str, Any]:
@@ -297,27 +298,19 @@ class Backend(SQLBackend):
         self,
         reader: Union[pa.RecordBatchReader, pa.ChunkedArray],
         table_name: Optional[str] = None,
-        mode: str = "create",
+        mode: WriteMode = WriteMode.CREATE,
         branch: Optional[str] = None,
     ) -> ir.Table:
         table_name = table_name or gen_name("read_record_batches")
         data = pa.Table.from_batches(reader, reader.schema)
 
         if branch is None:
-            if mode == "create":
+            if mode == WriteMode.CREATE:
                 self.create_table(name=table_name, obj=data, database=self.namespace)
             else:
-                self.insert(table_name, data, mode="append")
+                self.insert(table_name, data, mode=WriteMode.APPEND)
         else:
             full_name = f"{self.namespace}.{table_name}"
-            data = data.cast(
-                pa.schema(
-                    [
-                        pa.field(name, type=typ)
-                        for name, typ in zip(data.schema.names, data.schema.types)
-                    ]
-                )
-            )
 
             if not self.catalog.table_exists(full_name):
                 ice = self.catalog.create_table(
@@ -328,17 +321,13 @@ class Backend(SQLBackend):
             else:
                 ice = self.catalog.load_table(full_name)
 
-            if mode == "create" and branch in ice.refs():
+            if mode == WriteMode.CREATE and branch in ice.refs():
                 raise ValueError(
                     f"Branch {branch!r} already exists on table {full_name}"
                 )
 
             if branch not in ice.refs():
                 current = ice.current_snapshot()
-                if current is None:
-                    raise ValueError(
-                        f"Table {full_name} has no snapshot to branch from"
-                    )
                 ice.manage_snapshots().create_branch(
                     current.snapshot_id, branch
                 ).commit()

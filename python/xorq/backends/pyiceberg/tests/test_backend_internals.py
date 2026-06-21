@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 from xorq.backends.pyiceberg import Backend, parse_url
+from xorq.writes.enums import WriteMode
+
+
+def _reader(df: pd.DataFrame) -> pa.RecordBatchReader:
+    return pa.Table.from_pandas(df).to_reader()
 
 
 def test_parse_url_path_only() -> None:
@@ -62,3 +68,48 @@ def test_list_tables_like_filters(fresh_con: Backend) -> None:
 def test_get_schema_using_query_not_implemented(fresh_con: Backend) -> None:
     with pytest.raises(NotImplementedError):
         fresh_con._get_schema_using_query("select 1")
+
+
+def test_read_record_batches_append_without_branch(fresh_con: Backend) -> None:
+    fresh_con.read_record_batches(
+        _reader(pd.DataFrame({"a": [1, 2]})), table_name="t", mode=WriteMode.CREATE
+    )
+    fresh_con.read_record_batches(
+        _reader(pd.DataFrame({"a": [3]})), table_name="t", mode=WriteMode.APPEND
+    )
+    assert sorted(fresh_con.table("t").execute()["a"].tolist()) == [1, 2, 3]
+
+
+def test_read_record_batches_branch_create_then_append(fresh_con: Backend) -> None:
+    fresh_con.read_record_batches(
+        _reader(pd.DataFrame({"a": [1, 2]})),
+        table_name="t",
+        mode=WriteMode.CREATE,
+        branch="staging",
+    )
+    fresh_con.read_record_batches(
+        _reader(pd.DataFrame({"a": [3]})),
+        table_name="t",
+        mode=WriteMode.APPEND,
+        branch="staging",
+    )
+    ice = fresh_con.catalog.load_table(f"{fresh_con.namespace}.t")
+    assert "staging" in ice.refs()
+    branch_rows = ice.scan(snapshot_id=ice.refs()["staging"].snapshot_id).to_arrow()
+    assert sorted(branch_rows["a"].to_pylist()) == [1, 2, 3]
+
+
+def test_read_record_batches_branch_create_twice_raises(fresh_con: Backend) -> None:
+    fresh_con.read_record_batches(
+        _reader(pd.DataFrame({"a": [1]})),
+        table_name="t",
+        mode=WriteMode.CREATE,
+        branch="staging",
+    )
+    with pytest.raises(ValueError, match="already exists"):
+        fresh_con.read_record_batches(
+            _reader(pd.DataFrame({"a": [2]})),
+            table_name="t",
+            mode=WriteMode.CREATE,
+            branch="staging",
+        )
