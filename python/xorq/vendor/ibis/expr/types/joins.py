@@ -354,6 +354,7 @@ class Join(Table):
 
             # distinguish right columns by field origin (the relation the Field
             # references), not by name, to stay robust under lname/rname.
+            # JoinChain.values are always ops.Field nodes, so `field.rel` exists.
             join_chain = joined.op()
             right_rel = join_chain.rest[-1].table
             values = {}
