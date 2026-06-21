@@ -82,7 +82,6 @@ def _make_sink_with_parquet(path: str) -> ParquetWriteThrough:
 
 
 def _make_publish_with_parquet() -> PublishUDF:
-    import pyarrow as pa  # noqa: PLC0415
     import pyarrow.parquet as pq  # noqa: PLC0415
 
     import xorq.expr.datatypes as dt  # noqa: PLC0415
@@ -108,16 +107,20 @@ def _make_publish_with_parquet() -> PublishUDF:
                     "before the staging write committed (async sink?)"
                 )
             # Parquet has no metadata-only append, so accumulating into final
-            # means a rewrite: concat both sides into a temp in final's dir, then
-            # swap. The temp shares final's filesystem, so .replace is an atomic
-            # same-fs rename; reading staging via pyarrow works across filesystems.
+            # means a rewrite: stream each source batch-by-batch into a temp in
+            # final's dir (only one batch is ever held in memory), then swap. The
+            # temp shares final's filesystem, so .replace is an atomic same-fs
+            # rename; reading staging via pyarrow works across filesystems.
             final.parent.mkdir(parents=True, exist_ok=True)
-            tables = [pq.read_table(staging)]
-            if final.exists():
-                tables.insert(0, pq.read_table(final))
+            sources = [final, staging] if final.exists() else [staging]
             merged = final.with_name(final.name + ".merge.tmp")
             try:
-                pq.write_table(pa.concat_tables(tables), merged)
+                with pq.ParquetWriter(
+                    merged, pq.ParquetFile(staging).schema_arrow
+                ) as writer:
+                    for src in sources:
+                        for batch in pq.ParquetFile(src).iter_batches():
+                            writer.write_batch(batch)
                 merged.replace(final)
             except BaseException:
                 merged.unlink(missing_ok=True)
