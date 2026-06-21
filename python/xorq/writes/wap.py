@@ -17,6 +17,7 @@ if TYPE_CHECKING:
         WriteThrough,
     )
 
+# Column-name contract shared by the audit/publish UDF schemas and the mutate keys.
 STAGING = "staging"
 FINAL = "final"
 PASSED = "passed"
@@ -149,11 +150,11 @@ def make_publish_with_iceberg(con: BaseBackend, branch: bool = False) -> Any:
                 ice = con.catalog.load_table(full_name)
                 ice.manage_snapshots().remove_branch(staging).commit()
             else:
-                staged = con.table(staging).execute()
+                staged = con.table(staging)
                 if final in con.list_tables():
                     con.insert(final, staged, mode=WriteMode.APPEND)
                 else:
-                    con.create_table(final, staged, overwrite=True)
+                    con.create_table(final, staged)
                 con.drop_table(staging)
             written = True
         return [written]
@@ -166,6 +167,11 @@ def make_iceberg_wap_expr(
 ) -> Callable[..., Table]:
     # Passing table_name selects the branch strategy on that table; otherwise
     # the table strategy stages into a separate table named by the caller.
+    #
+    # On audit failure the staging branch (branch strategy) or staging table
+    # (table strategy) is retained for inspection. Re-running against the same
+    # target then fails because the stale staging ref still exists; remove it
+    # first or stage under a fresh name before retrying.
     return make_wap_expr(
         make_sink=make_sink_with_iceberg(con, table_name=table_name),
         publish=make_publish_with_iceberg(con, branch=table_name is not None),

@@ -55,7 +55,7 @@ fail_expr = (
 )
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__main__", "__pytest_main__"):
     # pass: audit succeeds -> data published to final
     out = pass_expr.execute()
     print("PASS path receipt:")

@@ -74,7 +74,7 @@ fail_expr = (
 )
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__main__", "__pytest_main__"):
     prev_count = 0
     for label, expr in pipeline:
         out = expr.execute()
