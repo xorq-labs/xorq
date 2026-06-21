@@ -9,7 +9,7 @@ from toolz import curry
 if TYPE_CHECKING:
     import pandas as pd
 
-    from xorq.vendor.ibis.backends import BaseBackend
+    from xorq.backends.pyiceberg import Backend as PyIcebergBackend
     from xorq.vendor.ibis.expr.types import Table, Value
     from xorq.writes.write_through import (
         BackendWriteThrough,
@@ -115,7 +115,7 @@ def make_parquet_wap_expr(
 
 @curry
 def make_sink_with_iceberg(
-    con: BaseBackend, staging: str, table_name: str | None = None
+    con: PyIcebergBackend, staging: str, table_name: str | None = None
 ) -> BackendWriteThrough:
     from xorq.writes.enums import WriteMode  # noqa: PLC0415
     from xorq.writes.write_through import BackendWriteThrough  # noqa: PLC0415
@@ -132,7 +132,9 @@ def make_sink_with_iceberg(
     )
 
 
-def make_publish_with_iceberg(con: BaseBackend, branch: bool = False) -> PublishUDF:
+def make_publish_with_iceberg(
+    con: PyIcebergBackend, branch: bool = False
+) -> PublishUDF:
     import xorq.expr.datatypes as dt  # noqa: PLC0415
     from xorq.expr.udf import make_pandas_udf  # noqa: PLC0415
     from xorq.vendor.ibis import schema  # noqa: PLC0415
@@ -150,31 +152,9 @@ def make_publish_with_iceberg(con: BaseBackend, branch: bool = False) -> Publish
         if passed:
             if branch:
                 # staging=branch name, final=table name for the branch strategy
-                full_name = f"{con.namespace}.{final}"
-                ice = con.catalog.load_table(full_name)
-                staging_snap = ice.refs()[staging].snapshot_id
-                ice.manage_snapshots().set_current_snapshot(staging_snap).commit()
-                ice = con.catalog.load_table(full_name)
-                ice.manage_snapshots().remove_branch(staging).commit()
+                con.publish_branch(final, staging)
             else:
-                # Repoint the metadata instead of copying rows: register
-                # staging's parquet data files into final, then drop staging's
-                # catalog entry. add_files is metadata-only (reads footers, not
-                # rows) and con.drop_table only removes the catalog entry, so
-                # the files now live under final without ever being rewritten.
-                full_staging = f"{con.namespace}.{staging}"
-                full_final = f"{con.namespace}.{final}"
-                staged_tbl = con.catalog.load_table(full_staging)
-                data_files = [
-                    task.file.file_path for task in staged_tbl.scan().plan_files()
-                ]
-                if not con.catalog.table_exists(full_final):
-                    con.catalog.create_table(
-                        identifier=full_final, schema=staged_tbl.schema()
-                    )
-                if data_files:
-                    con.catalog.load_table(full_final).add_files(data_files)
-                con.drop_table(staging)
+                con.publish_staging_table(staging, final)
             written = True
         return [written]
 
@@ -182,7 +162,7 @@ def make_publish_with_iceberg(con: BaseBackend, branch: bool = False) -> Publish
 
 
 def make_iceberg_wap_expr(
-    con: BaseBackend, table_name: str | None = None
+    con: PyIcebergBackend, table_name: str | None = None
 ) -> Callable[..., Table]:
     # Unlike make_parquet_wap_expr (a flat function), this is a factory that binds
     # `con` up front and returns a curried builder, so it composes with `.pipe()`

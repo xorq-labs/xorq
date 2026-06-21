@@ -294,6 +294,23 @@ class Backend(SQLBackend):
     def _get_schema_using_query(self, query: str) -> sch.Schema:
         raise NotImplementedError("_get_schema_using_query")
 
+    @staticmethod
+    def _stream_reader_to_parquet(
+        ice: IcebergTable, reader: pa.RecordBatchReader
+    ) -> str:
+        import pyarrow.parquet as pq  # noqa: PLC0415
+
+        file_path = f"{ice.location()}/data/{gen_name('add_files')}.parquet"
+        # add_files references files in place, so write under the table location.
+        output = ice.io.new_output(file_path).create(overwrite=True)
+        try:
+            with pq.ParquetWriter(output, reader.schema) as writer:
+                for batch in reader:
+                    writer.write_batch(batch)
+        finally:
+            output.close()
+        return file_path
+
     def read_record_batches(
         self,
         reader: Union[pa.RecordBatchReader, pa.ChunkedArray],
@@ -302,26 +319,26 @@ class Backend(SQLBackend):
         branch: Optional[str] = None,
     ) -> ir.Table:
         table_name = table_name or gen_name("read_record_batches")
-        data = pa.Table.from_batches(reader, reader.schema)
+        full_name = f"{self.namespace}.{table_name}"
+        schema = reader.schema
+        exists = self.catalog.table_exists(full_name)
 
         if branch is None:
             match mode:
                 case WriteMode.CREATE:
-                    self.create_table(
-                        name=table_name, obj=data, database=self.namespace
-                    )
+                    if exists:
+                        raise ValueError(f"Table {full_name} already exists")
+                    ice = self.catalog.create_table(identifier=full_name, schema=schema)
                 case WriteMode.APPEND:
-                    self.insert(table_name, data, mode=mode)
+                    if not exists:
+                        raise ValueError(f"Table {full_name} does not exist")
+                    ice = self.catalog.load_table(full_name)
                 case _:
                     raise ValueError(f"Unsupported write mode: {mode!r}")
         else:
-            full_name = f"{self.namespace}.{table_name}"
-
-            if not self.catalog.table_exists(full_name):
-                ice = self.catalog.create_table(
-                    identifier=full_name, schema=data.schema
-                )
-                ice.append(data.schema.empty_table())
+            if not exists:
+                ice = self.catalog.create_table(identifier=full_name, schema=schema)
+                ice.append(schema.empty_table())
                 ice = self.catalog.load_table(full_name)
             else:
                 ice = self.catalog.load_table(full_name)
@@ -338,12 +355,43 @@ class Backend(SQLBackend):
                 ).commit()
                 ice = self.catalog.load_table(full_name)
 
-            with ice.transaction() as tx:
-                tx.append(data, branch=branch)
+        file_path = self._stream_reader_to_parquet(ice, reader)
+        # File names are unique per call, so the duplicate scan is unneeded and
+        # also raises on tables whose only snapshot has zero data files.
+        with ice.transaction() as tx:
+            if branch is None:
+                tx.add_files([file_path], check_duplicate_files=False)
+            else:
+                tx.add_files([file_path], check_duplicate_files=False, branch=branch)
 
         return self.table(table_name)
 
-    def list_snapshots(self, database=None) -> dict[str, int]:
+    def publish_branch(self, table_name: str, branch: str) -> None:
+        # Fast-forward the table's main snapshot to the staging branch tip,
+        # then drop the branch.
+        full_name = f"{self.namespace}.{table_name}"
+        ice = self.catalog.load_table(full_name)
+        staging_snap = ice.refs()[branch].snapshot_id
+        ice.manage_snapshots().set_current_snapshot(staging_snap).commit()
+        ice = self.catalog.load_table(full_name)
+        ice.manage_snapshots().remove_branch(branch).commit()
+
+    def publish_staging_table(self, staging: str, final: str) -> None:
+        # Repoint metadata instead of copying rows: register staging's parquet
+        # data files into final, then drop staging's catalog entry. add_files is
+        # metadata-only (reads footers, not rows) and drop_table only removes the
+        # catalog entry, so the files now live under final without being rewritten.
+        full_staging = f"{self.namespace}.{staging}"
+        full_final = f"{self.namespace}.{final}"
+        staged_tbl = self.catalog.load_table(full_staging)
+        data_files = [task.file.file_path for task in staged_tbl.scan().plan_files()]
+        if not self.catalog.table_exists(full_final):
+            self.catalog.create_table(identifier=full_final, schema=staged_tbl.schema())
+        if data_files:
+            self.catalog.load_table(full_final).add_files(data_files)
+        self.drop_table(staging)
+
+    def list_snapshots(self, database: Optional[str] = None) -> dict[str, int]:
         database = database or self.namespace
         table_names = [t[1] for t in self.catalog.list_tables(database)]
 
