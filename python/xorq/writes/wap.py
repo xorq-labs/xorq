@@ -162,20 +162,11 @@ def make_publish_with_iceberg(con: BaseBackend, branch: bool = False) -> Any:
 
 
 def make_iceberg_wap_expr(
-    expr: Table,
-    staging: str,
-    final: str,
-    audit_fn: Callable[[pd.DataFrame], bool],
-    con: BaseBackend,
-    table_name: str | None = None,
-) -> Table:
+    con: BaseBackend, table_name: str | None = None
+) -> Callable[..., Table]:
     # Passing table_name selects the branch strategy on that table; otherwise
     # the table strategy stages into a separate table named by the caller.
     return make_wap_expr(
-        expr,
-        staging,
-        final,
-        audit_fn,
         make_sink=make_sink_with_iceberg(con, table_name=table_name),
         publish=make_publish_with_iceberg(con, branch=table_name is not None),
     )
