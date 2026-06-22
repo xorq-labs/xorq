@@ -1638,7 +1638,9 @@ def test_execution_handles_cache_in_remote_expr(tmp_path: pathlib.Path) -> None:
 
 
 def test_hashing_handles_remote_table_in_opaque_subexpr(tmp_path: pathlib.Path) -> None:
-    """_replace_remote_table must find RemoteTables nested in opaque sub-exprs."""
+    """SnapshotStrategy.calc_key must handle RemoteTables nested in opaque
+    sub-exprs: the tokenizer recurses into remote_expr / CachedNode.parent on its
+    own, so the key is computed without raising and is stable."""
     cona = xo.connect()
     conb = xo.connect()
     t = cona.register(pd.DataFrame({"x": [10, 20]}), "t")

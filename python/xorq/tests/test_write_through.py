@@ -11,6 +11,7 @@ import pytest
 
 import xorq.api as xo
 from xorq.caching.strategy import SnapshotStrategy
+from xorq.common.utils.graph_utils import walk_nodes
 from xorq.common.utils.node_utils import compute_expr_hash
 from xorq.common.utils.provenance_utils import get_expr_hash
 from xorq.expr.api import (
@@ -19,7 +20,11 @@ from xorq.expr.api import (
     _run_cleanup,
     get_plans,
 )
-from xorq.expr.relations import HashingTag, register_and_transform_tee_nodes
+from xorq.expr.relations import (
+    HashingTag,
+    TeeNode,
+    register_and_transform_tee_nodes,
+)
 from xorq.writes import (
     BackendWriteThrough,
     DrainingIterator,
@@ -546,6 +551,33 @@ def test_to_sql_strips_nested_tee_nodes(t: Table, tmp_path: Path) -> None:
         ParquetWriteThrough(path=tmp_path / "t2.parquet")
     )
     assert xo.to_sql(double_tee) == bare_sql
+
+
+def test_tee_transform_leaves_tee_inside_opaque_untouched(
+    t: Table, tmp_path: Path
+) -> None:
+    """register_and_transform_tee_nodes uses op.replace, which deliberately does
+    not descend into opaque sub-exprs (here CachedNode.parent). A TeeNode buried
+    in an opaque node must survive the outer pass untouched and its write must not
+    fire: it is handled lazily when the opaque sub-expr executes (e.g. on a cache
+    miss). Guards against a regression to replace_nodes, which would descend and
+    fire the side-effecting write at the wrong time."""
+    target = tmp_path / "opaque.parquet"
+    cached = t.tee(ParquetWriteThrough(path=target)).cache()
+
+    # The TeeNode lives under CachedNode.parent: the descending traversal sees
+    # it, the structural (non-descending) traversal op.replace uses does not.
+    assert len(walk_nodes((TeeNode,), cached)) == 1
+    assert len(cached.op().find(TeeNode)) == 0
+
+    transformed, created, drains = register_and_transform_tee_nodes(cached)
+
+    assert not target.exists(), "outer transform must not fire the buried write"
+    assert created == {}, "no pass-through table should be registered"
+    assert drains == []
+    assert len(walk_nodes((TeeNode,), transformed)) == 1, (
+        "TeeNode inside the opaque sub-expr must survive the outer transform"
+    )
 
 
 def _placeholder_tables(con: Any) -> set[str]:
