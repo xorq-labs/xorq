@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import pyarrow.parquet as pq
-
 from xorq.common.enums import XORQ_METADATA_PREFIX, ProvenanceField
 
 
@@ -13,11 +11,12 @@ if TYPE_CHECKING:
 
 def get_expr_hash(expr: Expr) -> str:
     from xorq.caching.strategy import SnapshotStrategy  # noqa: PLC0415
+    from xorq.common.utils.dasher._opaque import include_tee_nodes  # noqa: PLC0415
     from xorq.ibis_yaml.compiler import canonicalize_expr  # noqa: PLC0415
     from xorq.ibis_yaml.config import config  # noqa: PLC0415
 
     expr = canonicalize_expr(expr)
-    with SnapshotStrategy().normalization_context(expr) as hasher:
+    with include_tee_nodes(), SnapshotStrategy().normalization_context(expr) as hasher:
         return hasher.tokenize(expr)[: config.hash_length]
 
 
@@ -41,6 +40,8 @@ def inject_metadata_into_schema(schema, metadata_dict):
 
 
 def read_parquet_provenance(path, fs=None):
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
     if fs is not None:
         with fs.open(path, "rb") as fh:
             schema = pq.ParquetFile(fh).schema_arrow

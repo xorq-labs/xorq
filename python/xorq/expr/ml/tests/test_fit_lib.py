@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import pickle
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 import pytest
 
 import xorq.api as xo
@@ -12,16 +14,19 @@ from xorq.caching import ParquetCache
 from xorq.common.utils.defer_utils import (
     deferred_read_parquet,
 )
+from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.ml.fit_lib import (
     DeferredFitOther,
     kv_encode_output,
 )
 from xorq.expr.ml.structer import KV_ENCODED_TYPE
+from xorq.expr.relations import TeeNode
 from xorq.ml import (
     deferred_fit_predict_sklearn,
     deferred_fit_transform_series_sklearn,
     deferred_fit_transform_sklearn_struct,
 )
+from xorq.writes import ParquetWriteThrough
 
 
 sk_linear_model = pytest.importorskip("sklearn.linear_model")
@@ -89,6 +94,33 @@ def test_deferred_fit_predict_linear_regression_multi_into_backend():
     predict_expr_udf = instance.deferred_other
     predicted = t.mutate(predict_expr_udf.on_expr(t)).execute()
     assert not predicted.empty
+
+
+def test_tee_inside_udf_training_expr_writes_on_execution(tmp_path: Path) -> None:
+    """A deferred write (TeeNode) buried in a UDF's computed_kwargs_expr (the
+    training input) is invisible to the outer tee transform, since op.replace
+    does not descend into ExprScalarUDF. It must still fire exactly once, lazily,
+    when the UDF executes and evaluates computed_kwargs_expr. ParquetWriteThrough
+    defaults to create mode, so a second firing would raise FileExistsError."""
+    con = xo.connect()
+    (df, features, target) = make_data()
+    t = con.register(df, "t")
+    write_target = tmp_path / "train_snapshot.parquet"
+
+    instance = deferred_linear_regression(
+        t.tee(ParquetWriteThrough(path=write_target)), target, features
+    )
+
+    # The TeeNode sits inside the UDF's computed_kwargs_expr, not the outer expr.
+    assert len(walk_nodes((TeeNode,), instance.deferred_model)) == 1
+    outer = t.mutate(instance.deferred_other.on_expr(t))
+    assert len(outer.op().find(TeeNode)) == 0, "tee must be hidden inside the UDF"
+
+    predicted = outer.execute()
+
+    assert not predicted.empty
+    assert write_target.exists(), "UDF execution must fire the buried write"
+    assert pq.read_table(str(write_target)).num_rows == len(df)
 
 
 def test_deferred_fit_transform_series_sklearn():

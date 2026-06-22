@@ -1,15 +1,19 @@
+from __future__ import annotations
+
 import functools
 import itertools
 import operator
+import warnings
 from collections import defaultdict
 from itertools import tee
 from threading import Lock
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import pyarrow as pa
 import toolz
 
 from xorq.backends.xorq_datafusion import connect as xo_connect
+from xorq.common.exceptions import IntegrityError
 from xorq.common.utils.otel_utils import get_current_span, tracer
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
@@ -25,6 +29,11 @@ from xorq.vendor.ibis.common.graph import Graph
 from xorq.vendor.ibis.expr import operations as ops
 from xorq.vendor.ibis.expr.format import fmt, render_schema
 from xorq.vendor.ibis.expr.operations import Node, Relation
+from xorq.writes import DrainingIterator, WriteThrough
+
+
+if TYPE_CHECKING:
+    from xorq.vendor.ibis.backends import BaseBackend
 
 
 def replace_cache_table(node: Node, kwargs: dict[str, Any] | None) -> Node:
@@ -98,16 +107,8 @@ class Tag(ops.Relation):
     values = FrozenDict()
 
     @property
-    def tag(self):
+    def tag(self) -> str | None:
         return self.metadata.get("tag")
-
-    def __dasher_tokenize__(self):
-        return (
-            "normalize_tag",
-            self.schema,
-            self.parent,
-            self.metadata,
-        )
 
 
 class HashingTag(Tag):
@@ -118,13 +119,46 @@ class HashingTag(Tag):
     produce distinct hashes.
     """
 
-    def __dasher_tokenize__(self):
-        return (
-            "normalize_hashing_tag",
-            self.schema,
-            self.parent,
-            self.metadata,
-        )
+    def __dasher_tokenize__(self) -> tuple:
+        return ("hashing-tag", self.schema, self.metadata)
+
+
+class TeeNode(ops.Relation):
+    """A transparent pass-through that hands its stream to a WriteThrough.
+
+    Schema and rows equal the parent's. The cache hash
+    (``expr.ls.tokenized``) strips the node so ``expr.tee(s)`` caches
+    identically to ``expr``. The build hash (``get_expr_hash``) includes
+    the writer identity so different writers produce different build artifacts.
+
+    When ``drain`` is True (the default), early termination by downstream
+    causes the remaining batches to be consumed through the writer in a
+    background thread so the write completes. Pass ``drain=False`` to let a
+    downstream early-stop (``LIMIT``/``head``) abort the write instead.
+    """
+
+    schema: Schema
+    parent: ops.Relation
+    writer: WriteThrough
+    drain: bool = True
+    values = FrozenDict()
+
+    def __init__(
+        self,
+        schema: Schema,
+        parent: ops.Relation,
+        writer: WriteThrough,
+        drain: bool = True,
+    ) -> None:
+        if schema != parent.schema:
+            raise IntegrityError(
+                f"TeeNode schema {schema} does not match parent schema "
+                f"{parent.schema}; a TeeNode is a transparent pass-through."
+            )
+        super().__init__(schema=schema, parent=parent, writer=writer, drain=drain)
+
+    def __dasher_tokenize__(self) -> tuple:
+        return ("tee-node", self.schema, self.writer)
 
 
 class DatabaseTableView(ops.DatabaseTable):
@@ -647,10 +681,83 @@ def register_and_transform_remote_tables(
 
         return node
 
-    # Intentionally op.replace, not replace_nodes: mark_remote_table has side effects
-    # that must not descend into opaque sub-exprs (e.g. ExprScalarUDF.computed_kwargs_expr)
+    # op.replace, not replace_nodes: replacer has side effects that must not
+    # fire inside opaque sub-exprs (handled lazily during UDF execution).
     expr = op.replace(replacer).to_expr()
     return expr, created
+
+
+# Backends whose single, non-re-entrant connection deadlocks the streaming tee
+# transport (it pulls the parent reader while that connection serves the outer
+# query). See ADR-0014.
+_NON_REENTRANT_TEE_BACKENDS = frozenset({"duckdb"})
+
+
+@tracer.start_as_current_span("register_and_transform_tee_nodes")
+def register_and_transform_tee_nodes(
+    expr: Expr,
+) -> tuple[Expr, dict[str, BaseBackend], list[DrainingIterator]]:
+    """Replace each surviving `TeeNode` with a backend table fed by the
+    writer's ``write_through(batches)`` generator.
+
+    The writer wraps the parent's batch stream: it pulls, writes as a side
+    effect, and yields each batch onward. Runs after cache resolution, so a
+    downstream cache hit prunes the `TeeNode` before this pass sees it and
+    the write never fires.
+
+    Returns ``(expr, created, drains)``: the transformed expression, a
+    ``{table_name: con}`` map of the intermediate pass-through tables
+    registered on each parent backend (these persist in the backend's
+    catalog until dropped, so callers must drop them once downstream
+    consumption is done), and a list of `DrainingIterator` instances whose
+    ``close()`` must be called after downstream execution completes so that
+    the writer can finish consuming the stream.
+    """
+    from xorq.common.utils.caching_utils import find_backend  # noqa: PLC0415
+
+    drains: list[DrainingIterator] = []
+    created: dict[str, BaseBackend] = {}
+
+    def replacer(node, kwargs):
+        if not isinstance(node, TeeNode):
+            return node.__recreate__(kwargs) if kwargs else node
+        if kwargs:
+            node = node.__recreate__(kwargs)
+        parent_expr = node.parent.to_expr()
+        con, _ = find_backend(node.parent, use_default=True)
+        if con.name in _NON_REENTRANT_TEE_BACKENDS:
+            warnings.warn(
+                f"tee() on a {con.name!r} backend is likely to deadlock: the "
+                "streaming write pulls the parent reader on the same single "
+                "connection that serves the outer query. Phase 1 targets "
+                "engines that allow concurrent reader pulls (e.g. datafusion). "
+                "See ADR-0014.",
+                stacklevel=2,
+            )
+        reader = parent_expr.to_pyarrow_batches()
+        write_iter = node.writer.write_through(reader)
+        if node.drain:
+            write_iter = DrainingIterator(write_iter)
+            drains.append(write_iter)
+        wrapped = pa.RecordBatchReader.from_batches(
+            reader.schema,
+            write_iter,
+        )
+        table_name = gen_name()
+        table = con.read_record_batches(wrapped, table_name=table_name)
+        created[table_name] = con
+        return table.op()
+
+    # op.replace, not replace_nodes: this replacer has side effects (registers
+    # pass-through tables, starts writers), so it must fire only at *this*
+    # execution boundary. Descending into opaque sub-exprs (RemoteTable,
+    # CachedNode, Flight*, ExprScalarUDF) is deliberately avoided -- that is not
+    # a coverage gap: each opaque interior re-enters this transform at its own
+    # execution boundary (e.g. caching/storage.py resolves and re-transforms the
+    # cached parent; into_backend/flight re-pull via to_pyarrow_batches), so its
+    # TeeNodes still fire exactly once. replace_nodes would fire them twice.
+    op = expr.op()
+    return op.replace(replacer).to_expr(), created, drains
 
 
 def render_backend(con):
@@ -703,5 +810,5 @@ def prepare_create_table_from_expr(con, expr, **kwargs):
 
     if (expr_backend := expr._find_backend()) != con:
         raise ValueError(f"expr backend must be {con}, is {expr_backend}")
-    (table, _) = _transform_expr(expr, **kwargs)
+    (table, _, _) = _transform_expr(expr, **kwargs)
     return table

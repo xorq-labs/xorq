@@ -1,4 +1,5 @@
 from collections import defaultdict, deque
+from collections.abc import Callable
 from typing import Any, OrderedDict, Tuple
 
 import xorq.expr.relations as rel
@@ -97,7 +98,18 @@ def walk_nodes(node_types, expr):
     return result
 
 
-def replace_nodes(replacer, expr):
+def replace_nodes(
+    replacer: Callable[[Node, dict | None], Node], expr: Expr | Node
+) -> Node:
+    """Apply *replacer* across the expression graph, descending into opaque
+    sub-expressions (``RemoteTable.remote_expr``, ``CachedNode.parent``,
+    ``FlightExpr.input_expr``, ``ExprScalarUDF.computed_kwargs_expr``).
+
+    Only safe for **pure structural rewrites** — replacers with side effects
+    (materializing batches, registering tables on a backend, deferred writes)
+    must use ``op.replace()`` directly so they do not fire inside opaque
+    sub-expressions whose contents are handled lazily at execution time.
+    """
     # Cache results of opaque sub-expression traversals by their root node.
     # Sub-expression roots are often shared across multiple opaque nodes (e.g.
     # each pipeline step's ExprScalarUDF references accumulated sub-expressions

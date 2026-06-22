@@ -9,6 +9,7 @@ from toolz import identity
 import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations.relations as rel
+import xorq.vendor.ibis.expr.types as ir
 from xorq import udf
 from xorq.backends.xorq_datafusion import Backend
 from xorq.caching import (
@@ -120,7 +121,7 @@ def test_has_cached(cached_two, cached_two_joined):
 
 
 @pytest.mark.postgres
-def test_uncached(cached_two):
+def test_uncached(cached_two: ir.Table) -> None:
     assert cached_two.ls.has_cached and not cached_two.ls.uncached.ls.has_cached
 
 

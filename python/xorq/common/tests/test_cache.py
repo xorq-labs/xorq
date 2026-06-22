@@ -7,6 +7,7 @@ import xorq.api as xo
 from xorq.caching import ParquetCache
 from xorq.caching.strategy import ModificationTimeStrategy, SnapshotStrategy
 from xorq.catalog.expr_utils import build_expr_context_zip, load_expr_from_zip
+from xorq.common.utils.graph_utils import replace_nodes, walk_nodes
 from xorq.expr.relations import RemoteTable
 
 
@@ -73,7 +74,7 @@ def test_snapshot_strategy_key_is_path_identity(tmp_path):
     assert mtime.calc_key(expr) != mtime_before
 
 
-def test_snapshot_strategy_calc_key_with_hashing_tag_over_remote_table():
+def test_snapshot_strategy_calc_key_with_hashing_tag_over_remote_table() -> None:
     t = xo.memtable({"a": [1, 2, 3]})
     con = t._find_backend()
     rt = RemoteTable.from_expr(con, t).to_expr()
@@ -82,6 +83,52 @@ def test_snapshot_strategy_calc_key_with_hashing_tag_over_remote_table():
     strategy = SnapshotStrategy()
     key = strategy.calc_key(tagged)
     assert key.startswith(f"{strategy.key_prefix}snapshot-")
+
+
+def test_snapshot_strategy_key_ignores_remote_table_name() -> None:
+    """SnapshotStrategy.calc_key tokenizes the expr directly: it does not rewrite
+    RemoteTables, relying on the snapshot key being independent of
+    RemoteTable.name (auto-generated, non-deterministic across processes). The
+    tokenizer recurses into remote_expr / CachedNode.parent on its own, so
+    RemoteTables buried in opaque sub-exprs are covered too.
+
+    Guards the removal of the old _replace_remote_table pass: if a future
+    normalize rule makes the snapshot hash name-sensitive, this fails loudly.
+    """
+
+    def rename_all_remote_tables(expr):
+        # replace_nodes descends into opaque sub-exprs, so this rewrites every
+        # RemoteTable name, including those buried under CachedNode.parent and a
+        # parent RemoteTable's remote_expr.
+        def rename(node, kwargs):
+            if isinstance(node, RemoteTable):
+                return RemoteTable(
+                    name=f"renamed-{id(node)}",
+                    schema=node.schema,
+                    source=node.source,
+                    remote_expr=node.remote_expr,
+                    namespace=node.namespace,
+                )
+            return node.__recreate__(kwargs) if kwargs else node
+
+        return replace_nodes(rename, expr).to_expr()
+
+    strategy = SnapshotStrategy()
+    con1, con2, con3 = xo.connect(), xo.connect(), xo.connect()
+    base = con1.register(xo.memtable({"a": [1, 2, 3]}), "t")
+
+    # nested into_backend: inner RemoteTable lives in the outer's remote_expr;
+    # under_cache: the RemoteTable lives under the opaque CachedNode.parent.
+    nested = base.into_backend(con2).filter(lambda x: x.a > 0).into_backend(con3)
+    under_cache = base.into_backend(con2).cache()
+
+    for expr in (nested, under_cache):
+        # Buried RemoteTables are invisible to a non-descending traversal, so the
+        # rename must reach through opaque sub-exprs to exercise them.
+        assert len(walk_nodes((RemoteTable,), expr)) > len(expr.op().find(RemoteTable))
+        assert strategy.calc_key(rename_all_remote_tables(expr)) == strategy.calc_key(
+            expr
+        )
 
 
 @pytest.mark.parametrize(

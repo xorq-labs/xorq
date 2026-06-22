@@ -13,6 +13,7 @@ import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.xorq_datafusion import Backend
+from xorq.common.compat import raise_collected_errors
 from xorq.common.exceptions import XorqError
 from xorq.common.utils.caching_utils import find_backend
 from xorq.common.utils.defer_utils import (  # noqa: F403
@@ -39,7 +40,9 @@ from xorq.expr.relations import (
     HashingTag,
     Read,
     Tag,
+    TeeNode,
     register_and_transform_remote_tables,
+    register_and_transform_tee_nodes,
 )
 from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.expr import api
@@ -207,7 +210,7 @@ def to_sql(expr: ir.Expr, compiler=None, pretty: bool = True) -> SQLString:
     if compiler is None:
         compiler = get_compiler(expr)
 
-    unbound = _remove_tag_nodes(expr).unbind().op()
+    unbound = _remove_tee_nodes(_remove_tag_nodes(expr)).unbind().op()
     return SQLString(_cached_with_op(unbound, pretty, compiler))
 
 
@@ -242,7 +245,11 @@ def _register_and_transform_cache_tables(expr):
             )
         return node
 
-    out = replace_nodes(fn, expr)
+    # op.replace, not replace_nodes (see its docstring): cache resolution has
+    # side effects (set_default executes/materializes), so it must fire only at
+    # this execution boundary. CachedNodes inside opaque sub-exprs re-enter this
+    # pass when those sub-exprs execute -- descending here would double-resolve.
+    out = op.replace(fn)
 
     return out.to_expr()
 
@@ -275,7 +282,10 @@ def _transform_deferred_reads(expr):
                 node = node.__recreate__(_kwargs)
         return node
 
-    expr = replace_nodes(replace_read, expr).to_expr()
+    # op.replace, not replace_nodes (see its docstring): make_dt resolves a
+    # deferred read at this execution boundary; reads inside opaque sub-exprs
+    # are resolved when those sub-exprs execute, so descending here is wrong.
+    expr = expr.op().replace(replace_read).to_expr()
     return expr, dt_to_read
 
 
@@ -342,6 +352,25 @@ def _remove_tag_nodes(expr):
     return replace_nodes(replacer, expr).to_expr()
 
 
+@tracer.start_as_current_span("_remove_tee_nodes")
+def _remove_tee_nodes(expr: ir.Expr) -> ir.Expr:
+    """Strip transparent `TeeNode`s to their parent (for SQL / hashing).
+
+    Execution keeps the `TeeNode` until `register_and_transform_tee_nodes`
+    fires the write, so this is only used off the execution path.
+    """
+
+    def replacer(node, kwargs):
+        if kwargs:
+            node = node.__recreate__(kwargs)
+        if isinstance(node, TeeNode):
+            while isinstance(node, TeeNode):
+                node = node.parent
+        return node
+
+    return replace_nodes(replacer, expr).to_expr()
+
+
 @tracer.start_as_current_span("_remove_non_hashing_tag_nodes")
 def _remove_non_hashing_tag_nodes(expr):
     """Strip Tag nodes but preserve HashingTag nodes during hash computation."""
@@ -356,6 +385,12 @@ def _remove_non_hashing_tag_nodes(expr):
                 while isinstance(node, Tag) and not isinstance(node, HashingTag):
                     node = node.parent
                 return replace_nodes(replacer, node)
+            case TeeNode():
+                if kwargs:
+                    node = node.__recreate__(kwargs)
+                while isinstance(node, TeeNode):
+                    node = node.parent
+                return node
             case _:
                 if kwargs:
                     node = node.__recreate__(kwargs)
@@ -398,6 +433,54 @@ def _resolve_params(params):
     return name_values
 
 
+def _close_and_join_drains(drains: list) -> None:
+    errors: list[BaseException] = []
+    for d in drains:
+        try:
+            d.close()
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+    for d in drains:
+        try:
+            d.join()
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+    raise_collected_errors("drain failures", errors)
+
+
+def _drop_created_tables(created: dict) -> None:
+    # Drop every table even if one fails, so a single bad drop never strands the
+    # rest (created may hold several entries: tee + remote-table placeholders).
+    errors: list[BaseException] = []
+    for table_name, conn in created.items():
+        try:
+            conn.drop_table(table_name, force=True)
+        except Exception:
+            try:
+                conn.drop_view(table_name)
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+    raise_collected_errors("failed to drop created tables", errors)
+
+
+def _run_cleanup(drains: list, created: dict) -> None:
+    """Close/join drains and drop created tables, surfacing every failure.
+
+    Both steps always run even if the first raises, so a drain failure never
+    leaks the temp tables and a drop failure never hides a drain failure.
+    """
+    cleanup_errors: list[BaseException] = []
+    try:
+        _close_and_join_drains(drains)
+    except BaseException as exc:  # noqa: BLE001
+        cleanup_errors.append(exc)
+    try:
+        _drop_created_tables(created)
+    except BaseException as exc:  # noqa: BLE001
+        cleanup_errors.append(exc)
+    raise_collected_errors("execution cleanup failed", cleanup_errors)
+
+
 @tracer.start_as_current_span("_transform_expr")
 def _transform_expr(expr, params=None, **kwargs):
     """Transform an expression for execution, binding any named scalar parameters."""
@@ -409,9 +492,11 @@ def _transform_expr(expr, params=None, **kwargs):
     )
     expr = _remove_tag_nodes(expr)
     expr = _register_and_transform_cache_tables(expr)
+    expr, tee_created, drains = register_and_transform_tee_nodes(expr)
     expr, created = register_and_transform_remote_tables(expr, **kwargs)
     expr, dt_to_read = _transform_deferred_reads(expr)
-    return (expr, created)
+    created = {**created, **tee_created}
+    return (expr, created, drains)
 
 
 def _pandas_execute(con, expr: ir.Expr, **kwargs):
@@ -424,10 +509,23 @@ def _pandas_execute(con, expr: ir.Expr, **kwargs):
         df = node.to_rbr().read_pandas(timestamp_as_object=True)
         return expr.__pandas_result__(df)
     params = kwargs.pop("params", None)
-    expr, created = _transform_expr(expr, params=params)
+    expr, created, drains = _transform_expr(expr, params=params)
 
     span.set_attribute("engine", "pandas")
-    return con.execute(expr, **kwargs)
+    try:
+        result = con.execute(expr, **kwargs)
+    except BaseException as primary:
+        try:
+            _run_cleanup(drains, created)
+        except BaseException as cleanup_exc:  # noqa: BLE001
+            raise_collected_errors(
+                "execute failed and cleanup failed",
+                [primary, cleanup_exc],
+            )
+        raise
+    else:
+        _run_cleanup(drains, created)
+        return result
 
 
 @tracer.start_as_current_span("to_pyarrow_batches")
@@ -441,6 +539,11 @@ def to_pyarrow_batches(
 
     This method is eager and will execute the associated expression
     immediately.
+
+    The returned reader must be **fully consumed**: drain threads are joined
+    and temp tables are dropped only after the last batch is read. Consuming
+    partially (an early ``break``) or discarding the reader leaks those
+    resources. Drain failures are surfaced when the reader is exhausted.
 
     Parameters
     ----------
@@ -462,18 +565,25 @@ def to_pyarrow_batches(
         span.set_attribute("engine", "flight")
         return expr.op().to_rbr()
     params = kwargs.pop("params", None)
-    expr, created = _transform_expr(expr, params=params)
+    expr, created, drains = _transform_expr(expr, params=params)
     con, _ = find_backend(expr.op(), use_default=True)
 
     span.set_attribute("engine", con.name)
-    reader = con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
 
     def clean_up():
-        for table_name, conn in created.items():
-            try:
-                conn.drop_table(table_name, force=True)
-            except Exception:
-                conn.drop_view(table_name)
+        _run_cleanup(drains, created)
+
+    try:
+        reader = con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
+    except BaseException as primary:
+        try:
+            clean_up()
+        except BaseException as cleanup_exc:  # noqa: BLE001
+            raise_collected_errors(
+                "to_pyarrow_batches failed and cleanup failed",
+                [primary, cleanup_exc],
+            )
+        raise
 
     return otel_instrument_reader(rbr_wrapper(reader, clean_up))
 
@@ -623,8 +733,10 @@ def to_json(
                 f.write(batch_json)
 
 
-def get_plans(expr):
-    _expr, _ = _transform_expr(expr)
+def get_plans(expr: ir.Expr) -> dict:
+    # Strip tee nodes first (like to_sql): EXPLAIN is a non-executing path, so
+    # it must not register a pass-through table or fire the side-effect write.
+    _expr, _, _ = _transform_expr(_remove_tee_nodes(expr))
     con, _ = find_backend(_expr.op())
     sql = f"EXPLAIN {to_sql(_expr)}"
     return con.con.sql(sql).to_pandas().set_index("plan_type")["plan"].to_dict()

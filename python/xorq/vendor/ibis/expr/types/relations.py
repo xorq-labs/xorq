@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import itertools
 import operator
+import os
 import re
 import warnings
 from collections import deque
@@ -38,6 +39,7 @@ if TYPE_CHECKING:
 
     import xorq.vendor.ibis.expr.types as ir
     import xorq.vendor.ibis.selectors as s
+    from xorq.vendor.ibis.backends import BaseBackend
     from xorq.vendor.ibis.expr.operations.relations import JoinKind, Set
     from xorq.vendor.ibis.expr.schema import SchemaLike
     from xorq.vendor.ibis.expr.types import Table
@@ -46,6 +48,7 @@ if TYPE_CHECKING:
     from xorq.vendor.ibis.formats.pandas import PandasData
     from xorq.vendor.ibis.formats.pyarrow import PyArrowData
     from xorq.vendor.ibis.selectors import IfAnyAll
+    from xorq.writes import WriteThrough
 
 
 def _regular_join_method(
@@ -3299,9 +3302,12 @@ class Table(Expr, _FixedTextJupyterMixin):
             name = util.gen_name("sql_query")
             expr = self
 
-        from xorq.expr.api import _transform_expr
+        from xorq.expr.api import _remove_tee_nodes, _transform_expr
 
-        (expr, _) = _transform_expr(expr)
+        # Strip tee nodes first: defining a SQL view is a non-executing path, so
+        # it must not register a pass-through table or fire the side-effect
+        # write. Tee is schema-preserving, so the view schema is unaffected.
+        (expr, _, _) = _transform_expr(_remove_tee_nodes(expr))
 
         schema = backend._get_sql_string_view_schema(name=name, table=expr, query=query)
         node = ops.SQLStringView(child=expr.op(), query=query, schema=schema)
@@ -3416,6 +3422,73 @@ class Table(Expr, _FixedTextJupyterMixin):
             source=cache.storage.source,
             cache=cache,
         )
+        return op.to_expr()
+
+    def tee(
+        self,
+        target: WriteThrough | BaseBackend | str | os.PathLike,
+        *,
+        table_name: str | None = None,
+        drain: bool = True,
+        **kwargs: Any,
+    ) -> Table:
+        """Pass rows through while writing them as a side effect (ADR-0014).
+
+        When *drain* is True (the default), early termination by downstream
+        causes the remaining batches to be consumed through the writer in a
+        background thread so the write completes. Pass ``drain=False`` to let
+        a downstream early-stop (``LIMIT``/``head``) abort the write instead.
+
+        The writer is selected by *target*'s type:
+
+        - a ``WriteThrough`` is used as given;
+        - a bare backend connection builds the preferred
+          ``ThreadedBackendWriteThrough`` (streams the ingest on a background
+          thread so a slow write does not block downstream) and requires
+          ``table_name``;
+        - a ``str`` or ``os.PathLike`` builds a ``ParquetWriteThrough`` writing
+          to that path.
+
+        Extra keyword arguments (e.g. ``mode``) are forwarded to the
+        constructed writer.
+        """
+        from xorq.expr.relations import TeeNode  # noqa: PLC0415
+        from xorq.vendor.ibis.backends import BaseBackend  # noqa: PLC0415
+        from xorq.writes import (  # noqa: PLC0415
+            ParquetWriteThrough,
+            ThreadedBackendWriteThrough,
+            WriteThrough,
+        )
+
+        if isinstance(target, WriteThrough):
+            if table_name is not None or kwargs:
+                raise TypeError(
+                    "tee() does not accept table_name or extra keyword "
+                    "arguments when target is a WriteThrough"
+                )
+            writer = target
+        elif isinstance(target, BaseBackend) and hasattr(target, "read_record_batches"):
+            if table_name is None:
+                raise TypeError(
+                    "tee() requires table_name when target is a backend connection"
+                )
+            writer = ThreadedBackendWriteThrough(
+                target, table_name=table_name, **kwargs
+            )
+        elif isinstance(target, (str, os.PathLike)):
+            if table_name is not None:
+                raise TypeError(
+                    "tee() does not accept table_name when target is a path"
+                )
+            writer = ParquetWriteThrough(target, **kwargs)
+        else:
+            raise TypeError(
+                f"tee() target must be a WriteThrough, a backend connection "
+                f"(with read_record_batches), or a path, got "
+                f"{type(target).__name__}"
+            )
+
+        op = TeeNode(schema=self.schema(), parent=self.op(), writer=writer, drain=drain)
         return op.to_expr()
 
     def _make_tag(self, cls, tag, **kwargs):

@@ -95,8 +95,8 @@ def compute_expr_token(structural_hash: str, slot_hashes: tuple[str, ...]) -> st
     mirrors the binary encoding that ``Hasher.tokenize`` applies to the
     normalized tuple returned by ``_normalize_expr_xorq_impl``::
 
-        inner = ("ibis.Expr.v3", structural_hash, slot_0, slot_1, ...)
+        inner = ("ibis.Expr.v4", structural_hash, slot_0, slot_1, ...)
         token = xxhash.xxh128(_encode((inner,))).hexdigest()
     """
-    inner = ("ibis.Expr.v3", structural_hash) + tuple(slot_hashes)
+    inner = ("ibis.Expr.v4", structural_hash) + tuple(slot_hashes)
     return xxhash.xxh128(_encode((inner,))).hexdigest()

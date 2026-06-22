@@ -1,1 +1,1 @@
-ibis_xorq-read_parquet_0ef7c969f2a6ac0a552ab8d93e79d83e
+ibis_xorq-read_parquet_647ce9c0bb5be379014294e3f713ef4a

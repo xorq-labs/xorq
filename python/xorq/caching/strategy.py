@@ -4,7 +4,7 @@ import contextlib
 import contextvars
 import pathlib
 from abc import abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from attr import field, frozen
 from attr.validators import instance_of
@@ -13,8 +13,6 @@ from xorq.common.constants import READ_IDENTITY_KEYS
 
 
 if TYPE_CHECKING:
-    from xorq_dasher import Hasher
-
     from xorq.vendor.ibis import Expr
 
 
@@ -77,10 +75,12 @@ class ModificationTimeStrategy(CacheStrategy):
 
 @frozen
 class SnapshotStrategy(CacheStrategy):
-    def calc_key(self, expr):
+    def calc_key(self, expr: Expr) -> str:
         with self.normalization_context(expr) as local:
-            replaced = self._replace_remote_table(expr, local)
-            tokenized = local.tokenize(replaced)
+            # No RemoteTable rewrite needed: the snapshot key is independent of
+            # RemoteTable.name, and the tokenizer recurses into remote_expr /
+            # CachedNode.parent on its own.
+            tokenized = local.tokenize(expr)
             return self.key_prefix + "-".join(("snapshot", tokenized))
 
     @contextlib.contextmanager
@@ -140,31 +140,8 @@ class SnapshotStrategy(CacheStrategy):
         ]
         return snapshot_hasher(*extra)
 
-    def _replace_remote_table(self, expr: Expr, local_hasher: Hasher) -> Expr:
-        from xorq.common.utils.graph_utils import (  # noqa: PLC0415
-            replace_nodes,
-            walk_nodes,
-        )
-        from xorq.expr.relations import RemoteTable  # noqa: PLC0415
-
-        if walk_nodes((RemoteTable,), expr):
-
-            def rename(node, kwargs):
-                if isinstance(node, RemoteTable):
-                    return RemoteTable(
-                        name=local_hasher.tokenize(node),
-                        schema=node.schema,
-                        source=node.source,
-                        remote_expr=node.remote_expr,
-                        namespace=node.namespace,
-                    )
-                return node.__recreate__(kwargs) if kwargs else node
-
-            return replace_nodes(rename, expr).to_expr()
-        return expr
-
     @staticmethod
-    def normalize_backend(con):
+    def normalize_backend(con: Any) -> tuple:
         from xorq.common.utils.dasher import HASHER  # noqa: PLC0415
 
         # In-memory backends identified by name alone; remote backends
