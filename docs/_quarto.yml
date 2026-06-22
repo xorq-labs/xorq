@@ -83,6 +83,7 @@ website:
           section: "Core tutorials"
           contents:
             - href: tutorials/core_tutorials/get-started-with-xorq-init.qmd
+            - href: tutorials/core_tutorials/your_first_build.qmd
             - href: tutorials/core_tutorials/build_a_semantic_catalog.qmd
             - href: tutorials/core_tutorials/working_with_the_catalog.qmd
         - id: ml-tutorials-section

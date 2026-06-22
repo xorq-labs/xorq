@@ -124,9 +124,10 @@ run before—the computation is already gone by the time you'd ask. A deferred g
 gives every node a stable identity, which is the same property that powers
 [content-addressed artifacts](why_content_addressed_artifacts.qmd).
 
-::: {.callout-tip}
-### Where to go next
-- [Defer query execution](../../getting_started/understand_deferred_execution.qmd)—a hands-on walkthrough of when computation fires.
-- [Multi-engine execution](multi_engine_execution.qmd)—how the graph routes work across backends.
-- [Caching](intelligent_caching_system.qmd)—how a known graph becomes cacheable nodes.
-:::
+## See also
+
+- [Defer query execution](/getting_started/understand_deferred_execution.qmd)—a hands-on walkthrough of building a graph and running it.
+- [Get started with Xorq](/tutorials/core_tutorials/get-started-with-xorq-init.qmd)—build a deferred pipeline end to end with `xorq build` / `xorq run`.
+- [Expression types](/concepts/understanding_xorq/expression_types.qmd)—the kinds of nodes a deferred graph is made of.
+- [`execute`](/reference/execute.qmd)—the API call that materializes a deferred expression.
+

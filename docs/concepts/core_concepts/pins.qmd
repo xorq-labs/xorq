@@ -139,3 +139,8 @@ print([name for name in dir(m) if not name.startswith("_")])
 ## Caching behavior
 
 The pins library caches downloads automatically in a platform-specific cache directory (typically `~/.cache/pins/` on Linux). The `cache_timeout: 0` setting in Xorq's default configuration means the library always checks if the remote version has changed, but serves from cache if it hasn't.
+
+## See also
+
+- [The catalog as executable memory](/concepts/understanding_xorq/catalog_as_executable_memory.qmd)—the catalog versions whole expressions the way pins version data artifacts.
+- [Caching](/concepts/understanding_xorq/intelligent_caching_system.qmd)—how Xorq decouples stored results from their source.
