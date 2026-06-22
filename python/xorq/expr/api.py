@@ -59,6 +59,8 @@ if TYPE_CHECKING:
     import pandas as pd
     import pyarrow as pa
 
+    from xorq.writes import DrainingIterator
+
 __all__ = (
     "execute",
     "calc_split_column",
@@ -444,8 +446,8 @@ class ExecutionResources:
     (tee pass-throughs) that must be closed and joined.
     """
 
-    created: dict = field(factory=dict)
-    drains: list = field(factory=list)
+    created: dict[str, BaseBackend] = field(factory=dict)
+    drains: list[DrainingIterator] = field(factory=list)
 
     def _close_and_join_drains(self) -> None:
         errors: list[BaseException] = []
