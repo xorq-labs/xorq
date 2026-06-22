@@ -22,12 +22,12 @@ A SessionStart hook loads the [essentials.md](https://github.com/xorq-labs/claud
 
 | Skill | What it does |
 |-------|--------------|
-| **ingest** | Bring data not yet catalogued (csv, parquet, or a DuckDB / SQLite / Postgres table) into a `source`. |
-| **composer** | Shape catalogued data into a new `composed` entry with inline code, reusable transforms, or both. |
-| **catalog-explore** | Read-only list, schema, row preview, and history. Also how a build is verified. |
-| **ml** | Fit an sklearn pipeline over an expression, save it as an `expr_builder`, run it on new data. |
-| **builder** | Round-trip tagged objects (semantic models, fitted pipelines, your own) through the catalog. |
-| **diagnose** | Failed, slow, or stale runs, and caching. |
+| [**ingest**](https://github.com/xorq-labs/claude-plugins/blob/main/xorq/skills/ingest/SKILL.md) | Bring data not yet catalogued (csv, parquet, or a DuckDB / SQLite / Postgres table) into a `source`. |
+| [**composer**](https://github.com/xorq-labs/claude-plugins/blob/main/xorq/skills/composer/SKILL.md) | Shape catalogued data into a new `composed` entry with inline code, reusable transforms, or both. |
+| [**catalog-explore**](https://github.com/xorq-labs/claude-plugins/blob/main/xorq/skills/catalog-explore/SKILL.md) | Read-only list, schema, row preview, and history. Also how a build is verified. |
+| [**ml**](https://github.com/xorq-labs/claude-plugins/blob/main/xorq/skills/ml/SKILL.md) | Fit an sklearn pipeline over an expression, save it as an `expr_builder`, run it on new data. |
+| [**builder**](https://github.com/xorq-labs/claude-plugins/blob/main/xorq/skills/builder/SKILL.md) | Round-trip tagged objects (semantic models, fitted pipelines, your own) through the catalog. |
+| [**diagnose**](https://github.com/xorq-labs/claude-plugins/blob/main/xorq/skills/diagnose/SKILL.md) | Failed, slow, or stale runs, and caching. |
 
 ## Example
 
