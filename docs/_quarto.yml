@@ -49,17 +49,8 @@ website:
         text: "Concepts"
       - href: reference/index.qmd
         text: "Reference"
-      - href: claude/index.qmd
-        text: "Claude Code"
 
   sidebar:
-    - id: claude-code
-      title: "Claude Code"
-      pinned: true
-      contents:
-        - href: claude/index.qmd
-          text: "Plugin overview"
-
     - id: getting-started
       title: "Get started"
       collapse-level: 1
@@ -71,6 +62,8 @@ website:
         - href: getting_started/switch_backends.qmd
         - href: getting_started/your_first_expression.qmd
           text: "Your first expression"
+        - href: claude/index.qmd
+          text: "Claude Code plugin"
 
     - id: how-to
       title: "How-to guides"
