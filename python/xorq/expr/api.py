@@ -522,10 +522,20 @@ def remote_table_scope(expr: ir.Expr, **kwargs: Any) -> Generator[ir.Expr]:
 
     For eager call sites only: the body must fully materialize the result
     before exiting (placeholder tables are dropped on exit).
+
+    Drain (write-through) failures are surfaced only when the body returns
+    normally: a successful query whose tee/WAP write failed is a correctness
+    error worth raising. If the body itself raised, that exception propagates
+    and drain failures are swallowed so they cannot mask the original error.
     """
     (expr, scope) = _transform_expr(expr, **kwargs)
-    with scope:
+    try:
         yield expr
+    except BaseException:
+        scope.close()
+        raise
+    else:
+        scope.close(raise_drain_errors=True)
 
 
 def _pandas_execute(con, expr: ir.Expr, **kwargs):

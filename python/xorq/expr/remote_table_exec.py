@@ -9,6 +9,7 @@ import pyarrow as pa
 from batchcorder import StreamCache
 from opentelemetry import trace
 
+from xorq.common.compat import raise_collected_errors
 from xorq.common.utils.logging_utils import get_logger
 from xorq.common.utils.otel_utils import tracer
 from xorq.expr.relations import RemoteTable, gen_name
@@ -190,36 +191,56 @@ class RemoteTableScope:
         self._drains.append(drain)
         return drain
 
-    def _drain_step(self) -> None:
+    def _drain_step(self) -> list[BaseException]:
         # Close-then-join in two passes (not LIFO _ScopeEntry cleanup): the
         # write-through drains feed the placeholder tables, so every writer
         # must finish consuming its stream before any table is dropped.
         # Close all first so the writers stop pulling, then join to surface
-        # errors and ensure the side-effect writes have landed.
+        # errors and ensure the side-effect writes have landed. Returns the
+        # collected failures; the caller decides whether to raise (consumer
+        # finished successfully) or log (teardown after failure/abandon).
+        errors: list[BaseException] = []
         for drain in self._drains:
             try:
                 drain.close()
-            except Exception:
-                logger.warning("scope drain close failed", exc_info=True)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
         for drain in self._drains:
             try:
                 drain.join()
-            except Exception:
-                logger.warning("scope drain join failed", exc_info=True)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
         self._drains = []
+        return errors
 
-    def close(self) -> None:
-        """Release everything the scope owns; idempotent, never raises."""
+    def close(self, *, raise_drain_errors: bool = False) -> None:
+        """Release everything the scope owns; idempotent.
+
+        Drain (write-through) failures are correctness signals: a failed join
+        means a tee/WAP write never landed. They are surfaced by raising only
+        when ``raise_drain_errors`` is set -- the caller passes it once the
+        result has been consumed successfully (eager execute, or the result
+        reader fully drained). On the teardown-after-failure and finalizer/GC
+        paths raising is unsafe (it masks the real error or fires during
+        interpreter shutdown), so they are logged instead. Table/cache/reader
+        teardown is best-effort either way: a failure there only leaks a
+        resource, never corrupts a result, so it is always swallowed-and-logged.
+        """
         if self._closed:
             return
         self._closed = True
-        self._drain_step()
+        drain_errors = self._drain_step()
         for entry in reversed(self._tables):
             entry.safe_cleanup()
         for entry in reversed(self._caches):
             entry.safe_cleanup()
         for entry in reversed(self._readers):
             entry.safe_cleanup()
+        if raise_drain_errors:
+            raise_collected_errors("tee drain failures", drain_errors)
+        else:
+            for exc in drain_errors:
+                logger.warning("scope drain cleanup failed", exc_info=exc)
 
     def __enter__(self) -> RemoteTableScope:
         return self
@@ -248,6 +269,11 @@ def bind_scope_to_reader(
         try:
             yield from reader
         finally:
+            # Deferred path: close runs inside this generator's teardown (or
+            # the weakref.finalize backstop), where raising is unsafe -- a
+            # drain join here also races the write-through generator still in
+            # the reader chain. Always swallow-and-log; the eager call sites
+            # (remote_table_scope) surface drain failures instead.
             scope.close()
 
     g = gen()
