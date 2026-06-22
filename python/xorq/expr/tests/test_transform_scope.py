@@ -128,6 +128,46 @@ def test_scope_failing_cleanup_does_not_skip_others() -> None:
     assert events == ["good_cache", "boom", "reader"]
 
 
+class _FakeDrain:
+    def __init__(self, *, join_error: BaseException | None = None) -> None:
+        self.closed = False
+        self.joined = False
+        self._join_error = join_error
+
+    def close(self) -> None:
+        self.closed = True
+
+    def join(self) -> None:
+        self.joined = True
+        if self._join_error is not None:
+            raise self._join_error
+
+
+def test_scope_close_raises_drain_errors_when_requested() -> None:
+    events: list[str] = []
+    scope = RemoteTableScope()
+    drain = scope.adopt_drain(_FakeDrain(join_error=RuntimeError("drain boom")))
+    scope.adopt_cache(_FakeCloseable(events, "cache"))
+    with pytest.raises(RuntimeError, match="drain boom"):
+        scope.close(raise_drain_errors=True)
+    assert drain.closed and drain.joined
+    # teardown still runs before the drain error is surfaced
+    assert events == ["cache"]
+    assert scope.closed
+
+
+def test_scope_close_swallows_drain_errors_by_default() -> None:
+    events: list[str] = []
+    scope = RemoteTableScope()
+    drain = scope.adopt_drain(_FakeDrain(join_error=RuntimeError("drain boom")))
+    scope.adopt_cache(_FakeCloseable(events, "cache"))
+    # default close() logs drain failures instead of raising (deferred path)
+    scope.close()
+    assert drain.closed and drain.joined
+    assert events == ["cache"]
+    assert scope.closed
+
+
 def test_scope_context_manager_closes() -> None:
     events: list[str] = []
     with RemoteTableScope() as scope:

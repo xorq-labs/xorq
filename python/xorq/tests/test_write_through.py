@@ -18,9 +18,6 @@ from xorq.common.utils.graph_utils import walk_nodes
 from xorq.common.utils.node_utils import compute_expr_hash
 from xorq.common.utils.provenance_utils import get_expr_hash
 from xorq.expr.api import (
-    _close_and_join_drains,
-    _drop_created_tables,
-    _run_cleanup,
     get_plans,
 )
 from xorq.expr.relations import (
@@ -679,123 +676,6 @@ def test_sql_view_does_not_write_or_leak(tmp_path: Path) -> None:
     assert _placeholder_tables(con) == before, "tee pass-through table leaked"
     # The view is still usable and the tee is transparent to it.
     assert view.execute()["a"].tolist() == TABLE["a"]
-
-
-def test_drop_created_tables_drops_all_and_raises(tmp_path: Path) -> None:
-    """_drop_created_tables must attempt every table even when one fails its
-    drop entirely, and surface the failure rather than swallowing it."""
-
-    class _FakeCon:
-        def __init__(self, *, fail_both: bool = False) -> None:
-            self.fail_both = fail_both
-            self.dropped: list[str] = []
-
-        def drop_table(self, name: str, force: bool = False) -> None:
-            if self.fail_both:
-                raise ValueError(f"drop_table {name}")
-            self.dropped.append(name)
-
-        def drop_view(self, name: str) -> None:
-            if self.fail_both:
-                raise ValueError(f"drop_view {name}")
-            self.dropped.append(name)
-
-    good_a, bad, good_b = _FakeCon(), _FakeCon(fail_both=True), _FakeCon()
-    created = {"a": good_a, "bad": bad, "b": good_b}
-
-    with pytest.raises(ValueError, match="drop_view bad"):
-        _drop_created_tables(created)
-
-    # the failing table in the middle did not strand the others
-    assert good_a.dropped == ["a"]
-    assert good_b.dropped == ["b"]
-
-
-def test_run_cleanup_joins_drains_before_dropping_tables() -> None:
-    """_run_cleanup must join every drain before dropping any table, so the
-    backend reader the drain consumes stays valid until the write completes."""
-    log: list[tuple[str, str]] = []
-
-    class _RecordingDrain:
-        def __init__(self, name: str) -> None:
-            self.name = name
-
-        def close(self) -> None:
-            log.append(("close", self.name))
-
-        def join(self) -> None:
-            log.append(("join", self.name))
-
-    class _RecordingCon:
-        def drop_table(self, name: str, force: bool = False) -> None:
-            log.append(("drop", name))
-
-    _run_cleanup(
-        [_RecordingDrain("d0"), _RecordingDrain("d1")], {"t0": _RecordingCon()}
-    )
-
-    join_idx = [i for i, (action, _) in enumerate(log) if action == "join"]
-    drop_idx = [i for i, (action, _) in enumerate(log) if action == "drop"]
-    assert join_idx and drop_idx
-    assert max(join_idx) < min(drop_idx), f"drop ran before a join: {log}"
-
-
-def test_run_cleanup_drops_tables_even_if_drain_fails() -> None:
-    """A drain failure must not strand the created tables, and the drain error
-    must still surface rather than being swallowed by the drop step."""
-    dropped: list[str] = []
-
-    class _FailingDrain:
-        def close(self) -> None:
-            pass
-
-        def join(self) -> None:
-            raise ValueError("drain boom")
-
-    class _RecordingCon:
-        def drop_table(self, name: str, force: bool = False) -> None:
-            dropped.append(name)
-
-    with pytest.raises(ValueError, match="drain boom"):
-        _run_cleanup([_FailingDrain()], {"t0": _RecordingCon()})
-
-    assert dropped == ["t0"], "table was not dropped after the drain failed"
-
-
-def test_close_and_join_drains_closes_all_when_one_close_fails() -> None:
-    # A close() failure on one drain (e.g. thread start fails under resource
-    # exhaustion) must not skip closing the rest, nor skip the join loop that
-    # reaps already-started drain threads. The close error is collected, not
-    # raised mid-loop.
-    log: list[tuple[str, str]] = []
-
-    class _RecordingDrain:
-        def __init__(self, name: str, fail_close: bool = False) -> None:
-            self.name = name
-            self.fail_close = fail_close
-
-        def close(self) -> None:
-            log.append(("close", self.name))
-            if self.fail_close:
-                raise RuntimeError(f"close boom {self.name}")
-
-        def join(self, timeout: float | None = None) -> None:
-            log.append(("join", self.name))
-
-    drains = [
-        _RecordingDrain("d0", fail_close=True),
-        _RecordingDrain("d1"),
-    ]
-
-    with pytest.raises(BaseException) as excinfo:  # noqa: PT011
-        _close_and_join_drains(drains)
-
-    assert ("close", "d0") in log and ("close", "d1") in log, (
-        f"a close() failure skipped a later close(): {log}"
-    )
-    assert ("join", "d1") in log, f"join loop did not run after a close failure: {log}"
-    messages = [str(e) for e in _flatten_exceptions(excinfo.value)]
-    assert any("close boom d0" in m for m in messages)
 
 
 def test_to_pyarrow_batches_full_consumption_cleans_up(tmp_path: Path) -> None:
@@ -1493,44 +1373,6 @@ def test_draining_iterator_join_surfaces_error() -> None:
     it.close()
     with pytest.raises(RuntimeError, match="simulated writer failure"):
         it.join(timeout=5)
-
-
-def _flatten_exceptions(exc: BaseException) -> list[BaseException]:
-    out = [exc]
-    for sub in getattr(exc, "exceptions", ()):  # BaseExceptionGroup (3.11+)
-        out.extend(_flatten_exceptions(sub))
-    if exc.__cause__ is not None:  # chained fallback (3.10)
-        out.extend(_flatten_exceptions(exc.__cause__))
-    return out
-
-
-def test_run_cleanup_aggregates_drain_and_drop_failures() -> None:
-    # Both cleanup steps run even when the first raises: a drain-join failure and
-    # a table-drop failure must surface together as a group, neither hiding the
-    # other (this is what the execute / to_pyarrow_batches paths rely on).
-    class _FailingDrain:
-        def close(self) -> None: ...
-
-        def join(self, timeout: float | None = None) -> None:
-            raise RuntimeError("drain join boom")
-
-    class _FailingCon:
-        def drop_table(self, name: str, force: bool = False) -> None:
-            raise RuntimeError("drop_table boom")
-
-        def drop_view(self, name: str) -> None:
-            raise RuntimeError("drop_view boom")
-
-    raised: BaseException | None = None
-    try:
-        _run_cleanup([_FailingDrain()], {"leaked_tbl": _FailingCon()})
-    except BaseException as exc:  # noqa: BLE001
-        raised = exc
-
-    assert raised is not None, "cleanup must surface the failures"
-    messages = [str(e) for e in _flatten_exceptions(raised)]
-    assert any("drain join boom" in m for m in messages)
-    assert any("drop_view boom" in m for m in messages)
 
 
 def test_draining_iterator_join_before_close_raises() -> None:

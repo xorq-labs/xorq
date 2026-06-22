@@ -15,7 +15,6 @@ import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.xorq_datafusion import Backend
-from xorq.common.compat import raise_collected_errors
 from xorq.common.exceptions import XorqError
 from xorq.common.utils.caching_utils import find_backend
 from xorq.common.utils.defer_utils import (  # noqa: F403
@@ -433,54 +432,6 @@ def _resolve_params(params):
     if errors:
         raise TypeError("\n".join(errors))
     return name_values
-
-
-def _close_and_join_drains(drains: list) -> None:
-    errors: list[BaseException] = []
-    for d in drains:
-        try:
-            d.close()
-        except BaseException as exc:  # noqa: BLE001
-            errors.append(exc)
-    for d in drains:
-        try:
-            d.join()
-        except BaseException as exc:  # noqa: BLE001
-            errors.append(exc)
-    raise_collected_errors("drain failures", errors)
-
-
-def _drop_created_tables(created: dict) -> None:
-    # Drop every table even if one fails, so a single bad drop never strands the
-    # rest (created may hold several entries: tee + remote-table placeholders).
-    errors: list[BaseException] = []
-    for table_name, conn in created.items():
-        try:
-            conn.drop_table(table_name, force=True)
-        except Exception:
-            try:
-                conn.drop_view(table_name)
-            except BaseException as exc:  # noqa: BLE001
-                errors.append(exc)
-    raise_collected_errors("failed to drop created tables", errors)
-
-
-def _run_cleanup(drains: list, created: dict) -> None:
-    """Close/join drains and drop created tables, surfacing every failure.
-
-    Both steps always run even if the first raises, so a drain failure never
-    leaks the temp tables and a drop failure never hides a drain failure.
-    """
-    cleanup_errors: list[BaseException] = []
-    try:
-        _close_and_join_drains(drains)
-    except BaseException as exc:  # noqa: BLE001
-        cleanup_errors.append(exc)
-    try:
-        _drop_created_tables(created)
-    except BaseException as exc:  # noqa: BLE001
-        cleanup_errors.append(exc)
-    raise_collected_errors("execution cleanup failed", cleanup_errors)
 
 
 @tracer.start_as_current_span("_transform_expr")
