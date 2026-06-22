@@ -288,7 +288,7 @@ def _transform_deferred_reads(expr):
     # deferred read at this execution boundary; reads inside opaque sub-exprs
     # are resolved when those sub-exprs execute, so descending here is wrong.
     expr = expr.op().replace(replace_read).to_expr()
-    return expr, dt_to_read
+    return expr
 
 
 @tracer.start_as_current_span("execute")
@@ -509,7 +509,7 @@ def _transform_expr(expr, params=None, **kwargs):
     for drain in drains:
         scope.adopt_drain(drain)
     try:
-        expr, _dt_to_read = _transform_deferred_reads(expr)
+        expr = _transform_deferred_reads(expr)
     except Exception:
         scope.close()
         raise
