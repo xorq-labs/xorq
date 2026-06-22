@@ -16,33 +16,78 @@ You talk to Claude in plain language. It picks the matching skill and runs the
 /plugin install xorq@xorq-plugins
 ```
 
-A SessionStart hook loads the [essentials.md](https://github.com/xorq-labs/claude-plugins/blob/main/xorq/skills/_shared/essentials.md) once per session, so each skill has access in context without duplicating.
-
-## A run through it
-
-Each step is what you ask Claude.
-
-| Ask | Skill | Result |
-|-----|-------|--------|
-| "Use a catalog called `demo`." | (setup) | `xorq catalog -n demo init` |
-| "Ingest `customers.csv` as `customers`." | ingest | a `source` entry |
-| "Show the catalog and preview `customers`." | catalog-explore | `list`, `schema`, `run` |
-| "From `customers`, keep `age > 30`, select name and age." | composer | a `composed` entry |
-| "Fit a classifier on `transactions` for `is_fraud`, save it." | ml | an `expr_builder` entry |
-| "That run was slow, what happened?" | diagnose | reads run logs, adds a cache |
+A SessionStart hook loads the [essentials.md](https://github.com/xorq-labs/claude-plugins/blob/main/xorq/skills/_shared/essentials.md) once per session, so each skill has access to the same information in context without duplication.
 
 ## Skills
 
-- **ingest**: data not catalogued yet (csv, parquet, or a DuckDB / SQLite /
-  Postgres table). Mints a `source`.
-- **composer**: shape catalogued data into a new `composed` entry with inline
-  code, reusable transforms, or both.
-- **catalog-explore**: read-only list, inspect schemas, preview rows, read
-  history. Also how a build is verified.
-- **ml**: fit an sklearn pipeline over an expression, save it as an
-  `expr_builder`, run it on new data.
-- **builder**: round-trip tagged objects (semantic models, fitted pipelines,
-  your own) through the catalog.
-- **diagnose**: failed, slow, or stale runs, and caching.
+::: {.docs-grid}
+
+::: {.doc-card}
+<i class="bi bi-box-arrow-in-down"></i>
+
+**ingest**
+
+Data not catalogued yet — csv, parquet, or a DuckDB / SQLite / Postgres table.
+Mints a `source`.
+:::
+
+::: {.doc-card}
+<i class="bi bi-diagram-3"></i>
+
+**composer**
+
+Shape catalogued data into a new `composed` entry with inline code, reusable
+transforms, or both.
+:::
+
+::: {.doc-card}
+<i class="bi bi-search"></i>
+
+**catalog-explore**
+
+Read-only: list, inspect schemas, preview rows, read history. Also how a build
+is verified.
+:::
+
+::: {.doc-card}
+<i class="bi bi-cpu"></i>
+
+**ml**
+
+Fit an sklearn pipeline over an expression, save it as an `expr_builder`, run it
+on new data.
+:::
+
+::: {.doc-card}
+<i class="bi bi-arrow-repeat"></i>
+
+**builder**
+
+Round-trip tagged objects — semantic models, fitted pipelines, your own —
+through the catalog.
+:::
+
+::: {.doc-card}
+<i class="bi bi-heart-pulse"></i>
+
+**diagnose**
+
+Failed, slow, or stale runs, and caching.
+:::
+
+:::
+
+## Example
+
+A session, one line per turn — what you say, and the skill Claude reaches for.
+
+| You ask | Skill |
+|---------|-------|
+| "Use a catalog called `demo`." | _(setup)_ |
+| "Ingest `customers.csv` as `customers`." | ingest |
+| "Show the catalog and preview `customers`." | catalog-explore |
+| "From `customers`, keep `age > 30`, select name and age." | composer |
+| "Fit a classifier on `transactions` for `is_fraud`, save it." | ml |
+| "That run was slow, what happened?" | diagnose |
 
 Full CLI and Python API index: <https://docs.xorq.dev/llms.txt>
