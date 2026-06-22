@@ -379,11 +379,16 @@ class Backend(SQLBackend):
         # pointer, so any commits made to main since the branch was cut would be
         # discarded. Safe under WAP because main only ever advances via publish.
         full_name = f"{self.namespace}.{table_name}"
-        ice = self.catalog.load_table(full_name)
-        if branch not in ice.refs():
+        # An empty stream never opens the sink writer, so the table itself is
+        # never created (it is created lazily inside read_record_batches).
+        missing = not self.catalog.table_exists(full_name)
+        ice = None if missing else self.catalog.load_table(full_name)
+        if missing or branch not in ice.refs():
             raise RuntimeError(
-                f"staging branch {branch!r} missing at publish on {full_name}: "
-                "the audit ran before the staging write committed (async sink?)"
+                f"staging branch {branch!r} missing at publish on {full_name}. "
+                "The sink opens its writer on the first batch, so either the "
+                "audited input was empty (no batch, no artifact) or the staging "
+                "write has not committed yet (async sink?)."
             )
         staging_snap = ice.refs()[branch].snapshot_id
         ice.manage_snapshots().set_current_snapshot(staging_snap).commit()
@@ -402,8 +407,10 @@ class Backend(SQLBackend):
         full_final = f"{self.namespace}.{final}"
         if not self.catalog.table_exists(full_staging):
             raise RuntimeError(
-                f"staging table {full_staging!r} missing at publish: the audit ran "
-                "before the staging write committed (async sink?)"
+                f"staging table {full_staging!r} missing at publish. The sink "
+                "opens its writer on the first batch, so either the audited "
+                "input was empty (no batch, no artifact) or the staging write "
+                "has not committed yet (async sink?)."
             )
         staged_tbl = self.catalog.load_table(full_staging)
         data_files = [task.file.file_path for task in staged_tbl.scan().plan_files()]

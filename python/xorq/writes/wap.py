@@ -74,14 +74,14 @@ def make_wap_expr(
     return wap_expr
 
 
-def _make_sink_with_parquet(path: str) -> ParquetWriteThrough:
+def make_sink_with_parquet(path: str) -> ParquetWriteThrough:
     from xorq.writes.enums import WriteMode  # noqa: PLC0415
     from xorq.writes.write_through import ParquetWriteThrough  # noqa: PLC0415
 
     return ParquetWriteThrough(path=path, mode=WriteMode.CREATE)
 
 
-def _make_publish_with_parquet() -> PublishUDF:
+def make_publish_with_parquet() -> PublishUDF:
     import pyarrow.parquet as pq  # noqa: PLC0415
 
     import xorq.expr.datatypes as dt  # noqa: PLC0415
@@ -103,8 +103,10 @@ def _make_publish_with_parquet() -> PublishUDF:
             final = Path(row[FINAL])
             if not staging.exists():
                 raise RuntimeError(
-                    f"staging {str(staging)!r} missing at publish: the audit ran "
-                    "before the staging write committed (async sink?)"
+                    f"staging {str(staging)!r} missing at publish. The sink opens "
+                    "its writer on the first batch, so either the audited input "
+                    "was empty (no batch, no artifact) or the staging write has "
+                    "not committed yet (async sink?)."
                 )
             # Parquet has no metadata-only append, so accumulating into final
             # means a rewrite: stream each source batch-by-batch into a temp in
@@ -112,12 +114,23 @@ def _make_publish_with_parquet() -> PublishUDF:
             # temp shares final's filesystem, so .replace is an atomic same-fs
             # rename; reading staging via pyarrow works across filesystems.
             final.parent.mkdir(parents=True, exist_ok=True)
-            sources = [final, staging] if final.exists() else [staging]
+            staging_schema = pq.ParquetFile(staging).schema_arrow
+            sources = [staging]
+            if final.exists():
+                # Accumulating means concatenating both files through one writer,
+                # so a divergent final would only fail mid-stream on write_batch.
+                # Compare up front to fail fast (and before any temp is created).
+                final_schema = pq.ParquetFile(final).schema_arrow
+                if not staging_schema.equals(final_schema, check_metadata=False):
+                    raise ValueError(
+                        "cannot publish: staging schema does not match existing "
+                        f"final schema.\n  staging: {staging_schema}\n"
+                        f"  final:   {final_schema}"
+                    )
+                sources = [final, staging]
             merged = final.with_name(final.name + ".merge.tmp")
             try:
-                with pq.ParquetWriter(
-                    merged, pq.ParquetFile(staging).schema_arrow
-                ) as writer:
+                with pq.ParquetWriter(merged, staging_schema) as writer:
                     for src in sources:
                         for batch in pq.ParquetFile(src).iter_batches():
                             writer.write_batch(batch)
@@ -145,8 +158,8 @@ def make_parquet_wap_expr(
         staging,
         final,
         audit_fn,
-        make_sink=_make_sink_with_parquet,
-        publish=_make_publish_with_parquet(),
+        make_sink=make_sink_with_parquet,
+        publish=make_publish_with_parquet(),
     )
 
 

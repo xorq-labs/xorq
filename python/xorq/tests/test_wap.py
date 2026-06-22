@@ -14,12 +14,13 @@ import pytest
 
 import xorq.api as xo
 import xorq.vendor.ibis.expr.types as ir
+from xorq.vendor.ibis import _
 from xorq.writes import make_parquet_wap_expr
 from xorq.writes.wap import (
     FINAL,
     PASSED,
     STAGING,
-    _make_publish_with_parquet,
+    make_publish_with_parquet,
 )
 
 
@@ -74,7 +75,7 @@ def test_parquet_wap_fail(tmp_path: Path) -> None:
 
 
 def test_parquet_publish_guard_rejects_multi_row() -> None:
-    publish = _make_publish_with_parquet()
+    publish = make_publish_with_parquet()
     df = pd.DataFrame(
         {
             STAGING: ["s.parquet", "s.parquet"],
@@ -97,10 +98,27 @@ def test_parquet_wap_rerun_after_fail_raises(tmp_path: Path) -> None:
         _wap_expr(good, staging, final, "src_retry").execute()
 
 
+def test_parquet_wap_empty_input_fails_fast(tmp_path: Path) -> None:
+    # An empty stream never opens the sink writer, so no staging artifact is
+    # produced. Publish fails fast with a message naming the empty-input cause
+    # rather than silently publishing nothing.
+    staging = str(tmp_path / "staging.parquet")
+    final = str(tmp_path / "final.parquet")
+    expr = (
+        xo.connect()
+        .register(xo.memtable(good), table_name="src_empty")
+        .filter(_.a > 1000)
+        .pipe(make_parquet_wap_expr, staging, final, no_nulls)
+    )
+    with pytest.raises(RuntimeError, match="missing at publish.*empty"):
+        expr.execute()
+    assert not Path(final).exists(), "empty input must not publish"
+
+
 def test_parquet_publish_requires_staging_present(tmp_path: Path) -> None:
     # Publishing with staging absent raises rather than publishing nothing.
     final = tmp_path / "final.parquet"
-    publish = _make_publish_with_parquet()
+    publish = make_publish_with_parquet()
     df = pd.DataFrame(
         {
             STAGING: [str(tmp_path / "missing.parquet")],
