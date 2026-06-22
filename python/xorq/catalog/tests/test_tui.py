@@ -26,6 +26,7 @@ from xorq.catalog.bind import _eval_code
 from xorq.catalog.tests.testing import (
     Assert,
     Press,
+    WaitUntil,
     run_script,
     settle,
     wait_until,
@@ -457,9 +458,10 @@ def test_cursor_move_updates_schema_preview(catalog, entry_a, entry_b):
 
             await run_script(
                 pilot,
-                # Move past branch to first leaf (entry_a: id, name, score)
+                # Move past branch to first leaf (entry_a: id, name, score).
+                # Panel render is debounced, so wait for it to settle.
                 Press(("j",)),
-                Assert(lambda p: schema_table.row_count == 3),
+                WaitUntil(lambda: schema_table.row_count == 3),
                 Assert(
                     lambda p: (
                         "id" in [schema_table.get_cell_at((i, 0)) for i in range(3)]
@@ -477,11 +479,11 @@ def test_cursor_move_updates_schema_preview(catalog, entry_a, entry_b):
                 ),
                 # Move to second leaf (entry_b: value)
                 Press(("j",)),
-                Assert(lambda p: schema_table.row_count == 1),
+                WaitUntil(lambda: schema_table.row_count == 1),
                 Assert(lambda p: schema_table.get_cell_at((0, 0)) == "value"),
                 # Move back to first leaf (entry_a: id, name, score)
                 Press(("k",)),
-                Assert(lambda p: schema_table.row_count == 3),
+                WaitUntil(lambda: schema_table.row_count == 3),
             )
 
     _run(_test())

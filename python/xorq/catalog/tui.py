@@ -548,6 +548,7 @@ class CatalogScreen(Screen):
         self._active_view: Literal["sql", "data"] = "sql"
         self._data_preview_hash: str | None = None
         self._current_sql_hash: str | None = None
+        self._highlight_timer = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -643,6 +644,26 @@ class CatalogScreen(Screen):
 
     @on(Tree.NodeHighlighted, "#catalog-tree")
     def _on_tree_node_highlighted(self, event: Tree.NodeHighlighted) -> None:
+        # Debounce: rapid j/k traversal fires NodeHighlighted per intermediate
+        # node.  Defer the synchronous panel render until the cursor settles so
+        # holding a key moves at terminal-repeat-rate.  _render_highlighted_node
+        # reads the tree's current cursor_node, so only the settled selection
+        # is rendered (XOR-306).
+        if self._highlight_timer is not None:
+            self._highlight_timer.stop()
+            self._highlight_timer = None
+        delay = options.tui.highlight_debounce
+        if delay <= 0:
+            self._render_highlighted_node()
+        else:
+            self._highlight_timer = self.set_timer(delay, self._render_highlighted_node)
+
+    def _render_highlighted_node(self) -> None:
+        self._highlight_timer = None
+        tree = self.query_one("#catalog-tree", Tree)
+        node = tree.cursor_node
+        if node is None:
+            return
         schema_in_table = self.query_one("#schema-in-table", DataTable)
         schema_in_table.clear()
         schema_out_table = self.query_one("#schema-preview-table", DataTable)
@@ -653,10 +674,10 @@ class CatalogScreen(Screen):
         rev_table.clear()
 
         # Branch nodes (kind groupings) have children; only leaf nodes are entries
-        entry_hash = event.node.data
+        entry_hash = node.data
         row_data = (
             self._row_cache.get(entry_hash)
-            if not event.node.children and entry_hash is not None
+            if not node.children and entry_hash is not None
             else None
         )
         if row_data is None:
