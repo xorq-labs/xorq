@@ -16,6 +16,7 @@ from xorq.vendor.ibis.backends.sql import SQLBackend
 from xorq.vendor.ibis.expr import schema as sch
 from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import gen_name
+from xorq.writes.enums import WriteMode
 
 
 def parse_url(url: str) -> Dict[str, Any]:
@@ -293,18 +294,133 @@ class Backend(SQLBackend):
     def _get_schema_using_query(self, query: str) -> sch.Schema:
         raise NotImplementedError("_get_schema_using_query")
 
+    @staticmethod
+    def _stream_reader_to_parquet(
+        ice: IcebergTable, reader: pa.RecordBatchReader
+    ) -> str:
+        import pyarrow.parquet as pq  # noqa: PLC0415
+
+        file_path = f"{ice.location()}/data/{gen_name('add_files')}.parquet"
+        # add_files references files in place, so write under the table location.
+        output = ice.io.new_output(file_path).create(overwrite=True)
+        try:
+            with pq.ParquetWriter(output, reader.schema) as writer:
+                for batch in reader:
+                    writer.write_batch(batch)
+        finally:
+            output.close()
+        return file_path
+
     def read_record_batches(
         self,
         reader: Union[pa.RecordBatchReader, pa.ChunkedArray],
         table_name: Optional[str] = None,
+        mode: WriteMode | str = WriteMode.CREATE,
+        branch: Optional[str] = None,
     ) -> ir.Table:
+        # Callers on the write-through path hand us the wire string (mode.value);
+        # normalize at the boundary so the body always works with the enum.
+        mode = WriteMode(mode)
         table_name = table_name or gen_name("read_record_batches")
-        table = pa.Table.from_batches(reader, reader.schema)
+        full_name = f"{self.namespace}.{table_name}"
+        schema = reader.schema
+        exists = self.catalog.table_exists(full_name)
 
-        self.create_table(name=table_name, obj=table, database=self.namespace)
+        if branch is None:
+            match mode:
+                case WriteMode.CREATE:
+                    if exists:
+                        raise ValueError(f"Table {full_name} already exists")
+                    ice = self.catalog.create_table(identifier=full_name, schema=schema)
+                case WriteMode.APPEND:
+                    if not exists:
+                        raise ValueError(f"Table {full_name} does not exist")
+                    ice = self.catalog.load_table(full_name)
+                case _:
+                    raise ValueError(f"Unsupported write mode: {mode!r}")
+        else:
+            if not exists:
+                # A branch must point at a snapshot, and a freshly created table
+                # has none. Seed one empty snapshot so create_branch below has a
+                # base; the seed carries no rows and becomes ancestor history once
+                # the branch is fast-forwarded into main at publish.
+                ice = self.catalog.create_table(identifier=full_name, schema=schema)
+                ice.append(schema.empty_table())
+                ice = self.catalog.load_table(full_name)
+            else:
+                ice = self.catalog.load_table(full_name)
+
+            if mode == WriteMode.CREATE and branch in ice.refs():
+                raise ValueError(
+                    f"Branch {branch!r} already exists on table {full_name}"
+                )
+
+            if branch not in ice.refs():
+                current = ice.current_snapshot()
+                ice.manage_snapshots().create_branch(
+                    current.snapshot_id, branch
+                ).commit()
+                ice = self.catalog.load_table(full_name)
+
+        file_path = self._stream_reader_to_parquet(ice, reader)
+        # File names are unique per call, so the duplicate scan is unneeded and
+        # also raises on tables whose only snapshot has zero data files.
+        with ice.transaction() as tx:
+            if branch is None:
+                tx.add_files([file_path], check_duplicate_files=False)
+            else:
+                tx.add_files([file_path], check_duplicate_files=False, branch=branch)
+
         return self.table(table_name)
 
-    def list_snapshots(self, database=None) -> dict[str, int]:
+    def publish_branch(self, table_name: str, branch: str) -> None:
+        # Repoint main at the staging branch tip, then drop the branch. This is a
+        # fast-forward, NOT a merge: set_current_snapshot overwrites the main
+        # pointer, so any commits made to main since the branch was cut would be
+        # discarded. Safe under WAP because main only ever advances via publish.
+        full_name = f"{self.namespace}.{table_name}"
+        # An empty stream never opens the sink writer, so the table itself is
+        # never created (it is created lazily inside read_record_batches).
+        missing = not self.catalog.table_exists(full_name)
+        ice = None if missing else self.catalog.load_table(full_name)
+        if missing or branch not in ice.refs():
+            raise RuntimeError(
+                f"staging branch {branch!r} missing at publish on {full_name}. "
+                "The sink opens its writer on the first batch, so either the "
+                "audited input was empty (no batch, no artifact) or the staging "
+                "write has not committed yet (async sink?)."
+            )
+        staging_snap = ice.refs()[branch].snapshot_id
+        ice.manage_snapshots().set_current_snapshot(staging_snap).commit()
+        ice = self.catalog.load_table(full_name)
+        ice.manage_snapshots().remove_branch(branch).commit()
+
+    def publish_staging_table(self, staging: str, final: str) -> None:
+        # Repoint metadata instead of copying rows: register staging's parquet
+        # data files into final, then drop staging's catalog entry. add_files is
+        # metadata-only (reads footers, not rows). This relies on pyiceberg's
+        # Catalog.drop_table contract — it removes only the catalog entry and does
+        # NOT purge data files (purge_table is the separate, opt-in API) — so the
+        # files now live under final without being rewritten. A catalog that
+        # purged on drop would delete the files out from under final.
+        full_staging = f"{self.namespace}.{staging}"
+        full_final = f"{self.namespace}.{final}"
+        if not self.catalog.table_exists(full_staging):
+            raise RuntimeError(
+                f"staging table {full_staging!r} missing at publish. The sink "
+                "opens its writer on the first batch, so either the audited "
+                "input was empty (no batch, no artifact) or the staging write "
+                "has not committed yet (async sink?)."
+            )
+        staged_tbl = self.catalog.load_table(full_staging)
+        data_files = [task.file.file_path for task in staged_tbl.scan().plan_files()]
+        if not self.catalog.table_exists(full_final):
+            self.catalog.create_table(identifier=full_final, schema=staged_tbl.schema())
+        if data_files:
+            self.catalog.load_table(full_final).add_files(data_files)
+        self.drop_table(staging)
+
+    def list_snapshots(self, database: Optional[str] = None) -> dict[str, int]:
         database = database or self.namespace
         table_names = [t[1] for t in self.catalog.list_tables(database)]
 

@@ -1,8 +1,13 @@
+from __future__ import annotations
+
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
 
 import xorq.api as xo
+from xorq.backends.pyiceberg import Backend
 
 
 QUOTES_TABLE_NAME = "quotes"
@@ -59,3 +64,9 @@ def iceberg_con(tmp_path_factory, quotes_df):
 @pytest.fixture(scope="session")
 def quotes_table(iceberg_con):
     return iceberg_con.table(QUOTES_TABLE_NAME)
+
+
+@pytest.fixture
+def fresh_con(tmp_path: Path) -> Backend:
+    warehouse_path = str(tmp_path / "warehouse")
+    return xo.pyiceberg.connect(warehouse_path=warehouse_path)
