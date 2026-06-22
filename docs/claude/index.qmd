@@ -1,8 +1,8 @@
 ---
 title: "Claude Code plugin"
-description: "Drive the xorq catalog and CLI from Claude Code in plain language"
+description: "Drive the Xorq catalog and command-line tool from Claude Code in plain language"
 icon: "robot"
-headline: "Use xorq from Claude Code"
+headline: "Use Xorq from Claude Code"
 ---
 
 You talk to Claude in plain language. It picks the matching skill and runs the
@@ -27,7 +27,7 @@ A SessionStart hook loads the [essentials.md](https://github.com/xorq-labs/claud
 
 **ingest**
 
-Data not catalogued yet — csv, parquet, or a DuckDB / SQLite / Postgres table.
+Data not catalogued yet—csv, parquet, or a DuckDB / SQLite / Postgres table.
 Mints a `source`.
 :::
 
@@ -63,8 +63,8 @@ on new data.
 
 **builder**
 
-Round-trip tagged objects — semantic models, fitted pipelines, your own —
-through the catalog.
+Round-trip tagged objects—semantic models, fitted pipelines, your own—through
+the catalog.
 :::
 
 ::: {.doc-card}
@@ -79,7 +79,7 @@ Failed, slow, or stale runs, and caching.
 
 ## Example
 
-A session, one line per turn — what you say, and the skill Claude reaches for.
+A session, one line per turn—what you say, and the skill Claude reaches for.
 
 | You ask | Skill |
 |---------|-------|
@@ -90,4 +90,4 @@ A session, one line per turn — what you say, and the skill Claude reaches for.
 | "Fit a classifier on `transactions` for `is_fraud`, save it." | ml |
 | "That run was slow, what happened?" | diagnose |
 
-Full CLI and Python API index: <https://docs.xorq.dev/llms.txt>
+Full command-line and Python API index: <https://docs.xorq.dev/llms.txt>
