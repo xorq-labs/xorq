@@ -23,6 +23,7 @@ from textual.widgets import DataTable, Input, Static, Tree
 import xorq.api as xo
 from xorq.caching import ParquetSnapshotCache
 from xorq.catalog.bind import _eval_code
+from xorq.catalog.catalog import CatalogAlias
 from xorq.catalog.tests.testing import (
     Assert,
     Press,
@@ -46,6 +47,7 @@ from xorq.catalog.tui import (
     _build_git_log_rows,
     _entry_info,
     _format_cached,
+    _list_revisions_cached,
     _pygments_to_text,
     _pygments_tokens,
     _render_sql_dag,
@@ -545,6 +547,22 @@ def test_v_toggles_revisions(catalog):
             )
 
     _run(_test())
+
+
+def test_list_revisions_cached_hits_and_invalidates(catalog, entry_a, alias_for_a):
+    """Same (alias, HEAD sha) hits cache; a new commit invalidates it."""
+    alias = CatalogAlias.from_name(alias_for_a, catalog)
+    sha = catalog.repo.head.commit.hexsha
+
+    first = _list_revisions_cached(alias, sha)
+    # Identical args -> cache hit returns the same object (no re-walk).
+    assert _list_revisions_cached(alias, sha) is first
+
+    # A new commit moves HEAD -> different key -> fresh walk.
+    catalog.add_alias(entry_a.name, "another-alias")
+    sha2 = catalog.repo.head.commit.hexsha
+    assert sha2 != sha
+    assert _list_revisions_cached(alias, sha2) is not first
 
 
 def test_tree_entry_hashes_helper(catalog, entry_a, entry_b):

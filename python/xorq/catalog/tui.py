@@ -437,6 +437,20 @@ def _build_alias_multimap(
     }
 
 
+@cache
+def _list_revisions_cached(catalog_alias, head_sha: str) -> tuple:
+    """Cache an alias's git-revision walk; auto-invalidates when repo HEAD moves.
+
+    The walk (``repo.iter_commits`` -> a ``git rev-list`` subprocess) is the
+    expensive part of building the Revisions panel.  Keying on the repo HEAD
+    sha invalidates the cache whenever the catalog gains a commit (add /
+    remove / compose).  Per-revision cached state is recomputed fresh on each
+    render (see ``_load_revisions_preview``), so cache materialization is
+    still reflected even on a cache hit here.
+    """
+    return catalog_alias.list_revisions()
+
+
 def _build_git_log_rows(repo, max_count=100) -> tuple[GitLogRowData, ...]:
     return tuple(
         GitLogRowData(
@@ -1079,7 +1093,8 @@ class CatalogScreen(Screen):
     @work(thread=True, exit_on_error=False, exclusive=True, group="revisions")
     def _load_revisions_preview(self, catalog_alias) -> None:
         try:
-            raw_revisions = catalog_alias.list_revisions()
+            head_sha = catalog_alias.catalog_entry.catalog.repo.head.commit.hexsha
+            raw_revisions = _list_revisions_cached(catalog_alias, head_sha)
         except (KeyError, ValueError, OSError):
             return
         revision_rows = tuple(
