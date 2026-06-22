@@ -1,4 +1,8 @@
+from __future__ import annotations
+
+from collections.abc import Callable
 from functools import cached_property
+from typing import TYPE_CHECKING
 
 from attr import Attribute, field, frozen
 from attr.validators import deep_iterable, instance_of, optional
@@ -11,6 +15,10 @@ from xorq.catalog.bind import (
     bind,
 )
 from xorq.catalog.catalog import CatalogEntry
+
+
+if TYPE_CHECKING:
+    from xorq.vendor.ibis.expr.types.core import Expr
 
 
 def _same_catalog(instance, attribute: Attribute, value):
@@ -85,8 +93,23 @@ class ExprComposer:
             alias=pinned_alias,
         )
 
+    def rebuild(
+        self,
+        tag_node: object,
+        rebuild_subexpr: Callable,
+        remap: dict,
+        to_catalog: object,
+    ) -> Expr:
+        """Rebuild the composed expression against *to_catalog* (``Rebuildable``).
+
+        ``tag_node``/``rebuild_subexpr`` are part of the :class:`Rebuildable`
+        contract but unused here: the composition recipe is self-contained, so
+        rebuilding is just translating its catalog inputs and re-emitting.
+        """
+        return self.with_inputs_translated(remap, to_catalog).expr
+
     @classmethod
-    def from_expr(cls, expr, catalog):
+    def from_expr(cls, expr: Expr, catalog: object) -> ExprComposer:
         """Recover an ExprComposer from a tagged expression.
 
         Walks the HashingTag nodes embedded by a prior ``ExprComposer.expr``
