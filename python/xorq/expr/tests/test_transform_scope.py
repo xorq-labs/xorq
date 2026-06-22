@@ -394,7 +394,7 @@ def test_partial_read_record_batches_failure_drops_placeholder(
     target = xo.duckdb.connect()
     expr = make_remote_expr(target)
 
-    def register_then_boom(self, source, table_name=None):
+    def register_then_boom(self, source, table_name=None, schema=None, **kwargs):
         self.con.register(table_name, source)
         raise RuntimeError("partial registration failure")
 
