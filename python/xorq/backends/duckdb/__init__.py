@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 from typing import Any, Mapping
 
 import pyarrow as pa
+from batchcorder import StreamCache
 
 from xorq.vendor.ibis.backends.duckdb import Backend as IbisDuckDBBackend
 from xorq.vendor.ibis.expr import types as ir
@@ -22,10 +25,15 @@ class Backend(IbisDuckDBBackend):
 
     def read_record_batches(
         self,
-        source: pa.Table | pa.RecordBatchReader,
+        source: pa.Table | pa.RecordBatchReader | StreamCache,
         table_name: str | None = None,
         schema: pa.Schema | None = None,
     ) -> ir.Table:
+        # ``schema`` is intentionally accepted-and-ignored: duckdb registers
+        # ``source`` (typically a StreamCache) directly so it can replay the
+        # stream across scans, and a casting wrapper would not be replayable.
+        # Casting to the logical schema therefore happens upstream, before the
+        # StreamCache, in register_and_transform_remote_tables.
         table_name = table_name or gen_name("read_record_batches")
         self.con.register(table_name, source)
         return self.table(table_name)
