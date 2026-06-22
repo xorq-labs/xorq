@@ -285,6 +285,7 @@ markers = [
     "gcs",
     "snapshot_check",
     "slow",
+    "metrics: ibis_yaml size/perf characterization harness (run on demand)",
     "datafusion: Apache Datafusion tests",
     "duckdb: DuckDB tests",
 

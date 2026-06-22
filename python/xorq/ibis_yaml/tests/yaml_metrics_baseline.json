@@ -1,0 +1,236 @@
+{
+  "aggregate": {
+    "bytes": 2290,
+    "lines": 105,
+    "n_dtypes": 3,
+    "n_nodes": 2,
+    "n_schemas": 2,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 2.302
+  },
+  "filter_project": {
+    "bytes": 2981,
+    "lines": 132,
+    "n_dtypes": 5,
+    "n_nodes": 3,
+    "n_schemas": 2,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 3.54
+  },
+  "literal": {
+    "bytes": 233,
+    "lines": 17,
+    "n_dtypes": 1,
+    "n_nodes": 0,
+    "n_schemas": 0,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 0.117
+  },
+  "tpc_h01": {
+    "bytes": 9812,
+    "lines": 402,
+    "n_dtypes": 7,
+    "n_nodes": 3,
+    "n_schemas": 2,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 5.213
+  },
+  "tpc_h02": {
+    "bytes": 28596,
+    "lines": 1056,
+    "n_dtypes": 8,
+    "n_nodes": 20,
+    "n_schemas": 6,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 46.856
+  },
+  "tpc_h03": {
+    "bytes": 18357,
+    "lines": 711,
+    "n_dtypes": 12,
+    "n_nodes": 9,
+    "n_schemas": 4,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 18.84
+  },
+  "tpc_h04": {
+    "bytes": 7186,
+    "lines": 301,
+    "n_dtypes": 7,
+    "n_nodes": 5,
+    "n_schemas": 3,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 7.001
+  },
+  "tpc_h05": {
+    "bytes": 25571,
+    "lines": 964,
+    "n_dtypes": 11,
+    "n_nodes": 15,
+    "n_schemas": 7,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 29.09
+  },
+  "tpc_h06": {
+    "bytes": 5555,
+    "lines": 233,
+    "n_dtypes": 7,
+    "n_nodes": 3,
+    "n_schemas": 2,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 4.856
+  },
+  "tpc_h07": {
+    "bytes": 19098,
+    "lines": 734,
+    "n_dtypes": 10,
+    "n_nodes": 13,
+    "n_schemas": 6,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 20.506
+  },
+  "tpc_h08": {
+    "bytes": 23993,
+    "lines": 917,
+    "n_dtypes": 12,
+    "n_nodes": 20,
+    "n_schemas": 8,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 46.144
+  },
+  "tpc_h09": {
+    "bytes": 17693,
+    "lines": 689,
+    "n_dtypes": 11,
+    "n_nodes": 15,
+    "n_schemas": 7,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 21.216
+  },
+  "tpc_h10": {
+    "bytes": 21661,
+    "lines": 837,
+    "n_dtypes": 12,
+    "n_nodes": 11,
+    "n_schemas": 5,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 21.453
+  },
+  "tpc_h11": {
+    "bytes": 12810,
+    "lines": 488,
+    "n_dtypes": 9,
+    "n_nodes": 11,
+    "n_schemas": 4,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 18.87
+  },
+  "tpc_h12": {
+    "bytes": 16538,
+    "lines": 632,
+    "n_dtypes": 10,
+    "n_nodes": 7,
+    "n_schemas": 3,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 15.315
+  },
+  "tpc_h13": {
+    "bytes": 10694,
+    "lines": 416,
+    "n_dtypes": 9,
+    "n_nodes": 7,
+    "n_schemas": 3,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 11.134
+  },
+  "tpc_h14": {
+    "bytes": 15812,
+    "lines": 601,
+    "n_dtypes": 11,
+    "n_nodes": 9,
+    "n_schemas": 3,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 21.995
+  },
+  "tpc_h15": {
+    "bytes": 15084,
+    "lines": 575,
+    "n_dtypes": 11,
+    "n_nodes": 10,
+    "n_schemas": 3,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 20.196
+  },
+  "tpc_h16": {
+    "bytes": 14264,
+    "lines": 550,
+    "n_dtypes": 8,
+    "n_nodes": 10,
+    "n_schemas": 4,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 15.508
+  },
+  "tpc_h17": {
+    "bytes": 14307,
+    "lines": 555,
+    "n_dtypes": 11,
+    "n_nodes": 10,
+    "n_schemas": 3,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 25.817
+  },
+  "tpc_h18": {
+    "bytes": 19082,
+    "lines": 742,
+    "n_dtypes": 12,
+    "n_nodes": 12,
+    "n_schemas": 4,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 22.151
+  },
+  "tpc_h19": {
+    "bytes": 29918,
+    "lines": 948,
+    "n_dtypes": 11,
+    "n_nodes": 7,
+    "n_schemas": 3,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 21.911
+  },
+  "tpc_h20": {
+    "bytes": 17175,
+    "lines": 676,
+    "n_dtypes": 11,
+    "n_nodes": 16,
+    "n_schemas": 6,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 33.606
+  },
+  "tpc_h21": {
+    "bytes": 17095,
+    "lines": 648,
+    "n_dtypes": 6,
+    "n_nodes": 13,
+    "n_schemas": 5,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 24.619
+  },
+  "tpc_h22": {
+    "bytes": 11612,
+    "lines": 456,
+    "n_dtypes": 10,
+    "n_nodes": 8,
+    "n_schemas": 3,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 15.43
+  },
+  "wide_project": {
+    "bytes": 4205,
+    "lines": 185,
+    "n_dtypes": 1,
+    "n_nodes": 2,
+    "n_schemas": 2,
+    "roundtrip_ok": true,
+    "to_yaml_median_ms": 1.583
+  }
+}

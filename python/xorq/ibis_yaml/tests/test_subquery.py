@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.ibis_yaml.enums import RefEnum, RegistryEnum
-from xorq.ibis_yaml.tests.conftest import get_dtype_yaml
+from xorq.ibis_yaml.enums import RegistryEnum
 
 
 def test_scalar_subquery(compiler, t):
@@ -11,7 +10,7 @@ def test_scalar_subquery(compiler, t):
     expression = yaml_dict["expression"]
 
     assert expression["op"] == "ScalarSubquery"
-    node_ref = expression["rel"][RefEnum.node_ref]
+    node_ref = expression["rel"]
     agg_expression = yaml_dict["definitions"][RegistryEnum.nodes][node_ref]
     assert agg_expression["op"] == "Aggregate"
 
@@ -30,7 +29,7 @@ def test_exists_subquery(compiler, con):
     expression = yaml_dict["expression"]
 
     assert expression["op"] == "ExistsSubquery"
-    node_ref = expression["rel"][RefEnum.node_ref]
+    node_ref = expression["rel"]
     assert yaml_dict["definitions"][RegistryEnum.nodes][node_ref]["op"] == "Filter"
 
     profiles = {con._profile.hash_name: con}
@@ -45,10 +44,9 @@ def test_in_subquery(compiler, con):
     expr = ops.InSubquery(t1.select("a"), t2.a).to_expr()
     yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
-    dtype_yaml = get_dtype_yaml(yaml_dict, expression)
 
     assert expression["op"] == "InSubquery"
-    assert dtype_yaml["type"] == "Boolean"
+    assert expr.type().name == "Boolean"
 
     profiles = {con._profile.hash_name: con}
     roundtrip_expr = compiler.from_yaml(yaml_dict, profiles)

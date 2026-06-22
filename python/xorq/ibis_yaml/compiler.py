@@ -237,14 +237,18 @@ class YamlExpressionTranslator:
         )
         with SnapshotStrategy().normalization_context(expr):
             expr_dict = translate_to_yaml(expr, context)
-            expr_dict = freeze(
-                expr_dict
-                | {
-                    RefEnum.schema_ref: context.registry.register_schema(expr.schema())
-                    if hasattr(expr, "schema")
-                    else None,
-                }
+            # a hoisted top expression comes back as a bare "@..." sigil string;
+            # re-wrap it so the document's `expression` is always a mapping
+            if isinstance(expr_dict, str):
+                expr_dict = {RefEnum.node_ref: expr_dict}
+            # only the top expression of a *table* carries a schema; scalar/column
+            # expressions have none, so omit the null schema_ref rather than emit it
+            schema_ref = (
+                {RefEnum.schema_ref: context.registry.register_schema(expr.schema())}
+                if hasattr(expr, "schema")
+                else {}
             )
+            expr_dict = freeze(expr_dict | schema_ref)
             return freeze(
                 {
                     "definitions": context.definitions,

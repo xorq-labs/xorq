@@ -14,7 +14,8 @@ def test_filter(compiler: YamlExpressionTranslator, t: ir.Table) -> None:
 
     assert expression["op"] == "Filter"
     assert expression["predicates"][0]["op"] == "Greater"
-    parent_ref = expression["parent"][RefEnum.node_ref]
+    # node references are now bare "@..." sigil strings
+    parent_ref = expression["parent"]
     parent = yaml_dict["definitions"][RegistryEnum.nodes][parent_ref]
     assert parent["op"] == "UnboundTable"
 
@@ -30,7 +31,7 @@ def test_projection(compiler, t):
     expression = yaml_dict["definitions"][RegistryEnum.nodes][node_ref]
 
     assert expression["op"] == "Project"
-    parent_ref = expression["parent"][RefEnum.node_ref]
+    parent_ref = expression["parent"]
     parent = yaml_dict["definitions"][RegistryEnum.nodes][parent_ref]
     assert parent["op"] == "UnboundTable"
     assert set(expression["values"]) == {"a", "b"}

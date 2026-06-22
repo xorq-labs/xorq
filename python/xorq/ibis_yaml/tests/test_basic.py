@@ -5,7 +5,6 @@ import pytest
 
 import xorq.vendor.ibis as ibis
 from xorq.ibis_yaml.enums import RefEnum, RegistryEnum
-from xorq.ibis_yaml.tests.conftest import get_dtype_yaml
 
 
 def test_unbound_table(t, compiler):
@@ -28,11 +27,10 @@ def test_field(t, compiler):
     expression = yaml_dict["expression"]
     assert expression["op"] == "Field"
     assert expression["name"] == "a"
-    assert get_dtype_yaml(yaml_dict, expression) == {
-        "op": "DataType",
-        "type": "Int64",
-        "nullable": True,
-    }
+    # Field no longer serializes its (computed) dtype; it is re-inferred from the
+    # relation schema on load.
+    assert "type" not in expression
+    assert expr.type().name == "Int64"
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
@@ -46,14 +44,9 @@ def test_literal(compiler):
     expression = yaml_dict["expression"]
     assert expression["op"] == "Literal"
     assert expression["value"] == 42
-    dtype_yaml = yaml_dict["definitions"][RegistryEnum.dtypes][
-        expression["type"][RefEnum.dtype_ref]
-    ]
-    assert dtype_yaml == {
-        "op": "DataType",
-        "type": "Int8",
-        "nullable": True,
-    }
+    # dtypes are inlined as their canonical ibis string
+    assert expression["type"] == "int8"
+    assert expression["type"] == str(lit.type())
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(lit)
@@ -87,7 +80,8 @@ def test_primitive_types(compiler, primitive):
 
     expression = yaml_dict["expression"]
     assert expression["op"] == "Literal"
-    assert get_dtype_yaml(yaml_dict, expression)["type"] == expected_type
+    assert expression["type"] == str(lit.type())
+    assert lit.type().name == expected_type
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(lit)
@@ -107,7 +101,8 @@ def test_temporal_types(compiler):
         yaml_dict = compiler.to_yaml(lit)
         expression = yaml_dict["expression"]
         assert expression["op"] == "Literal"
-        assert get_dtype_yaml(yaml_dict, expression)["type"] == expected_type
+        assert expression["type"] == str(lit.type())
+        assert lit.type().name == expected_type
 
         roundtrip_expr = compiler.from_yaml(yaml_dict)
         assert roundtrip_expr.equals(lit)
@@ -120,9 +115,10 @@ def test_decimal_type(compiler):
     yaml_dict = compiler.to_yaml(lit)
     expression = yaml_dict["expression"]
     assert expression["op"] == "Literal"
-    dtype_yaml = get_dtype_yaml(yaml_dict, expression)
-    assert dtype_yaml["type"] == "Decimal"
-    assert dtype_yaml["nullable"]
+    # parametric dtypes inline as their full ibis string, e.g. "decimal(5, 2)"
+    assert expression["type"] == str(lit.type())
+    assert expression["type"].startswith("decimal")
+    assert not expression["type"].startswith("!")  # nullable
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(lit)
@@ -133,12 +129,10 @@ def test_array_type(compiler):
     lit = ibis.literal([1, 2, 3])
     yaml_dict = compiler.to_yaml(lit)
     expression = yaml_dict["expression"]
-    dtype_yaml = get_dtype_yaml(yaml_dict, expression)
-    inner = get_dtype_yaml(yaml_dict, dtype_yaml, key="value_type")
     assert expression["op"] == "Literal"
     assert expression["value"] == (1, 2, 3)
-    assert dtype_yaml["type"] == "Array"
-    assert inner["type"] == "Int8"
+    assert expression["type"] == str(lit.type())
+    assert expression["type"] == "array<int8>"
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(lit)
@@ -149,13 +143,9 @@ def test_map_type(compiler):
     lit = ibis.literal({"a": 1, "b": 2})
     yaml_dict = compiler.to_yaml(lit)
     expression = yaml_dict["expression"]
-    dtype_yaml = get_dtype_yaml(yaml_dict, expression)
-    key_dtype_yaml = get_dtype_yaml(yaml_dict, dtype_yaml, key="key_type")
-    value_dtype_yaml = get_dtype_yaml(yaml_dict, dtype_yaml, key="value_type")
     assert expression["op"] == "Literal"
-    assert dtype_yaml["type"] == "Map"
-    assert key_dtype_yaml["type"] == "String"
-    assert value_dtype_yaml["type"] == "Int8"
+    assert expression["type"] == str(lit.type())
+    assert expression["type"] == "map<string, int8>"
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(lit)

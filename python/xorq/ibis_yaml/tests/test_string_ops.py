@@ -3,7 +3,6 @@ from pytest import param
 
 import xorq.api as xo
 import xorq.vendor.ibis as ibis
-from xorq.ibis_yaml.tests.conftest import get_dtype_yaml
 
 
 def test_string_concat(compiler):
@@ -12,16 +11,11 @@ def test_string_concat(compiler):
     expr = s1 + s2
     yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
-    dtype_yaml = get_dtype_yaml(yaml_dict, expression)
 
     assert expression["op"] == "StringConcat"
     assert expression["arg"]["values"][0]["value"] == "hello"
     assert expression["arg"]["values"][1]["value"] == "world"
-    assert dtype_yaml == {
-        "op": "DataType",
-        "type": "String",
-        "nullable": True,
-    }
+    assert expr.type().name == "String"
 
 
 def test_string_upper_lower(compiler):
@@ -59,15 +53,10 @@ def test_string_length(compiler):
     expr = s.length()
     yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
-    dtype_yaml = get_dtype_yaml(yaml_dict, expression)
 
     assert expression["op"] == "StringLength"
     assert expression["arg"]["value"] == "hello"
-    assert dtype_yaml == {
-        "op": "DataType",
-        "type": "Int32",
-        "nullable": True,
-    }
+    assert expr.type().name == "Int32"
 
 
 def test_string_substring(compiler):

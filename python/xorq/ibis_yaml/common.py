@@ -44,6 +44,12 @@ class Registry:
         self.dtypes = dict(dtypes)
         self.nodes = dict(nodes)
         self.schemas = dict(schemas)
+        # write-side state for sequential, human/agent-friendly node labels
+        # (e.g. "@project_2"). Maps a node's content hash -> its assigned label
+        # so structurally-equal nodes dedup to one entry and labels are stable
+        # in registration (toposort) order across rebuilds of the same expr.
+        self._label_counter = 0
+        self._hash_to_label = {}
 
     def getstate(self):
         return freeze(
@@ -95,7 +101,15 @@ class Registry:
                 with SnapshotStrategy().normalization_context(node.to_expr()):
                     node_hash = tokenize(untagged_repr)
         op_name = node_dict.get("op", "unknown").lower()
-        node_ref = f"@{op_name}_{node_hash[: config.hash_length]}"
+        # sequential label keyed by content hash: equal nodes share a label
+        # (structural dedup), and the content hash stays in the body as
+        # `snapshot_hash` for cache alignment.
+        if node_hash in self._hash_to_label:
+            node_ref = self._hash_to_label[node_hash]
+        else:
+            node_ref = f"@{op_name}_{self._label_counter}"
+            self._label_counter += 1
+            self._hash_to_label[node_hash] = node_ref
         node_dict_with_hash = freeze(node_dict | {"snapshot_hash": node_hash})
         if isinstance(node, Read) and "read_path" in dict(node.read_kwargs):
             # Reads whose parquet was materialized into the build bundle carry
@@ -116,8 +130,11 @@ class Registry:
                 node_dict_with_hash | {"read_kwargs": modified_read_kwargs}
             )
         self.nodes.setdefault(node_ref, node_dict_with_hash)
-        frozen = freeze({RefEnum.node_ref: node_ref})
-        return frozen
+        # emit the reference as the bare "@..." sigil string rather than a
+        # {node_ref: "@..."} wrapper dict — every parent/relation/table/etc.
+        # reference drops a line. The loader resolves any "@"-prefixed string
+        # that is a registered node key back to the node.
+        return node_ref
 
     def register_schema(self, schema):
         frozen_schema = freeze(
@@ -243,6 +260,13 @@ def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     match yaml_dict:
         case None:
             return None
+        case str() if (
+            context is not None
+            and yaml_dict.startswith("@")
+            and yaml_dict in context.registry.nodes
+        ):
+            # bare "@..." sigil reference to a hoisted node
+            return context.get_node(yaml_dict)
         case bool() | int() | float() | str():
             return yaml_dict
         case {RefEnum.dtype_ref: dtype_ref, **rest}:

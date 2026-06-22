@@ -71,17 +71,24 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     else:
         raise ValueError(f"Unsupported input type: {input_type_str}")
 
-    dtype = dt.dtype(yaml_dict["type"]["type"])
+    type_yaml = yaml_dict["type"]
+    # inline string form (new) or legacy {op: DataType, type: <classname>, ...} dict
+    dtype = dt.dtype(type_yaml["type"] if isinstance(type_yaml, dict) else type_yaml)
     class_name = yaml_dict.get("class_name", yaml_dict["func_name"])
 
     schema = {}
     for i, arg_yaml in enumerate(args_yaml):
         arg_name = f"arg{i}"
 
-        if RefEnum.node_ref in arg_yaml and (
-            node := compiler.definitions[RegistryEnum.nodes].get(
-                arg_yaml[RefEnum.node_ref]
-            )
+        # a hoisted arg is referenced as a bare "@..." sigil string (new) or a
+        # {node_ref: "@..."} wrapper (legacy)
+        node_ref = None
+        if isinstance(arg_yaml, str) and arg_yaml.startswith("@"):
+            node_ref = arg_yaml
+        elif isinstance(arg_yaml, dict) and RefEnum.node_ref in arg_yaml:
+            node_ref = arg_yaml[RefEnum.node_ref]
+        if node_ref and (
+            node := compiler.definitions[RegistryEnum.nodes].get(node_ref)
         ):
             if node.get("op") == "Field" and "name" in node:
                 arg_name = node["name"]
@@ -182,6 +189,29 @@ def kwargs_to_schema(kwargs):
     return schema
 
 
+def _coerce_meta_dtype(meta):
+    """Re-hydrate UDF dtypes from their inline string form.
+
+    dtypes now serialize as their ibis string (e.g. "float64"); the UDF op
+    class and its ``__config__`` (e.g. udwf ``return_type``/``input_types``)
+    need real ``dt.DataType`` objects. Legacy artifacts store already-built
+    DataTypes, which pass through unchanged.
+    """
+    meta = dict(meta)
+    if isinstance(meta.get("dtype"), str):
+        meta["dtype"] = dt.dtype(meta["dtype"])
+    config = meta.get("__config__")
+    if config is not None:
+        config = dict(config)
+        if isinstance(config.get("return_type"), str):
+            config["return_type"] = dt.dtype(config["return_type"])
+        input_types = config.get("input_types")
+        if input_types is not None and all(isinstance(x, str) for x in input_types):
+            config["input_types"] = type(input_types)(dt.dtype(x) for x in input_types)
+        meta["__config__"] = config
+    return meta
+
+
 @translate_to_yaml.register(ops.udf.AggUDF)
 def _aggudf_to_yaml(op: ops.udf.AggUDF, compiler: Any) -> dict:
     require_input_types((ops.udf.InputType.PYARROW,), op)
@@ -212,6 +242,7 @@ def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     (kwargs, meta) = (
         translate_from_yaml(yaml_dict[name], compiler) for name in ("kwargs", "meta")
     )
+    meta = _coerce_meta_dtype(meta)
     fields = {
         argname: Argument(pattern=rlz.ValueOf(typ), typehint=typ)
         for (argname, typ) in ((argname, arg.type()) for argname, arg in kwargs.items())
@@ -270,6 +301,7 @@ def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     (kwargs, meta) = (
         translate_from_yaml(yaml_dict[name], compiler) for name in ("kwargs", "meta")
     )
+    meta = _coerce_meta_dtype(meta)
     fields = {
         argname: Argument(pattern=rlz.ValueOf(typ), typehint=typ)
         for (argname, typ) in ((argname, arg.type()) for argname, arg in kwargs.items())
