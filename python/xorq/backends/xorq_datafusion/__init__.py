@@ -793,17 +793,30 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         match source:
             case StreamCache():
                 target_schema = schema if schema is not None else source.schema
-                reader = pa.RecordBatchReader.from_stream(source)
+                # CastingStreamCache replays and preserves the source's
+                # max_readers bound, so DataFusion's repeated scans evict as
+                # they advance -- but it requires matching field names and so
+                # cannot drop columns. The remote-table path selects the
+                # logical columns upstream (names already match), so this
+                # bounded fast path applies. Direct callers that pass extra
+                # physical columns fall through to a select+recast inner cache,
+                # which is unbounded -- those callers supply no reader count.
+                if list(source.schema.names) == list(target_schema.names):
+                    registered: Any = source.cast(target_schema)
+                else:
+                    reader = pa.RecordBatchReader.from_stream(source)
 
-                def _cast_batches() -> Iterable[pa.RecordBatch]:
-                    with contextlib.closing(reader):
-                        for batch in reader:
-                            yield _select_and_cast(batch, target_schema)
+                    def _cast_batches() -> Iterable[pa.RecordBatch]:
+                        with contextlib.closing(reader):
+                            for batch in reader:
+                                yield _select_and_cast(batch, target_schema)
 
-                inner_cache = StreamCache(
-                    pa.RecordBatchReader.from_batches(target_schema, _cast_batches())
-                )
-                self.con.register_record_batch_reader(table_ident, inner_cache)
+                    registered = StreamCache(
+                        pa.RecordBatchReader.from_batches(
+                            target_schema, _cast_batches()
+                        )
+                    )
+                self.con.register_record_batch_reader(table_ident, registered)
                 try:
                     return self.table(table_name)
                 except Exception:
