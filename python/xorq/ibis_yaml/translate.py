@@ -72,16 +72,15 @@ convert_to_schema_ref = convert_to_ref(RegistryEnum.schemas)
 
 @translate_to_yaml.register(ops.Node)
 def _object_to_yaml(obj: ops.Node, context: Any) -> dict:
+    # NB: the result ``dtype`` is intentionally NOT emitted. For ops whose dtype
+    # is a constructor parameter it is already serialized under its argname; for
+    # ops whose dtype is a computed property the loader re-infers it on
+    # construction. The old write-only ``type:`` field was never read back.
     return freeze(
         {"op": obj.__class__.__name__}
         | {
             name: context.translate_to_yaml(arg)
             for name, arg in zip(obj.argnames, obj.args)
-        }
-        | {
-            name: context.translate_to_yaml(getattr(obj, attribute))
-            for name, attribute in (("type", "dtype"),)
-            if hasattr(obj, attribute)
         }
     )
 
@@ -308,20 +307,13 @@ def _translate_literal_value(value: Any, dtype: dt.DataType) -> Any:
 
 
 @translate_to_yaml.register(dt.DataType)
-@convert_to_dtype_ref
-def _datatype_to_yaml(dtype: dt.DataType, context: TranslationContext) -> dict:
-    return freeze(
-        {
-            "op": "DataType",
-            "type": type(dtype).__name__,
-        }
-        | {
-            argname: context.translate_to_yaml(arg)
-            if context is not None
-            else translate_to_yaml(arg, context)
-            for argname, arg in zip(dtype.argnames, dtype.args)
-        }
-    )
+def _datatype_to_yaml(dtype: dt.DataType, context: TranslationContext) -> str:
+    # Inline dtypes as their canonical ibis string (e.g. "int64", "!int64",
+    # "decimal(15, 2)", "array<int64>"). This round-trips losslessly via
+    # dt.dtype()/op-level coercion and removes the entire `definitions.dtypes`
+    # table plus every per-field dtype_ref. The legacy {op: DataType, ...} dict
+    # form (and dtype_ref) is still accepted on load for old artifacts.
+    return str(dtype)
 
 
 @register_from_yaml_handler("DataType")
@@ -348,7 +340,6 @@ def _window_function_to_yaml(
     result = {
         "op": "WindowFunction",
         "args": [context.translate_to_yaml(op.func)],
-        "type": context.translate_to_yaml(op.dtype),
     }
 
     if op.group_by:
@@ -396,7 +387,6 @@ def _window_boundary_to_yaml(
             "op": "WindowBoundary",
             "value": context.translate_to_yaml(op.value),
             "preceding": op.preceding,
-            "type": context.translate_to_yaml(op.dtype),
         }
     )
 
@@ -407,21 +397,30 @@ def _window_boundary_from_yaml(yaml_dict: dict, context: TranslationContext) -> 
     return ops.WindowBoundary(value, preceding=yaml_dict["preceding"])
 
 
+def _namespace_yaml(namespace) -> dict:
+    """Emit ``namespace`` only when a catalog/database is actually set.
+
+    The loaders read it back with ``.get(...)`` defaulting to ``None``, so an
+    empty namespace (the common case) can be omitted entirely.
+    """
+    if namespace.catalog is None and namespace.database is None:
+        return {}
+    return {
+        "namespace": freeze(
+            {"catalog": namespace.catalog, "database": namespace.database}
+        )
+    }
+
+
 @translate_to_yaml.register(ops.UnboundTable)
 @convert_to_node_ref
 def _unbound_table_to_yaml(op: ops.UnboundTable, context: TranslationContext) -> dict:
-    namespace_dict = freeze(
-        {
-            "catalog": op.namespace.catalog,
-            "database": op.namespace.database,
-        }
-    )
     return freeze(
         {
             "op": "UnboundTable",
             "name": op.name,
-            "namespace": namespace_dict,
         }
+        | _namespace_yaml(op.namespace)
         | context.registry.register_schema(op.schema)
     )
 
@@ -441,20 +440,14 @@ def _unbound_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir
 @convert_to_node_ref
 def _database_table_to_yaml(op: ops.DatabaseTable, context: TranslationContext) -> dict:
     profile_name = op.source._profile.hash_name
-    namespace_dict = freeze(
-        {
-            "catalog": op.namespace.catalog,
-            "database": op.namespace.database,
-        }
-    )
 
     node_dict = freeze(
         {
             "op": "DatabaseTable",
             "table": op.name,
             "profile": profile_name,
-            "namespace": namespace_dict,
         }
+        | _namespace_yaml(op.namespace)
         | context.registry.register_schema(op.schema)
     )
     return node_dict
@@ -718,7 +711,6 @@ def _lag_to_yaml(op: ops.Lag, context: TranslationContext) -> dict:
     result = {
         "op": "Lag",
         "arg": context.translate_to_yaml(op.arg),
-        "type": context.translate_to_yaml(op.dtype),
     }
 
     if op.offset is not None:
@@ -939,7 +931,6 @@ def _in_subquery_to_yaml(op: ops.InSubquery, context: TranslationContext) -> dic
             "op": "InSubquery",
             "needle": context.translate_to_yaml(op.needle),
             "haystack": context.translate_to_yaml(op.rel),
-            "type": context.translate_to_yaml(op.dtype),
         }
     )
 
@@ -957,7 +948,6 @@ def _field_to_yaml(op: ops.Field, context: TranslationContext) -> dict:
         "op": "Field",
         "name": op.name,
         "relation": context.translate_to_yaml(op.rel),
-        "type": context.translate_to_yaml(op.dtype),
     }
 
     if op.args and len(op.args) >= 2 and isinstance(op.args[1], str):

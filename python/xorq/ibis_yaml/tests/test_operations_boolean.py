@@ -1,7 +1,6 @@
 from math import isnan
 
 import xorq.vendor.ibis as ibis
-from xorq.ibis_yaml.tests.conftest import get_dtype_yaml
 
 
 def test_equals(compiler):
@@ -13,12 +12,8 @@ def test_equals(compiler):
     assert expression["op"] == "Equals"
     assert expression["left"]["value"] == 5
     assert expression["right"]["value"] == 5
-    dtype_yaml = get_dtype_yaml(yaml_dict, expression)
-    assert dtype_yaml == {
-        "op": "DataType",
-        "type": "Boolean",
-        "nullable": True,
-    }
+    # Equals result dtype is re-inferred on load, not serialized.
+    assert expr.type().name == "Boolean"
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
 
