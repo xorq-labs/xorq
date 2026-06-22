@@ -1055,7 +1055,7 @@ class CatalogScreen(Screen):
 
     # --- Revisions Preview ---
 
-    @work(thread=True, exit_on_error=False)
+    @work(thread=True, exit_on_error=False, exclusive=True, group="revisions")
     def _load_revisions_preview(self, catalog_alias) -> None:
         try:
             raw_revisions = catalog_alias.list_revisions()
