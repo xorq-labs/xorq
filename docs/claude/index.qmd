@@ -20,62 +20,14 @@ A SessionStart hook loads the [essentials.md](https://github.com/xorq-labs/claud
 
 ## Skills
 
-::: {.docs-grid}
-
-::: {.doc-card}
-<i class="bi bi-box-arrow-in-down"></i>
-
-**ingest**
-
-Data not catalogued yet—csv, parquet, or a DuckDB / SQLite / Postgres table.
-Mints a `source`.
-:::
-
-::: {.doc-card}
-<i class="bi bi-diagram-3"></i>
-
-**composer**
-
-Shape catalogued data into a new `composed` entry with inline code, reusable
-transforms, or both.
-:::
-
-::: {.doc-card}
-<i class="bi bi-search"></i>
-
-**catalog-explore**
-
-Read-only: list, inspect schemas, preview rows, read history. Also how a build
-is verified.
-:::
-
-::: {.doc-card}
-<i class="bi bi-cpu"></i>
-
-**ml**
-
-Fit an sklearn pipeline over an expression, save it as an `expr_builder`, run it
-on new data.
-:::
-
-::: {.doc-card}
-<i class="bi bi-arrow-repeat"></i>
-
-**builder**
-
-Round-trip tagged objects—semantic models, fitted pipelines, your own—through
-the catalog.
-:::
-
-::: {.doc-card}
-<i class="bi bi-heart-pulse"></i>
-
-**diagnose**
-
-Failed, slow, or stale runs, and caching.
-:::
-
-:::
+| Skill | What it does |
+|-------|--------------|
+| **ingest** | Bring data not yet catalogued (csv, parquet, or a DuckDB / SQLite / Postgres table) into a `source`. |
+| **composer** | Shape catalogued data into a new `composed` entry with inline code, reusable transforms, or both. |
+| **catalog-explore** | Read-only list, schema, row preview, and history. Also how a build is verified. |
+| **ml** | Fit an sklearn pipeline over an expression, save it as an `expr_builder`, run it on new data. |
+| **builder** | Round-trip tagged objects (semantic models, fitted pipelines, your own) through the catalog. |
+| **diagnose** | Failed, slow, or stale runs, and caching. |
 
 ## Example
 
