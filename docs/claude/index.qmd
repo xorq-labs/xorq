@@ -1,0 +1,54 @@
+---
+title: "Claude Code plugin"
+description: "Drive the xorq catalog and CLI from Claude Code in plain language"
+icon: "robot"
+headline: "Use xorq from Claude Code"
+---
+
+You talk to Claude in plain language. It picks the matching skill and runs the
+`xorq` CLI for you. No MCP server. Source and full skill docs:
+[xorq-labs/claude-plugins](https://github.com/xorq-labs/claude-plugins).
+
+## Install
+
+```
+/plugin marketplace add xorq-labs/claude-plugins
+/plugin install xorq@xorq-plugins
+```
+
+A SessionStart hook loads the shared vocabulary (CLI setup, which catalog to
+write to, the build/recover/verify idioms) once per session, so each skill
+assumes it. Entries are versioned, content-addressed build artifacts in a
+git-backed [catalog](../tutorials/core_tutorials/working_with_the_catalog.qmd).
+Kinds: `source` (raw data), `composed` (a source shaped by code or transforms),
+`unbound_expr` (a reusable transform), `expr_builder` (a tagged object like a
+fitted model that recovers into live Python).
+
+## A run through it
+
+Each step is what you ask Claude.
+
+| Ask | Skill | Result |
+|-----|-------|--------|
+| "Use a catalog called `demo`." | (setup) | `xorq catalog -n demo init` |
+| "Ingest `customers.csv` as `customers`." | ingest | a `source` entry |
+| "Show the catalog and preview `customers`." | catalog-explore | `list`, `schema`, `run` |
+| "From `customers`, keep `age > 30`, select name and age." | composer | a `composed` entry |
+| "Fit a classifier on `transactions` for `is_fraud`, save it." | ml | an `expr_builder` entry |
+| "That run was slow, what happened?" | diagnose | reads run logs, adds a cache |
+
+## Skills
+
+- **ingest**: data not catalogued yet (csv, parquet, or a DuckDB / SQLite /
+  Postgres table). Mints a `source`.
+- **composer**: shape catalogued data into a new `composed` entry with inline
+  code, reusable transforms, or both.
+- **catalog-explore**: read-only list, inspect schemas, preview rows, read
+  history. Also how a build is verified.
+- **ml**: fit an sklearn pipeline over an expression, save it as an
+  `expr_builder`, run it on new data.
+- **builder**: round-trip tagged objects (semantic models, fitted pipelines,
+  your own) through the catalog.
+- **diagnose**: failed, slow, or stale runs, and caching.
+
+Full CLI and Python API index: <https://docs.xorq.dev/llms.txt>

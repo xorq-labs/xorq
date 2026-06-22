@@ -49,8 +49,17 @@ website:
         text: "Concepts"
       - href: reference/index.qmd
         text: "Reference"
+      - href: claude/index.qmd
+        text: "Claude Code"
 
   sidebar:
+    - id: claude-code
+      title: "Claude Code"
+      pinned: true
+      contents:
+        - href: claude/index.qmd
+          text: "Plugin overview"
+
     - id: getting-started
       title: "Get started"
       collapse-level: 1
