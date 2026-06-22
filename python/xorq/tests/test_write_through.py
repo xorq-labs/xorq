@@ -15,9 +15,7 @@ from xorq.common.utils.graph_utils import walk_nodes
 from xorq.common.utils.node_utils import compute_expr_hash
 from xorq.common.utils.provenance_utils import get_expr_hash
 from xorq.expr.api import (
-    _close_and_join_drains,
-    _drop_created_tables,
-    _run_cleanup,
+    ExecutionResources,
     get_plans,
 )
 from xorq.expr.relations import (
@@ -639,7 +637,7 @@ def test_drop_created_tables_drops_all_and_raises(tmp_path: Path) -> None:
     created = {"a": good_a, "bad": bad, "b": good_b}
 
     with pytest.raises(ValueError, match="drop_view bad"):
-        _drop_created_tables(created)
+        ExecutionResources(created=created)._drop_created_tables()
 
     # the failing table in the middle did not strand the others
     assert good_a.dropped == ["a"]
@@ -665,9 +663,10 @@ def test_run_cleanup_joins_drains_before_dropping_tables() -> None:
         def drop_table(self, name: str, force: bool = False) -> None:
             log.append(("drop", name))
 
-    _run_cleanup(
-        [_RecordingDrain("d0"), _RecordingDrain("d1")], {"t0": _RecordingCon()}
-    )
+    ExecutionResources(
+        created={"t0": _RecordingCon()},
+        drains=[_RecordingDrain("d0"), _RecordingDrain("d1")],
+    ).cleanup()
 
     join_idx = [i for i, (action, _) in enumerate(log) if action == "join"]
     drop_idx = [i for i, (action, _) in enumerate(log) if action == "drop"]
@@ -692,7 +691,9 @@ def test_run_cleanup_drops_tables_even_if_drain_fails() -> None:
             dropped.append(name)
 
     with pytest.raises(ValueError, match="drain boom"):
-        _run_cleanup([_FailingDrain()], {"t0": _RecordingCon()})
+        ExecutionResources(
+            created={"t0": _RecordingCon()}, drains=[_FailingDrain()]
+        ).cleanup()
 
     assert dropped == ["t0"], "table was not dropped after the drain failed"
 
@@ -723,7 +724,7 @@ def test_close_and_join_drains_closes_all_when_one_close_fails() -> None:
     ]
 
     with pytest.raises(BaseException) as excinfo:  # noqa: PT011
-        _close_and_join_drains(drains)
+        ExecutionResources(drains=drains)._close_and_join_drains()
 
     assert ("close", "d0") in log and ("close", "d1") in log, (
         f"a close() failure skipped a later close(): {log}"
@@ -1456,7 +1457,9 @@ def test_run_cleanup_aggregates_drain_and_drop_failures() -> None:
 
     raised: BaseException | None = None
     try:
-        _run_cleanup([_FailingDrain()], {"leaked_tbl": _FailingCon()})
+        ExecutionResources(
+            created={"leaked_tbl": _FailingCon()}, drains=[_FailingDrain()]
+        ).cleanup()
     except BaseException as exc:  # noqa: BLE001
         raised = exc
 

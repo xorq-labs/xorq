@@ -810,5 +810,5 @@ def prepare_create_table_from_expr(con, expr, **kwargs):
 
     if (expr_backend := expr._find_backend()) != con:
         raise ValueError(f"expr backend must be {con}, is {expr_backend}")
-    (table, _, _) = _transform_expr(expr, **kwargs)
+    (table, _) = _transform_expr(expr, **kwargs)
     return table

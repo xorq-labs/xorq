@@ -3307,7 +3307,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         # Strip tee nodes first: defining a SQL view is a non-executing path, so
         # it must not register a pass-through table or fire the side-effect
         # write. Tee is schema-preserving, so the view schema is unaffected.
-        (expr, _, _) = _transform_expr(_remove_tee_nodes(expr))
+        (expr, _) = _transform_expr(_remove_tee_nodes(expr))
 
         schema = backend._get_sql_string_view_schema(name=name, table=expr, query=query)
         node = ops.SQLStringView(child=expr.op(), query=query, schema=schema)

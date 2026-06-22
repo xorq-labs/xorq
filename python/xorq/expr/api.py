@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Mapping
 
 import pyarrow as pa
 import toolz
+from attr import field, frozen
 
 import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
@@ -433,57 +434,76 @@ def _resolve_params(params):
     return name_values
 
 
-def _close_and_join_drains(drains: list) -> None:
-    errors: list[BaseException] = []
-    for d in drains:
-        try:
-            d.close()
-        except BaseException as exc:  # noqa: BLE001
-            errors.append(exc)
-    for d in drains:
-        try:
-            d.join()
-        except BaseException as exc:  # noqa: BLE001
-            errors.append(exc)
-    raise_collected_errors("drain failures", errors)
+@frozen
+class ExecutionResources:
+    """Resources allocated while transforming an expr for execution that must
+    be released once execution finishes or fails.
 
+    ``created`` maps the names of intermediate tables/views to the backend that
+    owns them; they are dropped on cleanup. ``drains`` are writer iterators
+    (tee pass-throughs) that must be closed and joined.
+    """
 
-def _drop_created_tables(created: dict) -> None:
-    # Drop every table even if one fails, so a single bad drop never strands the
-    # rest (created may hold several entries: tee + remote-table placeholders).
-    errors: list[BaseException] = []
-    for table_name, conn in created.items():
-        try:
-            conn.drop_table(table_name, force=True)
-        except Exception:
+    created: dict = field(factory=dict)
+    drains: list = field(factory=list)
+
+    def _close_and_join_drains(self) -> None:
+        errors: list[BaseException] = []
+        for d in self.drains:
             try:
-                conn.drop_view(table_name)
+                d.close()
             except BaseException as exc:  # noqa: BLE001
                 errors.append(exc)
-    raise_collected_errors("failed to drop created tables", errors)
+        for d in self.drains:
+            try:
+                d.join()
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+        raise_collected_errors("drain failures", errors)
 
+    def _drop_created_tables(self) -> None:
+        # Drop every table even if one fails, so a single bad drop never strands
+        # the rest (created may hold several entries: tee + remote-table placeholders).
+        errors: list[BaseException] = []
+        for table_name, conn in self.created.items():
+            try:
+                conn.drop_table(table_name, force=True)
+            except Exception:
+                try:
+                    conn.drop_view(table_name)
+                except BaseException as exc:  # noqa: BLE001
+                    errors.append(exc)
+        raise_collected_errors("failed to drop created tables", errors)
 
-def _run_cleanup(drains: list, created: dict) -> None:
-    """Close/join drains and drop created tables, surfacing every failure.
+    def cleanup(self) -> None:
+        """Close/join drains and drop created tables, surfacing every failure.
 
-    Both steps always run even if the first raises, so a drain failure never
-    leaks the temp tables and a drop failure never hides a drain failure.
-    """
-    cleanup_errors: list[BaseException] = []
-    try:
-        _close_and_join_drains(drains)
-    except BaseException as exc:  # noqa: BLE001
-        cleanup_errors.append(exc)
-    try:
-        _drop_created_tables(created)
-    except BaseException as exc:  # noqa: BLE001
-        cleanup_errors.append(exc)
-    raise_collected_errors("execution cleanup failed", cleanup_errors)
+        Both steps always run even if the first raises, so a drain failure never
+        leaks the temp tables and a drop failure never hides a drain failure.
+        """
+        cleanup_errors: list[BaseException] = []
+        try:
+            self._close_and_join_drains()
+        except BaseException as exc:  # noqa: BLE001
+            cleanup_errors.append(exc)
+        try:
+            self._drop_created_tables()
+        except BaseException as exc:  # noqa: BLE001
+            cleanup_errors.append(exc)
+        raise_collected_errors("execution cleanup failed", cleanup_errors)
 
 
 @tracer.start_as_current_span("_transform_expr")
-def _transform_expr(expr, params=None, **kwargs):
-    """Transform an expression for execution, binding any named scalar parameters."""
+def _transform_expr(
+    expr: ir.Expr,
+    params: Mapping[str, Any] | None = None,
+    **kwargs: Any,
+) -> tuple[ir.Expr, ExecutionResources]:
+    """Transform an expression for execution, binding any named scalar parameters.
+
+    Returns ``(expr, resources)`` where ``resources`` is an `ExecutionResources`
+    bundling everything the caller must release once execution finishes.
+    """
     name_values = _resolve_params(params)
     expr = (
         bind_params(expr, name_values)
@@ -495,8 +515,8 @@ def _transform_expr(expr, params=None, **kwargs):
     expr, tee_created, drains = register_and_transform_tee_nodes(expr)
     expr, created = register_and_transform_remote_tables(expr, **kwargs)
     expr, dt_to_read = _transform_deferred_reads(expr)
-    created = {**created, **tee_created}
-    return (expr, created, drains)
+    resources = ExecutionResources(created={**created, **tee_created}, drains=drains)
+    return (expr, resources)
 
 
 def _pandas_execute(con, expr: ir.Expr, **kwargs):
@@ -509,14 +529,14 @@ def _pandas_execute(con, expr: ir.Expr, **kwargs):
         df = node.to_rbr().read_pandas(timestamp_as_object=True)
         return expr.__pandas_result__(df)
     params = kwargs.pop("params", None)
-    expr, created, drains = _transform_expr(expr, params=params)
+    expr, resources = _transform_expr(expr, params=params)
 
     span.set_attribute("engine", "pandas")
     try:
         result = con.execute(expr, **kwargs)
     except BaseException as primary:
         try:
-            _run_cleanup(drains, created)
+            resources.cleanup()
         except BaseException as cleanup_exc:  # noqa: BLE001
             raise_collected_errors(
                 "execute failed and cleanup failed",
@@ -524,7 +544,7 @@ def _pandas_execute(con, expr: ir.Expr, **kwargs):
             )
         raise
     else:
-        _run_cleanup(drains, created)
+        resources.cleanup()
         return result
 
 
@@ -565,19 +585,16 @@ def to_pyarrow_batches(
         span.set_attribute("engine", "flight")
         return expr.op().to_rbr()
     params = kwargs.pop("params", None)
-    expr, created, drains = _transform_expr(expr, params=params)
+    expr, resources = _transform_expr(expr, params=params)
     con, _ = find_backend(expr.op(), use_default=True)
 
     span.set_attribute("engine", con.name)
-
-    def clean_up():
-        _run_cleanup(drains, created)
 
     try:
         reader = con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
     except BaseException as primary:
         try:
-            clean_up()
+            resources.cleanup()
         except BaseException as cleanup_exc:  # noqa: BLE001
             raise_collected_errors(
                 "to_pyarrow_batches failed and cleanup failed",
@@ -585,7 +602,7 @@ def to_pyarrow_batches(
             )
         raise
 
-    return otel_instrument_reader(rbr_wrapper(reader, clean_up))
+    return otel_instrument_reader(rbr_wrapper(reader, resources.cleanup))
 
 
 def to_pyarrow(expr: ir.Expr, **kwargs: Any):
@@ -736,7 +753,7 @@ def to_json(
 def get_plans(expr: ir.Expr) -> dict:
     # Strip tee nodes first (like to_sql): EXPLAIN is a non-executing path, so
     # it must not register a pass-through table or fire the side-effect write.
-    _expr, _, _ = _transform_expr(_remove_tee_nodes(expr))
+    _expr, _ = _transform_expr(_remove_tee_nodes(expr))
     con, _ = find_backend(_expr.op())
     sql = f"EXPLAIN {to_sql(_expr)}"
     return con.con.sql(sql).to_pandas().set_index("plan_type")["plan"].to_dict()
