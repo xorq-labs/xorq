@@ -673,6 +673,61 @@ def unbind_and_serve_command(
     server.wait()
 
 
+@_lazy_span("cli.serve_unbound_expr_command")
+def serve_unbound_expr_command(
+    expr_path,
+    host=None,
+    port=None,
+    prometheus_port=None,
+    cache_dir=None,
+):
+    import xorq.expr.relations
+    from xorq.common.utils.graph_utils import walk_nodes
+    from xorq.common.utils.logging_utils import get_print_logger
+    from xorq.ibis_yaml.compiler import load_expr
+    from xorq.vendor.ibis.expr.operations import UnboundTable
+
+    logger = get_print_logger()
+    cache_dir = _get_cache_dir(cache_dir)
+
+    expr_path = ensure_build_dir(expr_path)
+    logger.info(f"Loading expression from {expr_path}")
+    try:
+        from xorq.flight.metrics import setup_console_metrics
+
+        setup_console_metrics(prometheus_port=prometheus_port)
+    except ImportError:
+        logger.warning(
+            "Metrics support requires 'opentelemetry-sdk' and console exporter"
+        )
+
+    unbound_expr = load_expr(expr_path, cache_dir=cache_dir)
+    match walk_nodes(UnboundTable, unbound_expr):
+        case []:
+            raise click.ClickException(
+                f"expression at {expr_path} is not unbound (no UnboundTable found); "
+                "use `xorq serve-unbound` instead"
+            )
+        case [_]:
+            pass
+        case nodes:
+            raise click.ClickException(
+                f"expression at {expr_path} contains {len(nodes)} UnboundTable nodes; "
+                "expected exactly one"
+            )
+
+    flight_url = xorq.flight.FlightUrl(host=host, port=port)
+    make_server = partial(
+        xorq.flight.FlightServer,
+        flight_url=flight_url,
+    )
+    server, _ = xorq.expr.relations.flight_serve_unbound(
+        unbound_expr, make_server=make_server
+    )
+    logger.info(f"Serving expression from '{expr_path}' on {flight_url.to_location()}")
+    server.wait()
+
+
 @_lazy_span("cli.serve_command")
 def serve_command(
     expr_path,
@@ -1343,6 +1398,47 @@ def serve_unbound(
         prometheus_port,
         cache_dir,
         typ,
+    )
+
+
+@cli.command("serve")
+@click.argument("build_path")
+@click.option(
+    "--host",
+    default="localhost",
+    help="Host to bind Flight Server (default: localhost)",
+)
+@click.option(
+    "--port",
+    type=int,
+    default=None,
+    help="Port to bind Flight Server (default: random)",
+)
+@click.option(
+    "--cache-dir",
+    default=None,
+    help="Directory for all generated parquet files cache",
+)
+@click.option(
+    "--prometheus-port",
+    type=int,
+    default=None,
+    help="Port to expose Prometheus metrics (default: disabled)",
+)
+def serve(
+    build_path,
+    host,
+    port,
+    cache_dir,
+    prometheus_port,
+):
+    """Serve an already-unbound expr via Flight Server."""
+    serve_unbound_expr_command(
+        build_path,
+        host,
+        port,
+        prometheus_port,
+        cache_dir,
     )
 
 
