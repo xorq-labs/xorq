@@ -51,13 +51,22 @@ def t() -> Table:
 # datafusion drains a registered reader with a bounded read-ahead, so an early
 # downstream stop (LIMIT, partial read) leaves a *multi-batch* parent stream
 # un-exhausted -- the early-stop / drain guarantee is observable. A SINGLE-batch
-# source cannot express it: datafusion's terminal end-of-stream probe must pull
-# past the lone batch to detect EOF, which exhausts the writer and is
-# indistinguishable from genuine full consumption (it always publishes). The
-# early-stop tests below therefore feed a multi-batch source with margin beyond
-# the read-ahead window so the un-pulled tail is what the assertion turns on.
-# See ADR-0014.
-_MULTI_BATCH_COUNT = 8
+# source cannot express it: as of datafusion 0.2.9 a terminal end-of-stream probe
+# must pull past the lone batch to detect EOF, which exhausts the writer and is
+# indistinguishable from genuine full consumption (it always publishes). That
+# probe is absent in 0.2.7 (the version currently pinned): there the LIMIT stops
+# short and a single-batch source happens to pass -- so these tests are vacuously
+# green on 0.2.7 and only meaningfully guard once the 0.2.9 bump lands (#1977).
+# The early-stop tests below therefore feed a multi-batch source with margin
+# beyond the read-ahead window so the un-pulled tail is what the assertion turns
+# on, version-robustly. See ADR-0014.
+#
+# The count assumes datafusion's read-ahead window is ~4 batches: 8 gives margin
+# even for the thinnest case (LIMIT 2 + ~4 read-ahead leaves ~2 un-pulled). If a
+# future datafusion bump widens the window past ~6, these tests silently revert
+# to always-publishing (green for the wrong reason) -- raise this count to match.
+_DATAFUSION_READ_AHEAD = 4
+_MULTI_BATCH_COUNT = 2 * _DATAFUSION_READ_AHEAD
 
 
 def _multi_batch_source(con: Any, table_name: str) -> Table:
@@ -1499,6 +1508,14 @@ def test_draining_iterator_join_before_close_raises() -> None:
 
 
 def test_tee_drain_writes_full_on_early_stop(t: Table, tmp_path: Path) -> None:
+    # TODO(#2105): still single-batch. A multi-batch source with drain=True hits
+    # ValueError('generator already executing') (background drain vs datafusion's
+    # in-flight pull) on 0.2.9 -- a race, so it can't yet be hardened like the
+    # early-stop tests above. On 0.2.9 the further hazard is that the single batch
+    # is exhausted by the terminal EOF probe regardless of whether drain fired, so
+    # the assertion can't distinguish a genuine drain from probe exhaustion. (On
+    # 0.2.7, the pinned version, there is no probe and the drain genuinely runs.)
+    # Weakly guarded until #2105 lets this move to a multi-batch source.
     target = tmp_path / "drain_tee.parquet"
     out = t.tee(ParquetWriteThrough(path=target), drain=True).limit(2).execute()
     assert len(out) == 2

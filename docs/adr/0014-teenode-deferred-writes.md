@@ -176,6 +176,13 @@ remainder freely. The lifecycle is explicit (`close()` then `join()`, no `__del_
 the backend keeps the reader alive past GC), and needs no changes to the `WriteThrough` ABC or any
 implementation. See `DrainingIterator` (`write_through.py`) for the mechanics.
 
+A concurrency defect in this path is tracked in **#2105**: with a *multi-batch* parent under
+datafusion 0.2.9, the background drain thread and datafusion's in-flight terminal pull (see the
+read-ahead note in Consequences) can race on the same `write_through` generator, raising
+`ValueError('generator already executing')` so the write silently fails to publish. It is
+intermittent and 0.2.9-only (absent on the currently-pinned 0.2.7); the fix must serialize the
+drain against the engine's pull.
+
 ### Fan-out of two, chained for N
 
 Phase 1 supports a fan-out of two: one main consumer plus one inline write. A fan-out of N
@@ -421,6 +428,16 @@ The first four are the footguns: cases where the write does something a caller w
   future in-engine transport (for example a Postgres data-modifying CTE) are drain-always by construction
   and cannot honor it; callers relying on early-stop suppression must not assume it holds for
   those transports.
+- **The `drain=False` abort is also parent-size-dependent under datafusion's read-ahead.** Even on
+  the client-side generator transport, early-stop suppression is only *observable* when the parent's
+  un-pulled tail exceeds datafusion's bounded read-ahead window (empirically ~4 batches). datafusion
+  0.2.9 added a terminal end-of-stream probe that, to detect EOF, pulls past a small parent and
+  exhausts the writer — so a sub-read-ahead parent (in the limit, a single batch) **publishes anyway
+  despite `drain=False`**. The probe is absent in 0.2.7 (the currently-pinned version, which stops at
+  the LIMIT), so this is a 0.2.9-onward behavior. A caller passing `drain=False` to suppress a write
+  on a tiny input will be surprised; the suppression is reliable only once the un-written tail is
+  larger than the read-ahead window. The same probe is what surfaces the #2105 drain race above. Tests
+  must use a multi-batch source with margin beyond the window to exercise the guarantee version-robustly.
 - The default backend consumer (`ThreadedBackendWriteThrough`) defaults to an **unbounded** queue
   (`maxsize=0`), giving up backpressure: if downstream pulls faster than the write ingests, the
   queue grows without bound. Two bounded-memory options ship: `ThreadedBackendWriteThrough(maxsize
@@ -457,3 +474,5 @@ The first four are the footguns: cases where the write does something a caller w
 - Atomic write precedent (temp file + rename): `python/xorq/caching/storage.py`
 - ADR-0013: batchcorder StreamCache for RemoteTable fan-out (forthcoming), candidate for the future buffered-tee optimization
 - Issue #2087 (build- vs. cache-hash naming): this ADR edits `get_expr_hash` (`python/xorq/common/utils/provenance_utils.py`) and relies on the build/cache hash split. A rename there (`get_expr_hash` → `compute_build_hash`) must update this ADR's references and the `include_tee_nodes` call site.
+- Issue #2105 (drain race): `drain=True` over a multi-batch parent races the background drain against datafusion 0.2.9's terminal pull (`ValueError('generator already executing')`); intermittent and 0.2.9-only. See the `drain` section and Consequences → Negative.
+- PR #1977 (`spike/add-batchcorder`): bumps `xorq-datafusion` 0.2.7 → 0.2.9, which introduces the terminal end-of-stream probe whose read-ahead behavior the drain/early-stop consequences depend on.
