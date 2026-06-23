@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+import duckdb
 import pandas as pd
 import pytest
 
@@ -159,3 +160,23 @@ def test_into_backend_nested_chain(df: pd.DataFrame, target: Backend) -> None:
     # only the outer RemoteTable is resolved in this pass (inner is recursive)
     assert reader_counts(expr) == [2]
     assert len(expr.execute()) == 4
+
+
+def test_into_backend_partition_window_undercounts_and_raises(
+    df: pd.DataFrame, target: Backend
+) -> None:
+    # Current-behavior test (not a fix): a PARTITION BY-only aggregate window
+    # with no ORDER BY undercounts. The sqlglot AST sees one Table node, but
+    # duckdb lowers ``sum(v) OVER (PARTITION BY k)`` to a GROUP BY self-join
+    # that scans its input twice, so max_readers=1 is one short and the second
+    # reader trips the hard cap. ``max_readers`` is a best-effort lower bound,
+    # not an exact scan count -- see ADR-0013 ("Counting accuracy").
+    #
+    # This pins the failure exactly: the day the AST count learns this shape
+    # (or duckdb stops re-scanning), this test fails loudly and should be
+    # converted to assert a correct, non-empty result.
+    rt = xo.memtable(df).into_backend(target, "t")
+    expr = rt.mutate(s=rt.v.sum().over(xo.window(group_by="k")))
+    assert reader_counts(expr) == [1]
+    with pytest.raises(duckdb.Error, match="Maximum number of readers"):
+        expr.execute()
