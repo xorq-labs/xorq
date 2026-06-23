@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pyarrow as pa
 import pytest
+from adbc_driver_manager import AdbcStatusCode
 from adbc_driver_manager import ProgrammingError as ADBCProgrammingError
 
 import xorq.api as xo
@@ -63,7 +64,9 @@ def test_to_pyarrow_batches_falls_through_on_adbc_programming_error(
 
     class FakeCursor:
         def execute(self, query):
-            raise ADBCProgrammingError("relation does not exist")
+            raise ADBCProgrammingError(
+                "relation does not exist", status_code=AdbcStatusCode.NOT_FOUND
+            )
 
         def fetch_record_batch(self):  # pragma: no cover - never reached
             raise AssertionError("should not fetch after a programming error")
