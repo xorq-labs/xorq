@@ -34,7 +34,13 @@ def project_and_cast_reader(
     backend casting wrapper (``StreamCache.cast``) only retypes -- it cannot
     drop columns. Projecting here, before the cache, keeps that single
     invariant and lets every backend register the cache with a type-only cast.
+
+    When the reader already declares the logical schema (the common case --
+    ~95% of remote scans), the per-batch select+cast is a no-op, so the reader
+    is returned unwrapped to avoid a redundant Python-level batch pass.
     """
+    if reader.schema.equals(logical_schema):
+        return reader
     return pa.RecordBatchReader.from_batches(
         logical_schema,
         (batch.select(logical_schema.names).cast(logical_schema) for batch in reader),
