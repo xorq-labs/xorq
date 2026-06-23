@@ -16,6 +16,7 @@ from xorq.backends.postgres.compiler import compiler
 from xorq.common.utils.defer_utils import (
     read_csv_rbr,
 )
+from xorq.common.utils.logging_utils import get_logger
 from xorq.config import default_backend
 from xorq.vendor.ibis import util
 from xorq.vendor.ibis.backends.postgres import Backend as IbisPostgresBackend
@@ -23,6 +24,9 @@ from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import (
     gen_name,
 )
+
+
+logger = get_logger(__name__)
 
 
 class Backend(IbisPostgresBackend):
@@ -114,6 +118,14 @@ class Backend(IbisPostgresBackend):
             try:
                 adbc_con = PgADBC(self).get_conn()
             except Exception:
+                # A genuine config/auth error is indistinguishable here from a
+                # missing ADBC URI; both fall through to the psycopg path, so log
+                # at debug to keep the real cause diagnosable.
+                logger.debug(
+                    "ADBC connection unavailable; falling back to psycopg",
+                    backend=self.name,
+                    exc_info=True,
+                )
                 adbc_con = None
 
             if adbc_con is not None:
