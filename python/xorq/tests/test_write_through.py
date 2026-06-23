@@ -415,11 +415,9 @@ def test_tee_drain_writes_full_on_early_stop_multibatch(tmp_path: Path) -> None:
 
 
 def test_draining_iterator_serializes_concurrent_advance() -> None:
-    # Deterministic guard for issue #2105: __next__ (foreground reader pull) and
-    # _drain (background close()) must never advance the underlying generator at
-    # once. time.sleep inside the generator body keeps its frame in the running
-    # state with the GIL released, so an overlapping next() from the other thread
-    # would raise ValueError('generator already executing') without serialization.
+    # Deterministic guard for #2105: __next__ and _drain must never advance the
+    # generator concurrently. The sleeps force the overlap that would otherwise
+    # raise 'generator already executing'.
     started = threading.Event()
 
     def slow_gen():
