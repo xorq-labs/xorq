@@ -446,6 +446,24 @@ The first four are the footguns: cases where the write does something a caller w
   silently escapes the build and cache hashes, risking a stale cache hit. The invariant
   ("kwargs tunes mechanics only") is a documented contract, not an enforced one.
 
+## Amendment (2026-06-23): serialize generator advancement
+
+The Decision above says that once downstream is done "the writer can consume the remainder
+freely." That assumed downstream being done meant the foreground reader had stopped pulling. It
+doesn't: `close()` can start the background drain while the foreground reader still has an in-flight
+pull. Datafusion uses a bounded read-ahead, so a multi-batch parent is typically *not* exhausted at
+cleanup time — the read-ahead thread may still be inside `DrainingIterator.__next__` when the drain
+thread enters its `for _ in self._gen` loop. Both then advance the same `write_through` generator,
+raising `ValueError('generator already executing')`; the write is silently never published,
+breaking the `drain=True` promise ([#2105](https://github.com/xorq-labs/xorq/issues/2105)). A
+single-batch parent masks this — datafusion's terminal end-of-stream probe exhausts the generator
+in the foreground, so the drain has nothing to advance and the window never opens.
+
+The fix is to serialize generator advancement: `__next__` and `_drain` acquire a shared per-batch
+lock so only one thread ever calls `next()` on the generator at a time (acquired per-iteration in
+the drain so an in-flight foreground pull can interleave rather than starve). Drain failures must
+surface, not be swallowed, or a failed publish looks like success.
+
 ## References
 
 - `Read` (deferred read precedent): `python/xorq/expr/relations.py`
