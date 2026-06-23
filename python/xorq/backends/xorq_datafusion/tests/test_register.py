@@ -102,6 +102,29 @@ def test_read_record_batches_stream_cache_extra_columns_raises() -> None:
         t.execute()
 
 
+def test_read_record_batches_stream_cache_rollback_on_table_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # StreamCache registers the reader, then builds the ir.Table. If that
+    # build raises, the reader must be deregistered so a failed call leaves no
+    # half-registered table behind.
+    con = xo.connect()
+    logical_schema = pa.schema([("x", pa.int64())])
+    reader = pa.RecordBatchReader.from_batches(
+        logical_schema, [pa.record_batch({"x": [1, 2]})]
+    )
+    cache = StreamCache(reader)
+
+    def boom(self, *args, **kwargs):
+        raise RuntimeError("table build failed")
+
+    monkeypatch.setattr(type(con), "table", boom)
+    with pytest.raises(RuntimeError, match="table build failed"):
+        con.read_record_batches(cache, table_name="rollback_t", schema=logical_schema)
+    monkeypatch.undo()
+    assert "rollback_t" not in con.list_tables()
+
+
 def test_read_record_batches_stream_cache_projected_upstream() -> None:
     # The supported path: project to the logical columns before the cache,
     # then read_record_batches only retypes via the replayable CastingStreamCache.

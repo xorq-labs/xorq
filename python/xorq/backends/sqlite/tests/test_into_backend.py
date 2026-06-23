@@ -21,3 +21,17 @@ def test_into_backend_sqlite_filter() -> None:
     expr = t.into_backend(sqlite_con, "t").filter(xo._.x > 15)
     result = expr.execute()
     assert sorted(result["x"]) == [20, 30]
+
+
+def test_into_backend_sqlite_self_join_fanout() -> None:
+    # sqlite eagerly ingests the StreamCache once into a temp table, so the
+    # self-join re-scans that materialized table rather than the cache. This
+    # pins that fan-out over an eager-ingest backend still produces correct
+    # results (the duckdb/datafusion suites cover the cache-replay path).
+    sqlite_con = xo.sqlite.connect(":memory:")
+    rt = xo.memtable(pa.table({"id": [1, 2], "k": ["a", "a"]})).into_backend(
+        sqlite_con, "t"
+    )
+    result = rt.join(rt.view(), "k").execute()
+    # k='a' on both sides -> 2x2
+    assert len(result) == 4
