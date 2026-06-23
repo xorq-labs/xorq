@@ -401,13 +401,9 @@ def test_tee_drops_intermediate_table_on_early_stop(tmp_path: Path) -> None:
 
 
 def test_tee_drain_writes_full_on_early_stop_multibatch(tmp_path: Path) -> None:
-    # Regression for the drain=True read-ahead race (issue #2105): with a
-    # multi-batch source, datafusion's bounded read-ahead leaves the parent
-    # un-exhausted at cleanup time, so the background drain thread and the
-    # in-flight foreground pull both advance the same write_through generator.
-    # Before serializing advancement that raced ('generator already executing')
-    # and the write was silently never published. The single-batch fixtures used
-    # by the other drain tests never open this window.
+    # Issue #2105 repro: multi-batch drain=True + early stop. Only opens the race
+    # on datafusion >=0.2.9 (bounded read-ahead); on the pinned 0.2.7 it passes
+    # even unfixed, so don't read a green run here as proof. See ADR-0014.
     con = xo.connect()
     batches = [pa.record_batch({"a": [i], "b": [str(i)]}) for i in range(8)]
     reader = pa.RecordBatchReader.from_batches(batches[0].schema, iter(batches))
