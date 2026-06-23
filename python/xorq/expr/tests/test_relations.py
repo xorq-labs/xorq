@@ -18,7 +18,10 @@ from xorq.expr.relations import (
     Tag,
     flight_serve,
 )
-from xorq.expr.remote_table_exec import count_remote_table_readers
+from xorq.expr.remote_table_exec import (
+    count_remote_table_readers,
+    project_and_cast_reader,
+)
 from xorq.ibis_yaml.enums import ExprKind
 from xorq.vendor.ibis.expr.types.core import ExprMetadata
 from xorq.vendor.ibis.expr.types.relations import Table
@@ -384,3 +387,16 @@ def test_count_compile_failure_returns_empty(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr(type(target.compiler), "to_sqlglot", boom)
     assert count_remote_table_readers(expr) == {}
+
+
+def test_project_and_cast_reader_drops_extra_and_retypes() -> None:
+    # extra physical column 'rn' dropped; 'a' retyped int64 -> int32
+    batch = pa.record_batch(
+        {"a": pa.array([1, 2], pa.int64()), "rn": pa.array([0, 1], pa.int64())}
+    )
+    raw = pa.RecordBatchReader.from_batches(batch.schema, [batch])
+    logical_schema = pa.schema([("a", pa.int32())])
+    out = project_and_cast_reader(raw, logical_schema)
+    table = out.read_all()
+    assert table.schema == logical_schema
+    assert table.column("a").to_pylist() == [1, 2]

@@ -85,12 +85,34 @@ def test_read_record_batches_stream_cache_casts_to_logical_schema() -> None:
     assert t.execute()["x"].tolist() == ["hello", "world"]
 
 
-def test_read_record_batches_stream_cache_schema_drops_extra_columns() -> None:
+def test_read_record_batches_stream_cache_extra_columns_raises() -> None:
+    # A StreamCache must already hold the logical columns: cast only retypes,
+    # it cannot drop columns, and wrapping a second cache to project would
+    # double-buffer and defeat eviction. Column projection belongs upstream,
+    # before the cache (as register_and_transform_remote_tables does).
     con = xo.connect()
     batch = pa.record_batch({"a": [1, 2], "extra": [9, 9]})
     reader = pa.RecordBatchReader.from_batches(batch.schema, [batch])
     cache = StreamCache(reader)
     logical_schema = pa.schema([("a", pa.int64())])
+    # cast is lazy: the name mismatch surfaces when DataFusion reads, not at
+    # registration (same deferral as type-cast errors).
+    t = con.read_record_batches(cache, schema=logical_schema)
+    with pytest.raises(Exception, match="field names"):
+        t.execute()
+
+
+def test_read_record_batches_stream_cache_projected_upstream() -> None:
+    # The supported path: project to the logical columns before the cache,
+    # then read_record_batches only retypes via the replayable CastingStreamCache.
+    con = xo.connect()
+    batch = pa.record_batch({"a": [1, 2], "extra": [9, 9]})
+    logical_schema = pa.schema([("a", pa.int64())])
+    projected = pa.RecordBatchReader.from_batches(
+        logical_schema,
+        (b.select(logical_schema.names).cast(logical_schema) for b in [batch]),
+    )
+    cache = StreamCache(projected)
     t = con.read_record_batches(cache, schema=logical_schema)
     result = t.execute()
     assert result.columns.tolist() == ["a"]

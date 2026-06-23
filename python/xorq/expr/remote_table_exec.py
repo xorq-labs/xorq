@@ -22,6 +22,25 @@ from xorq.writes import DrainingIterator
 logger = get_logger(__name__)
 
 
+def project_and_cast_reader(
+    reader: pa.RecordBatchReader, logical_schema: pa.Schema
+) -> pa.RecordBatchReader:
+    """Project to the logical columns and cast types, before any StreamCache.
+
+    A raw remote reader may carry extra physical columns (e.g. row_number) or
+    mismatched types (large_utf8 vs utf8). The cache must hold exactly the
+    logical columns: ``StreamCache`` replays through the C Data Interface using
+    the declared schema (so uncasted data silently corrupts reads), and the
+    backend casting wrapper (``StreamCache.cast``) only retypes -- it cannot
+    drop columns. Projecting here, before the cache, keeps that single
+    invariant and lets every backend register the cache with a type-only cast.
+    """
+    return pa.RecordBatchReader.from_batches(
+        logical_schema,
+        (batch.select(logical_schema.names).cast(logical_schema) for batch in reader),
+    )
+
+
 def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
     """Best-effort count of how many times each ``RemoteTable`` is scanned.
 
@@ -303,20 +322,9 @@ def register_and_transform_remote_tables(
     def replacer(node, kwargs):
         if isinstance(node, RemoteTable):
             remote_expr = node.remote_expr
-            # Cast batches to the logical schema before entering
-            # StreamCache. The raw reader may carry extra physical columns
-            # (e.g. row_number) or mismatched types (large_utf8 vs utf8);
-            # StreamCache replays through the C Data Interface using the
-            # declared schema, so uncasted data silently corrupts reads.
             raw_reader = scope.adopt_reader(remote_expr.to_pyarrow_batches())
             logical_schema = node.schema.to_pyarrow()
-            casting_reader = pa.RecordBatchReader.from_batches(
-                logical_schema,
-                (
-                    batch.select(logical_schema.names).cast(logical_schema)
-                    for batch in raw_reader
-                ),
-            )
+            casting_reader = project_and_cast_reader(raw_reader, logical_schema)
             cache = scope.adopt_cache(
                 StreamCache(
                     casting_reader,
