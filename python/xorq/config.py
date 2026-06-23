@@ -251,7 +251,7 @@ class TUI(Config):
         int(env_config.XORQ_TUI_SQL_HIGHLIGHT_MAX_LINES or 500), 0
     )
     highlight_debounce: float = max(
-        float(env_config.XORQ_TUI_HIGHLIGHT_DEBOUNCE or 0.05), 0.0
+        float(env_config.XORQ_TUI_HIGHLIGHT_DEBOUNCE or 0.15), 0.0
     )
 
 
