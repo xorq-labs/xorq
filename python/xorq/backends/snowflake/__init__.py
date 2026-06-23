@@ -284,13 +284,8 @@ class Backend(IbisSnowflakeBackend):
         temporary: bool = False,
         mode: str = "create",
         database=None,
-        schema: pa.Schema | None = None,
         **kwargs: Any,
     ) -> ir.Table:
-        # ``schema`` is accepted-and-ignored: the stream is already projected and
-        # cast to the logical schema upstream, before the StreamCache, in
-        # register_and_transform_remote_tables. Bind it here so it is not
-        # forwarded into adbc_ingest via **kwargs.
         logger.info(
             "reading record batches with SnowflakeADBC",
             **{

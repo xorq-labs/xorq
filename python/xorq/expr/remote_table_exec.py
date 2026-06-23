@@ -336,8 +336,12 @@ def register_and_transform_remote_tables(
             # placeholder, and drop_placeholder is a no-op if it never
             # registered
             table_name = scope.adopt_table(node.source, gen_name())
+            # No ``schema=`` is passed: ``project_and_cast_reader`` already cast
+            # the stream to ``logical_schema`` before the cache, so the cache
+            # already declares it. Backends that genuinely use a schema
+            # (xorq_datafusion, pyiceberg) default to the source's own schema.
             result = node.source.read_record_batches(
-                cache, table_name=table_name, schema=logical_schema, **read_kwargs
+                cache, table_name=table_name, **read_kwargs
             )
             return result.op()
 

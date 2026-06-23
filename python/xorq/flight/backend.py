@@ -168,12 +168,7 @@ class Backend(SQLBackend):
         self,
         source: pa.Table | pa.RecordBatchReader | StreamCache,
         table_name: str | None = None,
-        schema: pa.Schema | None = None,
-        **kwargs: Any,
     ) -> ir.Table:
-        # ``schema`` is accepted-and-ignored: the stream is already projected and
-        # cast to the logical schema upstream, before the StreamCache, in
-        # register_and_transform_remote_tables.
         table_name = table_name or gen_name("read_record_batches")
         self.con.upload_batches(table_name, source)
         return self.table(table_name)

@@ -24,12 +24,7 @@ class Backend(IbisGizmoSQLBackend):
         self,
         source: pa.Table | pa.RecordBatchReader | StreamCache,
         table_name: str | None = None,
-        schema: pa.Schema | None = None,
-        **kwargs: Any,
     ) -> ir.Table:
-        # ``schema`` is accepted-and-ignored (like duckdb): the stream is already
-        # projected and cast to the logical schema upstream, before the
-        # StreamCache, in register_and_transform_remote_tables.
         table_name = table_name or gen_name("read_record_batches")
         source = self._normalize_arrow_schema(pa.Table.from_batches(source))
         batches = source.to_batches(max_chunksize=10_000)

@@ -506,13 +506,8 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
         record_batches: pa.RecordBatchReader,
         table_name: str | None = None,
         mode: str = "create",
-        schema: pa.Schema | None = None,
         **kwargs: Any,
     ) -> ir.Table:
-        # ``schema`` is accepted-and-ignored: the stream is already projected and
-        # cast to the logical schema upstream, before the StreamCache, in
-        # register_and_transform_remote_tables. Bind it here so it is not
-        # forwarded into adbc_ingest via **kwargs.
         from xorq.common.utils.databricks_utils import DatabricksADBC  # noqa: PLC0415
 
         table_name = table_name or util.gen_name("databricks_record_batches")

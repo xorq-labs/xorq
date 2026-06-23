@@ -27,13 +27,11 @@ class Backend(IbisDuckDBBackend):
         self,
         source: pa.Table | pa.RecordBatchReader | StreamCache,
         table_name: str | None = None,
-        schema: pa.Schema | None = None,
     ) -> ir.Table:
-        # ``schema`` is intentionally accepted-and-ignored: duckdb registers
-        # ``source`` (typically a StreamCache) directly so it can replay the
-        # stream across scans, and a casting wrapper would not be replayable.
-        # Casting to the logical schema therefore happens upstream, before the
-        # StreamCache, in register_and_transform_remote_tables.
+        # duckdb registers ``source`` (typically a StreamCache) directly so it
+        # can replay the stream across scans; a casting wrapper would not be
+        # replayable, so casting to the logical schema happens upstream, before
+        # the StreamCache, in register_and_transform_remote_tables.
         table_name = table_name or gen_name("read_record_batches")
         self.con.register(table_name, source)
         return self.table(table_name)

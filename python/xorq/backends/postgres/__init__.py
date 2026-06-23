@@ -173,7 +173,6 @@ class Backend(IbisPostgresBackend):
         password: str | None = None,
         temporary: bool = False,
         mode: str = "create",
-        schema: pa.Schema | None = None,
         **kwargs: Any,
     ) -> ir.Table:
         from xorq.common.utils.postgres_utils import (  # noqa: PLC0415
