@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import importlib.metadata
 import os
+import re
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -63,10 +65,19 @@ def t() -> Table:
 #
 # The count assumes datafusion's read-ahead window is ~4 batches: 8 gives margin
 # even for the thinnest case (LIMIT 2 + ~4 read-ahead leaves ~2 un-pulled). If a
-# future datafusion bump widens the window past ~6, these tests silently revert
-# to always-publishing (green for the wrong reason) -- raise this count to match.
+# future datafusion bump widens the window past ~6, the suppression tests would
+# silently revert to always-publishing (green for the wrong reason) -- the
+# positive control in test_tee_drain_false_does_not_drain turns that into a loud
+# failure instead; raise this count to match when it fires.
 _DATAFUSION_READ_AHEAD = 4
 _MULTI_BATCH_COUNT = 2 * _DATAFUSION_READ_AHEAD
+
+# EOF probe lands in 0.2.9 (#1977); gates the version-sensitive markers below.
+_DATAFUSION_VERSION = tuple(
+    int(part)
+    for part in re.findall(r"\d+", importlib.metadata.version("xorq-datafusion"))[:3]
+)
+_DATAFUSION_HAS_EOF_PROBE = _DATAFUSION_VERSION >= (0, 2, 9)
 
 
 def _multi_batch_source(con: Any, table_name: str) -> Table:
@@ -1524,6 +1535,24 @@ def test_tee_drain_writes_full_on_early_stop(t: Table, tmp_path: Path) -> None:
     assert len(written) == 4
 
 
+@pytest.mark.xfail(
+    _DATAFUSION_HAS_EOF_PROBE,
+    reason="#2105: multi-batch drain=True races datafusion's in-flight terminal "
+    "pull (ValueError: generator already executing); intermittent, 0.2.9-only",
+    strict=False,
+)
+def test_tee_drain_writes_full_on_early_stop_multi_batch(tmp_path: Path) -> None:
+    # Multi-batch hardening of the single-batch test above; XPASS means #2105 is fixed -- drop the marker.
+    con = xo.connect()
+    tt = _multi_batch_source(con, "drain_multi_src")
+    target = tmp_path / "drain_tee_multi.parquet"
+    out = tt.tee(ParquetWriteThrough(path=target), drain=True).limit(2).execute()
+    assert len(out) == 2
+    assert target.exists()
+    written = pq.read_table(str(target))
+    assert len(written) == _MULTI_BATCH_COUNT
+
+
 def test_tee_drain_false_does_not_drain(tmp_path: Path) -> None:
     # drain=False: an early downstream stop must NOT finish the side write. A
     # multi-batch source is required -- datafusion's read-ahead stops short of
@@ -1534,6 +1563,13 @@ def test_tee_drain_false_does_not_drain(tmp_path: Path) -> None:
     target = tmp_path / "no_drain.parquet"
     tt.tee(ParquetWriteThrough(path=target), drain=False).limit(2).execute()
     assert not target.exists()
+
+    # Positive control: same source fully consumed must publish, else the assertion above passes for the wrong reason.
+    full_src = _multi_batch_source(con, "no_drain_full_src")
+    full_target = tmp_path / "full.parquet"
+    full_src.tee(ParquetWriteThrough(path=full_target), drain=False).execute()
+    assert full_target.exists(), "full consumption must publish despite drain=False"
+    assert len(pq.read_table(str(full_target))) == _MULTI_BATCH_COUNT
 
 
 def test_drain_build_hash_same(t: Table, tmp_path: Path) -> None:
