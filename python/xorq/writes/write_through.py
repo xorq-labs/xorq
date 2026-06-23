@@ -449,35 +449,46 @@ class DrainingIterator:
         self._exhausted = False
         self._drain_thread: threading.Thread | None = None
         self._error: BaseException | None = None
-        self._lock = threading.Lock()
+        self._state_lock = threading.Lock()
+        # serializes generator advancement so the foreground reader pull
+        # (datafusion read-ahead) and the background _drain loop never call
+        # next(self._gen) concurrently -> 'generator already executing'.
+        self._advance_lock = threading.Lock()
 
     @property
     def exhausted(self) -> bool:
-        with self._lock:
+        with self._state_lock:
             return self._exhausted
 
     def __iter__(self) -> DrainingIterator:  # noqa: PYI034
         return self
 
     def __next__(self) -> pa.RecordBatch:
-        try:
-            return next(self._gen)
-        except StopIteration:
-            with self._lock:
-                self._exhausted = True
-            raise
+        with self._advance_lock:
+            try:
+                return next(self._gen)
+            except StopIteration:
+                with self._state_lock:
+                    self._exhausted = True
+                raise
 
     def _drain(self) -> None:
+        # acquire per-iteration, not across the whole loop, so a still-in-flight
+        # foreground __next__ can interleave instead of being starved.
         try:
-            for _ in self._gen:
-                pass
+            while True:
+                with self._advance_lock:
+                    try:
+                        next(self._gen)
+                    except StopIteration:
+                        break
         except BaseException as exc:  # noqa: BLE001
             self._error = exc
-        with self._lock:
+        with self._state_lock:
             self._exhausted = True
 
     def close(self) -> None:
-        with self._lock:
+        with self._state_lock:
             if self._exhausted or self._drain_thread is not None:
                 return
             self._drain_thread = threading.Thread(target=self._drain)

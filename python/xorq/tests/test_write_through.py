@@ -4,6 +4,7 @@ import importlib.metadata
 import os
 import re
 import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -397,6 +398,59 @@ def test_tee_drops_intermediate_table_on_early_stop(tmp_path: Path) -> None:
     assert len(out) == 2
     assert len(pq.read_table(str(target))) == 4  # drain wrote the full parent
     assert set(con.list_tables()) == before
+
+
+def test_tee_drain_writes_full_on_early_stop_multibatch(tmp_path: Path) -> None:
+    # Regression for the drain=True read-ahead race (issue #2105): with a
+    # multi-batch source, datafusion's bounded read-ahead leaves the parent
+    # un-exhausted at cleanup time, so the background drain thread and the
+    # in-flight foreground pull both advance the same write_through generator.
+    # Before serializing advancement that raced ('generator already executing')
+    # and the write was silently never published. The single-batch fixtures used
+    # by the other drain tests never open this window.
+    con = xo.connect()
+    batches = [pa.record_batch({"a": [i], "b": [str(i)]}) for i in range(8)]
+    reader = pa.RecordBatchReader.from_batches(batches[0].schema, iter(batches))
+    tt = con.read_record_batches(reader, table_name="src")
+    target = tmp_path / "out.parquet"
+    out = tt.tee(ParquetWriteThrough(path=target), drain=True).limit(2).execute()
+    assert len(out) == 2
+    assert len(pq.read_table(str(target))) == 8  # drain wrote the full parent
+
+
+def test_draining_iterator_serializes_concurrent_advance() -> None:
+    # Deterministic guard for issue #2105: __next__ (foreground reader pull) and
+    # _drain (background close()) must never advance the underlying generator at
+    # once. time.sleep inside the generator body keeps its frame in the running
+    # state with the GIL released, so an overlapping next() from the other thread
+    # would raise ValueError('generator already executing') without serialization.
+    started = threading.Event()
+
+    def slow_gen():
+        for i in range(50):
+            started.set()
+            time.sleep(0.001)
+            yield pa.record_batch({"a": [i]})
+
+    di = DrainingIterator(slow_gen())
+    errors: list[BaseException] = []
+
+    def foreground():
+        try:
+            for _ in di:
+                time.sleep(0.0005)
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    thread = threading.Thread(target=foreground)
+    thread.start()
+    started.wait()
+    di.close()  # start the background drain while the foreground is mid-pull
+    thread.join()
+    di.join()
+
+    assert not errors, errors
+    assert di.exhausted
 
 
 def test_tee_partial_consumption_leaks_intermediate_table(tmp_path: Path) -> None:
