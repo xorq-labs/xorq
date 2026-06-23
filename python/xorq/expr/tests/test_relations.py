@@ -351,9 +351,11 @@ def test_count_deferred_read_fanout(tmp_path: pathlib.Path) -> None:
     assert _only_count(rt.join(rt.view(), "k")) == 2
 
 
-def test_count_asof_tolerance_double_scan() -> None:
-    # the #983 case: tolerance lowering scans the left input twice, right once.
-    # graph-level counting sees one ref each; only the compiled SQL reveals it.
+def test_count_asof_tolerance_single_scan() -> None:
+    # #983/#2086: the tolerance lowering is now a null-out projection over a
+    # single ASOF LEFT JOIN, so each input is scanned exactly once. The old
+    # filter+re-join lowering referenced the left source twice (count [1, 2]),
+    # which broke one-shot readers; this guards against that regressing.
     ddb = xo.duckdb.connect()
     sdf = pd.DataFrame(
         {"site": ["a", "b"], "ts": [datetime(2024, 1, 1), datetime(2024, 1, 2)]}
@@ -372,7 +374,7 @@ def test_count_asof_tolerance_double_scan() -> None:
     ).drop("ts_right")
 
     counts = count_remote_table_readers(expr)
-    assert sorted(counts.values()) == [1, 2]
+    assert sorted(counts.values()) == [1, 1]
 
 
 def test_count_compile_failure_returns_empty(monkeypatch: pytest.MonkeyPatch) -> None:

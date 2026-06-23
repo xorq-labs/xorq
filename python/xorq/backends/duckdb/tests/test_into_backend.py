@@ -95,10 +95,13 @@ def test_into_backend_threeway_fanout_three_readers(
     assert sorted(expr.execute()["v"]) == [10, 30, 40, 40]
 
 
-def test_into_backend_asof_tolerance_double_scan(
+def test_into_backend_asof_tolerance_single_scan(
     df: pd.DataFrame, target: Backend
 ) -> None:
-    # #983: tolerance lowering scans the left input twice, right once
+    # #983/#2086: the tolerance lowering is a null-out projection over a single
+    # ASOF LEFT JOIN, so each input is scanned once. The old filter+re-join
+    # lowering scanned the left twice, consuming one-shot readers and producing
+    # empty results -- assert both the single scan and a non-empty result.
     left = pd.DataFrame(
         {"site": ["a", "b"], "ts": [datetime(2024, 1, 1), datetime(2024, 1, 2)]}
     )
@@ -114,7 +117,7 @@ def test_into_backend_asof_tolerance_double_scan(
     expr = lt.asof_join(
         rt, on="ts", predicates="site", tolerance=timedelta(seconds=1)
     ).drop("ts_right")
-    assert reader_counts(expr) == [1, 2]
+    assert reader_counts(expr) == [1, 1]
     assert not expr.execute().empty
 
 
