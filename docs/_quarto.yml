@@ -62,6 +62,8 @@ website:
         - href: getting_started/switch_backends.qmd
         - href: getting_started/your_first_expression.qmd
           text: "Your first expression"
+        - href: claude/index.qmd
+          text: "Claude Code plugin"
 
     - id: how-to
       title: "How-to guides"
