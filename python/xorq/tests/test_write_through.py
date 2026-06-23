@@ -48,6 +48,26 @@ def t() -> Table:
     return con.register(xo.memtable(TABLE), table_name="t0")
 
 
+# datafusion drains a registered reader with a bounded read-ahead, so an early
+# downstream stop (LIMIT, partial read) leaves a *multi-batch* parent stream
+# un-exhausted -- the early-stop / drain guarantee is observable. A SINGLE-batch
+# source cannot express it: datafusion's terminal end-of-stream probe must pull
+# past the lone batch to detect EOF, which exhausts the writer and is
+# indistinguishable from genuine full consumption (it always publishes). The
+# early-stop tests below therefore feed a multi-batch source with margin beyond
+# the read-ahead window so the un-pulled tail is what the assertion turns on.
+# See ADR-0014.
+_MULTI_BATCH_COUNT = 8
+
+
+def _multi_batch_source(con: Any, table_name: str) -> Table:
+    batches = [
+        pa.record_batch({"a": [i], "b": [str(i)]}) for i in range(_MULTI_BATCH_COUNT)
+    ]
+    reader = pa.RecordBatchReader.from_batches(batches[0].schema, iter(batches))
+    return con.read_record_batches(reader, table_name=table_name)
+
+
 def _connect(name: str) -> Any:
     factory = {
         "datafusion": xo.connect,
@@ -757,9 +777,11 @@ def test_to_pyarrow_batches_partial_consumption_holds_resources(
 ) -> None:
     """Counterpart to the contract above: a partial read (an early break) does
     not run cleanup, so nothing is published and the table is held. This locks
-    in the leak the to_pyarrow_batches docstring warns about."""
+    in the leak the to_pyarrow_batches docstring warns about. Uses a multi-batch
+    source so datafusion's read-ahead leaves the tail un-pulled and the writer
+    un-exhausted (see _multi_batch_source)."""
     con = xo.connect()
-    tt = con.register(xo.memtable(TABLE), table_name="t0")
+    tt = _multi_batch_source(con, "partial_src")
     target = tmp_path / "out.parquet"
 
     before = _placeholder_tables(con)
@@ -1485,9 +1507,15 @@ def test_tee_drain_writes_full_on_early_stop(t: Table, tmp_path: Path) -> None:
     assert len(written) == 4
 
 
-def test_tee_drain_false_does_not_drain(t: Table, tmp_path: Path) -> None:
+def test_tee_drain_false_does_not_drain(tmp_path: Path) -> None:
+    # drain=False: an early downstream stop must NOT finish the side write. A
+    # multi-batch source is required -- datafusion's read-ahead stops short of
+    # exhausting the parent under a LIMIT, so the writer never publishes. See
+    # _multi_batch_source for why a single-batch source cannot express this.
+    con = xo.connect()
+    tt = _multi_batch_source(con, "no_drain_src")
     target = tmp_path / "no_drain.parquet"
-    t.tee(ParquetWriteThrough(path=target), drain=False).limit(2).execute()
+    tt.tee(ParquetWriteThrough(path=target), drain=False).limit(2).execute()
     assert not target.exists()
 
 
