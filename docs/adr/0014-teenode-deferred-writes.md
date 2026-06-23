@@ -480,5 +480,5 @@ the LIMIT stops short and neither is observable.
 
 References:
 
-- Issue #2105 (drain race): `drain=True` over a multi-batch parent races the background drain against datafusion 0.2.9's terminal pull (`ValueError('generator already executing')`); intermittent and 0.2.9-only.
-- PR #1977 (`spike/add-batchcorder`): bumps `xorq-datafusion` 0.2.7 → 0.2.9, which introduces the terminal end-of-stream probe whose read-ahead behavior these consequences depend on.
+- Issue #2105 — the `drain=True` multi-batch race described above.
+- PR #1977 (`spike/add-batchcorder`) — the `xorq-datafusion` 0.2.7 → 0.2.9 bump that introduces the probe.

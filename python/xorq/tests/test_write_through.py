@@ -73,10 +73,16 @@ _DATAFUSION_READ_AHEAD = 4
 _MULTI_BATCH_COUNT = 2 * _DATAFUSION_READ_AHEAD
 
 # EOF probe lands in 0.2.9 (#1977); gates the version-sensitive markers below.
-_DATAFUSION_VERSION = tuple(
-    int(part)
-    for part in re.findall(r"\d+", importlib.metadata.version("xorq-datafusion"))[:3]
-)
+# A missing package falls back to (0, 0, 0) so collection succeeds and the
+# version-gated markers default to their pre-probe (0.2.7) behavior.
+try:
+    _raw_version = importlib.metadata.version("xorq-datafusion")
+except importlib.metadata.PackageNotFoundError:
+    _DATAFUSION_VERSION = (0, 0, 0)
+else:
+    _DATAFUSION_VERSION = tuple(
+        int(part) for part in re.findall(r"\d+", _raw_version)[:3]
+    )
 _DATAFUSION_HAS_EOF_PROBE = _DATAFUSION_VERSION >= (0, 2, 9)
 
 
@@ -1518,15 +1524,21 @@ def test_draining_iterator_join_before_close_raises() -> None:
 # ---- drain=True via .tee() --------------------------------------------------
 
 
+@pytest.mark.skipif(
+    _DATAFUSION_HAS_EOF_PROBE,
+    reason="#2105: on 0.2.9 the terminal EOF probe exhausts the single batch "
+    "regardless of whether drain fired, so the assertion passes for the wrong "
+    "reason -- skip rather than report a vacuous pass. Meaningful only on 0.2.7.",
+)
 def test_tee_drain_writes_full_on_early_stop(t: Table, tmp_path: Path) -> None:
     # TODO(#2105): still single-batch. A multi-batch source with drain=True hits
     # ValueError('generator already executing') (background drain vs datafusion's
     # in-flight pull) on 0.2.9 -- a race, so it can't yet be hardened like the
-    # early-stop tests above. On 0.2.9 the further hazard is that the single batch
-    # is exhausted by the terminal EOF probe regardless of whether drain fired, so
-    # the assertion can't distinguish a genuine drain from probe exhaustion. (On
-    # 0.2.7, the pinned version, there is no probe and the drain genuinely runs.)
-    # Weakly guarded until #2105 lets this move to a multi-batch source.
+    # early-stop tests above. The skipif above guards the 0.2.9 EOF-probe hazard:
+    # there the single batch is exhausted by the probe regardless of whether drain
+    # fired, so the assertion can't distinguish a genuine drain from probe
+    # exhaustion. On 0.2.7 (the pinned version) there is no probe and the drain
+    # genuinely runs, so the test is meaningful and not skipped.
     target = tmp_path / "drain_tee.parquet"
     out = t.tee(ParquetWriteThrough(path=target), drain=True).limit(2).execute()
     assert len(out) == 2
