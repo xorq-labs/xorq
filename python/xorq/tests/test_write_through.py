@@ -50,31 +50,16 @@ def t() -> Table:
     return con.register(xo.memtable(TABLE), table_name="t0")
 
 
-# datafusion drains a registered reader with a bounded read-ahead, so an early
-# downstream stop (LIMIT, partial read) leaves a *multi-batch* parent stream
-# un-exhausted -- the early-stop / drain guarantee is observable. A SINGLE-batch
-# source cannot express it: as of datafusion 0.2.9 a terminal end-of-stream probe
-# must pull past the lone batch to detect EOF, which exhausts the writer and is
-# indistinguishable from genuine full consumption (it always publishes). That
-# probe is absent in 0.2.7 (the version currently pinned): there the LIMIT stops
-# short and a single-batch source happens to pass -- so these tests are vacuously
-# green on 0.2.7 and only meaningfully guard once the 0.2.9 bump lands (#1977).
-# The early-stop tests below therefore feed a multi-batch source with margin
-# beyond the read-ahead window so the un-pulled tail is what the assertion turns
-# on, version-robustly. See ADR-0014.
-#
-# The count assumes datafusion's read-ahead window is ~4 batches: 8 gives margin
-# even for the thinnest case (LIMIT 2 + ~4 read-ahead leaves ~2 un-pulled). If a
-# future datafusion bump widens the window past ~6, the suppression tests would
-# silently revert to always-publishing (green for the wrong reason) -- the
-# positive control in test_tee_drain_false_does_not_drain turns that into a loud
-# failure instead; raise this count to match when it fires.
+# Early-stop tests need a multi-batch source so the parent's un-pulled tail is
+# what the drain/suppression assertions turn on; a single batch can't express it
+# (the 0.2.9 EOF probe pulls it to exhaustion). Count is 2x the ~4-batch
+# read-ahead for margin; widen if a future bump grows the window -- the positive
+# control in test_tee_drain_false_does_not_drain fails loud if it doesn't. See
+# ADR-0014 for the full read-ahead / probe rationale.
 _DATAFUSION_READ_AHEAD = 4
 _MULTI_BATCH_COUNT = 2 * _DATAFUSION_READ_AHEAD
 
-# EOF probe lands in 0.2.9 (#1977); gates the version-sensitive markers below.
-# A missing package falls back to (0, 0, 0) so collection succeeds and the
-# version-gated markers default to their pre-probe (0.2.7) behavior.
+# EOF probe lands in 0.2.9 (#1977); missing package -> pre-probe defaults.
 try:
     _raw_version = importlib.metadata.version("xorq-datafusion")
 except importlib.metadata.PackageNotFoundError:
@@ -1531,14 +1516,9 @@ def test_draining_iterator_join_before_close_raises() -> None:
     "reason -- skip rather than report a vacuous pass. Meaningful only on 0.2.7.",
 )
 def test_tee_drain_writes_full_on_early_stop(t: Table, tmp_path: Path) -> None:
-    # TODO(#2105): still single-batch. A multi-batch source with drain=True hits
-    # ValueError('generator already executing') (background drain vs datafusion's
-    # in-flight pull) on 0.2.9 -- a race, so it can't yet be hardened like the
-    # early-stop tests above. The skipif above guards the 0.2.9 EOF-probe hazard:
-    # there the single batch is exhausted by the probe regardless of whether drain
-    # fired, so the assertion can't distinguish a genuine drain from probe
-    # exhaustion. On 0.2.7 (the pinned version) there is no probe and the drain
-    # genuinely runs, so the test is meaningful and not skipped.
+    # TODO(#2105): still single-batch -- a multi-batch drain=True races
+    # datafusion's in-flight pull on 0.2.9, so it can't be hardened like the
+    # early-stop tests above. The skipif guards the 0.2.9 vacuous-pass hazard.
     target = tmp_path / "drain_tee.parquet"
     out = t.tee(ParquetWriteThrough(path=target), drain=True).limit(2).execute()
     assert len(out) == 2
