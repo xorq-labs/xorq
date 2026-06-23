@@ -400,20 +400,6 @@ def test_tee_drops_intermediate_table_on_early_stop(tmp_path: Path) -> None:
     assert set(con.list_tables()) == before
 
 
-def test_tee_drain_writes_full_on_early_stop_multibatch(tmp_path: Path) -> None:
-    # Issue #2105 repro: multi-batch drain=True + early stop. Only opens the race
-    # on datafusion >=0.2.9 (bounded read-ahead); on the pinned 0.2.7 it passes
-    # even unfixed, so don't read a green run here as proof. See ADR-0014.
-    con = xo.connect()
-    batches = [pa.record_batch({"a": [i], "b": [str(i)]}) for i in range(8)]
-    reader = pa.RecordBatchReader.from_batches(batches[0].schema, iter(batches))
-    tt = con.read_record_batches(reader, table_name="src")
-    target = tmp_path / "out.parquet"
-    out = tt.tee(ParquetWriteThrough(path=target), drain=True).limit(2).execute()
-    assert len(out) == 2
-    assert len(pq.read_table(str(target))) == 8  # drain wrote the full parent
-
-
 def test_draining_iterator_serializes_concurrent_advance() -> None:
     # Deterministic guard for #2105: __next__ and _drain must never advance the
     # generator concurrently. The sleeps force the overlap that would otherwise
@@ -1575,14 +1561,12 @@ def test_tee_drain_writes_full_on_early_stop(t: Table, tmp_path: Path) -> None:
     assert len(written) == 4
 
 
-@pytest.mark.xfail(
-    _DATAFUSION_HAS_EOF_PROBE,
-    reason="#2105: multi-batch drain=True races datafusion's in-flight terminal "
-    "pull (ValueError: generator already executing); intermittent, 0.2.9-only",
-    strict=False,
-)
 def test_tee_drain_writes_full_on_early_stop_multi_batch(tmp_path: Path) -> None:
-    # Multi-batch hardening of the single-batch test above; XPASS means #2105 is fixed -- drop the marker.
+    # Issue #2105 integration repro: multi-batch drain=True + early stop must
+    # still write the full parent. Only opens the race on datafusion >=0.2.9
+    # (bounded read-ahead); on the pinned 0.2.7 it passes even unfixed, so a green
+    # run here is not proof -- test_draining_iterator_serializes_concurrent_advance
+    # is the deterministic guard. See ADR-0014.
     con = xo.connect()
     tt = _multi_batch_source(con, "drain_multi_src")
     target = tmp_path / "drain_tee_multi.parquet"
