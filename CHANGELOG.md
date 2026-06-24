@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.3.31] - 2026-06-24
+### Details
+#### Added
+- Add TeeNode for deferred sinks by @mesejo in [#2089](https://github.com/xorq-labs/xorq/pull/2089)
+- Add Claude Code plugin guide by @ghoersti in [#2104](https://github.com/xorq-labs/xorq/pull/2104)
+
+#### Changed
+- Defer pyarrow, logging_utils, and gitpython by @dlovell in [#2078](https://github.com/xorq-labs/xorq/pull/2078)
+- Phase 2a — fix misplaced pages, move reference out of concepts by @mesejo in [#2080](https://github.com/xorq-labs/xorq/pull/2080)
+- Expand explanation stubs by @mesejo in [#2084](https://github.com/xorq-labs/xorq/pull/2084)
+- Make git-annex an optional dependency by @dlovell in [#2090](https://github.com/xorq-labs/xorq/pull/2090)
+- Phase 3 polish — landing routing table, concept cross-links, orphan fix by @mesejo in [#2092](https://github.com/xorq-labs/xorq/pull/2092)
+- WAP (write-audit-publish) library by @dlovell in [#2095](https://github.com/xorq-labs/xorq/pull/2095)
+
+#### Fixed
+- Uncached strips caches nested in Flight/UDF opaque sub-exprs by @dlovell in [#2081](https://github.com/xorq-labs/xorq/pull/2081)
+- Execution pipeline descends into opaque sub-exprs by @dlovell in [#2082](https://github.com/xorq-labs/xorq/pull/2082)
+- Move cityhash to sqlite optional-dependency group by @dlovell in [#2091](https://github.com/xorq-labs/xorq/pull/2091)
+- Register dasher normalizers for sklearn param-validation types by @dlovell in [#2093](https://github.com/xorq-labs/xorq/pull/2093)
+- Single-pass lowering for asof_join by @mesejo in [#2086](https://github.com/xorq-labs/xorq/pull/2086)
+- Use multi-batch sources for early-stop guarantees by @dlovell in [#2106](https://github.com/xorq-labs/xorq/pull/2106)
+- Serialize DrainingIterator advancement to fix drain=True race by @dlovell in [#2107](https://github.com/xorq-labs/xorq/pull/2107)
+
+#### Removed
+- Remove unused hotfix_utils module by @dlovell in [#2079](https://github.com/xorq-labs/xorq/pull/2079)
+
 ## [0.3.30] - 2026-06-16
 ### Details
 #### Added
