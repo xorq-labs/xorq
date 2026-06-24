@@ -33,8 +33,11 @@ if TYPE_CHECKING:
 
 DEFAULT_CHUNKSIZE = 10_000
 
-# Backends that use ADBC and require mode="replace" to avoid "relation already exists" errors.
-_ADBC_BACKENDS = frozenset(("sqlite", "postgres", "snowflake", "databricks"))
+# Backends whose read_parquet/read_csv route through ADBC read_record_batches
+# (so they accept ``mode="replace"`` to avoid "relation already exists" errors).
+# Snowflake is excluded: its read_record_batches is ADBC, but read_parquet/read_csv
+# are native (kwargs become FILE_FORMAT options, where ``mode`` is invalid).
+_ADBC_BACKENDS = frozenset(("sqlite", "postgres", "databricks"))
 
 # Backend-specific parameter names for the file path argument.
 _PATH_PARAM_NAMES = frozenset(("path", "paths", "source", "source_list"))
