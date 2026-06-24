@@ -663,22 +663,23 @@ class CatalogScreen(Screen):
         # holding a key moves at terminal-repeat-rate.  _render_highlighted_node
         # reads the tree's current cursor_node, so only the settled selection
         # is rendered (XOR-306).
-        if self._highlight_timer is not None:
-            self._highlight_timer.stop()
-            self._highlight_timer = None
+        self._cancel_highlight_timer()
         delay = options.tui.highlight_debounce
         if delay <= 0:
             self._render_highlighted_node()
         else:
             self._highlight_timer = self.set_timer(delay, self._render_highlighted_node)
 
+    def _cancel_highlight_timer(self) -> None:
+        if self._highlight_timer is not None:
+            self._highlight_timer.stop()
+            self._highlight_timer = None
+
     def on_unmount(self) -> None:
         # Screen dismissed while a debounce timer is pending (e.g. `q` within
         # the debounce window of a cursor move) would otherwise fire
         # _render_highlighted_node against removed widgets -> NoMatches.
-        if self._highlight_timer is not None:
-            self._highlight_timer.stop()
-            self._highlight_timer = None
+        self._cancel_highlight_timer()
 
     def _render_highlighted_node(self) -> None:
         self._highlight_timer = None
@@ -686,10 +687,8 @@ class CatalogScreen(Screen):
         # timer; querying removed widgets would raise NoMatches.
         if not self.is_attached:
             return
-        tree = self.query_one("#catalog-tree", Tree)
-        node = tree.cursor_node
-        if node is None:
-            return
+        # Clear panels first so an emptied tree (cursor_node None) doesn't leave
+        # the prior selection's content stranded on screen.
         schema_in_table = self.query_one("#schema-in-table", DataTable)
         schema_in_table.clear()
         schema_out_table = self.query_one("#schema-preview-table", DataTable)
@@ -699,11 +698,13 @@ class CatalogScreen(Screen):
         rev_table = self.query_one("#revisions-preview-table", DataTable)
         rev_table.clear()
 
+        tree = self.query_one("#catalog-tree", Tree)
+        node = tree.cursor_node
         # Branch nodes (kind groupings) have children; only leaf nodes are entries
-        entry_hash = node.data
+        entry_hash = node.data if node is not None else None
         row_data = (
             self._row_cache.get(entry_hash)
-            if not node.children and entry_hash is not None
+            if node is not None and not node.children and entry_hash is not None
             else None
         )
         if row_data is None:

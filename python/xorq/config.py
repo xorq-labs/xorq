@@ -9,6 +9,7 @@ from xorq.common.utils.env_utils import (
     EnvConfigable,
     env_templates_dir,
     parse_bool_env,
+    parse_float_env,
 )
 from xorq.vendor import ibis
 from xorq.vendor.ibis.backends import BaseBackend
@@ -251,7 +252,7 @@ class TUI(Config):
         int(env_config.XORQ_TUI_SQL_HIGHLIGHT_MAX_LINES or 500), 0
     )
     highlight_debounce: float = max(
-        float(env_config.XORQ_TUI_HIGHLIGHT_DEBOUNCE or 0.15), 0.0
+        parse_float_env(env_config.XORQ_TUI_HIGHLIGHT_DEBOUNCE, 0.15), 0.0
     )
 
 
