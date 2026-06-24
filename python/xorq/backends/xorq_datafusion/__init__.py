@@ -833,10 +833,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 raise TypeError(f"unsupported source type: {type(source).__name__}")
         self.con.register_record_batch_reader(
             table_ident,
-            pa.RecordBatchReader.from_batches(
-                target_schema,
-                (_select_and_cast(batch, target_schema) for batch in batches),
-            ),
+            _casting_reader(target_schema, batches),
         )
         return self.table(table_name)
 
