@@ -6,13 +6,13 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
-from batchcorder import StreamCache
 
 import xorq.common.exceptions as com
 import xorq.vendor.ibis.config
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
+from xorq.common.utils.rbr_utils import coerce_to_arrow_table
 from xorq.vendor import ibis
 from xorq.vendor.ibis import util
 from xorq.vendor.ibis.backends import BaseBackend, NoUrl
@@ -24,6 +24,8 @@ from xorq.vendor.ibis.formats.pyarrow import PyArrowData
 if TYPE_CHECKING:
     import pathlib
     from collections.abc import Mapping, MutableMapping
+
+    from batchcorder import StreamCache
 
 
 class BasePandasBackend(BaseBackend, NoUrl):
@@ -341,19 +343,14 @@ class Backend(BasePandasBackend):
 
     def read_record_batches(
         self,
-        record_batches: pa.RecordBatchReader
+        record_batches: pa.Table
+        | pa.RecordBatchReader
+        | StreamCache
         | list[pa.RecordBatch]
         | tuple[pa.RecordBatch],
         table_name: str | None = None,
     ) -> ir.Table:
-        if isinstance(record_batches, (list, tuple)):
-            record_batches = pa.RecordBatchReader.from_batches(
-                record_batches[0].schema, record_batches
-            )
-        elif isinstance(record_batches, StreamCache):
-            record_batches = pa.RecordBatchReader.from_stream(record_batches)
-
-        self.dictionary[table_name] = record_batches.read_pandas()
+        self.dictionary[table_name] = coerce_to_arrow_table(record_batches).to_pandas()
         return self.table(table_name)
 
 

@@ -3,6 +3,7 @@ from typing import Any, Mapping
 import pyarrow as pa
 from batchcorder import StreamCache
 
+from xorq.common.utils.rbr_utils import coerce_to_arrow_table
 from xorq.vendor.ibis.backends.gizmosql import Backend as IbisGizmoSQLBackend
 from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import gen_name
@@ -26,20 +27,18 @@ class Backend(IbisGizmoSQLBackend):
         table_name: str | None = None,
     ) -> ir.Table:
         table_name = table_name or gen_name("read_record_batches")
-        # Pass schema= so an empty stream (zero batches) still materializes the
-        # declared columns instead of raising "Must pass schema, or at least one
-        # RecordBatch". StreamCache and RecordBatchReader both expose .schema.
-        source = self._normalize_arrow_schema(
-            pa.Table.from_batches(source, schema=source.schema)
-        )
-        batches = source.to_batches(max_chunksize=10_000)
+        # coerce_to_arrow_table carries the schema through, so an empty stream
+        # (zero batches) still materializes the declared columns instead of
+        # raising "Must pass schema, or at least one RecordBatch".
+        table = self._normalize_arrow_schema(coerce_to_arrow_table(source))
+        batches = table.to_batches(max_chunksize=10_000)
         # An empty table yields zero batches, but the ADBC Flight SQL ingest
         # rejects a stream with no messages ("Stream finished before first
         # message sent"). Send a single zero-row batch so the table is still
         # created with the right schema.
         if not batches:
-            batches = [pa.RecordBatch.from_pylist([], schema=source.schema)]
-        reader = pa.RecordBatchReader.from_batches(source.schema, batches)
+            batches = [pa.RecordBatch.from_pylist([], schema=table.schema)]
+        reader = pa.RecordBatchReader.from_batches(table.schema, batches)
         with self.con.cursor() as cur:
             cur.adbc_ingest(table_name, reader, mode="replace")
         return self.table(table_name)
