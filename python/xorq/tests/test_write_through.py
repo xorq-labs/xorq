@@ -4,6 +4,7 @@ import importlib.metadata
 import os
 import re
 import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -397,6 +398,39 @@ def test_tee_drops_intermediate_table_on_early_stop(tmp_path: Path) -> None:
     assert len(out) == 2
     assert len(pq.read_table(str(target))) == 4  # drain wrote the full parent
     assert set(con.list_tables()) == before
+
+
+def test_draining_iterator_serializes_concurrent_advance() -> None:
+    # Deterministic guard for #2105: __next__ and _drain must never advance the
+    # generator concurrently. The sleeps force the overlap that would otherwise
+    # raise 'generator already executing'.
+    started = threading.Event()
+
+    def slow_gen():
+        for i in range(50):
+            started.set()
+            time.sleep(0.001)
+            yield pa.record_batch({"a": [i]})
+
+    di = DrainingIterator(slow_gen())
+    errors: list[BaseException] = []
+
+    def foreground():
+        try:
+            for _ in di:
+                time.sleep(0.0005)
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    thread = threading.Thread(target=foreground)
+    thread.start()
+    started.wait()
+    di.close()  # start the background drain while the foreground is mid-pull
+    thread.join()
+    di.join()
+
+    assert not errors, errors
+    assert di.exhausted
 
 
 def test_tee_partial_consumption_leaks_intermediate_table(tmp_path: Path) -> None:
@@ -1527,14 +1561,12 @@ def test_tee_drain_writes_full_on_early_stop(t: Table, tmp_path: Path) -> None:
     assert len(written) == 4
 
 
-@pytest.mark.xfail(
-    _DATAFUSION_HAS_EOF_PROBE,
-    reason="#2105: multi-batch drain=True races datafusion's in-flight terminal "
-    "pull (ValueError: generator already executing); intermittent, 0.2.9-only",
-    strict=False,
-)
 def test_tee_drain_writes_full_on_early_stop_multi_batch(tmp_path: Path) -> None:
-    # Multi-batch hardening of the single-batch test above; XPASS means #2105 is fixed -- drop the marker.
+    # Issue #2105 integration repro: multi-batch drain=True + early stop must
+    # still write the full parent. Only opens the race on datafusion >=0.2.9
+    # (bounded read-ahead); on the pinned 0.2.7 it passes even unfixed, so a green
+    # run here is not proof -- test_draining_iterator_serializes_concurrent_advance
+    # is the deterministic guard. See ADR-0014.
     con = xo.connect()
     tt = _multi_batch_source(con, "drain_multi_src")
     target = tmp_path / "drain_tee_multi.parquet"
