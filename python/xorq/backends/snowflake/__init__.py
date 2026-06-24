@@ -170,12 +170,12 @@ class Backend(IbisSnowflakeBackend):
                     )
                 else:
                     (table, scope) = prepare_create_table_from_expr(self, obj)
-            case pd.DataFrame() | pa.Table():
-                table = api.memtable(obj)
             case None:
                 table = None
             case _:
-                raise TypeError(f"unsupported obj type: {type(obj)}")
+                # Delegate to memtable (accepts DataFrame, Arrow table, dict,
+                # list, ...) rather than narrowing to DataFrame | Table.
+                table = api.memtable(obj)
 
         try:
             if table is not None:

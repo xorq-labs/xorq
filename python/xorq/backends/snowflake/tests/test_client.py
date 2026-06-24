@@ -125,9 +125,9 @@ def test_create_table_requires_obj_or_schema() -> None:
 
 
 def test_create_table_rejects_unsupported_obj_type() -> None:
-    # Guard arm: the `match obj` default case raises TypeError before any SQL,
-    # so an unconnected backend is enough to exercise it.
-    with pytest.raises(TypeError, match="unsupported obj type"):
+    # The default arm delegates to api.memtable, which rejects a bare scalar
+    # before any SQL -- so memtable, not a create_table guard, owns rejection.
+    with pytest.raises(ValueError, match="DataFrame constructor"):
         SnowflakeBackend().create_table(gen_name("t"), obj=42)
 
 
