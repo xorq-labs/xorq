@@ -205,7 +205,11 @@ class SnowflakeADBC:
             keypair = SnowflakeKeypair.from_bytes_der(self.con.con._private_key)
             return {
                 DatabaseOptions.AUTH_TYPE.value: "auth_jwt",
-                DatabaseOptions.JWT_PRIVATE_KEY_VALUE.value: keypair.private_bytes,
+                # PEM string, not bytes: adbc_driver_manager>=1.11 routes bytes
+                # option values through AdbcDatabaseSetOptionBytes, which the
+                # Snowflake driver rejects pre-init ("database not initialized").
+                # String values use AdbcDatabaseSetOption, which works.
+                DatabaseOptions.JWT_PRIVATE_KEY_VALUE.value: keypair.private_str,
                 DatabaseOptions.JWT_PRIVATE_KEY_PASSWORD.value: keypair.private_key_pwd,
             }
         else:
