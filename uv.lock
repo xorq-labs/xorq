@@ -6086,7 +6086,7 @@ wheels = [
 
 [[package]]
 name = "xorq"
-version = "0.3.30"
+version = "0.3.31"
 source = { editable = "." }
 dependencies = [
     { name = "atpublic" },
