@@ -437,7 +437,7 @@ def _build_alias_multimap(
     }
 
 
-@cache
+@lru_cache(maxsize=256)
 def _list_revisions_cached(catalog_alias, head_sha: str) -> tuple:
     """Cache an alias's git-revision walk; auto-invalidates when repo HEAD moves.
 
@@ -671,6 +671,14 @@ class CatalogScreen(Screen):
             self._render_highlighted_node()
         else:
             self._highlight_timer = self.set_timer(delay, self._render_highlighted_node)
+
+    def on_unmount(self) -> None:
+        # Screen dismissed while a debounce timer is pending (e.g. `q` within
+        # the debounce window of a cursor move) would otherwise fire
+        # _render_highlighted_node against removed widgets -> NoMatches.
+        if self._highlight_timer is not None:
+            self._highlight_timer.stop()
+            self._highlight_timer = None
 
     def _render_highlighted_node(self) -> None:
         self._highlight_timer = None
