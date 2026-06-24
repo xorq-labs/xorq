@@ -127,7 +127,7 @@ class Backend(SQLBackend):
             self.con.upload_table(table_name, source)
         elif isinstance(source, pd.DataFrame):
             self.con.upload_batches(
-                table_name, pa.RecordBatchReader.from_stream(source)
+                table_name, pa.Table.from_pandas(source).to_reader()
             )
         elif isinstance(source, pa.RecordBatchReader):
             self.con.upload_batches(table_name, source)
