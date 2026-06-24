@@ -33,6 +33,12 @@ class Backend(IbisGizmoSQLBackend):
             pa.Table.from_batches(source, schema=source.schema)
         )
         batches = source.to_batches(max_chunksize=10_000)
+        # An empty table yields zero batches, but the ADBC Flight SQL ingest
+        # rejects a stream with no messages ("Stream finished before first
+        # message sent"). Send a single zero-row batch so the table is still
+        # created with the right schema.
+        if not batches:
+            batches = [pa.RecordBatch.from_pylist([], schema=source.schema)]
         reader = pa.RecordBatchReader.from_batches(source.schema, batches)
         with self.con.cursor() as cur:
             cur.adbc_ingest(table_name, reader, mode="replace")
