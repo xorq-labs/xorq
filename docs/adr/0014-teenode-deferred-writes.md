@@ -1,7 +1,7 @@
 # ADR-0014: TeeNode, deferred write as a side effect
 
-- **Status:** Accepted
-- **Date:** 2026-06-10
+- **Status:** Amended
+- **Date:** 2026-06-23
 - **Deciders:** Daniel Mesejo, Dan Lovell
 - **Context area:** `python/xorq/writes/` (new), `python/xorq/expr/relations.py`, `python/xorq/expr/api.py`, `python/xorq/vendor/ibis/expr/types/relations.py`
 
@@ -457,3 +457,28 @@ The first four are the footguns: cases where the write does something a caller w
 - Atomic write precedent (temp file + rename): `python/xorq/caching/storage.py`
 - ADR-0013: batchcorder StreamCache for RemoteTable fan-out (forthcoming), candidate for the future buffered-tee optimization
 - Issue #2087 (build- vs. cache-hash naming): this ADR edits `get_expr_hash` (`python/xorq/common/utils/provenance_utils.py`) and relies on the build/cache hash split. A rename there (`get_expr_hash` → `compute_build_hash`) must update this ADR's references and the `include_tee_nodes` call site.
+
+## Amendment — 2026-06-23
+
+The decision stands; this records behavior surfaced by the forthcoming `xorq-datafusion`
+0.2.7 → 0.2.9 bump (**#1977**), which adds a terminal end-of-stream probe that, to detect EOF,
+pulls past a small parent with a bounded read-ahead window (empirically ~4 batches). Two
+consequences for the `drain` design follow. Both are 0.2.9-onward; on the currently-pinned 0.2.7
+the LIMIT stops short and neither is observable.
+
+- **`drain=False` early-stop suppression is parent-size-dependent.** On the client-side generator
+  transport, an early-stop aborts the write only when the parent's un-pulled tail exceeds the
+  read-ahead window. Under the 0.2.9 probe a sub-read-ahead parent (in the limit, a single batch)
+  is pulled to EOF and **publishes anyway despite `drain=False`**. A caller suppressing a write on a
+  tiny input will be surprised; suppression is reliable only once the un-written tail is larger than
+  the window. Tests must use a multi-batch source with margin beyond the window to exercise the
+  guarantee version-robustly.
+- **`drain=True` can race the probe (#2105).** With a *multi-batch* parent, the background drain
+  thread and datafusion's in-flight terminal pull can race on the same `write_through` generator,
+  raising `ValueError('generator already executing')` so the write silently fails to publish. It is
+  intermittent and 0.2.9-only; the fix must serialize the drain against the engine's pull.
+
+References:
+
+- Issue #2105 — the `drain=True` multi-batch race described above.
+- PR #1977 (`spike/add-batchcorder`) — the `xorq-datafusion` 0.2.7 → 0.2.9 bump that introduces the probe.
