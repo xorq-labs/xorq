@@ -154,13 +154,20 @@ class _ScopeEntry(NamedTuple):
 
 
 class RemoteTableScope:
-    """Owns resources materialized while replacing RemoteTable nodes.
+    """Owns resources materialized while replacing ``RemoteTable`` nodes:
+    upstream readers, ``StreamCache``s, placeholder tables, and write-through
+    drains (folded in from tee transforms).
 
-    Each ``adopt_*`` method appends to a typed list.  ``close`` tears down
-    in dependency order (tables -> caches -> readers), LIFO within each
-    category, and is idempotent.
+    ``close()`` is idempotent and tears down in dependency order: drains first
+    (close-all, then join-all -- they feed the tables), then tables, caches, and
+    readers, LIFO within each. Table/cache/reader failures are logged (they only
+    leak a resource); drain-join failures are raised only with
+    ``raise_drain_errors=True`` (set once the result is consumed), else logged.
 
-    Not thread-safe: all adopt/close calls must happen on a single thread.
+    ``adopt_*`` must run on the construction thread. ``close()`` may fire from a
+    drain worker or a ``weakref.finalize`` GC thread on the streaming path; the
+    ``_closed`` guard keeps that safe. Concurrent ``close()`` is not supported,
+    but the paths are serialized so it does not arise.
     """
 
     def __init__(self) -> None:

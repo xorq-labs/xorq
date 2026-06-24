@@ -793,6 +793,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         table_name = table_name or gen_name("read_record_batches")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
         self.con.deregister_table(table_ident)
+        registered: Any = None
         match source:
             case StreamCache():
                 target_schema = schema if schema is not None else source.schema
@@ -807,12 +808,6 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 # data and defeat eviction, so we let cast raise on a name
                 # mismatch rather than accommodate it.
                 registered = source.cast(target_schema)
-                self.con.register_record_batch_reader(table_ident, registered)
-                try:
-                    return self.table(table_name)
-                except Exception:
-                    self.con.deregister_table(table_ident)
-                    raise
             case pa.Table():
                 target_schema = schema if schema is not None else source.schema
                 batches = source.to_batches()
@@ -831,11 +826,17 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 batches = itertools.chain([first], it)
             case _:
                 raise TypeError(f"unsupported source type: {type(source).__name__}")
-        self.con.register_record_batch_reader(
-            table_ident,
-            _casting_reader(target_schema, batches),
-        )
-        return self.table(table_name)
+        if registered is None:
+            registered = _casting_reader(target_schema, batches)
+        # Build the ir.Table after registering; if that build fails, deregister
+        # so a failed call never leaves a half-registered table behind. Applies
+        # to every source type, not just the lazy StreamCache path.
+        self.con.register_record_batch_reader(table_ident, registered)
+        try:
+            return self.table(table_name)
+        except Exception:
+            self.con.deregister_table(table_ident)
+            raise
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
         batch_reader = self.to_pyarrow_batches(expr, **kwargs)
