@@ -26,7 +26,12 @@ class Backend(IbisGizmoSQLBackend):
         table_name: str | None = None,
     ) -> ir.Table:
         table_name = table_name or gen_name("read_record_batches")
-        source = self._normalize_arrow_schema(pa.Table.from_batches(source))
+        # Pass schema= so an empty stream (zero batches) still materializes the
+        # declared columns instead of raising "Must pass schema, or at least one
+        # RecordBatch". StreamCache and RecordBatchReader both expose .schema.
+        source = self._normalize_arrow_schema(
+            pa.Table.from_batches(source, schema=source.schema)
+        )
         batches = source.to_batches(max_chunksize=10_000)
         reader = pa.RecordBatchReader.from_batches(source.schema, batches)
         with self.con.cursor() as cur:
