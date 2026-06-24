@@ -682,6 +682,10 @@ class CatalogScreen(Screen):
 
     def _render_highlighted_node(self) -> None:
         self._highlight_timer = None
+        # A queued timer callback can still fire after on_unmount stopped the
+        # timer; querying removed widgets would raise NoMatches.
+        if not self.is_attached:
+            return
         tree = self.query_one("#catalog-tree", Tree)
         node = tree.cursor_node
         if node is None:

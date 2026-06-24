@@ -558,6 +558,13 @@ def test_list_revisions_cached_hits_and_invalidates(catalog, entry_a, alias_for_
     # Identical args -> cache hit returns the same object (no re-walk).
     assert _list_revisions_cached(alias, sha) is first
 
+    # A distinct but value-equal alias (CatalogAlias is @frozen) hits the same
+    # cache entry -- the production path after _catalog_aliases_cached rebuilds
+    # alias objects on a YAML mtime change.
+    alias2 = CatalogAlias.from_name(alias_for_a, catalog)
+    assert alias2 is not alias
+    assert _list_revisions_cached(alias2, sha) is first
+
     # A new commit moves HEAD -> different key -> fresh walk.
     catalog.add_alias(entry_a.name, "another-alias")
     sha2 = catalog.repo.head.commit.hexsha
