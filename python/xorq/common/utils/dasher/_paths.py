@@ -17,7 +17,7 @@ import urllib.request
 
 import yaml12
 
-from xorq.common.constants import REMOTE_SCHEMES
+from xorq.common.constants import CLOUD_SCHEMES, HTTP_SCHEMES, REMOTE_SCHEMES
 from xorq.common.utils.file_utils import normalize_read_path_stat
 
 
@@ -46,7 +46,7 @@ def _canonicalize_catalog_path(s: str) -> tuple[str, bool]:
 def _normalize_path_stat(path: str, **kwargs) -> tuple:
     """Stable metadata for a path: HTTP HEAD, cloud metadata, or local stat."""
 
-    if isinstance(path, str) and path.startswith(("http://", "https://")):
+    if isinstance(path, str) and path.startswith(HTTP_SCHEMES):
         req = urllib.request.Request(
             path, method="HEAD", headers={"User-Agent": "xorq-cache"}
         )
@@ -64,7 +64,7 @@ def _normalize_path_stat(path: str, **kwargs) -> tuple:
                 for k in ("Last-Modified", "Content-Length", "Content-Type")
             ),
         )
-    if isinstance(path, str) and path.startswith(("s3://", "gs://", "gcs://")):
+    if isinstance(path, str) and path.startswith(CLOUD_SCHEMES):
         from xorq.expr import api  # noqa: PLC0415
 
         meta = api.get_object_metadata(path, **kwargs)
