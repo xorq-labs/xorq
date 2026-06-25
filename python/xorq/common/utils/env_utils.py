@@ -152,7 +152,7 @@ _TRUTHY = frozenset({"true", "1", "yes", "on"})
 _FALSY = frozenset({"false", "0", "no", "off"})
 
 
-def parse_float_env(value, default: float) -> float:
+def parse_float_env(value: str | None, default: float) -> float:
     """Parse a float env var, falling back to ``default`` on unset/malformed.
 
     Unset/empty -> ``default``.  A non-numeric or locale-comma value (e.g.

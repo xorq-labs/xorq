@@ -1108,7 +1108,7 @@ class CatalogScreen(Screen):
         try:
             head_sha = catalog_alias.catalog_entry.catalog.repo.head.commit.hexsha
             raw_revisions = _list_revisions_cached(catalog_alias, head_sha)
-        except (KeyError, ValueError, OSError):
+        except (KeyError, ValueError, OSError, AttributeError):
             return
         revision_rows = tuple(
             row

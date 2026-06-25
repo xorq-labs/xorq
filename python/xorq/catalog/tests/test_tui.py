@@ -551,6 +551,7 @@ def test_v_toggles_revisions(catalog):
 
 def test_list_revisions_cached_hits_and_invalidates(catalog, entry_a, alias_for_a):
     """Same (alias, HEAD sha) hits cache; a new commit invalidates it."""
+    _list_revisions_cached.cache_clear()
     alias = CatalogAlias.from_name(alias_for_a, catalog)
     sha = catalog.repo.head.commit.hexsha
 
