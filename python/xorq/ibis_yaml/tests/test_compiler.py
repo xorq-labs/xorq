@@ -40,7 +40,7 @@ from xorq.common.utils.file_utils import normalize_read_path_md5sum
 from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.conftest import array_types_df
-from xorq.expr.relations import CachedNode, Read, RemoteTable
+from xorq.expr.relations import CachedNode, CacheTag, Read, RemoteTable
 from xorq.expr.udf import ExprScalarUDF
 from xorq.ibis_yaml.compiler import (
     ArtifactStore,
@@ -354,6 +354,27 @@ def test_multi_engine_with_caching_with_parquet(
     )
     assert expr.execute().equals(roundtrip_expr.execute())
     assert expected_cache_dir.exists()
+
+
+def test_pinned_cache_yaml_roundtrip(
+    builds_dir: pathlib.Path, tmp_path: pathlib.Path, parquet_dir: pathlib.Path
+) -> None:
+    con = xo.connect()
+    cache = ParquetCache.from_kwargs(source=con, relative_path=tmp_path)
+    expr = (
+        deferred_read_parquet(parquet_dir / "awards_players.parquet", con=con)
+        .filter(xo._.playerID == "bondto01")
+        .cache(cache=cache)
+    )
+    # materialize the cache so the pinned expr can read it directly
+    expr.execute()
+    pinned = expr.ls.pin()
+
+    roundtrip_expr = do_roundtrip_expr(pinned, builds_dir=builds_dir)
+
+    assert walk_nodes((CacheTag,), roundtrip_expr)
+    assert not walk_nodes((CachedNode,), roundtrip_expr)
+    assert pinned.execute().equals(roundtrip_expr.execute())
 
 
 @pytest.mark.parametrize(

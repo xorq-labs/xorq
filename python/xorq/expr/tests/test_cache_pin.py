@@ -1,0 +1,140 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+import xorq.api as xo
+from xorq.caching import ParquetCache
+from xorq.common.exceptions import IntegrityError
+from xorq.common.utils.graph_utils import walk_nodes
+from xorq.common.utils.provenance_utils import get_expr_hash
+from xorq.expr.relations import CachedNode, CacheTag, Read, RemoteTable
+
+
+def make_cached(tmp_path: Path) -> tuple:
+    con = xo.connect()
+    df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+    t = con.register(df, "tbl")
+    cache = ParquetCache.from_kwargs(relative_path=tmp_path, source=con)
+    return t.cache(cache), cache
+
+
+def test_pin_replaces_cached_node_with_cache_tag(tmp_path: Path) -> None:
+    cached, _ = make_cached(tmp_path)
+    cached.execute()
+
+    pinned = cached.ls.pin()
+
+    assert walk_nodes((CacheTag,), pinned)
+    assert not walk_nodes((CachedNode,), pinned)
+    assert walk_nodes((Read,), pinned)
+    assert pinned.execute().equals(cached.execute())
+
+
+def test_pin_requires_materialized_cache(tmp_path: Path) -> None:
+    cached, _ = make_cached(tmp_path)
+
+    with pytest.raises(IntegrityError, match="unmaterialized"):
+        cached.ls.pin()
+
+
+def test_pinned_reads_directly_and_does_not_recompute(tmp_path: Path) -> None:
+    cached, cache = make_cached(tmp_path)
+    cached.execute()
+    pinned = cached.ls.pin()
+
+    # remove the cache artifact: a pinned expr reads the file directly, so it
+    # must fail, whereas the unpinned form would simply recompute.
+    cache.drop(cached.ls.uncached_one)
+
+    with pytest.raises(ValueError):
+        pinned.execute()
+
+    # unpin restores the recompute-capable form
+    assert (
+        pinned.ls.unpin()
+        .execute()
+        .equals(pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}))
+    )
+
+
+def test_unpin_is_inverse_of_pin(tmp_path: Path) -> None:
+    cached, _ = make_cached(tmp_path)
+    cached.execute()
+
+    unpinned = cached.ls.pin().ls.unpin()
+
+    assert walk_nodes((CachedNode,), unpinned)
+    assert not walk_nodes((CacheTag,), unpinned)
+    # structural equivalence (CachedNode == is unreliable: it stores parent as
+    # an Any-typed Expr, so compare via tokenized + structural op equality)
+    assert unpinned.ls.tokenized == cached.ls.tokenized
+    assert unpinned.op().parent.op() == cached.op().parent.op()
+
+
+def test_pin_changes_build_hash_but_not_result(tmp_path: Path) -> None:
+    cached, _ = make_cached(tmp_path)
+    cached.execute()
+    pinned = cached.ls.pin()
+
+    # freeze-time pinning is intentionally NOT cache-hash-neutral
+    assert get_expr_hash(pinned) != get_expr_hash(cached)
+    assert pinned.execute().equals(cached.execute())
+
+
+def test_pin_is_noop_without_cached_nodes() -> None:
+    con = xo.connect()
+    t = con.register(pd.DataFrame({"a": [1, 2]}), "tbl")
+    expr = t.filter(t.a > 1)
+
+    assert expr.ls.pin().ls.tokenized == expr.ls.tokenized
+
+
+def test_pin_unpin_multi_engine_remote_table(tmp_path: Path) -> None:
+    # Cache across engines: the CachedNode.parent is a RemoteTable, so pinning
+    # must take the `remote_expr` branch when locating the materialized cache.
+    con = xo.connect()
+    con2 = xo.connect()
+    t = con.register(pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}), "tbl")
+    cache = ParquetCache.from_kwargs(relative_path=tmp_path, source=con2)
+    cached = t.into_backend(con2).cache(cache)
+    # guard: this test is only meaningful if the cached parent is a RemoteTable
+    assert isinstance(cached.op().parent.op(), RemoteTable)
+    cached.execute()
+
+    pinned = cached.ls.pin()
+    assert walk_nodes((CacheTag,), pinned)
+    assert not walk_nodes((CachedNode,), pinned)
+    assert pinned.execute().equals(cached.execute())
+
+    unpinned = pinned.ls.unpin()
+    assert walk_nodes((CachedNode,), unpinned)
+    assert not walk_nodes((CacheTag,), unpinned)
+    # tokenized is the reliable structural comparison here: RemoteTable.__eq__
+    # is unreliable (it stores remote_expr as an Any-typed Expr), so a direct
+    # `parent.op() ==` check on a RemoteTable parent gives false negatives.
+    assert unpinned.ls.tokenized == cached.ls.tokenized
+
+
+def test_pin_unpin_nested_caches(tmp_path: Path) -> None:
+    # A cache stacked on a cache: the inner CachedNode lives under the outer's
+    # opaque `uncached` payload, so pin/unpin must descend into it.
+    con = xo.connect()
+    t = con.register(pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}), "tbl")
+    inner_cache = ParquetCache.from_kwargs(relative_path=tmp_path / "inner", source=con)
+    outer_cache = ParquetCache.from_kwargs(relative_path=tmp_path / "outer", source=con)
+    cached = t.cache(inner_cache).filter(xo._.a > 1).cache(outer_cache)
+    # executing the outer cache materializes the inner one along the way
+    cached.execute()
+
+    pinned = cached.ls.pin()
+    assert len(walk_nodes((CacheTag,), pinned)) == 2
+    assert not walk_nodes((CachedNode,), pinned)
+    assert pinned.execute().equals(cached.execute())
+
+    unpinned = pinned.ls.unpin()
+    assert len(walk_nodes((CachedNode,), unpinned)) == 2
+    assert not walk_nodes((CacheTag,), unpinned)
+    assert unpinned.ls.tokenized == cached.ls.tokenized
