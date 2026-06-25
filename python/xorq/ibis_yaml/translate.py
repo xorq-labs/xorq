@@ -23,6 +23,7 @@ from xorq.common.utils.node_utils import update_read_kwargs
 from xorq.expr.operations import _MISSING, NamedScalarParameter
 from xorq.expr.relations import (
     CachedNode,
+    CacheTag,
     HashingTag,
     Read,
     RemoteTable,
@@ -1089,6 +1090,34 @@ def _tag_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
         schema=schema,
         parent=parent_expr.op(),
         metadata=metadata,
+    ).to_expr()
+
+
+@translate_to_yaml.register(CacheTag)
+@convert_to_node_ref
+def _cache_tag_to_yaml(op: CacheTag, context: Any) -> dict:
+    return freeze(
+        {
+            "op": "CacheTag",
+            "parent": context.translate_to_yaml(op.parent),
+            "uncached": context.translate_to_yaml(op.uncached),
+            "cache": translate_cache(op.cache, context),
+        }
+        | context.registry.register_schema(op.schema)
+    )
+
+
+@register_from_yaml_handler("CacheTag")
+def _cache_tag_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
+    schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
+    parent_expr = context.translate_from_yaml(yaml_dict["parent"])
+    uncached_expr = context.translate_from_yaml(yaml_dict["uncached"])
+    cache = load_cache_from_yaml(yaml_dict["cache"], context)
+    return CacheTag(
+        schema=schema,
+        parent=parent_expr.op(),
+        uncached=uncached_expr,
+        cache=cache,
     ).to_expr()
 
 

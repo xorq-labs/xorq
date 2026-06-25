@@ -137,6 +137,107 @@ class CachedNode(DatabaseTableView):
     cache: Any = None
 
 
+class CacheTag(Tag):
+    """A pinned (frozen) cache: a transparent read of the cache location that
+    carries the information needed to reconstruct the original ``CachedNode``.
+
+    ``parent`` is the direct read of the cache file/table (what ``cache.get``
+    returns), so a pinned expression executes by reading the materialized
+    artifact directly -- it never re-derives the upstream computation.
+    ``unpin_cache`` reads ``uncached``/``cache`` back to rebuild the
+    ``CachedNode``.
+
+    ``cache`` is inert reconstruction payload (read only by ``unpin_cache``).
+    ``uncached`` is the original pre-cache expr: xorq's graph machinery *does*
+    descend into it (see ``gen_children_of``) so its leaves/backends are found
+    for source normalization and serialization, but its *structure* is
+    intentionally absent from the build hash. That is safe -- not a gap --
+    because ``parent`` is the cache ``Read`` whose ``hash_path`` is the upstream
+    cache key, so the upstream identity is already folded in; ``uncached`` is
+    functionally determined by ``parent``. Do NOT add ``__dasher_tokenize__``
+    to fold ``uncached``: it carries fields the cache key strips (e.g.
+    ``RemoteTable.name``), so folding it would make logically-identical pins
+    hash differently (the ADR-0015 ``_replace_remote_table`` failure mode).
+
+    Pinning is a freeze-time operation and is deliberately *not*
+    cache-hash-neutral: the cache file read by ``parent`` participates in the
+    hash, so a pinned expression keys differently from its unpinned form.
+    """
+
+    uncached: Any = None
+    cache: Any = None
+
+
+def _cached_node_to_cache_tag(node: CachedNode) -> CacheTag:
+    cache = node.cache
+    parent = node.parent
+    uncached_one = (
+        parent.op().remote_expr if isinstance(parent.op(), RemoteTable) else parent
+    )
+    if not cache.exists(uncached_one):
+        raise IntegrityError(
+            "cannot pin an unmaterialized cache; execute the expression "
+            "(or call .cache().execute()) to populate the cache first"
+        )
+    return CacheTag(
+        schema=node.schema,
+        parent=cache.get(uncached_one),
+        uncached=parent,
+        cache=cache,
+    )
+
+
+def _cache_tag_to_cached_node(node: CacheTag) -> CachedNode:
+    from xorq.vendor.ibis.expr.types.relations import (  # noqa: PLC0415
+        CACHED_NODE_NAME_PLACEHOLDER,
+    )
+
+    cache = node.cache
+    return CachedNode(
+        name=CACHED_NODE_NAME_PLACEHOLDER,
+        schema=node.schema,
+        parent=node.uncached,
+        source=cache.storage.source,
+        cache=cache,
+    )
+
+
+def pin_cache(expr: Expr) -> Expr:
+    """Freeze every ``CachedNode`` into a ``CacheTag`` reading its cache location.
+
+    Each cache must already be materialized; the resulting expression reads the
+    cached artifacts directly without re-deriving them. Inverse of
+    :func:`unpin_cache`.
+    """
+    from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
+
+    def replacer(node, kwargs):
+        if kwargs:
+            node = node.__recreate__(kwargs)
+        if isinstance(node, CachedNode):
+            node = _cached_node_to_cache_tag(node)
+        return node
+
+    return replace_nodes(replacer, expr).to_expr()
+
+
+def unpin_cache(expr: Expr) -> Expr:
+    """Rebuild every ``CacheTag`` back into its original ``CachedNode``.
+
+    Inverse of :func:`pin_cache`.
+    """
+    from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
+
+    def replacer(node, kwargs):
+        if kwargs:
+            node = node.__recreate__(kwargs)
+        if isinstance(node, CacheTag):
+            node = _cache_tag_to_cached_node(node)
+        return node
+
+    return replace_nodes(replacer, expr).to_expr()
+
+
 gen_name_namespace = "rbr-placeholder"
 gen_name = toolz.compose(
     # some engines simply truncate long names

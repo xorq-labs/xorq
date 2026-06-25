@@ -1065,6 +1065,26 @@ class LETSQLAccessor:
 
         return walk_nodes((CachedNode,), self.expr)
 
+    def pin(self) -> ir.Expr:
+        """Freeze every `CachedNode` into a direct read of its cache location.
+
+        Returns an equivalent expression that reads the materialized cache
+        artifacts directly instead of re-deriving them. Each cache must already
+        exist. Inverse of `unpin`.
+        """
+        from xorq.expr.relations import pin_cache
+
+        return pin_cache(self.expr)
+
+    def unpin(self) -> ir.Expr:
+        """Rebuild every pinned cache (`CacheTag`) back into its `CachedNode`.
+
+        Inverse of `pin`.
+        """
+        from xorq.expr.relations import unpin_cache
+
+        return unpin_cache(self.expr)
+
     @property
     def tags(self):
         return self.get_tags()
