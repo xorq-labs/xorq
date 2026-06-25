@@ -42,6 +42,25 @@ def test_append(iceberg_con, trades_df, fun):
     assert len(actual) == len(expected) * 2
 
 
+@pytest.mark.parametrize(
+    "fun",
+    [
+        pytest.param(execute, id="pandas"),
+        pytest.param(identity, id="xorq"),
+    ],
+)
+def test_insert_overwrite(iceberg_con, trades_df, fun):
+    table_name = "trades_overwrite"
+
+    t = iceberg_con.create_table(table_name, trades_df, overwrite=True)
+    assert table_name in iceberg_con.list_tables()
+    expected = t.execute()
+
+    iceberg_con.insert(table_name, fun(t), mode="overwrite")
+    actual = t.execute()
+    assert len(actual) == len(expected)
+
+
 def test_create_empty_raises(iceberg_con):
     with pytest.raises(NotImplementedError):
         schema = Schema.from_pyarrow(
