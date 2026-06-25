@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782325897551,
+  "lastUpdate": 1782379446311,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -21906,6 +21906,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.1342571807243594",
             "extra": "mean: 1.5441626268000164 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "39e1f139fecb5cdc2edbe6c972a63aae61a51556",
+          "message": "feat(relations): replace SafeTee with batchcorder StreamCache (#1977)\n\nFix #983: asof_join with tolerance and self-join returned empty results\nbecause SafeTee exhausted a one-shot Arrow iterator on re-scan.\n\nStreamCache (batchcorder 0.1.3) wraps any Arrow stream in a replayable\nRust-backed cache. DuckDB/DataFusion acquire independent\nStreamCacheReader\nhandles per scan — thread-safe concurrent reads. Only memory mode is\nused;\nbatches live in a Rust Arc<Vec<RecordBatch>>. Disk spill is not\nconfigured\nand not enabled.\n\n## Bounded memory via `max_readers`\n\nEach StreamCache is constructed with `max_readers` = a per-RemoteTable\nscan\ncount, so batches are evicted once all readers advance past them\n(instead of\nretaining the whole stream). batchcorder enforces `max_readers` as a\nhard\ncap: an under-count crashes (`ValueError: Maximum number of readers\nreached`\nwhen the backend creates reader N+1), an over-count silently disables\neviction. Omitting it (passing `None`) leaves the cache unbounded —\nalways\nsafe, no eviction.\n\nThe scan count is **not** visible in the expression graph: a single\ngraph\nreference can compile to several physical scans (e.g. a self-join, the\ncanonical multi-scan shape). `count_remote_table_readers` therefore\nrewrites\neach RemoteTable to a placeholder under a fresh unique name, compiles\nthe\nexpression to a sqlglot AST, and counts `Table` nodes bearing that name\n—\nrobust across compiler lowering and immune to inflation from column\nrefs,\naliases, or string literals. Counts are floored at 1 (a bare RemoteTable\nis\nstill scanned once; `max_readers=0` would forbid the reader that is in\nfact\ncreated); on SQL-compile failure (e.g. a non-SQL backend) the mapping is\nempty and the cache is left unbounded.\n\nThe count is a best-effort **lower bound**, not an exact scan count: it\nsees\nonly the scans the compiled SQL spells out, not re-scans the backend's\noptimiser introduces below the SQL layer. Known gap: a DuckDB `PARTITION\nBY`-\nonly aggregate window lowers to a `GROUP BY` self-join that scans its\ninput\ntwice while the AST counts one — an under-count that currently raises.\nSee\nthe ADR (\"Counting accuracy\") for the tradeoff.\n\nDuckDB scans the cache directly, so the count drives eviction and an\nunder-count crashes. DataFusion reads the outer cache once\n(`from_stream`)\nand re-wraps it into an inner cache it scans per reference, so an\nover-count\non the outer cache there merely disables eviction (never crashes).\n\n## Core changes\n\n- **remote_table_exec.py** (new):\n`register_and_transform_remote_tables`,\n`count_remote_table_readers`, `RemoteTableScope`,\n`bind_scope_to_reader`,\n  and `prepare_create_table_from_expr` — moved out of relations.py. The\nreplacer creates one StreamCache per RemoteTable node with `max_readers`\nfrom `count_remote_table_readers`, and returns `(expr, scope)` where the\n  `RemoteTableScope` owns every materialized resource (upstream readers,\n  StreamCaches, placeholder tables, tee drains) behind one idempotent\n  `close()` that tears down in dependency order.\n- **relations.py**: SafeTee, the old graph-walk\n`register_and_transform_remote_tables`, and\n`prepare_create_table_from_expr`\n  removed (relocated to remote_table_exec.py). RemoteTable caches its\n  reader's physical schema for the StreamCache.\n- **api.py**: `_transform_expr` returns `(expr, scope)`. Eager call\nsites\n  (`_pandas_execute`, `get_plans`, caching/storage) use the new\n`remote_table_scope` context manager, which closes the scope on exit and\n  raises tee/WAP drain failures only on the success path. The streaming\n  `to_pyarrow_batches` path uses `bind_scope_to_reader`, which defers\n  `scope.close()` to the result reader's generator `finally` (with a\n  `weakref.finalize` backstop for readers abandoned before first read) —\n  replacing the removed `rbr_wrapper`/`_run_cleanup` helpers.\n\n## Backend `read_record_batches` plumbing\n\n- **logical schema**: `read_record_batches` takes the logical schema and\n  projects/casts the physical reader down to it, dropping extra physical\ncolumns. `project_and_cast_reader` short-circuits when the schema\nalready\nmatches. Redundant schema args were removed where the reader carries it.\n- **xorq_datafusion**: registers `StreamCache` via `StreamCache.cast` (a\nreplayable casting view over the same buffer) so DataFusion reads purely\n  from Rust — prevents the GIL/Mutex deadlock fixed upstream in\n  xorq-datafusion ef86e2b (Python::attach moved to spawn_blocking). Uses\n`CastingStreamCache` so fan-out scans still evict; `read_record_batches`\ncollapsed into a single match with a shared `_casting_reader` helper and\nrollback hoisted across all source types. Bumps xorq-datafusion 0.2.7 →\n  0.2.9.\n- **postgres**: adds a `to_pyarrow_batches` override on the xorq\nBackend;\nuses PgADBC for the ADBC primary path + psycopg fallback for\nsession-local\ntemp tables, logging the swallowed ADBC connection failure before\nfalling\nback. Plugs an ADBC leak and restores remote-table kwargs. (The vendored\n  postgres backend is not touched.)\n- **gizmosql**: materializes empty `StreamCache` streams and emits a\n  zero-row batch so an empty stream still ingests over Flight SQL.\n- **sqlite / pandas / pyiceberg**: handle `StreamCache` input in\n  `read_record_batches` (shared `coerce_to_arrow_table` helper).\n- **snowflake**: pass keypair as a PEM string for adbc>=1.11 compat;\ndrop\nsnowflake from `_ADBC_BACKENDS` `mode=\"replace\"`; restore `create_table`\n  permissiveness for non-Expr objects.\n- **flight**: use `to_reader` instead of the pyarrow-14-only\n`from_stream`.\n\n## Tests\n\n- expr/tests/test_relations.py: unit tests for\n`count_remote_table_readers`\n(bare=1, single scan=1, many fields=1, self-join=2, asof\ndouble-scan=[1,2],\n  unbindable → empty mapping)\n- expr/tests/test_transform_scope.py + test_stream_cache_contract.py:\n  RemoteTableScope lifecycle and StreamCache reader contract\n- backends/duckdb/tests/test_into_backend.py and\nbackends/xorq_datafusion/tests/test_into_backend.py: into_backend\nfan-out\nedge cases — bare, filter, self-join, two scalar subqueries, 3-way\nunion,\ntwo distinct tables, empty-table fan-out, nested chain, asof double-scan\n- backends/duckdb/tests/test_asof_join.py: assert single-scan tolerance\n  lowering after #2086; pin the max_readers under-count crash for the\n  partition-by window\n- backends/xorq_datafusion/tests/test_stream_cache_deadlock.py:\nsubprocess\nregression test for the two-scan GIL/Mutex deadlock; plus reentrancy and\n  register coverage\n- backends/{gizmosql,postgres,sqlite,pandas,snowflake} tests: backend\n  read_record_batches / into_backend / to_pyarrow_batches coverage\n\nDecision recorded in docs/adr/0013-batchcorder-stream-cache-for-remote-\ntable-fan-out.md. Covers: root cause, SafeTee failure modes, StreamCache\nresource lifecycle (RemoteTableScope; explicit close at all executing\ncall\nsites), memory-only tradeoffs, the max_readers counting-accuracy gap,\nand\nalternatives considered (tee, pre-ingest to pa.Table).\n\nCloses #983\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>\nCo-authored-by: Pierre Barre <pierre@barre.sh>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-06-25T11:18:25+02:00",
+          "tree_id": "4c4c40730da54eec9661b53f94d042380d5740a4",
+          "url": "https://github.com/xorq-labs/xorq/commit/39e1f139fecb5cdc2edbe6c972a63aae61a51556"
+        },
+        "date": 1782379443129,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.245918171554125,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006254711302098067",
+            "extra": "mean: 121.27212266666574 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.743010172604485,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05243020665671831",
+            "extra": "mean: 364.5629936000205 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7994320256740393,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15935998530227324",
+            "extra": "mean: 1.2508880903999966 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.6492183171661323,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05211650975475351",
+            "extra": "mean: 377.46983460000365 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.106856015241128,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016512032085856342",
+            "extra": "mean: 321.8687943999839 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.137920745608766,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011585900418485515",
+            "extra": "mean: 318.6823635999758 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 195.33645175584857,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005424261925683667",
+            "extra": "mean: 5.119372196080955 msec\nrounds: 255"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.962876193663596,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08456774426754526",
+            "extra": "mean: 201.49606014285837 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 22.740257888285843,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008790591330043805",
+            "extra": "mean: 43.9748750833265 msec\nrounds: 24"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 9.764748120714112,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01310127443460389",
+            "extra": "mean: 102.40919557143359 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 8.161553433160709,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018966220478908294",
+            "extra": "mean: 122.52569418181606 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 5.8643182996214005,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030912364561747244",
+            "extra": "mean: 170.52280400000797 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.772170871767799,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02684813953528675",
+            "extra": "mean: 209.54823850001011 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.63394608604834,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008913092056190645",
+            "extra": "mean: 215.79879900000378 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.3286880547583757,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07502345928061813",
+            "extra": "mean: 429.42634499997894 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.417474116010017,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007749427687829",
+            "extra": "mean: 292.6137744000016 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.8305049405228104,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08031609201437946",
+            "extra": "mean: 546.297350999987 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.8127641326274273,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10792416958351277",
+            "extra": "mean: 551.6437477999943 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.4894683909738073,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13416467382122774",
+            "extra": "mean: 671.3804778000053 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5188268293843232,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11442608318331887",
+            "extra": "mean: 658.4029072000021 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.241304855920747,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12857784679126194",
+            "extra": "mean: 805.603873400014 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.2219679420713672,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08768283819330196",
+            "extra": "mean: 818.3520741999928 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.9680923669954044,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14431976466483556",
+            "extra": "mean: 1.0329592857999956 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.6003061563798718,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06314100413830655",
+            "extra": "mean: 1.665816666000012 sec\nrounds: 5"
           }
         ]
       }
