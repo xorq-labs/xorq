@@ -42,6 +42,12 @@ if TYPE_CHECKING:
     from xorq.vendor.ibis.expr.schema import IntoSchema
 
 
+__all__ = [
+    "Backend",
+    "connect",
+]
+
+
 def _databricks_type_to_ibis(typ, nullable: bool = True) -> dt.DataType:
     """Convert a Databricks type to an Ibis type."""
     typname = typ["name"]
