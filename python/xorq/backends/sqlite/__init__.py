@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 import sqlglot as sg
 import sqlglot.expressions as sge
 
+from xorq.common.utils.rbr_utils import coerce_to_arrow_table
 from xorq.config import default_backend
 from xorq.vendor.ibis import Schema, util
 from xorq.vendor.ibis.backends.sqlite import Backend as IbisSQLiteBackend
@@ -71,11 +72,13 @@ class Backend(IbisSQLiteBackend):
 
         return self.table(table_name)
 
-    def _into_memory_record_batches(self, record_batches, table_name):
+    def _into_memory_record_batches(
+        self, record_batches: pa.RecordBatchReader, table_name: str
+    ) -> None:
         schema = Schema.from_pyarrow(record_batches.schema)
         table = sg.table(table_name, quoted=self.compiler.quoted, catalog="temp")
         create_stmt = self._generate_create_table(table, schema).sql(self.name)
-        df = record_batches.read_pandas()
+        df = coerce_to_arrow_table(record_batches).to_pandas()
         data = df.itertuples(index=False)
         insert_stmt = self._build_insert_template(
             table_name, schema=schema, catalog="temp", columns=True

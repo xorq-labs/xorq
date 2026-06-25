@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -6,18 +9,24 @@ import pyarrow as pa
 import sqlglot as sg
 import sqlglot.expressions as sge
 import toolz
+from adbc_driver_manager import ProgrammingError as ADBCProgrammingError
 
 import xorq.vendor.ibis.expr.schema as sch
 from xorq.backends.postgres.compiler import compiler
 from xorq.common.utils.defer_utils import (
     read_csv_rbr,
 )
+from xorq.common.utils.logging_utils import get_logger
 from xorq.config import default_backend
+from xorq.vendor.ibis import util
 from xorq.vendor.ibis.backends.postgres import Backend as IbisPostgresBackend
 from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import (
     gen_name,
 )
+
+
+logger = get_logger(__name__)
 
 
 class Backend(IbisPostgresBackend):
@@ -88,6 +97,86 @@ class Backend(IbisPostgresBackend):
                 else None
             ),
         ).sql(self.dialect)
+
+    @util.experimental
+    def to_pyarrow_batches(
+        self,
+        expr: ir.Expr,
+        /,
+        *,
+        params: Mapping[ir.Scalar, Any] | None = None,
+        limit: int | str | None = None,
+        chunk_size: int = 1_000_000,
+        **_: Any,
+    ) -> pa.ipc.RecordBatchReader:
+        from xorq.common.utils.postgres_utils import PgADBC  # noqa: PLC0415
+
+        def _batches(self, *, pyarrow_schema, struct_type, query):
+            # Primary path: ADBC opens its own independent postgres connection
+            # per call, so concurrent generators never share psycopg connection
+            # state (eliminates OutOfOrderTransactionNesting).
+            try:
+                adbc_con = PgADBC(self).get_conn()
+            except Exception:
+                # A genuine config/auth error is indistinguishable here from a
+                # missing ADBC URI; both fall through to the psycopg path, so log
+                # at debug to keep the real cause diagnosable.
+                logger.debug(
+                    "ADBC connection unavailable; falling back to psycopg",
+                    backend=self.name,
+                    exc_info=True,
+                )
+                adbc_con = None
+
+            if adbc_con is not None:
+                cur = adbc_con.cursor()
+                # ``fall_through`` distinguishes the one recoverable failure
+                # (temp table invisible on a fresh ADBC connection) from every
+                # other error. The ``finally`` always closes both the cursor
+                # and connection, so a non-ADBCProgrammingError raised by
+                # ``execute`` (network, syntax, permission) propagates without
+                # leaking the ADBC resources.
+                fall_through = False
+                try:
+                    try:
+                        cur.execute(query)
+                    except ADBCProgrammingError:
+                        fall_through = True
+                    if not fall_through:
+                        for batch in cur.fetch_record_batch():
+                            yield batch.cast(pyarrow_schema)
+                finally:
+                    cur.close()
+                    adbc_con.close()
+                if not fall_through:
+                    return
+
+            # Psycopg fallback: session-local temp tables or no ADBC URI.
+            con = self.con
+            with (
+                con.cursor(name=util.gen_name("postgres_cursor")) as cursor,
+                con.transaction(),
+            ):
+                cur = cursor.execute(query)
+                while batch := cur.fetchmany(chunk_size):
+                    yield pa.RecordBatch.from_struct_array(
+                        pa.array(batch, type=struct_type)
+                    )
+
+        self._run_pre_execute_hooks(expr)
+
+        raw_schema = expr.as_table().schema()
+        query = self.compile(expr, limit=limit, params=params)
+        pyarrow_schema = raw_schema.to_pyarrow()
+        return pa.RecordBatchReader.from_batches(
+            pyarrow_schema,
+            _batches(
+                self,
+                pyarrow_schema=pyarrow_schema,
+                struct_type=raw_schema.as_struct().to_pyarrow(),
+                query=query,
+            ),
+        )
 
     def read_record_batches(
         self,

@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import itertools
 import traceback
+from collections.abc import Iterable
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -52,7 +55,33 @@ def otel_instrument_reader(reader):
     return pa.RecordBatchReader.from_batches(reader.schema, instrument_reader(reader))
 
 
-def copy_rbr_batches(reader):
+def coerce_to_arrow_table(
+    source: pa.Table | pa.RecordBatchReader | Iterable[pa.RecordBatch],
+    schema: pa.Schema | None = None,
+) -> pa.Table:
+    """Materialize any Arrow batch source into a ``pa.Table``.
+
+    Accepts a ``pa.Table``, a ``pa.RecordBatchReader``, a batchcorder
+    ``StreamCache``, or any iterable of ``pa.RecordBatch``. The schema is taken
+    from ``schema`` if given, otherwise from the source, so a zero-batch stream
+    still yields a table with the declared columns instead of raising.
+    """
+    if isinstance(source, pa.Table):
+        return source.cast(schema) if schema is not None else source
+    if schema is None:
+        schema = getattr(source, "schema", None)
+    if isinstance(source, (list, tuple)) and schema is None:
+        if not source:
+            raise ValueError("cannot infer schema from an empty batch sequence")
+        schema = source[0].schema
+    if schema is None:
+        raise ValueError(
+            "schema is required to coerce a schemaless batch iterable to a table"
+        )
+    return pa.Table.from_batches(source, schema=schema)
+
+
+def copy_rbr_batches(reader: pa.RecordBatchReader) -> pa.RecordBatchReader:
     manager = pa.default_cpu_memory_manager()
     gen = (batch.copy_to(manager) for batch in reader)
     return pa.RecordBatchReader.from_batches(reader.schema, gen)

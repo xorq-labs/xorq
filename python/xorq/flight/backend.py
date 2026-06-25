@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Iterable, Mapping
 
 import pyarrow as pa
 import toolz
+from batchcorder import StreamCache
 
 from xorq.common.utils.rbr_utils import (
     make_filtered_reader,
@@ -126,7 +127,7 @@ class Backend(SQLBackend):
             self.con.upload_table(table_name, source)
         elif isinstance(source, pd.DataFrame):
             self.con.upload_batches(
-                table_name, pa.RecordBatchReader.from_stream(source)
+                table_name, pa.Table.from_pandas(source).to_reader()
             )
         elif isinstance(source, pa.RecordBatchReader):
             self.con.upload_batches(table_name, source)
@@ -163,7 +164,11 @@ class Backend(SQLBackend):
 
         return self.read_record_batches(source, table_name=table_name)
 
-    def read_record_batches(self, source, table_name=None):
+    def read_record_batches(
+        self,
+        source: pa.Table | pa.RecordBatchReader | StreamCache,
+        table_name: str | None = None,
+    ) -> ir.Table:
         table_name = table_name or gen_name("read_record_batches")
         self.con.upload_batches(table_name, source)
         return self.table(table_name)

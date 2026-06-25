@@ -3,6 +3,7 @@ import warnings
 import pandas as pd
 import pyarrow as pa
 import pytest
+from batchcorder import StreamCache
 
 import xorq.api as xo
 from xorq.backends.xorq_datafusion import _select_and_cast
@@ -59,30 +60,89 @@ def test_register_table_provider():
     assert t.get_name() in con.list_tables()
 
 
-def test_read_record_batches_type_mismatch():
-    # register_and_transform_remote_tables builds a RecordBatchReader with
-    # schema from ex.as_table().schema().to_pyarrow() (ibis-declared, e.g.
-    # utf8 for VARCHAR) but batches from ex.to_pyarrow_batches() which may
-    # emit a different physical type (e.g. large_utf8 for DuckDB VARCHAR).
-    # Passing this "lying reader" directly to DataFusion via C Data Interface
-    # silently corrupts data: the utf8 offset buffer is 32-bit but large_utf8
-    # data uses 64-bit offsets, so DataFusion misreads row boundaries.
-    # read_record_batches must cast each batch to the declared schema before
-    # handing the reader to DataFusion.
+def test_read_record_batches_type_mismatch() -> None:
     con = xo.connect()
     utf8_schema = pa.schema([("x", pa.utf8())])
     batch = pa.record_batch({"x": pa.array(["hello", "world"], type=pa.large_utf8())})
-    # RecordBatchReader.from_batches does not validate batch types against the
-    # declared schema, reproducing the lying reader from production code paths.
     lying_reader = pa.RecordBatchReader.from_batches(utf8_schema, [batch])
     assert lying_reader.schema.field("x").type == pa.utf8()
-
-    # read_record_batches casts each batch before crossing the C boundary:
     t = con.read_record_batches(lying_reader)
     assert t.execute()["x"].tolist() == ["hello", "world"]
 
 
-def test_read_record_batches_from_table():
+def test_read_record_batches_stream_cache_casts_to_logical_schema() -> None:
+    con = xo.connect()
+    logical_schema = pa.schema([("x", pa.utf8())])
+    batch = pa.record_batch({"x": pa.array(["hello", "world"], type=pa.large_utf8())})
+    # Cast before entering StreamCache (as remote_table_exec does) to avoid
+    # C Data Interface corruption from large_utf8-vs-utf8 offset mismatch.
+    cast_reader = pa.RecordBatchReader.from_batches(
+        logical_schema,
+        (b.select(logical_schema.names).cast(logical_schema) for b in [batch]),
+    )
+    cache = StreamCache(cast_reader)
+    t = con.read_record_batches(cache, schema=logical_schema)
+    assert t.execute()["x"].tolist() == ["hello", "world"]
+
+
+def test_read_record_batches_stream_cache_extra_columns_raises() -> None:
+    # A StreamCache must already hold the logical columns: cast only retypes,
+    # it cannot drop columns, and wrapping a second cache to project would
+    # double-buffer and defeat eviction. Column projection belongs upstream,
+    # before the cache (as register_and_transform_remote_tables does).
+    con = xo.connect()
+    batch = pa.record_batch({"a": [1, 2], "extra": [9, 9]})
+    reader = pa.RecordBatchReader.from_batches(batch.schema, [batch])
+    cache = StreamCache(reader)
+    logical_schema = pa.schema([("a", pa.int64())])
+    # cast is lazy: the name mismatch surfaces when DataFusion reads, not at
+    # registration (same deferral as type-cast errors).
+    t = con.read_record_batches(cache, schema=logical_schema)
+    with pytest.raises(Exception, match="field names"):
+        t.execute()
+
+
+def test_read_record_batches_stream_cache_rollback_on_table_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # StreamCache registers the reader, then builds the ir.Table. If that
+    # build raises, the reader must be deregistered so a failed call leaves no
+    # half-registered table behind.
+    con = xo.connect()
+    logical_schema = pa.schema([("x", pa.int64())])
+    reader = pa.RecordBatchReader.from_batches(
+        logical_schema, [pa.record_batch({"x": [1, 2]})]
+    )
+    cache = StreamCache(reader)
+
+    def boom(self, *args, **kwargs):
+        raise RuntimeError("table build failed")
+
+    monkeypatch.setattr(type(con), "table", boom)
+    with pytest.raises(RuntimeError, match="table build failed"):
+        con.read_record_batches(cache, table_name="rollback_t", schema=logical_schema)
+    monkeypatch.undo()
+    assert "rollback_t" not in con.list_tables()
+
+
+def test_read_record_batches_stream_cache_projected_upstream() -> None:
+    # The supported path: project to the logical columns before the cache,
+    # then read_record_batches only retypes via the replayable CastingStreamCache.
+    con = xo.connect()
+    batch = pa.record_batch({"a": [1, 2], "extra": [9, 9]})
+    logical_schema = pa.schema([("a", pa.int64())])
+    projected = pa.RecordBatchReader.from_batches(
+        logical_schema,
+        (b.select(logical_schema.names).cast(logical_schema) for b in [batch]),
+    )
+    cache = StreamCache(projected)
+    t = con.read_record_batches(cache, schema=logical_schema)
+    result = t.execute()
+    assert result.columns.tolist() == ["a"]
+    assert result["a"].tolist() == [1, 2]
+
+
+def test_read_record_batches_from_table() -> None:
     con = xo.connect()
     t = con.read_record_batches(pa.table({"a": [1, 2, 3], "b": ["x", "y", "z"]}))
     result = t.execute()

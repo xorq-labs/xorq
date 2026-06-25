@@ -1,7 +1,13 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pandas as pd
 import pytest
 import toolz
 
 import xorq.api as xo
+from xorq.backends.snowflake import Backend as SnowflakeBackend
 from xorq.backends.snowflake.enums import SnowflakeAuthenticator
 from xorq.backends.snowflake.tests.conftest import (
     inside_temp_schema,
@@ -93,8 +99,13 @@ def test_create_table_from_expr_success(sf_con, temp_catalog, temp_db, csv_dir):
 
 @pytest.mark.snowflake
 def test_create_table_from_expr_other(
-    sf_con, temp_catalog, temp_db, temp_catalog2, temp_db2, csv_dir
-):
+    sf_con: SnowflakeBackend,
+    temp_catalog: str,
+    temp_db: str,
+    temp_catalog2: str,
+    temp_db2: str,
+    csv_dir: Path,
+) -> None:
     with inside_temp_schema(sf_con, temp_catalog, temp_db):
         name = "batting"
         t = xo.deferred_read_csv(
@@ -104,3 +115,43 @@ def test_create_table_from_expr_other(
         assert not sf_con.list_tables()
         sf_con.create_table(name, t, database=f"{temp_catalog2}.{temp_db2}")
         assert name in sf_con.list_tables(database=(temp_catalog2, temp_db2))
+
+
+def test_create_table_requires_obj_or_schema() -> None:
+    # Guard arm: neither obj nor schema raises before any SQL, so it needs no
+    # live connection. Covers the `obj is None and schema is None` branch.
+    with pytest.raises(ValueError, match="Either `obj` or `schema`"):
+        SnowflakeBackend().create_table(gen_name("t"))
+
+
+def test_create_table_rejects_unsupported_obj_type() -> None:
+    # The default arm delegates to api.memtable, which rejects a bare scalar
+    # before any SQL -- so memtable, not a create_table guard, owns rejection.
+    with pytest.raises(ValueError, match="DataFrame constructor"):
+        SnowflakeBackend().create_table(gen_name("t"), obj=42)
+
+
+@pytest.mark.snowflake
+def test_create_table_from_dataframe(
+    sf_con: SnowflakeBackend, temp_catalog: str, temp_db: str
+) -> None:
+    # The `pd.DataFrame() | pa.Table()` arm wraps obj in a memtable (scope stays
+    # None, so the finally is a no-op). Live-only: it issues a real CREATE.
+    with inside_temp_schema(sf_con, temp_catalog, temp_db):
+        name = gen_name("df_table")
+        sf_con.create_table(name, pd.DataFrame({"a": [1, 2, 3]}))
+        assert name in sf_con.list_tables()
+        assert sf_con.table(name).count().execute() == 3
+
+
+@pytest.mark.snowflake
+def test_create_table_from_schema_only(
+    sf_con: SnowflakeBackend, temp_catalog: str, temp_db: str
+) -> None:
+    # The `None` arm: schema-only create yields table=None (empty table, no
+    # populating query). Live-only: it issues a real CREATE.
+    with inside_temp_schema(sf_con, temp_catalog, temp_db):
+        name = gen_name("schema_only")
+        sf_con.create_table(name, schema=xo.schema({"a": "int64"}))
+        assert name in sf_con.list_tables()
+        assert sf_con.table(name).count().execute() == 0

@@ -3302,16 +3302,22 @@ class Table(Expr, _FixedTextJupyterMixin):
             name = util.gen_name("sql_query")
             expr = self
 
-        from xorq.expr.api import _remove_tee_nodes, _transform_expr
+        from xorq.expr.api import _remove_tee_nodes, remote_table_scope
 
         # Strip tee nodes first: defining a SQL view is a non-executing path, so
         # it must not register a pass-through table or fire the side-effect
         # write. Tee is schema-preserving, so the view schema is unaffected.
-        (expr, _, _) = _transform_expr(_remove_tee_nodes(expr))
-
-        schema = backend._get_sql_string_view_schema(name=name, table=expr, query=query)
-        node = ops.SQLStringView(child=expr.op(), query=query, schema=schema)
-        return node.to_expr()
+        # full close (placeholder drops included) on exit: only the schema
+        # probe runs while the scope is open.  The returned SQLStringView
+        # embeds the transformed child, but executing it over RemoteTables
+        # already fails at alias-name resolution before the released
+        # resources could matter; closing here at least stops the leak.
+        with remote_table_scope(_remove_tee_nodes(expr)) as expr:
+            schema = backend._get_sql_string_view_schema(
+                name=name, table=expr, query=query
+            )
+            node = ops.SQLStringView(child=expr.op(), query=query, schema=schema)
+            return node.to_expr()
 
     def to_pandas(self, **kwargs) -> pd.DataFrame:
         """Convert a table expression to a pandas DataFrame.

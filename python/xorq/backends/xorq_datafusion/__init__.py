@@ -19,6 +19,7 @@ import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
 import sqlglot as sg
 import sqlglot.expressions as sge
+from batchcorder import StreamCache
 from sqlglot import exp, parse_one
 
 import xorq
@@ -71,7 +72,15 @@ def _select_and_cast(batch: pa.RecordBatch, schema: pa.Schema) -> pa.RecordBatch
     return batch.select(schema.names).cast(schema)
 
 
-def _compile_pyarrow_udwf(udwf_node) -> WindowUDF:
+def _casting_reader(
+    schema: pa.Schema, batches: Iterable[pa.RecordBatch]
+) -> pa.RecordBatchReader:
+    return pa.RecordBatchReader.from_batches(
+        schema, (_select_and_cast(batch, schema) for batch in batches)
+    )
+
+
+def _compile_pyarrow_udwf(udwf_node: Any) -> WindowUDF:
     def make_datafusion_udwf(
         input_types,
         return_type,
@@ -709,12 +718,16 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
     def read_record_batches(
         self,
-        source: pa.Table | pa.RecordBatchReader | Iterable[pa.RecordBatch],
+        source: pa.Table
+        | pa.RecordBatchReader
+        | StreamCache
+        | Iterable[pa.RecordBatch],
         table_name: str | None = None,
+        schema: pa.Schema | None = None,
     ) -> ir.Table:
         """Register Arrow data as a table in the current database.
 
-        Each batch is cast to the declared schema before being handed to
+        Each batch is cast to a target schema before being handed to
         DataFusion. This prevents silent data corruption when physical Arrow
         types differ from the declared schema (e.g. ``large_utf8`` batches
         with a ``utf8`` schema), which would otherwise cause DataFusion to
@@ -725,14 +738,27 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         source
             The Arrow data to register. Accepts:
 
+            - ``StreamCache`` — multi-scan capable; batches are cast and
+              re-ingested into a new inner cache.
             - ``pa.Table`` — converted to batches via ``to_batches()``.
             - ``pa.RecordBatchReader`` — consumed directly; schema taken from
               the reader.
             - Any ``Iterable[pa.RecordBatch]`` (list, tuple, generator) —
-              schema inferred from the first batch.
+              schema inferred from the first batch. Empty iterables raise
+              ``ValueError`` because no schema can be inferred. ``pa.Table``
+              and ``pa.RecordBatchReader`` may be empty (schema is already
+              known).
         table_name
             Name for the registered table. Defaults to a sequentially
             generated name.
+        schema
+            Logical schema to project and cast batches to. For one-shot
+            sources (``pa.Table``, ``pa.RecordBatchReader``, iterables) this
+            both drops extra physical columns and retypes via
+            ``_select_and_cast``. For a ``StreamCache`` source it only retypes
+            (``cast`` requires matching field names): column projection must
+            already have happened upstream, before the cache. Defaults to
+            ``None``, which uses the source's declared schema.
 
         Returns
         -------
@@ -767,34 +793,50 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         table_name = table_name or gen_name("read_record_batches")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
         self.con.deregister_table(table_ident)
-        if not isinstance(source, (pa.Table, pa.RecordBatchReader)) and (
-            isinstance(source, (str, bytes)) or not hasattr(source, "__iter__")
-        ):
-            raise TypeError(f"unsupported source type: {type(source).__name__}")
-        schema: pa.Schema
-        batches: Iterable[pa.RecordBatch]
+        registered: Any = None
         match source:
+            case StreamCache():
+                target_schema = schema if schema is not None else source.schema
+                # source.cast returns a CastingStreamCache: a replayable view
+                # over the *same* cache that retypes on each read, so DataFusion's
+                # repeated scans share one buffer and the source's max_readers
+                # bound still drives eviction. cast only retypes -- it requires
+                # matching field names -- so column projection must already have
+                # happened upstream, before the cache (the remote-table path does
+                # this; see register_and_transform_remote_tables). Wrapping a
+                # second StreamCache here to drop columns would double-buffer the
+                # data and defeat eviction, so we let cast raise on a name
+                # mismatch rather than accommodate it.
+                registered = source.cast(target_schema)
             case pa.Table():
-                schema = source.schema
+                target_schema = schema if schema is not None else source.schema
                 batches = source.to_batches()
             case pa.RecordBatchReader():
-                schema = source.schema
+                target_schema = schema if schema is not None else source.schema
                 batches = source
-            case _:
+            case str() | bytes():
+                raise TypeError(f"unsupported source type: {type(source).__name__}")
+            case _ if hasattr(source, "__iter__"):
                 it = iter(source)
                 try:
                     first = next(it)
                 except StopIteration:
                     raise ValueError("source has no rows") from None
-                schema = first.schema
+                target_schema = schema if schema is not None else first.schema
                 batches = itertools.chain([first], it)
-        self.con.register_record_batch_reader(
-            table_ident,
-            pa.RecordBatchReader.from_batches(
-                schema, (_select_and_cast(batch, schema) for batch in batches)
-            ),
-        )
-        return self.table(table_name)
+            case _:
+                raise TypeError(f"unsupported source type: {type(source).__name__}")
+        if registered is None:
+            registered = _casting_reader(target_schema, batches)
+        # Build the ir.Table after registering; if that build fails, deregister
+        # so a failed call never leaves a half-registered table behind. Applies
+        # to every source type, not just the lazy StreamCache path.
+        self.con.register_record_batch_reader(table_ident, registered)
+        try:
+            return self.table(table_name)
+        except Exception:
+            self.con.deregister_table(table_ident)
+            raise
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
         batch_reader = self.to_pyarrow_batches(expr, **kwargs)

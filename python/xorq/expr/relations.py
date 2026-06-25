@@ -1,39 +1,31 @@
 from __future__ import annotations
 
 import functools
-import itertools
 import operator
 import warnings
-from collections import defaultdict
-from itertools import tee
-from threading import Lock
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any, Callable
 
 import pyarrow as pa
 import toolz
 
 from xorq.backends.xorq_datafusion import connect as xo_connect
 from xorq.common.exceptions import IntegrityError
-from xorq.common.utils.otel_utils import get_current_span, tracer
+from xorq.common.utils.otel_utils import tracer
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
     instrument_reader,
 )
 from xorq.vendor import ibis
 from xorq.vendor.ibis import Expr, Schema
+from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.common.collections import (
     FrozenDict,
     FrozenOrderedDict,
 )
-from xorq.vendor.ibis.common.graph import Graph
 from xorq.vendor.ibis.expr import operations as ops
 from xorq.vendor.ibis.expr.format import fmt, render_schema
-from xorq.vendor.ibis.expr.operations import Node, Relation
+from xorq.vendor.ibis.expr.operations import Node
 from xorq.writes import DrainingIterator, WriteThrough
-
-
-if TYPE_CHECKING:
-    from xorq.vendor.ibis.backends import BaseBackend
 
 
 def replace_cache_table(node: Node, kwargs: dict[str, Any] | None) -> Node:
@@ -42,31 +34,6 @@ def replace_cache_table(node: Node, kwargs: dict[str, Any] | None) -> Node:
     while isinstance(node, CachedNode):
         node = node.parent.op()
     return node
-
-
-# https://stackoverflow.com/questions/6703594/is-the-result-of-itertools-tee-thread-safe-python
-class SafeTee(object):
-    """tee object wrapped to make it thread-safe"""
-
-    def __init__(self, teeobj, lock):
-        self.teeobj = teeobj
-        self.lock = lock
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        with self.lock:
-            return next(self.teeobj)
-
-    def __copy__(self):
-        return SafeTee(self.teeobj.__copy__(), self.lock)
-
-    @classmethod
-    def tee(cls, iterable, n=2):
-        """tuple of n independent thread-safe iterators"""
-        lock = Lock()
-        return tuple(cls(teeobj, lock) for teeobj in tee(iterable, n))
 
 
 def recursive_update(obj, replacements):
@@ -609,84 +576,6 @@ class Read(ops.DatabaseTable):
         )
 
 
-_count = itertools.count()
-
-
-@tracer.start_as_current_span("register_and_transform_remote_tables")
-def register_and_transform_remote_tables(
-    expr: Expr, **kwargs: Any
-) -> tuple[Expr, dict]:
-    created = {}
-
-    op = expr.op()
-    graph, _ = Graph.from_bfs(op).toposort()
-    counts = defaultdict(int)
-    for node in graph:
-        if isinstance(node, RemoteTable):
-            counts[node] += 1
-
-        if isinstance(node, Relation):
-            for arg in node.__args__:
-                if isinstance(arg, RemoteTable):
-                    counts[arg] += 1
-
-    if counts:
-        get_current_span().add_event(
-            "remote_table.replace", {"counts.values": tuple(counts.values())}
-        )
-    batches_table = {}
-    for arg, count in counts.items():
-        ex = arg.remote_expr
-        batches = ex.to_pyarrow_batches()
-        schema = ex.as_table().schema().to_pyarrow()
-        replicas = SafeTee.tee(batches, count)
-        batches_table[arg] = (schema, list(replicas))
-
-    def mark_remote_table(node):
-        schema, batchess = batches_table[node]
-        name = f"{node.name}_cu{next(_count)}_t{len(batchess)}"
-        reader = pa.RecordBatchReader.from_batches(schema, batchess.pop())
-        result = node.source.read_record_batches(
-            reader,
-            table_name=name,
-            **kwargs,
-        )
-        created[name] = node.source
-        return result.op()
-
-    def replacer(node, kwargs):
-        if isinstance(node, RemoteTable):
-            result = mark_remote_table(node)
-            batches_table[result] = batches_table.pop(node)
-            node = result
-        else:
-            kwargs = kwargs or {}
-            if isinstance(node, Relation):
-                updated = {}
-                for _k, v in list(kwargs.items()):
-                    try:
-                        if v in batches_table:
-                            updated[v] = mark_remote_table(v)
-
-                    except TypeError:  # v may not be hashable
-                        continue
-
-                if len(updated) > 0:
-                    kwargs = {
-                        k: recursive_update(v, updated) for k, v in kwargs.items()
-                    }
-
-            if kwargs:
-                node = node.__recreate__(kwargs)
-
-        return node
-
-    # op.replace, not replace_nodes: replacer has side effects that must not
-    # fire inside opaque sub-exprs (handled lazily during UDF execution).
-    expr = op.replace(replacer).to_expr()
-    return expr, created
-
-
 # Backends whose single, non-re-entrant connection deadlocks the streaming tee
 # transport (it pulls the parent reader while that connection serves the outer
 # query). See ADR-0014.
@@ -760,7 +649,7 @@ def register_and_transform_tee_nodes(
     return op.replace(replacer).to_expr(), created, drains
 
 
-def render_backend(con):
+def render_backend(con: BaseBackend) -> str:
     return f"{con.name}-{id(con)}"
 
 
@@ -803,12 +692,3 @@ def _fmt_read(op, name, method_name, source, **kwargs):
     backend = render_backend(source)
     name = f"{op.__class__.__name__}[name={name}, method_name={method_name}, source={backend}]\n"
     return name + render_schema(op.schema, 1)
-
-
-def prepare_create_table_from_expr(con, expr, **kwargs):
-    from xorq.expr.api import _transform_expr  # noqa: PLC0415
-
-    if (expr_backend := expr._find_backend()) != con:
-        raise ValueError(f"expr backend must be {con}, is {expr_backend}")
-    (table, _, _) = _transform_expr(expr, **kwargs)
-    return table

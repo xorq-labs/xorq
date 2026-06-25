@@ -63,14 +63,9 @@ def test_con_equality(connect_parts):
         ),
         ("pandas", "connect"),
         ("sqlite", "connect"),
-        pytest.param(
-            # unclear why this works but it gives the correct answer
-            ("snowflake", "connect_env_keypair"),
-            marks=[
-                pytest.mark.snowflake,
-                pytest.mark.slow,
-            ],
-        ),
+        # snowflake lives in backends/snowflake/tests/test_backend.py: it needs a
+        # writable temp schema (read_parquet's CREATE TEMP STAGE is rejected on the
+        # read-only SNOWFLAKE_SAMPLE_DATA default database)
     ),
 )
 def test_con_equality_read(connect_parts, parquet_dir):

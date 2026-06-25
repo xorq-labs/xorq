@@ -1,7 +1,9 @@
 from typing import Any, Mapping
 
 import pyarrow as pa
+from batchcorder import StreamCache
 
+from xorq.common.utils.rbr_utils import coerce_to_arrow_table
 from xorq.vendor.ibis.backends.gizmosql import Backend as IbisGizmoSQLBackend
 from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import gen_name
@@ -19,11 +21,24 @@ class Backend(IbisGizmoSQLBackend):
         table = self._to_pyarrow_table(expr, params=params, limit=limit)
         return expr.__pandas_result__(table.to_pandas(timestamp_as_object=True))
 
-    def read_record_batches(self, source, table_name=None):
+    def read_record_batches(
+        self,
+        source: pa.Table | pa.RecordBatchReader | StreamCache,
+        table_name: str | None = None,
+    ) -> ir.Table:
         table_name = table_name or gen_name("read_record_batches")
-        source = self._normalize_arrow_schema(pa.Table.from_batches(source))
-        batches = source.to_batches(max_chunksize=10_000)
-        reader = pa.RecordBatchReader.from_batches(source.schema, batches)
+        # coerce_to_arrow_table carries the schema through, so an empty stream
+        # (zero batches) still materializes the declared columns instead of
+        # raising "Must pass schema, or at least one RecordBatch".
+        table = self._normalize_arrow_schema(coerce_to_arrow_table(source))
+        batches = table.to_batches(max_chunksize=10_000)
+        # An empty table yields zero batches, but the ADBC Flight SQL ingest
+        # rejects a stream with no messages ("Stream finished before first
+        # message sent"). Send a single zero-row batch so the table is still
+        # created with the right schema.
+        if not batches:
+            batches = [pa.RecordBatch.from_pylist([], schema=table.schema)]
+        reader = pa.RecordBatchReader.from_batches(table.schema, batches)
         with self.con.cursor() as cur:
             cur.adbc_ingest(table_name, reader, mode="replace")
         return self.table(table_name)
