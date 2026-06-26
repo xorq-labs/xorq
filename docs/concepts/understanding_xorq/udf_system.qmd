@@ -1,0 +1,197 @@
+---
+title: "The UDF system"
+description: "Understand how user-defined functions extend Xorq expressions, the kinds available, and when to reach for each"
+---
+
+User-defined functions (UDFs) are how you run your own Python inside a Xorq
+expression. A UDF looks like any other column operation—it binds to columns,
+returns a typed value, and stays deferred until execution—but the body is
+arbitrary Python you write. This lets you fold pandas, PyArrow, scikit-learn, or
+any library into a pipeline without leaving the expression graph.
+
+This page explains the mental model behind UDFs and the kinds Xorq provides. For
+exact signatures, see the [UDF system reference](/reference/make_pandas_udf.qmd).
+
+## Why UDFs exist
+
+SQL engines give you a fixed vocabulary of built-in functions. The moment you
+need a custom transformation—a domain-specific calculation, a trained model's
+prediction, a call into a Python library—that vocabulary runs out.
+
+Xorq UDFs close that gap while preserving the three properties that make the
+rest of the system work:
+
+- **Deferred**: a UDF is a node in the expression graph, not an eager call. It
+  runs only when you execute the expression, so the optimizer sees the whole
+  pipeline first.
+- **Typed**: every UDF declares an input schema and a return type. Schema
+  mismatches are caught at build time, not mid-run.
+- **Portable**: the UDF body is serialized (via `cloudpickle`) into the YAML
+  artifact alongside the rest of the expression. The same pipeline runs on a
+  different machine or backend without a code rewrite.
+
+That last property is the point of difference. A UDF in Xorq is not glue code
+bolted onto a query—it is part of the content-addressed artifact, hashed, and
+versioned like everything else.
+
+## The mental model
+
+Every UDF follows the same shape, regardless of kind:
+
+1. You write a plain Python function.
+2. You wrap it with a **factory** (`make_pandas_udf`, `agg.pyarrow`, and so on),
+   passing a schema and a return type.
+3. The factory returns a **constructor**. Calling `.on_expr(table)` binds the
+   constructor to columns and produces an expression you drop into `mutate`,
+   `aggregate`, or `over`.
+
+```python
+import xorq.api as xo
+import xorq.expr.datatypes as dt
+
+penguins = xo.examples.penguins.fetch(backend=xo.connect())
+
+def bill_ratio(df):
+    return df["bill_length_mm"] / df["bill_depth_mm"]
+
+# 1. factory wraps the function with a schema and return type
+bill_ratio_udf = xo.make_pandas_udf(
+    fn=bill_ratio,
+    schema=penguins.select("bill_length_mm", "bill_depth_mm").schema(),
+    return_type=dt.float64,
+    name="bill_ratio",
+)
+
+# 2. bind to columns and use like any other expression
+result = penguins.mutate(ratio=bill_ratio_udf.on_expr(penguins)).execute()
+```
+
+Two details are worth internalizing because they recur in every kind:
+
+**The schema is the contract.** The `schema` you pass names the columns your
+function receives and their types. `.on_expr(table)` pulls exactly those columns
+out of `table` by name and feeds them in. The `return_type` tells Xorq what
+comes back. Together they let the build step validate the UDF before any data
+moves.
+
+**Data crosses a PyArrow boundary.** Internally, columns arrive as PyArrow
+arrays. The pandas-based factories convert them to a `DataFrame` for your
+function and convert the result back to a PyArrow array. The PyArrow-native
+factories skip that conversion—you work with arrays directly. This is why the
+pandas variants are convenient and the PyArrow variants are faster.
+
+## The kinds of UDF
+
+Xorq groups UDFs by *what shape of computation* they express—one row at a time,
+a whole group, an ordered window, or a remote exchange.
+
+| Kind | Factory | Input → output | Reach for it when |
+|------|---------|----------------|-------------------|
+| Scalar (pandas) | `make_pandas_udf` | rows → one value per row | you want pandas ergonomics for a per-row transform |
+| Scalar (PyArrow) | `scalar` | rows → one value per row | the transform is numeric and performance matters |
+| Expression scalar | `make_pandas_expr_udf` | a pre-computed value + rows → one value per row | a prediction needs a model trained earlier in the same pipeline |
+| Aggregate | `agg.pyarrow`, `agg.pandas_df` | many rows → one value per group | you reduce a group to a scalar, struct, or trained model |
+| Window | `pyarrow_udwf` | an ordered partition → one value per row | the result depends on row order or a sliding frame |
+| Exchange | `flight_udxf` | a table → a table, out of process | the work belongs in a separate process or service |
+
+### Scalar UDFs
+
+A scalar UDF maps input columns to one output value per row. `make_pandas_udf`
+hands your function a `DataFrame` and expects a `Series` back; the vendored
+`scalar` factory works on PyArrow arrays directly when you want to avoid the
+pandas round-trip. Use scalar UDFs for row-wise feature engineering—ratios,
+classifications, string manipulation, anything that does not need to see other
+rows.
+
+### Expression scalar UDFs
+
+`make_pandas_expr_udf` is a scalar UDF with one extra input: a value computed by
+*another* expression, evaluated once and passed into every invocation. The
+canonical use is inference. An aggregate UDF trains a model and serializes it;
+the expression scalar UDF takes that serialized model as its `computed_kwargs_expr`
+and applies it row by row. Training and prediction live in the same deferred
+pipeline, so the model is never an out-of-band file.
+
+```python
+from xorq.expr.udf import make_pandas_expr_udf, agg
+
+# an aggregate UDF trains and serializes a model
+model_udaf = agg.pandas_df(
+    fn=train_model, schema=train_schema, return_type=dt.binary, name="train",
+)
+
+# the expression scalar UDF consumes that model to predict
+predict_udf = make_pandas_expr_udf(
+    computed_kwargs_expr=model_udaf.on_expr(train_data),
+    fn=predict,
+    schema=test_schema,
+    return_type=dt.string,
+    name="predict",
+)
+```
+
+### Aggregate UDFs (UDAFs)
+
+An aggregate UDF reduces many rows to a single result, typically inside a
+`group_by(...).agg(...)`. `agg.pyarrow` is the high-performance path—your
+function receives PyArrow arrays and uses PyArrow compute. `agg.pandas_df` gives
+each group to your function as a `DataFrame`, which is the right tool when you
+need the pandas or scikit-learn ecosystem. The return type can be a scalar, a
+`Struct` of several statistics, or `binary` for a serialized model.
+
+### Window UDFs (UDWFs)
+
+`pyarrow_udwf` creates a window function—the result for each row depends on an
+ordered partition of surrounding rows. Configuration flags (`uses_window_frame`,
+`include_rank`) change the signature your function must implement, from
+whole-partition processing to frame-bounded scalars to rank-aware evaluation.
+Custom parameters you pass to the factory become attributes on `self` inside the
+function. Apply the result with `.over(...)`. Reach for a UDWF when order
+matters—running totals, smoothing, rank scores.
+
+### Exchange UDFs (UDXFs)
+
+`flight_udxf` runs a whole-table transformation in a separate process behind an
+[Apache Arrow Flight](https://arrow.apache.org/docs/format/Flight.html) server.
+Unlike the other kinds, which execute in-process, a UDXF streams the input table
+to a Flight server, runs your `process_df(df) -> df` function there, and streams
+the result back. That isolation is what makes it suited to external API calls,
+heavy model inference, microservice deployments, or running memory-intensive
+code outside the main process. See [User-Defined Exchange
+Functions](/api_reference/user_defined_exchange_functions.qmd) for the full
+treatment.
+
+## Choosing a UDF
+
+Work down two questions:
+
+1. **What is the output shape?** One value per row → scalar or window. One value
+   per group → aggregate. A whole table → exchange. If a row's result depends on
+   other rows in an order, that is a window; if it depends on a value computed
+   elsewhere in the pipeline, that is an expression scalar UDF.
+2. **Where should it run?** In-process is the default and the fastest. Choose an
+   exchange UDF only when isolation or a separate service is the actual
+   requirement—it adds a network hop.
+
+Between the pandas and PyArrow variants of a given kind, prefer PyArrow when the
+work is numeric and the dataset is large; prefer pandas when you want its API or
+a library that speaks `DataFrame`.
+
+## How UDFs fit the rest of Xorq
+
+Because a UDF is a typed, deferred node, it inherits the system's guarantees for
+free. It participates in [content-addressed
+hashing](/concepts/understanding_xorq/why_content_addressed_artifacts.qmd), so an
+unchanged UDF over unchanged data resolves to a cached result. It serializes into
+the [expression format](/api_reference/expression_format.qmd), so a pipeline with
+custom Python is still a portable artifact. And it sits in the
+[expression graph](/concepts/understanding_xorq/expression_types.qmd) like any
+other operation, so lineage and validation see straight through it.
+
+## See also
+
+- [`make_pandas_udf`](/reference/make_pandas_udf.qmd), [`make_pandas_expr_udf`](/reference/make_pandas_expr_udf.qmd), [`pyarrow_udwf`](/reference/pyarrow_udwf.qmd)—scalar and window factory reference.
+- [`agg.pyarrow`](/reference/agg.pyarrow.qmd) and [`agg.pandas_df`](/reference/agg.pandas_df.qmd)—aggregate factory reference.
+- [User-Defined Exchange Functions](/api_reference/user_defined_exchange_functions.qmd)—the exchange UDF concept and `flight_udxf` usage.
+- [Expression types](/concepts/understanding_xorq/expression_types.qmd)—the graph a UDF becomes part of.
+- [Why content-addressed artifacts](/concepts/understanding_xorq/why_content_addressed_artifacts.qmd)—why a portable UDF matters.
