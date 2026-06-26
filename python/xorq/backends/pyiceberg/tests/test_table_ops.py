@@ -71,6 +71,22 @@ def test_insert_overwrite(iceberg_con, trades_df, fun):
     assert (actual["price"] > 1000).all()
 
 
+def test_insert_overwrite_atomic_on_schema_mismatch(iceberg_con, trades_df):
+    # a failed overwrite (schema mismatch) must abort the whole delete+append
+    # transaction, leaving the original data intact rather than truncated
+    table_name = "trades_overwrite_atomic"
+
+    t = iceberg_con.create_table(table_name, trades_df, overwrite=True)
+    expected = t.execute()
+
+    bad_df = trades_df.assign(extra=1)
+    with pytest.raises(ValueError):
+        iceberg_con.insert(table_name, bad_df, mode="overwrite")
+
+    actual = t.execute()
+    assert len(actual) == len(expected)
+
+
 def test_create_empty_raises(iceberg_con):
     with pytest.raises(NotImplementedError):
         schema = Schema.from_pyarrow(
