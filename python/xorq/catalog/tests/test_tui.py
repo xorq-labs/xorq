@@ -1277,6 +1277,98 @@ def test_tui_options_apply_column_widths(catalog):
     _run(_test())
 
 
+def test_highlight_debounce_zero_renders_synchronously(catalog, entry_a, entry_b):
+    """delay <= 0 takes the synchronous render branch; no timer is scheduled."""
+    with options.tui({"highlight_debounce": 0.0}):
+
+        async def _test():
+            app = _make_tui(catalog)
+            async with app.run_test(size=(120, 40)) as pilot:
+                screen, _ = await _populate_tree(pilot, catalog, entry_a, entry_b)
+                await run_script(
+                    pilot,
+                    Press(("j",)),
+                    Assert(lambda p: screen._highlight_timer is None),
+                )
+
+        _run(_test())
+
+
+def test_cancel_highlight_timer_stops_pending(catalog):
+    """A pending timer is stopped and cleared by _cancel_highlight_timer."""
+
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            screen = app.screen
+            screen._highlight_timer = screen.set_timer(100, lambda: None)
+            screen._cancel_highlight_timer()
+            assert screen._highlight_timer is None
+
+    _run(_test())
+
+
+def test_on_unmount_cancels_pending_timer(catalog):
+    """Dismissing the screen with a timer pending cancels it (no NoMatches)."""
+
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            screen = app.screen
+            screen._highlight_timer = screen.set_timer(100, lambda: None)
+            screen.on_unmount()
+            assert screen._highlight_timer is None
+
+    _run(_test())
+
+
+def test_render_highlighted_node_noop_when_detached():
+    """An unmounted screen short-circuits before querying removed widgets."""
+    screen = CatalogScreen()
+    assert screen.is_attached is False
+    # query_one would raise NoMatches if the is_attached guard did not return.
+    screen._render_highlighted_node()
+    assert screen._highlight_timer is None
+
+
+def test_load_revisions_preview_renders_rows(catalog, entry_a, alias_for_a):
+    """Highlighting an aliased entry runs the worker: resolve HEAD, walk, render."""
+    _list_revisions_cached.cache_clear()
+    # debounce 0 -> _populate_tree's highlight renders synchronously, leaving no
+    # pending timer to fire mid-settle and clear the table after the worker runs.
+    with options.tui({"highlight_debounce": 0.0}):
+
+        async def _test():
+            app = _make_tui(catalog)
+            async with app.run_test(size=(120, 40)) as pilot:
+                screen, _ = await _populate_tree(pilot, catalog, entry_a)
+                alias = CatalogAlias.from_name(alias_for_a, catalog)
+                screen._load_revisions_preview(alias)
+                await settle(pilot)
+                rev_table = screen.query_one("#revisions-preview-table", DataTable)
+                assert rev_table.row_count >= 1
+
+        _run(_test())
+
+
+def test_load_revisions_preview_swallows_attribute_error(catalog, entry_a):
+    """A catalog_alias missing the repo attribute chain is caught, not raised."""
+
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+            # object() has no .catalog_entry -> AttributeError inside the worker.
+            screen._load_revisions_preview(object())
+            await settle(pilot)
+            rev_table = screen.query_one("#revisions-preview-table", DataTable)
+            assert rev_table.row_count == 0
+
+    _run(_test())
+
+
 # ---------------------------------------------------------------------------
 # 14. SQL highlight pipeline: pure unit tests
 # ---------------------------------------------------------------------------
