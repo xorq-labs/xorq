@@ -31,7 +31,6 @@ logger = get_logger(__name__)
 __all__ = [
     "Backend",
     "connect",
-    "wrapped_do_connect",
 ]
 
 
