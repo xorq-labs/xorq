@@ -9,6 +9,7 @@ from xorq.common.utils.env_utils import (
     EnvConfigable,
     env_templates_dir,
     parse_bool_env,
+    parse_float_env,
 )
 from xorq.vendor import ibis
 from xorq.vendor.ibis.backends import BaseBackend
@@ -232,6 +233,11 @@ class TUI(Config):
     sql_highlight_max_lines : int
         Queries exceeding this line count are shown as plain text without
         syntax highlighting. Set to 0 to disable highlighting entirely.
+    highlight_debounce : float
+        Seconds to wait after a tree-selection change before rendering the
+        SQL / Info / Schema / Revisions panels. Coalesces rapid ``j``/``k``
+        traversal so only the settled selection is rendered. Set to 0 to
+        render synchronously on every focus change.
     """
 
     left_ratio: int = max(int(env_config.XORQ_TUI_LEFT_RATIO or 2), 1)
@@ -244,6 +250,9 @@ class TUI(Config):
     )
     sql_highlight_max_lines: int = max(
         int(env_config.XORQ_TUI_SQL_HIGHLIGHT_MAX_LINES or 500), 0
+    )
+    highlight_debounce: float = max(
+        parse_float_env(env_config.XORQ_TUI_HIGHLIGHT_DEBOUNCE, 0.15), 0.0
     )
 
 

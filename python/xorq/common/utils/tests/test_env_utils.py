@@ -7,6 +7,7 @@ from xorq.common.utils.env_utils import (
     EnvConfigable,
     parse_bool_env,
     parse_env_file,
+    parse_float_env,
 )
 
 
@@ -31,6 +32,22 @@ from xorq.common.utils.env_utils import (
 )
 def test_parse_bool_env(value, expected):
     assert parse_bool_env(value) is expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("0.15", 0.15),
+        ("1", 1.0),
+        ("  2.5  ", 2.5),  # float() strips surrounding whitespace
+        (None, 0.42),  # unset -> default
+        ("", 0.42),  # empty -> default
+        ("0,15", 0.42),  # locale comma, malformed -> default
+        ("abc", 0.42),  # non-numeric -> default
+    ],
+)
+def test_parse_float_env(value, expected):
+    assert parse_float_env(value, 0.42) == expected
 
 
 def test_parse_bool_env_rejects_garbage():

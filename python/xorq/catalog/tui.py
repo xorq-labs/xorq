@@ -437,6 +437,20 @@ def _build_alias_multimap(
     }
 
 
+@lru_cache(maxsize=256)
+def _list_revisions_cached(catalog_alias, head_sha: str) -> tuple:
+    """Cache an alias's git-revision walk; auto-invalidates when repo HEAD moves.
+
+    The walk (``repo.iter_commits`` -> a ``git rev-list`` subprocess) is the
+    expensive part of building the Revisions panel.  Keying on the repo HEAD
+    sha invalidates the cache whenever the catalog gains a commit (add /
+    remove / compose).  The cached tuple is the complete walk result; callers
+    reformat rows on each render (see ``_load_revisions_preview``) but do not
+    re-walk.
+    """
+    return catalog_alias.list_revisions()
+
+
 def _build_git_log_rows(repo, max_count=100) -> tuple[GitLogRowData, ...]:
     return tuple(
         GitLogRowData(
@@ -548,6 +562,7 @@ class CatalogScreen(Screen):
         self._active_view: Literal["sql", "data"] = "sql"
         self._data_preview_hash: str | None = None
         self._current_sql_hash: str | None = None
+        self._highlight_timer = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -643,6 +658,37 @@ class CatalogScreen(Screen):
 
     @on(Tree.NodeHighlighted, "#catalog-tree")
     def _on_tree_node_highlighted(self, event: Tree.NodeHighlighted) -> None:
+        # Debounce: rapid j/k traversal fires NodeHighlighted per intermediate
+        # node.  Defer the synchronous panel render until the cursor settles so
+        # holding a key moves at terminal-repeat-rate.  _render_highlighted_node
+        # reads the tree's current cursor_node, so only the settled selection
+        # is rendered (XOR-306).
+        self._cancel_highlight_timer()
+        delay = options.tui.highlight_debounce
+        if delay <= 0:
+            self._render_highlighted_node()
+        else:
+            self._highlight_timer = self.set_timer(delay, self._render_highlighted_node)
+
+    def _cancel_highlight_timer(self) -> None:
+        if self._highlight_timer is not None:
+            self._highlight_timer.stop()
+            self._highlight_timer = None
+
+    def on_unmount(self) -> None:
+        # Screen dismissed while a debounce timer is pending (e.g. `q` within
+        # the debounce window of a cursor move) would otherwise fire
+        # _render_highlighted_node against removed widgets -> NoMatches.
+        self._cancel_highlight_timer()
+
+    def _render_highlighted_node(self) -> None:
+        self._highlight_timer = None
+        # A queued timer callback can still fire after on_unmount stopped the
+        # timer; querying removed widgets would raise NoMatches.
+        if not self.is_attached:
+            return
+        # Clear panels first so an emptied tree (cursor_node None) doesn't leave
+        # the prior selection's content stranded on screen.
         schema_in_table = self.query_one("#schema-in-table", DataTable)
         schema_in_table.clear()
         schema_out_table = self.query_one("#schema-preview-table", DataTable)
@@ -652,11 +698,13 @@ class CatalogScreen(Screen):
         rev_table = self.query_one("#revisions-preview-table", DataTable)
         rev_table.clear()
 
+        tree = self.query_one("#catalog-tree", Tree)
+        node = tree.cursor_node
         # Branch nodes (kind groupings) have children; only leaf nodes are entries
-        entry_hash = event.node.data
+        entry_hash = node.data if node is not None else None
         row_data = (
             self._row_cache.get(entry_hash)
-            if not event.node.children and entry_hash is not None
+            if node is not None and not node.children and entry_hash is not None
             else None
         )
         if row_data is None:
@@ -1055,11 +1103,12 @@ class CatalogScreen(Screen):
 
     # --- Revisions Preview ---
 
-    @work(thread=True, exit_on_error=False)
+    @work(thread=True, exit_on_error=False, exclusive=True, group="revisions")
     def _load_revisions_preview(self, catalog_alias) -> None:
         try:
-            raw_revisions = catalog_alias.list_revisions()
-        except (KeyError, ValueError, OSError):
+            head_sha = catalog_alias.catalog_entry.catalog.repo.head.commit.hexsha
+            raw_revisions = _list_revisions_cached(catalog_alias, head_sha)
+        except (KeyError, ValueError, OSError, AttributeError):
             return
         revision_rows = tuple(
             row

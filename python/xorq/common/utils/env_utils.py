@@ -152,6 +152,22 @@ _TRUTHY = frozenset({"true", "1", "yes", "on"})
 _FALSY = frozenset({"false", "0", "no", "off"})
 
 
+def parse_float_env(value: str | None, default: float) -> float:
+    """Parse a float env var, falling back to ``default`` on unset/malformed.
+
+    Unset/empty -> ``default``.  A non-numeric or locale-comma value (e.g.
+    ``"0,15"``) falls back to ``default`` instead of raising at import time,
+    which would otherwise break every ``import xorq`` entrypoint, not just the
+    TUI.
+    """
+    if not value:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
 def parse_bool_env(value: str) -> bool:
     normalised = value.strip().lower()
     if normalised in _TRUTHY:
