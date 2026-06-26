@@ -444,9 +444,9 @@ def _list_revisions_cached(catalog_alias, head_sha: str) -> tuple:
     The walk (``repo.iter_commits`` -> a ``git rev-list`` subprocess) is the
     expensive part of building the Revisions panel.  Keying on the repo HEAD
     sha invalidates the cache whenever the catalog gains a commit (add /
-    remove / compose).  Per-revision cached state is recomputed fresh on each
-    render (see ``_load_revisions_preview``), so cache materialization is
-    still reflected even on a cache hit here.
+    remove / compose).  The cached tuple is the complete walk result; callers
+    reformat rows on each render (see ``_load_revisions_preview``) but do not
+    re-walk.
     """
     return catalog_alias.list_revisions()
 

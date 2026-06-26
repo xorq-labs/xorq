@@ -164,7 +164,7 @@ def parse_float_env(value: str | None, default: float) -> float:
         return default
     try:
         return float(value)
-    except (TypeError, ValueError):
+    except ValueError:
         return default
 
 
