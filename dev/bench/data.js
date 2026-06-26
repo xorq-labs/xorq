@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782391675165,
+  "lastUpdate": 1782473079882,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -22290,6 +22290,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.14575343764343748",
             "extra": "mean: 1.574533277600017 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a1a0940b487f6258e34f19ca2dd97ae99442300e",
+          "message": "perf(tui): fix per-keypress catalog navigation lag (XOR-306) (#2098)\n\n## XOR-306: TUI list navigation laggy on every focus change\n\nFixes the per-keypress lag when navigating the expression list with\n`j`/`k`/arrows.\n\n### Diagnosis: the original premise is stale\n\nThe issue attributes the lag to `xo.load_expr` running on every\nselection (walking YAML, instantiating connections, evaluating tags,\nchecking cache state). **That is no longer how the focus path works.**\nThe current TUI:\n\n- reads pre-built `CatalogRowData` from `_row_cache` (no per-keypress\nload), and\n- those rows read **sidecar YAML metadata** (`CatalogEntry.metadata`, a\n`cached_property` over the git-tracked `.yaml`) — no connections, no\nexpr deserialization, no cache walk on `j`/`k`.\n\n`load_expr` / `.expr` now only fires for the **data preview** (data-view\nmode + cached) and the full-screen `DataViewScreen`, never on plain\ntraversal.\n\nSo two of the three items in the issue's proposed approach already\nshipped (via the metadata-sidecar work):\n- **#1 metadata cache keyed on yaml mtime** — present:\n`_catalog_list_cached(catalog, yaml_mtime)` + `_row_cache`.\n- **#3 lazy load (don't materialize expr on focus)** — present: sidecar\nmetadata path.\n- Acceptance criterion *\"Snowflake-backed catalogs don't pay connection\ncost on every focus change\"* — **already met** before this PR.\n\n### What actually still caused the lag — and the fixes\n\nTwo real per-`NodeHighlighted` costs remained:\n\n1. **Revisions worker pile-up.** `_load_revisions_preview` was spawned\nnon-exclusively on every highlight; each ran `list_revisions()` →\n`repo.iter_commits(paths=...)` (a `git rev-list` subprocess). Holding\n`j` over ~70 aliased exprs spawned ~70 git-walking threads, none\ncancelled, starving the Textual UI thread.\n2. **Synchronous full-panel repaint per intermediate node.**\n`_on_tree_node_highlighted` cleared/repopulated the schema, SQL, info\nand revisions panels synchronously for *every* node the cursor passed\nthrough — including ones never seen during fast repeat.\n\n| Commit | Fix |\n|--------|-----|\n| **A** | Make `_load_revisions_preview` `exclusive=True,\ngroup=\"revisions\"` — each highlight cancels the prior git walk (mirrors\nthe existing `sql_render` worker). |\n| **B** | Debounce the highlight render: stop the pending timer and\nreschedule `_render_highlighted_node` after\n`options.tui.highlight_debounce` (env `XORQ_TUI_HIGHLIGHT_DEBOUNCE`).\nThe render reads the tree's current `cursor_node`, so holding a key\nflies the cursor and only the settled selection paints. `delay <= 0`\nrenders synchronously. |\n| **C** | Cache the revision walk in\n`_list_revisions_cached(catalog_alias, head_sha)`, keyed on repo HEAD\nsha (mirrors `_catalog_list_cached`). Per-revision cached state is still\nrecomputed each render, so cache materialization stays reflected. |\n| **D** | Widen the debounce default `50ms → 150ms` (see profiling\nbelow). |\n\n### Follow-up profiling: 50ms debounce was on the edge\n\nTester still felt lag holding the down-arrow after A–C. Profiled every\nhop in the focus path with the Textual `Pilot` driver (40 entries,\nsimple + join/agg exprs, trees up to 421 lines):\n\n| path | cost |\n|------|------|\n| cursor move (`Tree.action_cursor_down`) | **~0.2 ms** |\n| `_render_highlighted_node` synchronous block | **~0.5–0.7 ms** |\n| `.sqls` / `.info_text` / schema (metadata is precomputed at `add`) |\n**~0.1–0.3 ms** each |\n| flood 60 keys, debounce coalesces → | **1 render, 0 worker dispatch**\n|\n\nThe synchronous Python path is already fast — none of it blocks the UI\nthread meaningfully. The residual lag is a **debounce-window** problem:\n\nThe debounce is *trailing* — it coalesces only when the next key-repeat\narrives **before** `highlight_debounce` elapses. Local fast X11/GNOME\nrepeat is ~30–40ms, but repeat interval is commonly **60–90ms+ over\nSSH/tmux and on many desktop repeat-rate settings**. At a 50ms default,\nany repeat interval ≥ 50ms lets the timer fire **between every repeat**,\nre-rendering all panels and cancel/restarting the SQL + revisions\nworkers on every intermediate node — the exact lag B set out to remove.\n\n50ms sits right on the boundary of common repeat intervals, so\ncoalescing was unreliable. Bumping to **150ms** widens the window\ncomfortably past realistic repeat rates. Cursor movement stays instant\n(~0.2ms); only the preview waits, and ~150ms after the cursor settles is\nbelow the perceptible-lag threshold. Override via\n`XORQ_TUI_HIGHLIGHT_DEBOUNCE`.\n\n### Acceptance criteria\n\n- ✅ Holding `j`/arrow for 2s moves at terminal-repeat-rate — B (defer\nrender) + D (window past repeat interval) + A (no worker pile-up).\n- ✅ Second visit to a previously-focused expr near-instant — C (cached\nwalk) + already-cached sidecar metadata.\n- ✅ Snowflake catalogs don't pay connection cost on focus — already\ntrue; confirmed in diagnosis.\n\nThe deeper UnboundExpr / metadata-only caching Hussain floated is **not\nneeded** — sidecar metadata already provides metadata-only loads.\n\n### Testing\n\n- Full `test_tui.py` suite green (252 passed) with the 150ms default.\n- `test_cursor_move_updates_schema_preview` updated to `WaitUntil` for\nthe now-deferred render.\n- New `test_list_revisions_cached_hits_and_invalidates` covers cache hit\n+ HEAD-based invalidation.\n\nRefs XOR-306. Sibling perf issue XOR-305 (large-SQL render freeze) is\nout of scope here.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-26T13:18:53+02:00",
+          "tree_id": "52c2ea0f476bd883d02538a3638b74008961f468",
+          "url": "https://github.com/xorq-labs/xorq/commit/a1a0940b487f6258e34f19ca2dd97ae99442300e"
+        },
+        "date": 1782473076117,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.712419272152788,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0042202159408812",
+            "extra": "mean: 114.77868187499496 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.563684055170401,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0589775856608488",
+            "extra": "mean: 390.0636655999847 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7690452118723818,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2030127340914486",
+            "extra": "mean: 1.3003136676000053 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.437198330689054,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05544379658800892",
+            "extra": "mean: 410.30719059998546 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.942082431223185,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05179453105314662",
+            "extra": "mean: 339.89530320000085 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.171863985087678,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013188413015343386",
+            "extra": "mean: 315.27203080000845 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 138.30301719720146,
+            "unit": "iter/sec",
+            "range": "stddev: 0.019169037392815363",
+            "extra": "mean: 7.230500246962326 msec\nrounds: 247"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.7017014009249225,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06392757125127022",
+            "extra": "mean: 212.68896399998502 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 21.530683842412607,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018540525596127018",
+            "extra": "mean: 46.44534318181441 msec\nrounds: 22"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 10.55911849293075,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0171387949600366",
+            "extra": "mean: 94.70487528570614 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 8.922225654899167,
+            "unit": "iter/sec",
+            "range": "stddev: 0.026622847098479105",
+            "extra": "mean: 112.07965800000845 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 6.627680973689501,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030164122245978447",
+            "extra": "mean: 150.88233787501082 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.952060104790826,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010294031593708506",
+            "extra": "mean: 201.93615966667267 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.7475676637034425,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00967221494102166",
+            "extra": "mean: 210.63417540002547 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.342471176906428,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06735424313911159",
+            "extra": "mean: 426.8995964000055 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.2560585058960307,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04348556630859136",
+            "extra": "mean: 307.1197885999936 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.7125330799440366,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09137290110445763",
+            "extra": "mean: 583.930326199993 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.7783433959394528,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0721845406374134",
+            "extra": "mean: 562.3210918000041 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.5912574457342368,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07228345212133534",
+            "extra": "mean: 628.4338230000117 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5727352885186483,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10841864373053643",
+            "extra": "mean: 635.8349096000097 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.236240851339889,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10770527209009938",
+            "extra": "mean: 808.9038628000026 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.2095618525479856,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11885432037249713",
+            "extra": "mean: 826.7456500000094 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.0255678257637548,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13670889679733192",
+            "extra": "mean: 975.0695906000033 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.6244810491446808,
+            "unit": "iter/sec",
+            "range": "stddev: 0.21679004342286495",
+            "extra": "mean: 1.6013296182000203 sec\nrounds: 5"
           }
         ]
       }
