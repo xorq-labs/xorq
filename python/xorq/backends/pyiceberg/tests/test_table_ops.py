@@ -56,9 +56,19 @@ def test_insert_overwrite(iceberg_con, trades_df, fun):
     assert table_name in iceberg_con.list_tables()
     expected = t.execute()
 
-    iceberg_con.insert(table_name, fun(t), mode="overwrite")
-    actual = t.execute()
-    assert len(actual) == len(expected)
+    # overwrite with a differently-shaped, differently-valued dataset so the
+    # test fails on a silent no-op (data unchanged) as well as on a double-append
+    new_df = trades_df.head(5).assign(price=trades_df["price"].head(5) + 1000)
+    src_name = "trades_overwrite_src"
+    new_t = iceberg_con.create_table(src_name, new_df, overwrite=True)
+
+    iceberg_con.insert(table_name, fun(new_t), mode="overwrite")
+    actual = t.execute().sort_values("timestamp").reset_index(drop=True)
+
+    assert len(actual) == len(new_df)
+    assert len(actual) != len(expected)
+    # every price reflects the +1000 offset → data was actually replaced
+    assert (actual["price"] > 1000).all()
 
 
 def test_create_empty_raises(iceberg_con):
