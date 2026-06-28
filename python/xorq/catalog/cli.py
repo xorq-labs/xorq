@@ -1248,16 +1248,19 @@ def _resolve_mode(
 ) -> dict[str, str]:
     """Validate and return the binding dict (empty in linear mode).
 
-    Rejects mixing ``-e`` with positional ENTRIES and requires ``-c`` in
-    multi-root mode.
+    Positional ENTRIES may be mixed with ``-e`` in two ways:
+    ``-e source=ENTRY transform...`` applies transforms to that binding, while
+    ``ENTRY transform... -e name=other`` exposes the positional chain as
+    ``source`` alongside the extra bindings.
     """
     bindings = _parse_entry_bindings(raw_entries)
     if bindings and entries:
-        raise click.UsageError(
-            "Cannot combine -e/--entry bindings with positional ENTRIES; "
-            "use one or the other."
-        )
-    if bindings and code is None:
+        if code is None and set(bindings) != {"source"}:
+            raise click.UsageError(
+                "Mixed mode with extra -e/--entry bindings "
+                "requires inline code via -c/--code."
+            )
+    if bindings and not entries and code is None:
         raise click.UsageError(
             "Multi-root mode (-e/--entry) requires inline code via -c/--code."
         )
@@ -1271,42 +1274,21 @@ def _is_cross_backend(expr: Expr) -> bool:
     return len({id(s) for s in find_all_sources(expr)}) > 1
 
 
-def _compose_expr(
+def _compose_linear_expr(
     catalog: Catalog,
     entries: tuple[str, ...],
     code: str | None,
     rename_map: dict[str, dict[str, str]] | None = None,
     cache_dir: str | Path | None = None,
-    bindings: dict[str, str] | None = None,
-    rebind_backends: bool = True,
+    source_alias: str | None = None,
 ) -> Expr:
-    """Build a composed expression from catalog entries and/or inline code."""
+    """Build a linear source + transforms expression."""
 
     from xorq.catalog.bind import (  # noqa: PLC0415
         _eval_code,
         _resolve_source,
     )
     from xorq.common.utils.graph_utils import rename_params  # noqa: PLC0415
-
-    if bindings:
-        if rename_map:
-            raise click.UsageError(
-                "--rename-params is not supported in multi-root (-e) mode."
-            )
-        import xorq.api as xo  # noqa: PLC0415
-        from xorq.catalog.bind import compose_join  # noqa: PLC0415
-
-        # The CLI is the user-facing layer, so the ``xo`` facade is supplied
-        # to the inline-code eval namespace here rather than imported inside
-        # the catalog library (compose_join).
-        return compose_join(
-            catalog,
-            bindings,
-            code,
-            cache_dir=cache_dir,
-            rebind_backends=rebind_backends,
-            eval_namespace={"xo": xo},
-        )
 
     if not entries:
         raise click.UsageError("At least one entry is required.")
@@ -1335,6 +1317,7 @@ def _compose_expr(
             source=source_entry,
             transforms=transform_entries,
             code=code,
+            alias=source_alias,
         ).expr
 
     def _load(entry):
@@ -1342,10 +1325,11 @@ def _compose_expr(
 
     if source_name in rename_map:
         source_expr = rename_params(_load(source_entry), rename_map[source_name])
+        source_tagged, resolved_con = _resolve_source(source_expr, None, source_alias)
     else:
-        source_expr = _load(source_entry)
-
-    source_tagged, resolved_con = _resolve_source(source_expr, None, None)
+        source_tagged, resolved_con = _resolve_source(
+            source_entry, None, source_alias, cache_dir=cache_dir
+        )
 
     if transform_entries:
         from xorq.catalog.bind import _ensure_remote  # noqa: PLC0415
@@ -1379,6 +1363,57 @@ def _compose_expr(
         current = _eval_code(code, current)
 
     return current
+
+
+def _compose_expr(
+    catalog: Catalog,
+    entries: tuple[str, ...],
+    code: str | None,
+    rename_map: dict[str, dict[str, str]] | None = None,
+    cache_dir: str | Path | None = None,
+    bindings: dict[str, str] | None = None,
+    rebind_backends: bool = True,
+) -> Expr:
+    """Build a composed expression from catalog entries and/or inline code."""
+
+    if bindings:
+        if rename_map:
+            raise click.UsageError(
+                "--rename-params is not supported in multi-root (-e) mode."
+            )
+        import xorq.api as xo  # noqa: PLC0415
+        from xorq.catalog.bind import compose_join  # noqa: PLC0415
+
+        binding_exprs = {}
+        if entries:
+            primary = "source"
+            linear_entries = (
+                (bindings[primary], *entries) if primary in bindings else entries
+            )
+            binding_exprs[primary] = _compose_linear_expr(
+                catalog,
+                linear_entries,
+                None,
+                cache_dir=cache_dir,
+                source_alias=primary,
+            )
+            if code is None and len(bindings) == 1:
+                return binding_exprs[primary]
+
+        # The CLI is the user-facing layer, so the ``xo`` facade is supplied
+        # to the inline-code eval namespace here rather than imported inside
+        # the catalog library (compose_join).
+        return compose_join(
+            catalog,
+            bindings,
+            code,
+            cache_dir=cache_dir,
+            rebind_backends=rebind_backends,
+            eval_namespace={"xo": xo},
+            binding_exprs=binding_exprs,
+        )
+
+    return _compose_linear_expr(catalog, entries, code, rename_map, cache_dir)
 
 
 def _assert_requirements_identical(entry_reqs):
@@ -1722,7 +1757,7 @@ def compose(  # xorq-style: disable=type-annotations
         with click_context_catalog(ctx):
             catalog = ctx.obj.make_catalog(init=False)
             bindings = _resolve_mode(entries, raw_entries, code)
-            involved_entries = tuple(bindings.values()) if bindings else entries
+            involved_entries = _involved_entries(entries, bindings)
             if not involved_entries:
                 raise click.UsageError("At least one entry is required.")
 
@@ -1835,7 +1870,18 @@ def _has_expr_modifications(ctx):
         return True
     if p.get("limit") is not None:
         return True
-    return bool(p.get("code") or p.get("raw_params") or p.get("raw_rename_params"))
+    return bool(
+        p.get("code")
+        or p.get("raw_entries")
+        or p.get("raw_params")
+        or p.get("raw_rename_params")
+    )
+
+
+def _involved_entries(
+    entries: tuple[str, ...], bindings: dict[str, str]
+) -> tuple[str, ...]:
+    return (*bindings.values(), *entries) if bindings else entries
 
 
 def _log_run_metrics(rl, span, prefix, elapsed, output_format, output_path):
@@ -1914,7 +1960,7 @@ def _resolve_and_execute(
 
     raw_entries = p.get("raw_entries", ())
     rebind_backends = p.get("rebind_backends", True)
-    bindings = _parse_entry_bindings(raw_entries)
+    bindings = _resolve_mode(entries, raw_entries, code)
 
     rename_map = _parse_rename_params(raw_rename_params) if raw_rename_params else None
 
@@ -2055,7 +2101,7 @@ def run(  # xorq-style: disable=type-annotations
         span.set_attributes({"entries": entries, "has_code": code is not None})
         with click_context_catalog(ctx):
             bindings = _resolve_mode(entries, raw_entries, code)
-            involved_entries = tuple(bindings.values()) if bindings else entries
+            involved_entries = _involved_entries(entries, bindings)
             if not involved_entries:
                 raise click.UsageError("At least one entry is required.")
 
@@ -2218,7 +2264,7 @@ def run_cached(  # xorq-style: disable=type-annotations
         span.set_attributes({"entries": entries, "has_code": code is not None})
         with click_context_catalog(ctx):
             bindings = _resolve_mode(entries, raw_entries, code)
-            involved_entries = tuple(bindings.values()) if bindings else entries
+            involved_entries = _involved_entries(entries, bindings)
             if not involved_entries:
                 raise click.UsageError("At least one entry is required.")
 

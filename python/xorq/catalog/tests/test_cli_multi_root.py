@@ -102,9 +102,19 @@ def test_resolve_mode_linear_returns_empty() -> None:
     assert _resolve_mode(("src", "trn"), (), None) == {}
 
 
-def test_resolve_mode_rejects_mixing() -> None:
-    with pytest.raises(click.UsageError, match="Cannot combine"):
-        _resolve_mode(("customers",), ("left=sales",), "left")
+def test_resolve_mode_allows_primary_binding_transforms_without_code() -> None:
+    assert _resolve_mode(("trn",), ("source=src",), None) == {"source": "src"}
+
+
+def test_resolve_mode_allows_positional_source_with_extra_bindings() -> None:
+    assert _resolve_mode(
+        ("src", "trn"), ("left=sales", "right=customers"), "source"
+    ) == {"left": "sales", "right": "customers"}
+
+
+def test_resolve_mode_requires_code_for_mixed_multi_root() -> None:
+    with pytest.raises(click.UsageError, match="requires inline code"):
+        _resolve_mode(("trn",), ("source=sales", "right=customers"), None)
 
 
 def test_resolve_mode_requires_code() -> None:
@@ -344,14 +354,109 @@ def test_cli_run_cached_multi_root(
     assert (tmp_path / "cache").exists()
 
 
-def test_cli_run_reject_mixing(runner: CliRunner, two_source_catalog: Catalog) -> None:
-    cp = str(two_source_catalog.repo_path)
+def test_cli_run_entry_source_transform_matches_linear(
+    runner: CliRunner, catalog_with_source_and_transform
+) -> None:
+    cp, _, _ = catalog_with_source_and_transform
+    linear = runner.invoke(
+        cli,
+        ["--path", cp, "run", "src", "trn", "-o", "-", "-f", "csv"],
+    )
+    mixed = runner.invoke(
+        cli,
+        ["--path", cp, "run", "-e", "source=src", "trn", "-o", "-", "-f", "csv"],
+    )
+    assert linear.exit_code == 0, linear.output
+    assert mixed.exit_code == 0, mixed.output
+    assert mixed.output == linear.output
+
+
+def test_cli_run_mixed_transform_then_join(
+    runner: CliRunner, catalog_with_source_and_transform
+) -> None:
+    cp, _, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=cp, init=False)
+    catalog.add(
+        xo.memtable({"user_id": [1, 2, 3], "segment": ["x", "y", "z"]}),
+        aliases=("dim",),
+    )
     result = runner.invoke(
         cli,
-        ["--path", cp, "run", "-e", "left=sales", "customers", "-c", "left"],
+        [
+            "--path",
+            cp,
+            "run",
+            "-e",
+            "source=src",
+            "trn",
+            "-e",
+            "dim=dim",
+            "-c",
+            "source.join(dim, 'user_id')",
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "segment" in result.output
+
+
+def test_cli_run_positional_chain_then_join_extra_binding(
+    runner: CliRunner, catalog_with_source_and_transform
+) -> None:
+    cp, _, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=cp, init=False)
+    catalog.add(
+        xo.memtable({"user_id": [1, 2, 3], "segment": ["x", "y", "z"]}),
+        aliases=("dim",),
+    )
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            cp,
+            "run",
+            "src",
+            "trn",
+            "-e",
+            "dim=dim",
+            "-c",
+            "source.join(dim, 'user_id')",
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "segment" in result.output
+
+
+def test_cli_run_reject_mixed_extra_binding_without_code(
+    runner: CliRunner, catalog_with_source_and_transform
+) -> None:
+    cp, _, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=cp, init=False)
+    catalog.add(
+        xo.memtable({"user_id": [1, 2, 3], "segment": ["x", "y", "z"]}),
+        aliases=("dim",),
+    )
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            cp,
+            "run",
+            "src",
+            "trn",
+            "-e",
+            "dim=dim",
+        ],
     )
     assert result.exit_code != 0
-    assert "Cannot combine" in result.output
+    assert "requires inline code" in result.output
 
 
 def test_cli_run_reject_no_code(runner: CliRunner, two_source_catalog: Catalog) -> None:

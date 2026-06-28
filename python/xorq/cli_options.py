@@ -175,8 +175,9 @@ entry_option = click.option(
     metavar="NAME=ENTRY",
     help=(
         "Bind a catalog entry to NAME for use in -c code (repeatable). "
-        "Any -e switches the command into multi-root/join mode, where -c "
-        "is required and positional ENTRIES are rejected."
+        "With positional ENTRIES, either bind source=ENTRY and apply ENTRIES "
+        "as transforms, or expose the positional chain as source alongside "
+        "extra bindings."
     ),
 )
 

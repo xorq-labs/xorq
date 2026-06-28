@@ -302,11 +302,14 @@ def compose_join(
     cache_dir: str | Path | None = None,
     rebind_backends: bool = True,
     eval_namespace: dict[str, object] | None = None,
+    binding_exprs: dict[str, Expr] | None = None,
 ) -> Expr:
     """Compose two-or-more catalog entries via inline join/union code.
 
     Each binding ``name -> entry_name`` resolves its catalog entry to a
-    SOURCE-tagged source expression exposed in *code* under ``name``.  The
+    SOURCE-tagged source expression exposed in *code* under ``name``.  Callers
+    may override individual bindings through *binding_exprs* (for example,
+    after applying positional unbound transforms to a primary binding).  The
     namespace also exposes vendored ``ibis``, an ``into_backend`` helper for
     explicit cross-backend transport (``into_backend(right, left)`` moves
     ``right`` into ``left``'s backend), and whatever *eval_namespace* the
@@ -320,13 +323,19 @@ def compose_join(
     """
     from xorq.common.utils.eval_utils import safe_eval  # noqa: PLC0415
 
-    if not bindings:
+    binding_exprs = binding_exprs or {}
+    if not bindings and not binding_exprs:
         raise ValueError("compose_join requires at least one -e/--entry binding")
     if code is None:
         raise ValueError("compose_join requires inline -c/--code")
 
     resolved = {}
+    for name, tagged_expr in binding_exprs.items():
+        con = tagged_expr._find_backend()  # xorq-style: disable=protected-access
+        resolved[name] = (tagged_expr, con)
     for name, entry_name in bindings.items():
+        if name in binding_exprs:
+            continue
         entry = catalog.get_catalog_entry(entry_name, maybe_alias=True)
         tagged_expr, con = _resolve_source(entry, None, name, cache_dir=cache_dir)
         resolved[name] = (tagged_expr, con)
