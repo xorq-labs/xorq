@@ -1195,7 +1195,7 @@ def _parse_rename_params(raw_rename_params):
     return result
 
 
-_RESERVED_BINDING_NAMES = frozenset({"xo", "ibis", "into_backend"})
+_RESERVED_BINDING_NAMES = frozenset({"bind", "xo", "ibis", "into_backend"})
 
 
 def _parse_entry_bindings(raw_entries: tuple[str, ...]) -> dict[str, str]:

@@ -80,6 +80,7 @@ def test_parse_entry_bindings_basic_ordered() -> None:
         pytest.param("with-dash=sales", "identifier", id="non-identifier-dash"),
         pytest.param("class=sales", "keyword", id="keyword"),
         pytest.param("__x__=sales", "dunder", id="dunder"),
+        pytest.param("bind=sales", "reserved", id="reserved-bind"),
         pytest.param("xo=sales", "reserved", id="reserved-xo"),
         pytest.param("ibis=sales", "reserved", id="reserved-ibis"),
         pytest.param("into_backend=sales", "reserved", id="reserved-into-backend"),
@@ -432,6 +433,34 @@ def test_cli_run_positional_chain_then_join_extra_binding(
     )
     assert result.exit_code == 0, result.output
     assert "segment" in result.output
+
+
+def test_cli_run_can_bind_unbound_entry_in_code(
+    runner: CliRunner, catalog_with_source_and_transform
+) -> None:
+    cp, _, _ = catalog_with_source_and_transform
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            cp,
+            "run",
+            "-e",
+            "source=src",
+            "-e",
+            "transform=trn",
+            "-c",
+            "bind(source, transform)",
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "user_id" in result.output
+    assert "amount" in result.output
+    assert "name" not in result.output
 
 
 def test_cli_run_reject_mixed_extra_binding_without_code(

@@ -295,6 +295,21 @@ def _rebind_same_profile_backends(result: Expr, rebind: bool = True) -> Expr:
     return result
 
 
+def _resolve_binding_expr(
+    catalog: Catalog,
+    entry_name: str,
+    alias: str,
+    cache_dir: str | Path | None = None,
+) -> Expr:
+    entry = catalog.get_catalog_entry(entry_name, maybe_alias=True)
+    if entry.kind is ExprKind.UnboundExpr:
+        if not entry.is_content_local:
+            entry.fetch()
+        return _make_source_tag(entry.load_expr(cache_dir=cache_dir), entry, alias)
+    expr, _ = _resolve_source(entry, None, alias, cache_dir=cache_dir)
+    return expr
+
+
 def compose_join(
     catalog: Catalog,
     bindings: dict[str, str],
@@ -329,16 +344,14 @@ def compose_join(
     if code is None:
         raise ValueError("compose_join requires inline -c/--code")
 
-    resolved = {}
-    for name, tagged_expr in binding_exprs.items():
-        con = tagged_expr._find_backend()  # xorq-style: disable=protected-access
-        resolved[name] = (tagged_expr, con)
+    def _bind_helper(source, transform):
+        return replace_unbound(transform, source.op())
+
+    resolved = dict(binding_exprs)
     for name, entry_name in bindings.items():
         if name in binding_exprs:
             continue
-        entry = catalog.get_catalog_entry(entry_name, maybe_alias=True)
-        tagged_expr, con = _resolve_source(entry, None, name, cache_dir=cache_dir)
-        resolved[name] = (tagged_expr, con)
+        resolved[name] = _resolve_binding_expr(catalog, entry_name, name, cache_dir)
 
     def _into_backend_helper(expr, target, name=None):
         if _is_backend(target):
@@ -351,8 +364,9 @@ def compose_join(
         "__builtins__": {},
         **(eval_namespace or {}),
         "ibis": ibis,
+        "bind": _bind_helper,
         "into_backend": _into_backend_helper,
-        **{name: tagged for name, (tagged, _con) in resolved.items()},
+        **resolved,
     }
     result = safe_eval(code, namespace)
 
