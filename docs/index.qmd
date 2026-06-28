@@ -6,18 +6,84 @@ page-layout: custom
 classes: homepage
 ---
 
-::: {.hero-section}
-::: {.hero-content}
-# Xorq
+::::: {.hero-section}
+:::: {.hero-grid}
 
-Xorq is an open source engine for portable, multi-engine data pipelines, with built-in deferred execution, caching, lineage tracking, and a git-backed catalog to publish, discover, and reuse them.
+::: {.hero-copy}
+[Open source engine]{.hero-eyebrow}
 
+# One expression, [every engine]{.accent}.
+
+Xorq builds portable, multi-engine data pipelines with deferred execution, caching, and lineage tracking, then publishes them to a git-backed catalog you can discover and reuse.
+
+::: {.hero-actions}
 [[$]{.install-prompt} pip install xorq](how_to/install_xorq.qmd){.install-cmd title="Installation guide"}
 [GET STARTED →](getting_started/quickstart.qmd){.hero-btn .hero-btn-primary}
 :::
 :::
 
+::: {.hero-demo}
+```{=html}
+<div class="xc-panel" aria-label="Example Xorq pipeline that runs across engines">
+  <div class="xc-head">
+    <span class="xc-file">pipeline.py</span>
+    <span class="xc-tag">multi-engine</span>
+  </div>
+  <pre class="xc-code"><code><span class="k">import</span> xorq.api <span class="k">as</span> xo
+<span class="k">from</span> xorq.caching <span class="k">import</span> SourceCache
+
+con = xo.<span class="m">connect</span>()             <span class="c"># embedded engine</span>
+ddb = xo.duckdb.<span class="m">connect</span>()      <span class="c"># duckdb engine</span>
+store = SourceCache.<span class="m">from_kwargs</span>(source=con)
+
+pipeline = (
+    xo.examples.iris.<span class="m">fetch</span>(backend=con)
+    .<span class="m">into_backend</span>(ddb)         <span class="c"># hop engines, zero-copy</span>
+    .<span class="m">group_by</span>(<span class="s">"species"</span>)
+    .<span class="m">agg</span>(avg=xo._.sepal_width.<span class="m">mean</span>())
+    .<span class="m">cache</span>(cache=store)        <span class="c"># content-addressed</span>
+)
+
+df = pipeline.<span class="m">execute</span>()        <span class="c"># deferred until here</span></code></pre>
+  <div class="xc-flow">
+    <span class="xc-flabel">one expression</span>
+    <span class="xc-stop">embedded</span>
+    <span class="xc-arrow">&rarr;</span>
+    <span class="xc-stop">duckdb</span>
+    <span class="xc-arrow">&rarr;</span>
+    <span class="xc-stop">cache</span>
+  </div>
+</div>
+```
+:::
+
+::::
+:::::
+
 ::: {.content-section}
+
+::: {.pillars}
+::: {.pillar}
+[Deferred execution]{.pillar-k}
+
+Build the graph first, compute only when you execute.
+:::
+::: {.pillar}
+[Caching]{.pillar-k}
+
+Content-addressed results, reused across runs.
+:::
+::: {.pillar}
+[Lineage]{.pillar-k}
+
+Every column traced back to its source.
+:::
+::: {.pillar}
+[Git-backed catalog]{.pillar-k}
+
+Publish, discover, and reuse pipelines.
+:::
+:::
 
 ## <i class="bi bi-signpost-split"></i> Find your path
 
