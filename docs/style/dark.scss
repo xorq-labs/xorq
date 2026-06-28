@@ -488,81 +488,97 @@ pre code {
   --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.4);
 }
 
-/* HOMEPAGE STYLES */
+/* ============================================================
+   HOMEPAGE  (dark theme)
+   ============================================================ */
 
-/* Hero Section */
+/* --- Hero --------------------------------------------------- */
 .hero-section {
   background: $navbar-bg;
-  padding: 6rem 2rem;
-  text-align: center;
+  padding: clamp(3rem, 6vw, 5.5rem) clamp(1.25rem, 4vw, 4rem) clamp(3rem, 5vw, 4.5rem);
   position: relative;
-  overflow: visible;
-  min-height: 60vh;
-  
-  @media (max-width: 768px) {
-    padding: 3rem 1rem;
-    min-height: 50vh;
-  }
-  
-  @media (max-width: 480px) {
-    padding: 2rem 1rem;
-    min-height: 45vh;
-  }
+  overflow: hidden;
+  text-align: left;
 }
 
-.hero-content {
-  max-width: 1400px;
-  margin: 0 auto;
+/* faint engineering grid, faded toward the edges */
+.hero-section::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba($blue, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba($blue, 0.05) 1px, transparent 1px);
+  background-size: 46px 46px;
+  -webkit-mask-image: radial-gradient(ellipse 75% 65% at 50% 0%, #000 35%, transparent 100%);
+  mask-image: radial-gradient(ellipse 75% 65% at 50% 0%, #000 35%, transparent 100%);
+  pointer-events: none;
+}
+
+.hero-grid {
   position: relative;
   z-index: 1;
-  
-  @media (max-width: 768px) {
-    max-width: 100%;
-    padding: 0 1rem;
-  }
-  
-  h1 {
-    font-size: clamp(3.5rem, 25vw, 50rem) !important;
-    margin-bottom: clamp(0.5rem, 1vw, 1rem) !important;
-    color: $blue !important;
-    font-weight: 400 !important;
-    line-height: 1.0 !important;
-    letter-spacing: -0.5px !important;
-    max-width: 3000px !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
-    font-family: $font-family-sans-serif !important;
-  }
-  
-  p {
-    font-size: 1.125rem;
-    color: $blue;
-    margin-bottom: 1rem;
-    line-height: 1.6;
-    max-width: 700px;
-    margin-left: auto;
-    margin-right: auto;
-    word-wrap: break-word;
-    
-    @media (max-width: 768px) {
-      font-size: 0.9rem;
-      margin-bottom: 0.75rem;
-      max-width: 90%;
-    }
-    
-    @media (max-width: 480px) {
-      font-size: 0.875rem;
-      margin-bottom: 0.5rem;
-      max-width: 95%;
-    }
-  }
+  max-width: 1180px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.04fr);
+  gap: clamp(2rem, 4vw, 4rem);
+  align-items: center;
 }
 
-/* Hero Buttons */
-.hero-btn {
+@media (max-width: 900px) {
+  .hero-grid { grid-template-columns: minmax(0, 1fr); gap: 2.25rem; }
+}
+
+.hero-grid > * { min-width: 0; }
+
+.hero-copy { text-align: left; }
+
+.hero-eyebrow {
   display: inline-block;
+  font-family: $font-family-monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: $cyan;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid rgba($cyan, 0.4);
+}
+
+.hero-copy h1 {
+  text-align: left !important;
+  margin: 0 0 1.25rem 0 !important;
+  max-width: 15ch;
+  color: $white !important;
+}
+
+.hero-copy h1 .accent { color: $cyan; }
+
+.hero-copy > p {
+  text-align: left;
+  margin: 0 0 2rem 0;
+  max-width: 48ch;
+  color: rgba($blue, 0.78);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.75rem;
+}
+.hero-actions p { margin: 0; display: contents; }
+.hero-actions .install-cmd,
+.hero-actions .hero-btn { margin: 0; }
+
+/* Hero Buttons (unchanged behavior, shared by both layouts) */
+.hero-btn {
+  display: inline-flex;
+  align-items: center;
   padding: 0.75rem 1.25rem;
-  margin: 0.5rem;
   border-radius: 0;
   text-decoration: none;
   font-family: $font-family-monospace;
@@ -572,68 +588,34 @@ pre code {
   letter-spacing: 0;
   text-transform: none;
   transition: all 0.2s ease;
-  
-  @media (max-width: 768px) {
-    padding: 0.625rem 1rem;
-    font-size: 0.8125rem;
-    margin: 0.25rem;
-  }
-  
-  @media (max-width: 480px) {
-    padding: 0.5rem 0.875rem;
-    font-size: 0.75rem;
-    margin: 0.25rem;
-  }
-  
+
   &.hero-btn-primary {
     background: $cyan !important;
-    background-color: $cyan !important;
     color: $black !important;
     opacity: 1 !important;
-    
-    &:link,
-    &:visited {
-      background: $cyan !important;
-      background-color: $cyan !important;
-      color: $black !important;
-      opacity: 1 !important;
-    }
-    
-    &:hover,
-    &:link:hover,
-    &:visited:hover {
+
+    &:link, &:visited { background: $cyan !important; color: $black !important; }
+
+    &:hover, &:link:hover, &:visited:hover {
       background: lighten($cyan, 10%) !important;
-      background-color: lighten($cyan, 10%) !important;
       color: $black !important;
-      opacity: 1 !important;
       transform: translateY(-2px);
       box-shadow: 0 4px 20px rgba($cyan, 0.4);
       text-decoration: none !important;
     }
-    
-    &:active,
-    &:focus,
-    &:focus-visible,
-    &:hover:active,
-    &:hover:focus {
+
+    &:active, &:focus, &:focus-visible {
       background: $cyan !important;
-      background-color: $cyan !important;
       color: $black !important;
-      opacity: 1 !important;
       outline: none !important;
     }
   }
-  
+
   &.hero-btn-secondary {
     background: transparent;
     color: $white;
     border: 1px solid $gray-300;
-    
-    &:hover {
-      border-color: $cyan;
-      color: $cyan;
-      transform: translateY(-2px);
-    }
+    &:hover { border-color: $cyan; color: $cyan; transform: translateY(-2px); }
   }
 }
 
@@ -642,7 +624,6 @@ pre code {
   display: inline-flex;
   align-items: center;
   gap: 0.625rem;
-  margin: 0.5rem;
   padding: 0.75rem 1.25rem;
   font-family: $font-family-monospace;
   font-size: 0.875rem;
@@ -654,10 +635,7 @@ pre code {
   text-decoration: none;
   transition: all 0.2s ease;
 
-  .install-prompt {
-    color: $cyan;
-    user-select: none;
-  }
+  .install-prompt { color: $cyan; user-select: none; }
 
   &:hover {
     border-color: $cyan;
@@ -665,128 +643,178 @@ pre code {
     transform: translateY(-2px);
     text-decoration: none;
   }
-
-  @media (max-width: 768px) {
-    padding: 0.625rem 1rem;
-    font-size: 0.8125rem;
-    margin: 0.25rem;
-  }
-
-  @media (max-width: 480px) {
-    padding: 0.5rem 0.875rem;
-    font-size: 0.75rem;
-    margin: 0.25rem;
-  }
 }
 
-/* Content Section */
+/* --- Code panel (hero signature) ---------------------------- */
+.hero-demo { position: relative; z-index: 1; }
+
+.xc-panel {
+  background: #04100F;
+  border: 1px solid rgba($cyan, 0.22);
+  box-shadow: 0 28px 70px -28px rgba(0, 0, 0, 0.85);
+  font-family: $font-family-monospace;
+  overflow: hidden;
+  max-width: 100%;
+}
+
+.xc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid rgba($cyan, 0.16);
+  background: rgba($cyan, 0.04);
+}
+.xc-file { color: $blue; font-size: 0.8125rem; letter-spacing: 0.02em; }
+.xc-tag {
+  color: rgba($blue, 0.45);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+}
+
+.xc-code {
+  margin: 0;
+  padding: 1.15rem 1.3rem;
+  font-size: 0.8rem;
+  line-height: 1.75;
+  color: $white;
+  overflow-x: auto;
+  white-space: pre;
+  background: #04100F;
+}
+.xc-code .k { color: $cyan; }
+.xc-code .m { color: $blue; }
+.xc-code .s { color: $yellow; }
+.xc-code .c { color: rgba($blue, 0.4); font-style: italic; }
+
+.xc-flow {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  padding: 0.85rem 1.3rem;
+  border-top: 1px solid rgba($cyan, 0.16);
+  background: rgba(0, 0, 0, 0.4);
+}
+.xc-flabel {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: rgba($blue, 0.5);
+  margin-right: 0.15rem;
+}
+.xc-stop {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: $blue;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid rgba($blue, 0.28);
+}
+.xc-arrow { color: rgba($cyan, 0.55); font-size: 0.8rem; }
+
+/* --- Content area ------------------------------------------- */
 .content-section {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 0 clamp(1rem, 2vw, 2rem) clamp(2rem, 4vw, 4rem) clamp(1rem, 2vw, 2rem);
-  margin-top: clamp(-8rem, -10vw, -5rem);
+  padding: clamp(2.75rem, 5vw, 4.5rem) clamp(1.25rem, 2vw, 2rem) clamp(3rem, 5vw, 5rem);
   position: relative;
   z-index: 1;
   background: $body-bg;
-  
-  h2 {
-    font-size: clamp(1rem, 1.5vw, 1.125rem);
-    margin-top: 0;
-    margin-bottom: 1rem;
-    font-weight: 400;
-  }
-  
-  @media (max-width: 768px) {
-    margin-top: clamp(-4rem, -8vw, -3rem);
-    padding: 0 1rem 2rem 1rem;
-  }
-  
-  @media (max-width: 480px) {
-    margin-top: clamp(-3rem, -6vw, -2rem);
-    padding: 0 1rem 1.5rem 1rem;
-  }
-  
-  > p {
-    color: rgba($white, 0.7);
-    margin-bottom: 1.5rem;
-  }
 }
 
-/* Features Grid */
-.features-grid {
+/* Capability pillars (hairline-ruled, no boxes) */
+.pillars {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 1.5rem;
-  margin-bottom: 4rem;
+  grid-template-columns: repeat(4, 1fr);
+  border-top: 1px solid $gray-300;
+  margin-bottom: clamp(3rem, 6vw, 5rem);
+}
+@media (max-width: 760px) { .pillars { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 420px) { .pillars { grid-template-columns: 1fr; } }
+
+.pillar {
+  padding: 1.2rem 1.25rem 1.2rem 0;
+  border-bottom: 1px solid rgba($gray-300, 0.45);
+}
+.pillar-k {
+  display: block;
+  font-family: $font-family-monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: $cyan;
+  margin-bottom: 0.55rem;
+}
+.pillar p, .pillar { color: rgba($blue, 0.62); }
+.pillar p {
+  font-size: 0.84rem;
+  line-height: 1.55;
+  margin: 0;
+  max-width: 26ch;
 }
 
-.feature-card {
-  background: rgba($gray-300, 0.15);
-  border: 1px solid rgba($gray-300, 0.3);
-  border-radius: 12px;
-  padding: 1.5rem;
-  transition: all 0.2s ease;
-  
-  h3 {
-    font-size: 1.2rem;
-    color: $cyan;
-    margin-bottom: 0.75rem;
-    border: none !important;
-  }
-  
-  p {
-    font-size: 0.95rem;
-    color: rgba($white, 0.7);
-    margin: 0;
-    line-height: 1.5;
-  }
-  
-  &:hover {
-    border-color: $cyan;
-    transform: translateY(-3px);
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
-  }
+/* Section header */
+.content-section h2 {
+  font-size: clamp(1.5rem, 2.5vw, 1.85rem) !important;
+  font-weight: 400 !important;
+  line-height: 1.05 !important;
+  letter-spacing: -0.5px !important;
+  margin: 0 0 0.5rem 0 !important;
+  border-bottom: none !important;
+  color: $white !important;
+}
+.content-section h2 .bi { color: $cyan; margin-right: 0.5rem; }
+.content-section > p {
+  color: rgba($blue, 0.6);
+  margin: 0 0 0.5rem 0;
 }
 
-/* Docs Grid */
+/* Diataxis router cards */
 .docs-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(4, 1fr);
   gap: 1rem;
-  margin-top: 1.5rem;
+  margin-top: 1.75rem;
 }
+@media (max-width: 900px) { .docs-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 480px) { .docs-grid { grid-template-columns: 1fr; } }
 
 .doc-card {
+  position: relative;
   border: 1px solid $gray-300;
-  border-radius: 16px;
-  padding: 1.5rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  transition: all 0.2s ease-in-out;
-  height: 100%;
+  border-left: 2px solid $gray-300;
+  border-radius: 0;
+  padding: 1.5rem 1.3rem;
   display: flex;
   flex-direction: column;
+  max-width: none;
+  background: rgba($cyan, 0.02);
   text-decoration: none;
   color: inherit;
-  max-width: 280px;
-  
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+
+  i { font-size: 1.3rem; color: $cyan; margin-bottom: 0.9rem; }
+
   a {
     color: $white;
     text-decoration: none;
-    
-    &:hover {
-      color: $cyan;
-    }
+    font-size: 1.05rem;
+    &:hover { color: $cyan; }
   }
-  
+
   p {
-    font-size: 0.9rem;
-    color: rgba($white, 0.6);
-    margin: 0.5rem 0 0 0;
+    color: rgba($blue, 0.6);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    margin: 0.4rem 0 0 0;
   }
-  
+
   &:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    border-color: $cyan;
+    border-left-color: $cyan;
+    background: rgba($cyan, 0.07);
     transform: translateY(-2px);
-    border-color: $white;
   }
 }
