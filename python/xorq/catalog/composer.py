@@ -119,6 +119,11 @@ class ExprComposer:
                 "No catalog-source tag found; expression was not produced by ExprComposer"
             )
 
+        if sum(1 for n in nodes if n.metadata["tag"] == CatalogTag.SOURCE) > 1:
+            raise ValueError(
+                "multi-root join entries are not yet rebuildable via catalog replay"
+            )
+
         if nodes[-1].metadata["tag"] == CatalogTag.CODE:
             (*nodes, code_node) = nodes
             code = code_node.metadata["code"]

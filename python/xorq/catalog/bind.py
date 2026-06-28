@@ -1,12 +1,27 @@
 from __future__ import annotations
 
 from functools import reduce
+from typing import TYPE_CHECKING
 
 from xorq.catalog.enums import CatalogTag
-from xorq.common.utils.graph_utils import replace_nodes, replace_unbound, walk_nodes
-from xorq.expr.relations import HashingTag, RemoteTable, gen_name
+from xorq.common.utils.graph_utils import (
+    replace_nodes,
+    replace_sources,
+    replace_unbound,
+    walk_nodes,
+)
+from xorq.expr.relations import HashingTag, RemoteTable, gen_name, into_backend
 from xorq.ibis_yaml.enums import ExprKind
+from xorq.vendor import ibis
 from xorq.vendor.ibis.expr.schema import Schema
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from xorq.catalog.catalog import Catalog, CatalogEntry
+    from xorq.vendor.ibis.backends import BaseBackend
+    from xorq.vendor.ibis.expr.types.core import Expr
 
 
 def _get_transform_schema_issues(
@@ -210,10 +225,135 @@ def _eval_code(code, source):
     return safe_eval(code, namespace)
 
 
-def _make_source_expr(source, con=None, alias=None, cache_dir=None):
+def _make_source_expr(
+    source: CatalogEntry | Expr,
+    con: BaseBackend | None = None,
+    alias: str | None = None,
+    cache_dir: str | Path | None = None,
+) -> Expr:
     """Wrap a CatalogEntry as a RemoteTable + HashingTag without transforms."""
     source_expr, _ = _resolve_source(source, con, alias, cache_dir=cache_dir)
     return source_expr
+
+
+def _is_backend(obj: object) -> bool:
+    from xorq.vendor.ibis.backends import BaseBackend  # noqa: PLC0415
+
+    return isinstance(obj, BaseBackend)
+
+
+def _rebind_same_profile_backends(
+    result: Expr,
+    resolved: dict[str, tuple[Expr, BaseBackend]],
+    rebind: bool = True,
+) -> Expr:
+    """Canonicalize backend sources that share a profile *config*.
+
+    Catalog entries hydrate as distinct backend objects even when they point
+    at the same database/profile: each connection gets a fresh ``idx``
+    counter, so ``_profile.hash_name`` (which is ``{config_hash}_{idx}``)
+    differs per instance.  Identity here is therefore the idx-independent
+    config hash (``profile.clone(idx=-1).hash_name``, the same normalization
+    ``Profile.__eq__`` uses).  Every backend source whose config matches a
+    binding's backend is rewritten to that (first-seen, binding-order)
+    backend, so a bare same-backend join stays native/fused.
+
+    When *rebind* is False this is a no-op.  Otherwise the rewrite uses
+    ``transfer_tables=False`` -- a pure relabel that never moves data.
+    Deferred reads (``deferred_read_parquet`` etc.) carry their own source
+    descriptor and rebind cleanly; an in-connection ``DatabaseTable`` whose
+    data only lives on the original backend raises instead of being moved.
+    """
+    if not rebind:
+        return result
+
+    def _profile_id(con):
+        profile = getattr(con, "_profile", None)
+        return None if profile is None else profile.clone(idx=-1).hash_name
+
+    canonical = {}
+    for _name, (_expr, con) in resolved.items():
+        pid = _profile_id(con)
+        if pid is not None:
+            canonical.setdefault(pid, con)
+
+    # Only rebind top-level sources -- those that determine the expression's
+    # own backend(s).  Sources behind an explicit ``into_backend(...)``
+    # transport are deliberately on another backend and are moved by that
+    # transport at execution; rebinding into them would try to relabel an
+    # in-connection table to a backend it does not live on and raise under
+    # ``transfer_tables=False``.  ``_find_backends`` stops at the transport
+    # boundary, whereas ``find_all_sources`` would descend through it.
+    backends, _ = result._find_backends()  # xorq-style: disable=protected-access
+    mapping = {}
+    for con in backends:
+        pid = _profile_id(con)
+        if pid is None:
+            continue
+        target = canonical.get(pid)
+        if target is not None and id(con) != id(target):
+            mapping[id(con)] = target
+
+    if mapping:
+        result = replace_sources(mapping, result, transfer_tables=False)
+    return result
+
+
+def compose_join(
+    catalog: Catalog,
+    bindings: dict[str, str],
+    code: str | None,
+    cache_dir: str | Path | None = None,
+    rebind_backends: bool = True,
+    eval_namespace: dict[str, object] | None = None,
+) -> Expr:
+    """Compose two-or-more catalog entries via inline join/union code.
+
+    Each binding ``name -> entry_name`` resolves its catalog entry to a
+    SOURCE-tagged source expression exposed in *code* under ``name``.  The
+    namespace also exposes vendored ``ibis``, an ``into_backend`` helper for
+    explicit cross-backend transport (``into_backend(right, left)`` moves
+    ``right`` into ``left``'s backend), and whatever *eval_namespace* the
+    caller supplies (the CLI layer passes the user-facing ``xo`` facade there;
+    library code must not import it).  Same-profile backend sources are
+    rebound to one backend (no data transfer) so native same-backend joins
+    stay fused.
+
+    Returns a CODE-tagged expression; provenance (``composed_from``) is
+    carried by each operand's SOURCE tag automatically.
+    """
+    from xorq.common.utils.eval_utils import safe_eval  # noqa: PLC0415
+
+    if not bindings:
+        raise ValueError("compose_join requires at least one -e/--entry binding")
+    if code is None:
+        raise ValueError("compose_join requires inline -c/--code")
+
+    resolved = {}
+    for name, entry_name in bindings.items():
+        entry = catalog.get_catalog_entry(entry_name, maybe_alias=True)
+        tagged_expr, con = _resolve_source(entry, None, name, cache_dir=cache_dir)
+        resolved[name] = (tagged_expr, con)
+
+    def _into_backend_helper(expr, target, name=None):
+        if _is_backend(target):
+            con = target
+        else:
+            con = target._find_backend()  # xorq-style: disable=protected-access
+        return into_backend(expr, con, name=name)
+
+    namespace = {
+        "__builtins__": {},
+        **(eval_namespace or {}),
+        "ibis": ibis,
+        "into_backend": _into_backend_helper,
+        **{name: tagged for name, (tagged, _con) in resolved.items()},
+    }
+    result = safe_eval(code, namespace)
+
+    result = _rebind_same_profile_backends(result, resolved, rebind=rebind_backends)
+
+    return result.hashing_tag(CatalogTag.CODE, code=code)
 
 
 def fuse_catalog_source(expr):
