@@ -177,9 +177,23 @@ def test_rebind_preserves_explicit_into_backend_transport() -> None:
     a = con_a.create_table("a", pd.DataFrame({"id": [1, 2, 3], "x": [4, 5, 6]}))
     b = con_b.create_table("b", pd.DataFrame({"id": [1, 2, 3], "y": [7, 8, 9]}))
     expr = a.join(into_backend(b, con_a), "id")
-    resolved = {"a": (a, con_a), "b": (b, con_b)}
 
-    out = _rebind_same_profile_backends(expr, resolved, rebind=True)
+    out = _rebind_same_profile_backends(expr, rebind=True)
+    assert len(out._find_backends()[0]) == 1
+
+
+def test_rebind_preserves_transport_targeting_non_first_binding() -> None:
+    # The explicit transport targets the *second* operand's backend. Binding
+    # order must not override the transport target: rebind seeds its canonical
+    # backend from top-level sources (here only con_b, the transport target),
+    # so it must NOT try to relabel the top-level table back onto con_a.
+    con_a = xo.duckdb.connect()
+    con_b = xo.duckdb.connect()
+    a = con_a.create_table("a", pd.DataFrame({"id": [1, 2, 3], "x": [4, 5, 6]}))
+    b = con_b.create_table("b", pd.DataFrame({"id": [1, 2, 3], "y": [7, 8, 9]}))
+    expr = into_backend(a, con_b).join(b, "id")
+
+    out = _rebind_same_profile_backends(expr, rebind=True)
     assert len(out._find_backends()[0]) == 1
 
 

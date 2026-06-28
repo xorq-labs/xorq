@@ -242,27 +242,29 @@ def _is_backend(obj: object) -> bool:
     return isinstance(obj, BaseBackend)
 
 
-def _rebind_same_profile_backends(
-    result: Expr,
-    resolved: dict[str, tuple[Expr, BaseBackend]],
-    rebind: bool = True,
-) -> Expr:
-    """Canonicalize backend sources that share a profile *config*.
+def _rebind_same_profile_backends(result: Expr, rebind: bool = True) -> Expr:
+    """Canonicalize top-level backend sources that share a profile *config*.
 
     Catalog entries hydrate as distinct backend objects even when they point
     at the same database/profile: each connection gets a fresh ``idx``
     counter, so ``_profile.hash_name`` (which is ``{config_hash}_{idx}``)
     differs per instance.  Identity here is therefore the idx-independent
     config hash (``profile.clone(idx=-1).hash_name``, the same normalization
-    ``Profile.__eq__`` uses).  Every backend source whose config matches a
-    binding's backend is rewritten to that (first-seen, binding-order)
-    backend, so a bare same-backend join stays native/fused.
+    ``Profile.__eq__`` uses).  Same-profile sources are rewritten to the
+    first-seen one so a bare same-backend join stays native/fused.
+
+    Both the canonical target and the sources to rewrite are drawn from the
+    expression's *top-level* backends (``_find_backends``) -- those it
+    actually presents as.  Sources behind an explicit ``into_backend(...)``
+    transport present as their target backend, so the moved operand is never
+    seen here and the user's transport (and its chosen target) is preserved.
+    Seeding the canonical map from binding order instead would let a binding
+    override an explicit transport target and try to relabel a top-level
+    in-connection table onto a backend it does not live on, raising under
+    ``transfer_tables=False``.
 
     When *rebind* is False this is a no-op.  Otherwise the rewrite uses
     ``transfer_tables=False`` -- a pure relabel that never moves data.
-    Deferred reads (``deferred_read_parquet`` etc.) carry their own source
-    descriptor and rebind cleanly; an in-connection ``DatabaseTable`` whose
-    data only lives on the original backend raises instead of being moved.
     """
     if not rebind:
         return result
@@ -271,27 +273,21 @@ def _rebind_same_profile_backends(
         profile = getattr(con, "_profile", None)
         return None if profile is None else profile.clone(idx=-1).hash_name
 
+    backends, _ = result._find_backends()  # xorq-style: disable=protected-access
+
     canonical = {}
-    for _name, (_expr, con) in resolved.items():
+    for con in backends:
         pid = _profile_id(con)
         if pid is not None:
             canonical.setdefault(pid, con)
 
-    # Only rebind top-level sources -- those that determine the expression's
-    # own backend(s).  Sources behind an explicit ``into_backend(...)``
-    # transport are deliberately on another backend and are moved by that
-    # transport at execution; rebinding into them would try to relabel an
-    # in-connection table to a backend it does not live on and raise under
-    # ``transfer_tables=False``.  ``_find_backends`` stops at the transport
-    # boundary, whereas ``find_all_sources`` would descend through it.
-    backends, _ = result._find_backends()  # xorq-style: disable=protected-access
     mapping = {}
     for con in backends:
         pid = _profile_id(con)
         if pid is None:
             continue
-        target = canonical.get(pid)
-        if target is not None and id(con) != id(target):
+        target = canonical[pid]
+        if id(con) != id(target):
             mapping[id(con)] = target
 
     if mapping:
@@ -351,7 +347,7 @@ def compose_join(
     }
     result = safe_eval(code, namespace)
 
-    result = _rebind_same_profile_backends(result, resolved, rebind=rebind_backends)
+    result = _rebind_same_profile_backends(result, rebind=rebind_backends)
 
     return result.hashing_tag(CatalogTag.CODE, code=code)
 
