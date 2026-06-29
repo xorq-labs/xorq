@@ -493,18 +493,21 @@ class DrainingIterator:
 
     Callers must call ``close()`` then ``join()`` — there is no ``__del__``
     finalizer; the execution pipeline (``api.py``) owns the lifecycle.
+
+    Advancement is serialized by an inner ``LockedIterator`` so the foreground
+    reader pull (datafusion read-ahead) and the background ``_drain`` loop never
+    call ``next()`` on the wrapped generator concurrently -> 'generator already
+    executing' (#2107). ``close()`` here *drains* the remainder on a worker
+    thread rather than abandoning it, so it does not use ``LockedIterator``'s
+    own (abandon-on-close) ``close()``.
     """
 
     def __init__(self, write_gen: Iterator[pa.RecordBatch]) -> None:
-        self._gen = write_gen
+        self._locked = LockedIterator(write_gen)
         self._exhausted = False
         self._drain_thread: threading.Thread | None = None
         self._error: BaseException | None = None
         self._state_lock = threading.Lock()
-        # serializes generator advancement so the foreground reader pull
-        # (datafusion read-ahead) and the background _drain loop never call
-        # next(self._gen) concurrently -> 'generator already executing'.
-        self._advance_lock = threading.Lock()
 
     @property
     def exhausted(self) -> bool:
@@ -515,24 +518,20 @@ class DrainingIterator:
         return self
 
     def __next__(self) -> pa.RecordBatch:
-        with self._advance_lock:
-            try:
-                return next(self._gen)
-            except StopIteration:
-                with self._state_lock:
-                    self._exhausted = True
-                raise
+        try:
+            return next(self._locked)
+        except StopIteration:
+            with self._state_lock:
+                self._exhausted = True
+            raise
 
     def _drain(self) -> None:
-        # acquire per-iteration, not across the whole loop, so a still-in-flight
-        # foreground __next__ can interleave instead of being starved.
+        # LockedIterator acquires its lock per-advance, so a still-in-flight
+        # foreground __next__ can interleave with this loop instead of being
+        # starved.
         try:
-            while True:
-                with self._advance_lock:
-                    try:
-                        next(self._gen)
-                    except StopIteration:
-                        break
+            for _ in self._locked:
+                pass
         except BaseException as exc:  # noqa: BLE001
             self._error = exc
         with self._state_lock:

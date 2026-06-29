@@ -1507,8 +1507,11 @@ def test_tee_write_iter_guard_by_drain(
 ) -> None:
     # The drain=False write-through generator is registered into the backend and
     # advanced by its read-ahead worker; it must be wrapped in LockedIterator so a
-    # GC/finalizer close() cannot race a worker mid-advance. drain=True is
-    # instead guarded by DrainingIterator, so it must NOT be LockedIterator-wrapped.
+    # GC/finalizer close() cannot race a worker mid-advance. drain=True instead
+    # goes through DrainingIterator, so the relations call site must NOT wrap it
+    # in LockedIterator directly. (DrainingIterator serializes advance via its own
+    # internal LockedIterator -- constructed from write_through's module global,
+    # which these spies don't patch, so it is correctly invisible here.)
     import xorq.expr.relations as rel  # noqa: PLC0415
     import xorq.expr.remote_table_exec as rte  # noqa: PLC0415
 
@@ -1539,7 +1542,8 @@ def test_tee_write_iter_guard_by_drain(
     # bypassed entirely).
     assert "gen" in wrapped_names, "spy did not observe the parent-reader wrap"
     if drain:
-        # drain=True is guarded by DrainingIterator, not LockedIterator.
+        # drain=True goes through DrainingIterator; the relations call site does
+        # not wrap the write-through gen in (a patched) LockedIterator.
         assert "write_through" not in wrapped_names
     else:
         # drain=False must wrap the raw write-through generator in LockedIterator.
