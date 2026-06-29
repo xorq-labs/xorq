@@ -190,19 +190,29 @@ def _cached_node_to_cache_tag(node: CachedNode) -> CacheTag:
     )
 
 
-def _cache_tag_to_cached_node(node: CacheTag) -> CachedNode:
+def make_cached_node(schema: Schema, parent: Expr, cache: Any) -> CachedNode:
+    """Build a ``CachedNode`` from its essential parts.
+
+    Single source of truth for the node's invariant fields -- the placeholder
+    name and the ``source`` derived from the cache storage -- shared by
+    ``Expr.cache`` and ``unpin_cache`` so the two construction sites cannot
+    drift.
+    """
     from xorq.vendor.ibis.expr.types.relations import (  # noqa: PLC0415
         CACHED_NODE_NAME_PLACEHOLDER,
     )
 
-    cache = node.cache
     return CachedNode(
         name=CACHED_NODE_NAME_PLACEHOLDER,
-        schema=node.schema,
-        parent=node.uncached,
+        schema=schema,
+        parent=parent,
         source=cache.storage.source,
         cache=cache,
     )
+
+
+def _cache_tag_to_cached_node(node: CacheTag) -> CachedNode:
+    return make_cached_node(node.schema, node.uncached, node.cache)
 
 
 def _replace_op_type(
