@@ -21,6 +21,11 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
+__all__ = [
+    "Backend",
+]
+
+
 class Backend(IbisDatafusionBackend):
     def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
         self.con.from_arrow(op.data.to_pyarrow(op.schema), op.name)

@@ -50,6 +50,14 @@ from xorq.expr.ml.enums import FittedPipelineTagKey
 from xorq.expr.relations import HashingTag, Tag
 
 
+__all__ = [
+    "TagHandler",
+    "register_tag_handler",
+    "extract_builder_metadata",
+    "get_rebuild_dispatch",
+]
+
+
 @frozen
 class TagHandler:
     tag_names: tuple[str, ...] = field(

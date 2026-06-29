@@ -28,6 +28,12 @@ if TYPE_CHECKING:
     from batchcorder import StreamCache
 
 
+__all__ = [
+    "BasePandasBackend",
+    "Backend",
+]
+
+
 class BasePandasBackend(BaseBackend, NoUrl):
     """Base class for backends based on pandas."""
 

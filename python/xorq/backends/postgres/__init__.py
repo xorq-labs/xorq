@@ -29,6 +29,12 @@ from xorq.vendor.ibis.util import (
 logger = get_logger(__name__)
 
 
+__all__ = [
+    "Backend",
+    "connect",
+]
+
+
 class Backend(IbisPostgresBackend):
     _top_level_methods = ("connect_examples", "connect_env")
     compiler = compiler

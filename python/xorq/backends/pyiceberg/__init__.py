@@ -19,6 +19,12 @@ from xorq.vendor.ibis.util import gen_name
 from xorq.writes.enums import WriteMode
 
 
+__all__ = [
+    "Backend",
+    "parse_url",
+]
+
+
 def parse_url(url: str) -> Dict[str, Any]:
     from urllib.parse import parse_qs, urlparse  # noqa: PLC0415
 

@@ -28,6 +28,12 @@ from xorq.vendor.ibis.expr.operations.relations import (
 logger = get_logger(__name__)
 
 
+__all__ = [
+    "Backend",
+    "connect",
+]
+
+
 @functools.wraps(IbisSnowflakeBackend.do_connect)
 def wrapped_do_connect(self, create_object_udfs: bool = None, **kwargs: Any) -> None:
     from xorq.common.utils.snowflake_keypair_utils import (  # noqa: PLC0415

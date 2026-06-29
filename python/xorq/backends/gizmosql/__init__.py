@@ -9,6 +9,11 @@ from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import gen_name
 
 
+__all__ = [
+    "Backend",
+]
+
+
 class Backend(IbisGizmoSQLBackend):
     def execute(
         self,

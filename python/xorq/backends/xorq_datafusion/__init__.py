@@ -59,6 +59,12 @@ from xorq.vendor.ibis.formats.pyarrow import PyArrowType
 from xorq.vendor.ibis.util import gen_name, normalize_filename, normalize_filenames
 
 
+__all__ = [
+    "Backend",
+    "connect",
+]
+
+
 def _select_and_cast(batch: pa.RecordBatch, schema: pa.Schema) -> pa.RecordBatch:
     missing = set(schema.names) - set(batch.schema.names)
     if missing:

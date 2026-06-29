@@ -19,6 +19,11 @@ if TYPE_CHECKING:
     import pyarrow as pa
 
 
+__all__ = [
+    "Backend",
+]
+
+
 class Backend(IbisSQLiteBackend):
     def read_record_batches(
         self,
