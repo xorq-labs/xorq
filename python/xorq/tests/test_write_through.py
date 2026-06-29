@@ -1501,6 +1501,34 @@ def test_tee_drain_false_does_not_drain(tmp_path: Path) -> None:
     assert len(pq.read_table(str(full_target))) == _MULTI_BATCH_COUNT
 
 
+@pytest.mark.parametrize("drain", [False, True])
+def test_tee_write_iter_guard_by_drain(
+    tmp_path: Path, monkeypatch: Any, drain: bool
+) -> None:
+    # The drain=False write-through generator is registered into the backend and
+    # advanced by its read-ahead worker; it must be wrapped in _LockedGen so a
+    # GC/finalizer close() cannot race a worker mid-advance. drain=True is
+    # instead guarded by DrainingIterator, so it must NOT be _LockedGen-wrapped.
+    import xorq.expr.remote_table_exec as rte  # noqa: PLC0415
+
+    wrapped_names: list[str | None] = []
+    orig = rte._LockedGen
+
+    def spy(gen: Any) -> Any:
+        wrapped_names.append(getattr(getattr(gen, "gi_code", None), "co_name", None))
+        return orig(gen)
+
+    monkeypatch.setattr(rte, "_LockedGen", spy)
+    con = xo.connect()
+    tt = _multi_batch_source(con, f"guard_src_{drain}")
+    expr = tt.tee(ParquetWriteThrough(path=tmp_path / "o.parquet"), drain=drain)
+    register_and_transform_tee_nodes(expr)
+
+    # "write_through" identifies the ParquetWriteThrough generator; "gen" is the
+    # unrelated parent-reader wrap from bind_scope_to_reader.
+    assert ("write_through" in wrapped_names) is (drain is False)
+
+
 def test_drain_build_hash_same(t: Table, tmp_path: Path) -> None:
     writer = ParquetWriteThrough(path=tmp_path / "out.parquet")
     no_drain = t.tee(writer, drain=False)

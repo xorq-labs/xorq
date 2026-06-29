@@ -623,11 +623,21 @@ def register_and_transform_tee_nodes(
                 "See ADR-0014.",
                 stacklevel=2,
             )
+        from xorq.expr.remote_table_exec import _LockedGen  # noqa: PLC0415
+
         reader = parent_expr.to_pyarrow_batches()
         write_iter = node.writer.write_through(reader)
         if node.drain:
             write_iter = DrainingIterator(write_iter)
             drains.append(write_iter)
+        else:
+            # drain=False: the raw write-through generator is registered into
+            # the backend and advanced by its read-ahead worker thread. Guard it
+            # so a GC/finalizer close() cannot race a worker mid-advance ->
+            # "generator already executing" (same race as the outer reader in
+            # bind_scope_to_reader; drain=True is already guarded by
+            # DrainingIterator's advance lock, #2107).
+            write_iter = _LockedGen(write_iter)
         wrapped = pa.RecordBatchReader.from_batches(
             reader.schema,
             write_iter,
