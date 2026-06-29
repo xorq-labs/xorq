@@ -5,8 +5,9 @@ import os
 import re
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterator
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -48,14 +49,16 @@ def t() -> Table:
     return con.register(xo.memtable(TABLE), table_name="t0")
 
 
-# Early-stop tests need a multi-batch source so the parent's un-pulled tail is
-# what the drain/suppression assertions turn on; a single batch can't express it
-# (the 0.2.9 EOF probe pulls it to exhaustion). Count is 2x the ~4-batch
-# read-ahead for margin; widen if a future bump grows the window -- the positive
-# control in test_tee_drain_false_does_not_drain fails loud if it doesn't. See
-# ADR-0014 for the full read-ahead / probe rationale.
-_DATAFUSION_READ_AHEAD = 4
-_MULTI_BATCH_COUNT = 2 * _DATAFUSION_READ_AHEAD
+# A few drain=True / full-consume tests just want a parent with more than one
+# batch. Those assert a *full* write (drain forces full consumption; a full
+# consume publishes), so they hold regardless of how many batches the engine
+# pulls -- the exact count is not load-bearing, so any small value > 1 works.
+#
+# The suppression tests (drain=False early-stop, partial reads) are the ones that
+# need the parent to stay UN-exhausted; they use _blocking_source below, which
+# makes that deterministic instead of betting on the source out-sizing
+# datafusion's read-ahead window. See ADR-0014.
+_MULTI_BATCH_COUNT = 8
 
 # EOF probe lands in 0.2.9 (#1977); missing package -> pre-probe defaults.
 try:
@@ -75,6 +78,48 @@ def _multi_batch_source(con: Any, table_name: str) -> Table:
     ]
     reader = pa.RecordBatchReader.from_batches(batches[0].schema, iter(batches))
     return con.read_record_batches(reader, table_name=table_name)
+
+
+@contextmanager
+def _blocking_source(
+    con: Any, table_name: str, n_before_block: int = 4
+) -> Iterator[Table]:
+    """Yield a parent source that emits a few batches then blocks until teardown.
+
+    The suppression tests assert the writer is abandoned mid-stream and never
+    publishes. That only holds while the engine has NOT exhausted the parent --
+    a property previously left to datafusion's read-ahead window being smaller
+    than the source. That coupling was flaky: once the window grew past the
+    source (engine/core-count dependent) the parent was fully drained, the writer
+    ran to completion, and `assert not target.exists()` failed.
+
+    Blocking the parent after `n_before_block` batches makes non-exhaustion
+    deterministic -- the engine physically cannot pull past the gate no matter
+    how large its read-ahead window or how many cores it has. `n_before_block`
+    only has to cover what downstream actually pulls (e.g. a LIMIT) plus the one
+    read-ahead batch that trips the gate; 4 is ample for the `.limit(2)` / single
+    `read_next_batch` callers here.
+
+    The gate is released on context exit so the parked scan thread unwinds to a
+    clean StopIteration: a generator still blocked inside `next()` cannot be
+    closed ('generator already executing') and would surface as a teardown error.
+    Callers holding a partially-consumed reader should drain it after the block
+    releases (see test_to_pyarrow_batches_partial_consumption_holds_resources).
+    See ADR-0014.
+    """
+    gate = threading.Event()
+
+    def gen() -> Iterator[Any]:
+        for i in range(n_before_block):
+            yield pa.record_batch({"a": [i], "b": [str(i)]})
+        gate.wait()
+
+    schema = pa.schema([("a", pa.int64()), ("b", pa.string())])
+    reader = pa.RecordBatchReader.from_batches(schema, gen())
+    try:
+        yield con.read_record_batches(reader, table_name=table_name)
+    finally:
+        gate.set()
 
 
 def _connect(name: str) -> Any:
@@ -702,19 +747,32 @@ def test_to_pyarrow_batches_partial_consumption_holds_resources(
 ) -> None:
     """Counterpart to the contract above: a partial read (an early break) does
     not run cleanup, so nothing is published and the table is held. This locks
-    in the leak the to_pyarrow_batches docstring warns about. Uses a multi-batch
-    source so datafusion's read-ahead leaves the tail un-pulled and the writer
-    un-exhausted (see _multi_batch_source)."""
+    in the leak the to_pyarrow_batches docstring warns about. The blocking source
+    keeps the parent un-exhausted deterministically while one batch is read, so
+    the un-published/held assertions don't depend on datafusion's read-ahead
+    window (see _blocking_source)."""
     con = xo.connect()
-    tt = _multi_batch_source(con, "partial_src")
     target = tmp_path / "out.parquet"
 
-    before = _placeholder_tables(con)
-    reader = tt.tee(ParquetWriteThrough(path=target)).to_pyarrow_batches()
-    reader.read_next_batch()  # read one batch, do not exhaust
+    reader = None
+    try:
+        with _blocking_source(con, "partial_src") as tt:
+            before = _placeholder_tables(con)
+            reader = tt.tee(ParquetWriteThrough(path=target)).to_pyarrow_batches()
+            reader.read_next_batch()  # read one batch, do not exhaust
 
-    assert not target.exists(), "nothing should be published before exhaustion"
-    assert _placeholder_tables(con) - before, "table released before full consume"
+            assert not target.exists(), "nothing should be published before exhaustion"
+            assert _placeholder_tables(con) - before, (
+                "table released before full consume"
+            )
+    finally:
+        # The context has exited (gate released): drain the partial reader so the
+        # parked scan thread unwinds cleanly instead of erroring at GC ('generator
+        # already executing'). In a finally so an assertion failure above doesn't
+        # skip the drain and pile a teardown error on top of the real failure. The
+        # assertions already captured the held state.
+        if reader is not None:
+            reader.read_all()
 
 
 def test_cross_backend_tee_cleans_up_all_placeholders(tmp_path: Path) -> None:
@@ -1420,17 +1478,22 @@ def test_tee_drain_writes_full_on_early_stop_multi_batch(tmp_path: Path) -> None
 
 
 def test_tee_drain_false_does_not_drain(tmp_path: Path) -> None:
-    # drain=False: an early downstream stop must NOT finish the side write. A
-    # multi-batch source is required -- datafusion's read-ahead stops short of
-    # exhausting the parent under a LIMIT, so the writer never publishes. See
-    # _multi_batch_source for why a single-batch source cannot express this.
+    # drain=False: an early downstream stop must NOT finish the side write. The
+    # blocking source guarantees the parent stays un-exhausted under the LIMIT
+    # (the writer is provably abandoned before its publish step) without relying
+    # on datafusion's read-ahead window -- see _blocking_source.
     con = xo.connect()
-    tt = _multi_batch_source(con, "no_drain_src")
     target = tmp_path / "no_drain.parquet"
-    tt.tee(ParquetWriteThrough(path=target), drain=False).limit(2).execute()
-    assert not target.exists()
+    with _blocking_source(con, "no_drain_src") as tt:
+        tt.tee(ParquetWriteThrough(path=target), drain=False).limit(2).execute()
+        assert not target.exists(), (
+            "drain=False + early stop must not publish: the parent is blocked, so "
+            "the writer cannot have reached its publish step"
+        )
 
-    # Positive control: same source fully consumed must publish, else the assertion above passes for the wrong reason.
+    # Positive control: a fully-consumed source MUST publish even with
+    # drain=False, else the assertion above could pass for the wrong reason
+    # (e.g. publish silently broken).
     full_src = _multi_batch_source(con, "no_drain_full_src")
     full_target = tmp_path / "full.parquet"
     full_src.tee(ParquetWriteThrough(path=full_target), drain=False).execute()
