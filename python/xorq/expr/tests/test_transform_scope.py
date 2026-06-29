@@ -454,6 +454,9 @@ def test_locked_gen_close_when_idle_closes_generator() -> None:
     # idempotent
     locked.close()
     assert closed == [True]
+    # advancing after close raises StopIteration, not a reuse of the closed gen
+    with pytest.raises(StopIteration):
+        next(locked)
 
 
 def test_scope_close_closes_adopted_readers() -> None:
