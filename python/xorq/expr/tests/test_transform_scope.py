@@ -22,8 +22,8 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.api import get_plans, to_pyarrow_batches
 from xorq.expr.remote_table_exec import (
+    LockedIterator,
     RemoteTableScope,
-    _LockedGen,
     bind_scope_to_reader,
     drop_placeholder,
     prepare_create_table_from_expr,
@@ -405,7 +405,7 @@ def test_locked_gen_close_during_advance_does_not_raise() -> None:
     # Regression: a datafusion scan can park the foreground next() inside an
     # FFI pull (frame *executing*, not suspended). A bare gen.close() then
     # raises "ValueError: generator already executing" -- in the weakref
-    # finalizer this aborts the process. _LockedGen must make close() a no-op
+    # finalizer this aborts the process. LockedIterator must make close() a no-op
     # while an advance holds the lock. Same race class as #2107.
     in_pull = threading.Event()
     release = threading.Event()
@@ -416,7 +416,7 @@ def test_locked_gen_close_during_advance_does_not_raise() -> None:
             release.wait()  # simulate an in-flight FFI pull
             yield i
 
-    locked = _LockedGen(slow())
+    locked = LockedIterator(slow())
     errors: list[BaseException] = []
 
     def advance() -> None:
@@ -447,7 +447,7 @@ def test_locked_gen_close_when_idle_closes_generator() -> None:
         finally:
             closed.append(True)
 
-    locked = _LockedGen(gen())
+    locked = LockedIterator(gen())
     assert next(locked) == 1
     locked.close()
     assert closed == [True]

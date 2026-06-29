@@ -1506,37 +1506,43 @@ def test_tee_write_iter_guard_by_drain(
     tmp_path: Path, monkeypatch: Any, drain: bool
 ) -> None:
     # The drain=False write-through generator is registered into the backend and
-    # advanced by its read-ahead worker; it must be wrapped in _LockedGen so a
+    # advanced by its read-ahead worker; it must be wrapped in LockedIterator so a
     # GC/finalizer close() cannot race a worker mid-advance. drain=True is
-    # instead guarded by DrainingIterator, so it must NOT be _LockedGen-wrapped.
+    # instead guarded by DrainingIterator, so it must NOT be LockedIterator-wrapped.
+    import xorq.expr.relations as rel  # noqa: PLC0415
     import xorq.expr.remote_table_exec as rte  # noqa: PLC0415
 
     wrapped_names: list[str | None] = []
-    orig = rte._LockedGen
+    orig = rte.LockedIterator
 
     def spy(gen: Any) -> Any:
         wrapped_names.append(getattr(getattr(gen, "gi_code", None), "co_name", None))
         return orig(gen)
 
-    monkeypatch.setattr(rte, "_LockedGen", spy)
+    # LockedIterator lives in xorq.writes; both modules bind it at import time
+    # (rte wraps the parent reader in bind_scope_to_reader -> "gen"; relations
+    # wraps the drain=False write-through generator -> "write_through"). Patch
+    # both namespaces so the spy observes each wrap site.
+    monkeypatch.setattr(rte, "LockedIterator", spy)
+    monkeypatch.setattr(rel, "LockedIterator", spy)
     con = xo.connect()
     tt = _multi_batch_source(con, f"guard_src_{drain}")
     expr = tt.tee(ParquetWriteThrough(path=tmp_path / "o.parquet"), drain=drain)
     register_and_transform_tee_nodes(expr)
 
-    # wrapped_names holds the co_name of each generator _LockedGen wraps:
+    # wrapped_names holds the co_name of each generator LockedIterator wraps:
     #   "write_through" -> the ParquetWriteThrough.write_through generator
     #   "gen"           -> the parent-reader wrap inside bind_scope_to_reader
     # bind_scope_to_reader always wraps the parent reader, so "gen" must appear
     # regardless of drain -- this proves the spy is active, so the
-    # write_through check below cannot pass vacuously (e.g. if _LockedGen were
+    # write_through check below cannot pass vacuously (e.g. if LockedIterator were
     # bypassed entirely).
     assert "gen" in wrapped_names, "spy did not observe the parent-reader wrap"
     if drain:
-        # drain=True is guarded by DrainingIterator, not _LockedGen.
+        # drain=True is guarded by DrainingIterator, not LockedIterator.
         assert "write_through" not in wrapped_names
     else:
-        # drain=False must wrap the raw write-through generator in _LockedGen.
+        # drain=False must wrap the raw write-through generator in LockedIterator.
         assert "write_through" in wrapped_names
 
 

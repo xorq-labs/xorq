@@ -437,6 +437,57 @@ class WritePrimaryWriteThrough(WriteThrough):
                 raise error[0]
 
 
+class LockedIterator:
+    """Serializes advancement and close of a wrapped generator.
+
+    A datafusion scan can park the foreground ``next()`` inside an FFI pull
+    (the generator frame is in the *executing* state, not suspended) while a
+    background pull lags. If the ``weakref.finalize`` backstop then calls
+    ``close()`` on that frame, CPython raises ``ValueError: generator already
+    executing`` -- in a finalizer/daemon-thread context that escapes and aborts
+    the process. The shared lock guarantees ``close()`` only runs while the
+    generator is suspended, never mid-advance. Same race class as the
+    ``DrainingIterator`` advance lock (#2107).
+    """
+
+    def __init__(self, gen) -> None:
+        self._gen = gen
+        self._lock = threading.Lock()
+        self._closed = False
+
+    def __iter__(self) -> "LockedIterator":
+        return self
+
+    def __next__(self):
+        with self._lock:
+            if self._closed:
+                raise StopIteration
+            try:
+                return next(self._gen)
+            except StopIteration:
+                # natural exhaustion: mark closed so a later close() is a no-op
+                # and _closed tracks "no longer advanceable", not just explicit
+                # close calls.
+                self._closed = True
+                raise
+
+    def close(self) -> None:
+        # Non-blocking acquire: closing an *executing* frame raises
+        # ``ValueError: generator already executing``, and *blocking* until the
+        # advance returns can wedge the finalizer during interpreter teardown
+        # (GIL-release fatal). So if an advance holds the lock, skip the gen
+        # close entirely -- that in-flight consumer owns the generator's
+        # teardown (its ``finally`` runs ``scope.close()``); the caller's
+        # explicit ``scope.close()`` still fires regardless.
+        if self._lock.acquire(blocking=False):
+            try:
+                if not self._closed:
+                    self._closed = True
+                    self._gen.close()
+            finally:
+                self._lock.release()
+
+
 class DrainingIterator:
     """Wraps a write-through generator; drains remaining batches on close.
 
