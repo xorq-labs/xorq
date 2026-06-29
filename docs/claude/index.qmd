@@ -7,7 +7,9 @@ headline: "Use Xorq from Claude Code"
 
 You talk to Claude in plain language. It picks the matching skill and runs the
 `xorq` commands for you. Source and full skill docs:
+<!-- vale Xorq.Terms = NO -->
 [xorq-labs/claude-plugins](https://github.com/xorq-labs/claude-plugins).
+<!-- vale Xorq.Terms = YES -->
 
 ## Install
 

@@ -116,6 +116,7 @@ website:
         - id: advanced-capabilities-section
           section: "Advanced capabilities"
           contents:
+            - concepts/understanding_xorq/udf_system.qmd
             - concepts/core_concepts/pins.qmd
 
     - id: reference
