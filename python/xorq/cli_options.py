@@ -167,6 +167,32 @@ code_option = click.option(
 )
 
 
+entry_option = click.option(
+    "-e",
+    "--entry",
+    "raw_entries",
+    multiple=True,
+    metavar="NAME=ENTRY",
+    help=(
+        "Bind a catalog entry to NAME for use in -c code (repeatable). "
+        "With positional ENTRIES, either bind source=ENTRY and apply ENTRIES "
+        "as transforms, or expose the positional chain as source alongside "
+        "extra bindings."
+    ),
+)
+
+
+rebind_backends_option = click.option(
+    "--rebind-backends/--no-rebind-backends",
+    default=True,
+    show_default=True,
+    help=(
+        "In multi-root mode, rebind same-profile backend sources to one "
+        "backend before execution. Never transfers table data."
+    ),
+)
+
+
 sync_option = click.option(
     "--sync/--no-sync",
     default=True,

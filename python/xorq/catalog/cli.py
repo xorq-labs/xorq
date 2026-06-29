@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import itertools
 import json
+import keyword
 import os
 import shutil
 import subprocess
@@ -22,13 +23,19 @@ from xorq.catalog import constants as catalog_constants
 
 
 if TYPE_CHECKING:
+    from opentelemetry.trace import Span
+
+    from xorq.catalog.catalog import Catalog
     from xorq.catalog.content_store import ContentStoreConfig
+    from xorq.common.utils.logging_utils import RunLogger
+    from xorq.vendor.ibis.expr.types.core import Expr
 
 from xorq.cli_options import (
     cache_dir_option,
     cache_strategy_options,
     code_option,
     content_store_option,
+    entry_option,
     env_options,
     fuse_option,
     gcs_option,
@@ -36,6 +43,7 @@ from xorq.cli_options import (
     limit_option,
     output_options,
     params_option,
+    rebind_backends_option,
     rename_params_option,
     serve_options,
     sync_option,
@@ -1187,8 +1195,94 @@ def _parse_rename_params(raw_rename_params):
     return result
 
 
-def _compose_expr(catalog, entries, code, rename_map=None, cache_dir=None):
-    """Build a composed expression from catalog entries and/or inline code."""
+_RESERVED_BINDING_NAMES = frozenset({"bind", "xo", "ibis", "into_backend"})
+
+
+def _parse_entry_bindings(raw_entries: tuple[str, ...]) -> dict[str, str]:
+    """Parse repeatable ``-e NAME=ENTRY`` values into an ordered dict.
+
+    Returns ``{}`` when no ``-e`` was given (single-root / linear mode).
+    Insertion order is preserved so the first binding is the default
+    rebind target.
+    """
+    bindings: dict[str, str] = {}
+    for raw in raw_entries:
+        name, sep, entry = raw.partition("=")
+        if not sep or not name or not entry:
+            raise click.BadParameter(
+                f"--entry must be NAME=ENTRY, got {raw!r}",
+                param_hint="-e/--entry",
+            )
+        if not name.isidentifier():
+            raise click.BadParameter(
+                f"binding name {name!r} is not a valid Python identifier",
+                param_hint="-e/--entry",
+            )
+        if keyword.iskeyword(name):
+            raise click.BadParameter(
+                f"binding name {name!r} is a Python keyword",
+                param_hint="-e/--entry",
+            )
+        if name.startswith("__") and name.endswith("__"):
+            raise click.BadParameter(
+                f"binding name {name!r} may not be a dunder",
+                param_hint="-e/--entry",
+            )
+        if name in _RESERVED_BINDING_NAMES:
+            raise click.BadParameter(
+                f"binding name {name!r} is reserved "
+                f"(reserved: {', '.join(sorted(_RESERVED_BINDING_NAMES))})",
+                param_hint="-e/--entry",
+            )
+        if name in bindings:
+            raise click.BadParameter(
+                f"duplicate binding name {name!r}",
+                param_hint="-e/--entry",
+            )
+        bindings[name] = entry
+    return bindings
+
+
+def _resolve_mode(
+    entries: tuple[str, ...], raw_entries: tuple[str, ...], code: str | None
+) -> dict[str, str]:
+    """Validate and return the binding dict (empty in linear mode).
+
+    Positional ENTRIES may be mixed with ``-e`` in two ways:
+    ``-e source=ENTRY transform...`` applies transforms to that binding, while
+    ``ENTRY transform... -e name=other`` exposes the positional chain as
+    ``source`` alongside the extra bindings.
+    """
+    bindings = _parse_entry_bindings(raw_entries)
+    if bindings and entries:
+        if code is None and set(bindings) != {"source"}:
+            raise click.UsageError(
+                "Mixed mode with extra -e/--entry bindings "
+                "requires inline code via -c/--code."
+            )
+    if bindings and not entries and code is None:
+        raise click.UsageError(
+            "Multi-root mode (-e/--entry) requires inline code via -c/--code."
+        )
+    return bindings
+
+
+def _is_cross_backend(expr: Expr) -> bool:
+    """True when *expr* reads from more than one distinct backend object."""
+    from xorq.common.utils.graph_utils import find_all_sources  # noqa: PLC0415
+
+    return len({id(s) for s in find_all_sources(expr)}) > 1
+
+
+def _compose_linear_expr(
+    catalog: Catalog,
+    entries: tuple[str, ...],
+    code: str | None,
+    rename_map: dict[str, dict[str, str]] | None = None,
+    cache_dir: str | Path | None = None,
+    source_alias: str | None = None,
+) -> Expr:
+    """Build a linear source + transforms expression."""
 
     from xorq.catalog.bind import (  # noqa: PLC0415
         _eval_code,
@@ -1223,6 +1317,7 @@ def _compose_expr(catalog, entries, code, rename_map=None, cache_dir=None):
             source=source_entry,
             transforms=transform_entries,
             code=code,
+            alias=source_alias,
         ).expr
 
     def _load(entry):
@@ -1230,10 +1325,11 @@ def _compose_expr(catalog, entries, code, rename_map=None, cache_dir=None):
 
     if source_name in rename_map:
         source_expr = rename_params(_load(source_entry), rename_map[source_name])
+        source_tagged, resolved_con = _resolve_source(source_expr, None, source_alias)
     else:
-        source_expr = _load(source_entry)
-
-    source_tagged, resolved_con = _resolve_source(source_expr, None, None)
+        source_tagged, resolved_con = _resolve_source(
+            source_entry, None, source_alias, cache_dir=cache_dir
+        )
 
     if transform_entries:
         from xorq.catalog.bind import _ensure_remote  # noqa: PLC0415
@@ -1267,6 +1363,57 @@ def _compose_expr(catalog, entries, code, rename_map=None, cache_dir=None):
         current = _eval_code(code, current)
 
     return current
+
+
+def _compose_expr(
+    catalog: Catalog,
+    entries: tuple[str, ...],
+    code: str | None,
+    rename_map: dict[str, dict[str, str]] | None = None,
+    cache_dir: str | Path | None = None,
+    bindings: dict[str, str] | None = None,
+    rebind_backends: bool = True,
+) -> Expr:
+    """Build a composed expression from catalog entries and/or inline code."""
+
+    if bindings:
+        if rename_map:
+            raise click.UsageError(
+                "--rename-params is not supported in multi-root (-e) mode."
+            )
+        import xorq.api as xo  # noqa: PLC0415
+        from xorq.catalog.bind import compose_join  # noqa: PLC0415
+
+        binding_exprs = {}
+        if entries:
+            primary = "source"
+            linear_entries = (
+                (bindings[primary], *entries) if primary in bindings else entries
+            )
+            binding_exprs[primary] = _compose_linear_expr(
+                catalog,
+                linear_entries,
+                None,
+                cache_dir=cache_dir,
+                source_alias=primary,
+            )
+            if code is None and len(bindings) == 1:
+                return binding_exprs[primary]
+
+        # The CLI is the user-facing layer, so the ``xo`` facade is supplied
+        # to the inline-code eval namespace here rather than imported inside
+        # the catalog library (compose_join).
+        return compose_join(
+            catalog,
+            bindings,
+            code,
+            cache_dir=cache_dir,
+            rebind_backends=rebind_backends,
+            eval_namespace={"xo": xo},
+            binding_exprs=binding_exprs,
+        )
+
+    return _compose_linear_expr(catalog, entries, code, rename_map, cache_dir)
 
 
 def _assert_requirements_identical(entry_reqs):
@@ -1463,7 +1610,16 @@ def _forward_ctx_params(ctx, *, exclude=frozenset()):
     )
 
 
-def _compose_via_reinvoke(ctx, catalog, entries):
+def _compose_via_reinvoke(
+    ctx: click.Context,
+    catalog: Catalog,
+    entries: tuple[str, ...],
+    involved_entries: tuple[str, ...] | None = None,
+) -> Path | None:
+    # entries are the positional argv tokens (empty in multi-root mode);
+    # involved_entries are the catalog entries whose wheels to harvest.
+    if involved_entries is None:
+        involved_entries = entries
     dry_run = ctx.params.get("dry_run", False)
     forwarded = _forward_ctx_params(
         ctx, exclude={"use_this_venv", "emit_build_path_to", "alias"}
@@ -1487,7 +1643,7 @@ def _compose_via_reinvoke(ctx, catalog, entries):
         )
         try:
             with _uv_reinvoke_xorq_cli(
-                catalog, entries, *inner_cmd, capture_output=True
+                catalog, involved_entries, *inner_cmd, capture_output=True
             ) as (result, bundle):
                 if dry_run:
                     click.echo(result.stdout, nl=False)
@@ -1517,6 +1673,8 @@ def _compose_via_reinvoke(ctx, catalog, entries):
 
 @cli.command("compose")
 @click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
+@entry_option
+@rebind_backends_option
 @sync_option
 @code_option
 @click.option(
@@ -1555,9 +1713,11 @@ def _compose_via_reinvoke(ctx, catalog, entries):
     ),
 )
 @click.pass_context
-def compose(
+def compose(  # xorq-style: disable=type-annotations
     ctx,
     entries,
+    raw_entries,
+    rebind_backends,
     sync,
     code,
     alias,
@@ -1596,12 +1756,16 @@ def compose(
         span.set_attributes({"entries": entries, "has_code": code is not None})
         with click_context_catalog(ctx):
             catalog = ctx.obj.make_catalog(init=False)
-            if not entries:
+            bindings = _resolve_mode(entries, raw_entries, code)
+            involved_entries = _involved_entries(entries, bindings)
+            if not involved_entries:
                 raise click.UsageError("At least one entry is required.")
 
             if not use_this_venv:
                 span.set_attribute("path", "uv-reinvoke")
-                build_path = _compose_via_reinvoke(ctx, catalog, entries)
+                build_path = _compose_via_reinvoke(
+                    ctx, catalog, entries, involved_entries=involved_entries
+                )
                 if build_path is None:
                     return
             else:
@@ -1611,11 +1775,25 @@ def compose(
                     if raw_rename_params
                     else None
                 )
-                expr = _compose_expr(catalog, entries, code, rename_map=rename_map)
+                expr = _compose_expr(
+                    catalog,
+                    entries,
+                    code,
+                    rename_map=rename_map,
+                    cache_dir=cache_dir if bindings else None,
+                    bindings=bindings,
+                    rebind_backends=rebind_backends,
+                )
 
                 if dry_run:
                     click.echo("Dry run — composition plan:")
-                    click.echo(f"  Entries: {' -> '.join(entries)}")
+                    if bindings:
+                        click.echo(
+                            "  Bindings: "
+                            + ", ".join(f"{k}={v}" for k, v in bindings.items())
+                        )
+                    else:
+                        click.echo(f"  Entries: {' -> '.join(entries)}")
                     if code:
                         click.echo(f"  Code: {code}")
                     sch = expr.schema()
@@ -1635,7 +1813,7 @@ def compose(
                     Path(emit_build_path_to).write_text(str(build_path))
                     return
 
-                with _entry_run_bundle(catalog, entries) as bundle:
+                with _entry_run_bundle(catalog, involved_entries) as bundle:
                     _stage_bundle_into_build(bundle, build_path)
             entry_name = build_path.name
             aliases = (alias,) if alias else ()
@@ -1692,7 +1870,18 @@ def _has_expr_modifications(ctx):
         return True
     if p.get("limit") is not None:
         return True
-    return bool(p.get("code") or p.get("raw_params") or p.get("raw_rename_params"))
+    return bool(
+        p.get("code")
+        or p.get("raw_entries")
+        or p.get("raw_params")
+        or p.get("raw_rename_params")
+    )
+
+
+def _involved_entries(
+    entries: tuple[str, ...], bindings: dict[str, str]
+) -> tuple[str, ...]:
+    return (*bindings.values(), *entries) if bindings else entries
 
 
 def _log_run_metrics(rl, span, prefix, elapsed, output_format, output_path):
@@ -1708,10 +1897,21 @@ def _log_run_metrics(rl, span, prefix, elapsed, output_format, output_path):
         rl.log_span_event(span, f"{prefix}.output_written", file_metrics)
 
 
-def _reinvoke_and_log(ctx, catalog, entries, span, rl):
+def _reinvoke_and_log(
+    ctx: click.Context,
+    catalog: Catalog,
+    entries: tuple[str, ...],
+    span: Span,
+    rl: RunLogger,
+    involved_entries: tuple[str, ...] | None = None,
+) -> None:
     """Reinvoke the current Click command in the entries' pinned env and log metrics."""
     from xorq.common.utils.profile_utils import timed  # noqa: PLC0415
 
+    # entries are the positional argv tokens (empty in multi-root mode);
+    # involved_entries are the catalog entries whose wheels to harvest.
+    if involved_entries is None:
+        involved_entries = entries
     span.set_attribute("path", "uv-reinvoke")
     forwarded = _forward_ctx_params(ctx, exclude={"use_this_venv"})
     inner_cmd = (
@@ -1724,7 +1924,10 @@ def _reinvoke_and_log(ctx, catalog, entries, span, rl):
         *forwarded,
         "--use-this-venv",
     )
-    with timed() as get_elapsed, _uv_reinvoke_xorq_cli(catalog, entries, *inner_cmd):
+    with (
+        timed() as get_elapsed,
+        _uv_reinvoke_xorq_cli(catalog, involved_entries, *inner_cmd),
+    ):
         pass
 
     span_prefix = f"catalog_{ctx.info_name.replace('-', '_')}"
@@ -1755,18 +1958,38 @@ def _resolve_and_execute(
     output_path = p.get("output_path")
     output_format = p.get("output_format")
 
+    raw_entries = p.get("raw_entries", ())
+    rebind_backends = p.get("rebind_backends", True)
+    bindings = _resolve_mode(entries, raw_entries, code)
+
     rename_map = _parse_rename_params(raw_rename_params) if raw_rename_params else None
 
     span.set_attribute("path", "in-process")
     with timed() as get_elapsed:
-        if len(entries) > 1:
+        if bindings:
+            expr = _compose_expr(
+                catalog,
+                entries,
+                code,
+                rename_map=rename_map,
+                cache_dir=cache_dir,
+                bindings=bindings,
+                rebind_backends=rebind_backends,
+            )
+        elif len(entries) > 1:
             expr = _compose_expr(
                 catalog, entries, code, rename_map=rename_map, cache_dir=cache_dir
             )
         else:
             (entry,) = entries
             expr = _resolve_single_entry(
-                catalog, entry, code, instream, rename_map, span, cache_dir=cache_dir
+                catalog,
+                entry,
+                code,
+                instream,
+                rename_map,
+                span,
+                cache_dir=cache_dir,
             )
         rl.log_span_event(
             span,
@@ -1776,7 +1999,12 @@ def _resolve_and_execute(
 
     expr = _apply_cli_params(expr, raw_params)
 
-    if fuse:
+    # Catalog fusion strips RemoteTable wrappers for single-backend
+    # push-down, but doing so over an explicit cross-backend
+    # into_backend(...) transport collapses the transport and breaks
+    # execution. In multi-root mode, only fuse when the (post-rebind)
+    # expression lives on a single backend.
+    if fuse and not (bindings and _is_cross_backend(expr)):
         expr = expr.ls.fused
     if expr_transform is not None:
         expr = expr_transform(expr)
@@ -1791,6 +2019,8 @@ def _resolve_and_execute(
 
 @cli.command("run")
 @click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
+@entry_option
+@rebind_backends_option
 @code_option
 @output_options
 @limit_option
@@ -1819,9 +2049,11 @@ def _resolve_and_execute(
     ),
 )
 @click.pass_context
-def run(
+def run(  # xorq-style: disable=type-annotations
     ctx,
     entries,
+    raw_entries,
+    rebind_backends,
     code,
     output_path,
     output_format,
@@ -1868,13 +2100,15 @@ def run(
     with tracer.start_as_current_span("catalog.run") as span:
         span.set_attributes({"entries": entries, "has_code": code is not None})
         with click_context_catalog(ctx):
-            if not entries:
+            bindings = _resolve_mode(entries, raw_entries, code)
+            involved_entries = _involved_entries(entries, bindings)
+            if not involved_entries:
                 raise click.UsageError("At least one entry is required.")
 
-            expr_hash = "+".join(entries)
+            expr_hash = "+".join(involved_entries)
             run_params = (
                 ("expr_hash", expr_hash),
-                ("entries", ",".join(entries)),
+                ("entries", ",".join(involved_entries)),
                 ("has_code", str(code is not None)),
                 ("output_format", str(output_format)),
                 ("output_path", str(output_path)),
@@ -1932,7 +2166,14 @@ def run(
                         return
 
                 if not use_this_venv:
-                    _reinvoke_and_log(ctx, catalog, entries, span, rl)
+                    _reinvoke_and_log(
+                        ctx,
+                        catalog,
+                        entries,
+                        span,
+                        rl,
+                        involved_entries=involved_entries,
+                    )
                     return
 
                 _resolve_and_execute(
@@ -1942,6 +2183,8 @@ def run(
 
 @cli.command("run-cached")
 @click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
+@entry_option
+@rebind_backends_option
 @code_option
 @output_options
 @limit_option
@@ -1971,9 +2214,11 @@ def run(
     ),
 )
 @click.pass_context
-def run_cached(
+def run_cached(  # xorq-style: disable=type-annotations
     ctx,
     entries,
+    raw_entries,
+    rebind_backends,
     code,
     output_path,
     output_format,
@@ -2018,15 +2263,17 @@ def run_cached(
     with tracer.start_as_current_span("catalog.run_cached") as span:
         span.set_attributes({"entries": entries, "has_code": code is not None})
         with click_context_catalog(ctx):
-            if not entries:
+            bindings = _resolve_mode(entries, raw_entries, code)
+            involved_entries = _involved_entries(entries, bindings)
+            if not involved_entries:
                 raise click.UsageError("At least one entry is required.")
 
             resolved_cache_dir = _get_cache_dir(cache_dir)
 
-            expr_hash = "+".join(entries)
+            expr_hash = "+".join(involved_entries)
             run_params = (
                 ("expr_hash", expr_hash),
-                ("entries", ",".join(entries)),
+                ("entries", ",".join(involved_entries)),
                 ("has_code", str(code is not None)),
                 ("output_format", str(output_format)),
                 ("output_path", str(output_path)),
@@ -2045,7 +2292,14 @@ def run_cached(
                 catalog = ctx.obj.make_catalog(init=False)
 
                 if not use_this_venv:
-                    _reinvoke_and_log(ctx, catalog, entries, span, rl)
+                    _reinvoke_and_log(
+                        ctx,
+                        catalog,
+                        entries,
+                        span,
+                        rl,
+                        involved_entries=involved_entries,
+                    )
                     return
 
                 def _wrap_cache(expr):
