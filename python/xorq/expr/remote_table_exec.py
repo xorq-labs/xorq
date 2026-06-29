@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import threading
 import weakref
 from collections import Counter
 from typing import Any, Callable, NamedTuple
@@ -281,6 +282,50 @@ class RemoteTableScope:
         self.close()
 
 
+class _LockedGen:
+    """Serializes advancement and close of a wrapped generator.
+
+    A datafusion scan can park the foreground ``next()`` inside an FFI pull
+    (the generator frame is in the *executing* state, not suspended) while a
+    background pull lags. If the ``weakref.finalize`` backstop then calls
+    ``close()`` on that frame, CPython raises ``ValueError: generator already
+    executing`` -- in a finalizer/daemon-thread context that escapes and aborts
+    the process. The shared lock guarantees ``close()`` only runs while the
+    generator is suspended, never mid-advance. Same race class as the
+    ``DrainingIterator`` advance lock (#2107).
+    """
+
+    def __init__(self, gen) -> None:
+        self._gen = gen
+        self._lock = threading.Lock()
+        self._closed = False
+
+    def __iter__(self) -> "_LockedGen":
+        return self
+
+    def __next__(self):
+        with self._lock:
+            if self._closed:
+                raise StopIteration
+            return next(self._gen)
+
+    def close(self) -> None:
+        # Non-blocking acquire: closing an *executing* frame raises
+        # ``ValueError: generator already executing``, and *blocking* until the
+        # advance returns can wedge the finalizer during interpreter teardown
+        # (GIL-release fatal). So if an advance holds the lock, skip the gen
+        # close entirely -- that in-flight consumer owns the generator's
+        # teardown (its ``finally`` runs ``scope.close()``); the caller's
+        # explicit ``scope.close()`` still fires regardless.
+        if self._lock.acquire(blocking=False):
+            try:
+                if not self._closed:
+                    self._closed = True
+                    self._gen.close()
+            finally:
+                self._lock.release()
+
+
 def bind_scope_to_reader(
     scope: RemoteTableScope,
     reader: pa.RecordBatchReader,
@@ -295,6 +340,10 @@ def bind_scope_to_reader(
     never-started generator never runs its ``finally``).  Note that on
     pyarrow 21 ``reader.close()`` alone does not finalize the wrapped
     generator -- cleanup then fires when the last reference drops.
+
+    The generator is wrapped in ``_LockedGen`` so the finalizer's ``close()``
+    cannot race a foreground advance still parked inside a datafusion FFI pull
+    (see ``_LockedGen``).
     """
 
     def gen():
@@ -308,11 +357,11 @@ def bind_scope_to_reader(
             # (remote_table_scope) surface drain failures instead.
             scope.close()
 
-    g = gen()
-    out = pa.RecordBatchReader.from_batches(reader.schema, g)
+    locked = _LockedGen(gen())
+    out = pa.RecordBatchReader.from_batches(reader.schema, locked)
 
     def _cleanup() -> None:
-        g.close()
+        locked.close()
         scope.close()
 
     weakref.finalize(out, _cleanup)

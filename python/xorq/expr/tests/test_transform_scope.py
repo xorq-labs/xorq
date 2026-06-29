@@ -9,6 +9,7 @@ result readers.
 from __future__ import annotations
 
 import gc
+import threading
 from collections.abc import Callable
 
 import pandas as pd
@@ -22,6 +23,7 @@ from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.api import get_plans, to_pyarrow_batches
 from xorq.expr.remote_table_exec import (
     RemoteTableScope,
+    _LockedGen,
     bind_scope_to_reader,
     drop_placeholder,
     prepare_create_table_from_expr,
@@ -397,6 +399,61 @@ def test_bind_closes_at_drain_not_gc() -> None:
     bound.read_all()
     assert closed == ["drain"], "bind must close at exhaustion, not at reader GC"
     del bound
+
+
+def test_locked_gen_close_during_advance_does_not_raise() -> None:
+    # Regression: a datafusion scan can park the foreground next() inside an
+    # FFI pull (frame *executing*, not suspended). A bare gen.close() then
+    # raises "ValueError: generator already executing" -- in the weakref
+    # finalizer this aborts the process. _LockedGen must make close() a no-op
+    # while an advance holds the lock. Same race class as #2107.
+    in_pull = threading.Event()
+    release = threading.Event()
+
+    def slow():
+        for i in range(100):
+            in_pull.set()
+            release.wait()  # simulate an in-flight FFI pull
+            yield i
+
+    locked = _LockedGen(slow())
+    errors: list[BaseException] = []
+
+    def advance() -> None:
+        try:
+            next(locked)
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    t = threading.Thread(target=advance)
+    t.start()
+    assert in_pull.wait(timeout=5), "advance never reached the in-flight pull"
+
+    # close() while the advance is mid-flight must not raise and must not block.
+    locked.close()  # would raise ValueError on a bare generator
+
+    release.set()
+    t.join(timeout=5)
+    assert not t.is_alive()
+    assert errors == []
+
+
+def test_locked_gen_close_when_idle_closes_generator() -> None:
+    closed: list[bool] = []
+
+    def gen():
+        try:
+            yield 1
+        finally:
+            closed.append(True)
+
+    locked = _LockedGen(gen())
+    assert next(locked) == 1
+    locked.close()
+    assert closed == [True]
+    # idempotent
+    locked.close()
+    assert closed == [True]
 
 
 def test_scope_close_closes_adopted_readers() -> None:
