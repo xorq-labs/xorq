@@ -377,6 +377,31 @@ def test_pinned_cache_yaml_roundtrip(
     assert pinned.execute().equals(roundtrip_expr.execute())
 
 
+def test_pinned_cache_yaml_roundtrip_multi_engine(
+    builds_dir: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
+    # Cache across engines: the CachedNode.parent is a RemoteTable, so pinning
+    # takes the `remote_expr` branch and the CacheTag's `uncached` payload
+    # carries the RemoteTable through YAML serialization (the ADR-0015
+    # _replace_remote_table failure mode the CacheTag docstring flags).
+    con = xo.connect()
+    con2 = xo.connect()
+    t = con.register(pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}), "tbl")
+    cache = ParquetCache.from_kwargs(relative_path=tmp_path, source=con2)
+    cached = t.into_backend(con2).cache(cache)
+    # guard: this test is only meaningful if the cached parent is a RemoteTable
+    assert isinstance(cached.op().parent.op(), RemoteTable)
+    # materialize the cache so the pinned expr can read it directly
+    cached.execute()
+    pinned = cached.ls.pin()
+
+    roundtrip_expr = do_roundtrip_expr(pinned, builds_dir=builds_dir)
+
+    assert walk_nodes((CacheTag,), roundtrip_expr)
+    assert not walk_nodes((CachedNode,), roundtrip_expr)
+    assert pinned.execute().equals(roundtrip_expr.execute())
+
+
 @pytest.mark.parametrize(
     "table_from_df",
     (
