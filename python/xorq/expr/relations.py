@@ -142,22 +142,20 @@ class CacheTag(Tag):
     carries the information needed to reconstruct the original ``CachedNode``.
 
     ``parent`` is the direct read of the cache file/table (what ``cache.get``
-    returns), so a pinned expression executes by reading the materialized
-    artifact directly -- it never re-derives the upstream computation.
-    ``unpin_cache`` reads ``uncached``/``cache`` back to rebuild the
-    ``CachedNode``.
+    returns), so a pinned expression reads the materialized artifact directly
+    and never re-derives the upstream computation. ``cache`` is inert
+    reconstruction payload; ``unpin_cache`` reads ``uncached``/``cache`` back
+    to rebuild the ``CachedNode``.
 
-    ``cache`` is inert reconstruction payload (read only by ``unpin_cache``).
-    ``uncached`` is the original pre-cache expr: xorq's graph machinery *does*
-    descend into it (see ``gen_children_of``) so its leaves/backends are found
-    for source normalization and serialization, but its *structure* is
-    intentionally absent from the build hash. That is safe -- not a gap --
-    because ``parent`` is the cache ``Read`` whose ``hash_path`` is the upstream
-    cache key, so the upstream identity is already folded in; ``uncached`` is
-    functionally determined by ``parent``. Do NOT add ``__dasher_tokenize__``
-    to fold ``uncached``: it carries fields the cache key strips (e.g.
-    ``RemoteTable.name``), so folding it would make logically-identical pins
-    hash differently (the ADR-0015 ``_replace_remote_table`` failure mode).
+    INVARIANT -- do NOT add ``__dasher_tokenize__`` to fold ``uncached`` into
+    the build hash. ``uncached`` (the original pre-cache expr) is descended by
+    the graph machinery (see ``gen_children_of``) only so its leaves/backends
+    are found for source normalization and serialization; its *structure* is
+    intentionally absent from the hash. That is safe, not a gap: ``parent`` is
+    the cache ``Read`` whose ``hash_path`` is the upstream cache key, so the
+    upstream identity is already folded in. ``uncached`` also carries fields the
+    cache key strips (e.g. ``RemoteTable.name``), so folding it would make
+    logically-identical pins hash differently (ADR-0015 ``_replace_remote_table``).
 
     Pinning is a freeze-time operation and is deliberately *not*
     cache-hash-neutral: the cache file read by ``parent`` participates in the

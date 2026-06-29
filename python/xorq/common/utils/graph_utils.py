@@ -44,9 +44,7 @@ def gen_children_of(node: Node) -> Tuple[Node, ...]:
             gen = (to_node(node.parent),)
 
         case rel.CacheTag():
-            # parent is the direct read of the cache location; uncached is the
-            # opaque reconstruction payload (descended like CachedNode.parent so
-            # its backends/reads are discovered for serialization).
+            # descend both opaque children (see CacheTag docstring)
             gen = (to_node(node.parent), to_node(node.uncached))
 
         case rel.FlightExpr() | rel.FlightUDXF():
@@ -147,7 +145,7 @@ def replace_nodes(
                 # not be forwarded: it carries CachedNode fields (`name`, `source`)
                 # CacheTag lacks, and its `parent` is the upstream computation, which
                 # would clobber the cache-file read the replacer set as CacheTag.parent
-                # -- defeating the pin. Only `uncached` (opaque) still needs rewriting.
+                # -- defeating the pin.
                 uncached = _replace_sub(to_node(op.uncached))
                 return do_recreate(op, None, uncached=uncached)
             case rel.FlightExpr() | rel.FlightUDXF():
