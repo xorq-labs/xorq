@@ -78,6 +78,34 @@ cache_dir_option = click.option(
 )
 
 
+# Shared by `xorq build`, `xorq pin/unpin`, and `xorq catalog pin/unpin` so the
+# flag, default, and structure stay identical across all of them. Only the noun
+# (build vs catalog entry) and whether frozen caches are in play (pin only) vary.
+def relocate_reads_option(
+    noun: str = "build", *, include_caches: bool = False
+) -> Callable[[_F], _F]:
+    caches = " (including frozen caches)" if include_caches else ""
+    return click.option(
+        "--relocate-reads/--no-relocate-reads",
+        default=True,
+        show_default=True,
+        help=(
+            f"Bundle local-file Read nodes{caches} into the {noun} so it is "
+            "self-contained and runnable from anywhere. Remote reads "
+            "(s3://, gs://, ...) are already location-independent and left in "
+            f"place. Pass --no-relocate-reads for a lean, machine-local {noun}."
+        ),
+    )
+
+
+ensure_materialized_option = click.option(
+    "-e",
+    "--ensure-materialized",
+    is_flag=True,
+    help="Materialize any unpopulated caches (by executing) before pinning.",
+)
+
+
 def cache_strategy_options(fn):
     fn = click.option(
         "--ttl",

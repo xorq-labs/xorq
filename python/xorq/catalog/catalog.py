@@ -13,7 +13,7 @@ from contextlib import (
 from functools import cached_property, partial
 from pathlib import Path
 from subprocess import Popen
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlparse
 
 import attr
@@ -74,6 +74,10 @@ from xorq.catalog.s3_utils import S3_SECRET_FIELDS
 from xorq.catalog.zip_utils import BuildZip, make_zip_context, with_pure_suffix
 from xorq.common.utils.logging_utils import get_logger
 from xorq.ibis_yaml.enums import DumpFiles, ExprKind
+
+
+if TYPE_CHECKING:
+    from xorq.api import Expr
 
 
 logger = get_logger(__name__)
@@ -369,8 +373,16 @@ class Catalog:
                 zip_path, sync=sync, aliases=aliases, exist_ok=exist_ok
             )
 
-    def _add_expr(self, expr, sync=True, aliases=(), exist_ok=False, project_path=None):
-        with build_expr_context(expr) as path:
+    def _add_expr(
+        self,
+        expr: Expr,
+        sync: bool = True,
+        aliases: tuple[str, ...] = (),
+        exist_ok: bool = False,
+        project_path: Path | None = None,
+        relocate_reads: bool = False,
+    ) -> CatalogEntry:
+        with build_expr_context(expr, relocate_reads=relocate_reads) as path:
             return self._add_build_dir(
                 path,
                 sync=sync,
@@ -379,7 +391,15 @@ class Catalog:
                 project_path=project_path,
             )
 
-    def add(self, obj, sync=True, aliases=(), exist_ok=False, project_path=None):
+    def add(
+        self,
+        obj: Expr | Path,
+        sync: bool = True,
+        aliases: tuple[str, ...] = (),
+        exist_ok: bool = False,
+        project_path: Path | None = None,
+        relocate_reads: bool = False,
+    ) -> CatalogEntry:
         """Add a build to the catalog.
 
         *obj* may be a ``Path`` to a zip archive, a ``Path`` to a build
@@ -391,25 +411,41 @@ class Catalog:
         it explicitly is required when the caller's cwd is not inside the
         project (e.g. Jupyter kernels started from ``/tmp``).  Ignored for zip
         inputs, which are already complete build archives.
+
+        *relocate_reads* controls how the build is produced and so only applies
+        to an ``Expr`` input; ``Path`` inputs are already-built artifacts whose
+        reads were settled at build time.
         """
         from xorq.api import Expr  # noqa: PLC0415
 
+        if relocate_reads and not isinstance(obj, Expr):
+            raise ValueError(
+                "relocate_reads only applies to an Expr input; "
+                f"{type(obj)} is an already-built artifact"
+            )
+
         match obj:
             case Path() if obj.is_dir():
-                f = self._add_build_dir
+                return self._add_build_dir(
+                    obj,
+                    sync=sync,
+                    aliases=aliases,
+                    exist_ok=exist_ok,
+                    project_path=project_path,
+                )
             case Path() if obj.is_file():
                 return self._add_zip(obj, sync=sync, aliases=aliases, exist_ok=exist_ok)
             case Expr():
-                f = self._add_expr
+                return self._add_expr(
+                    obj,
+                    sync=sync,
+                    aliases=aliases,
+                    exist_ok=exist_ok,
+                    project_path=project_path,
+                    relocate_reads=relocate_reads,
+                )
             case _:
                 raise ValueError(f"don't know how to handle type={type(obj)}")
-        return f(
-            obj,
-            sync=sync,
-            aliases=aliases,
-            exist_ok=exist_ok,
-            project_path=project_path,
-        )
 
     def remove(self, name, sync=True):
         """Remove an entry (and its aliases) from the catalog by name."""

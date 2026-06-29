@@ -233,6 +233,17 @@ def cache_keyed_expr(parent: Expr) -> Expr:
     return parent_op.remote_expr if isinstance(parent_op, RemoteTable) else parent
 
 
+def _cached_node_materialized(node: CachedNode) -> bool:
+    """Whether ``node``'s cache is already populated.
+
+    Uses the same key derivation (``cache_keyed_expr`` + ``calc_key``/
+    ``key_exists``) as ``_cached_node_to_cache_tag`` so the pre-pin
+    materialization check and the pin itself agree on cache identity.
+    """
+    cache = node.cache
+    return cache.key_exists(cache.calc_key(cache_keyed_expr(node.parent)))
+
+
 def _cached_node_to_cache_tag(node: CachedNode) -> CacheTag:
     cache = node.cache
     # compute the cache key once: cache.exists + cache.get would each recompute
@@ -335,13 +346,33 @@ def _replace_op_type(
     return replace_nodes(replacer, expr).to_expr()
 
 
-def pin_cache(expr: Expr) -> Expr:
+def pin_cache(expr: Expr, ensure_materialized: bool = False) -> Expr:
     """Freeze every ``CachedNode`` into a ``CacheTag`` reading its cache location.
 
     Each cache must already be materialized; the resulting expression reads the
     cached artifacts directly without re-deriving them. Inverse of
     :func:`unpin_cache`.
+
+    When ``ensure_materialized`` is set, every cache that is not yet populated is
+    materialized before freezing -- already-materialized caches are skipped, and
+    operations downstream of the caches are never run. ``cached_nodes`` is
+    outermost-first, so executing an outer cold cache cascades through and warms
+    its nested caches; the per-node check then skips them. The result is one
+    ``head(0)`` execute per independent cold subtree, and -- because every cache
+    is checked -- a cache that went cold independently of its outer (TTL expiry,
+    eviction) is still re-materialized rather than silently skipped.
+
+    The materializing execute is wrapped in ``head(0)``: cache population is a
+    side effect of the execute pass (the full parent is written to storage
+    independent of any row limit, which applies only on read-back), so
+    requesting zero rows back fully writes the cache without pulling its
+    contents into client memory.
     """
+    if ensure_materialized:
+        for node in expr.ls.cached_nodes:
+            if not _cached_node_materialized(node):
+                node.to_expr().head(0).execute()
+
     return _replace_op_type(expr, CachedNode, _cached_node_to_cache_tag)
 
 

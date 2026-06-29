@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import collections.abc
 import contextlib
 import datetime
@@ -7,6 +9,7 @@ import sys
 import traceback
 from functools import partial, wraps
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
@@ -14,13 +17,19 @@ from xorq.cli_constants import DEFAULT_CACHE_TYPE, DEFAULT_OUTPUT_FORMAT, Output
 from xorq.cli_options import (
     cache_dir_option,
     cache_strategy_options,
+    ensure_materialized_option,
     limit_option,
     output_options,
     params_option,
+    relocate_reads_option,
     serve_options,
     unbind_options,
 )
 from xorq.init_templates import InitTemplates
+
+
+if TYPE_CHECKING:
+    from xorq.api import Expr
 
 
 @contextlib.contextmanager
@@ -1092,11 +1101,7 @@ def uv_run_unbound(
     is_flag=True,
     help="Output SQL files and other debug artifacts.",
 )
-@click.option(
-    "--relocate-reads",
-    is_flag=True,
-    help="Bundle all local-file Read nodes into the build artifact.",
-)
+@relocate_reads_option()
 @click.option(
     "--emit-build-path-to",
     type=click.Path(),
@@ -1173,6 +1178,167 @@ def run(build_path, cache_dir, output_path, output_format, limit, raw_params):
     """
     with maybe_unzip(build_path) as p:
         run_command(p, output_path, output_format, cache_dir, limit, raw_params)
+
+
+def apply_pin_transform(
+    expr: Expr,
+    *,
+    do_pin: bool,
+    ensure_materialized: bool = False,
+    cold_cache_hint: str = "",
+) -> Expr:
+    """Pin or unpin ``expr``, translating a cold-cache pin into a clean CLI error.
+
+    Shared by the build-level and catalog-level pin/unpin commands. When pinning
+    without ``ensure_materialized``, an unmaterialized cache raises
+    ``IntegrityError``; we re-raise it as a ``ClickException`` with
+    ``cold_cache_hint`` appended. Under ``ensure_materialized`` materialization is
+    guaranteed, so a stray ``IntegrityError`` is a real bug and surfaces raw.
+    """
+    if ensure_materialized and not do_pin:
+        raise click.ClickException(
+            "--ensure-materialized/-e only applies when pinning."
+        )
+    if not do_pin:
+        return expr.ls.unpin()
+    if ensure_materialized:
+        return expr.ls.pin(ensure_materialized=True)
+    from xorq.common.exceptions import IntegrityError  # noqa: PLC0415
+
+    try:
+        return expr.ls.pin()
+    except IntegrityError as err:
+        raise click.ClickException(f"{err}\n{cold_cache_hint}") from err
+
+
+@_lazy_span("cli.pin_command")
+def pin_command(
+    build_path: str,
+    *,
+    do_pin: bool,
+    builds_dir: str = "builds",
+    cache_dir: str | None = None,
+    ensure_materialized: bool = False,
+    relocate_reads: bool = True,
+) -> Path:
+    """Freeze (pin) or thaw (unpin) the caches of a build artifact.
+
+    Pinning replaces each materialized ``CachedNode`` with a direct read of its
+    cache file; unpinning is the inverse.
+
+    When ``ensure_materialized`` is set, any caches that are not yet populated
+    are materialized (by executing the expression) before pinning; caches that
+    are already materialized are left untouched, so no redundant work runs.
+
+    ``relocate_reads`` bundles local-file reads into the build so it stays
+    portable; for a pin this also bundles the source reads *behind* the cache
+    (on ``CacheTag.uncached``, never executed in the pinned form) so a later
+    ``unpin`` can recompute from them.
+    """
+    from xorq.ibis_yaml.compiler import build_expr, load_expr  # noqa: PLC0415
+
+    cache_dir = _get_cache_dir(cache_dir)
+    with maybe_unzip(build_path) as p:
+        expr = load_expr(p, cache_dir=cache_dir)
+        expr = apply_pin_transform(
+            expr,
+            do_pin=do_pin,
+            ensure_materialized=ensure_materialized,
+            cold_cache_hint=(
+                "Populate the caches first "
+                f"(xorq run {build_path} --cache-dir {cache_dir}) "
+                "or pass --ensure-materialized/-e."
+            ),
+        )
+        out = build_expr(
+            expr,
+            builds_dir=builds_dir,
+            cache_dir=Path(cache_dir),
+            relocate_reads=relocate_reads,
+        )
+    click.echo(out)
+    return out
+
+
+_PIN_BUILDS_DIR_OPTION = click.option(
+    "--builds-dir",
+    default="builds",
+    show_default=True,
+    help="Directory for the resulting build artifact.",
+)
+
+
+@cli.command("pin")
+@click.argument("build_path")
+@_PIN_BUILDS_DIR_OPTION
+@cache_dir_option
+@ensure_materialized_option
+@relocate_reads_option(include_caches=True)
+def pin(
+    build_path: str,
+    builds_dir: str,
+    cache_dir: str | None,
+    ensure_materialized: bool,
+    relocate_reads: bool,
+) -> None:
+    """Freeze a build's caches into direct reads (pin).
+
+    Each materialized cache becomes a direct read of its cache file, so the
+    pinned build executes by reading artifacts instead of re-deriving them.
+    Combine with --relocate-reads to produce a self-contained, portable build.
+
+    \b
+    Arguments:
+      BUILD_PATH  Path to the build directory produced by `xorq build`.
+
+    \b
+    Examples:
+      # Pin a build whose caches are already materialized
+      xorq pin builds/f02d28198715 --cache-dir ./cache
+      # Materialize any missing caches, then pin into a portable bundle
+      xorq pin builds/f02d28198715 --cache-dir ./cache -e --relocate-reads
+    """
+    pin_command(
+        build_path,
+        do_pin=True,
+        builds_dir=builds_dir,
+        cache_dir=cache_dir,
+        ensure_materialized=ensure_materialized,
+        relocate_reads=relocate_reads,
+    )
+
+
+@cli.command("unpin")
+@click.argument("build_path")
+@_PIN_BUILDS_DIR_OPTION
+@cache_dir_option
+@relocate_reads_option()
+def unpin(
+    build_path: str,
+    builds_dir: str,
+    cache_dir: str | None,
+    relocate_reads: bool,
+) -> None:
+    """Thaw a pinned build's frozen caches back into recomputable caches (unpin).
+
+    Inverse of `xorq pin`: each frozen cache read is rebuilt into its original
+    cache node, restoring the recompute-capable form.
+
+    \b
+    Arguments:
+      BUILD_PATH  Path to a pinned build directory.
+
+    \b
+    Examples:
+      xorq unpin builds/f02d28198715 --cache-dir ./cache
+    """
+    pin_command(
+        build_path,
+        do_pin=False,
+        builds_dir=builds_dir,
+        cache_dir=cache_dir,
+        relocate_reads=relocate_reads,
+    )
 
 
 @cli.command("run-cached")

@@ -58,10 +58,23 @@ def make_read_kwargs(f, *args, **kwargs):
 
 
 def relocatable_read_path(path: str | Path) -> tuple[str, str]:
+    """Path parts (``(<dir>, <filename>)``) of a bundled relocatable read.
+
+    Single source of truth for the on-disk layout of a relocated read: the
+    directory comes from ``BundledSourceTypes.read`` and the filename is the
+    content hash of the source. Both the pre-hash pass
+    (``_ensure_relocatable_read_paths``) and the write pass
+    (``ExprDumper._prepare_relocatable_read``) derive the serialized
+    ``read_path`` from this, so they cannot drift.
+    """
     from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
+    from xorq.ibis_yaml.enums import BundledSourceTypes  # noqa: PLC0415
 
     path = Path(path)
-    return ("reads", f"{tokenize(normalize_read_path_md5sum(path))}{path.suffix}")
+    return (
+        BundledSourceTypes.read.value,
+        f"{tokenize(normalize_read_path_md5sum(path))}{path.suffix}",
+    )
 
 
 @toolz.curry

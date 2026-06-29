@@ -1351,6 +1351,24 @@ def test_relocate_reads_flag_changes_build_hash(
     assert default_path.name != reloc_path.name
 
 
+def test_relocate_reads_build_is_load_rebuild_hash_stable(
+    builds_dir: pathlib.Path, sample_parquet: pathlib.Path
+) -> None:
+    """A relocated build must be load+rebuild hash-stable.
+
+    The fresh build's hash is taken after read_path is baked in (see
+    _ensure_relocatable_read_paths), so it equals every later load+rebuild --
+    otherwise pin/unpin (which reload+rebuild) could never restore the original
+    `xorq build` hash for a file-backed build.
+    """
+    t = deferred_read_parquet(sample_parquet)
+    fresh = build_expr(t, builds_dir=builds_dir / "fresh", relocate_reads=True)
+    rebuilt = build_expr(
+        load_expr(fresh), builds_dir=builds_dir / "rebuilt", relocate_reads=True
+    )
+    assert fresh.name == rebuilt.name
+
+
 def test_relocatable_api_and_flag_produce_same_hash(
     builds_dir: pathlib.Path, sample_parquet: pathlib.Path
 ) -> None:
