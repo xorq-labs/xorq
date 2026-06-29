@@ -169,10 +169,13 @@ class CacheTag(Tag):
 
 
 def _cached_node_to_cache_tag(node: CachedNode) -> CacheTag:
+    from xorq.common.utils.graph_utils import to_node  # noqa: PLC0415
+
     cache = node.cache
     parent = node.parent
+    parent_op = to_node(parent)
     uncached_one = (
-        parent.op().remote_expr if isinstance(parent.op(), RemoteTable) else parent
+        parent_op.remote_expr if isinstance(parent_op, RemoteTable) else parent
     )
     if not cache.exists(uncached_one):
         raise IntegrityError(
@@ -202,6 +205,25 @@ def _cache_tag_to_cached_node(node: CacheTag) -> CachedNode:
     )
 
 
+def _replace_op_type(
+    expr: Expr, op_type: type[Node], transform: Callable[[Node], Node]
+) -> Expr:
+    """Rewrite every ``op_type`` node in *expr* via *transform*, descending into
+    opaque sub-expressions. *transform* maps a node of ``op_type`` to its
+    replacement.
+    """
+    from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
+
+    def replacer(node, kwargs):
+        if kwargs:
+            node = node.__recreate__(kwargs)
+        if isinstance(node, op_type):
+            node = transform(node)
+        return node
+
+    return replace_nodes(replacer, expr).to_expr()
+
+
 def pin_cache(expr: Expr) -> Expr:
     """Freeze every ``CachedNode`` into a ``CacheTag`` reading its cache location.
 
@@ -209,16 +231,7 @@ def pin_cache(expr: Expr) -> Expr:
     cached artifacts directly without re-deriving them. Inverse of
     :func:`unpin_cache`.
     """
-    from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
-
-    def replacer(node, kwargs):
-        if kwargs:
-            node = node.__recreate__(kwargs)
-        if isinstance(node, CachedNode):
-            node = _cached_node_to_cache_tag(node)
-        return node
-
-    return replace_nodes(replacer, expr).to_expr()
+    return _replace_op_type(expr, CachedNode, _cached_node_to_cache_tag)
 
 
 def unpin_cache(expr: Expr) -> Expr:
@@ -226,16 +239,7 @@ def unpin_cache(expr: Expr) -> Expr:
 
     Inverse of :func:`pin_cache`.
     """
-    from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
-
-    def replacer(node, kwargs):
-        if kwargs:
-            node = node.__recreate__(kwargs)
-        if isinstance(node, CacheTag):
-            node = _cache_tag_to_cached_node(node)
-        return node
-
-    return replace_nodes(replacer, expr).to_expr()
+    return _replace_op_type(expr, CacheTag, _cache_tag_to_cached_node)
 
 
 gen_name_namespace = "rbr-placeholder"
