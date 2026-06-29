@@ -40,15 +40,9 @@ def parse_url(url: str) -> Dict[str, Any]:
 
 
 def _overwrite_table_data(iceberg_table: IcebergTable, data: pa.Table):
-    tx = iceberg_table.transaction()
-    tx.delete(delete_filter=ALWAYS_TRUE)
-
-    update_snapshot = tx.update_snapshot()
-    with update_snapshot.fast_append() as append_files:
-        for data_file in iceberg_table.writer().write_table(data):
-            append_files.append_data_file(data_file)
-
-    tx.commit_transaction()
+    with iceberg_table.transaction() as tx:
+        tx.delete(delete_filter=ALWAYS_TRUE)
+        tx.append(data)
 
 
 class Backend(SQLBackend):
