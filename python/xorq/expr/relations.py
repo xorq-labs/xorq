@@ -603,6 +603,7 @@ def register_and_transform_tee_nodes(
     the writer can finish consuming the stream.
     """
     from xorq.common.utils.caching_utils import find_backend  # noqa: PLC0415
+    from xorq.expr.remote_table_exec import _LockedGen  # noqa: PLC0415
 
     drains: list[DrainingIterator] = []
     created: dict[str, BaseBackend] = {}
@@ -623,8 +624,6 @@ def register_and_transform_tee_nodes(
                 "See ADR-0014.",
                 stacklevel=2,
             )
-        from xorq.expr.remote_table_exec import _LockedGen  # noqa: PLC0415
-
         reader = parent_expr.to_pyarrow_batches()
         write_iter = node.writer.write_through(reader)
         if node.drain:

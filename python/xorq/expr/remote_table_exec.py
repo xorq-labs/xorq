@@ -307,7 +307,14 @@ class _LockedGen:
         with self._lock:
             if self._closed:
                 raise StopIteration
-            return next(self._gen)
+            try:
+                return next(self._gen)
+            except StopIteration:
+                # natural exhaustion: mark closed so a later close() is a no-op
+                # and _closed tracks "no longer advanceable", not just explicit
+                # close calls.
+                self._closed = True
+                raise
 
     def close(self) -> None:
         # Non-blocking acquire: closing an *executing* frame raises

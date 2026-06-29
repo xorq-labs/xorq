@@ -1524,9 +1524,20 @@ def test_tee_write_iter_guard_by_drain(
     expr = tt.tee(ParquetWriteThrough(path=tmp_path / "o.parquet"), drain=drain)
     register_and_transform_tee_nodes(expr)
 
-    # "write_through" identifies the ParquetWriteThrough generator; "gen" is the
-    # unrelated parent-reader wrap from bind_scope_to_reader.
-    assert ("write_through" in wrapped_names) is (drain is False)
+    # wrapped_names holds the co_name of each generator _LockedGen wraps:
+    #   "write_through" -> the ParquetWriteThrough.write_through generator
+    #   "gen"           -> the parent-reader wrap inside bind_scope_to_reader
+    # bind_scope_to_reader always wraps the parent reader, so "gen" must appear
+    # regardless of drain -- this proves the spy is active, so the
+    # write_through check below cannot pass vacuously (e.g. if _LockedGen were
+    # bypassed entirely).
+    assert "gen" in wrapped_names, "spy did not observe the parent-reader wrap"
+    if drain:
+        # drain=True is guarded by DrainingIterator, not _LockedGen.
+        assert "write_through" not in wrapped_names
+    else:
+        # drain=False must wrap the raw write-through generator in _LockedGen.
+        assert "write_through" in wrapped_names
 
 
 def test_drain_build_hash_same(t: Table, tmp_path: Path) -> None:
