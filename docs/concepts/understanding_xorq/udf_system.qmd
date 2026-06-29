@@ -30,8 +30,8 @@ rest of the system work:
   artifact alongside the rest of the expression. The same pipeline runs on a
   different machine or backend without a code rewrite.
 
-That last property is the point of difference. A UDF in Xorq is not glue code
-bolted onto a query—it is part of the content-addressed artifact, hashed, and
+That last property is the point of difference. A UDF in Xorq isn't glue code
+bolted onto a query—it's part of the content-addressed artifact, hashed, and
 versioned like everything else.
 
 ## The mental model
@@ -100,7 +100,7 @@ A scalar UDF maps input columns to one output value per row. `make_pandas_udf`
 hands your function a `DataFrame` and expects a `Series` back; the vendored
 `scalar` factory works on PyArrow arrays directly when you want to avoid the
 pandas round-trip. Use scalar UDFs for row-wise feature engineering—ratios,
-classifications, string manipulation, anything that does not need to see other
+classifications, string manipulation, anything that doesn't need to see other
 rows.
 
 ### Expression scalar UDFs
@@ -165,10 +165,10 @@ treatment.
 
 Work down two questions:
 
-1. **What is the output shape?** One value per row → scalar or window. One value
+1. **What's the output shape?** One value per row → scalar or window. One value
    per group → aggregate. A whole table → exchange. If a row's result depends on
-   other rows in an order, that is a window; if it depends on a value computed
-   elsewhere in the pipeline, that is an expression scalar UDF.
+   other rows in an order, that's a window; if it depends on a value computed
+   elsewhere in the pipeline, that's an expression scalar UDF.
 2. **Where should it run?** In-process is the default and the fastest. Choose an
    exchange UDF only when isolation or a separate service is the actual
    requirement—it adds a network hop.

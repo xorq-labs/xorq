@@ -49,7 +49,14 @@ exceptions:
   - Studio
   - TypeScript
   - UD(X)F
+  - UDF
+  - UDFs
+  - UDAF
+  - UDAFs
+  - UDWF
+  - UDWFs
   - UDXF
+  - UDXFs
   - URLs
   - User
   - Visual
