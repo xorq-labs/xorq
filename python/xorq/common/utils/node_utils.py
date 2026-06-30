@@ -172,9 +172,8 @@ def expr_to_unbound(expr, hash, tag, typs, strategy=None):
     found_expr = found.to_expr()
     to_unbind_hash = hash or compute_expr_hash(found_expr, strategy)
     found_con = None
-    # execution_only: a pinned read runs through its frozen parent, so don't
-    # let the discarded `uncached` upstream's backends drive connection
-    # selection (they may be transient/unavailable here).
+    # execution_only: don't let a pin's discarded `uncached` upstream drive
+    # connection selection -- only its frozen parent actually executes.
     match find_all_sources(found_expr, execution_only=True):
         case []:
             match walk_nodes(ops.InMemoryTable, found_expr):

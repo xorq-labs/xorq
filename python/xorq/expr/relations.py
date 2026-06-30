@@ -179,18 +179,14 @@ class CacheTag(Tag):
     ) -> None:
         if metadata is None:
             metadata = FrozenOrderedDict()
-        # `parent`'s Node type is enforced by the inherited ``Tag.parent``
-        # annotation, but `uncached` is ``Any`` (it holds an Expr, not a Node,
-        # so ibis cannot validate it via annotation). Guard its type here so a
-        # direct constructor that swaps `parent`/`uncached` fails loudly at
-        # construction rather than with an obscure error at execution or
-        # serialization time. ``None`` is the unset default; otherwise it must
-        # be what ``to_node`` accepts -- an Expr or a Node.
+        # `parent`'s Node type is enforced by the inherited Tag.parent
+        # annotation; `uncached` is Any, so guard it here (None, or what
+        # to_node accepts -- an Expr or Node) to catch a swapped upstream at
+        # construction rather than obscurely later.
         if uncached is not None and not isinstance(uncached, (Expr, Node)):
             raise IntegrityError(
                 f"CacheTag.uncached must be an Expr or Node, got "
-                f"{type(uncached).__name__}; it holds the original upstream "
-                f"expression (see cache_tag_identity_parts and the class docstring)."
+                f"{type(uncached).__name__}"
             )
         super().__init__(
             schema=schema,
@@ -214,14 +210,11 @@ def cache_tag_identity_parts(node: "CacheTag") -> tuple:
     """The fields that define a pinned read's identity: ``(schema, cache key)``.
 
     Single source of truth for *which* fields identify a ``CacheTag``, shared by
-    the two layers that must agree on it -- ``CacheTag.__dasher_tokenize__`` (the
-    hash-component contribution) and the SQL placeholder in
-    ``_xorq_opaque_to_placeholder`` (the structural-``sql`` contribution). Each
-    consumer wraps these parts in its own envelope (a tokenize tuple vs. a
-    ``_stable_opaque_name`` prefix), so this returns only the shared parts, not a
-    formatted name -- adding a field here updates both consumers without
-    changing either's existing output format. ``parent.name`` is the cache key
-    (see the class docstring).
+    the two layers that must agree: ``__dasher_tokenize__`` (hash component) and
+    the ``_xorq_opaque_to_placeholder`` SQL placeholder. Returns only the shared
+    parts, not a formatted name -- each consumer adds its own envelope (tokenize
+    tuple vs. ``_stable_opaque_name`` prefix), so adding a field here updates
+    both without changing either's output format. ``parent.name`` is the cache key.
     """
     return (node.schema, node.parent.name)
 

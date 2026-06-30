@@ -173,7 +173,7 @@ def test_cache_tag_rejects_non_expr_uncached() -> None:
     with pytest.raises(IntegrityError, match="uncached must be an Expr or Node"):
         CacheTag(schema=schema, parent=t.op(), uncached=42, cache=None)
 
-    # an Expr is accepted, a Node is accepted, and None (unset) is accepted
+    # Expr, Node, and None (unset) are all accepted
     assert CacheTag(schema=schema, parent=t.op(), uncached=t, cache=None) is not None
     assert (
         CacheTag(schema=schema, parent=t.op(), uncached=t.op(), cache=None) is not None
@@ -202,10 +202,8 @@ def test_find_all_sources_execution_only_prunes_uncached_backend(
     full = find_all_sources(pinned)
     execution = find_all_sources(pinned, execution_only=True)
 
-    # default walk descends uncached and sees both backends
-    assert len(full) == 2
-    # execution path runs only through the frozen cache read on con2
-    assert tuple(map(id, execution)) == (id(con2),)
+    assert len(full) == 2  # default walk descends uncached, sees both backends
+    assert tuple(map(id, execution)) == (id(con2),)  # only con2's frozen read
 
 
 def test_pin_does_not_freeze_dag_shared_upstream_leaf(tmp_path: Path) -> None:
