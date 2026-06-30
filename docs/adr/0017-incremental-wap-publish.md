@@ -19,7 +19,7 @@ insert-or-update by key, or apply deletes.
 We want incremental publish — upsert and full merge (insert/update/delete) into a target —
 across xorq's backends. The backends are **heterogeneous** in merge capability, which is the crux:
 
-- **Native single-statement `MERGE INTO`:** duckdb, postgres (15+), snowflake, databricks, trino (ACID connectors).
+- **Native single-statement `MERGE INTO`:** duckdb, postgres (15+), snowflake, databricks, trino (ACID connectors), gizmosql (DuckDB-backed Flight SQL).
 - **Row-level upsert + delete, no `MERGE`:** pyiceberg (`Backend.upsert`, `python/xorq/backends/pyiceberg/__init__.py:197`).
 - **`UPDATE`/`DELETE` but no portable `MERGE`:** sqlite.
 - **No DML at all (immutable):** datafusion, xorq_datafusion, pandas.
@@ -104,12 +104,16 @@ verbatim materialization of it (the tee is an identity pass-through), so staging
   that includes the `'D'` rows: a key may not appear as both a delete and an upsert in the same
   delta). This is not a stylistic nicety: native `MERGE INTO` raises a cardinality error
   ("MERGE command cannot affect a row a second time") when two source rows match one target row,
-  whereas `REWRITE`'s anti-join + union-all and `STATEMENT_DML`'s UPDATE/INSERT/DELETE would each
-  resolve a duplicate-keyed delta *differently and silently*. Requiring uniqueness is what keeps the
-  three mechanisms observably equivalent. It is a **data**-level invariant, so build-time `_validate`
-  (which sees only `mode`/`key`/`columns`, not rows) cannot check it; it is enforced by the
-  recommended `audit_fn` — a "no duplicate keys" gate (see *Wrapper + the vacuous audit* and open
-  question 5) that fails the publish before any tier runs.
+  and `UPSERT_DELETE` likewise rejects a non-unique source — pyiceberg's `Transaction.upsert` raises
+  on duplicate join-key values — whereas `REWRITE`'s anti-join + union-all and `STATEMENT_DML`'s
+  UPDATE/INSERT/DELETE would each resolve a duplicate-keyed delta *differently and silently*.
+  Requiring uniqueness is what keeps the four mechanisms observably equivalent. It is a
+  **data**-level invariant, so build-time `_validate` (which sees only `mode`/`key`/`columns`, not
+  rows) cannot check it; it is meant to be enforced by an `audit_fn` — a "no duplicate keys" gate
+  (see *Wrapper + the vacuous audit* and open question 5) that fails the publish before any tier
+  runs. Whether that gate is the default for `UPSERT`/`MERGE` (rather than the vacuous always-True
+  audit) is still open (question 5), so by default the invariant is currently a caller
+  responsibility, not something the wrapper enforces.
 
 ### Capability routing — dispatch on the backend, decide in WAP
 
@@ -130,10 +134,11 @@ from xorq.vendor.ibis.common.dispatch import lazy_singledispatch
 def _strategy(con, mode) -> PublishStrategy:
     return PublishStrategy.REWRITE                              # default: immutable / unregistered
 
-@_strategy.register("xorq.backends.duckdb.Backend")            # one handler, registered per dialect
+@_strategy.register("xorq.backends.duckdb.Backend")            # one handler, registered per backend
 @_strategy.register("xorq.backends.snowflake.Backend")
 @_strategy.register("xorq.backends.databricks.Backend")
 @_strategy.register("xorq.backends.trino.Backend")
+@_strategy.register("xorq.backends.gizmosql.Backend")          # DuckDB-backed Flight SQL: duckdb render
 def _(con, mode): return PublishStrategy.NATIVE_MERGE
 
 @_strategy.register("xorq.backends.postgres.Backend")          # version-aware — a name list cannot be
@@ -202,16 +207,18 @@ def make_incremental_publish_with_backend(con, *, mode, key, columns, strategy=N
 ```
 
 The five `_publish_*` are keyed on **strategy (mechanism), not backend** — five functions cover all
-ten backends. `_publish_native_merge` serves every native-merge dialect through one sqlglot
+eleven backends. `_publish_native_merge` serves every native-merge dialect through one sqlglot
 render; `_publish_rewrite` serves datafusion/xorq/pandas; `_publish_statement_dml` serves
 sqlite/old-postgres; `_publish_upsert_delete` serves pyiceberg. The only per-backend code is the
 `lazy_singledispatch` registration in `resolve_strategy` and the thin convenience wrappers below — sugar
 that binds `con` + sink + publish, mirroring today's `make_iceberg_wap_expr`.
 
-### Tier 1 — `NATIVE_MERGE` (duckdb, postgres 15+, snowflake, databricks, trino)
+### Tier 1 — `NATIVE_MERGE` (duckdb, postgres 15+, snowflake, databricks, trino, gizmosql)
 
 Author one canonical `MERGE`, parse to a dialect-agnostic sqlglot AST, hand to `raw_sql` which
-renders the backend dialect. Verified to transpile cleanly to all five.
+renders the backend dialect. Verified to transpile cleanly to all five dialects; gizmosql is a
+DuckDB-backed Flight SQL server (`compiler = sc.duckdb.compiler`), so it renders through the duckdb
+dialect and adds no sixth dialect to verify.
 
 ```python
 def _merge_query(final, staging, key, columns, mode):
@@ -380,7 +387,7 @@ def _validate(mode, key, columns):
 
 | strategy | backends | atomic? | mechanism |
 |---|---|---|---|
-| `NATIVE_MERGE` | duckdb, pg15+, snowflake, databricks, trino | yes | single `MERGE` statement |
+| `NATIVE_MERGE` | duckdb, pg15+, snowflake, databricks, trino, gizmosql | yes | single `MERGE` statement |
 | `UPSERT_DELETE` | pyiceberg | yes | one `Transaction` (upsert+delete) → one snapshot |
 | `STATEMENT_DML` | sqlite, pg<15 | yes (with `begin()`) | UPDATE+INSERT+DELETE in one transaction |
 | `REWRITE` | datafusion, xorq_datafusion, pandas | path target: yes / table target: see open Q4 | path target: temp parquet + atomic rename; table target: `create_table(overwrite=True)` is drop→create, not atomic |
@@ -439,7 +446,7 @@ to how staging combines into final. Conflating them is what this ADR untangles.
 
 `make_publish_with_duckdb`, `…_with_postgres`, etc.
 
-**Deferred.** A capability router with five mechanisms covers ten backends without per-backend
+**Deferred.** A capability router with five mechanisms covers eleven backends without per-backend
 functions; `strategy=` override remains for the rare case a backend needs a bespoke path.
 
 ### Capability declared on the backend (`con.publish_strategy(mode)`)
