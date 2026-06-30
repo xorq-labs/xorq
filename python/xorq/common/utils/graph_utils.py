@@ -122,8 +122,16 @@ def replace_nodes(
     sub_expr_memo = {}
 
     def do_recreate(op, _kwargs, **kwargs):
-        kwargs = dict(zip(op.__argnames__, op.__args__)) | (_kwargs or {}) | kwargs
-        return op.__recreate__(kwargs)
+        # ``_kwargs`` is keyed for the node as seen *before* the replacer ran. A
+        # replacer may change the node's type (e.g. CacheTag -> CachedNode on
+        # unpin), so keep only keys that are valid slots for the post-replacer
+        # ``op``; forwarding foreign keys would crash ``__recreate__``. Explicit
+        # overrides in ``kwargs`` always win.
+        argnames = op.__argnames__
+        merged = dict(zip(argnames, op.__args__))
+        if _kwargs:
+            merged |= {k: v for k, v in _kwargs.items() if k in argnames}
+        return op.__recreate__(merged | kwargs)
 
     def _replace_sub(sub_op):
         if sub_op not in sub_expr_memo:
@@ -140,12 +148,11 @@ def replace_nodes(
                 parent = _replace_sub(to_node(op.parent))
                 return do_recreate(op, _kwargs, parent=parent)
             case rel.CacheTag():
-                # The replacer changes the node's type (CachedNode -> CacheTag), so
-                # _kwargs holds slot values keyed for the *original* class and must
-                # not be forwarded: it carries CachedNode fields (`name`, `source`)
-                # CacheTag lacks, and its `parent` is the upstream computation, which
-                # would clobber the cache-file read the replacer set as CacheTag.parent
-                # -- defeating the pin.
+                # Do NOT forward _kwargs: the replacer already produced `op` with
+                # its native `parent` (the cache-file read) set; re-driving parent
+                # from the BFS rewrite here diverges the read's backend identity
+                # from `cache`, breaking profile resolution on load. Only the
+                # opaque `uncached` payload is descended.
                 uncached = _replace_sub(to_node(op.uncached))
                 return do_recreate(op, None, uncached=uncached)
             case rel.FlightExpr() | rel.FlightUDXF():

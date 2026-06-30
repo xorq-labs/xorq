@@ -3,6 +3,7 @@ from __future__ import annotations
 import functools
 import operator
 import warnings
+from pathlib import Path
 from typing import Any, Callable
 
 import pyarrow as pa
@@ -166,25 +167,60 @@ class CacheTag(Tag):
     cache: Any = None
 
 
-def _cached_node_to_cache_tag(node: CachedNode) -> CacheTag:
+def cache_keyed_expr(parent: Expr) -> Expr:
+    """The expr a cache is keyed on for ``parent``.
+
+    A cross-engine cache's parent is a ``RemoteTable``; the cache key is keyed
+    on its ``remote_expr`` (the ``RemoteTable.name`` is stripped, see ADR-0015).
+    Otherwise the parent is keyed directly. Single source of truth for this
+    unwrap rule, shared by the ``ls.uncached_one`` accessor, pinning, and pin
+    relocation so the three sites cannot drift.
+    """
     from xorq.common.utils.graph_utils import to_node  # noqa: PLC0415
 
-    cache = node.cache
-    parent = node.parent
     parent_op = to_node(parent)
-    uncached_one = (
-        parent_op.remote_expr if isinstance(parent_op, RemoteTable) else parent
-    )
-    if not cache.exists(uncached_one):
+    return parent_op.remote_expr if isinstance(parent_op, RemoteTable) else parent
+
+
+def _cached_node_to_cache_tag(node: CachedNode) -> CacheTag:
+    cache = node.cache
+    # compute the cache key once: cache.exists + cache.get would each recompute
+    # it (calc_key) and stat the artifact separately.
+    key = cache.calc_key(cache_keyed_expr(node.parent))
+    if not cache.key_exists(key):
         raise IntegrityError(
             "cannot pin an unmaterialized cache; execute the expression "
             "(or call .cache().execute()) to populate the cache first"
         )
     return CacheTag(
         schema=node.schema,
-        parent=cache.get(uncached_one),
-        uncached=parent,
+        parent=cache.storage.get(key),
+        uncached=node.parent,
         cache=cache,
+    )
+
+
+def relocate_cache_tag(node: CacheTag, base_path: Path) -> CacheTag:
+    """Re-point a pinned cache's frozen read at a new ``base_path``.
+
+    Only the directory the read resolves to changes; the read's table name *is*
+    its cache key, so it is preserved verbatim (re-deriving the key from a
+    round-tripped ``uncached`` could drift). A pinned read stays a read -- this
+    does not re-materialize or re-validate; if the artifact is absent at the new
+    location, execution fails like any other missing read.
+    """
+    from attr import evolve  # noqa: PLC0415
+
+    from xorq.common.utils.graph_utils import to_node  # noqa: PLC0415
+
+    cache = node.cache
+    new_cache = evolve(cache, storage=evolve(cache.storage, base_path=base_path))
+    key = to_node(node.parent).name
+    return CacheTag(
+        schema=node.schema,
+        parent=new_cache.storage.get(key),
+        uncached=node.uncached,
+        cache=new_cache,
     )
 
 

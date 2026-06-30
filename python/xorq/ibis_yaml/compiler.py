@@ -62,7 +62,9 @@ from xorq.expr.api import deferred_read_parquet
 from xorq.expr.operations import _MISSING
 from xorq.expr.relations import (
     CachedNode,
+    CacheTag,
     Read,
+    relocate_cache_tag,
 )
 from xorq.ibis_yaml.common import (
     Registry,
@@ -821,12 +823,18 @@ class ExprLoader:
         # replace_nodes (not op.replace) so the rewrite reaches CachedNodes
         # nested inside opaque sub-exprs like RemoteTable.remote_expr.
         def replacer(node, kwargs):
-            if isinstance(node, CachedNode) and isinstance(
-                node.cache, parquet_cache_types
+            cache = getattr(node, "cache", None)
+            if isinstance(node, (CachedNode, CacheTag)) and isinstance(
+                cache, parquet_cache_types
             ):
+                if isinstance(node, CacheTag):
+                    # A pinned cache is a frozen read; relocate it by re-pointing
+                    # that read at the new base_path (the key is base_path-
+                    # independent), so a pinned build is portable across cache dirs.
+                    return relocate_cache_tag(node, base_path)
                 evolved = evolve(
-                    node.cache,
-                    storage=evolve(node.cache.storage, base_path=base_path),
+                    cache,
+                    storage=evolve(cache.storage, base_path=base_path),
                 )
                 return recreate(node, **((kwargs or {}) | {"cache": evolved}))
             return node.__recreate__(kwargs) if kwargs else node

@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import datetime
 import hashlib
 import itertools
 import json
 import os
 import pathlib
+import shutil
 import tempfile
 import warnings
 
@@ -400,6 +403,45 @@ def test_pinned_cache_yaml_roundtrip_multi_engine(
     assert walk_nodes((CacheTag,), roundtrip_expr)
     assert not walk_nodes((CachedNode,), roundtrip_expr)
     assert pinned.execute().equals(roundtrip_expr.execute())
+
+
+def test_pinned_cache_relocates_to_new_cache_dir(
+    builds_dir: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
+    # A pinned build must be portable: load_expr against a different cache_dir
+    # re-points the frozen read at the relocated artifact (the key is
+    # base_path-independent). Moving the cache dir proves it reads the new
+    # location and not the original.
+    con = xo.connect()
+    src = tmp_path / "cacheA"
+    cache = ParquetCache.from_kwargs(source=con, relative_path="pins", base_path=src)
+    expr = (
+        con.register(pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}), "tbl")
+        .filter(xo._.a > 1)
+        .cache(cache=cache)
+    )
+    expr.execute()  # materialize the cache under cacheA/pins
+    pinned = expr.ls.pin()
+    expected = pinned.execute()
+
+    build_path = build_expr(pinned, builds_dir=builds_dir)
+
+    # relocate the cache files; the original directory no longer exists
+    dst = tmp_path / "cacheB"
+    shutil.move(str(src), str(dst))
+
+    relocated = load_expr(build_path, cache_dir=dst)
+
+    assert walk_nodes((CacheTag,), relocated)
+    assert not walk_nodes((CachedNode,), relocated)
+    # the frozen read now resolves under cacheB
+    read_paths = [
+        str(dict(r.read_kwargs).get("hash_path", ""))
+        for r in walk_nodes((Read,), relocated)
+    ]
+    assert any(str(dst) in p for p in read_paths)
+    assert not any(str(src) in p for p in read_paths)
+    assert relocated.execute().equals(expected)
 
 
 @pytest.mark.parametrize(

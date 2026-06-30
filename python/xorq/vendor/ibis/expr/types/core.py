@@ -1071,6 +1071,12 @@ class LETSQLAccessor:
         Returns an equivalent expression that reads the materialized cache
         artifacts directly instead of re-deriving them. Each cache must already
         exist. Inverse of `unpin`.
+
+        A pinned expression is a *frozen read*, not a cache: cache-introspection
+        accessors (`is_cached`, `has_cached`, `cached_nodes`, `uncached`) by
+        design do not see it -- there is no live cache to key, materialize, or
+        recompute. Call `unpin` to restore the cache semantics before doing
+        anything cache-shaped.
         """
         from xorq.expr.relations import pin_cache
 
@@ -1250,13 +1256,9 @@ class LETSQLAccessor:
     @property
     def uncached_one(self):
         if self.is_cached:
-            from xorq.expr.relations import RemoteTable
+            from xorq.expr.relations import cache_keyed_expr
 
-            parent = self.expr.op().parent
-            if isinstance(parent.op(), RemoteTable):
-                return parent.op().remote_expr
-            else:
-                return parent
+            return cache_keyed_expr(self.expr.op().parent)
         else:
             return self.expr
 

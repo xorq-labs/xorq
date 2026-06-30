@@ -138,3 +138,23 @@ def test_pin_unpin_nested_caches(tmp_path: Path) -> None:
     assert len(walk_nodes((CachedNode,), unpinned)) == 2
     assert not walk_nodes((CacheTag,), unpinned)
     assert unpinned.ls.tokenized == cached.ls.tokenized
+
+
+def test_pinned_expr_is_a_frozen_read_not_a_cache(tmp_path: Path) -> None:
+    # Model A contract: a pin is a frozen read, so cache-introspection accessors
+    # deliberately do not see it. unpin() is the gate back to cache semantics.
+    cached, _ = make_cached(tmp_path)
+    cached.execute()
+    assert cached.ls.is_cached
+    assert cached.ls.has_cached
+
+    pinned = cached.ls.pin()
+
+    assert not pinned.ls.is_cached
+    assert not pinned.ls.has_cached
+    assert pinned.ls.cached_nodes == ()
+    # .ls.uncached strips live caches; a pin has none, so it is a no-op
+    assert pinned.ls.uncached.ls.tokenized == pinned.ls.tokenized
+
+    # unpin restores cache semantics
+    assert pinned.ls.unpin().ls.is_cached
