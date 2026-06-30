@@ -16,7 +16,7 @@ from xorq.expr.relations import RemoteTable, gen_name
 from xorq.vendor.ibis import Expr
 from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.expr import operations as ops
-from xorq.writes import DrainingIterator
+from xorq.writes import DrainingIterator, LockedIterator
 
 
 logger = get_logger(__name__)
@@ -295,6 +295,10 @@ def bind_scope_to_reader(
     never-started generator never runs its ``finally``).  Note that on
     pyarrow 21 ``reader.close()`` alone does not finalize the wrapped
     generator -- cleanup then fires when the last reference drops.
+
+    The generator is wrapped in ``LockedIterator`` so the finalizer's ``close()``
+    cannot race a foreground advance still parked inside a datafusion FFI pull
+    (see ``LockedIterator``).
     """
 
     def gen():
@@ -308,11 +312,11 @@ def bind_scope_to_reader(
             # (remote_table_scope) surface drain failures instead.
             scope.close()
 
-    g = gen()
-    out = pa.RecordBatchReader.from_batches(reader.schema, g)
+    locked = LockedIterator(gen())
+    out = pa.RecordBatchReader.from_batches(reader.schema, locked)
 
     def _cleanup() -> None:
-        g.close()
+        locked.close()
         scope.close()
 
     weakref.finalize(out, _cleanup)

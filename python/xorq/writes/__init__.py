@@ -8,6 +8,7 @@ from xorq.writes.wap import (
 from xorq.writes.write_through import (
     BackendWriteThrough,
     DrainingIterator,
+    LockedIterator,
     ParquetWriteThrough,
     ThreadedBackendWriteThrough,
     WritePrimaryWriteThrough,
@@ -18,6 +19,7 @@ from xorq.writes.write_through import (
 __all__ = [
     "BackendWriteThrough",
     "DrainingIterator",
+    "LockedIterator",
     "ParquetWriteThrough",
     "ThreadedBackendWriteThrough",
     "WriteMode",

@@ -25,7 +25,7 @@ from xorq.vendor.ibis.common.collections import (
 from xorq.vendor.ibis.expr import operations as ops
 from xorq.vendor.ibis.expr.format import fmt, render_schema
 from xorq.vendor.ibis.expr.operations import Node
-from xorq.writes import DrainingIterator, WriteThrough
+from xorq.writes import DrainingIterator, LockedIterator, WriteThrough
 
 
 def replace_cache_table(node: Node, kwargs: dict[str, Any] | None) -> Node:
@@ -628,6 +628,14 @@ def register_and_transform_tee_nodes(
         if node.drain:
             write_iter = DrainingIterator(write_iter)
             drains.append(write_iter)
+        else:
+            # drain=False: the raw write-through generator is registered into
+            # the backend and advanced by its read-ahead worker thread. Guard it
+            # so a GC/finalizer close() cannot race a worker mid-advance ->
+            # "generator already executing" (same race as the outer reader in
+            # bind_scope_to_reader; drain=True is already guarded by
+            # DrainingIterator's advance lock, #2107).
+            write_iter = LockedIterator(write_iter)
         wrapped = pa.RecordBatchReader.from_batches(
             reader.schema,
             write_iter,

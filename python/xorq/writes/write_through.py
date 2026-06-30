@@ -437,23 +437,86 @@ class WritePrimaryWriteThrough(WriteThrough):
                 raise error[0]
 
 
+class LockedIterator:
+    """Serializes advancement and close of a wrapped generator.
+
+    A datafusion scan can park the foreground ``next()`` inside an FFI pull
+    (the generator frame is in the *executing* state, not suspended) while a
+    background pull lags. If the ``weakref.finalize`` backstop then calls
+    ``close()`` on that frame, CPython raises ``ValueError: generator already
+    executing`` -- in a finalizer/daemon-thread context that escapes and aborts
+    the process. The shared lock guarantees ``close()`` only runs while the
+    generator is suspended, never mid-advance. Same race class as the
+    ``DrainingIterator`` advance lock (#2107).
+
+    CPython-only: when ``close()`` finds an advance in flight it abandons the
+    explicit generator close (see ``close()``), so finalizing the still-open
+    generator frame falls to reference-counting GC -- the in-flight consumer
+    drops the last reference once its advance returns. That backstop assumes
+    CPython's deterministic refcounting; on a runtime without it (PyPy,
+    GraalPy) an abandoned-mid-advance frame could linger until the next GC
+    cycle. xorq already depends on CPython refcounting/GIL semantics throughout,
+    so this is not a new constraint.
+    """
+
+    def __init__(self, gen) -> None:
+        self._gen = gen
+        self._lock = threading.Lock()
+        self._closed = False
+
+    def __iter__(self) -> "LockedIterator":
+        return self
+
+    def __next__(self):
+        with self._lock:
+            if self._closed:
+                raise StopIteration
+            try:
+                return next(self._gen)
+            except StopIteration:
+                # natural exhaustion: mark closed so a later close() is a no-op
+                # and _closed tracks "no longer advanceable", not just explicit
+                # close calls.
+                self._closed = True
+                raise
+
+    def close(self) -> None:
+        # Non-blocking acquire: closing an *executing* frame raises
+        # ``ValueError: generator already executing``, and *blocking* until the
+        # advance returns can wedge the finalizer during interpreter teardown
+        # (GIL-release fatal). So if an advance holds the lock, skip the gen
+        # close entirely -- that in-flight consumer owns the generator's
+        # teardown (its ``finally`` runs ``scope.close()``); the caller's
+        # explicit ``scope.close()`` still fires regardless.
+        if self._lock.acquire(blocking=False):
+            try:
+                if not self._closed:
+                    self._closed = True
+                    self._gen.close()
+            finally:
+                self._lock.release()
+
+
 class DrainingIterator:
     """Wraps a write-through generator; drains remaining batches on close.
 
     Callers must call ``close()`` then ``join()`` — there is no ``__del__``
     finalizer; the execution pipeline (``api.py``) owns the lifecycle.
+
+    Advancement is serialized by an inner ``LockedIterator`` so the foreground
+    reader pull (datafusion read-ahead) and the background ``_drain`` loop never
+    call ``next()`` on the wrapped generator concurrently -> 'generator already
+    executing' (#2107). ``close()`` here *drains* the remainder on a worker
+    thread rather than abandoning it, so it does not use ``LockedIterator``'s
+    own (abandon-on-close) ``close()``.
     """
 
     def __init__(self, write_gen: Iterator[pa.RecordBatch]) -> None:
-        self._gen = write_gen
+        self._locked = LockedIterator(write_gen)
         self._exhausted = False
         self._drain_thread: threading.Thread | None = None
         self._error: BaseException | None = None
         self._state_lock = threading.Lock()
-        # serializes generator advancement so the foreground reader pull
-        # (datafusion read-ahead) and the background _drain loop never call
-        # next(self._gen) concurrently -> 'generator already executing'.
-        self._advance_lock = threading.Lock()
 
     @property
     def exhausted(self) -> bool:
@@ -464,24 +527,20 @@ class DrainingIterator:
         return self
 
     def __next__(self) -> pa.RecordBatch:
-        with self._advance_lock:
-            try:
-                return next(self._gen)
-            except StopIteration:
-                with self._state_lock:
-                    self._exhausted = True
-                raise
+        try:
+            return next(self._locked)
+        except StopIteration:
+            with self._state_lock:
+                self._exhausted = True
+            raise
 
     def _drain(self) -> None:
-        # acquire per-iteration, not across the whole loop, so a still-in-flight
-        # foreground __next__ can interleave instead of being starved.
+        # LockedIterator acquires its lock per-advance, so a still-in-flight
+        # foreground __next__ can interleave with this loop instead of being
+        # starved.
         try:
-            while True:
-                with self._advance_lock:
-                    try:
-                        next(self._gen)
-                    except StopIteration:
-                        break
+            for _ in self._locked:
+                pass
         except BaseException as exc:  # noqa: BLE001
             self._error = exc
         with self._state_lock:
@@ -489,7 +548,18 @@ class DrainingIterator:
 
     def close(self) -> None:
         with self._state_lock:
-            if self._exhausted or self._drain_thread is not None:
+            # Also treat the inner iterator's own exhaustion flag as exhausted:
+            # __next__ sets _locked._closed inside the locked critical section
+            # but flips _exhausted only after releasing that lock, so there is a
+            # brief window where the generator is done yet _exhausted is still
+            # False. Checking _locked._closed here avoids spawning a drain thread
+            # that would immediately exit. (DrainingIterator never calls
+            # _locked.close(), so _closed is True only on natural exhaustion.)
+            if (
+                self._exhausted
+                or self._locked._closed
+                or self._drain_thread is not None
+            ):
                 return
             self._drain_thread = threading.Thread(target=self._drain)
             self._drain_thread.start()
