@@ -431,6 +431,45 @@ def _gen_children_exec(node: Node) -> Tuple[Node, ...]:
     return tuple(gen_children_of(node))
 
 
+def _gen_children_skip_pins(node: Node) -> Tuple[Node, ...]:
+    """Child enumeration that treats a ``CacheTag`` as an opaque leaf.
+
+    Descends neither ``parent`` nor ``uncached``, so a walk collects only the
+    leaves reachable *without* passing through any pin -- the "live" leaves used
+    by :func:`exclusively_pinned_leaves`.
+    """
+    if isinstance(node, rel.CacheTag):
+        return ()
+    return tuple(gen_children_of(node))
+
+
+def exclusively_pinned_leaves(
+    expr: Expr | Node, leaf_types: type | Tuple[type, ...]
+) -> frozenset:
+    """Leaves of *expr* reachable ONLY through ``CacheTag`` (pinned) subtrees.
+
+    A leaf under a pin's frozen ``parent`` or discarded ``uncached`` upstream is
+    represented in the build hash solely by the pin's cache-key token (see
+    ``CacheTag.__dasher_tokenize__``), so callers leave it out of name
+    sanitization and hash data-leaves -- otherwise hashing stat's a possibly-
+    absent upstream source. A leaf also reachable from a live (non-pinned)
+    branch is the exception: it genuinely participates there, so it stays live.
+    Returns ``under_pin - live``.
+
+    Single predicate shared by ``_sanitize_generated_names`` and
+    ``_decompose_expr`` so the two pruning sites cannot drift.
+    """
+    under_pin = {
+        n
+        for ct in walk_nodes((rel.CacheTag,), expr)
+        for n in walk_nodes(leaf_types, ct)
+    }
+    if not under_pin:
+        return frozenset()
+    live = set(walk_nodes(leaf_types, expr, gen_children=_gen_children_skip_pins))
+    return frozenset(under_pin - live)
+
+
 def find_all_sources(
     expr: Expr | Node, *, execution_only: bool = False
 ) -> Tuple[Any, ...]:

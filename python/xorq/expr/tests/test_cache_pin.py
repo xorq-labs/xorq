@@ -7,9 +7,16 @@ import pytest
 
 import xorq.api as xo
 from xorq.caching import ParquetCache
+from xorq.caching.strategy import SnapshotStrategy
 from xorq.common.exceptions import IntegrityError
-from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
+from xorq.common.utils.defer_utils import deferred_read_parquet
+from xorq.common.utils.graph_utils import (
+    exclusively_pinned_leaves,
+    find_all_sources,
+    walk_nodes,
+)
 from xorq.common.utils.name_utils import get_uid_prefix
+from xorq.common.utils.node_utils import compute_expr_hash
 from xorq.common.utils.provenance_utils import get_expr_hash
 from xorq.expr.relations import CachedNode, CacheTag, Read, RemoteTable
 from xorq.ibis_yaml.compiler import canonicalize_expr
@@ -248,3 +255,84 @@ def test_pinned_expr_is_reprable(tmp_path: Path) -> None:
 
     rendered = repr(pinned)
     assert "CacheTag" in rendered
+
+
+def test_pin_build_hash_is_source_free(tmp_path: Path) -> None:
+    # A pin reads its cache artifact directly, so hashing it must not require
+    # the discarded upstream source. Regression: get_expr_hash canonicalizes
+    # via _sanitize_generated_names, which (with a parent-only pinned-leaf set)
+    # stat-tokenized `uncached`'s own reads -- so the BUILD hash raised
+    # FileNotFoundError once the source was deleted, even though execute() and
+    # ls.tokenized did not. Pairs with
+    # test_pin_does_not_freeze_dag_shared_upstream_leaf: only both passing at
+    # once pins the `under_pin - live` predicate (whole-subtree breaks the
+    # other, parent-only breaks this).
+    con = xo.connect()
+    src = tmp_path / "data.parquet"
+    pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}).to_parquet(src)
+    cache = ParquetCache.from_kwargs(relative_path=tmp_path / "cache", source=con)
+    expr = deferred_read_parquet(src, con=con).filter(xo._.a > 1).cache(cache=cache)
+    expr.execute()
+    pinned = expr.ls.pin()
+
+    before = get_expr_hash(pinned)
+    src.unlink()  # discard the upstream source entirely
+
+    # build hash AND cache hash both recompute without the source, unchanged
+    assert get_expr_hash(pinned) == before
+    assert pinned.ls.tokenized  # does not raise
+    # the pin still reads its cache artifact directly
+    assert (
+        pinned.execute()
+        .reset_index(drop=True)
+        .equals(pd.DataFrame({"a": [2, 3], "b": [5, 6]}))
+    )
+
+
+def test_exclusively_pinned_leaves_excludes_dag_shared(tmp_path: Path) -> None:
+    # The shared predicate behind both _sanitize_generated_names and
+    # _decompose_expr: a leaf living ONLY under a pin is subsumed by the pin's
+    # cache-key token, but a leaf also reachable from a live branch (DAG
+    # sharing) must stay live so its data identity reaches the build hash.
+    con = xo.connect()
+    src = tmp_path / "data.parquet"
+    pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}).to_parquet(src)
+    cache = ParquetCache.from_kwargs(relative_path=tmp_path / "cache", source=con)
+    base = deferred_read_parquet(src, con=con)
+    cached = base.filter(xo._.a > 1).cache(cache=cache)
+    cached.execute()
+    pinned = cached.ls.pin()
+
+    # pin alone: both the cache-file read and the uncached upstream read are
+    # exclusively pinned.
+    assert len(exclusively_pinned_leaves(pinned.op(), (Read,))) == 2
+
+    # share `base` with a live join: the upstream read is no longer exclusive,
+    # so only the cache-file read remains pinned and `base` stays a live leaf.
+    expr = base.join(pinned, "a")[["a"]]
+    shared = exclusively_pinned_leaves(expr.op(), (Read,))
+    assert len(shared) == 1
+    live_reads = [r for r in walk_nodes((Read,), expr) if r not in shared]
+    assert any(
+        str(src) in " ".join(str(v) for v in dict(r.read_kwargs).values())
+        for r in live_reads
+    )
+
+
+def test_pin_survives_tag_stripping_for_strategy_hash(tmp_path: Path) -> None:
+    # A CacheTag is identity-bearing (a build-hash leaf keyed on its cache key),
+    # not a transparent side-effect Tag. `untagged` must keep it -- like
+    # HashingTag -- so strategy-based hashes (compute_expr_hash with a strategy,
+    # find_by_expr_hash) don't silently reduce a pin to its bare cache read.
+    cached, _ = make_cached(tmp_path)
+    cached.execute()
+    pinned = cached.ls.pin()
+
+    assert walk_nodes((CacheTag,), pinned.ls.untagged)
+
+    # the pin must hash distinctly from its raw cache-file read; before the fix
+    # tag-stripping collapsed the two.
+    bare_read = pinned.op().parent.to_expr()
+    assert compute_expr_hash(pinned, SnapshotStrategy()) != compute_expr_hash(
+        bare_read, SnapshotStrategy()
+    )

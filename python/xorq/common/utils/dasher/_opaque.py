@@ -401,7 +401,11 @@ def _decompose_expr(
     strings for each NamedScalarParameter in graph order, *hashing_tags*
     carry user-supplied metadata, and *tee_nodes* carry writer identity.
     """
-    from xorq.common.utils.graph_utils import replace_nodes, walk_nodes  # noqa: PLC0415
+    from xorq.common.utils.graph_utils import (  # noqa: PLC0415
+        exclusively_pinned_leaves,
+        replace_nodes,
+        walk_nodes,
+    )
     from xorq.expr.api import get_compiler, to_sql  # noqa: PLC0415
     from xorq.expr.relations import (  # noqa: PLC0415
         CachedNode,
@@ -440,17 +444,11 @@ def _decompose_expr(
     hashing_tags = tuple(walk_nodes(HashingTag, op))
     tee_nodes = tuple(walk_nodes(TeeNode, op))
     # A pinned read (CacheTag) is a hash *leaf*: its identity is the cache key,
-    # folded in _hash_expr_components via __dasher_tokenize__. Prune every leaf
-    # living under a CacheTag -- both ``parent`` (the cache-file read, whose
-    # absolute path is base_path-dependent) and ``uncached`` (the discarded
-    # upstream, whose sources would be stat'd) -- so a pin hashes consistently
-    # across cache dirs and without its original sources still existing.
-    # Pruning is by node identity; a no-op when the expr has no pins.
+    # folded in _hash_expr_components via __dasher_tokenize__. Prune the leaves
+    # that token already represents -- those exclusively under a pin -- from the
+    # data/identity collections gathered above (see exclusively_pinned_leaves).
     cache_tags = tuple(walk_nodes(CacheTag, op))
     if cache_tags:
-        # The leaf types pruned here are exactly the data/identity collections
-        # gathered above; one walk per tag into a set (which dedups nodes shared
-        # by nested pins), then a single membership filter over each collection.
         pinned_leaf_types = (
             Read,
             DatabaseTable,
@@ -460,9 +458,7 @@ def _decompose_expr(
             HashingTag,
             TeeNode,
         )
-        pinned = {
-            node for ct in cache_tags for node in walk_nodes(pinned_leaf_types, ct)
-        }
+        pinned = exclusively_pinned_leaves(op, pinned_leaf_types)
         reads, dts, udfs, mems, hashing_tags, tee_nodes = (
             tuple(n for n in coll if n not in pinned)
             for coll in (reads, dts, udfs, mems, hashing_tags, tee_nodes)

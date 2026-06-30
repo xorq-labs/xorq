@@ -45,11 +45,11 @@ from xorq.common.utils.file_utils import (
     normalize_read_path_stat,
 )
 from xorq.common.utils.graph_utils import (
+    exclusively_pinned_leaves,
     find_all_sources,
     opaque_ops,
     replace_nodes,
     replace_sources,
-    to_node,
     walk_nodes,
 )
 from xorq.common.utils.name_utils import get_uid_prefix
@@ -294,15 +294,11 @@ def _sanitize_generated_names(expr, normalize_method):
     # affect the other, so a single walk collecting both is equivalent to
     # the previous two sequential walks.
     replacements = {}
-    # Only the frozen read subtree (``parent``) of a CacheTag is a hash leaf
-    # whose names must be left alone. Do NOT descend ``uncached``: its leaves
-    # never participate in execution, and a leaf shared (DAG) between
-    # ``uncached`` and a live, non-pinned part of the expression would
-    # otherwise be skipped here and keep its session-random UID name, leaking
-    # nondeterminism into the outer expression's build hash.
-    pinned_leaves = set()
-    for ct in walk_nodes((CacheTag,), expr):
-        pinned_leaves.update(walk_nodes((InMemoryTable, Read), to_node(ct.parent)))
+    # Leave alone the leaves a pin's cache-key token already represents (those
+    # exclusively under a CacheTag); sanitizing them would stat a possibly-
+    # absent upstream source. DAG-shared leaves stay live -- see
+    # exclusively_pinned_leaves, shared with _decompose_expr.
+    pinned_leaves = exclusively_pinned_leaves(expr, (InMemoryTable, Read))
     for node in walk_nodes((InMemoryTable, Read), expr):
         if node in pinned_leaves:
             continue
