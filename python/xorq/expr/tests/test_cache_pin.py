@@ -163,6 +163,24 @@ def test_pinned_expr_is_a_frozen_read_not_a_cache(tmp_path: Path) -> None:
     assert pinned.ls.unpin().ls.is_cached
 
 
+def test_cache_tag_rejects_non_expr_uncached() -> None:
+    # `parent` is type-enforced by the inherited Tag annotation, but `uncached`
+    # is Any; the __init__ guard catches a swapped/garbage upstream at
+    # construction instead of failing obscurely later.
+    t = xo.memtable(pd.DataFrame({"a": [1]}))
+    schema = t.schema()
+
+    with pytest.raises(IntegrityError, match="uncached must be an Expr or Node"):
+        CacheTag(schema=schema, parent=t.op(), uncached=42, cache=None)
+
+    # an Expr is accepted, a Node is accepted, and None (unset) is accepted
+    assert CacheTag(schema=schema, parent=t.op(), uncached=t, cache=None) is not None
+    assert (
+        CacheTag(schema=schema, parent=t.op(), uncached=t.op(), cache=None) is not None
+    )
+    assert CacheTag(schema=schema, parent=t.op(), uncached=None, cache=None) is not None
+
+
 def test_find_all_sources_execution_only_prunes_uncached_backend(
     tmp_path: Path,
 ) -> None:

@@ -169,6 +169,37 @@ class CacheTag(Tag):
     uncached: Any = None
     cache: Any = None
 
+    def __init__(
+        self,
+        schema: Schema,
+        parent: ops.Relation,
+        uncached: Any = None,
+        cache: Any = None,
+        metadata: FrozenOrderedDict | None = None,
+    ) -> None:
+        if metadata is None:
+            metadata = FrozenOrderedDict()
+        # `parent`'s Node type is enforced by the inherited ``Tag.parent``
+        # annotation, but `uncached` is ``Any`` (it holds an Expr, not a Node,
+        # so ibis cannot validate it via annotation). Guard its type here so a
+        # direct constructor that swaps `parent`/`uncached` fails loudly at
+        # construction rather than with an obscure error at execution or
+        # serialization time. ``None`` is the unset default; otherwise it must
+        # be what ``to_node`` accepts -- an Expr or a Node.
+        if uncached is not None and not isinstance(uncached, (Expr, Node)):
+            raise IntegrityError(
+                f"CacheTag.uncached must be an Expr or Node, got "
+                f"{type(uncached).__name__}; it holds the original upstream "
+                f"expression (see cache_tag_identity_parts and the class docstring)."
+            )
+        super().__init__(
+            schema=schema,
+            parent=parent,
+            uncached=uncached,
+            cache=cache,
+            metadata=metadata,
+        )
+
     def __dasher_tokenize__(self) -> tuple:
         # Build/cache identity of a pinned read is its cache KEY (the frozen
         # read's table name) -- base_path-independent and computable without the
