@@ -14,6 +14,7 @@ from xorq.vendor.ibis.expr.operations.core import Node
 opaque_ops = (
     rel.Read,
     rel.CachedNode,
+    rel.CacheTag,
     rel.RemoteTable,
     rel.FlightUDXF,
     rel.FlightExpr,
@@ -72,7 +73,12 @@ def bfs(node):
     return Graph(dct)
 
 
-def walk_nodes(node_types, expr):
+def walk_nodes(
+    node_types: type | Tuple[type, ...],
+    expr: Expr | Node,
+    *,
+    gen_children: Callable[[Node], Any] = gen_children_of,
+) -> Tuple[Node, ...]:
     """DFS walk yielding matching nodes in parent-before-descendant order
     for tree-shaped expressions; shared (DAG) nodes may appear before a
     non-matching ancestor.
@@ -80,6 +86,10 @@ def walk_nodes(node_types, expr):
     Callers (e.g. ``_rebuild_subexpr``) depend on ancestors appearing before
     their descendants.  Changing traversal strategy (BFS, reverse, etc.) will
     break that invariant.
+
+    ``gen_children`` overrides how a node's children are enumerated (defaults
+    to ``gen_children_of``); pass a variant to prune specific opaque edges
+    (see ``find_all_sources``).
     """
     visited = set()
     to_visit = [to_node(expr)]
@@ -95,7 +105,7 @@ def walk_nodes(node_types, expr):
 
         to_visit += (
             child
-            for child in OrderedDict.fromkeys(gen_children_of(node))
+            for child in OrderedDict.fromkeys(gen_children(node))
             if child not in visited
         )
 
@@ -407,7 +417,38 @@ def get_ordered_unique_sources(nodes):
     return sources
 
 
-def find_all_sources(expr):
+def _gen_children_exec(node: Node) -> Tuple[Node, ...]:
+    """Child enumeration along the *execution* path only.
+
+    Identical to ``gen_children_of`` except at a ``CacheTag``, where it
+    descends only the frozen ``parent`` read (what actually executes) and not
+    ``uncached`` (inert reconstruction payload). Mirrors ``_decompose_expr``'s
+    pruning of pinned-leaf data so source discovery stays consistent with
+    hashing.
+    """
+    if isinstance(node, rel.CacheTag):
+        return (to_node(node.parent),)
+    return tuple(gen_children_of(node))
+
+
+def find_all_sources(
+    expr: Expr | Node, *, execution_only: bool = False
+) -> Tuple[Any, ...]:
+    """Distinct backend sources referenced in *expr*, in discovery order.
+
+    By default the full graph is walked, including a pinned read's
+    (``CacheTag``) ``uncached`` reconstruction payload -- serialization needs
+    those profiles to round-trip the discarded upstream (see
+    ``ExprDumper``/``dehydrate_cons``).
+
+    Pass ``execution_only=True`` for connection-selection consumers (e.g.
+    ``expr_to_unbound``): a pinned read executes only through its frozen
+    ``parent``, so ``uncached`` backends -- which may be transient or
+    unavailable after a roundtrip -- must not be reported as required sources.
+    This mirrors ``_decompose_expr``'s pruning of pinned-leaf data. A backend
+    shared between ``uncached`` and a live branch is still found via the live
+    branch.
+    """
     node_types = (
         ops.DatabaseTable,
         ops.SQLQueryResult,
@@ -419,6 +460,7 @@ def find_all_sources(expr):
         # ExprScalarUDF has an expr we need to get to
         # FlightOperator has a dynamically generated connection: it should be passed a Profile instead
     )
-    nodes = walk_nodes(node_types, expr)
+    gen_children = _gen_children_exec if execution_only else gen_children_of
+    nodes = walk_nodes(node_types, expr, gen_children=gen_children)
     sources = get_ordered_unique_sources(nodes)
     return sources

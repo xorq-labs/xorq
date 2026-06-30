@@ -49,6 +49,7 @@ from xorq.common.utils.graph_utils import (
     opaque_ops,
     replace_nodes,
     replace_sources,
+    to_node,
     walk_nodes,
 )
 from xorq.common.utils.name_utils import get_uid_prefix
@@ -293,9 +294,15 @@ def _sanitize_generated_names(expr, normalize_method):
     # affect the other, so a single walk collecting both is equivalent to
     # the previous two sequential walks.
     replacements = {}
+    # Only the frozen read subtree (``parent``) of a CacheTag is a hash leaf
+    # whose names must be left alone. Do NOT descend ``uncached``: its leaves
+    # never participate in execution, and a leaf shared (DAG) between
+    # ``uncached`` and a live, non-pinned part of the expression would
+    # otherwise be skipped here and keep its session-random UID name, leaking
+    # nondeterminism into the outer expression's build hash.
     pinned_leaves = set()
     for ct in walk_nodes((CacheTag,), expr):
-        pinned_leaves.update(walk_nodes((InMemoryTable, Read), ct))
+        pinned_leaves.update(walk_nodes((InMemoryTable, Read), to_node(ct.parent)))
     for node in walk_nodes((InMemoryTable, Read), expr):
         if node in pinned_leaves:
             continue

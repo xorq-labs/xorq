@@ -8,9 +8,12 @@ import pytest
 import xorq.api as xo
 from xorq.caching import ParquetCache
 from xorq.common.exceptions import IntegrityError
-from xorq.common.utils.graph_utils import walk_nodes
+from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
+from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.common.utils.provenance_utils import get_expr_hash
 from xorq.expr.relations import CachedNode, CacheTag, Read, RemoteTable
+from xorq.ibis_yaml.compiler import canonicalize_expr
+from xorq.vendor.ibis.expr.operations.relations import InMemoryTable
 
 
 def make_cached(tmp_path: Path) -> tuple:
@@ -158,3 +161,61 @@ def test_pinned_expr_is_a_frozen_read_not_a_cache(tmp_path: Path) -> None:
 
     # unpin restores cache semantics
     assert pinned.ls.unpin().ls.is_cached
+
+
+def test_find_all_sources_execution_only_prunes_uncached_backend(
+    tmp_path: Path,
+) -> None:
+    # Regression: a pinned read executes only through its frozen `parent`, but
+    # its `uncached` payload still references the original upstream backend. The
+    # default walk reports both (serialization needs the uncached profiles);
+    # connection-selection consumers must pass execution_only=True to avoid
+    # reporting backends that aren't actually required to run the pinned expr.
+    con = xo.connect()
+    con2 = xo.connect()
+    t = con.register(pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}), "tbl")
+    cache = ParquetCache.from_kwargs(relative_path=tmp_path, source=con2)
+    cached = t.into_backend(con2).cache(cache)
+    # guard: the uncached payload must carry a distinct second backend
+    assert isinstance(cached.op().parent.op(), RemoteTable)
+    cached.execute()
+    pinned = cached.ls.pin()
+
+    full = find_all_sources(pinned)
+    execution = find_all_sources(pinned, execution_only=True)
+
+    # default walk descends uncached and sees both backends
+    assert len(full) == 2
+    # execution path runs only through the frozen cache read on con2
+    assert tuple(map(id, execution)) == (id(con2),)
+
+
+def test_pin_does_not_freeze_dag_shared_upstream_leaf(tmp_path: Path) -> None:
+    # Regression: a pin's `uncached` payload holds the original upstream. If a
+    # leaf there is also referenced by a live, non-pinned part of the same
+    # expression (DAG sharing), name canonicalization must NOT skip it as a
+    # pinned leaf -- otherwise the live reference keeps its session-random UID
+    # name and leaks nondeterminism into the outer expression's build hash.
+    con = xo.connect()
+    df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+    # memtable (not register) so the upstream leaf is a UID-prefixed
+    # InMemoryTable -- exactly the name that must be sanitized.
+    t = xo.memtable(df, name=None)
+    cache = ParquetCache.from_kwargs(relative_path=tmp_path, source=con)
+    cached = t.cache(cache)
+    cached.execute()
+    pinned = cached.ls.pin()
+
+    # `t` is shared: it is both the pin's uncached upstream and the live left
+    # side of the join.
+    expr = t.join(pinned, "a")[["a"]]
+    assert walk_nodes((CacheTag,), expr)
+
+    canonical = canonicalize_expr(expr)
+    # No live leaf may retain its auto-generated UID prefix after canonicalization.
+    leftover = [
+        n.name
+        for n in walk_nodes((InMemoryTable, Read), canonical)
+        if get_uid_prefix(n.name)
+    ]
+    assert leftover == [], f"unsanitized UID-prefixed leaves: {leftover}"
