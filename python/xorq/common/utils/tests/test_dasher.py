@@ -66,6 +66,7 @@ from xorq.common.utils.dasher._opaque import (
     _normalize_computed_kwargs_expr,
     _parent_token,
 )
+from xorq.common.utils.dasher._relations import _databasetable_dispatcher
 from xorq.common.utils.file_utils import normalize_read_path_stat
 from xorq.common.utils.tests._test_helpers import BombHasher, MockOp, Probe
 from xorq.common.utils.toolz_utils import curry as xo_curry
@@ -172,6 +173,41 @@ def test_datafusion_parquet_different_schema_produces_different_token(tmp_path):
     t_full = con.read_parquet(path, table_name="t_full")
     t_proj = t_full.select("a", "b")
     assert tokenize(t_full) != tokenize(t_proj)
+
+
+def _decimal_parquet(path, precision, scale):
+    table = pa.table(
+        {"x": pa.array(["1.23", "4.56"]).cast(pa.decimal128(precision, scale))}
+    )
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    pq.write_table(table, path)
+
+
+@pytest.mark.parametrize(
+    "make_table",
+    (
+        pytest.param(_datafusion_table, id="datafusion"),
+        pytest.param(_duckdb_table, id="duckdb"),
+    ),
+)
+def test_file_table_decimal_precision_distinguishes_schema_component(
+    tmp_path, make_table
+):
+    # Regression guard for xorq-labs/xorq#1973: the file-table DT normalizers
+    # must route the schema through ``normalize_ibis_schema`` (which keeps
+    # ``str(dtype)``), not ``dt.schema.to_pandas()`` (which collapses every
+    # decimal to ``dtype('O')``).  Same column name, different decimal
+    # precision must produce distinct schema components in the token.
+    pa_path, pb_path = tmp_path / "a.parquet", tmp_path / "b.parquet"
+    _decimal_parquet(pa_path, 18, 3)
+    _decimal_parquet(pb_path, 9, 2)
+    na = _databasetable_dispatcher(make_table(pa_path, "ta").op())
+    nb = _databasetable_dispatcher(make_table(pb_path, "tb").op())
+    schema_a, schema_b = na[1], nb[1]
+    assert schema_a == ("ibis.Schema", (("x", "decimal(18, 3)"),))
+    assert schema_b == ("ibis.Schema", (("x", "decimal(9, 2)"),))
+    assert schema_a != schema_b
 
 
 # --- UDF counter independence ---------------------------------------------
