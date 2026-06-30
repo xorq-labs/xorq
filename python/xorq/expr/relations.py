@@ -148,23 +148,35 @@ class CacheTag(Tag):
     reconstruction payload; ``unpin_cache`` reads ``uncached``/``cache`` back
     to rebuild the ``CachedNode``.
 
-    INVARIANT -- do NOT add ``__dasher_tokenize__`` to fold ``uncached`` into
-    the build hash. ``uncached`` (the original pre-cache expr) is descended by
-    the graph machinery (see ``gen_children_of``) only so its leaves/backends
-    are found for source normalization and serialization; its *structure* is
-    intentionally absent from the hash. That is safe, not a gap: ``parent`` is
-    the cache ``Read`` whose ``hash_path`` is the upstream cache key, so the
-    upstream identity is already folded in. ``uncached`` also carries fields the
-    cache key strips (e.g. ``RemoteTable.name``), so folding it would make
-    logically-identical pins hash differently (ADR-0015 ``_replace_remote_table``).
+    Hash identity -- a pinned read is a build-hash *leaf*: its identity is the
+    cache key (``parent``'s table name), folded in via ``__dasher_tokenize__``.
+    The cache key already encodes the upstream computation (ADR-0015), and it is
+    independent of where the artifact physically lives, so a pin hashes the same
+    wherever its cache dir is relocated to (portability) and without the original
+    sources still existing (self-containment). Crucially, the build-hash machinery
+    must NOT descend ``parent`` (its ``hash_path`` is an absolute, base_path-
+    dependent path) or ``uncached`` (the discarded upstream, whose source leaves
+    would be stat'd) when hashing a pin -- ``_decompose_expr`` treats the whole
+    ``CacheTag`` as a leaf for exactly this reason. ``uncached`` is still
+    *descended for source normalization and serialization* (see
+    ``gen_children_of``); only the hash treats the tag as a leaf.
 
     Pinning is a freeze-time operation and is deliberately *not*
-    cache-hash-neutral: the cache file read by ``parent`` participates in the
-    hash, so a pinned expression keys differently from its unpinned form.
+    cache-hash-neutral: a pinned expression keys differently from its unpinned
+    form (cache-key identity vs. the full upstream computation).
     """
 
     uncached: Any = None
     cache: Any = None
+
+    def __dasher_tokenize__(self) -> tuple:
+        # Build/cache identity of a pinned read is its cache KEY (the frozen
+        # read's table name) -- base_path-independent and computable without the
+        # upstream source. Deliberately omits ``uncached``'s structure and the
+        # read's absolute path; see the class docstring and ``_decompose_expr``,
+        # which prunes the tag's subtree so these tokens are the only thing a
+        # ``CacheTag`` contributes to the hash.
+        return ("xorq.CacheTag", self.schema, self.parent.name)
 
 
 def cache_keyed_expr(parent: Expr) -> Expr:
@@ -194,7 +206,7 @@ def _cached_node_to_cache_tag(node: CachedNode) -> CacheTag:
         )
     return CacheTag(
         schema=node.schema,
-        parent=cache.storage.get(key),
+        parent=cache.storage.get(key, schema=node.schema),
         uncached=node.parent,
         cache=cache,
     )
@@ -218,7 +230,7 @@ def relocate_cache_tag(node: CacheTag, base_path: Path) -> CacheTag:
     key = to_node(node.parent).name
     return CacheTag(
         schema=node.schema,
-        parent=new_cache.storage.get(key),
+        parent=new_cache.storage.get(key, schema=node.schema),
         uncached=node.uncached,
         cache=new_cache,
     )

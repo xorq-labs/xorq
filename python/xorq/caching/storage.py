@@ -3,9 +3,15 @@ from __future__ import annotations
 import datetime
 from abc import abstractmethod
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from attr import field, frozen
 from attr.validators import instance_of, optional
+
+
+if TYPE_CHECKING:
+    from xorq.vendor.ibis.expr.operations.core import Node
+    from xorq.vendor.ibis.expr.schema import Schema
 
 
 def _lazy_backend_validator(instance, attribute, value):
@@ -62,7 +68,7 @@ class CacheStorage:
         pass
 
     @abstractmethod
-    def get(self, key):
+    def get(self, key: str, schema: Schema | None = None) -> Node:
         pass
 
     @abstractmethod
@@ -114,11 +120,11 @@ class ParquetStorage(CacheStorage):
             self.base_path,
         )
 
-    def __attrs_post_init__(self):
+    def _ensure_dir(self) -> None:
         self.path.mkdir(exist_ok=True, parents=True)
 
     @property
-    def path(self):
+    def path(self) -> Path:
         return resolve_parquet_cache_dir(self.relative_path, self.base_path)
 
     def get_path(self, key):
@@ -127,17 +133,25 @@ class ParquetStorage(CacheStorage):
     def exists(self, key):
         return self.get_path(key).exists()
 
-    def get(self, key):
+    def get(self, key: str, schema: Schema | None = None) -> Node:
         from xorq.common.utils.defer_utils import deferred_read_parquet  # noqa: PLC0415
 
+        # When the caller already knows the schema (e.g. pinning a CachedNode
+        # whose schema is on hand), forward it so deferred_read_parquet does not
+        # open the parquet footer just to re-infer a schema we already have.
         op = deferred_read_parquet(
             path=self.get_path(key),
             con=self.source,
             table_name=key,
+            schema=schema,
         ).op()
         return op
 
-    def put(self, key, value, parquet_metadata=None):
+    def put(self, key: str, value: Node, parquet_metadata: dict | None = None) -> Node:
+        # Create the cache dir lazily, at write time only -- constructing or
+        # relocating a storage (e.g. re-pointing a pinned read at a new
+        # base_path on load) must stay free of filesystem side effects.
+        self._ensure_dir()
         path = self.get_path(key)
         # move from temp location upon success to prevent empty files on failure
         tmp_path = path.with_name(path.name + ".tmp")
@@ -179,8 +193,8 @@ class ParquetTTLStorage(ParquetStorage):
 
 @frozen
 class ParquetDummyStorage(ParquetStorage):
-    def __attrs_post_init__(self):
-        pass  # intentionally skips self.path.mkdir(…) from ParquetStorage
+    def _ensure_dir(self) -> None:
+        pass  # dummy storage never touches the filesystem, even on write
 
 
 @frozen
@@ -196,7 +210,9 @@ class SourceStorage(CacheStorage):
     def exists(self, key):
         return key in self.source.tables
 
-    def get(self, key):
+    def get(self, key: str, schema: Schema | None = None) -> Node:
+        # schema is accepted for interface parity with ParquetStorage; a live
+        # backend table already carries its schema, so there is no I/O to skip.
         return self.source.table(key).op()
 
     def put(self, key, value, parquet_metadata=None):

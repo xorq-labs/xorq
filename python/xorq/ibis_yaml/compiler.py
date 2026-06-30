@@ -292,7 +292,12 @@ def _sanitize_generated_names(expr, normalize_method):
     # affect the other, so a single walk collecting both is equivalent to
     # the previous two sequential walks.
     replacements = {}
+    pinned_leaves = set()
+    for ct in walk_nodes((CacheTag,), expr):
+        pinned_leaves.update(walk_nodes((InMemoryTable, Read), ct))
     for node in walk_nodes((InMemoryTable, Read), expr):
+        if node in pinned_leaves:
+            continue
         if isinstance(node, InMemoryTable):
             if prefix := get_uid_prefix(node.name):
                 name = f"{prefix}{tokenize(recreate(node, name='name').to_expr())}"
