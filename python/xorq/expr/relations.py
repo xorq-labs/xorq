@@ -179,13 +179,13 @@ class CacheTag(Tag):
     ) -> None:
         if metadata is None:
             metadata = FrozenOrderedDict()
-        # `parent`'s Node type is enforced by the inherited Tag.parent
-        # annotation; `uncached` is Any, so guard it here (None, or what
+        # ``parent``'s Node type is enforced by the inherited Tag.parent
+        # annotation; ``uncached`` is Any, so guard it here (None, or what
         # to_node accepts -- an Expr or Node) to catch a swapped upstream at
         # construction rather than obscurely later.
         if uncached is not None and not isinstance(uncached, (Expr, Node)):
             raise IntegrityError(
-                f"CacheTag.uncached must be an Expr or Node, got "
+                "CacheTag.uncached must be an Expr or Node, got "
                 f"{type(uncached).__name__}"
             )
         super().__init__(
@@ -203,10 +203,10 @@ class CacheTag(Tag):
         # read's absolute path; see the class docstring and ``_decompose_expr``,
         # which prunes the tag's subtree so these tokens are the only thing a
         # ``CacheTag`` contributes to the hash.
-        return ("xorq.CacheTag", *cache_tag_identity_parts(self))
+        return ("cache-tag", *cache_tag_identity_parts(self))
 
 
-def cache_tag_identity_parts(node: "CacheTag") -> tuple:
+def cache_tag_identity_parts(node: CacheTag) -> tuple:
     """The fields that define a pinned read's identity: ``(schema, cache key)``.
 
     Single source of truth for *which* fields identify a ``CacheTag``, shared by
@@ -884,6 +884,12 @@ def get_cache_params(cache):
     return cache_repr + (render_backend(cache.storage.source),)
 
 
+def _fmt_cache_like(op: Node, schema: Schema, parent: str, cache: Any) -> str:
+    strategy, parquet, backend = get_cache_params(cache)
+    name = f"{op.__class__.__name__}[{parent}, strategy={strategy}, parquet={parquet}, source={backend}]\n"
+    return name + render_schema(schema, 1)
+
+
 @fmt.register(CachedNode)
 def _fmt_cache_node(
     op: CachedNode,
@@ -893,9 +899,7 @@ def _fmt_cache_node(
     cache: Any,
     **kwargs: Any,
 ) -> str:
-    strategy, parquet, backend = get_cache_params(cache)
-    name = f"{op.__class__.__name__}[{parent}, strategy={strategy}, parquet={parquet}, source={backend}]\n"
-    return name + render_schema(schema, 1)
+    return _fmt_cache_like(op, schema, parent, cache)
 
 
 @fmt.register(CacheTag)
@@ -906,12 +910,11 @@ def _fmt_cache_tag(
     cache: Any,
     **kwargs: Any,
 ) -> str:
-    # Render only the frozen read + cache params; the generic relation
-    # formatter chokes on `uncached` (an Ibis Expr) via its `if v` truthiness
-    # check. `parent` is already the rendered read ref.
-    strategy, parquet, backend = get_cache_params(cache)
-    name = f"{op.__class__.__name__}[{parent}, strategy={strategy}, parquet={parquet}, source={backend}]\n"
-    return name + render_schema(schema, 1)
+    # ``CacheTag`` reuses the ``CachedNode`` rendering (frozen read + cache
+    # params only). A dedicated handler is still needed because the generic
+    # relation formatter chokes on ``uncached`` (an Ibis Expr) via its ``if v``
+    # truthiness check. ``parent`` is already the rendered read ref.
+    return _fmt_cache_like(op, schema, parent, cache)
 
 
 @fmt.register(RemoteTable)

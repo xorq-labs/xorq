@@ -204,10 +204,10 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
             # A pinned read is a leaf: its placeholder is keyed on the cache key
             # (the frozen read's table name), which is base_path-independent and
             # needs no source. Returning a placeholder here also stops the
-            # rewrite from descending `parent`'s absolute path or `uncached`'s
+            # rewrite from descending ``parent``'s absolute path or ``uncached``'s
             # discarded upstream into the SQL. See CacheTag.__dasher_tokenize__.
             # Identity fields shared via cache_tag_identity_parts; the "cachetag"
-            # prefix is this layer's own (distinct from the "xorq.CacheTag" token,
+            # prefix is this layer's own (distinct from the "cache-tag" token,
             # since it lands in the structural SQL).
             name = _stable_opaque_name("cachetag", *cache_tag_identity_parts(node))
         case CachedNode():
@@ -441,8 +441,8 @@ def _decompose_expr(
     tee_nodes = tuple(walk_nodes(TeeNode, op))
     # A pinned read (CacheTag) is a hash *leaf*: its identity is the cache key,
     # folded in _hash_expr_components via __dasher_tokenize__. Prune every leaf
-    # living under a CacheTag -- both `parent` (the cache-file read, whose
-    # absolute path is base_path-dependent) and `uncached` (the discarded
+    # living under a CacheTag -- both ``parent`` (the cache-file read, whose
+    # absolute path is base_path-dependent) and ``uncached`` (the discarded
     # upstream, whose sources would be stat'd) -- so a pin hashes consistently
     # across cache dirs and without its original sources still existing.
     # Pruning is by node identity; a no-op when the expr has no pins.

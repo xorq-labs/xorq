@@ -160,12 +160,12 @@ def replace_nodes(
             case rel.CacheTag():
                 # Do NOT forward _kwargs (the asymmetry vs the sibling branches
                 # is load-bearing, not accidental -- it is covered by
-                # test_pinned_cache_yaml_roundtrip). `parent` is the materialized
-                # cache read paired with `cache`; re-driving it from the BFS
-                # rewrite diverges the read's backend identity from `cache` and
+                # test_pinned_cache_yaml_roundtrip). ``parent`` is the materialized
+                # cache read paired with ``cache``; re-driving it from the BFS
+                # rewrite diverges the read's backend identity from ``cache`` and
                 # breaks profile resolution on load. The replacer has already
-                # produced `op` with the correct native `parent`; only the opaque
-                # `uncached` payload still needs descending here.
+                # produced ``op`` with the correct native ``parent``; only the opaque
+                # ``uncached`` payload still needs descending here.
                 uncached = _replace_sub(to_node(op.uncached))
                 return do_recreate(op, None, uncached=uncached)
             case rel.FlightExpr() | rel.FlightUDXF():

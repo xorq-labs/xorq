@@ -172,7 +172,7 @@ def expr_to_unbound(expr, hash, tag, typs, strategy=None):
     found_expr = found.to_expr()
     to_unbind_hash = hash or compute_expr_hash(found_expr, strategy)
     found_con = None
-    # execution_only: don't let a pin's discarded `uncached` upstream drive
+    # execution_only: don't let a pin's discarded ``uncached`` upstream drive
     # connection selection -- only its frozen parent actually executes.
     match find_all_sources(found_expr, execution_only=True):
         case []:
