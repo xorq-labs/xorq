@@ -100,6 +100,16 @@ verbatim materialization of it (the tee is an identity pass-through), so staging
 - **`_op`** — present only in `MERGE`. It only needs to distinguish delete from not: `'D'` ⇒ delete
   this key; **any other value ⇒ upsert** (insert-or-update). We never split insert from update —
   the merge decides that by key match. `UPSERT` forbids `_op`; `MERGE` requires it.
+- **`key` is unique within a changeset** — at most one staging row per `key` value (for `MERGE`,
+  that includes the `'D'` rows: a key may not appear as both a delete and an upsert in the same
+  delta). This is not a stylistic nicety: native `MERGE INTO` raises a cardinality error
+  ("MERGE command cannot affect a row a second time") when two source rows match one target row,
+  whereas `REWRITE`'s anti-join + union-all and `STATEMENT_DML`'s UPDATE/INSERT/DELETE would each
+  resolve a duplicate-keyed delta *differently and silently*. Requiring uniqueness is what keeps the
+  three mechanisms observably equivalent. It is a **data**-level invariant, so build-time `_validate`
+  (which sees only `mode`/`key`/`columns`, not rows) cannot check it; it is enforced by the
+  recommended `audit_fn` — a "no duplicate keys" gate (see *Wrapper + the vacuous audit* and open
+  question 5) that fails the publish before any tier runs.
 
 ### Capability routing — dispatch on the backend, decide in WAP
 
@@ -211,14 +221,19 @@ def _merge_query(final, staging, key, columns, mode):
     sets = ", ".join(f'"{c}" = s."{c}"' for c in data)
     cols = ", ".join(f'"{c}"' for c in key + data)
     vals = ", ".join(f's."{c}"' for c in key + data)
+    # Key-only changeset (no non-key, non-_op columns): a matched row is a no-op, and SQL forbids an
+    # empty SET, so omit the UPDATE arm entirely rather than emit `UPDATE SET `.
+    upd  = f"UPDATE SET {sets}" if data else None
     parts = [f'MERGE INTO "{final}" AS f USING "{staging}" AS s ON {on}']
     if mode is PublishMode.MERGE:
-        parts += [f'''WHEN MATCHED AND s."_op" = 'D' THEN DELETE''',
-                  f'''WHEN MATCHED AND s."_op" <> 'D' THEN UPDATE SET {sets}''',
-                  f'''WHEN NOT MATCHED AND s."_op" <> 'D' THEN INSERT ({cols}) VALUES ({vals})''']
+        parts.append(f'''WHEN MATCHED AND s."_op" = 'D' THEN DELETE''')
+        if upd:
+            parts.append(f'''WHEN MATCHED AND s."_op" <> 'D' THEN {upd}''')
+        parts.append(f'''WHEN NOT MATCHED AND s."_op" <> 'D' THEN INSERT ({cols}) VALUES ({vals})''')
     else:
-        parts += [f"WHEN MATCHED THEN UPDATE SET {sets}",
-                  f"WHEN NOT MATCHED THEN INSERT ({cols}) VALUES ({vals})"]
+        if upd:
+            parts.append(f"WHEN MATCHED THEN {upd}")
+        parts.append(f"WHEN NOT MATCHED THEN INSERT ({cols}) VALUES ({vals})")
     return sqlglot.parse_one("\n".join(parts))
 
 def _publish_native_merge(con, staging, final, key, columns, mode):
@@ -269,11 +284,11 @@ def _publish_statement_dml(con, staging, final, key, columns, mode):
     nd   = ''' AND s."_op" <> 'D' ''' if mode is PublishMode.MERGE else ""
     sets = ", ".join(f'"{c}" = s."{c}"' for c in data)
     cols = ", ".join(f'"{c}"' for c in key + data)
-    stmts = [
-        f'''UPDATE "{final}" SET {sets} FROM "{staging}" s WHERE {onf}{nd}''',
-        f'''INSERT INTO "{final}" ({cols}) SELECT {cols} FROM "{staging}" s
-            WHERE NOT EXISTS (SELECT 1 FROM "{final}" WHERE {onf}){nd}''',
-    ]
+    stmts = []
+    if data:                                            # key-only changeset: nothing to UPDATE
+        stmts.append(f'''UPDATE "{final}" SET {sets} FROM "{staging}" s WHERE {onf}{nd}''')
+    stmts.append(f'''INSERT INTO "{final}" ({cols}) SELECT {cols} FROM "{staging}" s
+            WHERE NOT EXISTS (SELECT 1 FROM "{final}" WHERE {onf}){nd}''')
     if mode is PublishMode.MERGE:
         stmts.append(f'''DELETE FROM "{final}" WHERE EXISTS
             (SELECT 1 FROM "{staging}" s WHERE {onf} AND s."_op" = 'D')''')
@@ -516,6 +531,11 @@ mode/strategy design.
 4. **Replace semantics for `REWRITE`** — confirm `con.create_table(final, arrow, overwrite=True)` on
    datafusion/pandas, including the drop→create window; and `con.to_parquet` `(expr, path)` for the
    parquet publish (`xorq_datafusion/__init__.py:954`).
+5. **Duplicate-key gate as the default audit** — the changeset contract requires unique keys per
+   delta (a data-level invariant `_validate` cannot see). Should `make_incremental_wap_expr` default
+   to a "no duplicate keys" `audit_fn` for `UPSERT`/`MERGE` (failing fast, portable across tiers)
+   rather than the vacuous always-True audit, leaving always-True only for `APPEND`? The breaker
+   already drains the full stream, so the uniqueness check is essentially free there.
 
 ## References
 
