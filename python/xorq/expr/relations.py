@@ -176,7 +176,23 @@ class CacheTag(Tag):
         # read's absolute path; see the class docstring and ``_decompose_expr``,
         # which prunes the tag's subtree so these tokens are the only thing a
         # ``CacheTag`` contributes to the hash.
-        return ("xorq.CacheTag", self.schema, self.parent.name)
+        return ("xorq.CacheTag", *cache_tag_identity_parts(self))
+
+
+def cache_tag_identity_parts(node: "CacheTag") -> tuple:
+    """The fields that define a pinned read's identity: ``(schema, cache key)``.
+
+    Single source of truth for *which* fields identify a ``CacheTag``, shared by
+    the two layers that must agree on it -- ``CacheTag.__dasher_tokenize__`` (the
+    hash-component contribution) and the SQL placeholder in
+    ``_xorq_opaque_to_placeholder`` (the structural-``sql`` contribution). Each
+    consumer wraps these parts in its own envelope (a tokenize tuple vs. a
+    ``_stable_opaque_name`` prefix), so this returns only the shared parts, not a
+    formatted name -- adding a field here updates both consumers without
+    changing either's existing output format. ``parent.name`` is the cache key
+    (see the class docstring).
+    """
+    return (node.schema, node.parent.name)
 
 
 def cache_keyed_expr(parent: Expr) -> Expr:

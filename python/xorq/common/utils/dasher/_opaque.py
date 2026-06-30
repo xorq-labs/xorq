@@ -196,6 +196,7 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
         FlightUDXF,
         Read,
         RemoteTable,
+        cache_tag_identity_parts,
     )
 
     match node:
@@ -205,7 +206,11 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
             # needs no source. Returning a placeholder here also stops the
             # rewrite from descending `parent`'s absolute path or `uncached`'s
             # discarded upstream into the SQL. See CacheTag.__dasher_tokenize__.
-            name = _stable_opaque_name("cachetag", node.schema, node.parent.name)
+            # Shares the identity fields with __dasher_tokenize__ via
+            # cache_tag_identity_parts; the "cachetag" prefix is this layer's
+            # own envelope and must stay distinct from the tokenize tuple's
+            # "xorq.CacheTag" tag (changing it would alter the structural SQL).
+            name = _stable_opaque_name("cachetag", *cache_tag_identity_parts(node))
         case CachedNode():
             name = _stable_opaque_name(
                 "cached",
