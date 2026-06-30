@@ -22,7 +22,6 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.api import get_plans, to_pyarrow_batches
 from xorq.expr.remote_table_exec import (
-    LockedIterator,
     RemoteTableScope,
     bind_scope_to_reader,
     drop_placeholder,
@@ -31,6 +30,7 @@ from xorq.expr.remote_table_exec import (
 )
 from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis.backends import BaseBackend
+from xorq.writes import LockedIterator
 
 
 pytest.importorskip("duckdb")
@@ -416,7 +416,9 @@ def test_locked_gen_close_during_advance_does_not_raise() -> None:
             release.wait()  # simulate an in-flight FFI pull
             yield i
 
-    locked = LockedIterator(slow())
+    gen = slow()
+
+    locked = LockedIterator(gen)
     errors: list[BaseException] = []
 
     def advance() -> None:
@@ -436,6 +438,16 @@ def test_locked_gen_close_during_advance_does_not_raise() -> None:
     t.join(timeout=5)
     assert not t.is_alive()
     assert errors == []
+
+    # The mid-advance close() was a no-op: the lock was held, so the generator
+    # was left open and _closed stays False -- it was never the owner of
+    # teardown. The generator must still be advanceable and explicitly
+    # closeable once the advance has returned the lock.
+    assert locked._closed is False
+    assert gen.gi_frame is not None  # still open, not finalized by the no-op
+    locked.close()  # idle now: this one actually closes the generator
+    assert locked._closed is True
+    assert gen.gi_frame is None  # generator finalized
 
 
 def test_locked_gen_close_when_idle_closes_generator() -> None:
