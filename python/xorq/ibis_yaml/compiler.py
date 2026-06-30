@@ -64,6 +64,7 @@ from xorq.expr.relations import (
     CachedNode,
     CacheTag,
     Read,
+    relocate_cache,
     relocate_cache_tag,
 )
 from xorq.ibis_yaml.common import (
@@ -837,10 +838,7 @@ class ExprLoader:
                     # that read at the new base_path (the key is base_path-
                     # independent), so a pinned build is portable across cache dirs.
                     return relocate_cache_tag(node, base_path)
-                evolved = evolve(
-                    cache,
-                    storage=evolve(cache.storage, base_path=base_path),
-                )
+                evolved = relocate_cache(cache, base_path)
                 return recreate(node, **((kwargs or {}) | {"cache": evolved}))
             return node.__recreate__(kwargs) if kwargs else node
 

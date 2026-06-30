@@ -444,28 +444,25 @@ def _decompose_expr(
     # Pruning is by node identity; a no-op when the expr has no pins.
     cache_tags = tuple(walk_nodes(CacheTag, op))
     if cache_tags:
-        pinned = set()
-        for ct in cache_tags:
-            pinned.update(
-                walk_nodes(
-                    (
-                        Read,
-                        DatabaseTable,
-                        InMemoryTable,
-                        AggUDF,
-                        ScalarUDF,
-                        HashingTag,
-                        TeeNode,
-                    ),
-                    ct,
-                )
-            )
-        reads = tuple(r for r in reads if r not in pinned)
-        dts = tuple(d for d in dts if d not in pinned)
-        udfs = tuple(u for u in udfs if u not in pinned)
-        mems = tuple(m for m in mems if m not in pinned)
-        hashing_tags = tuple(h for h in hashing_tags if h not in pinned)
-        tee_nodes = tuple(t for t in tee_nodes if t not in pinned)
+        # The leaf types pruned here are exactly the data/identity collections
+        # gathered above; one walk per tag into a set (which dedups nodes shared
+        # by nested pins), then a single membership filter over each collection.
+        pinned_leaf_types = (
+            Read,
+            DatabaseTable,
+            InMemoryTable,
+            AggUDF,
+            ScalarUDF,
+            HashingTag,
+            TeeNode,
+        )
+        pinned = {
+            node for ct in cache_tags for node in walk_nodes(pinned_leaf_types, ct)
+        }
+        reads, dts, udfs, mems, hashing_tags, tee_nodes = (
+            tuple(n for n in coll if n not in pinned)
+            for coll in (reads, dts, udfs, mems, hashing_tags, tee_nodes)
+        )
     return (
         sql,
         reads,

@@ -242,7 +242,8 @@ def test_exists(cached_two):
     cache = cached_two.ls.cache
 
     assert not cached_two.ls.cache_exists()
-    assert not tuple(cache.storage.path.iterdir())
+    # the cache dir is created lazily on first write, so nothing exists yet
+    assert not cache.storage.path.exists()
 
     xo.execute(cached_two)
     assert cached_two.ls.cache_exists()

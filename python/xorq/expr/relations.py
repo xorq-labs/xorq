@@ -212,6 +212,18 @@ def _cached_node_to_cache_tag(node: CachedNode) -> CacheTag:
     )
 
 
+def relocate_cache(cache: Any, base_path: Path) -> Any:
+    """Re-point a parquet cache's storage at a new ``base_path``.
+
+    Single source of truth for the storage re-pointing, shared by
+    ``relocate_cache_tag`` (pinned reads) and ``replace_base_path`` (live
+    ``CachedNode``s) so the two relocation sites cannot drift.
+    """
+    from attr import evolve  # noqa: PLC0415
+
+    return evolve(cache, storage=evolve(cache.storage, base_path=base_path))
+
+
 def relocate_cache_tag(node: CacheTag, base_path: Path) -> CacheTag:
     """Re-point a pinned cache's frozen read at a new ``base_path``.
 
@@ -221,12 +233,9 @@ def relocate_cache_tag(node: CacheTag, base_path: Path) -> CacheTag:
     does not re-materialize or re-validate; if the artifact is absent at the new
     location, execution fails like any other missing read.
     """
-    from attr import evolve  # noqa: PLC0415
-
     from xorq.common.utils.graph_utils import to_node  # noqa: PLC0415
 
-    cache = node.cache
-    new_cache = evolve(cache, storage=evolve(cache.storage, base_path=base_path))
+    new_cache = relocate_cache(node.cache, base_path)
     key = to_node(node.parent).name
     return CacheTag(
         schema=node.schema,
