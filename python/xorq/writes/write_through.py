@@ -448,6 +448,15 @@ class LockedIterator:
     the process. The shared lock guarantees ``close()`` only runs while the
     generator is suspended, never mid-advance. Same race class as the
     ``DrainingIterator`` advance lock (#2107).
+
+    CPython-only: when ``close()`` finds an advance in flight it abandons the
+    explicit generator close (see ``close()``), so finalizing the still-open
+    generator frame falls to reference-counting GC -- the in-flight consumer
+    drops the last reference once its advance returns. That backstop assumes
+    CPython's deterministic refcounting; on a runtime without it (PyPy,
+    GraalPy) an abandoned-mid-advance frame could linger until the next GC
+    cycle. xorq already depends on CPython refcounting/GIL semantics throughout,
+    so this is not a new constraint.
     """
 
     def __init__(self, gen) -> None:
@@ -539,7 +548,18 @@ class DrainingIterator:
 
     def close(self) -> None:
         with self._state_lock:
-            if self._exhausted or self._drain_thread is not None:
+            # Also treat the inner iterator's own exhaustion flag as exhausted:
+            # __next__ sets _locked._closed inside the locked critical section
+            # but flips _exhausted only after releasing that lock, so there is a
+            # brief window where the generator is done yet _exhausted is still
+            # False. Checking _locked._closed here avoids spawning a drain thread
+            # that would immediately exit. (DrainingIterator never calls
+            # _locked.close(), so _closed is True only on natural exhaustion.)
+            if (
+                self._exhausted
+                or self._locked._closed
+                or self._drain_thread is not None
+            ):
                 return
             self._drain_thread = threading.Thread(target=self._drain)
             self._drain_thread.start()

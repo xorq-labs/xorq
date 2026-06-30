@@ -1512,20 +1512,35 @@ def test_tee_write_iter_guard_by_drain(
     # in LockedIterator directly. (DrainingIterator serializes advance via its own
     # internal LockedIterator -- constructed from write_through's module global,
     # which these spies don't patch, so it is correctly invisible here.)
+    import types  # noqa: PLC0415
+
     import xorq.expr.relations as rel  # noqa: PLC0415
     import xorq.expr.remote_table_exec as rte  # noqa: PLC0415
 
-    wrapped_names: list[str | None] = []
+    # Identify the two generators we expect to be wrapped by *code object*, not
+    # by co_name string: a string match would still pass if a rename caused the
+    # wrong generator to be wrapped. The code-object references follow renames.
+    write_through_code = ParquetWriteThrough.write_through.__code__
+    # bind_scope_to_reader wraps its parent-reader closure (a nested fn "gen");
+    # extract that closure's code object. A rename of the closure surfaces as a
+    # StopIteration here (loud failure), not a silently-vacuous pass.
+    bind_gen_code = next(
+        const
+        for const in rte.bind_scope_to_reader.__code__.co_consts
+        if isinstance(const, types.CodeType) and const.co_name == "gen"
+    )
+
+    wrapped_codes: list[Any] = []
     orig = rte.LockedIterator
 
     def spy(gen: Any) -> Any:
-        wrapped_names.append(getattr(getattr(gen, "gi_code", None), "co_name", None))
+        wrapped_codes.append(getattr(gen, "gi_code", None))
         return orig(gen)
 
     # LockedIterator lives in xorq.writes; both modules bind it at import time
-    # (rte wraps the parent reader in bind_scope_to_reader -> "gen"; relations
-    # wraps the drain=False write-through generator -> "write_through"). Patch
-    # both namespaces so the spy observes each wrap site.
+    # (rte wraps the parent reader in bind_scope_to_reader; relations wraps the
+    # drain=False write-through generator). Patch both namespaces so the spy
+    # observes each wrap site.
     monkeypatch.setattr(rte, "LockedIterator", spy)
     monkeypatch.setattr(rel, "LockedIterator", spy)
     con = xo.connect()
@@ -1533,21 +1548,18 @@ def test_tee_write_iter_guard_by_drain(
     expr = tt.tee(ParquetWriteThrough(path=tmp_path / "o.parquet"), drain=drain)
     register_and_transform_tee_nodes(expr)
 
-    # wrapped_names holds the co_name of each generator LockedIterator wraps:
-    #   "write_through" -> the ParquetWriteThrough.write_through generator
-    #   "gen"           -> the parent-reader wrap inside bind_scope_to_reader
-    # bind_scope_to_reader always wraps the parent reader, so "gen" must appear
-    # regardless of drain -- this proves the spy is active, so the
-    # write_through check below cannot pass vacuously (e.g. if LockedIterator were
-    # bypassed entirely).
-    assert "gen" in wrapped_names, "spy did not observe the parent-reader wrap"
+    # bind_scope_to_reader always wraps the parent reader, so its code object
+    # must appear regardless of drain -- this proves the spy is active, so the
+    # negative drain=True check below cannot pass vacuously (e.g. if
+    # LockedIterator were bypassed entirely).
+    assert bind_gen_code in wrapped_codes, "spy did not observe the parent-reader wrap"
     if drain:
         # drain=True goes through DrainingIterator; the relations call site does
         # not wrap the write-through gen in (a patched) LockedIterator.
-        assert "write_through" not in wrapped_names
+        assert write_through_code not in wrapped_codes
     else:
         # drain=False must wrap the raw write-through generator in LockedIterator.
-        assert "write_through" in wrapped_names
+        assert write_through_code in wrapped_codes
 
 
 def test_drain_build_hash_same(t: Table, tmp_path: Path) -> None:
