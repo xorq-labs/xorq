@@ -35,10 +35,10 @@ datafusion lands in the immutable tier, so the manual rewrite path is mandatory,
 
 The design leans on three capabilities confirmed against the pinned deps:
 
-- **sqlglot 28.1.0** exposes `Merge`/`When`/`Whens` and transpiles a single canonical `MERGE`
+- **sqlglot 28.6.0** exposes `Merge`/`When`/`Whens` and transpiles a single canonical `MERGE`
   string cleanly to duckdb/postgres/snowflake/trino/databricks. One authored statement, rendered
   per dialect by each backend's existing `raw_sql` (which calls `query.sql(dialect=…)`).
-- **pyiceberg 0.11.0** exposes **both** `Transaction.upsert` and `Transaction.delete` on the same
+- **pyiceberg 0.11.1** exposes **both** `Transaction.upsert` and `Transaction.delete` on the same
   transaction, so iceberg upsert+delete commits as **one snapshot** — atomic, no two-commit window.
 - **Transactions exist** where statement-DML is needed: postgres and sqlite both expose a `begin()`
   context manager (`vendor/ibis/backends/postgres/__init__.py:137`,
@@ -120,12 +120,15 @@ from xorq.vendor.ibis.common.dispatch import lazy_singledispatch
 def _strategy(con, mode) -> PublishStrategy:
     return PublishStrategy.REWRITE                              # default: immutable / unregistered
 
-@_strategy.register("xorq.backends.duckdb.Backend")            # also snowflake/databricks/trino
+@_strategy.register("xorq.backends.duckdb.Backend")            # one handler, registered per dialect
+@_strategy.register("xorq.backends.snowflake.Backend")
+@_strategy.register("xorq.backends.databricks.Backend")
+@_strategy.register("xorq.backends.trino.Backend")
 def _(con, mode): return PublishStrategy.NATIVE_MERGE
 
 @_strategy.register("xorq.backends.postgres.Backend")          # version-aware — a name list cannot be
 def _(con, mode):
-    return (PublishStrategy.NATIVE_MERGE if con._server_version() >= 15
+    return (PublishStrategy.NATIVE_MERGE if int(con.version.split(".")[0]) >= 15
             else PublishStrategy.STATEMENT_DML)
 
 @_strategy.register("xorq.backends.pyiceberg.Backend")         # replaces hasattr(con, "upsert")
@@ -138,7 +141,7 @@ def resolve_strategy(con, mode) -> PublishStrategy:
 `APPEND` is a mode-level fact (every backend appends), so it short-circuits before dispatch.
 Registration is by string type-path, so no backend — and none of its ADBC/driver deps — is imported
 when `incremental.py` loads; the class is resolved only when a `con` of that type first dispatches
-(the idiom datafusion/pandas already use for `_read_in_memory`). Dispatch keys on the backend type,
+(the idiom datafusion already uses for `_read_in_memory`, pandas for `_convert_object`). Dispatch keys on the backend type,
 not its runtime `.name`, so a `.name` rename cannot misroute. The postgres handler reads the **live**
 server version — the case the allowlist could not express (open question 3). An unregistered backend
 defaults to `REWRITE`; an unregistered *SQL* backend then fails fast at publish (no parquet-backed
@@ -189,7 +192,7 @@ def make_incremental_publish_with_backend(con, *, mode, key, columns, strategy=N
 ```
 
 The five `_publish_*` are keyed on **strategy (mechanism), not backend** — five functions cover all
-eleven backends. `_publish_native_merge` serves every native-merge dialect through one sqlglot
+ten backends. `_publish_native_merge` serves every native-merge dialect through one sqlglot
 render; `_publish_rewrite` serves datafusion/xorq/pandas; `_publish_statement_dml` serves
 sqlite/old-postgres; `_publish_upsert_delete` serves pyiceberg. The only per-backend code is the
 `lazy_singledispatch` registration in `resolve_strategy` and the thin convenience wrappers below — sugar
@@ -234,6 +237,7 @@ def _publish_upsert_delete(con, staging, final, key, columns, mode):
     staged = con.catalog.load_table(f"{con.namespace}.{staging}").scan().to_arrow()
     full_final = f"{con.namespace}.{final}"
     if not con.catalog.table_exists(full_final):
+        # _drop_op strips _op only if present, so it is a no-op on the UPSERT path
         con.catalog.create_table(full_final, schema=_drop_op(staged).schema)
     tgt = con.catalog.load_table(full_final)
     with tgt.transaction() as tx:                       # single snapshot
@@ -364,7 +368,7 @@ def _validate(mode, key, columns):
 | `NATIVE_MERGE` | duckdb, pg15+, snowflake, databricks, trino | yes | single `MERGE` statement |
 | `UPSERT_DELETE` | pyiceberg | yes | one `Transaction` (upsert+delete) → one snapshot |
 | `STATEMENT_DML` | sqlite, pg<15 | yes (with `begin()`) | UPDATE+INSERT+DELETE in one transaction |
-| `REWRITE` | datafusion, xorq_datafusion, pandas | yes | temp parquet + atomic rename |
+| `REWRITE` | datafusion, xorq_datafusion, pandas | path target: yes / table target: see open Q4 | path target: temp parquet + atomic rename; table target: `create_table(overwrite=True)` is drop→create, not atomic |
 | `APPEND` | all | per existing WAP | concat / `add_files` / `INSERT…SELECT` |
 
 The non-atomic warning fires only in the narrow case of a DML backend with no `begin()`.
@@ -420,7 +424,7 @@ to how staging combines into final. Conflating them is what this ADR untangles.
 
 `make_publish_with_duckdb`, `…_with_postgres`, etc.
 
-**Deferred.** A capability router with five mechanisms covers eleven backends without per-backend
+**Deferred.** A capability router with five mechanisms covers ten backends without per-backend
 functions; `strategy=` override remains for the rare case a backend needs a bespoke path.
 
 ### Capability declared on the backend (`con.publish_strategy(mode)`)
