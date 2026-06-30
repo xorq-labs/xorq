@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.3.32] - 2026-06-30
+### Details
+#### Added
+- Add UDF system explanation page by @mesejo in [#2118](https://github.com/xorq-labs/xorq/pull/2118)
+- Add __all__ to large __init__.py modules (#2066 phase 1) by @mesejo in [#2116](https://github.com/xorq-labs/xorq/pull/2116)
+
+#### Changed
+- Replace SafeTee with batchcorder StreamCache by @mesejo in [#1977](https://github.com/xorq-labs/xorq/pull/1977)
+- Derive scheme subsets from canonical REMOTE_SCHEMES by @mesejo in [#2115](https://github.com/xorq-labs/xorq/pull/2115)
+
+#### Fixed
+- Fix per-keypress catalog navigation lag (XOR-306) by @mesejo in [#2098](https://github.com/xorq-labs/xorq/pull/2098)
+- Fix overwrite-mode insert for pyiceberg 0.11 by @mesejo in [#2114](https://github.com/xorq-labs/xorq/pull/2114)
+- Make tee suppression tests deterministic, drop read-ahead bet by @dlovell in [#2126](https://github.com/xorq-labs/xorq/pull/2126)
+
 ## [0.3.31] - 2026-06-24
 ### Details
 #### Added
