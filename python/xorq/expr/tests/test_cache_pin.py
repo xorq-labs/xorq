@@ -235,3 +235,16 @@ def test_pin_does_not_freeze_dag_shared_upstream_leaf(tmp_path: Path) -> None:
         if get_uid_prefix(n.name)
     ]
     assert leftover == [], f"unsanitized UID-prefixed leaves: {leftover}"
+
+
+def test_pinned_expr_is_reprable(tmp_path: Path) -> None:
+    # A CacheTag carries `uncached` (an Ibis Expr) as reconstruction payload;
+    # without a dedicated fmt the generic relation formatter's `if v`
+    # truthiness check raises "The truth value of an Ibis expression is not
+    # defined". Pinning must leave the expr printable.
+    cached, _ = make_cached(tmp_path)
+    cached.execute()
+    pinned = cached.ls.pin()
+
+    rendered = repr(pinned)
+    assert "CacheTag" in rendered

@@ -885,7 +885,30 @@ def get_cache_params(cache):
 
 
 @fmt.register(CachedNode)
-def _fmt_cache_node(op, schema, parent, source, cache, **kwargs):
+def _fmt_cache_node(
+    op: CachedNode,
+    schema: Schema,
+    parent: str,
+    source: Any,
+    cache: Any,
+    **kwargs: Any,
+) -> str:
+    strategy, parquet, backend = get_cache_params(cache)
+    name = f"{op.__class__.__name__}[{parent}, strategy={strategy}, parquet={parquet}, source={backend}]\n"
+    return name + render_schema(schema, 1)
+
+
+@fmt.register(CacheTag)
+def _fmt_cache_tag(
+    op: CacheTag,
+    schema: Schema,
+    parent: str,
+    cache: Any,
+    **kwargs: Any,
+) -> str:
+    # Render only the frozen read + cache params; the generic relation
+    # formatter chokes on `uncached` (an Ibis Expr) via its `if v` truthiness
+    # check. `parent` is already the rendered read ref.
     strategy, parquet, backend = get_cache_params(cache)
     name = f"{op.__class__.__name__}[{parent}, strategy={strategy}, parquet={parquet}, source={backend}]\n"
     return name + render_schema(schema, 1)
