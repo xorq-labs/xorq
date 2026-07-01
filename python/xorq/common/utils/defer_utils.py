@@ -63,7 +63,7 @@ def relocatable_read_path(path: str | Path) -> tuple[str, str]:
     Single source of truth for the on-disk layout of a relocated read: the
     directory comes from ``BundledSourceTypes.read`` and the filename is the
     content hash of the source. Both the pre-hash pass
-    (``_ensure_relocatable_read_paths``) and the write pass
+    (``_prepare_relocatable_reads``) and the write pass
     (``ExprDumper._prepare_relocatable_read``) derive the serialized
     ``read_path`` from this, so they cannot drift.
     """
@@ -81,7 +81,7 @@ def relocatable_read_path_str(path: str | Path) -> str:
     """Serialized ``read_path`` of a bundled relocatable read (``"reads/<hash>.ext"``).
 
     Single source of the *joined* form of :func:`relocatable_read_path`, shared by
-    the pre-hash pass (``_ensure_relocatable_read_paths``) and the write pass
+    the pre-hash pass (``_prepare_relocatable_reads``) and the write pass
     (``ExprDumper._prepare_relocatable_read``) so the ``read_path`` string cannot
     drift between them -- byte-equality of the two is exactly what makes a
     relocated build load+rebuild hash-stable.

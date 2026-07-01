@@ -93,7 +93,10 @@ def relocate_reads_option(
             f"Bundle local-file Read nodes{caches} into the {noun} so it is "
             "self-contained and runnable from anywhere. Remote reads "
             "(s3://, gs://, ...) are already location-independent and left in "
-            f"place. Pass --no-relocate-reads for a lean, machine-local {noun}."
+            f"place. Pass --no-relocate-reads for a lean, machine-local {noun}; "
+            "this only affects reads not already bundled -- relocation discards "
+            "a read's original path, so it cannot be undone by a later "
+            "--no-relocate-reads on an already-relocated input."
         ),
     )
 

@@ -9,7 +9,7 @@ import sys
 import traceback
 from functools import partial, wraps
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 import click
 
@@ -1268,6 +1268,15 @@ def pin_command(
     along only if the upstream build already bundled them (the ``xorq build``
     default), letting a later relocated ``unpin`` recompute without the
     originals. Pinning a ``--no-relocate-reads`` build leaves them unbundled.
+
+    Relocation is one-way. Bundling a read replaces its original filesystem path
+    with a content-addressed ``reads/<hash>`` entry, discarding where the source
+    lived; on load that read resolves into the build's own (temporary) extract
+    dir, not the original file. So ``relocate_reads=False`` here cannot *un*-bundle
+    an already-relocated input -- it only avoids bundling reads that are still
+    machine-local. Because ``xorq build`` relocates by default, pinning/unpinning
+    an ordinary build stays relocated regardless of this flag; pass
+    ``--no-relocate-reads`` at ``xorq build`` time to keep a build lean end-to-end.
     """
     from xorq.ibis_yaml.compiler import build_expr, load_expr  # noqa: PLC0415
 
@@ -1308,11 +1317,30 @@ _PIN_BUILDS_DIR_OPTION = click.option(
     help="Directory for the resulting build artifact.",
 )
 
+_F = TypeVar("_F", bound=collections.abc.Callable)
+
+
+def _pin_shared_options(fn: _F) -> _F:
+    """Options common to `xorq pin` and `xorq unpin`.
+
+    Applied in reverse so the resulting --help order matches the decorator stack
+    (build_path, --builds-dir, --cache-dir). The differing options
+    (--ensure-materialized on pin only, and the pin/unpin flavor of
+    --relocate-reads) stay on each command.
+    """
+    for dec in reversed(
+        (
+            click.argument("build_path"),
+            _PIN_BUILDS_DIR_OPTION,
+            cache_dir_option,
+        )
+    ):
+        fn = dec(fn)
+    return fn
+
 
 @cli.command("pin")
-@click.argument("build_path")
-@_PIN_BUILDS_DIR_OPTION
-@cache_dir_option
+@_pin_shared_options
 @ensure_materialized_option
 @relocate_reads_option(include_caches=True)
 def pin(
@@ -1350,9 +1378,7 @@ def pin(
 
 
 @cli.command("unpin")
-@click.argument("build_path")
-@_PIN_BUILDS_DIR_OPTION
-@cache_dir_option
+@_pin_shared_options
 @relocate_reads_option()
 def unpin(
     build_path: str,

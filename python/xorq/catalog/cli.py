@@ -8,12 +8,12 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import cache, partial, reduce
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 import attr
 import click
@@ -457,13 +457,7 @@ def _catalog_pin_command(
         catalog = ctx.obj.make_catalog(init=False)
         catalog_entry = _get_catalog_entry(catalog, entry)
         source_aliases = (
-            tuple(
-                ca.alias
-                for ca in catalog.catalog_aliases
-                if ca.catalog_entry.name == catalog_entry.name
-            )
-            if move_aliases
-            else ()
+            tuple(ca.alias for ca in catalog_entry.aliases) if move_aliases else ()
         )
         # `load_expr` pins the entry's temp extract dir to the loaded expr's
         # lifetime (weakref.finalize in load_expr_from_zip). The pinned/unpinned
@@ -502,21 +496,41 @@ def _catalog_pin_command(
     click.echo(new_entry.name)
 
 
+_F = TypeVar("_F", bound=Callable)
+
+
+def _catalog_pin_shared_options(fn: _F) -> _F:
+    """Options common to `catalog pin` and `catalog unpin`.
+
+    Applied in reverse so the resulting --help order matches the decorator stack
+    (entry, --sync, --cache-dir, --alias, --move-aliases). The command's own
+    docstring distinguishes the pinned/unpinned result, so the help text here
+    stays neutral ("the new entry").
+    """
+    for dec in reversed(
+        (
+            click.argument("entry", shell_complete=_complete_entry_or_alias_names),
+            sync_option,
+            cache_dir_option,
+            click.option(
+                "-a",
+                "--alias",
+                default=None,
+                help="Register this alias for the new entry.",
+            ),
+            click.option(
+                "--move-aliases",
+                is_flag=True,
+                help="Move all of the source entry's aliases onto the new entry.",
+            ),
+        )
+    ):
+        fn = dec(fn)
+    return fn
+
+
 @cli.command("pin")
-@click.argument("entry", shell_complete=_complete_entry_or_alias_names)
-@sync_option
-@cache_dir_option
-@click.option(
-    "-a",
-    "--alias",
-    default=None,
-    help="Register this alias for the new pinned entry.",
-)
-@click.option(
-    "--move-aliases",
-    is_flag=True,
-    help="Move all of the source entry's aliases onto the pinned entry.",
-)
+@_catalog_pin_shared_options
 @ensure_materialized_option
 @relocate_reads_option(noun="entry", include_caches=True)
 @click.pass_context
@@ -560,20 +574,7 @@ def pin(
 
 
 @cli.command("unpin")
-@click.argument("entry", shell_complete=_complete_entry_or_alias_names)
-@sync_option
-@cache_dir_option
-@click.option(
-    "-a",
-    "--alias",
-    default=None,
-    help="Register this alias for the new unpinned entry.",
-)
-@click.option(
-    "--move-aliases",
-    is_flag=True,
-    help="Move all of the source entry's aliases onto the unpinned entry.",
-)
+@_catalog_pin_shared_options
 @relocate_reads_option(noun="entry")
 @click.pass_context
 def unpin(
