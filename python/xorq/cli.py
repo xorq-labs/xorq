@@ -9,7 +9,7 @@ import sys
 import traceback
 from functools import partial, wraps
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 import click
 
@@ -1269,10 +1269,12 @@ def pin_command(
     are materialized (by executing the expression) before pinning; caches that
     are already materialized are left untouched, so no redundant work runs.
 
-    ``relocate_reads`` bundles local-file reads — including the pinned cache
-    parquet files — into the build so it is fully self-contained. Pass
-    ``--no-relocate-reads`` for a lean build where frozen cache reads stay
-    external and relocate via ``base_path`` at load time.
+    ``relocate_reads`` bundles local-file reads into the build so it stays
+    portable. A pin does not bundle its frozen cache reads (hash leaves that
+    relocate via ``base_path``) nor the sources behind them; those sources ride
+    along only if the upstream build already bundled them (the ``xorq build``
+    default), letting a later relocated ``unpin`` recompute without the
+    originals. Pinning a ``--no-relocate-reads`` build leaves them unbundled.
 
     Relocation is one-way. Bundling a read replaces its original filesystem path
     with a content-addressed ``reads/<hash>`` entry, discarding where the source
@@ -1321,6 +1323,27 @@ _PIN_BUILDS_DIR_OPTION = click.option(
     show_default=True,
     help="Directory for the resulting build artifact.",
 )
+
+_F = TypeVar("_F", bound=collections.abc.Callable)
+
+
+def _pin_shared_options(fn: _F) -> _F:
+    """Options common to `xorq pin` and `xorq unpin`.
+
+    Applied in reverse so the resulting --help order matches the decorator stack
+    (build_path, --builds-dir, --cache-dir). The differing options
+    (--ensure-materialized on pin only, and the pin/unpin flavor of
+    --relocate-reads) stay on each command.
+    """
+    for dec in reversed(
+        (
+            click.argument("build_path"),
+            _PIN_BUILDS_DIR_OPTION,
+            cache_dir_option,
+        )
+    ):
+        fn = dec(fn)
+    return fn
 
 
 def _pin_shared_options(fn: _F) -> _F:

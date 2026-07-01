@@ -158,7 +158,11 @@ def _prepare_relocatable_reads(expr: ir.Expr, *, mark: bool) -> ir.Expr:
     ``mark`` (i.e. ``--relocate-reads``) flips local-file candidates to
     ``relocatable=True``; reads already relocatable (e.g.
     ``deferred_read_parquet(relocatable=True)``) get ``read_path`` baked whether
-    or not ``mark`` is set. Reads reachable only through a ``CacheTag`` are
+    or not ``mark`` is set. Note this pass only ever *adds* relocation: there is
+    deliberately no un-marking branch, because relocation is lossy -- it replaces
+    a read's original path with a content hash, so once relocated the source
+    location is gone and ``mark=False`` cannot recover a lean, machine-local read.
+    Reads reachable only through a ``CacheTag`` are
     skipped: a pinned read is a hash leaf keyed on its cache key, portable via
     base_path relocation (``relocate_cache_tag``), so it never contributes a
     ``read_path`` and must not be bundled. DAG-shared reads also live on a
