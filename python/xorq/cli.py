@@ -1231,9 +1231,11 @@ def pin_command(
     are already materialized are left untouched, so no redundant work runs.
 
     ``relocate_reads`` bundles local-file reads into the build so it stays
-    portable; for a pin this also bundles the source reads *behind* the cache
-    (on ``CacheTag.uncached``, never executed in the pinned form) so a later
-    ``unpin`` can recompute from them.
+    portable. A pin does not bundle its frozen cache reads (hash leaves that
+    relocate via ``base_path``) nor the sources behind them; those sources ride
+    along only if the upstream build already bundled them (the ``xorq build``
+    default), letting a later relocated ``unpin`` recompute without the
+    originals. Pinning a ``--no-relocate-reads`` build leaves them unbundled.
     """
     from xorq.ibis_yaml.compiler import build_expr, load_expr  # noqa: PLC0415
 
@@ -1250,12 +1252,23 @@ def pin_command(
                 "or pass --ensure-materialized/-e."
             ),
         )
-        out = build_expr(
-            expr,
-            builds_dir=builds_dir,
-            cache_dir=Path(cache_dir),
-            relocate_reads=relocate_reads,
-        )
+        try:
+            out = build_expr(
+                expr,
+                builds_dir=builds_dir,
+                cache_dir=Path(cache_dir),
+                relocate_reads=relocate_reads,
+            )
+        except FileNotFoundError as err:
+            # relocating content-hashes each local read, so a missing source
+            # raises deep in the build; surface it as a clean CLI error.
+            if not relocate_reads:
+                raise
+            raise click.ClickException(
+                f"cannot bundle reads: source file not found ({err.filename}). "
+                "Restore it, or re-run with --no-relocate-reads for a "
+                "machine-local artifact."
+            ) from err
     click.echo(out)
     return out
 

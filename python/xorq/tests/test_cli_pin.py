@@ -368,6 +368,40 @@ def test_pin_partial_materialization_errors(tmp_path: Path) -> None:
     assert result.exit_code != 0
 
 
+def test_unpin_missing_source_gives_clean_error(tmp_path: Path) -> None:
+    """Relocating with a missing source fails cleanly, not with a raw
+    FileNotFoundError.
+
+    A lean build never bundles its source; unpinning makes that read live
+    again, so relocating content-hashes a source that no longer exists.
+    """
+    build_path, builds_dir, cache_dir = _cached_build(tmp_path, relocate_reads=False)
+    pinned = pin_command(
+        str(build_path),
+        do_pin=True,
+        builds_dir=str(builds_dir),
+        cache_dir=str(cache_dir),
+        relocate_reads=False,
+    )
+    (tmp_path / "data.parquet").unlink()
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "unpin",
+            str(pinned),
+            "--cache-dir",
+            str(cache_dir),
+            "--builds-dir",
+            str(builds_dir),
+            "--relocate-reads",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "cannot bundle reads" in result.output
+    assert "--no-relocate-reads" in result.output
+
+
 def test_pin_relocate_reads_is_self_contained(tmp_path: Path) -> None:
     build_path, builds_dir, cache_dir = _cached_build(tmp_path)
 

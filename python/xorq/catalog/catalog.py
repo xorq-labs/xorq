@@ -424,25 +424,18 @@ class Catalog:
                 f"{type(obj)} is an already-built artifact"
             )
 
+        shared = {"sync": sync, "aliases": aliases, "exist_ok": exist_ok}
         match obj:
             case Path() if obj.is_dir():
-                return self._add_build_dir(
-                    obj,
-                    sync=sync,
-                    aliases=aliases,
-                    exist_ok=exist_ok,
-                    project_path=project_path,
-                )
+                return self._add_build_dir(obj, project_path=project_path, **shared)
             case Path() if obj.is_file():
-                return self._add_zip(obj, sync=sync, aliases=aliases, exist_ok=exist_ok)
+                return self._add_zip(obj, **shared)
             case Expr():
                 return self._add_expr(
                     obj,
-                    sync=sync,
-                    aliases=aliases,
-                    exist_ok=exist_ok,
                     project_path=project_path,
                     relocate_reads=relocate_reads,
+                    **shared,
                 )
             case _:
                 raise ValueError(f"don't know how to handle type={type(obj)}")
