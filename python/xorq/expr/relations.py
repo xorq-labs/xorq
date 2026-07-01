@@ -173,17 +173,16 @@ class CacheTag(Tag):
         self,
         schema: Schema,
         parent: ops.Relation,
-        uncached: Any = None,
+        uncached: Any,
         cache: Any = None,
         metadata: FrozenOrderedDict | None = None,
     ) -> None:
         if metadata is None:
             metadata = FrozenOrderedDict()
-        # ``parent``'s Node type is enforced by the inherited Tag.parent
-        # annotation; ``uncached`` is Any, so guard it here (None, or what
-        # to_node accepts -- an Expr or Node) to catch a swapped upstream at
-        # construction rather than obscurely later.
-        if uncached is not None and not isinstance(uncached, (Expr, Node)):
+        # ``uncached`` is Any but is unconditionally descended via ``to_node``
+        # (gen_children_of/replace_nodes), so require an Expr or Node -- ``None``
+        # or a swapped upstream builds an untraversable tag.
+        if not isinstance(uncached, (Expr, Node)):
             raise IntegrityError(
                 "CacheTag.uncached must be an Expr or Node, got "
                 f"{type(uncached).__name__}"
@@ -261,6 +260,13 @@ def relocate_cache(cache: Any, base_path: Path) -> Any:
     """
     from attr import evolve  # noqa: PLC0415
 
+    # only parquet storages have a base_path; on a SourceStorage evolve would
+    # raise an opaque TypeError, and the signature is Any -- fail explicitly.
+    if not hasattr(cache.storage, "base_path"):
+        raise IntegrityError(
+            "relocate_cache requires a parquet-backed cache, got "
+            f"{type(cache.storage).__name__}"
+        )
     return evolve(cache, storage=evolve(cache.storage, base_path=base_path))
 
 

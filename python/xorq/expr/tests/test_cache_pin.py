@@ -57,9 +57,15 @@ def test_pinned_reads_directly_and_does_not_recompute(tmp_path: Path) -> None:
 
     # remove the cache artifact: a pinned expr reads the file directly, so it
     # must fail, whereas the unpinned form would simply recompute.
+    artifact = cache.storage.get_path(pinned.op().parent.name)
+    assert artifact.exists()
     cache.drop(cached.ls.uncached_one)
+    assert not artifact.exists()  # deterministic premise, backend-independent
 
-    with pytest.raises(ValueError):
+    # failure surface is reader/backend-dependent (today a schema-mismatch
+    # ValueError, but a missing file could equally raise OSError); the premise
+    # above pins down *why* it fails.
+    with pytest.raises((ValueError, OSError)):
         pinned.execute()
 
     # unpin restores the recompute-capable form
@@ -180,12 +186,16 @@ def test_cache_tag_rejects_non_expr_uncached() -> None:
     with pytest.raises(IntegrityError, match="uncached must be an Expr or Node"):
         CacheTag(schema=schema, parent=t.op(), uncached=42, cache=None)
 
-    # Expr, Node, and None (unset) are all accepted
+    # None is rejected too: it is descended via to_node, so it would build an
+    # untraversable tag.
+    with pytest.raises(IntegrityError, match="uncached must be an Expr or Node"):
+        CacheTag(schema=schema, parent=t.op(), uncached=None, cache=None)
+
+    # Expr and Node are accepted
     assert CacheTag(schema=schema, parent=t.op(), uncached=t, cache=None) is not None
     assert (
         CacheTag(schema=schema, parent=t.op(), uncached=t.op(), cache=None) is not None
     )
-    assert CacheTag(schema=schema, parent=t.op(), uncached=None, cache=None) is not None
 
 
 def test_find_all_sources_execution_only_prunes_uncached_backend(
