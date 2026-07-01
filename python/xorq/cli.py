@@ -9,14 +9,13 @@ import sys
 import traceback
 from functools import partial, wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING
 
 import click
 
 from xorq.cli_constants import DEFAULT_CACHE_TYPE, DEFAULT_OUTPUT_FORMAT, OutputFormats
 from xorq.cli_options import (
     _F,
-    apply_in_help_order,
     cache_dir_option,
     cache_strategy_options,
     ensure_materialized_option,
@@ -1323,8 +1322,6 @@ _PIN_BUILDS_DIR_OPTION = click.option(
     show_default=True,
     help="Directory for the resulting build artifact.",
 )
-
-_F = TypeVar("_F", bound=collections.abc.Callable)
 
 
 def _pin_shared_options(fn: _F) -> _F:
