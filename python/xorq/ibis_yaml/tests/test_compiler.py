@@ -1502,7 +1502,7 @@ def test_relocatable_rebuild_from_loaded_expr(
     assert sorted(result.x.tolist()) == [1, 2, 3]
 
 
-def test_prepare_relocatable_reads_skips_remote(sample_parquet: pathlib.Path) -> None:
+def test_mark_reads_relocatable_skips_remote(sample_parquet: pathlib.Path) -> None:
     """_prepare_relocatable_reads(mark=True) should not inject relocatable for remote paths."""
     local_t = deferred_read_parquet(sample_parquet)
     local_read = list(walk_nodes(Read, local_t))[0]
@@ -1758,7 +1758,7 @@ def test_loaded_non_relocatable_becomes_database_table(
 # ---------------------------------------------------------------------------
 
 
-def test_prepare_relocatable_reads_is_idempotent(sample_parquet: pathlib.Path) -> None:
+def test_mark_reads_relocatable_is_idempotent(sample_parquet: pathlib.Path) -> None:
     """Calling _prepare_relocatable_reads(mark=True) twice should not double-wrap."""
     t = deferred_read_parquet(sample_parquet)
     once = _prepare_relocatable_reads(t, mark=True)

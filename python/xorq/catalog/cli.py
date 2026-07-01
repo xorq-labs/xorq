@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from xorq.catalog.content_store import ContentStoreConfig
 
 from xorq.cli import (
-    _get_cache_dir,
     _lazy_span,
     apply_pin_transform,
     raise_for_missing_relocation_source,
@@ -456,10 +455,6 @@ def _catalog_pin_command(
     ensure_materialized: bool = False,
     relocate_reads: bool = False,
 ) -> None:
-    # Resolve up front (like the build-level pin_command) so the load path and
-    # the internal-dir classification below agree; a None default cache dir would
-    # drop out of internal_dirs and mislabel a missing cache artifact as a source.
-    cache_dir = _get_cache_dir(cache_dir)
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog_entry = _get_catalog_entry(catalog, entry)
@@ -480,17 +475,6 @@ def _catalog_pin_command(
             cold_cache_hint="Execute the entry first or pass --ensure-materialized/-e.",
         )
         aliases = (alias,) if alias else ()
-        if relocate_reads:
-            # relocate_reads is opt-in for catalog entries (default lean) because
-            # a bundled read fuses to an empty result until #2133 lands -- and
-            # fuse is the default consumption path. Warn at pin time in addition
-            # to the hard guard fuse itself now raises (see fuse_catalog_source).
-            click.echo(
-                "warning: the new entry bundles relocated reads; consuming it "
-                "via fuse/bind currently raises until #2133 lands. Use the "
-                "default (--no-relocate-reads) unless you consume with --no-fuse.",
-                err=True,
-            )
         with catalog.maybe_synchronizing(sync):
             try:
                 new_entry = catalog.add(
@@ -503,16 +487,11 @@ def _catalog_pin_command(
             except FileNotFoundError as err:
                 # a relocating rebuild bundles local reads by opening them, so a
                 # missing source surfaces the same clean hint the build-level
-                # pin/unpin gives instead of a raw traceback. The loaded entry's
-                # extract dirs hold its already-bundled reads; a miss there is a
-                # vanished internal artifact, not a user source, so they join
-                # cache_dir as internal (temp is otherwise treated as source).
-                from xorq.catalog.expr_utils import _live_extract_dirs  # noqa: PLC0415
-
+                # pin/unpin gives instead of a raw traceback.
                 raise_for_missing_relocation_source(
                     err,
                     relocate_reads=relocate_reads,
-                    internal_dirs=(cache_dir, *_live_extract_dirs),
+                    internal_dirs=(cache_dir,),
                 )
             for moved in source_aliases:
                 catalog.add_alias(new_entry.name, moved, sync=False)

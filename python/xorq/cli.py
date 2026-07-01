@@ -1205,11 +1205,6 @@ def raise_for_missing_relocation_source(
     Shared by the build-level and catalog-level pin/unpin commands. Call it from
     inside an ``except FileNotFoundError`` block; it either raises a
     ``ClickException`` or re-raises the original ``err``.
-
-    Classification is a path-prefix heuristic: a genuine source colocated under
-    ``cache_dir``/``builds_dir`` surfaces raw rather than with the hint. That
-    bias is deliberate -- a miss inside a managed dir is likelier a bug worth a
-    full traceback than a misplaced source.
     """
     if not relocate_reads or not err.filename:
         raise err
