@@ -52,7 +52,7 @@ from xorq.ibis_yaml.compiler import (
     RefEnum,
     _extract_sql_queries,
     _is_relocatable_candidate,
-    _mark_reads_relocatable,
+    _prepare_relocatable_reads,
     _sanitize_generated_names,
     build_expr,
     load_expr,
@@ -1357,7 +1357,7 @@ def test_relocate_reads_build_is_load_rebuild_hash_stable(
     """A relocated build must be load+rebuild hash-stable.
 
     The fresh build's hash is taken after read_path is baked in (see
-    _ensure_relocatable_read_paths), so it equals every later load+rebuild --
+    _prepare_relocatable_reads), so it equals every later load+rebuild --
     otherwise pin/unpin (which reload+rebuild) could never restore the original
     `xorq build` hash for a file-backed build.
     """
@@ -1438,7 +1438,7 @@ def test_relocatable_rebuild_from_loaded_expr(
 
 
 def test_mark_reads_relocatable_skips_remote(sample_parquet: pathlib.Path) -> None:
-    """_mark_reads_relocatable should not inject relocatable for remote paths."""
+    """_prepare_relocatable_reads(mark=True) should not inject relocatable for remote paths."""
     local_t = deferred_read_parquet(sample_parquet)
     local_read = list(walk_nodes(Read, local_t))[0]
 
@@ -1452,7 +1452,7 @@ def test_mark_reads_relocatable_skips_remote(sample_parquet: pathlib.Path) -> No
     )
     expr = local_t.join(remote_read.to_expr(), "x")
 
-    marked = _mark_reads_relocatable(expr)
+    marked = _prepare_relocatable_reads(expr, mark=True)
     reads = list(walk_nodes(Read, marked))
     for read in reads:
         kw = dict(read.read_kwargs)
@@ -1668,15 +1668,15 @@ def test_loaded_non_relocatable_becomes_database_table(
 
 
 # ---------------------------------------------------------------------------
-# _mark_reads_relocatable is idempotent
+# _prepare_relocatable_reads(mark=True) is idempotent
 # ---------------------------------------------------------------------------
 
 
 def test_mark_reads_relocatable_is_idempotent(sample_parquet: pathlib.Path) -> None:
-    """Calling _mark_reads_relocatable twice should not double-wrap."""
+    """Calling _prepare_relocatable_reads(mark=True) twice should not double-wrap."""
     t = deferred_read_parquet(sample_parquet)
-    once = _mark_reads_relocatable(t)
-    twice = _mark_reads_relocatable(once)
+    once = _prepare_relocatable_reads(t, mark=True)
+    twice = _prepare_relocatable_reads(once, mark=True)
 
     once_reads = list(walk_nodes(Read, once))
     twice_reads = list(walk_nodes(Read, twice))

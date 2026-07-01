@@ -77,6 +77,18 @@ def relocatable_read_path(path: str | Path) -> tuple[str, str]:
     )
 
 
+def relocatable_read_path_str(path: str | Path) -> str:
+    """Serialized ``read_path`` of a bundled relocatable read (``"reads/<hash>.ext"``).
+
+    Single source of the *joined* form of :func:`relocatable_read_path`, shared by
+    the pre-hash pass (``_ensure_relocatable_read_paths``) and the write pass
+    (``ExprDumper._prepare_relocatable_read``) so the ``read_path`` string cannot
+    drift between them -- byte-equality of the two is exactly what makes a
+    relocated build load+rebuild hash-stable.
+    """
+    return "/".join(relocatable_read_path(path))
+
+
 @toolz.curry
 def infer_csv_schema_pandas(path, chunksize=DEFAULT_CHUNKSIZE, **kwargs):
     import pandas as pd  # noqa: PLC0415

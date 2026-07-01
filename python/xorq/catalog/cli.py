@@ -24,7 +24,11 @@ from xorq.catalog import constants as catalog_constants
 if TYPE_CHECKING:
     from xorq.catalog.content_store import ContentStoreConfig
 
-from xorq.cli import _lazy_span
+from xorq.cli import (
+    _lazy_span,
+    apply_pin_transform,
+    raise_for_missing_relocation_source,
+)
 from xorq.cli_options import (
     cache_dir_option,
     cache_strategy_options,
@@ -449,8 +453,6 @@ def _catalog_pin_command(
     ensure_materialized: bool = False,
     relocate_reads: bool = True,
 ) -> None:
-    from xorq.cli import apply_pin_transform  # noqa: PLC0415
-
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog_entry = _get_catalog_entry(catalog, entry)
@@ -478,13 +480,23 @@ def _catalog_pin_command(
         )
         aliases = (alias,) if alias else ()
         with catalog.maybe_synchronizing(sync):
-            new_entry = catalog.add(
-                expr,
-                sync=False,
-                aliases=aliases,
-                exist_ok=True,
-                relocate_reads=relocate_reads,
-            )
+            try:
+                new_entry = catalog.add(
+                    expr,
+                    sync=False,
+                    aliases=aliases,
+                    exist_ok=True,
+                    relocate_reads=relocate_reads,
+                )
+            except FileNotFoundError as err:
+                # a relocating rebuild bundles local reads by opening them, so a
+                # missing source surfaces the same clean hint the build-level
+                # pin/unpin gives instead of a raw traceback.
+                raise_for_missing_relocation_source(
+                    err,
+                    relocate_reads=relocate_reads,
+                    internal_dirs=(cache_dir,),
+                )
             for moved in source_aliases:
                 catalog.add_alias(new_entry.name, moved, sync=False)
     click.echo(new_entry.name)

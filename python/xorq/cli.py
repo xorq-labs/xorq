@@ -232,7 +232,7 @@ def build_command(
     builds_dir="builds",
     cache_dir=None,
     debug: bool = False,
-    relocate_reads: bool = False,
+    relocate_reads: bool = True,
     emit_build_path_to=None,
 ):
     """
@@ -1180,6 +1180,38 @@ def run(build_path, cache_dir, output_path, output_format, limit, raw_params):
         run_command(p, output_path, output_format, cache_dir, limit, raw_params)
 
 
+def raise_for_missing_relocation_source(
+    err: FileNotFoundError,
+    *,
+    relocate_reads: bool,
+    internal_dirs: tuple[str | Path | None, ...] = (),
+) -> None:
+    """Translate a missing bundle *source* into a clean CLI error, else re-raise.
+
+    Relocating a build content-hashes each local read by opening it, so a missing
+    source raises ``FileNotFoundError`` deep in the build. Only that case gets the
+    actionable message: an error with no filename, or one pointing inside a build
+    output / cache dir (a vanished artifact, an internal write), is unrelated and
+    surfaces raw rather than being mislabeled "source not found". Source files
+    themselves routinely live in a temp dir, so temp is *not* treated as internal.
+
+    Shared by the build-level and catalog-level pin/unpin commands. Call it from
+    inside an ``except FileNotFoundError`` block; it either raises a
+    ``ClickException`` or re-raises the original ``err``.
+    """
+    if not relocate_reads or not err.filename:
+        raise err
+    culprit = Path(err.filename).resolve()
+    internal = tuple(Path(d).resolve() for d in internal_dirs if d is not None)
+    if any(culprit == d or culprit.is_relative_to(d) for d in internal):
+        raise err
+    raise click.ClickException(
+        f"cannot bundle reads: source file not found ({err.filename}). "
+        "Restore it, or re-run with --no-relocate-reads for a "
+        "machine-local artifact."
+    ) from err
+
+
 def apply_pin_transform(
     expr: Expr,
     *,
@@ -1260,15 +1292,11 @@ def pin_command(
                 relocate_reads=relocate_reads,
             )
         except FileNotFoundError as err:
-            # relocating content-hashes each local read, so a missing source
-            # raises deep in the build; surface it as a clean CLI error.
-            if not relocate_reads:
-                raise
-            raise click.ClickException(
-                f"cannot bundle reads: source file not found ({err.filename}). "
-                "Restore it, or re-run with --no-relocate-reads for a "
-                "machine-local artifact."
-            ) from err
+            raise_for_missing_relocation_source(
+                err,
+                relocate_reads=relocate_reads,
+                internal_dirs=(builds_dir, cache_dir),
+            )
     click.echo(out)
     return out
 
