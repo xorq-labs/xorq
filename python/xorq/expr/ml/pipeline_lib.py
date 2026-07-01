@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import functools
 import pickle
+from collections.abc import Callable
 
 import toolz
 from attr import (
@@ -1028,8 +1031,14 @@ class FittedPipeline:
             raise ValueError("No FittedPipeline tag found on expr")
         return cls.from_tag_node(pipeline_tags[0])
 
-    def reemit(self, tag_node, rebuild_subexpr):
-        """Re-emit *tag_node*'s subtree under current code.
+    def rebuild(
+        self,
+        tag_node: Tag,
+        rebuild_subexpr: Callable,
+        remap: dict | None = None,
+        to_catalog: object = None,
+    ) -> Expr:
+        """Re-emit *tag_node*'s subtree under current code (``Rebuildable``).
 
         Refits the pipeline on the rebuilt training subtree so the
         outer tag's ``training_hash`` and step kwargs refresh, rebuilds
@@ -1037,6 +1046,10 @@ class FittedPipeline:
         resolve to the target catalog's files), and re-stamps the outer
         pipeline tag on the rebuilt parent with fresh kwargs from the
         refitted pipeline.
+
+        ``remap``/``to_catalog`` are part of the :class:`Rebuildable`
+        contract but unused here: this builder recurses through
+        ``rebuild_subexpr``, which already carries the catalog translation.
 
         The internal transform/predict expression structure is
         preserved; we do not re-invoke the response method, since the
@@ -1046,7 +1059,7 @@ class FittedPipeline:
         tag_key = FittedPipelineTagKey(tag_node.metadata["tag"])
         if tag_key not in _FITTED_PIPELINE_REEMIT_TAGS:
             raise RuntimeError(
-                f"rebuild: FittedPipeline tag {tag_key!r} is not a reemit entry point"
+                f"rebuild: FittedPipeline tag {tag_key!r} is not a rebuild entry point"
             )
 
         # Refuse rebuild when the training subtree itself contains catalog
