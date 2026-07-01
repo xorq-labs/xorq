@@ -1546,6 +1546,43 @@ def test_add_alias_overwrite(catalog_populated):
     catalog_populated.assert_consistency()
 
 
+def _commit_count(catalog: Catalog) -> int:
+    return len(list(catalog.repo.iter_commits()))
+
+
+def test_add_alias_noop_leaves_no_commit(catalog_populated: Catalog) -> None:
+    # Re-adding an alias that already resolves to its target stages nothing
+    # (CatalogAlias._add returns early), so commit_context must NOT leave an
+    # empty commit behind. Runs across git/annex/pointer backends via the
+    # catalog_populated fixture.
+    name = catalog_populated.list()[0]
+    catalog_populated.add_alias(name, "my-alias")
+
+    before = _commit_count(catalog_populated)
+    catalog_populated.add_alias(name, "my-alias")  # identical -> no-op
+    after = _commit_count(catalog_populated)
+
+    assert after == before
+    catalog_populated.assert_consistency()
+
+
+def test_add_alias_real_change_still_commits(catalog_populated: Catalog) -> None:
+    # Guard sanity: a genuine alias add/retarget must still produce exactly one
+    # commit (the empty-commit guard only skips no-ops).
+    names = catalog_populated.list()
+    name_a, name_b = names[0], names[1]
+
+    catalog_populated.add_alias(name_a, "moves")
+    before = _commit_count(catalog_populated)
+    # a brand-new alias, then a retarget of it -- each a real staged change
+    catalog_populated.add_alias(name_a, "fresh")
+    catalog_populated.add_alias(name_b, "moves")
+    after = _commit_count(catalog_populated)
+
+    assert after == before + 2
+    catalog_populated.assert_consistency()
+
+
 def test_add_alias_multiple(catalog_populated):
     names = catalog_populated.list()
     aliases = [f"alias-{i}" for i in range(len(names))]

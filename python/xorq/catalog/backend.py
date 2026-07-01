@@ -3,7 +3,6 @@ from __future__ import annotations
 import abc
 import shutil
 from collections.abc import Iterator
-from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
 from typing import Any
@@ -35,6 +34,7 @@ from xorq.catalog.content_store import (
     write_pointer,
 )
 from xorq.catalog.enums import CatalogInfix
+from xorq.catalog.git_utils import commit_context
 
 
 def _repo_has_annex_artifacts(repo: Repo) -> bool:
@@ -79,10 +79,11 @@ class CatalogBackend(abc.ABC):
     @abc.abstractmethod
     def stage_unlink(self, path: str | Path) -> None: ...
 
-    @contextmanager
     def commit_context(self, message: str) -> Iterator[IndexFile]:
-        yield self.repo.index
-        self.repo.index.commit(message)
+        # Single commit primitive lives in git_utils.commit_context (which also
+        # serves the root/submodule repo); bind it to this backend's repo. It
+        # skips empty commits, so a no-op mutation leaves no commit behind.
+        return commit_context(self.repo, message)
 
     @abc.abstractmethod
     def is_content_local(self, path: str | Path) -> bool: ...
