@@ -11,6 +11,18 @@ from xorq.cli_constants import DEFAULT_CACHE_TYPE, DEFAULT_OUTPUT_FORMAT, Output
 
 _F = TypeVar("_F", bound=Callable)
 
+
+def apply_in_help_order(fn: _F, *decorators: Callable[[_F], _F]) -> _F:
+    """Apply option decorators so a command's --help order matches this order.
+
+    click applies stacked decorators bottom-up, so we apply the given ones in
+    reverse to make the resulting --help order match the order listed here.
+    """
+    for dec in reversed(decorators):
+        fn = dec(fn)
+    return fn
+
+
 _DEFAULT_OUTPUT_PATH_SHOW_DEFAULT = f"`{os.devnull}` (discard)"
 
 

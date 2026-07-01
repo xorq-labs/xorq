@@ -38,6 +38,7 @@ from xorq.common.exceptions import UnboundExpressionError
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.defer_utils import (
+    relocatable_read_path,
     relocatable_read_path_str,
 )
 from xorq.common.utils.file_utils import (
@@ -156,13 +157,11 @@ def _prepare_relocatable_reads(expr: ir.Expr, *, mark: bool) -> ir.Expr:
     pinned = exclusively_pinned_leaves(expr, (Read,))
 
     def _relocate(node, kwargs):
-        if node not in pinned:
+        if isinstance(node, Read) and node not in pinned:
+            kw = dict(node.read_kwargs)
             marking = mark and _is_relocatable_candidate(node)
-            baking = _is_relocatable_read(node) and "read_path" not in dict(
-                node.read_kwargs
-            )
+            baking = _is_relocatable_read(node) and "read_path" not in kw
             if marking or baking:
-                kw = dict(node.read_kwargs)
                 if "hash_path" not in kw:
                     raise ValueError("relocatable Read must have hash_path")
                 read_kwargs = node.read_kwargs
@@ -590,11 +589,12 @@ class ExprDumper:
         if "hash_path" not in kw:
             raise ValueError("relocatable Read must have hash_path")
         source_path = Path(kw["hash_path"])
-        # single serialized layout, identical to the pre-hash pass; split the
-        # parts back out (dir/filename never contain "/") so store path and
-        # writer can't drift from read_path.
-        read_path = relocatable_read_path_str(source_path)
-        path_parts = tuple(read_path.split("/"))
+        # relocatable_read_path is the single source of the (dir, filename)
+        # layout; read_path is its joined form -- identical byte-for-byte to the
+        # pre-hash pass's relocatable_read_path_str -- so the store path and the
+        # serialized read_path cannot drift.
+        path_parts = relocatable_read_path(source_path)
+        read_path = "/".join(path_parts)
         path = self.artifact_store.get_path(*path_parts)
         writer = functools.partial(
             self.artifact_store.copy_file,
