@@ -31,6 +31,7 @@ from xorq.cli import (
 )
 from xorq.cli_options import (
     _F,
+    apply_in_help_order,
     cache_dir_option,
     cache_strategy_options,
     code_option,
@@ -500,31 +501,26 @@ def _catalog_pin_command(
 def _catalog_pin_shared_options(fn: _F) -> _F:
     """Options common to `catalog pin` and `catalog unpin`.
 
-    Applied in reverse so the resulting --help order matches the decorator stack
-    (entry, --sync, --cache-dir, --alias, --move-aliases). The command's own
-    docstring distinguishes the pinned/unpinned result, so the help text here
-    stays neutral ("the new entry").
+    The command's own docstring distinguishes the pinned/unpinned result, so the
+    help text here stays neutral ("the new entry").
     """
-    for dec in reversed(
-        (
-            click.argument("entry", shell_complete=_complete_entry_or_alias_names),
-            sync_option,
-            cache_dir_option,
-            click.option(
-                "-a",
-                "--alias",
-                default=None,
-                help="Register this alias for the new entry.",
-            ),
-            click.option(
-                "--move-aliases",
-                is_flag=True,
-                help="Move all of the source entry's aliases onto the new entry.",
-            ),
-        )
-    ):
-        fn = dec(fn)
-    return fn
+    return apply_in_help_order(
+        fn,
+        click.argument("entry", shell_complete=_complete_entry_or_alias_names),
+        sync_option,
+        cache_dir_option,
+        click.option(
+            "-a",
+            "--alias",
+            default=None,
+            help="Register this alias for the new entry.",
+        ),
+        click.option(
+            "--move-aliases",
+            is_flag=True,
+            help="Move all of the source entry's aliases onto the new entry.",
+        ),
+    )
 
 
 @cli.command("pin")

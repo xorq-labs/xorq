@@ -16,6 +16,7 @@ import click
 from xorq.cli_constants import DEFAULT_CACHE_TYPE, DEFAULT_OUTPUT_FORMAT, OutputFormats
 from xorq.cli_options import (
     _F,
+    apply_in_help_order,
     cache_dir_option,
     cache_strategy_options,
     ensure_materialized_option,
@@ -1327,20 +1328,15 @@ _PIN_BUILDS_DIR_OPTION = click.option(
 def _pin_shared_options(fn: _F) -> _F:
     """Options common to `xorq pin` and `xorq unpin`.
 
-    Applied in reverse so the resulting --help order matches the decorator stack
-    (build_path, --builds-dir, --cache-dir). The differing options
-    (--ensure-materialized on pin only, and the pin/unpin flavor of
-    --relocate-reads) stay on each command.
+    The differing options (--ensure-materialized on pin only, and the pin/unpin
+    flavor of --relocate-reads) stay on each command.
     """
-    for dec in reversed(
-        (
-            click.argument("build_path"),
-            _PIN_BUILDS_DIR_OPTION,
-            cache_dir_option,
-        )
-    ):
-        fn = dec(fn)
-    return fn
+    return apply_in_help_order(
+        fn,
+        click.argument("build_path"),
+        _PIN_BUILDS_DIR_OPTION,
+        cache_dir_option,
+    )
 
 
 def _pin_shared_options(fn: _F) -> _F:
