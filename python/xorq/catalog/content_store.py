@@ -622,3 +622,40 @@ _CONTENT_STORE_CONFIG_CLASSES: dict[ContentStoreType, type[ContentStoreConfig]] 
     ContentStoreType.DIRECTORY: DirectoryContentStoreConfig,
     ContentStoreType.S3: S3ContentStoreConfig,
 }
+
+
+_PREFIX_TO_CONTENT_STORE_CONFIG: dict[str, type[ContentStoreConfig]] = {
+    "XORQ_CONTENT_STORE_S3_": S3ContentStoreConfig,
+    "XORQ_CONTENT_STORE_DIRECTORY_": DirectoryContentStoreConfig,
+}
+
+
+def content_store_config_from_prefix(
+    prefix: str, *, gcs: bool = False, **kwargs: Any
+) -> ContentStoreConfig:
+    cls = _PREFIX_TO_CONTENT_STORE_CONFIG.get(prefix)
+    if cls is None:
+        raise ValueError(
+            f"Unknown content store prefix {prefix!r}. "
+            f"Expected one of: {', '.join(_PREFIX_TO_CONTENT_STORE_CONFIG)}"
+        )
+    if gcs and cls is S3ContentStoreConfig:
+        return cls.from_env_gcs(**kwargs)
+    return cls.from_env(**kwargs)
+
+
+def content_store_config_from_env_file(
+    env_file: str | Path, *, gcs: bool = False, **kwargs: Any
+) -> ContentStoreConfig:
+    from xorq.common.utils.env_utils import parse_env_file  # noqa: PLC0415
+
+    env_vars = parse_env_file(env_file)
+    os.environ.update(env_vars)
+    keys = env_vars.keys()
+    for prefix in _PREFIX_TO_CONTENT_STORE_CONFIG:
+        if any(k.startswith(prefix) for k in keys):
+            return content_store_config_from_prefix(prefix, gcs=gcs, **kwargs)
+    raise ValueError(
+        f"Could not determine content store type from {env_file}. "
+        f"Expected keys with prefix: {', '.join(_PREFIX_TO_CONTENT_STORE_CONFIG)}"
+    )
