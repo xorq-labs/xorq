@@ -20,11 +20,16 @@ from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.relations import CachedNode, FlightExpr, FlightUDXF
 from xorq.expr.udf import ExprScalarUDF
 from xorq.vendor import ibis
+from xorq.vendor.ibis.backends import BaseBackend
 
 
 @pytest.fixture
-def cached_two(con, pg, tmp_path):
-    parquet_cache = ParquetCache.from_kwargs(source=con, relative_path=tmp_path)
+def cached_two(con: BaseBackend, pg: BaseBackend, tmp_path: Path) -> ir.Expr:
+    # use a not-yet-created subdir (not tmp_path itself, which pytest creates)
+    # so test_exists can assert the cache dir is absent until the first write
+    parquet_cache = ParquetCache.from_kwargs(
+        source=con, relative_path=tmp_path / "cache"
+    )
     return (
         pg.table("batting")[lambda t: t.yearID > 2014]
         .cache()[lambda t: t.stint == 1]
@@ -242,7 +247,8 @@ def test_exists(cached_two):
     cache = cached_two.ls.cache
 
     assert not cached_two.ls.cache_exists()
-    assert not tuple(cache.storage.path.iterdir())
+    # the cache dir is created lazily on first write, so nothing exists yet
+    assert not cache.storage.path.exists()
 
     xo.execute(cached_two)
     assert cached_two.ls.cache_exists()

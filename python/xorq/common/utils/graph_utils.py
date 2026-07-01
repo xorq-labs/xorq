@@ -14,6 +14,7 @@ from xorq.vendor.ibis.expr.operations.core import Node
 opaque_ops = (
     rel.Read,
     rel.CachedNode,
+    rel.CacheTag,
     rel.RemoteTable,
     rel.FlightUDXF,
     rel.FlightExpr,
@@ -43,6 +44,10 @@ def gen_children_of(node: Node) -> Tuple[Node, ...]:
         case rel.CachedNode():
             gen = (to_node(node.parent),)
 
+        case rel.CacheTag():
+            # descend both opaque children (see CacheTag docstring)
+            gen = (to_node(node.parent), to_node(node.uncached))
+
         case rel.FlightExpr() | rel.FlightUDXF():
             gen = (to_node(node.input_expr),)
 
@@ -68,7 +73,12 @@ def bfs(node):
     return Graph(dct)
 
 
-def walk_nodes(node_types, expr):
+def walk_nodes(
+    node_types: type | Tuple[type, ...],
+    expr: Expr | Node,
+    *,
+    gen_children: Callable[[Node], Any] = gen_children_of,
+) -> Tuple[Node, ...]:
     """DFS walk yielding matching nodes in parent-before-descendant order
     for tree-shaped expressions; shared (DAG) nodes may appear before a
     non-matching ancestor.
@@ -76,6 +86,10 @@ def walk_nodes(node_types, expr):
     Callers (e.g. ``_rebuild_subexpr``) depend on ancestors appearing before
     their descendants.  Changing traversal strategy (BFS, reverse, etc.) will
     break that invariant.
+
+    ``gen_children`` overrides how a node's children are enumerated (defaults
+    to ``gen_children_of``); pass a variant to prune specific opaque edges
+    (see ``find_all_sources``).
     """
     visited = set()
     to_visit = [to_node(expr)]
@@ -91,7 +105,7 @@ def walk_nodes(node_types, expr):
 
         to_visit += (
             child
-            for child in OrderedDict.fromkeys(gen_children_of(node))
+            for child in OrderedDict.fromkeys(gen_children(node))
             if child not in visited
         )
 
@@ -118,8 +132,16 @@ def replace_nodes(
     sub_expr_memo = {}
 
     def do_recreate(op, _kwargs, **kwargs):
-        kwargs = dict(zip(op.__argnames__, op.__args__)) | (_kwargs or {}) | kwargs
-        return op.__recreate__(kwargs)
+        # ``_kwargs`` is keyed for the node as seen *before* the replacer ran. A
+        # replacer may change the node's type (e.g. CacheTag -> CachedNode on
+        # unpin), so keep only keys that are valid slots for the post-replacer
+        # ``op``; forwarding foreign keys would crash ``__recreate__``. Explicit
+        # overrides in ``kwargs`` always win.
+        argnames = op.__argnames__
+        merged = dict(zip(argnames, op.__args__))
+        if _kwargs:
+            merged |= {k: v for k, v in _kwargs.items() if k in argnames}
+        return op.__recreate__(merged | kwargs)
 
     def _replace_sub(sub_op):
         if sub_op not in sub_expr_memo:
@@ -135,6 +157,17 @@ def replace_nodes(
             case rel.CachedNode():
                 parent = _replace_sub(to_node(op.parent))
                 return do_recreate(op, _kwargs, parent=parent)
+            case rel.CacheTag():
+                # Do NOT forward _kwargs (the asymmetry vs the sibling branches
+                # is load-bearing, not accidental -- it is covered by
+                # test_pinned_cache_yaml_roundtrip). ``parent`` is the materialized
+                # cache read paired with ``cache``; re-driving it from the BFS
+                # rewrite diverges the read's backend identity from ``cache`` and
+                # breaks profile resolution on load. The replacer has already
+                # produced ``op`` with the correct native ``parent``; only the opaque
+                # ``uncached`` payload still needs descending here.
+                uncached = _replace_sub(to_node(op.uncached))
+                return do_recreate(op, None, uncached=uncached)
             case rel.FlightExpr() | rel.FlightUDXF():
                 input_expr = _replace_sub(op.input_expr.op())
                 return do_recreate(op, _kwargs, input_expr=input_expr)
@@ -384,7 +417,77 @@ def get_ordered_unique_sources(nodes):
     return sources
 
 
-def find_all_sources(expr):
+def _gen_children_exec(node: Node) -> Tuple[Node, ...]:
+    """Child enumeration along the *execution* path only.
+
+    Identical to ``gen_children_of`` except at a ``CacheTag``, where it
+    descends only the frozen ``parent`` read (what actually executes) and not
+    ``uncached`` (inert reconstruction payload). Mirrors ``_decompose_expr``'s
+    pruning of pinned-leaf data so source discovery stays consistent with
+    hashing.
+    """
+    if isinstance(node, rel.CacheTag):
+        return (to_node(node.parent),)
+    return tuple(gen_children_of(node))
+
+
+def _gen_children_skip_pins(node: Node) -> Tuple[Node, ...]:
+    """Child enumeration that treats a ``CacheTag`` as an opaque leaf.
+
+    Descends neither ``parent`` nor ``uncached``, so a walk collects only the
+    leaves reachable *without* passing through any pin -- the "live" leaves used
+    by :func:`exclusively_pinned_leaves`.
+    """
+    if isinstance(node, rel.CacheTag):
+        return ()
+    return tuple(gen_children_of(node))
+
+
+def exclusively_pinned_leaves(
+    expr: Expr | Node, leaf_types: type | Tuple[type, ...]
+) -> frozenset:
+    """Leaves of *expr* reachable ONLY through ``CacheTag`` (pinned) subtrees.
+
+    A leaf under a pin's frozen ``parent`` or discarded ``uncached`` upstream is
+    represented in the build hash solely by the pin's cache-key token (see
+    ``CacheTag.__dasher_tokenize__``), so callers leave it out of name
+    sanitization and hash data-leaves -- otherwise hashing stat's a possibly-
+    absent upstream source. A leaf also reachable from a live (non-pinned)
+    branch is the exception: it genuinely participates there, so it stays live.
+    Returns ``under_pin - live``.
+
+    Single predicate shared by ``_sanitize_generated_names`` and
+    ``_decompose_expr`` so the two pruning sites cannot drift.
+    """
+    under_pin = {
+        n
+        for ct in walk_nodes((rel.CacheTag,), expr)
+        for n in walk_nodes(leaf_types, ct)
+    }
+    if not under_pin:
+        return frozenset()
+    live = set(walk_nodes(leaf_types, expr, gen_children=_gen_children_skip_pins))
+    return frozenset(under_pin - live)
+
+
+def find_all_sources(
+    expr: Expr | Node, *, execution_only: bool = False
+) -> Tuple[Any, ...]:
+    """Distinct backend sources referenced in *expr*, in discovery order.
+
+    By default the full graph is walked, including a pinned read's
+    (``CacheTag``) ``uncached`` reconstruction payload -- serialization needs
+    those profiles to round-trip the discarded upstream (see
+    ``ExprDumper``/``dehydrate_cons``).
+
+    Pass ``execution_only=True`` for connection-selection consumers (e.g.
+    ``expr_to_unbound``): a pinned read executes only through its frozen
+    ``parent``, so ``uncached`` backends -- which may be transient or
+    unavailable after a roundtrip -- must not be reported as required sources.
+    This mirrors ``_decompose_expr``'s pruning of pinned-leaf data. A backend
+    shared between ``uncached`` and a live branch is still found via the live
+    branch.
+    """
     node_types = (
         ops.DatabaseTable,
         ops.SQLQueryResult,
@@ -396,6 +499,7 @@ def find_all_sources(expr):
         # ExprScalarUDF has an expr we need to get to
         # FlightOperator has a dynamically generated connection: it should be passed a Profile instead
     )
-    nodes = walk_nodes(node_types, expr)
+    gen_children = _gen_children_exec if execution_only else gen_children_of
+    nodes = walk_nodes(node_types, expr, gen_children=gen_children)
     sources = get_ordered_unique_sources(nodes)
     return sources

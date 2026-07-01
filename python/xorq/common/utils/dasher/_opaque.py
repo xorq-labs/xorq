@@ -40,7 +40,7 @@ if TYPE_CHECKING:
         name: str
         hash: str
 
-    from xorq.expr.relations import HashingTag, TeeNode
+    from xorq.expr.relations import CacheTag, HashingTag, TeeNode
 
     class ExprMetadata(TypedDict):
         version: Literal[4]
@@ -191,13 +191,25 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
     from xorq.expr import api  # noqa: PLC0415
     from xorq.expr.relations import (  # noqa: PLC0415
         CachedNode,
+        CacheTag,
         FlightExpr,
         FlightUDXF,
         Read,
         RemoteTable,
+        cache_tag_identity_parts,
     )
 
     match node:
+        case CacheTag():
+            # A pinned read is a leaf: its placeholder is keyed on the cache key
+            # (the frozen read's table name), which is base_path-independent and
+            # needs no source. Returning a placeholder here also stops the
+            # rewrite from descending ``parent``'s absolute path or ``uncached``'s
+            # discarded upstream into the SQL. See CacheTag.__dasher_tokenize__.
+            # Identity fields shared via cache_tag_identity_parts; the "cachetag"
+            # prefix is this layer's own (distinct from the "cache-tag" token,
+            # since it lands in the structural SQL).
+            name = _stable_opaque_name("cachetag", *cache_tag_identity_parts(node))
         case CachedNode():
             name = _stable_opaque_name(
                 "cached",
@@ -379,19 +391,25 @@ def _decompose_expr(
     tuple[str, ...],
     tuple[HashingTag, ...],
     tuple[TeeNode, ...],
+    tuple[CacheTag, ...],
 ]:
     """Split an expression into structural SQL, data leaves, UDFs, and identity nodes.
 
-    Returns ``(sql, reads, dts, udfs, mems, param_anchors, hashing_tags, tee_nodes)``
+    Returns ``(sql, reads, dts, udfs, mems, param_anchors, hashing_tags, tee_nodes, cache_tags)``
     where *reads*/*dts*/*mems* are the data-carrying leaf ops, *udfs* are
     structural code-identity ops, *param_anchors* are stable identity
     strings for each NamedScalarParameter in graph order, *hashing_tags*
     carry user-supplied metadata, and *tee_nodes* carry writer identity.
     """
-    from xorq.common.utils.graph_utils import replace_nodes, walk_nodes  # noqa: PLC0415
+    from xorq.common.utils.graph_utils import (  # noqa: PLC0415
+        exclusively_pinned_leaves,
+        replace_nodes,
+        walk_nodes,
+    )
     from xorq.expr.api import get_compiler, to_sql  # noqa: PLC0415
     from xorq.expr.relations import (  # noqa: PLC0415
         CachedNode,
+        CacheTag,
         HashingTag,
         Read,
         TeeNode,
@@ -425,7 +443,37 @@ def _decompose_expr(
     mems = tuple(walk_nodes(InMemoryTable, op))
     hashing_tags = tuple(walk_nodes(HashingTag, op))
     tee_nodes = tuple(walk_nodes(TeeNode, op))
-    return sql, reads, dts, udfs, mems, param_anchors, hashing_tags, tee_nodes
+    # A pinned read (CacheTag) is a hash *leaf*: its identity is the cache key,
+    # folded in _hash_expr_components via __dasher_tokenize__. Prune the leaves
+    # that token already represents -- those exclusively under a pin -- from the
+    # data/identity collections gathered above (see exclusively_pinned_leaves).
+    cache_tags = tuple(walk_nodes(CacheTag, op))
+    if cache_tags:
+        pinned_leaf_types = (
+            Read,
+            DatabaseTable,
+            InMemoryTable,
+            AggUDF,
+            ScalarUDF,
+            HashingTag,
+            TeeNode,
+        )
+        pinned = exclusively_pinned_leaves(op, pinned_leaf_types)
+        reads, dts, udfs, mems, hashing_tags, tee_nodes = (
+            tuple(n for n in coll if n not in pinned)
+            for coll in (reads, dts, udfs, mems, hashing_tags, tee_nodes)
+        )
+    return (
+        sql,
+        reads,
+        dts,
+        udfs,
+        mems,
+        param_anchors,
+        hashing_tags,
+        tee_nodes,
+        cache_tags,
+    )
 
 
 def _hash_expr_components(expr: Expr, op: Node) -> tuple[str, list[SlotDict]]:
@@ -440,6 +488,7 @@ def _hash_expr_components(expr: Expr, op: Node) -> tuple[str, list[SlotDict]]:
         param_anchors,
         hashing_tags,
         tee_nodes,
+        cache_tags,
     ) = _decompose_expr(expr, op)
     hasher = _current_hasher.get() or HASHER
 
@@ -455,6 +504,11 @@ def _hash_expr_components(expr: Expr, op: Node) -> tuple[str, list[SlotDict]]:
         hash_args += (tuple(hasher.tokenize(ht) for ht in hashing_tags),)
     if _include_tee_nodes.get() and tee_nodes:
         hash_args += (tuple(hasher.tokenize(tn) for tn in tee_nodes),)
+    if cache_tags:
+        # A pinned read contributes only its cache-key identity (base_path-
+        # independent, source-free) via CacheTag.__dasher_tokenize__; its
+        # subtree leaves were pruned in _decompose_expr.
+        hash_args += (tuple(hasher.tokenize(ct) for ct in cache_tags),)
     structural_hash = hasher.tokenize(*hash_args)
 
     def _read_name(r: Read) -> str:

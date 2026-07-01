@@ -3413,7 +3413,7 @@ class Table(Expr, _FixedTextJupyterMixin):
             SourceCache,
             maybe_prevent_cross_source_caching,
         )
-        from xorq.expr.relations import CachedNode
+        from xorq.expr.relations import make_cached_node
 
         if cache:
             expr = maybe_prevent_cross_source_caching(self, cache)
@@ -3421,13 +3421,7 @@ class Table(Expr, _FixedTextJupyterMixin):
             expr = self
             cache = SourceCache.from_kwargs(source=expr._find_backend(use_default=True))
 
-        op = CachedNode(
-            name=CACHED_NODE_NAME_PLACEHOLDER,
-            schema=expr.schema(),
-            parent=expr,
-            source=cache.storage.source,
-            cache=cache,
-        )
+        op = make_cached_node(expr.schema(), expr, cache)
         return op.to_expr()
 
     def tee(

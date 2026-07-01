@@ -35,6 +35,7 @@ from xorq.expr.ml import (
 from xorq.expr.operations import _MISSING, NamedScalarParameter
 from xorq.expr.relations import (
     CachedNode,
+    CacheTag,
     FlightExpr,
     FlightUDXF,
     HashingTag,
@@ -382,8 +383,21 @@ def _remove_non_hashing_tag_nodes(expr):
                 if kwargs:
                     node = node.__recreate__(kwargs)
                 return node
+            case CacheTag():
+                # Identity-bearing (a build-hash leaf via __dasher_tokenize__),
+                # not a transparent tag: like HashingTag it must survive
+                # stripping, else `untagged`-based hashes reduce a pin to its
+                # bare cache read and diverge from get_expr_hash / ls.tokenized.
+                if kwargs:
+                    node = node.__recreate__(kwargs)
+                return node
             case Tag():
-                while isinstance(node, Tag) and not isinstance(node, HashingTag):
+                # Stop at HashingTag/CacheTag: unwinding plain Tags must not
+                # strip an identity-bearing tag nested beneath them (the
+                # trailing replace_nodes preserves it via its own case).
+                while isinstance(node, Tag) and not isinstance(
+                    node, (HashingTag, CacheTag)
+                ):
                     node = node.parent
                 return replace_nodes(replacer, node)
             case TeeNode():

@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import datetime
 import hashlib
 import itertools
 import json
 import os
 import pathlib
+import shutil
 import tempfile
 import warnings
 
@@ -40,7 +43,7 @@ from xorq.common.utils.file_utils import normalize_read_path_md5sum
 from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.conftest import array_types_df
-from xorq.expr.relations import CachedNode, Read, RemoteTable
+from xorq.expr.relations import CachedNode, CacheTag, Read, RemoteTable
 from xorq.expr.udf import ExprScalarUDF
 from xorq.ibis_yaml.compiler import (
     ArtifactStore,
@@ -354,6 +357,91 @@ def test_multi_engine_with_caching_with_parquet(
     )
     assert expr.execute().equals(roundtrip_expr.execute())
     assert expected_cache_dir.exists()
+
+
+def test_pinned_cache_yaml_roundtrip(
+    builds_dir: pathlib.Path, tmp_path: pathlib.Path, parquet_dir: pathlib.Path
+) -> None:
+    con = xo.connect()
+    cache = ParquetCache.from_kwargs(source=con, relative_path=tmp_path)
+    expr = (
+        deferred_read_parquet(parquet_dir / "awards_players.parquet", con=con)
+        .filter(xo._.playerID == "bondto01")
+        .cache(cache=cache)
+    )
+    # materialize the cache so the pinned expr can read it directly
+    expr.execute()
+    pinned = expr.ls.pin()
+
+    roundtrip_expr = do_roundtrip_expr(pinned, builds_dir=builds_dir)
+
+    assert walk_nodes((CacheTag,), roundtrip_expr)
+    assert not walk_nodes((CachedNode,), roundtrip_expr)
+    assert pinned.execute().equals(roundtrip_expr.execute())
+
+
+def test_pinned_cache_yaml_roundtrip_multi_engine(
+    builds_dir: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
+    # Cache across engines: the CachedNode.parent is a RemoteTable, so pinning
+    # takes the `remote_expr` branch and the CacheTag's `uncached` payload
+    # carries the RemoteTable through YAML serialization (the ADR-0015
+    # _replace_remote_table failure mode the CacheTag docstring flags).
+    con = xo.connect()
+    con2 = xo.connect()
+    t = con.register(pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}), "tbl")
+    cache = ParquetCache.from_kwargs(relative_path=tmp_path, source=con2)
+    cached = t.into_backend(con2).cache(cache)
+    # guard: this test is only meaningful if the cached parent is a RemoteTable
+    assert isinstance(cached.op().parent.op(), RemoteTable)
+    # materialize the cache so the pinned expr can read it directly
+    cached.execute()
+    pinned = cached.ls.pin()
+
+    roundtrip_expr = do_roundtrip_expr(pinned, builds_dir=builds_dir)
+
+    assert walk_nodes((CacheTag,), roundtrip_expr)
+    assert not walk_nodes((CachedNode,), roundtrip_expr)
+    assert pinned.execute().equals(roundtrip_expr.execute())
+
+
+def test_pinned_cache_relocates_to_new_cache_dir(
+    builds_dir: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
+    # A pinned build must be portable: load_expr against a different cache_dir
+    # re-points the frozen read at the relocated artifact (the key is
+    # base_path-independent). Moving the cache dir proves it reads the new
+    # location and not the original.
+    con = xo.connect()
+    src = tmp_path / "cacheA"
+    cache = ParquetCache.from_kwargs(source=con, relative_path="pins", base_path=src)
+    expr = (
+        con.register(pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}), "tbl")
+        .filter(xo._.a > 1)
+        .cache(cache=cache)
+    )
+    expr.execute()  # materialize the cache under cacheA/pins
+    pinned = expr.ls.pin()
+    expected = pinned.execute()
+
+    build_path = build_expr(pinned, builds_dir=builds_dir)
+
+    # relocate the cache files; the original directory no longer exists
+    dst = tmp_path / "cacheB"
+    shutil.move(str(src), str(dst))
+
+    relocated = load_expr(build_path, cache_dir=dst)
+
+    assert walk_nodes((CacheTag,), relocated)
+    assert not walk_nodes((CachedNode,), relocated)
+    # the frozen read now resolves under cacheB
+    read_paths = [
+        str(dict(r.read_kwargs).get("hash_path", ""))
+        for r in walk_nodes((Read,), relocated)
+    ]
+    assert any(str(dst) in p for p in read_paths)
+    assert not any(str(src) in p for p in read_paths)
+    assert relocated.execute().equals(expected)
 
 
 @pytest.mark.parametrize(

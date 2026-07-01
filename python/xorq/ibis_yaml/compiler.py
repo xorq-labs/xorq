@@ -45,6 +45,7 @@ from xorq.common.utils.file_utils import (
     normalize_read_path_stat,
 )
 from xorq.common.utils.graph_utils import (
+    exclusively_pinned_leaves,
     find_all_sources,
     opaque_ops,
     replace_nodes,
@@ -62,7 +63,10 @@ from xorq.expr.api import deferred_read_parquet
 from xorq.expr.operations import _MISSING
 from xorq.expr.relations import (
     CachedNode,
+    CacheTag,
     Read,
+    relocate_cache,
+    relocate_cache_tag,
 )
 from xorq.ibis_yaml.common import (
     Registry,
@@ -290,7 +294,14 @@ def _sanitize_generated_names(expr, normalize_method):
     # affect the other, so a single walk collecting both is equivalent to
     # the previous two sequential walks.
     replacements = {}
+    # Leave alone the leaves a pin's cache-key token already represents (those
+    # exclusively under a CacheTag); sanitizing them would stat a possibly-
+    # absent upstream source. DAG-shared leaves stay live -- see
+    # exclusively_pinned_leaves, shared with _decompose_expr.
+    pinned_leaves = exclusively_pinned_leaves(expr, (InMemoryTable, Read))
     for node in walk_nodes((InMemoryTable, Read), expr):
+        if node in pinned_leaves:
+            continue
         if isinstance(node, InMemoryTable):
             if prefix := get_uid_prefix(node.name):
                 name = f"{prefix}{tokenize(recreate(node, name='name').to_expr())}"
@@ -821,13 +832,16 @@ class ExprLoader:
         # replace_nodes (not op.replace) so the rewrite reaches CachedNodes
         # nested inside opaque sub-exprs like RemoteTable.remote_expr.
         def replacer(node, kwargs):
-            if isinstance(node, CachedNode) and isinstance(
-                node.cache, parquet_cache_types
+            cache = getattr(node, "cache", None)
+            if isinstance(node, (CachedNode, CacheTag)) and isinstance(
+                cache, parquet_cache_types
             ):
-                evolved = evolve(
-                    node.cache,
-                    storage=evolve(node.cache.storage, base_path=base_path),
-                )
+                if isinstance(node, CacheTag):
+                    # A pinned cache is a frozen read; relocate it by re-pointing
+                    # that read at the new base_path (the key is base_path-
+                    # independent), so a pinned build is portable across cache dirs.
+                    return relocate_cache_tag(node, base_path)
+                evolved = relocate_cache(cache, base_path)
                 return recreate(node, **((kwargs or {}) | {"cache": evolved}))
             return node.__recreate__(kwargs) if kwargs else node
 

@@ -17,7 +17,7 @@ import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.common.utils.dasher import tokenize
-from xorq.expr.relations import HashingTag, Read, Tag
+from xorq.expr.relations import CacheTag, HashingTag, Read, Tag
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.enums import RefEnum, RegistryEnum
 from xorq.ibis_yaml.utils import freeze
@@ -71,6 +71,10 @@ class Registry:
                 tagged_repr = node.to_expr().ls.untagged
                 with SnapshotStrategy().normalization_context(node.to_expr()):
                     node_hash = tokenize(tagged_repr)
+            case CacheTag():
+                untagged_repr = ("CacheTag", node.parent.to_expr(), node.uncached)
+                with SnapshotStrategy().normalization_context(node.to_expr()):
+                    node_hash = tokenize(untagged_repr)
             case Tag():
                 untagged_repr = ("Tag", node.parent.to_expr(), node_dict["metadata"])
                 with SnapshotStrategy().normalization_context(node.to_expr()):

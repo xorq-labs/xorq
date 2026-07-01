@@ -3,6 +3,7 @@ from __future__ import annotations
 import functools
 import operator
 import warnings
+from pathlib import Path
 from typing import Any, Callable
 
 import pyarrow as pa
@@ -135,6 +136,221 @@ class DatabaseTableView(ops.DatabaseTable):
 class CachedNode(DatabaseTableView):
     parent: Any = None
     cache: Any = None
+
+
+class CacheTag(Tag):
+    """A pinned (frozen) cache: a transparent read of the cache location that
+    carries the information needed to reconstruct the original ``CachedNode``.
+
+    ``parent`` is the direct read of the cache file/table (what ``cache.get``
+    returns), so a pinned expression reads the materialized artifact directly
+    and never re-derives the upstream computation. ``cache`` is inert
+    reconstruction payload; ``unpin_cache`` reads ``uncached``/``cache`` back
+    to rebuild the ``CachedNode``.
+
+    Hash identity -- a pinned read is a build-hash *leaf*: its identity is the
+    cache key (``parent``'s table name), folded in via ``__dasher_tokenize__``.
+    The cache key already encodes the upstream computation (ADR-0015), and it is
+    independent of where the artifact physically lives, so a pin hashes the same
+    wherever its cache dir is relocated to (portability) and without the original
+    sources still existing (self-containment). Crucially, the build-hash machinery
+    must NOT descend ``parent`` (its ``hash_path`` is an absolute, base_path-
+    dependent path) or ``uncached`` (the discarded upstream, whose source leaves
+    would be stat'd) when hashing a pin -- ``_decompose_expr`` treats the whole
+    ``CacheTag`` as a leaf for exactly this reason. ``uncached`` is still
+    *descended for source normalization and serialization* (see
+    ``gen_children_of``); only the hash treats the tag as a leaf.
+
+    Pinning is a freeze-time operation and is deliberately *not*
+    cache-hash-neutral: a pinned expression keys differently from its unpinned
+    form (cache-key identity vs. the full upstream computation).
+    """
+
+    uncached: Any = None
+    cache: Any = None
+
+    def __init__(
+        self,
+        schema: Schema,
+        parent: ops.Relation,
+        uncached: Any,
+        cache: Any = None,
+        metadata: FrozenOrderedDict | None = None,
+    ) -> None:
+        if metadata is None:
+            metadata = FrozenOrderedDict()
+        # ``uncached`` is Any but is unconditionally descended via ``to_node``
+        # (gen_children_of/replace_nodes), so require an Expr or Node -- ``None``
+        # or a swapped upstream builds an untraversable tag.
+        if not isinstance(uncached, (Expr, Node)):
+            raise IntegrityError(
+                "CacheTag.uncached must be an Expr or Node, got "
+                f"{type(uncached).__name__}"
+            )
+        super().__init__(
+            schema=schema,
+            parent=parent,
+            uncached=uncached,
+            cache=cache,
+            metadata=metadata,
+        )
+
+    def __dasher_tokenize__(self) -> tuple:
+        # Build/cache identity of a pinned read is its cache KEY (the frozen
+        # read's table name) -- base_path-independent and computable without the
+        # upstream source. Deliberately omits ``uncached``'s structure and the
+        # read's absolute path; see the class docstring and ``_decompose_expr``,
+        # which prunes the tag's subtree so these tokens are the only thing a
+        # ``CacheTag`` contributes to the hash.
+        return ("cache-tag", *cache_tag_identity_parts(self))
+
+
+def cache_tag_identity_parts(node: CacheTag) -> tuple:
+    """The fields that define a pinned read's identity: ``(schema, cache key)``.
+
+    Single source of truth for *which* fields identify a ``CacheTag``, shared by
+    the two layers that must agree: ``__dasher_tokenize__`` (hash component) and
+    the ``_xorq_opaque_to_placeholder`` SQL placeholder. Returns only the shared
+    parts, not a formatted name -- each consumer adds its own envelope (tokenize
+    tuple vs. ``_stable_opaque_name`` prefix), so adding a field here updates
+    both without changing either's output format. ``parent.name`` is the cache key.
+    """
+    return (node.schema, node.parent.name)
+
+
+def cache_keyed_expr(parent: Expr) -> Expr:
+    """The expr a cache is keyed on for ``parent``.
+
+    A cross-engine cache's parent is a ``RemoteTable``; the cache key is keyed
+    on its ``remote_expr`` (the ``RemoteTable.name`` is stripped, see ADR-0015).
+    Otherwise the parent is keyed directly. Single source of truth for this
+    unwrap rule, shared by the ``ls.uncached_one`` accessor, pinning, and pin
+    relocation so the three sites cannot drift.
+    """
+    from xorq.common.utils.graph_utils import to_node  # noqa: PLC0415
+
+    parent_op = to_node(parent)
+    return parent_op.remote_expr if isinstance(parent_op, RemoteTable) else parent
+
+
+def _cached_node_to_cache_tag(node: CachedNode) -> CacheTag:
+    cache = node.cache
+    # compute the cache key once: cache.exists + cache.get would each recompute
+    # it (calc_key) and stat the artifact separately.
+    key = cache.calc_key(cache_keyed_expr(node.parent))
+    if not cache.key_exists(key):
+        raise IntegrityError(
+            "cannot pin an unmaterialized cache; execute the expression "
+            "(or call .cache().execute()) to populate the cache first"
+        )
+    return CacheTag(
+        schema=node.schema,
+        parent=cache.storage.get(key, schema=node.schema),
+        uncached=node.parent,
+        cache=cache,
+    )
+
+
+def relocate_cache(cache: Any, base_path: Path) -> Any:
+    """Re-point a parquet cache's storage at a new ``base_path``.
+
+    Single source of truth for the storage re-pointing, shared by
+    ``relocate_cache_tag`` (pinned reads) and ``replace_base_path`` (live
+    ``CachedNode``s) so the two relocation sites cannot drift.
+    """
+    from attr import evolve  # noqa: PLC0415
+
+    # only parquet storages have a base_path; on a SourceStorage evolve would
+    # raise an opaque TypeError, and the signature is Any -- fail explicitly.
+    if not hasattr(cache.storage, "base_path"):
+        raise IntegrityError(
+            "relocate_cache requires a parquet-backed cache, got "
+            f"{type(cache.storage).__name__}"
+        )
+    return evolve(cache, storage=evolve(cache.storage, base_path=base_path))
+
+
+def relocate_cache_tag(node: CacheTag, base_path: Path) -> CacheTag:
+    """Re-point a pinned cache's frozen read at a new ``base_path``.
+
+    Only the directory the read resolves to changes; the read's table name *is*
+    its cache key, so it is preserved verbatim (re-deriving the key from a
+    round-tripped ``uncached`` could drift). A pinned read stays a read -- this
+    does not re-materialize or re-validate; if the artifact is absent at the new
+    location, execution fails like any other missing read.
+    """
+    from xorq.common.utils.graph_utils import to_node  # noqa: PLC0415
+
+    new_cache = relocate_cache(node.cache, base_path)
+    key = to_node(node.parent).name
+    return CacheTag(
+        schema=node.schema,
+        parent=new_cache.storage.get(key, schema=node.schema),
+        uncached=node.uncached,
+        cache=new_cache,
+    )
+
+
+def make_cached_node(schema: Schema, parent: Expr, cache: Any) -> CachedNode:
+    """Build a ``CachedNode`` from its essential parts.
+
+    Single source of truth for the node's invariant fields -- the placeholder
+    name and the ``source`` derived from the cache storage -- shared by
+    ``Expr.cache`` and ``unpin_cache`` so the two construction sites cannot
+    drift.
+    """
+    from xorq.vendor.ibis.expr.types.relations import (  # noqa: PLC0415
+        CACHED_NODE_NAME_PLACEHOLDER,
+    )
+
+    return CachedNode(
+        name=CACHED_NODE_NAME_PLACEHOLDER,
+        schema=schema,
+        parent=parent,
+        source=cache.storage.source,
+        cache=cache,
+    )
+
+
+def _cache_tag_to_cached_node(node: CacheTag) -> CachedNode:
+    return make_cached_node(node.schema, node.uncached, node.cache)
+
+
+def _replace_op_type(
+    expr: Expr, op_type: type[Node], transform: Callable[[Node], Node]
+) -> Expr:
+    """Rewrite every ``op_type`` node in *expr* via *transform*, descending into
+    opaque sub-expressions. *transform* maps a node of ``op_type`` to its
+    replacement.
+    """
+    from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
+
+    def replacer(node, kwargs):
+        if kwargs:
+            node = node.__recreate__(kwargs)
+        if isinstance(node, op_type):
+            node = transform(node)
+        return node
+
+    return replace_nodes(replacer, expr).to_expr()
+
+
+def pin_cache(expr: Expr) -> Expr:
+    """Freeze every ``CachedNode`` into a ``CacheTag`` reading its cache location.
+
+    Each cache must already be materialized; the resulting expression reads the
+    cached artifacts directly without re-deriving them. Inverse of
+    :func:`unpin_cache`.
+    """
+    return _replace_op_type(expr, CachedNode, _cached_node_to_cache_tag)
+
+
+def unpin_cache(expr: Expr) -> Expr:
+    """Rebuild every ``CacheTag`` back into its original ``CachedNode``.
+
+    Inverse of :func:`pin_cache`.
+    """
+    return _replace_op_type(expr, CacheTag, _cache_tag_to_cached_node)
 
 
 gen_name_namespace = "rbr-placeholder"
@@ -674,11 +890,37 @@ def get_cache_params(cache):
     return cache_repr + (render_backend(cache.storage.source),)
 
 
-@fmt.register(CachedNode)
-def _fmt_cache_node(op, schema, parent, source, cache, **kwargs):
+def _fmt_cache_like(op: Node, schema: Schema, parent: str, cache: Any) -> str:
     strategy, parquet, backend = get_cache_params(cache)
     name = f"{op.__class__.__name__}[{parent}, strategy={strategy}, parquet={parquet}, source={backend}]\n"
     return name + render_schema(schema, 1)
+
+
+@fmt.register(CachedNode)
+def _fmt_cache_node(
+    op: CachedNode,
+    schema: Schema,
+    parent: str,
+    source: Any,
+    cache: Any,
+    **kwargs: Any,
+) -> str:
+    return _fmt_cache_like(op, schema, parent, cache)
+
+
+@fmt.register(CacheTag)
+def _fmt_cache_tag(
+    op: CacheTag,
+    schema: Schema,
+    parent: str,
+    cache: Any,
+    **kwargs: Any,
+) -> str:
+    # ``CacheTag`` reuses the ``CachedNode`` rendering (frozen read + cache
+    # params only). A dedicated handler is still needed because the generic
+    # relation formatter chokes on ``uncached`` (an Ibis Expr) via its ``if v``
+    # truthiness check. ``parent`` is already the rendered read ref.
+    return _fmt_cache_like(op, schema, parent, cache)
 
 
 @fmt.register(RemoteTable)
