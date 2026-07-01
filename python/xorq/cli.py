@@ -9,12 +9,13 @@ import sys
 import traceback
 from functools import partial, wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING
 
 import click
 
 from xorq.cli_constants import DEFAULT_CACHE_TYPE, DEFAULT_OUTPUT_FORMAT, OutputFormats
 from xorq.cli_options import (
+    _F,
     cache_dir_option,
     cache_strategy_options,
     ensure_materialized_option,
@@ -171,6 +172,7 @@ def uv_build_command(
     all_extras=True,
     debug=False,
     emit_build_path_to=None,
+    relocate_reads=True,
 ):
     if project_path and pep723:
         raise click.UsageError("--project-path and --pep723 are mutually exclusive")
@@ -187,6 +189,7 @@ def uv_build_command(
         extras=extras,
         all_extras=all_extras,
         debug=debug,
+        relocate_reads=relocate_reads,
     )
     builder.build()
     if emit_build_path_to:
@@ -866,6 +869,7 @@ def uv_group(ctx):
     is_flag=True,
     help="Output SQL files and other debug artifacts.",
 )
+@relocate_reads_option()
 @click.option(
     "--emit-build-path-to",
     type=click.Path(),
@@ -877,17 +881,18 @@ def uv_group(ctx):
     ),
 )
 def uv_build(
-    script_path,
-    expr_name,
-    builds_dir,
-    cache_dir,
-    project_path,
-    pep723,
-    extras,
-    all_extras,
-    debug,
-    emit_build_path_to,
-):
+    script_path: str,
+    expr_name: str,
+    builds_dir: str,
+    cache_dir: str | None,
+    project_path: str | None,
+    pep723: bool,
+    extras: tuple[str, ...],
+    all_extras: bool,
+    debug: bool,
+    relocate_reads: bool,
+    emit_build_path_to: str | None,
+) -> None:
     """Build an expression inside a uv-managed isolated environment.
 
     Mirrors `xorq build`, but runs inside a uv-managed environment seeded
@@ -918,6 +923,7 @@ def uv_build(
         all_extras=all_extras,
         debug=debug,
         emit_build_path_to=emit_build_path_to,
+        relocate_reads=relocate_reads,
     )
 
 
@@ -1316,8 +1322,6 @@ _PIN_BUILDS_DIR_OPTION = click.option(
     show_default=True,
     help="Directory for the resulting build artifact.",
 )
-
-_F = TypeVar("_F", bound=collections.abc.Callable)
 
 
 def _pin_shared_options(fn: _F) -> _F:

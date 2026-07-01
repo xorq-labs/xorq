@@ -456,9 +456,10 @@ class PackagedBuilder:
         default=None,
     )
     debug = field(validator=instance_of(bool), default=False)
+    relocate_reads = field(validator=instance_of(bool), default=True)
 
     @property
-    def wheel_path(self):
+    def wheel_path(self) -> Path:
         return self.bundle.wheel_path
 
     @property
@@ -484,6 +485,13 @@ class PackagedBuilder:
             self.builds_dir,
             *(("--cache-dir", self.cache_dir) if self.cache_dir else ()),
             *(("--debug",) if self.debug else ()),
+            # Match the inner `xorq build`'s relocate default explicitly so a
+            # packaged build is self-contained by default, and so
+            # `xorq uv build --no-relocate-reads` can opt out (same escape hatch
+            # as `xorq build`). NOTE: `--no-relocate-reads` requires an inner
+            # xorq new enough to accept it (same version gate as the
+            # --emit-build-path-to fallback above).
+            ("--relocate-reads" if self.relocate_reads else "--no-relocate-reads"),
         )
 
         # TODO(post-release): remove emit-path fallback once the published

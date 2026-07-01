@@ -8,12 +8,12 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import cache, partial, reduce
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING
 
 import attr
 import click
@@ -30,6 +30,7 @@ from xorq.cli import (
     raise_for_missing_relocation_source,
 )
 from xorq.cli_options import (
+    _F,
     cache_dir_option,
     cache_strategy_options,
     code_option,
@@ -494,9 +495,6 @@ def _catalog_pin_command(
             for moved in source_aliases:
                 catalog.add_alias(new_entry.name, moved, sync=False)
     click.echo(new_entry.name)
-
-
-_F = TypeVar("_F", bound=Callable)
 
 
 def _catalog_pin_shared_options(fn: _F) -> _F:
