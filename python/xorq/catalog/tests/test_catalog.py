@@ -59,6 +59,7 @@ from xorq.catalog.expr_utils import (
     _live_extract_dirs,
     build_expr_context_zip,
 )
+from xorq.catalog.git_utils import commit_context
 from xorq.catalog.tests.conftest import (
     TEST_WHEEL_NAME,
     compare_repo_and_catalog,
@@ -1580,6 +1581,53 @@ def test_add_alias_real_change_still_commits(catalog_populated: Catalog) -> None
     after = _commit_count(catalog_populated)
 
     assert after == before + 2
+    catalog_populated.assert_consistency()
+
+
+def test_commit_context_unborn_head_commits(tmp_path: Path) -> None:
+    # Exercises the `not repo.head.is_valid()` branch of the empty-commit guard:
+    # on a fresh repo with no commits, `repo.head.commit` would raise, so the
+    # guard must commit unconditionally rather than diff against HEAD. No catalog
+    # path reaches commit_context with an unborn HEAD (the initial commit is made
+    # directly), so this branch is otherwise untested.
+    repo = GitRepo.init(tmp_path.joinpath("repo"), initial_branch=MAIN_BRANCH)
+    assert not repo.head.is_valid()
+    (Path(repo.working_dir) / "f.txt").write_text("hello")
+    with commit_context(repo, "first commit"):
+        repo.index.add(["f.txt"])
+    assert repo.head.is_valid()
+    assert len(list(repo.iter_commits())) == 1
+
+
+def test_add_entry_noop_leaves_no_commit(
+    catalog: Catalog, data_dict: dict[str, Path]
+) -> None:
+    # Re-adding an identical entry with exist_ok=True stages nothing
+    # (CatalogAddition._add returns early once the entry is present), so the
+    # empty-commit guard must not leave a commit behind. Runs the entry-level
+    # no-op path across git/annex/pointer, distinct from the alias no-op above.
+    path = next(iter(data_dict.values()))
+    catalog.add(path)
+
+    before = _commit_count(catalog)
+    catalog.add(path, exist_ok=True)  # identical entry -> no-op
+    after = _commit_count(catalog)
+
+    assert after == before
+    catalog.assert_consistency()
+
+
+def test_remove_still_commits(catalog_populated: Catalog) -> None:
+    # Guard sanity for the delete path: removing an entry stages real changes
+    # (yaml + unlinks) and must still produce exactly one commit, mirroring the
+    # over-skip check that test_add_alias_real_change_still_commits does for add.
+    name = catalog_populated.list()[0]
+
+    before = _commit_count(catalog_populated)
+    catalog_populated.remove(name)
+    after = _commit_count(catalog_populated)
+
+    assert after == before + 1
     catalog_populated.assert_consistency()
 
 

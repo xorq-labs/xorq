@@ -16,13 +16,12 @@ def commit_context(repo: Repo, message: str) -> Iterator[IndexFile]:
     """Commit whatever the wrapped body stages against *repo*'s index.
 
     The single commit primitive for the catalog (``CatalogBackend.commit_context``
-    delegates here binding ``self.repo``, and the root/submodule wiring calls it
-    directly). An empty commit is skipped: a no-op mutation -- e.g. re-adding an
-    alias that already resolves to its target -- stages nothing against HEAD, and
-    committing anyway would leave an empty commit in the catalog history. Every
-    git-tracked catalog mutation funnels through ``repo.index.add``/``remove``
-    (see the backend ``stage``/``stage_content``/``stage_unlink`` methods), so
-    ``index.diff(HEAD)`` faithfully reflects whether anything changed.
+    delegates here, and the root/submodule wiring calls it directly). An empty
+    commit is skipped, since a no-op mutation would otherwise leave an empty
+    commit in the catalog history. Every git-tracked catalog mutation funnels
+    through ``repo.index.add``/``remove`` (see the backend ``stage``/
+    ``stage_content``/``stage_unlink`` methods), so ``index.diff(HEAD)``
+    faithfully reflects whether anything changed.
     """
     yield repo.index
     if not repo.head.is_valid() or repo.index.diff(repo.head.commit):

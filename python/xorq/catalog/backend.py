@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import shutil
 from collections.abc import Iterator
+from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
 from typing import Any
@@ -79,11 +80,11 @@ class CatalogBackend(abc.ABC):
     @abc.abstractmethod
     def stage_unlink(self, path: str | Path) -> None: ...
 
+    @contextmanager
     def commit_context(self, message: str) -> Iterator[IndexFile]:
-        # Single commit primitive lives in git_utils.commit_context (which also
-        # serves the root/submodule repo); bind it to this backend's repo. It
-        # skips empty commits, so a no-op mutation leaves no commit behind.
-        return commit_context(self.repo, message)
+        # Delegates to git_utils.commit_context (skips empty commits) bound to this repo.
+        with commit_context(self.repo, message) as index:
+            yield index
 
     @abc.abstractmethod
     def is_content_local(self, path: str | Path) -> bool: ...
