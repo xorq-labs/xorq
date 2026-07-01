@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782807978414,
+  "lastUpdate": 1782939118065,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -23442,6 +23442,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.2665868864950018",
             "extra": "mean: 1.6376640776000044 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a4b0520fc0ffb1def969683a847303bf911f1cfb",
+          "message": "feat(cache): freeze-time cache pinning (#2111)\n\n## Summary\n- Add `expr.ls.pin()` / `expr.ls.unpin()` to toggle a `CachedNode`\nto/from a direct read of its materialized cache location.\n- `pin()` replaces each `CachedNode` with a `CacheTag` — a transparent\n`Read` of the cache file that carries the `uncached` expr + `cache`\nobject needed to reconstruct the original node. `unpin()` is its exact\ninverse.\n- Pinning is a **freeze-time** operation and is deliberately **not**\ncache-hash-neutral (it changes downstream cache keys — never incorrect,\njust a possible redundant recompute). It survives YAML round-trips.\n\n## Implementation notes\n- `CacheTag(Tag)` carries two `Any`-typed fields: `cache` (inert; read\nonly by `unpin`) and `uncached` (the original pre-cache expr). On the\n**execution/SQL** path it is stripped to its `parent` like other tags\n(`_remove_tag_nodes`), so a pinned expr reads the cache file directly.\nOn the **hashing** path it is *not* stripped\n(`_remove_non_hashing_tag_nodes` exempts it alongside `HashingTag`) —\nunlike a plain tag it is identity-bearing.\n- **Build-hash identity:** a `CacheTag` is a hash *leaf* keyed on its\ncache key via `CacheTag.__dasher_tokenize__` → `(\"xorq.CacheTag\",\nschema, parent.name)`, where `parent.name` is the cache key; the\nabsolute `hash_path` is deliberately excluded so the hash is\nbase_path-independent. `uncached`'s *structure* is intentionally absent\nfrom the build hash — safe, not a gap: the cache key already encodes the\nupstream computation (ADR-0015), and the class docstring documents why\nfolding `uncached`'s structure into the token would be wrong (the\nADR-0015 `RemoteTable.name` failure mode). `uncached` is still descended\nas an opaque child (`gen_children_of` / `replace_nodes`) so its\nbackends/reads participate in source normalization and serialization.\n- YAML: `translate_to_yaml`/`register_from_yaml_handler` for `CacheTag`,\nplus a dedicated `register_node` branch.\n- **Traversal fix:** in `replace_nodes`, re-applying `_kwargs` after the\nreplacer already merged it clobbered Any-typed overrides (e.g. `cache`)\nwhenever a native child changed. This was latent everywhere but only\ntriggered by `CacheTag` (native `parent` + Any `cache`). Fixed by not\nre-passing `_kwargs` in the new branch.\n\n## Test plan\n- [x] `python/xorq/expr/tests/test_cache_pin.py` (16 tests) — pin/unpin\ninverse, materialization requirement, direct-read-no-recompute,\nbuild-hash change, no-op without cached nodes, **multi-engine\n`RemoteTable` parent**, **nested (stacked) caches**, **DAG-shared\nupstream leaf naming**, **`find_all_sources` execution-only pruning**,\n**`uncached` type guard**, reprability, and the round-3 regressions\n(**source-free build hash**, **exclusively-pinned-leaf predicate**,\n**tag-stripping survival**)\n- [x]\n`python/xorq/ibis_yaml/tests/test_compiler.py::test_pinned_cache_yaml_roundtrip`\n— survives YAML round-trip in full suite (was order-dependent; now\nfixed)\n- [x] Full `test_compiler.py` (100 pass / 1 skip),\n`test_graph_utils.py`, `test_relations.py`\n- [x] `test_cache.py` — only pre-existing Postgres-env failures\n(confirmed on clean tree)\n\n## Review follow-ups (commit a9875943)\n\nAddressed findings from the code review of this PR:\n\n- **Pinned build hash is now portable & source-free.** A `CacheTag` is\ntreated as a build-hash *leaf* keyed on its cache key:\n`CacheTag.__dasher_tokenize__` returns `(\"xorq.CacheTag\", schema,\nparent.name)`, and `_decompose_expr`/`_hash_expr_components` prune the\ntag's subtree and fold that token; `_xorq_opaque_to_placeholder` and\n`_sanitize_generated_names` skip the pinned subtree too. Fixes two\nreview findings:\n- the pinned build hash was **base_path-dependent** (a pin\nbuilt/relocated to a different cache dir got a different identity); it\nis now identical across cache dirs.\n- `ls.tokenized`/`get_expr_hash` **crashed with `FileNotFoundError`**\nonce the upstream source was deleted (even though `execute()` read the\ncache fine), because hashing descended `uncached`'s source reads. These\nnow compute without the sources. *(⚠️ Update: round-2's DAG-shared-leaf\nfix regressed the `get_expr_hash` half of this — see round 3.\n`ls.tokenized` stayed source-free throughout; `get_expr_hash` is\nsource-free again as of round 3.)*\n- This **inverts** the old `CacheTag` `INVARIANT: do NOT add\n__dasher_tokenize__` docstring (rewritten accordingly).\n- **No redundant footer read at pin time.** `ParquetStorage.get(key,\nschema=…)` forwards the known schema to `deferred_read_parquet`,\nskipping a throwaway `connect()` + parquet-footer read per cache.\n- **No filesystem side effects on relocate/read.** `ParquetStorage`\ncreates its cache dir lazily at write time (`_ensure_dir` in `put`)\ninstead of in `__attrs_post_init__`, so relocating/reading a pin no\nlonger `mkdir`s (and won't fail on a read-only cache dir).\n`ParquetDummyStorage` keeps its no-filesystem contract.\n- **Clarified (not changed) the `replace_nodes` `CacheTag` branch.**\nDropping `_kwargs` there is load-bearing — forwarding it re-drives the\ncache read's backend from the BFS rewrite and breaks profile resolution\non load (covered by `test_pinned_cache_yaml_roundtrip`). The comment now\ndocuments why.\n\n## Review follow-ups (round 2)\n\nSecond review pass, focused on the pinning traversal + identity code:\n\n- **DAG-shared upstream leaves stay deterministic.**\n`_sanitize_generated_names` collected pinned leaves by walking the whole\n`CacheTag` (which descends `uncached`); a leaf shared between the\ndiscarded upstream and a live, non-pinned branch was then skipped and\nkept its session-random UID name, leaking nondeterminism into the outer\nexpression's build hash. Now collects only from the frozen `parent`\nsubtree (regression test added).\n- **`find_all_sources` execution-vs-serialization split.** It descended\n`uncached` and reported the discarded upstream's backends as required\nsources, so connection selection (`expr_to_unbound`) could error or pick\nthe wrong connection on a pinned expr. Added an opt-in `execution_only`\nflag — default keeps the full walk (serialization needs `uncached`\nprofiles to round-trip), and `expr_to_unbound` opts in. `walk_nodes`\ngained a `gen_children` override so the parent-only traversal lives in\none place.\n- **`CacheTag` fail-loud + type guard.** Added `rel.CacheTag` to\n`opaque_ops` so a future regression that drops the explicit branch in\n`replace_nodes` raises instead of silently passing the tag through.\nAdded a `CacheTag.__init__` guard rejecting a non-`Expr`/`Node`\n`uncached` (the field is `Any`, so unlike `parent` ibis can't validate\nit via annotation).\n- **Single source for `CacheTag` identity fields.** Extracted\n`cache_tag_identity_parts()`, shared by `__dasher_tokenize__` and the\n`_xorq_opaque_to_placeholder` SQL placeholder, so the two layers can't\ndrift on *which* fields identify a pin. Hash-neutral (verified\n`get_expr_hash` unchanged before/after).\n- **CI: repaired `test_exists`.** The cache-dir-absent assertion could\nnever hold — the `cached_two` fixture used `relative_path=tmp_path`,\nwhich pytest pre-creates, so `storage.path` always existed. Pointed the\nfixture at a lazily-created `tmp_path/\"cache\"` subdir (only runs in the\npostgres matrix, so it wasn't caught locally).\n\n## Review follow-ups (round 3)\n\nThird pass fixed two defects found critiquing the round-1/round-2\ninteraction:\n\n- **Build hash is source-free again (regression fix).** Round-1 made\nhashing source-free by skipping a pin's *whole* subtree during name\nsanitization; round-2 narrowed that to `parent`-only to fix\nDAG-shared-leaf determinism — which silently re-exposed `uncached`'s own\nfile reads to stat-tokenization in `canonicalize_expr` →\n`_sanitize_generated_names`. Net effect: `get_expr_hash(pinned)` raised\n`FileNotFoundError` once the upstream source was deleted, even though\n`execute()` and `ls.tokenized` did not. The two fixes were mutually\nexclusive as written. Resolved with a single predicate,\n`exclusively_pinned_leaves` (`under_pin − live`): leaves reachable\n*only* through a pin are subsumed by the cache-key token\n(skipped/pruned); leaves also reachable from a live branch stay live.\nShared by `_sanitize_generated_names` and `_decompose_expr` so they\ncannot drift again. This also fixes the latent `_decompose_expr` gap\nwhere a live DAG-shared leaf's data identity was pruned from the build\nhash (previously folded into #2127).\n- **`CacheTag` survives tag-stripping.** `CacheTag` is identity-bearing\n(a build-hash leaf via `__dasher_tokenize__`), but\n`_remove_non_hashing_tag_nodes` stripped it like a transparent `Tag`, so\n`untagged`-based hashes (`compute_expr_hash` with a strategy,\n`find_by_expr_hash`) silently reduced a pin to its bare cache read and\ndiverged from `get_expr_hash`/`ls.tokenized`. Now exempted like\n`HashingTag`.\n\nNew regression tests: `test_pin_build_hash_is_source_free`,\n`test_exclusively_pinned_leaves_excludes_dag_shared`,\n`test_pin_survives_tag_stripping_for_strategy_hash`. The first is the\nmissing counterpart to\n`test_pin_does_not_freeze_dag_shared_upstream_leaf` — together they\nconstrain the predicate from both sides (whole-subtree fails one,\nparent-only the other).\n\n### Known follow-ups (tracked separately)\n- A pinned **`build_expr`** still requires the upstream source, because\n`uncached` is serialized in full for `unpin` — `translate_to_yaml` /\n`register_node` walk it and stat its reads to assign deterministic names\n(fails at `translate.py` `_read_to_yaml`). Hashing *and*\ncanonicalization no longer need the source (round 3); only serialization\nstill does. Rethinking how/whether the whole `uncached` subtree is\ncarried is filed as #2131.\n- The new op `CacheTag` is taught to several subsystems as parallel\nspecial-cases; consolidating the opaque-child *traversal* lists is filed\nas #2127.\n- **TTL caches (intended semantics, docs-only follow-up).** `pin` locks\nthe artifact regardless of *any* invalidation policy — exactly as\npinning a `ModificationTimeStrategy` cache ignores source-mtime changes.\nSo a pinned TTL cache reads its artifact without enforcing expiry; TTL\nis retained only on the inert `CacheTag.cache` (for `unpin`). The\nbuild-hash identity is the cache key (not the artifact mtime),\nconsistent with \"locked no matter what.\" The pin gate correctly\n*refuses* an expired cache: an expired TTL entry is a cache miss\n(`key_exists` = present-and-fresh), i.e. logically unmaterialized, so\nre-executing to refresh and then pinning is the intended path. pin/unpin\nperform no filesystem writes, so the artifact mtime — and thus the TTL\nclock — is untouched by the round-trip (verified). Remaining work is\ndocs-only: state on `ls.pin` that pinning disables all invalidation\n(content / source-mtime / TTL).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.7 <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T16:46:20-04:00",
+          "tree_id": "cc1cdb1bbfac67663fa9c6c582dfb8c88bf3ca3d",
+          "url": "https://github.com/xorq-labs/xorq/commit/a4b0520fc0ffb1def969683a847303bf911f1cfb"
+        },
+        "date": 1782939114925,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.346623251934817,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005428161872780764",
+            "extra": "mean: 119.80892988888552 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.7792533698575057,
+            "unit": "iter/sec",
+            "range": "stddev: 0.054801114910147844",
+            "extra": "mean: 359.8088647999987 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.8208483888570214,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12702295343634878",
+            "extra": "mean: 1.2182517668000004 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.740142351863847,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0628274732468154",
+            "extra": "mean: 364.94454360000645 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.9565949078100324,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05561940770820633",
+            "extra": "mean: 338.22692359999564 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.18720363137645,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008231600332523022",
+            "extra": "mean: 313.754662599996 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 156.90471554684683,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016250381364741228",
+            "extra": "mean: 6.373294750988101 msec\nrounds: 253"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.725558823794032,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07693389206596431",
+            "extra": "mean: 211.61518400000054 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 22.24012290883479,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008210850658781802",
+            "extra": "mean: 44.963780285708516 msec\nrounds: 21"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 10.039358300280199,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013174915925386086",
+            "extra": "mean: 99.6079600000022 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 8.36147100081687,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02341526887010035",
+            "extra": "mean: 119.5961810908996 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 6.288461587015758,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027133958038116298",
+            "extra": "mean: 159.021405499999 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 5.0472139186532505,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00974283442871697",
+            "extra": "mean: 198.12910966667138 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.615197667217684,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006955578785985383",
+            "extra": "mean: 216.67544320000047 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.417622784337743,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0617966533542871",
+            "extra": "mean: 413.6294572000111 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.3717868699480493,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014317495422430201",
+            "extra": "mean: 296.5786506000029 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.8024913499016777,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1076882601537113",
+            "extra": "mean: 554.7876832000043 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.8813668952726599,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08115152889843644",
+            "extra": "mean: 531.5284342000041 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.6201086028979517,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06397679087594797",
+            "extra": "mean: 617.2425714000042 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.573616731803418,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11666873494867115",
+            "extra": "mean: 635.4787540000075 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2662996258030161,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12584389752282615",
+            "extra": "mean: 789.7025156000154 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1957479359323557,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1250281321870667",
+            "extra": "mean: 836.2966558000153 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.0391559522283926,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1307649675976346",
+            "extra": "mean: 962.3194650000073 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.6168291964144496,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2096568046166283",
+            "extra": "mean: 1.6211943367999992 sec\nrounds: 5"
           }
         ]
       }
