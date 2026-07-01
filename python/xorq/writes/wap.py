@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Protocol
 
 from toolz import curry
@@ -81,85 +80,145 @@ def make_sink_with_parquet(path: str) -> ParquetWriteThrough:
     return ParquetWriteThrough(path=path, mode=WriteMode.CREATE)
 
 
-def make_publish_with_parquet() -> PublishUDF:
-    import pyarrow.parquet as pq  # noqa: PLC0415
+def make_sink_with_backend(con, staging: str) -> BackendWriteThrough:
+    """Inline ``BackendWriteThrough`` writing the changeset to a staging table.
 
+    Inline (not the threaded sink) so staging fully commits before publish runs
+    — the ordering invariant ``make_wap_expr`` relies on.
+    """
+    from xorq.writes.enums import WriteMode  # noqa: PLC0415
+    from xorq.writes.write_through import BackendWriteThrough  # noqa: PLC0415
+
+    return BackendWriteThrough(con=con, table_name=staging, mode=WriteMode.CREATE)
+
+
+def _default_audit(key, mode) -> Callable[[pd.DataFrame], bool]:
+    """Default ``audit_fn``: a no-duplicate-keys gate for ``UPSERT``/``MERGE``.
+
+    Key uniqueness within a changeset is a data-level invariant the reconciliation
+    contract cannot check on ``mode``/``key``/``columns`` alone. The mechanisms
+    diverge on duplicates — native ``MERGE`` and iceberg ``upsert`` raise,
+    ``REWRITE``/``STATEMENT_DML`` silently resolve differently — so the gate fails
+    the publish before any tier runs (ADR-0017, open question 5). ``APPEND`` has no
+    key, so it keeps the always-True pass-through.
+    """
+    from xorq.writes.enums import PublishMode  # noqa: PLC0415
+
+    if mode is PublishMode.APPEND:
+        return lambda df: True
+    cols = list(key)
+    return lambda df: not df.duplicated(subset=cols).any()
+
+
+def make_publish_with_backend(con, *, key=(), mode) -> PublishUDF:
+    """Publish UDF wrapping :func:`xorq.writes.publish.publish` for a backend target.
+
+    The WAP-layer glue: reads the ``{staging, final, passed}`` row and hands off to
+    the reconciliation layer, which discovers columns and dispatches by strategy.
+    """
     import xorq.expr.datatypes as dt  # noqa: PLC0415
     from xorq.expr.udf import make_pandas_udf  # noqa: PLC0415
     from xorq.vendor.ibis import schema  # noqa: PLC0415
+    from xorq.writes.enums import PublishMode  # noqa: PLC0415
+    from xorq.writes.publish import publish  # noqa: PLC0415
+
+    if mode is not PublishMode.APPEND and not key:
+        raise ValueError(f"{mode} requires a non-empty key")
 
     @make_pandas_udf(
         schema=schema({STAGING: str, FINAL: str, PASSED: bool}),
         return_type=dt.boolean,
-        name="publish_with_parquet",
+        name=f"wap_publish_{mode.value}",
+    )
+    def publish_udf(df: pd.DataFrame) -> list[bool]:
+        if len(df) != 1:
+            raise ValueError(f"expected 1 row, got {len(df)}")
+        row = df.iloc[0]
+        if not row[PASSED]:
+            return [False]
+        publish(con, row[STAGING], row[FINAL], key=key, mode=mode)
+        return [True]
+
+    return publish_udf
+
+
+def make_publish_with_parquet(*, key=(), mode=None) -> PublishUDF:
+    """Publish UDF wrapping :func:`xorq.writes.publish.publish_parquet` (file target).
+
+    ``mode`` defaults to ``APPEND`` (the append-only parquet WAP); ``UPSERT``/
+    ``MERGE`` do the anti-join + union-all rewrite over the two files.
+    """
+    import xorq.expr.datatypes as dt  # noqa: PLC0415
+    from xorq.expr.udf import make_pandas_udf  # noqa: PLC0415
+    from xorq.vendor.ibis import schema  # noqa: PLC0415
+    from xorq.writes.enums import PublishMode  # noqa: PLC0415
+    from xorq.writes.publish import publish_parquet  # noqa: PLC0415
+
+    if mode is None:
+        mode = PublishMode.APPEND
+    if mode is not PublishMode.APPEND and not key:
+        raise ValueError(f"{mode} requires a non-empty key")
+
+    @make_pandas_udf(
+        schema=schema({STAGING: str, FINAL: str, PASSED: bool}),
+        return_type=dt.boolean,
+        name=f"publish_with_parquet_{mode.value}",
     )
     def publish_with_parquet(df: pd.DataFrame) -> list[bool]:
         if len(df) != 1:
             raise ValueError(f"expected 1 row, got {len(df)}")
         row = df.iloc[0]
-        written = False
-        if row[PASSED]:
-            staging = Path(row[STAGING])
-            final = Path(row[FINAL])
-            if not staging.exists():
-                raise RuntimeError(
-                    f"staging {str(staging)!r} missing at publish. The sink opens "
-                    "its writer on the first batch, so either the audited input "
-                    "was empty (no batch, no artifact) or the staging write has "
-                    "not committed yet (async sink?)."
-                )
-            # Parquet has no metadata-only append, so accumulating into final
-            # means a rewrite: stream each source batch-by-batch into a temp in
-            # final's dir (only one batch is ever held in memory), then swap. The
-            # temp shares final's filesystem, so .replace is an atomic same-fs
-            # rename; reading staging via pyarrow works across filesystems.
-            final.parent.mkdir(parents=True, exist_ok=True)
-            staging_schema = pq.ParquetFile(staging).schema_arrow
-            sources = [staging]
-            if final.exists():
-                # Accumulating means concatenating both files through one writer,
-                # so a divergent final would only fail mid-stream on write_batch.
-                # Compare up front to fail fast (and before any temp is created).
-                final_schema = pq.ParquetFile(final).schema_arrow
-                if not staging_schema.equals(final_schema, check_metadata=False):
-                    raise ValueError(
-                        "cannot publish: staging schema does not match existing "
-                        f"final schema.\n  staging: {staging_schema}\n"
-                        f"  final:   {final_schema}"
-                    )
-                sources = [final, staging]
-            merged = final.with_name(final.name + ".merge.tmp")
-            try:
-                with pq.ParquetWriter(merged, staging_schema) as writer:
-                    for src in sources:
-                        for batch in pq.ParquetFile(src).iter_batches():
-                            writer.write_batch(batch)
-                merged.replace(final)
-            except BaseException:
-                merged.unlink(missing_ok=True)
-                raise
-            # final now holds staging's rows; removing staging is cleanup, so a
-            # failure here must not mask a successful publish.
-            staging.unlink(missing_ok=True)
-            written = True
-        return [written]
+        if not row[PASSED]:
+            return [False]
+        publish_parquet(row[STAGING], row[FINAL], key=key, mode=mode)
+        return [True]
 
     return publish_with_parquet
 
 
-def make_parquet_wap_expr(
-    expr: Table,
-    staging: str,
-    final: str,
-    audit_fn: Callable[[pd.DataFrame], bool],
-) -> Table:
+def make_backend_wap_expr(con, *, key=(), mode, audit_fn=None) -> Callable[..., Table]:
+    """Curried WAP builder for any backend target; mirrors ``make_iceberg_wap_expr``.
+
+    Usage::
+
+        source.pipe(
+            make_backend_wap_expr(con, key=["id"], mode=PublishMode.UPSERT),
+            staging, final,
+        )
+
+    ``audit_fn`` defaults to a no-duplicate-keys gate for ``UPSERT``/``MERGE``
+    (:func:`_default_audit`); ``APPEND`` keeps a vacuous always-True pass-through.
+    """
+    audit = audit_fn if audit_fn is not None else _default_audit(key, mode)
     return make_wap_expr(
-        expr,
-        staging,
-        final,
-        audit_fn,
+        audit_fn=audit,
+        make_sink=lambda staging: make_sink_with_backend(con, staging),
+        publish=make_publish_with_backend(con, key=key, mode=mode),
+    )
+
+
+def make_parquet_wap_expr(*, key=(), mode=None, audit_fn=None) -> Callable[..., Table]:
+    """Curried WAP builder for a parquet (file) target.
+
+    Usage::
+
+        source.pipe(
+            make_parquet_wap_expr(key=["id"], mode=PublishMode.UPSERT),
+            staging_path, final_path,
+        )
+
+    ``mode`` defaults to ``APPEND`` (append-only parquet WAP). ``audit_fn`` defaults
+    to the no-duplicate-keys gate for ``UPSERT``/``MERGE`` (:func:`_default_audit`).
+    """
+    from xorq.writes.enums import PublishMode  # noqa: PLC0415
+
+    if mode is None:
+        mode = PublishMode.APPEND
+    audit = audit_fn if audit_fn is not None else _default_audit(key, mode)
+    return make_wap_expr(
+        audit_fn=audit,
         make_sink=make_sink_with_parquet,
-        publish=make_publish_with_parquet(),
+        publish=make_publish_with_parquet(key=key, mode=mode),
     )
 
 
@@ -223,7 +282,19 @@ def make_iceberg_wap_expr(
     # so re-executing accumulates. On audit failure staging is retained for
     # inspection, which then blocks an identical retry (create-mode refuses the
     # stale ref) — drop it or stage under a fresh name to retry.
+    if table_name is None:
+        # Table strategy is the no-key APPEND case of the backend publish (iceberg
+        # APPEND calls publish_staging_table / add_files — the same mechanism as
+        # before). See ADR-0017.
+        from xorq.writes.enums import PublishMode  # noqa: PLC0415
+
+        return make_wap_expr(
+            make_sink=lambda staging: make_sink_with_backend(con, staging),
+            publish=make_publish_with_backend(con, mode=PublishMode.APPEND, key=[]),
+        )
+    # Branch strategy: staging branch + fast-forward main — a distinct mechanism
+    # with no incremental-publish equivalent, so it keeps its own publish.
     return make_wap_expr(
         make_sink=make_sink_with_iceberg(con, table_name=table_name),
-        publish=make_publish_with_iceberg(con, branch=table_name is not None),
+        publish=make_publish_with_iceberg(con, branch=True),
     )
