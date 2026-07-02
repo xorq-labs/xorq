@@ -35,6 +35,7 @@ from xorq.catalog.content_store import (
     write_pointer,
 )
 from xorq.catalog.enums import CatalogInfix
+from xorq.catalog.git_utils import commit_context
 
 
 def _repo_has_annex_artifacts(repo: Repo) -> bool:
@@ -81,8 +82,9 @@ class CatalogBackend(abc.ABC):
 
     @contextmanager
     def commit_context(self, message: str) -> Iterator[IndexFile]:
-        yield self.repo.index
-        self.repo.index.commit(message)
+        # Delegates to git_utils.commit_context (skips empty commits) bound to this repo.
+        with commit_context(self.repo, message) as index:
+            yield index
 
     @abc.abstractmethod
     def is_content_local(self, path: str | Path) -> bool: ...
