@@ -542,7 +542,7 @@ class SQLiteCompiler(SQLGlotCompiler):
         return self.f._ibis_date_delta(left, right)
 
     def visit_Hash(self, op, *, arg):
-        return self.f.anon.city_hash_32(arg)
+        return self.f.anon.ibis_hash_32(arg)
 
 
 compiler = SQLiteCompiler()
