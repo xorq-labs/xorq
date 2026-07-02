@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 import functools
 import itertools
-import os
 
 import _pytest
 import pytest
@@ -11,14 +12,28 @@ from xorq.caching import ParquetSnapshotCache, SourceSnapshotCache
 from xorq.vendor import ibis
 
 
-snowflake_credentials_varnames = (
+# PWD is optional: an unencrypted keypair has no passphrase, so gate only on
+# the genuinely-required creds
+required_snowflake_credentials_varnames = (
     "SNOWFLAKE_PRIVATE_KEY",
-    "SNOWFLAKE_PRIVATE_KEY_PWD",
     "SNOWFLAKE_USER",
 )
-have_snowflake_credentials = all(
-    os.environ.get(varname) for varname in snowflake_credentials_varnames
+snowflake_credentials_varnames = (
+    *required_snowflake_credentials_varnames,
+    "SNOWFLAKE_PRIVATE_KEY_PWD",
 )
+
+
+@functools.cache
+def have_snowflake_credentials() -> bool:
+    # importorskip: snowflake_utils imports the backend + connector, which may
+    # not be installed; only consulted after connector is importorskip'd above
+    snowflake_utils = pytest.importorskip("xorq.common.utils.snowflake_utils")
+    return all(
+        snowflake_utils.snowflake_config.get(varname)
+        for varname in required_snowflake_credentials_varnames
+    )
+
 
 KEY_PREFIX = xo.config.options.cache.key_prefix
 
@@ -100,8 +115,9 @@ def pytest_collection_modifyitems(session, config, items):
 def maybe_snowflake_decrypt_failure():
     try:
         SKU = pytest.importorskip("xorq.common.utils.snowflake_keypair_utils")
+        SFU = pytest.importorskip("xorq.common.utils.snowflake_utils")
         kwargs = {
-            varname[len("SNOWFLAKE_") :].lower(): os.environ.get(varname)
+            varname[len("SNOWFLAKE_") :].lower(): SFU.snowflake_config.get(varname)
             for varname in snowflake_credentials_varnames
         }
         SKU.maybe_decrypt_private_key(kwargs)
@@ -112,7 +128,7 @@ def maybe_snowflake_decrypt_failure():
 def pytest_runtest_setup(item):
     if any(mark.name == "snowflake" for mark in item.iter_markers()):
         pytest.importorskip("snowflake.connector")
-        if not have_snowflake_credentials:
+        if not have_snowflake_credentials():
             pytest.skip("cannot run snowflake tests without snowflake creds")
         if e := maybe_snowflake_decrypt_failure():
             pytest.fail(f"cannot decrpyt snowflake creds '{e}'")
