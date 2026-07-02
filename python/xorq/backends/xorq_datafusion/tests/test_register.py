@@ -6,7 +6,7 @@ import pytest
 from batchcorder import StreamCache
 
 import xorq.api as xo
-from xorq.backends.xorq_datafusion import _select_and_cast
+from xorq.backends.xorq_datafusion.backend import _select_and_cast
 
 
 def test_select_and_cast_missing_raises():
