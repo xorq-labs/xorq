@@ -16,6 +16,12 @@ __all__ = [
 
 
 class Backend(IbisDuckDBBackend):
+    def publish_strategy(self, mode):
+        """Incremental WAP publish mechanism for this backend (ADR-0017)."""
+        from xorq.writes.enums import PublishStrategy  # noqa: PLC0415
+
+        return PublishStrategy.NATIVE_MERGE
+
     def execute(
         self,
         expr: ir.Expr,
