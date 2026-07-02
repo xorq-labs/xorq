@@ -23,6 +23,7 @@ still apply to the dasher-backed cache-key subsystem:
 
 from __future__ import annotations
 
+import decimal
 import functools
 import numbers
 import operator
@@ -172,6 +173,44 @@ def test_datafusion_parquet_different_schema_produces_different_token(tmp_path):
     t_full = con.read_parquet(path, table_name="t_full")
     t_proj = t_full.select("a", "b")
     assert tokenize(t_full) != tokenize(t_proj)
+
+
+def _decimal_parquet(path, precision, scale):
+    # Reuse the ``DataFrame.to_parquet`` idiom the rest of this module uses;
+    # pass an explicit pyarrow schema to pin the decimal precision/scale.
+    pd.DataFrame({"x": [decimal.Decimal("1.23"), decimal.Decimal("4.56")]}).to_parquet(
+        path, schema=pa.schema([("x", pa.decimal128(precision, scale))])
+    )
+
+
+@pytest.mark.parametrize(
+    "make_table",
+    (
+        pytest.param(_datafusion_table, id="datafusion"),
+        pytest.param(_duckdb_table, id="duckdb"),
+    ),
+)
+def test_file_table_decimal_precision_distinguishes_schema_component(
+    tmp_path, make_table
+):
+    # Regression guard for xorq-labs/xorq#1973: the file-table DT normalizers
+    # must route the schema through ``normalize_ibis_schema`` (which keeps
+    # ``str(dtype)``), not ``dt.schema.to_pandas()`` (which collapses every
+    # decimal to ``dtype('O')``).  Same column name, different decimal
+    # precision must produce distinct schema components in the token.
+    #
+    # ``HASHER`` is the live rule registry ``tokenize`` uses, so
+    # ``HASHER.normalize(dt)`` drives the exact same DatabaseTable normalizer
+    # under test — no private dispatcher needed.  The schema lives in element
+    # ``[1]`` of the normalized tuple; comparing it directly isolates the
+    # schema component from the path/stat component (which differs anyway
+    # because the two files live at distinct paths).
+    cases = (("a", 18, 3), ("b", 9, 2))
+    for name, precision, scale in cases:
+        path = tmp_path / f"{name}.parquet"
+        _decimal_parquet(path, precision, scale)
+        schema = HASHER.normalize(make_table(path, f"t{name}").op())[1]
+        assert schema == ("ibis.Schema", (("x", f"decimal({precision}, {scale})"),))
 
 
 # --- UDF counter independence ---------------------------------------------
