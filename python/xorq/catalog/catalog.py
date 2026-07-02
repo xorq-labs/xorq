@@ -414,7 +414,9 @@ class Catalog:
 
         *relocate_reads* controls how the build is produced and so only applies
         to an ``Expr`` input; ``Path`` inputs are already-built artifacts whose
-        reads were settled at build time.
+        reads were settled at build time. Defaults to ``False`` (the CLI prefers
+        ``True``, and pin/unpin pass it explicitly) until the fuse/bind execute
+        path resolves relocated reads' base_path; see #2133.
         """
         from xorq.api import Expr  # noqa: PLC0415
 

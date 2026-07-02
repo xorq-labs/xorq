@@ -519,6 +519,8 @@ class ExprDumper:
     builds_dir = field(validator=instance_of(Path), converter=Path, default="./builds")
     cache_dir = field(validator=optional(instance_of(Path)), factory=get_xorq_cache_dir)
     debug = field(validator=instance_of(bool), default=False)
+    # Prefer True (to match the CLI), but the fuse/bind execute path doesn't yet
+    # resolve a relocated read's base_path; kept False until it does. See #2133.
     relocate_reads = field(validator=instance_of(bool), default=False)
     read_normalize_method = field(
         validator=is_callable(), default=normalize_read_path_stat
