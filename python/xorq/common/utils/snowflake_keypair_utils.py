@@ -222,8 +222,13 @@ def deassign_public_key(con, user, do_assert=True):
 
 
 def decrypt_private_key_bytes_snowflake(private_key_bytes, password_str):
-    # encrypted PEM to unencrypted DER
-    private_key = load_pem_private_key(private_key_bytes, password_str.encode("utf-8"))
+    # (encrypted) PEM to unencrypted DER. An empty/None password means the key is
+    # already unencrypted, so load with password=None — cryptography rejects a
+    # non-None password on an unencrypted key.
+    private_key = load_pem_private_key(
+        private_key_bytes,
+        password_str.encode("utf-8") if password_str else None,
+    )
     return private_key.private_bytes(
         Encoding.DER,
         PrivateFormat.PKCS8,

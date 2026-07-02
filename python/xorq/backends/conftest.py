@@ -16,8 +16,11 @@ snowflake_credentials_varnames = (
     "SNOWFLAKE_PRIVATE_KEY_PWD",
     "SNOWFLAKE_USER",
 )
+# PWD is optional: an unencrypted keypair has no passphrase, and the decrypt
+# path (maybe_decrypt_private_key) already treats an empty pwd as "unencrypted".
+# Gate only on the genuinely-required creds so unencrypted local keys can run.
 have_snowflake_credentials = all(
-    os.environ.get(varname) for varname in snowflake_credentials_varnames
+    os.environ.get(varname) for varname in ("SNOWFLAKE_PRIVATE_KEY", "SNOWFLAKE_USER")
 )
 
 KEY_PREFIX = xo.config.options.cache.key_prefix
