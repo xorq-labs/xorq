@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import hashlib
 import inspect
 import math
 import operator
@@ -245,10 +246,14 @@ def uuid():
 
 
 @udf(skip_if_exists=True, deterministic=True)
-def city_hash_32(x):
-    from cityhash import CityHash32
-
-    return CityHash32(str(x))
+def ibis_hash_32(x):
+    # 32-bit blake2b digest backing the Hash op. blake2b gives strong avalanche
+    # (needed for even bucketing in train/test splits); a checksum such as crc32
+    # distributes poorly mod-N. Kept 32-bit because downstream Hash().abs().mod()
+    # compiles to SQLite's floating-point MOD, which loses precision on ints
+    # wider than ~2^32.
+    digest = hashlib.blake2b(str(x).encode("utf-8"), digest_size=4).digest()
+    return int.from_bytes(digest, "little")
 
 
 # Additional UDFS
