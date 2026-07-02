@@ -289,10 +289,23 @@ def relocate_cache_tag(node: CacheTag, base_path: Path) -> CacheTag:
     round-tripped ``uncached`` could drift). A pinned read stays a read -- this
     does not re-materialize or re-validate; if the artifact is absent at the new
     location, execution fails like any other missing read.
+
+    When the parent read has a ``read_path`` (bundled into the build by
+    ``--relocate-reads``), the read is self-contained and resolves from the
+    build directory, so ``base_path`` relocation is skipped for the parent.
+    The cache object is still relocated (for unpin round-trips).
     """
     from xorq.common.utils.graph_utils import to_node  # noqa: PLC0415
 
     new_cache = relocate_cache(node.cache, base_path)
+    parent_kw = dict(to_node(node.parent).read_kwargs)
+    if "read_path" in parent_kw:
+        return CacheTag(
+            schema=node.schema,
+            parent=node.parent,
+            uncached=node.uncached,
+            cache=new_cache,
+        )
     key = to_node(node.parent).name
     return CacheTag(
         schema=node.schema,

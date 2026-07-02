@@ -1269,12 +1269,10 @@ def pin_command(
     are materialized (by executing the expression) before pinning; caches that
     are already materialized are left untouched, so no redundant work runs.
 
-    ``relocate_reads`` bundles local-file reads into the build so it stays
-    portable. A pin does not bundle its frozen cache reads (hash leaves that
-    relocate via ``base_path``) nor the sources behind them; those sources ride
-    along only if the upstream build already bundled them (the ``xorq build``
-    default), letting a later relocated ``unpin`` recompute without the
-    originals. Pinning a ``--no-relocate-reads`` build leaves them unbundled.
+    ``relocate_reads`` bundles local-file reads — including the pinned cache
+    parquet files — into the build so it is fully self-contained. Pass
+    ``--no-relocate-reads`` for a lean build where frozen cache reads stay
+    external and relocate via ``base_path`` at load time.
 
     Relocation is one-way. Bundling a read replaces its original filesystem path
     with a content-addressed ``reads/<hash>`` entry, discarding where the source

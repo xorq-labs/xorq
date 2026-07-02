@@ -148,13 +148,14 @@ def _prepare_relocatable_reads(expr: ir.Expr, *, mark: bool) -> ir.Expr:
     deliberately no un-marking branch, because relocation is lossy -- it replaces
     a read's original path with a content hash, so once relocated the source
     location is gone and ``mark=False`` cannot recover a lean, machine-local read.
-    Reads reachable only through a ``CacheTag`` are
-    skipped: a pinned read is a hash leaf keyed on its cache key, portable via
-    base_path relocation (``relocate_cache_tag``), so it never contributes a
-    ``read_path`` and must not be bundled. DAG-shared reads also live on a
-    non-pinned branch, so they are not exclusively pinned and still get marked.
+    When ``mark=True``, pinned cache reads (exclusively under a ``CacheTag``) are
+    bundled into the build alongside regular reads, making the pinned artifact
+    self-contained. When ``mark=False``, pinned reads are skipped and remain
+    portable via ``base_path`` relocation (``relocate_cache_tag``). DAG-shared
+    reads also live on a non-pinned branch, so they are not exclusively pinned
+    and are always marked.
     """
-    pinned = exclusively_pinned_leaves(expr, (Read,))
+    pinned = frozenset() if mark else exclusively_pinned_leaves(expr, (Read,))
 
     def _relocate(node, kwargs):
         if isinstance(node, Read) and node not in pinned:

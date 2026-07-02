@@ -444,6 +444,71 @@ def test_pinned_cache_relocates_to_new_cache_dir(
     assert relocated.execute().equals(expected)
 
 
+def test_pinned_cache_bundles_parquet_with_relocate_reads(
+    builds_dir: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
+    con = xo.connect()
+    cache_dir = tmp_path / "cache"
+    cache = ParquetCache.from_kwargs(
+        source=con, relative_path="pins", base_path=cache_dir
+    )
+    expr = (
+        con.register(pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}), "tbl")
+        .filter(xo._.a > 1)
+        .cache(cache=cache)
+    )
+    expr.execute()
+    pinned = expr.ls.pin()
+    expected = pinned.execute()
+
+    build_path = build_expr(
+        pinned, builds_dir=builds_dir, cache_dir=cache_dir, relocate_reads=True
+    )
+
+    reads_dir = build_path / "reads"
+    assert reads_dir.exists()
+    bundled = list(reads_dir.glob("*.parquet"))
+    assert bundled, "cache parquet should be bundled under reads/"
+
+    # delete the original cache dir — the build must be self-contained
+    shutil.rmtree(cache_dir)
+
+    loaded = load_expr(build_path)
+    assert walk_nodes((CacheTag,), loaded)
+    assert loaded.execute().equals(expected)
+
+
+def test_pinned_cache_not_bundled_without_relocate_reads(
+    builds_dir: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
+    con = xo.connect()
+    cache_dir = tmp_path / "cache"
+    cache = ParquetCache.from_kwargs(
+        source=con, relative_path="pins", base_path=cache_dir
+    )
+    expr = (
+        con.register(pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}), "tbl")
+        .filter(xo._.a > 1)
+        .cache(cache=cache)
+    )
+    expr.execute()
+    pinned = expr.ls.pin()
+
+    build_path = build_expr(
+        pinned, builds_dir=builds_dir, cache_dir=cache_dir, relocate_reads=False
+    )
+
+    reads_dir = build_path / "reads"
+    bundled_parquets = list(reads_dir.glob("*.parquet")) if reads_dir.exists() else []
+    assert not bundled_parquets, (
+        "cache parquet should NOT be bundled without relocate_reads"
+    )
+
+    loaded = load_expr(build_path, cache_dir=cache_dir)
+    assert walk_nodes((CacheTag,), loaded)
+    assert loaded.execute().equals(pinned.execute())
+
+
 @pytest.mark.parametrize(
     "table_from_df",
     (
